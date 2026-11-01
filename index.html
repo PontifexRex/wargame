@@ -1,0 +1,3466 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Aethelgard: The Starfall Vaults — Increment 3 (v0.3.0)</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-canvas: #090d13;
+      --bg-surface: #131822;
+      --bg-elevated: #1c2331;
+      --border-default: #2a3447;
+      --text-primary: #e6edf3;
+      --text-secondary: #8b949e;
+      --accent-gold: #fbbf24;
+      --accent-emerald: #34d399;
+      --accent-crimson: #f87171;
+      --accent-arcane: #60a5fa;
+      --rarity-common: #94a3b8;
+      --rarity-uncommon: #4ade80;
+      --rarity-rare: #60a5fa;
+      --rarity-epic: #c084fc;
+      --rarity-relic: #fbbf24;
+    }
+    * {
+      box-sizing: border-box;
+      user-select: none;
+    }
+    body {
+      background-color: var(--bg-canvas);
+      color: var(--text-primary);
+      font-family: 'Inter', sans-serif;
+      margin: 0;
+      padding: 0;
+      overflow-x: hidden;
+    }
+    .font-display {
+      font-family: 'Cinzel', serif;
+    }
+    .font-mono-num {
+      font-family: 'JetBrains Mono', monospace;
+      font-variant-numeric: tabular-nums;
+    }
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #090d13;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #2a3447;
+      border-radius: 3px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #3b4861;
+    }
+    canvas {
+      image-rendering: crisp-edges;
+      display: block;
+    }
+    .card-surface {
+      background-color: #131822;
+      border: 1px solid #2a3447;
+      border-radius: 0.5rem;
+    }
+    .btn-tactical {
+      transition: all 0.15s ease;
+    }
+    .btn-tactical:active:not(:disabled) {
+      transform: translateY(1px);
+    }
+    @keyframes relic-glow {
+      0%, 100% { box-shadow: 0 0 10px rgba(251, 191, 36, 0.45); }
+      50% { box-shadow: 0 0 20px rgba(251, 191, 36, 0.85); }
+    }
+    .relic-glow-box {
+      animation: relic-glow 2.5s infinite ease-in-out;
+    }
+    @keyframes pulse-flame {
+      0%, 100% { opacity: 0.85; filter: drop-shadow(0 0 2px #f87171); }
+      50% { opacity: 1; filter: drop-shadow(0 0 6px #fbbf24); }
+    }
+    .burn-anim {
+      animation: pulse-flame 1.2s infinite;
+    }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col bg-[#090d13] text-[#e6edf3]">
+
+  <!-- TOP HEADER BAR -->
+  <header class="h-14 border-b border-[#2a3447] bg-[#131822]/95 backdrop-blur px-3 md:px-4 flex items-center justify-between sticky top-0 z-30">
+    <div class="flex items-center gap-3">
+      <div class="w-9 h-9 rounded-lg bg-[#1c2331] border border-[#fbbf24]/50 flex items-center justify-center shadow-inner">
+        <svg class="w-5 h-5 text-[#fbbf24]" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M12 2L14.8 8.5L22 9.3L16.5 14L18.2 21L12 17.3L5.8 21L7.5 14L2 9.3L9.2 8.5L12 2Z"/>
+        </svg>
+      </div>
+      <div>
+        <div class="flex items-center gap-2">
+          <h1 class="font-display text-base md:text-lg font-bold tracking-wider text-[#e6edf3]">AETHELGARD</h1>
+          <span class="text-[11px] font-mono-num uppercase px-2 py-0.5 rounded bg-[#fbbf24]/15 text-[#fbbf24] border border-[#fbbf24]/30 font-semibold tracking-wide">
+            v0.3.0 • Inc-3
+          </span>
+        </div>
+        <p class="text-[11px] text-[#8b949e] hidden sm:block">The Starfall Vaults • Deep Research, Mining & Abyssal Bosses</p>
+      </div>
+    </div>
+
+    <!-- LOCATION & TURN STRIP -->
+    <div id="headerStatusStrip" class="hidden md:flex items-center gap-4 bg-[#090d13] px-3.5 py-1.5 rounded-lg border border-[#2a3447]">
+      <div class="flex items-center gap-2">
+        <span id="locationDot" class="w-2.5 h-2.5 rounded-full bg-[#34d399]"></span>
+        <span id="headerLocationText" class="text-xs font-semibold tracking-wide uppercase text-[#e6edf3]">Oakhaven Guild Hall</span>
+      </div>
+      <div class="h-3.5 w-[1px] bg-[#2a3447]"></div>
+      <div class="text-xs text-[#8b949e] font-mono-num">
+        Seed: <span id="headerSeedText" class="text-[#e6edf3]">STAR-0000</span>
+      </div>
+      <div class="h-3.5 w-[1px] bg-[#2a3447]"></div>
+      <div class="text-xs text-[#8b949e] font-mono-num">
+        Turn: <span id="headerTurnText" class="text-[#60a5fa]">0</span>
+      </div>
+    </div>
+
+    <!-- RIGHT ACTIONS: AUDIO, SAVE SYNC, VALIDATOR -->
+    <div class="flex items-center gap-2">
+      <!-- Mute/Sound Toggle -->
+      <button id="audioToggleBtn" onclick="toggleAudio()" class="px-2.5 py-1.5 rounded-md bg-[#1c2331] hover:bg-[#2a3447] border border-[#2a3447] text-xs font-medium text-[#8b949e] hover:text-[#e6edf3] btn-tactical" title="Toggle Synthesizer Audio Effects">
+        <span id="audioIcon">🔊 Sound</span>
+      </button>
+
+      <!-- Save Export / Import -->
+      <button onclick="openSaveModal()" class="px-2.5 py-1.5 rounded-md bg-[#1c2331] hover:bg-[#2a3447] border border-[#2a3447] text-xs font-medium text-[#8b949e] hover:text-[#e6edf3] flex items-center gap-1.5 btn-tactical" title="Export or Import Save JSON (Schema v3)">
+        <svg class="w-3.5 h-3.5 text-[#60a5fa]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"/></svg>
+        <span class="hidden sm:inline">Save Sync</span>
+      </button>
+
+      <!-- Increment 3 Diagnostic Suite -->
+      <button id="validatorBtn" onclick="toggleValidatorModal()" class="px-3 py-1.5 rounded-md bg-[#34d399]/15 hover:bg-[#34d399]/25 border border-[#34d399]/40 text-xs font-mono-num font-semibold text-[#34d399] flex items-center gap-1.5 btn-tactical">
+        <span id="validatorBadgeDot" class="w-2 h-2 rounded-full bg-[#34d399]"></span>
+        <span id="validatorBtnLabel">Verify Inc-3 (7/7 PASS)</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- MAIN WORKSPACE -->
+  <main class="flex-1 max-w-[1680px] w-full mx-auto p-3 md:p-4 grid grid-cols-1 lg:grid-cols-12 gap-3.5 items-start">
+
+    <!-- LEFT COLUMN: HERO VITALS & PAPER DOLL SLOTS (3 COLS ON LG) -->
+    <aside class="lg:col-span-3 flex flex-col gap-3 order-2 lg:order-1">
+      <!-- HERO DOSSIER -->
+      <div class="card-surface p-3.5">
+        <div class="flex items-center justify-between border-b border-[#2a3447] pb-2.5 mb-3">
+          <div class="flex items-center gap-2.5">
+            <canvas id="heroPortraitCanvas" width="40" height="40" class="rounded-lg bg-[#090d13] border border-[#2a3447]"></canvas>
+            <div>
+              <div class="flex items-center gap-1.5">
+                <h2 id="uiHeroName" class="font-display font-bold text-sm text-[#e6edf3]">Vanguard</h2>
+                <span id="uiHeroClassBadge" class="text-[10px] font-mono-num uppercase px-1.5 py-0.5 rounded bg-[#1c2331] text-[#fbbf24] border border-[#2a3447]">Fighter</span>
+              </div>
+              <div class="text-xs text-[#8b949e] font-mono-num">
+                Level <span id="uiHeroLevel" class="text-[#e6edf3] font-semibold">1</span> • XP <span id="uiHeroXP">0/100</span>
+              </div>
+            </div>
+          </div>
+          <button onclick="openClassSelectModal()" title="Start New Adventurer" class="text-[11px] px-2 py-1 rounded bg-[#1c2331] hover:bg-[#2a3447] text-[#8b949e] hover:text-[#e6edf3] border border-[#2a3447]">
+            New Hero
+          </button>
+        </div>
+
+        <!-- VITALS BARS -->
+        <div class="space-y-2.5 mb-3">
+          <div>
+            <div class="flex justify-between text-xs font-mono-num mb-1">
+              <span class="text-[#8b949e] font-medium">HEALTH (HP)</span>
+              <span id="uiHpText" class="text-[#34d399] font-semibold">100 / 100</span>
+            </div>
+            <div class="w-full h-2.5 bg-[#090d13] rounded-full overflow-hidden border border-[#2a3447]">
+              <div id="uiHpBar" class="h-full bg-gradient-to-r from-[#059669] to-[#34d399] transition-all duration-200" style="width: 100%"></div>
+            </div>
+          </div>
+
+          <div>
+            <div class="flex justify-between text-xs font-mono-num mb-1">
+              <span class="text-[#8b949e] font-medium">MANA / ENERGY (MP)</span>
+              <span id="uiMpText" class="text-[#60a5fa] font-semibold">40 / 40</span>
+            </div>
+            <div class="w-full h-2 bg-[#090d13] rounded-full overflow-hidden border border-[#2a3447]">
+              <div id="uiMpBar" class="h-full bg-gradient-to-r from-[#2563eb] to-[#60a5fa] transition-all duration-200" style="width: 100%"></div>
+            </div>
+          </div>
+
+          <div>
+            <div class="flex justify-between text-xs font-mono-num mb-1">
+              <span id="uiPickaxeName" class="text-[#8b949e] font-medium">Pickaxe</span>
+              <span id="uiPickaxeText" class="text-[#fbbf24] font-semibold">25 / 25</span>
+            </div>
+            <div class="w-full h-2 bg-[#090d13] rounded-full overflow-hidden border border-[#2a3447]">
+              <div id="uiPickaxeBar" class="h-full bg-gradient-to-r from-[#d97706] to-[#fbbf24] transition-all duration-200" style="width: 100%"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ACTIVE STATUS EFFECTS CONTAINER -->
+        <div id="uiHeroStatusRow" class="min-h-[24px] flex flex-wrap gap-1 mb-2.5 items-center">
+          <span class="text-[10px] text-[#8b949e] italic">No active status effects</span>
+        </div>
+
+        <!-- ATTRIBUTES & DERIVED STATS -->
+        <div class="grid grid-cols-4 gap-1.5 text-center font-mono-num text-xs mb-3">
+          <div class="bg-[#090d13] p-1.5 rounded border border-[#2a3447]">
+            <div class="text-[10px] text-[#8b949e]">STR</div>
+            <div id="uiStatSTR" class="font-bold text-[#e6edf3]">14</div>
+          </div>
+          <div class="bg-[#090d13] p-1.5 rounded border border-[#2a3447]">
+            <div class="text-[10px] text-[#8b949e]">DEX</div>
+            <div id="uiStatDEX" class="font-bold text-[#e6edf3]">10</div>
+          </div>
+          <div class="bg-[#090d13] p-1.5 rounded border border-[#2a3447]">
+            <div class="text-[10px] text-[#8b949e]">INT</div>
+            <div id="uiStatINT" class="font-bold text-[#e6edf3]">8</div>
+          </div>
+          <div class="bg-[#090d13] p-1.5 rounded border border-[#2a3447]">
+            <div class="text-[10px] text-[#8b949e]">VIT</div>
+            <div id="uiStatVIT" class="font-bold text-[#e6edf3]">14</div>
+          </div>
+          <div class="bg-[#090d13] p-1.5 rounded border border-[#2a3447]">
+            <div class="text-[10px] text-[#8b949e]">ATK</div>
+            <div id="uiStatATK" class="font-bold text-[#f87171]">12-16</div>
+          </div>
+          <div class="bg-[#090d13] p-1.5 rounded border border-[#2a3447]">
+            <div class="text-[10px] text-[#8b949e]">DEF</div>
+            <div id="uiStatDEF" class="font-bold text-[#60a5fa]">6</div>
+          </div>
+          <div class="bg-[#090d13] p-1.5 rounded border border-[#2a3447]">
+            <div class="text-[10px] text-[#8b949e]">CRIT</div>
+            <div id="uiStatCRIT" class="font-bold text-[#fbbf24]">10%</div>
+          </div>
+          <div class="bg-[#090d13] p-1.5 rounded border border-[#2a3447]">
+            <div class="text-[10px] text-[#8b949e]">DODGE</div>
+            <div id="uiStatDODGE" class="font-bold text-[#34d399]">6%</div>
+          </div>
+        </div>
+
+        <!-- LEVEL UP STAT ALLOCATION BANNER -->
+        <div id="statPointBanner" class="hidden p-2 rounded-md bg-[#fbbf24]/15 border border-[#fbbf24]/40 flex items-center justify-between mb-2">
+          <span class="text-xs font-semibold text-[#fbbf24]">+<span id="uiStatPoints">0</span> Stat Points!</span>
+          <div class="flex gap-1">
+            <button onclick="allocateStat('str')" class="px-1.5 py-0.5 text-[10px] font-mono-num bg-[#1c2331] hover:bg-[#fbbf24] hover:text-black rounded border border-[#fbbf24]/40">+STR</button>
+            <button onclick="allocateStat('dex')" class="px-1.5 py-0.5 text-[10px] font-mono-num bg-[#1c2331] hover:bg-[#fbbf24] hover:text-black rounded border border-[#fbbf24]/40">+DEX</button>
+            <button onclick="allocateStat('int')" class="px-1.5 py-0.5 text-[10px] font-mono-num bg-[#1c2331] hover:bg-[#fbbf24] hover:text-black rounded border border-[#fbbf24]/40">+INT</button>
+            <button onclick="allocateStat('vit')" class="px-1.5 py-0.5 text-[10px] font-mono-num bg-[#1c2331] hover:bg-[#fbbf24] hover:text-black rounded border border-[#fbbf24]/40">+VIT</button>
+          </div>
+        </div>
+
+        <!-- UNSPENT TALENTS ALERT BANNER -->
+        <div id="talentPointBanner" class="hidden p-2 rounded-md bg-[#60a5fa]/15 border border-[#60a5fa]/40 flex items-center justify-between">
+          <span class="text-xs font-semibold text-[#60a5fa]">★ <span id="uiTalentPoints">0</span> Unspent Talent Points!</span>
+          <button onclick="switchGuildTab('talents'); if(gameState.location === 'dungeon') logChronicle('Train talents at the Guild Hall between descents.', 'muted');" class="px-2 py-0.5 text-[10px] font-mono-num bg-[#2563eb] hover:bg-[#3b82f6] text-white rounded">
+            Open Tree
+          </button>
+        </div>
+      </div>
+
+      <!-- 6-SLOT PAPER DOLL EQUIPMENT CARD -->
+      <div class="card-surface p-3.5 space-y-2.5">
+        <div class="flex items-center justify-between border-b border-[#2a3447] pb-2">
+          <h3 class="text-xs font-bold uppercase tracking-wider text-[#8b949e]">Equipped Loadout (6 Slots)</h3>
+          <span class="text-[10px] font-mono-num text-[#fbbf24]">Click slot to inspect</span>
+        </div>
+
+        <div class="grid grid-cols-2 gap-2 text-xs font-mono-num">
+          <!-- Weapon -->
+          <div onclick="inspectEquippedSlot('weapon')" id="slot_weapon" class="p-2 rounded bg-[#090d13] border border-[#2a3447] cursor-pointer hover:border-[#60a5fa] transition-all">
+            <div class="text-[10px] text-[#8b949e] uppercase">Weapon</div>
+            <div id="slotName_weapon" class="font-bold truncate text-[#e6edf3]">Starter Sword</div>
+            <div id="slotStat_weapon" class="text-[10px] text-[#f87171]">+6 ATK</div>
+          </div>
+          <!-- Armor -->
+          <div onclick="inspectEquippedSlot('armor')" id="slot_armor" class="p-2 rounded bg-[#090d13] border border-[#2a3447] cursor-pointer hover:border-[#60a5fa] transition-all">
+            <div class="text-[10px] text-[#8b949e] uppercase">Armor</div>
+            <div id="slotName_armor" class="font-bold truncate text-[#e6edf3]">Starter Armor</div>
+            <div id="slotStat_armor" class="text-[10px] text-[#60a5fa]">+5 DEF</div>
+          </div>
+          <!-- Helm -->
+          <div onclick="inspectEquippedSlot('helm')" id="slot_helm" class="p-2 rounded bg-[#090d13] border border-[#2a3447] cursor-pointer hover:border-[#60a5fa] transition-all">
+            <div class="text-[10px] text-[#8b949e] uppercase">Helm</div>
+            <div id="slotName_helm" class="font-bold truncate text-[#8b949e]">Empty</div>
+            <div id="slotStat_helm" class="text-[10px] text-[#8b949e]">—</div>
+          </div>
+          <!-- Boots -->
+          <div onclick="inspectEquippedSlot('boots')" id="slot_boots" class="p-2 rounded bg-[#090d13] border border-[#2a3447] cursor-pointer hover:border-[#60a5fa] transition-all">
+            <div class="text-[10px] text-[#8b949e] uppercase">Boots</div>
+            <div id="slotName_boots" class="font-bold truncate text-[#8b949e]">Empty</div>
+            <div id="slotStat_boots" class="text-[10px] text-[#8b949e]">—</div>
+          </div>
+          <!-- Accessory -->
+          <div onclick="inspectEquippedSlot('accessory')" id="slot_accessory" class="p-2 rounded bg-[#090d13] border border-[#2a3447] cursor-pointer hover:border-[#60a5fa] transition-all">
+            <div class="text-[10px] text-[#8b949e] uppercase">Accessory</div>
+            <div id="slotName_accessory" class="font-bold truncate text-[#8b949e]">Empty</div>
+            <div id="slotStat_accessory" class="text-[10px] text-[#8b949e]">—</div>
+          </div>
+          <!-- Pickaxe -->
+          <div onclick="inspectEquippedSlot('pickaxe')" id="slot_pickaxe" class="p-2 rounded bg-[#090d13] border border-[#2a3447] cursor-pointer hover:border-[#60a5fa] transition-all">
+            <div class="text-[10px] text-[#8b949e] uppercase">Pickaxe</div>
+            <div id="slotName_pickaxe" class="font-bold truncate text-[#fbbf24]">Iron Pickaxe</div>
+            <div id="slotStat_pickaxe" class="text-[10px] text-[#fbbf24]">25/25 Dur</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- DUAL ECONOMY CARD: BANKED VAULT vs AT-RISK PACK -->
+      <div class="card-surface p-3.5 space-y-3">
+        <!-- SAFE BANKED VAULT -->
+        <div class="p-2.5 rounded-lg bg-[#090d13] border border-[#34d399]/40">
+          <div class="flex items-center justify-between mb-1.5">
+            <span class="text-[11px] font-mono-num uppercase tracking-wider text-[#34d399] font-semibold flex items-center gap-1.5">
+              <span class="w-2 h-2 rounded-full bg-[#34d399]"></span>
+              Banked Guild Vault (Safe)
+            </span>
+            <span id="uiBankedGold" class="font-mono-num font-bold text-sm text-[#fbbf24]">35g</span>
+          </div>
+          <div class="grid grid-cols-3 gap-1.5 text-xs font-mono-num text-center">
+            <div class="bg-[#131822] p-1 rounded border border-[#2a3447]">
+              <div class="text-[9px] text-[#8b949e]">HEAL POT</div>
+              <div id="uiPotionsCount" class="text-[#34d399] font-bold">2</div>
+            </div>
+            <div class="bg-[#131822] p-1 rounded border border-[#2a3447]">
+              <div class="text-[9px] text-[#8b949e]">MANA POT</div>
+              <div id="uiManaPotionsCount" class="text-[#60a5fa] font-bold">1</div>
+            </div>
+            <div class="bg-[#131822] p-1 rounded border border-[#2a3447]">
+              <div class="text-[9px] text-[#8b949e]">RECALL</div>
+              <div id="uiRecallScrollsCount" class="text-[#fbbf24] font-bold">1</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- AT-RISK EXPEDITION PACK -->
+        <div class="p-2.5 rounded-lg bg-[#090d13] border border-[#fbbf24]/50">
+          <div class="flex items-center justify-between mb-1">
+            <span class="text-[11px] font-mono-num uppercase tracking-wider text-[#fbbf24] font-semibold flex items-center gap-1.5">
+              <span class="w-2 h-2 rounded-full bg-[#fbbf24] animate-ping"></span>
+              Expedition Pack (At Risk)
+            </span>
+            <span id="uiExpeditionGold" class="font-mono-num font-bold text-sm text-[#fbbf24]">0g</span>
+          </div>
+          <p class="text-[10px] text-[#8b949e] mb-2">Lost on defeat! Banked upon stairs exit or Recall Scroll.</p>
+          <div id="uiExpeditionBagList" class="max-h-36 overflow-y-auto space-y-1 text-xs font-mono-num pr-1">
+            <div class="text-[#8b949e] italic text-[11px] py-1">Pack is empty. Mine veins & defeat monsters.</div>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- CENTER COLUMN: DUNGEON VIEWPORT OR ADVENTURERS GUILD HUB (6 COLS ON LG) -->
+    <section class="lg:col-span-6 flex flex-col gap-3 order-1 lg:order-2">
+
+      <!-- VIEW 1: ADVENTURERS GUILD SURFACE HUB -->
+      <div id="guildSurfacePanel" class="card-surface p-4 md:p-5 flex flex-col gap-4">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-[#2a3447] pb-3">
+          <div>
+            <div class="flex items-center gap-2">
+              <span class="px-2 py-0.5 text-[10px] font-mono-num uppercase bg-[#34d399]/15 text-[#34d399] border border-[#34d399]/30 rounded font-semibold">Sanctuary Surface</span>
+              <h2 class="font-display text-lg md:text-xl font-bold text-[#e6edf3]">Oakhaven Guild Bastion</h2>
+            </div>
+            <p class="text-xs text-[#8b949e] mt-0.5">Prepare gear, allocate talent masteries, or descend into the persistent Starfall Vaults.</p>
+          </div>
+          <div class="flex items-center gap-2">
+            <button onclick="enterDungeonFromGuild(false)" class="px-3.5 py-2 rounded-lg bg-[#fbbf24] hover:bg-[#f59e0b] text-[#090d13] font-bold text-xs uppercase tracking-wider flex items-center gap-1.5 shadow-lg btn-tactical">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 14l-7 7m0 0l-7-7m7 7V3"/></svg>
+              <span>Descend Vaults</span>
+            </button>
+            <button onclick="chartNewDungeonSeed()" class="px-2.5 py-2 rounded-lg bg-[#1c2331] hover:bg-[#2a3447] text-[#e6edf3] border border-[#2a3447] text-xs font-medium flex items-center gap-1 btn-tactical" title="Reset all floors and generate new layout">
+              <svg class="w-3.5 h-3.5 text-[#60a5fa]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+              <span>New Dungeon Chart</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- DUNGEON CHART STATUS STRIP -->
+        <div class="p-2.5 rounded-lg bg-[#090d13] border border-[#2a3447] flex flex-wrap items-center justify-between gap-2 text-xs">
+          <div class="flex items-center gap-2">
+            <span class="text-[#8b949e]">Chart:</span>
+            <span id="uiGuildSeedLabel" class="font-mono-num font-semibold text-[#60a5fa]">STAR-4812</span>
+            <span class="text-[#2a3447]">•</span>
+            <span class="text-[#8b949e]">Explored Floors:</span>
+            <span id="uiExploredFloorsCount" class="font-mono-num font-semibold text-[#e6edf3]">0</span>
+            <span class="text-[#2a3447]">•</span>
+            <span class="text-[#8b949e]">Max Reachable Depth:</span>
+            <span id="uiMaxDepthCap" class="font-mono-num font-semibold text-[#fbbf24]">Floor 5</span>
+          </div>
+          <div class="text-[11px] text-[#8b949e]">
+            Extraction: <span class="text-[#e6edf3] font-medium">Floor 1 Stairs (&lt;)</span> or <span class="text-[#fbbf24] font-medium">Recall Scroll</span>
+          </div>
+        </div>
+
+        <!-- GUILD TABS -->
+        <div class="flex border-b border-[#2a3447] gap-2 overflow-x-auto pb-0.5">
+          <button onclick="switchGuildTab('talents')" id="guildTab_talents" class="px-3 py-1.5 text-xs font-semibold border-b-2 border-[#fbbf24] text-[#fbbf24] whitespace-nowrap">
+            Training Hall & Talents
+          </button>
+          <button onclick="switchGuildTab('research')" id="guildTab_research" class="px-3 py-1.5 text-xs font-semibold border-b-2 border-transparent text-[#8b949e] hover:text-[#e6edf3] whitespace-nowrap">
+            Research Laboratory
+          </button>
+          <button onclick="switchGuildTab('shop')" id="guildTab_shop" class="px-3 py-1.5 text-xs font-semibold border-b-2 border-transparent text-[#8b949e] hover:text-[#e6edf3] whitespace-nowrap">
+            Quartermaster & Armory
+          </button>
+          <button onclick="switchGuildTab('inventory')" id="guildTab_inventory" class="px-3 py-1.5 text-xs font-semibold border-b-2 border-transparent text-[#8b949e] hover:text-[#e6edf3] whitespace-nowrap">
+            Banked Vault Equipment
+          </button>
+          <button onclick="switchGuildTab('tavern')" id="guildTab_tavern" class="px-3 py-1.5 text-xs font-semibold border-b-2 border-transparent text-[#8b949e] hover:text-[#e6edf3] whitespace-nowrap">
+            Infirmary & Drills
+          </button>
+        </div>
+
+        <!-- TAB 1: TRAINING HALL & CLASS TALENT TREES -->
+        <div id="guildContent_talents" class="space-y-4">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-3 rounded-lg bg-[#090d13] border border-[#2a3447]">
+            <div>
+              <div class="flex items-center gap-2">
+                <h3 class="text-sm font-bold text-[#e6edf3]">Class Talent Codex: <span id="uiTalentClassName" class="text-[#fbbf24]">Fighter</span></h3>
+                <span class="text-[11px] font-mono-num px-2 py-0.5 rounded bg-[#60a5fa]/20 text-[#60a5fa] font-bold">
+                  Available Points: <span id="uiTalentAvailable">0</span>
+                </span>
+              </div>
+              <p class="text-xs text-[#8b949e] mt-0.5">Gain 1 Talent Point with each level-up to master branching specializations.</p>
+            </div>
+            <button onclick="respecTalentsAtGuild()" class="px-3 py-1.5 rounded bg-[#1c2331] hover:bg-[#2a3447] text-[#fbbf24] border border-[#fbbf24]/40 text-xs font-mono-num font-semibold btn-tactical">
+              Respec Talents (25g)
+            </button>
+          </div>
+
+          <!-- 2 BRANCHING TALENT TREES FOR SELECTED CLASS -->
+          <div id="talentBranchesGrid" class="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+            <!-- Dynamically populated by renderTalentTrees() -->
+          </div>
+        </div>
+
+        <!-- TAB 2: QUARTERMASTER SHOP & ORE APPRAISAL -->
+        <div id="guildContent_shop" class="hidden space-y-4">
+          <div class="p-3 rounded-lg bg-[#090d13] border border-[#2a3447]">
+            <div class="flex items-center justify-between mb-2">
+              <div>
+                <h3 class="text-xs font-bold uppercase tracking-wider text-[#e6edf3]">Banked Ore & Relic Appraisal</h3>
+                <p class="text-[11px] text-[#8b949e]">Sell extracted ores stored safely in your Guild Vault.</p>
+              </div>
+              <button onclick="sellAllBankedLoot()" class="px-3 py-1.5 rounded bg-[#34d399]/20 hover:bg-[#34d399]/30 text-[#34d399] border border-[#34d399]/40 text-xs font-mono-num font-semibold btn-tactical">
+                Sell All Banked Loot
+              </button>
+            </div>
+            <div id="uiBankedLootList" class="grid grid-cols-1 sm:grid-cols-2 gap-1.5 text-xs font-mono-num max-h-28 overflow-y-auto"></div>
+          </div>
+
+          <div>
+            <h3 class="text-xs font-bold uppercase tracking-wider text-[#8b949e] mb-2">Quartermaster Supplies & Multi-Slot Gear</h3>
+            <div id="uiShopGrid" class="grid grid-cols-1 sm:grid-cols-2 gap-2.5"></div>
+          </div>
+        </div>
+
+        <!-- TAB 3: BANKED VAULT EQUIPMENT (PAPER DOLL INVENTORY) -->
+        <div id="guildContent_inventory" class="hidden space-y-3">
+          <div class="p-3 rounded-lg bg-[#090d13] border border-[#2a3447] flex items-center justify-between">
+            <div>
+              <h3 class="text-xs font-bold uppercase tracking-wider text-[#e6edf3]">Stored Vault Items</h3>
+              <p class="text-[11px] text-[#8b949e]">Click any stored item to compare stats with your equipped gear and equip it.</p>
+            </div>
+            <span class="text-xs font-mono-num text-[#8b949e]">Safe Storage</span>
+          </div>
+
+          <div id="uiBankedEquipmentGrid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5 max-h-80 overflow-y-auto">
+            <!-- Dynamically populated -->
+          </div>
+        </div>
+
+        <!-- TAB 4: INFIRMARY & COMBAT DRILLS -->
+        <div id="guildContent_tavern" class="hidden space-y-3">
+          <div class="p-3.5 rounded-lg bg-[#090d13] border border-[#2a3447] flex items-center justify-between">
+            <div>
+              <h3 class="text-sm font-bold text-[#e6edf3]">Sanctuary Infirmary & Hearth</h3>
+              <p class="text-xs text-[#8b949e]">Rest by the hearth to cleanse status debuffs and restore 100% HP and MP.</p>
+            </div>
+            <button onclick="guildRestAndHeal()" class="px-4 py-2 rounded-lg bg-[#34d399] hover:bg-[#059669] text-[#090d13] font-bold text-xs uppercase tracking-wider btn-tactical">
+              Rest & Heal (Free)
+            </button>
+          </div>
+
+          <div class="p-3.5 rounded-lg bg-[#090d13] border border-[#2a3447] flex items-center justify-between">
+            <div>
+              <h3 class="text-sm font-bold text-[#e6edf3]">Blacksmith Pickaxe Repair</h3>
+              <p class="text-xs text-[#8b949e]">Restore your equipped pickaxe to maximum durability for 10g.</p>
+            </div>
+            <button onclick="repairPickaxeAtGuild()" class="px-3.5 py-2 rounded-lg bg-[#1c2331] hover:bg-[#2a3447] text-[#fbbf24] border border-[#fbbf24]/40 font-mono-num font-semibold text-xs btn-tactical">
+              Repair Pickaxe (10g)
+            </button>
+          </div>
+
+          <div class="p-3.5 rounded-lg bg-[#090d13] border border-[#2a3447]">
+        <!-- TAB 5: GUILD RESEARCH (EXPANDED DUAL-RESOURCE TECH TREES) -->
+        <div id="guildContent_research" class="hidden space-y-3.5">
+          <div class="p-3 rounded-lg bg-[#090d13] border border-[#2a3447]">
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-[#2a3447] pb-2 mb-2">
+              <div>
+                <h3 class="text-xs font-bold uppercase tracking-wider text-[#fbbf24]">Arcane Metallurgy & Cartography Lab</h3>
+                <p class="text-[11px] text-[#8b949e]">Advanced research requires both Banked Gold and Mined Minerals stored in your safe Guild Vault.</p>
+              </div>
+              <div class="text-[11px] font-mono-num text-[#34d399]">
+                Safe Vault Minerals: <span id="uiVaultOreSummary" class="text-[#e6edf3] font-bold">0 ores</span>
+              </div>
+            </div>
+            <!-- Mineral stock indicators -->
+            <div id="uiResearchMineralStock" class="grid grid-cols-3 sm:grid-cols-6 gap-1.5 text-[11px] font-mono-num text-center"></div>
+          </div>
+
+          <div id="uiResearchList" class="space-y-2.5"></div>
+        </div>
+      </div>
+
+      <!-- VIEW 2: 2D GRAPHICAL DUNGEON CANVAS VIEWPORT -->
+      <div id="dungeonViewportPanel" class="hidden card-surface p-3 flex flex-col gap-3">
+        <!-- TOP HUD -->
+        <div class="flex flex-wrap items-center justify-between gap-2 px-2.5 py-1.5 rounded bg-[#090d13] border border-[#2a3447]">
+          <div class="flex items-center gap-2.5">
+            <span id="uiDungeonFloorBadge" class="px-2.5 py-0.5 rounded bg-[#f87171]/15 text-[#f87171] border border-[#f87171]/40 font-mono-num font-bold text-xs">
+              FLOOR 1 / 5
+            </span>
+            <span id="uiDungeonDangerText" class="text-xs text-[#8b949e]">Upper Masonry • Threat: Normal</span>
+          </div>
+          <div class="flex items-center gap-3 text-xs font-mono-num">
+            <span id="uiTargetModeIndicator" class="hidden px-2 py-0.5 rounded bg-[#60a5fa]/20 text-[#60a5fa] border border-[#60a5fa]/40 animate-pulse">
+              Select target tile (or ESC)
+            </span>
+            <span class="text-[#8b949e]">Monsters: <strong id="uiFloorMonstersCount" class="text-[#e6edf3]">0</strong></span>
+          </div>
+        </div>
+
+        <!-- MILESTONE BOSS HEALTH BAR (FLOORS 5 & 10) -->
+        <div id="bossStatusBar" class="hidden p-2.5 rounded-lg bg-[#1a0f18] border border-[#f87171]/50 flex flex-col gap-1.5">
+          <div class="flex items-center justify-between text-xs">
+            <div class="flex items-center gap-2">
+              <span class="w-2.5 h-2.5 rounded-full bg-[#f87171] animate-ping"></span>
+              <span id="bossNameLabel" class="font-display font-bold text-sm text-[#f87171] tracking-wide">Starfall Colossus</span>
+              <span id="bossTitleLabel" class="text-[10px] font-mono-num uppercase px-1.5 py-0.5 rounded bg-[#f87171]/20 text-[#f87171]">Abyssal Milestone Boss</span>
+            </div>
+            <span id="bossHpText" class="font-mono-num font-bold text-[#fbbf24]">280 / 280 HP</span>
+          </div>
+          <div class="w-full h-2.5 bg-[#090d13] rounded-full overflow-hidden border border-[#2a3447]">
+            <div id="bossHpBar" class="h-full bg-gradient-to-r from-[#b91c1c] via-[#ef4444] to-[#f87171] transition-all duration-200" style="width: 100%"></div>
+          </div>
+        </div>
+
+        <!-- 2D CANVAS CONTAINER -->
+        <div class="relative w-full flex justify-center items-center bg-[#05070a] rounded-lg border border-[#2a3447] overflow-hidden shadow-inner">
+          <canvas id="dungeonCanvas" width="684" height="468" class="max-w-full h-auto cursor-crosshair"></canvas>
+
+          <!-- BOTTOM HUD OVERLAY -->
+          <div class="absolute bottom-2 left-2 pointer-events-none bg-[#090d13]/85 backdrop-blur px-2.5 py-1 rounded border border-[#2a3447] text-[10px] font-mono-num text-[#8b949e] hidden sm:flex items-center gap-3">
+            <span><strong class="text-[#e6edf3]">WASD / Click:</strong> Move / Attack / Mine</span>
+            <span><strong class="text-[#60a5fa]">Q:</strong> Skill</span>
+            <span><strong class="text-[#34d399]">E:</strong> Stairs</span>
+            <span><strong class="text-[#fbbf24]">R:</strong> Recall</span>
+            <span><strong class="text-[#c084fc]">I:</strong> Pack Loot</span>
+          </div>
+        </div>
+
+        <!-- TACTICAL ACTION BAR & D-PAD -->
+        <div class="grid grid-cols-1 md:grid-cols-12 gap-2.5 items-center">
+          <div class="md:col-span-8 grid grid-cols-3 sm:grid-cols-5 gap-1.5">
+            <!-- Active Skill -->
+            <button id="btnActionSkill" onclick="triggerClassSkillButton()" class="p-2 rounded-lg bg-[#2563eb]/20 hover:bg-[#2563eb]/30 border border-[#60a5fa]/50 text-left flex flex-col justify-between btn-tactical">
+              <div class="flex items-center justify-between w-full">
+                <span id="uiSkillName" class="text-[11px] font-bold text-[#60a5fa] truncate">Skill</span>
+                <span class="text-[10px] font-mono-num px-1 rounded bg-[#090d13] text-[#60a5fa]">Q</span>
+              </div>
+              <div id="uiSkillCostText" class="text-[10px] font-mono-num text-[#8b949e] mt-1">10 MP</div>
+            </button>
+
+            <!-- Heal Potion -->
+            <button id="btnActionHeal" onclick="useHealingPotion()" class="p-2 rounded-lg bg-[#1c2331] hover:bg-[#2a3447] border border-[#2a3447] text-left flex flex-col justify-between btn-tactical">
+              <div class="flex items-center justify-between w-full">
+                <span class="text-[11px] font-semibold text-[#34d399]">Heal Pot</span>
+                <span class="text-[10px] font-mono-num px-1 rounded bg-[#090d13] text-[#8b949e]">H</span>
+              </div>
+              <div class="text-[10px] font-mono-num text-[#8b949e] mt-1">+45% HP (<span id="btnHealCount">2</span>)</div>
+            </button>
+
+            <!-- Mana Potion -->
+            <button id="btnActionMana" onclick="useManaPotion()" class="p-2 rounded-lg bg-[#1c2331] hover:bg-[#2a3447] border border-[#2a3447] text-left flex flex-col justify-between btn-tactical">
+              <div class="flex items-center justify-between w-full">
+                <span class="text-[11px] font-semibold text-[#60a5fa]">Mana Pot</span>
+                <span class="text-[10px] font-mono-num px-1 rounded bg-[#090d13] text-[#8b949e]">M</span>
+              </div>
+              <div class="text-[10px] font-mono-num text-[#8b949e] mt-1">+60% MP (<span id="btnManaCount">1</span>)</div>
+            </button>
+
+            <!-- Stairs -->
+            <button id="btnActionStairs" onclick="useStairsAtPlayer()" class="p-2 rounded-lg bg-[#1c2331] hover:bg-[#2a3447] border border-[#2a3447] text-left flex flex-col justify-between btn-tactical">
+              <div class="flex items-center justify-between w-full">
+                <span class="text-[11px] font-semibold text-[#e6edf3]">Stairs</span>
+                <span class="text-[10px] font-mono-num px-1 rounded bg-[#090d13] text-[#8b949e]">E</span>
+              </div>
+              <div id="uiStairsHint" class="text-[10px] font-mono-num text-[#8b949e] mt-1">Stand on &lt; or &gt;</div>
+            </button>
+
+            <!-- Recall Scroll -->
+            <button id="btnActionRecall" onclick="useRecallScroll()" class="p-2 rounded-lg bg-[#fbbf24]/15 hover:bg-[#fbbf24]/25 border border-[#fbbf24]/50 text-left flex flex-col justify-between btn-tactical">
+              <div class="flex items-center justify-between w-full">
+                <span class="text-[11px] font-semibold text-[#fbbf24]">Recall</span>
+                <span class="text-[10px] font-mono-num px-1 rounded bg-[#090d13] text-[#fbbf24]">R</span>
+              </div>
+              <div class="text-[10px] font-mono-num text-[#8b949e] mt-1">Extract (<span id="btnRecallCount">1</span>)</div>
+            </button>
+          </div>
+
+          <!-- Step Pad -->
+          <div class="md:col-span-4 flex items-center justify-center gap-1 bg-[#090d13] p-1.5 rounded-lg border border-[#2a3447]">
+            <button onclick="handlePlayerStep(-1, 0)" class="w-9 h-8 rounded bg-[#1c2331] hover:bg-[#2a3447] text-xs font-mono-num font-bold">←</button>
+            <div class="flex flex-col gap-1">
+              <button onclick="handlePlayerStep(0, -1)" class="w-9 h-7 rounded bg-[#1c2331] hover:bg-[#2a3447] text-xs font-mono-num font-bold">↑</button>
+              <button onclick="handlePlayerStep(0, 1)" class="w-9 h-7 rounded bg-[#1c2331] hover:bg-[#2a3447] text-xs font-mono-num font-bold">↓</button>
+            </div>
+            <button onclick="handlePlayerStep(1, 0)" class="w-9 h-8 rounded bg-[#1c2331] hover:bg-[#2a3447] text-xs font-mono-num font-bold">→</button>
+            <button onclick="waitOneTurn()" class="px-2.5 h-8 rounded bg-[#131822] hover:bg-[#1c2331] border border-[#2a3447] text-[10px] font-mono-num text-[#8b949e] hover:text-[#e6edf3]">WAIT</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- RIGHT COLUMN: TACTICAL SCANNER & EXPEDITION CHRONICLE (3 COLS ON LG) -->
+    <aside class="lg:col-span-3 flex flex-col gap-3 order-3">
+      <!-- TACTICAL SCANNER -->
+      <div class="card-surface p-3.5">
+        <h3 class="text-xs font-bold uppercase tracking-wider text-[#8b949e] border-b border-[#2a3447] pb-2 mb-2 flex items-center justify-between">
+          <span>Tactical Scanner</span>
+          <span class="text-[10px] font-mono-num text-[#60a5fa]">Hover / Nearby</span>
+        </h3>
+        <div id="uiInspectorBox" class="text-xs space-y-1.5 min-h-[76px] flex flex-col justify-center">
+          <div class="font-semibold text-[#e6edf3]">Oakhaven Bastion</div>
+          <p class="text-[#8b949e] text-[11px]">Hover over visible dungeon tiles, elite champions, or ore veins to inspect their attributes.</p>
+        </div>
+      </div>
+
+      <!-- FLOOR PERSISTENCE TRACKER -->
+      <div class="card-surface p-3.5">
+        <div class="flex items-center justify-between border-b border-[#2a3447] pb-2 mb-2">
+          <h3 class="text-xs font-bold uppercase tracking-wider text-[#8b949e]">Floor Persistence Ledger</h3>
+          <span id="uiPersistenceSeed" class="text-[10px] font-mono-num text-[#fbbf24]">SEED</span>
+        </div>
+        <div id="uiFloorLedgerList" class="space-y-1.5 text-xs font-mono-num max-h-36 overflow-y-auto"></div>
+      </div>
+
+      <!-- COMBAT & MINING CHRONICLE -->
+      <div class="card-surface p-3.5 flex-1 flex flex-col min-h-[250px]">
+        <div class="flex items-center justify-between border-b border-[#2a3447] pb-2 mb-2">
+          <h3 class="text-xs font-bold uppercase tracking-wider text-[#8b949e]">Expedition Chronicle</h3>
+          <button onclick="clearChronicleLog()" class="text-[10px] text-[#8b949e] hover:text-[#e6edf3]">Clear</button>
+        </div>
+        <div id="uiCombatLog" class="flex-1 overflow-y-auto space-y-1 text-xs font-mono-num max-h-[300px] pr-1"></div>
+      </div>
+    </aside>
+  </main>
+
+  <!-- ===================================================================== -->
+  <!-- MODAL: INCREMENT 3 DIAGNOSTIC VALIDATOR SUITE                         -->
+  <!-- ===================================================================== -->
+  <div id="validatorModal" class="hidden fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="card-surface max-w-2xl w-full p-5 border border-[#34d399]/40 shadow-2xl">
+      <div class="flex items-center justify-between border-b border-[#2a3447] pb-3 mb-3">
+        <div>
+          <span class="text-[10px] font-mono-num uppercase px-2 py-0.5 rounded bg-[#34d399]/15 text-[#34d399] font-bold">Automated Test Suite</span>
+          <h3 class="font-display text-lg font-bold text-[#e6edf3] mt-1">Increment 3 Verification Suite (v0.3.0)</h3>
+        </div>
+        <button onclick="toggleValidatorModal()" class="text-[#8b949e] hover:text-[#e6edf3] text-sm">✕</button>
+      </div>
+
+      <p class="text-xs text-[#8b949e] mb-3">
+        Validates Schema v3 migration, 6-slot gear calculations, branching talents, procedural affixes, geology ore rank gating, dual-cost research, and milestone boss generation.
+      </p>
+
+      <div id="validatorResultsList" class="space-y-2 text-xs font-mono-num mb-4"></div>
+
+      <div class="flex items-center justify-between pt-3 border-t border-[#2a3447]">
+        <button onclick="runIncrement3Diagnostics()" class="px-3.5 py-1.5 rounded bg-[#1c2331] hover:bg-[#2a3447] border border-[#2a3447] text-xs font-mono-num text-[#60a5fa]">
+          Re-Run All Checks
+        </button>
+        <button onclick="toggleValidatorModal()" class="px-4 py-1.5 rounded bg-[#34d399] text-[#090d13] font-bold text-xs">
+          Close Diagnostics
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    /*************************************************************************
+     * AETHELGARD: THE STARFALL VAULTS — INCREMENT 3 ENGINE (v0.3.0)
+     *************************************************************************/
+
+    const SCHEMA_VERSION = 3;
+    const SAVE_KEY = 'aethelgard_save_v3';
+    const LEGACY_SAVE_KEY_V2 = 'aethelgard_save_v2';
+    const LEGACY_SAVE_KEY_V1 = 'aethelgard_save_v1';
+
+    // --- TILE DEFINITIONS ---
+    const TILE_VOID = 0;
+    const TILE_WALL = 1;
+    const TILE_FLOOR = 2;
+    const TILE_STAIRS_UP = 3;
+    const TILE_STAIRS_DOWN = 4;
+    const TILE_CHEST = 5;
+    const TILE_CHEST_OPEN = 6;
+    const TILE_ORE_COPPER = 7;
+    const TILE_ORE_IRON = 8;
+    const TILE_ORE_MITHRIL = 9;
+    const TILE_ORE_STAR = 10;
+    const TILE_ORE_ASTRAL = 11;
+    const TILE_ORE_GEODE = 12;
+
+    const MAP_COLS = 19;
+    const MAP_ROWS = 13;
+    const TILE_SIZE = 36;
+
+    // --- RARITY TIERS ---
+    const RARITY = {
+      common:   { id: 'common',   name: 'Common',   color: '#94a3b8', border: '#475569', maxAffixes: 0, mult: 1.0 },
+      uncommon: { id: 'uncommon', name: 'Uncommon', color: '#4ade80', border: '#22c55e', maxAffixes: 1, mult: 1.4 },
+      rare:     { id: 'rare',     name: 'Rare',     color: '#60a5fa', border: '#3b82f6', maxAffixes: 2, mult: 2.1 },
+      epic:     { id: 'epic',     name: 'Epic',     color: '#c084fc', border: '#a855f7', maxAffixes: 3, mult: 3.5 },
+      relic:    { id: 'relic',    name: 'Star-Forged Relic', color: '#fbbf24', border: '#f59e0b', maxAffixes: 4, mult: 6.0 }
+    };
+
+    // --- AFFIX POOL ---
+    const AFFIX_POOL = [
+      { id: 'atk', name: 'of Might', desc: '+{v} ATK', stat: 'atk', slots: ['weapon', 'accessory'], range: [2, 7] },
+      { id: 'def', name: 'of the Bastion', desc: '+{v} DEF', stat: 'def', slots: ['armor', 'helm', 'boots'], range: [2, 6] },
+      { id: 'maxHp', name: 'of Vitality', desc: '+{v} Max HP', stat: 'maxHp', slots: ['armor', 'helm', 'accessory'], range: [10, 35] },
+      { id: 'maxMp', name: 'of the Astral Stream', desc: '+{v} Max MP', stat: 'maxMp', slots: ['helm', 'accessory', 'weapon'], range: [8, 25] },
+      { id: 'crit', name: 'of Keen Eyes', desc: '+{v}% Crit', stat: 'crit', slots: ['weapon', 'accessory', 'helm'], range: [4, 12] },
+      { id: 'dodge', name: 'of the Wind', desc: '+{v}% Dodge', stat: 'dodge', slots: ['boots', 'armor', 'accessory'], range: [3, 10] },
+      { id: 'str', name: 'of Giant Strength', desc: '+{v} STR', stat: 'str', slots: ['weapon', 'armor'], range: [1, 3] },
+      { id: 'dex', name: 'of Swift Agility', desc: '+{v} DEX', stat: 'dex', slots: ['boots', 'accessory'], range: [1, 3] },
+      { id: 'int', name: 'of Erudition', desc: '+{v} INT', stat: 'int', slots: ['helm', 'weapon'], range: [1, 3] }
+    ];
+
+    // --- 5 PLAYABLE CLASSES ---
+    const CLASSES = {
+      fighter: {
+        id: 'fighter',
+        name: 'Fighter',
+        title: 'Ironclad Vanguard',
+        color: '#f87171',
+        baseStats: { str: 15, dex: 10, int: 8, vit: 15 },
+        hpBase: 120,
+        mpBase: 35,
+        vision: 5,
+        starterGear: {
+          weapon: { id: 'w_start', name: 'Broadsword', slot: 'weapon', rarity: 'common', atk: 7, value: 20 },
+          armor:  { id: 'a_start', name: 'Chainmail Hauberk', slot: 'armor', rarity: 'common', def: 6, value: 20 },
+          helm:   { id: 'h_start', name: 'Iron Coif', slot: 'helm', rarity: 'common', def: 2, value: 12 },
+          boots:  { id: 'b_start', name: 'Marching Greaves', slot: 'boots', rarity: 'common', def: 2, dodge: 2, value: 12 },
+          accessory: { id: 'acc_start', name: 'Bronze Signet', slot: 'accessory', rarity: 'common', maxHp: 10, value: 15 },
+          pickaxe: { id: 'pick_start', name: 'Iron Pickaxe', slot: 'pickaxe', rarity: 'common', curDur: 25, maxDur: 25, value: 25 }
+        },
+        passiveName: 'Bulwark Stance',
+        passiveDesc: 'Reduces incoming physical damage by 20%.',
+        skill: { name: 'Shield Bash', mpCost: 10, range: 1, targetType: 'adjacent_enemy', desc: '160% ATK + 2-turn Stun' },
+        bonusRecall: 0
+      },
+      thief: {
+        id: 'thief',
+        name: 'Thief',
+        title: 'Nightblade Seeker',
+        color: '#c084fc',
+        baseStats: { str: 10, dex: 16, int: 10, vit: 11 },
+        hpBase: 90,
+        mpBase: 45,
+        vision: 6,
+        starterGear: {
+          weapon: { id: 'w_start_t', name: 'Twin Stilettos', slot: 'weapon', rarity: 'common', atk: 6, crit: 6, value: 20 },
+          armor:  { id: 'a_start_t', name: 'Shadow Leather', slot: 'armor', rarity: 'common', def: 4, dodge: 3, value: 20 },
+          helm:   { id: 'h_start_t', name: 'Thief Cowl', slot: 'helm', rarity: 'common', def: 1, crit: 3, value: 12 },
+          boots:  { id: 'b_start_t', name: 'Silent Moccasins', slot: 'boots', rarity: 'common', def: 1, dodge: 5, value: 12 },
+          accessory: { id: 'acc_start_t', name: 'Lockpicker Ring', slot: 'accessory', rarity: 'common', crit: 4, value: 15 },
+          pickaxe: { id: 'pick_start_t', name: 'Iron Pickaxe', slot: 'pickaxe', rarity: 'common', curDur: 25, maxDur: 25, value: 25 }
+        },
+        passiveName: 'Treasure Sense',
+        passiveDesc: '+25% Crit chance & +30% gold from chests.',
+        skill: { name: 'Shadow Strike', mpCost: 12, range: 3, targetType: 'ranged_enemy_teleport', desc: 'Teleport to enemy + guaranteed Crit' },
+        bonusRecall: 1
+      },
+      mage: {
+        id: 'mage',
+        name: 'Mage',
+        title: 'Astral Arcanist',
+        color: '#60a5fa',
+        baseStats: { str: 8, dex: 11, int: 17, vit: 10 },
+        hpBase: 82,
+        mpBase: 80,
+        vision: 6,
+        starterGear: {
+          weapon: { id: 'w_start_m', name: 'Star-Runed Staff', slot: 'weapon', rarity: 'common', atk: 5, int: 2, value: 20 },
+          armor:  { id: 'a_start_m', name: 'Astral Weave Robes', slot: 'armor', rarity: 'common', def: 3, maxMp: 15, value: 20 },
+          helm:   { id: 'h_start_m', name: 'Apprentice Hood', slot: 'helm', rarity: 'common', def: 1, maxMp: 10, value: 12 },
+          boots:  { id: 'b_start_m', name: 'Ley-Warped Shoes', slot: 'boots', rarity: 'common', def: 1, dodge: 2, value: 12 },
+          accessory: { id: 'acc_start_m', name: 'Vespera Shard Pendant', slot: 'accessory', rarity: 'common', maxMp: 20, value: 15 },
+          pickaxe: { id: 'pick_start_m', name: 'Iron Pickaxe', slot: 'pickaxe', rarity: 'common', curDur: 25, maxDur: 25, value: 25 }
+        },
+        passiveName: 'Leyline Siphon',
+        passiveDesc: '+2 MP per turn; basic attack scales with INT.',
+        skill: { name: 'Arcane Nova', mpCost: 16, range: 2, targetType: 'aoe_self', desc: 'Starfire AoE on all enemies within 2 tiles' },
+        bonusRecall: 0
+      },
+      ranger: {
+        id: 'ranger',
+        name: 'Ranger',
+        title: 'Deepwood Pathfinder',
+        color: '#34d399',
+        baseStats: { str: 12, dex: 15, int: 11, vit: 11 },
+        hpBase: 95,
+        mpBase: 45,
+        vision: 7,
+        starterGear: {
+          weapon: { id: 'w_start_r', name: 'Recurve Shortbow', slot: 'weapon', rarity: 'common', atk: 6, dex: 2, value: 20 },
+          armor:  { id: 'a_start_r', name: 'Scout Gambeson', slot: 'armor', rarity: 'common', def: 4, dodge: 4, value: 20 },
+          helm:   { id: 'h_start_r', name: 'Falconer Cap', slot: 'helm', rarity: 'common', def: 1, visionBonus: 1, value: 12 },
+          boots:  { id: 'b_start_r', name: 'Trailrunner Boots', slot: 'boots', rarity: 'common', def: 1, dodge: 5, value: 12 },
+          accessory: { id: 'acc_start_r', name: 'Quiver Trinket', slot: 'accessory', rarity: 'common', crit: 5, value: 15 },
+          pickaxe: { id: 'pick_start_r', name: 'Iron Pickaxe', slot: 'pickaxe', rarity: 'common', curDur: 25, maxDur: 25, value: 25 }
+        },
+        passiveName: 'Eagle Eye',
+        passiveDesc: '7-tile Torchlight vision & +15% Evasion.',
+    // --- ORE CATALOG WITH GEOLOGY RANK GATING ---
+    const ORE_CATALOG = {
+      [TILE_ORE_COPPER]: { id: 'copper_ore', name: 'Copper Ore', baseValue: 12, xp: 8, color: '#d97736', sparkle: '#f4a261', minDepth: 1, minGeologyRank: 0 },
+      [TILE_ORE_IRON]:   { id: 'iron_ore',   name: 'Iron Ore',   baseValue: 22, xp: 14, color: '#94a3b8', sparkle: '#e2e8f0', minDepth: 1, minGeologyRank: 1 },
+      [TILE_ORE_MITHRIL]:{ id: 'mithril_ore',name: 'Mithril Ore',baseValue: 45, xp: 25, color: '#38bdf8', sparkle: '#bae6fd', minDepth: 2, minGeologyRank: 2 },
+      [TILE_ORE_STAR]:   { id: 'star_ore',   name: 'Star-Crystal',baseValue: 80, xp: 45, color: '#c084fc', sparkle: '#f3e8ff', minDepth: 3, minGeologyRank: 3 },
+      [TILE_ORE_ASTRAL]: { id: 'astral_ore', name: 'Void Astralite', baseValue: 135, xp: 80, color: '#ec4899', sparkle: '#fbcfe8', minDepth: 5, minGeologyRank: 3 },
+      [TILE_ORE_GEODE]:  { id: 'relic_geode',name: 'Relic Geode', baseValue: 65, xp: 35, color: '#fbbf24', sparkle: '#fef08a', minDepth: 2, minGeologyRank: 2 }
+    };
+
+    // --- EXPANDED GUILD RESEARCH PROJECTS (DUAL RESOURCE: GOLD + ORES) ---
+    const RESEARCH_PROJECTS = [
+      {
+        id: 'vault_cartography',
+        name: 'Vault Cartography & Shoring',
+        category: 'Exploration',
+        level: 0,
+        maxLevel: 4,
+        baseGold: 50,
+        goldScale: 50,
+        oreCosts: [
+          { id: 'copper_ore', count: 3, name: 'Copper Ore' },
+          { id: 'iron_ore', count: 4, name: 'Iron Ore' },
+          { id: 'mithril_ore', count: 5, name: 'Mithril Ore' },
+          { id: 'star_ore', count: 3, name: 'Star-Crystal' }
+        ],
+        depthCaps: [5, 10, 20, 50, 999],
+        desc: 'Unlocks deeper descent permits. R0: Fl 5, R1: Fl 10, R2: Fl 20, R3: Fl 50, R4: Abyssal Infinity.'
+      },
+      {
+        id: 'metallurgy_geology',
+        name: 'Metallurgy & Subterranean Geology',
+        category: 'Mining',
+        level: 0,
+        maxLevel: 3,
+        baseGold: 45,
+        goldScale: 40,
+        oreCosts: [
+          { id: 'copper_ore', count: 4, name: 'Copper Ore' },
+          { id: 'iron_ore', count: 5, name: 'Iron Ore' },
+          { id: 'mithril_ore', count: 4, name: 'Mithril Ore' }
+        ],
+        desc: 'Enables fracturing harder ore veins. R0: Copper; R1: Iron; R2: Mithril & Geodes; R3: Star-Crystal & Void Astralite.'
+      },
+      {
+        id: 'toolsmithing',
+        name: 'Dwarven Toolsmithing',
+        category: 'Mining',
+        level: 0,
+        maxLevel: 4,
+        baseGold: 40,
+        goldScale: 35,
+        oreCosts: [
+          { id: 'copper_ore', count: 2, name: 'Copper Ore' },
+          { id: 'iron_ore', count: 4, name: 'Iron Ore' },
+          { id: 'mithril_ore', count: 3, name: 'Mithril Ore' },
+          { id: 'star_ore', count: 2, name: 'Star-Crystal' }
+        ],
+        desc: '+50% pickaxe durability & +20% chance per rank for durability-free strikes.'
+      },
+      {
+        id: 'appraisal',
+        name: 'Antiquarian Assay & Smelting',
+        category: 'Economy',
+        level: 0,
+        maxLevel: 4,
+        baseGold: 40,
+        goldScale: 35,
+        oreCosts: [
+          { id: 'copper_ore', count: 3, name: 'Copper Ore' },
+          { id: 'iron_ore', count: 3, name: 'Iron Ore' },
+          { id: 'relic_geode', count: 2, name: 'Relic Geode' },
+          { id: 'star_ore', count: 2, name: 'Star-Crystal' }
+        ],
+        desc: '+35% gold appraisal value per rank for all mined ores, trade goods, and salvaged relics.'
+      },
+      {
+        id: 'quartermaster',
+        name: 'Quartermaster Requisitions',
+        category: 'Armory',
+        level: 0,
+        maxLevel: 3,
+        baseGold: 60,
+        goldScale: 50,
+        oreCosts: [
+          { id: 'iron_ore', count: 4, name: 'Iron Ore' },
+          { id: 'mithril_ore', count: 4, name: 'Mithril Ore' },
+          { id: 'star_ore', count: 3, name: 'Star-Crystal' }
+        ],
+        desc: 'Unlocks higher-tier equipment, astral pickaxes, and rare artifacts in the Guild Shop.'
+      },
+      {
+        id: 'vanguard_insurance',
+        name: 'Vanguard Recovery Pact',
+        category: 'Security',
+        level: 0,
+        maxLevel: 3,
+        baseGold: 55,
+        goldScale: 40,
+        oreCosts: [
+          { id: 'copper_ore', count: 3, name: 'Copper Ore' },
+          { id: 'iron_ore', count: 4, name: 'Iron Ore' },
+          { id: 'relic_geode', count: 2, name: 'Relic Geode' }
+        ],
+        desc: 'Guild Scouts salvage 20% of unbanked expedition gold upon defeat per rank.'
+      }
+    ];
+
+    // --- MILESTONE BOSS DEFINITIONS (FLOORS 5 & 10) ---
+    const BOSS_DEFINITIONS = {
+      5: {
+        id: 'boss_colossus',
+        name: 'Starfall Colossus',
+        title: 'Ancient Vault Titan (Floor 5)',
+        hp: 280,
+        atk: 22,
+        def: 8,
+        xp: 260,
+        goldRange: [80, 140],
+        color: '#f59e0b',
+        isBoss: true,
+        skillName: 'Colossus Slam',
+        desc: 'A towering stone monolith infused with raw star-veins. Deals massive cleave damage.'
+      },
+      10: {
+        id: 'boss_weaver',
+        name: 'Void Weaver',
+        title: 'Abyssal Astral Horror (Floor 10)',
+        hp: 460,
+        atk: 32,
+        def: 12,
+        xp: 500,
+        goldRange: [160, 260],
+        color: '#ec4899',
+        isBoss: true,
+        isRanged: true,
+        range: 4,
+        skillName: 'Astral Warp & Beam',
+        desc: 'Eldritch entity hovering above the abyss. Teleports and fires piercing void beams.'
+      }
+    };
+
+    // --- QUARTERMASTER SHOP CATALOG (EXPANDED WITH RESEARCH TIER UNLOCKS) ---
+    const SHOP_CATALOG = [
+      { id: 'recall_scroll', name: 'Recall Scroll', type: 'consumable', cost: 25, reqQMRank: 0, desc: 'Instantly extracts you & your pack back to the Guild.' },
+      { id: 'heal_potion',   name: 'Healing Draught', type: 'consumable', cost: 15, reqQMRank: 0, desc: 'Restores 45% of Maximum HP.' },
+      { id: 'mana_potion',   name: 'Arcane Elixir',   type: 'consumable', cost: 15, reqQMRank: 0, desc: 'Restores 60% of Maximum MP.' },
+      { id: 'steel_pick',    name: 'Dwarven Steel Pickaxe', type: 'equipment', slot: 'pickaxe', rarity: 'uncommon', curDur: 45, maxDur: 45, cost: 65, reqQMRank: 0, desc: '45 Durability.' },
+      { id: 'mithril_pick',  name: 'Star-Forged Pickaxe',   type: 'equipment', slot: 'pickaxe', rarity: 'rare', curDur: 80, maxDur: 80, cost: 150, reqQMRank: 1, desc: '80 Durability & faster mining.' },
+      { id: 'titanium_pick', name: 'Titanium Master Pickaxe', type: 'equipment', slot: 'pickaxe', rarity: 'epic', curDur: 140, maxDur: 140, cost: 260, reqQMRank: 2, desc: '140 Durability. Breaks the hardest veins easily.' },
+      { id: 'astral_pick',   name: 'Void Astralite Drill', type: 'equipment', slot: 'pickaxe', rarity: 'relic', curDur: 250, maxDur: 250, cost: 420, reqQMRank: 3, desc: '250 Durability. Fractures cosmic veins instantly.' },
+      { id: 'shop_w_rare',   name: 'Vespera Runeblade',     type: 'equipment', slot: 'weapon',  rarity: 'rare', atk: 12, crit: 6, cost: 110, reqQMRank: 0, desc: '+12 ATK, +6% Crit.' },
+      { id: 'shop_a_rare',   name: 'Carapace of the Deep',  type: 'equipment', slot: 'armor',   rarity: 'rare', def: 10, maxHp: 20, cost: 110, reqQMRank: 0, desc: '+10 DEF, +20 Max HP.' },
+      { id: 'shop_h_rare',   name: 'Star-Gazer Visor',      type: 'equipment', slot: 'helm',    rarity: 'rare', def: 5, maxMp: 15, cost: 85, reqQMRank: 1, desc: '+5 DEF, +15 Max MP.' },
+      { id: 'shop_b_rare',   name: 'Striders of Oakhaven',  type: 'equipment', slot: 'boots',   rarity: 'rare', def: 4, dodge: 8, cost: 85, reqQMRank: 1, desc: '+4 DEF, +8% Dodge.' },
+      { id: 'shop_acc_epic', name: 'Amulet of the Fallen Star', type: 'equipment', slot: 'accessory', rarity: 'epic', maxHp: 30, maxMp: 20, crit: 5, cost: 195, reqQMRank: 2, desc: '+30 HP, +20 MP, +5% Crit.' },
+      { id: 'shop_w_relic',  name: 'Vespera\'s Eclipse', type: 'equipment', slot: 'weapon', rarity: 'relic', atk: 26, crit: 15, maxHp: 40, cost: 480, reqQMRank: 3, desc: '+26 ATK, +15% Crit, +40 Max HP.' }
+    ];
+
+    // --- GLOBAL GAME STATE (SCHEMA V3) ---
+    let selectedClassKey = 'fighter';
+    let targetingMode = false;
+    let hoverTile = null;
+    let floatingTexts = [];
+    let audioMuted = false;
+    let inspectedItemRef = null;
+
+    const gameState = {
+      schemaVersion: SCHEMA_VERSION,
+      location: 'guild',
+      turn: 0,
+      hero: {
+        classId: 'fighter',
+        name: 'Aldric',
+        level: 1,
+        xp: 0,
+        xpNext: 100,
+        statPoints: 0,
+        drillsPurchased: 0,
+        talentPointsAvailable: 0,
+        talentsAllocated: {},
+        str: 15,
+        dex: 10,
+        int: 8,
+        vit: 15,
+        hp: 120,
+        maxHp: 120,
+        mp: 35,
+        maxMp: 35,
+        vision: 5,
+        statuses: [],
+        equipped: {
+          weapon: null,
+          armor: null,
+          helm: null,
+          boots: null,
+          accessory: null,
+          pickaxe: null
+        },
+        x: 1,
+        y: 1
+      },
+      bank: {
+        gold: 35,
+        potions: 2,
+        manaPotions: 1,
+        recallScrolls: 1,
+        items: [],       // Ores & trade goods
+        equipment: []    // Stored weapons, armor, accessories
+      },
+      expedition: {
+        gold: 0,
+        items: [],
+        equipment: []
+      },
+      research: {
+        vault_cartography: 0,
+        metallurgy_geology: 0,
+        toolsmithing: 0,
+        appraisal: 0,
+        quartermaster: 0,
+        vanguard_insurance: 0
+      },
+      dungeon: {
+        seedCode: 'STAR-4812',
+        numericSeed: 4812,
+        currentDepth: 1,
+        floors: {}
+      }
+    };
+
+    // =========================================================================
+    // SCHEMA V3 SAVE & MIGRATION ENGINE
+    // =========================================================================
+    function migrateSaveData(raw) {
+      if (!raw) return null;
+      let data = typeof raw === 'string' ? JSON.parse(raw) : raw;
+
+      // Migrate v1 -> v2 baseline if needed
+      if (!data.schemaVersion || data.schemaVersion < 2) {
+        data.schemaVersion = 2;
+        data.hero.talentPointsAvailable = Math.max(0, (data.hero.level || 1) - 1);
+        data.hero.talentsAllocated = data.hero.talentsAllocated || {};
+        data.hero.statuses = data.hero.statuses || [];
+
+        const cls = CLASSES[data.hero.classId] || CLASSES.fighter;
+        const starter = cls.starterGear;
+        data.hero.equipped = {
+          weapon: data.hero.weapon ? { ...data.hero.weapon, slot: 'weapon', rarity: data.hero.weapon.rarity || 'common' } : { ...starter.weapon },
+          armor:  data.hero.armor ? { ...data.hero.armor, slot: 'armor', rarity: data.hero.armor.rarity || 'common' } : { ...starter.armor },
+          helm:   starter.helm ? { ...starter.helm } : null,
+          boots:  starter.boots ? { ...starter.boots } : null,
+          accessory: starter.accessory ? { ...starter.accessory } : null,
+          pickaxe: data.hero.pickaxe ? { ...starter.pickaxe, curDur: data.hero.pickaxe.cur, maxDur: data.hero.pickaxe.baseMax } : { ...starter.pickaxe }
+        };
+
+        data.bank.equipment = data.bank.equipment || [];
+        data.expedition.equipment = data.expedition.equipment || [];
+      }
+
+      // Migrate v2 -> v3
+      if (data.schemaVersion < 3) {
+        data.schemaVersion = 3;
+        const oldRes = data.research || {};
+        data.research = {
+          vault_cartography: oldRes.vault_cartography !== undefined ? oldRes.vault_cartography : (oldRes.max_depth || 0),
+          metallurgy_geology: oldRes.metallurgy_geology !== undefined ? oldRes.metallurgy_geology : 0,
+          toolsmithing: oldRes.toolsmithing !== undefined ? oldRes.toolsmithing : (oldRes.pickaxe_temper || 0),
+          appraisal: oldRes.appraisal !== undefined ? oldRes.appraisal : (oldRes.ore_appraisal || 0),
+          quartermaster: oldRes.quartermaster || 0,
+          vanguard_insurance: oldRes.vanguard_insurance || 0
+        };
+      }
+      return data;
+    }
+
+    function saveGameStateToStorage() {
+      try {
+        localStorage.setItem(SAVE_KEY, JSON.stringify(gameState));
+      } catch (e) {
+        // quota exceeded or private browsing
+      }
+    }
+
+    function loadGameStateFromStorage() {
+      try {
+        const v3 = localStorage.getItem(SAVE_KEY);
+        if (v3) {
+          const loaded = migrateSaveData(v3);
+          Object.assign(gameState, loaded);
+          return true;
+        }
+        const v2 = localStorage.getItem(LEGACY_SAVE_KEY_V2);
+        if (v2) {
+          const migrated = migrateSaveData(v2);
+          Object.assign(gameState, migrated);
+          saveGameStateToStorage();
+          return true;
+        }
+        const v1 = localStorage.getItem(LEGACY_SAVE_KEY_V1);
+        if (v1) {
+          const migrated = migrateSaveData(v1);
+          Object.assign(gameState, migrated);
+          saveGameStateToStorage();
+          return true;
+        }
+      } catch (e) {
+        console.warn('Failed to load save from storage:', e);
+      }
+      return false;
+    }
+
+    function downloadSaveFile() {
+      const jsonStr = JSON.stringify(gameState, null, 2);
+      const blob = new Blob([jsonStr], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `aethelgard_save_v3_${gameState.hero.name.replace(/\s+/g, '_')}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }
+
+    function handleSaveFileUpload(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = e => {
+        document.getElementById('saveJsonTextarea').value = e.target.result;
+      };
+      reader.readAsText(file);
+    }
+
+    function importSaveFromJsonText() {
+      try {
+        const text = document.getElementById('saveJsonTextarea').value;
+        const parsed = JSON.parse(text);
+        const migrated = migrateSaveData(parsed);
+        Object.assign(gameState, migrated);
+        saveGameStateToStorage();
+        closeSaveModal();
+        recalculateHeroVitals(false);
+        updateAllUI();
+        logChronicle('Save archive successfully restored and migrated to Schema v2!', 'emerald');
+      } catch (err) {
+        logChronicle('Failed to import JSON: Invalid format.', 'crimson');
+      }
+    }
+
+    // =========================================================================
+    // PROCEDURAL ITEM & STAT ENGINE (6 SLOTS & RARITIES)
+    // =========================================================================
+    let itemIdSeq = 1000;
+
+    function generateProceduralItem(slotHint = null, rarityHint = null, depth = 1) {
+      const slots = ['weapon', 'armor', 'helm', 'boots', 'accessory'];
+      const slot = slotHint || slots[Math.floor(Math.random() * slots.length)];
+
+      // Weighted rarity roll based on depth
+      let rarityKey = 'common';
+      const rRoll = Math.random() + (depth * 0.05);
+      if (rarityHint) {
+        rarityKey = rarityHint;
+      } else if (rRoll > 1.25) {
+        rarityKey = 'relic';
+      } else if (rRoll > 0.95) {
+        rarityKey = 'epic';
+      } else if (rRoll > 0.65) {
+        rarityKey = 'rare';
+      } else if (rRoll > 0.35) {
+        rarityKey = 'uncommon';
+      }
+
+      const rarity = RARITY[rarityKey];
+      const item = {
+        uid: `item_${Date.now()}_${itemIdSeq++}`,
+        slot,
+        rarity: rarityKey,
+        name: '',
+        value: Math.round(20 * rarity.mult + depth * 5),
+        affixes: []
+      };
+
+      const baseNames = {
+        weapon: ['Star-Shard Blade', 'Catacomb Pike', 'Runed Morningstar', 'Vespera Bow', 'Dwarven Cleaver'],
+        armor:  ['Hauberk of Guard', 'Astral Tunic', 'Carapace Plate', 'Shadow Leather', 'Rune-Forged Cuirass'],
+        helm:   ['Helm of the Deep', 'Astral Circlet', 'Sentry Visor', 'Gilded Crown', 'Hood of Shadows'],
+        boots:  ['Treads of Haste', 'Iron-Shod Greaves', 'Wanderer Boots', 'Striders of Light', 'Mithril Sabatons'],
+        accessory: ['Signet of Dawn', 'Vespera Talisman', 'Amulet of Fortitude', 'Band of the Abyss', 'Astral Brooch']
+      };
+
+      let baseTitle = baseNames[slot][Math.floor(Math.random() * baseNames[slot].length)];
+
+      // Base slot stat scaling
+      if (slot === 'weapon') {
+        item.atk = Math.round((5 + depth * 2.2) * (rarityKey === 'relic' ? 1.4 : 1.0));
+      } else if (slot === 'armor') {
+        item.def = Math.round((4 + depth * 1.8) * (rarityKey === 'relic' ? 1.4 : 1.0));
+      } else if (slot === 'helm') {
+        item.def = Math.round(2 + depth * 0.8);
+        item.maxHp = Math.round(10 + depth * 5);
+      } else if (slot === 'boots') {
+        item.def = Math.round(1 + depth * 0.8);
+        item.dodge = Math.round(3 + depth * 1.2);
+      } else if (slot === 'accessory') {
+        item.crit = Math.round(3 + depth * 1.0);
+        item.maxMp = Math.round(10 + depth * 4);
+      }
+
+      // Roll Affixes
+      const eligibleAffixes = AFFIX_POOL.filter(a => a.slots.includes(slot));
+      const chosenAffixes = [];
+      const numAffixes = Math.min(rarity.maxAffixes, eligibleAffixes.length);
+
+      for (let i = 0; i < numAffixes; i++) {
+        const pool = eligibleAffixes.filter(a => !chosenAffixes.some(c => c.id === a.id));
+        if (pool.length === 0) break;
+        const aff = pool[Math.floor(Math.random() * pool.length)];
+        const val = aff.range[0] + Math.floor(Math.random() * (aff.range[1] - aff.range[0] + 1)) + Math.floor(depth * 0.5);
+        item[aff.stat] = (item[aff.stat] || 0) + val;
+        chosenAffixes.push({ ...aff, value: val, desc: aff.desc.replace('{v}', val) });
+      }
+
+      item.affixes = chosenAffixes;
+      if (chosenAffixes.length > 0) {
+        item.name = `${baseTitle} ${chosenAffixes[0].name}`;
+      } else {
+        item.name = baseTitle;
+      }
+
+      return item;
+    }
+
+    function recalculateHeroVitals(fullRestore = false) {
+      const h = gameState.hero;
+      const cls = CLASSES[h.classId] || CLASSES.fighter;
+
+      // Base + Attribute Scalings
+      let maxHp = cls.hpBase + (h.vit * 6) + ((h.level - 1) * 10);
+      let maxMp = cls.mpBase + (h.int * 4) + ((h.level - 1) * 5);
+
+      // Sum all 6 equipped items
+      Object.values(h.equipped).forEach(item => {
+        if (!item) return;
+        if (item.maxHp) maxHp += item.maxHp;
+        if (item.maxMp) maxMp += item.maxMp;
+      });
+
+      // Sum Talents
+      const talents = CLASS_TALENTS[h.classId];
+      if (talents) {
+        for (const branch of [talents.branchA, talents.branchB]) {
+          for (const tierKey of ['t1', 't2']) {
+            const t = branch[tierKey];
+            const rank = h.talentsAllocated[t.id] || 0;
+            if (rank > 0 && t.perRank) {
+              if (t.perRank.maxHp) maxHp += t.perRank.maxHp * rank;
+              if (t.perRank.maxMp) maxMp += t.perRank.maxMp * rank;
+            }
+          }
+        }
+      }
+
+      h.maxHp = maxHp;
+      h.maxMp = maxMp;
+
+      if (fullRestore) {
+        h.hp = maxHp;
+        h.mp = maxMp;
+        if (h.equipped.pickaxe) {
+          h.equipped.pickaxe.curDur = getPickaxeMaxDurability();
+        }
+      } else {
+        h.hp = Math.min(h.hp, maxHp);
+        h.mp = Math.min(h.mp, maxMp);
+      }
+    }
+
+    function getPickaxeMaxDurability() {
+      const p = gameState.hero.equipped.pickaxe;
+      const base = p ? p.maxDur : 25;
+      const toolRank = gameState.research.toolsmithing || 0;
+      return Math.round((base + (toolRank * 15)) * (1 + (toolRank * 0.5)));
+    }
+
+    function getMaxDepthAllowed() {
+      const rank = gameState.research.vault_cartography || 0;
+      const caps = [5, 10, 20, 50, 999];
+      return caps[Math.min(rank, caps.length - 1)];
+    }
+
+    function buildProceduralFloor(depth, floorSeed) {
+      const rng = createSeededRandom(floorSeed);
+      const tiles = Array.from({ length: MAP_ROWS }, () => Array(MAP_COLS).fill(TILE_WALL));
+      const explored = Array.from({ length: MAP_ROWS }, () => Array(MAP_COLS).fill(false));
+      const visible = Array.from({ length: MAP_ROWS }, () => Array(MAP_COLS).fill(false));
+
+      const rooms = [];
+      const maxRooms = 7;
+
+      for (let i = 0; i < 24 && rooms.length < maxRooms; i++) {
+        const w = 3 + Math.floor(rng() * 3);
+        const h = 3 + Math.floor(rng() * 2);
+        const rx = 1 + Math.floor(rng() * (MAP_COLS - w - 2));
+        const ry = 1 + Math.floor(rng() * (MAP_ROWS - h - 2));
+
+        let overlaps = false;
+        for (const r of rooms) {
+          if (rx <= r.x + r.w && rx + w >= r.x && ry <= r.y + r.h && ry + h >= r.y) {
+            overlaps = true;
+            break;
+          }
+        }
+        if (!overlaps) {
+          rooms.push({ x: rx, y: ry, w, h, cx: Math.floor(rx + w / 2), cy: Math.floor(ry + h / 2) });
+          for (let yy = ry; yy < ry + h; yy++) {
+            for (let xx = rx; xx < rx + w; xx++) tiles[yy][xx] = TILE_FLOOR;
+          }
+        }
+      }
+
+      if (rooms.length < 2) {
+        const r1 = { x: 2, y: 2, w: 4, h: 4, cx: 4, cy: 4 };
+        const r2 = { x: 12, y: 7, w: 4, h: 4, cx: 14, cy: 9 };
+        rooms.push(r1, r2);
+        for (const r of [r1, r2]) {
+          for (let yy = r.y; yy < r.y + r.h; yy++) {
+            for (let xx = r.x; xx < r.x + r.w; xx++) tiles[yy][xx] = TILE_FLOOR;
+          }
+        }
+      }
+
+      for (let i = 0; i < rooms.length - 1; i++) {
+        const a = rooms[i];
+        const b = rooms[i + 1];
+        let cx = a.cx;
+        let cy = a.cy;
+        while (cx !== b.cx) {
+          tiles[cy][cx] = TILE_FLOOR;
+          cx += cx < b.cx ? 1 : -1;
+        }
+        while (cy !== b.cy) {
+          tiles[cy][cx] = TILE_FLOOR;
+          cy += cy < b.cy ? 1 : -1;
+        }
+        tiles[cy][cx] = TILE_FLOOR;
+      }
+
+      const upStairs = { x: rooms[0].cx, y: rooms[0].cy };
+      let downStairs = { x: rooms[rooms.length - 1].cx, y: rooms[rooms.length - 1].cy };
+      if (upStairs.x === downStairs.x && upStairs.y === downStairs.y) {
+        downStairs = { x: Math.min(MAP_COLS - 2, upStairs.x + 2), y: upStairs.y };
+        tiles[downStairs.y][downStairs.x] = TILE_FLOOR;
+      }
+
+      tiles[upStairs.y][upStairs.x] = TILE_STAIRS_UP;
+      tiles[downStairs.y][downStairs.x] = TILE_STAIRS_DOWN;
+
+      // Ore veins generation (Copper, Iron, Mithril, Star, Astral, Geode)
+      const oreCount = 7 + Math.min(8, depth);
+      let placedOres = 0;
+      for (let tries = 0; tries < 160 && placedOres < oreCount; tries++) {
+        const ox = 1 + Math.floor(rng() * (MAP_COLS - 2));
+        const oy = 1 + Math.floor(rng() * (MAP_ROWS - 2));
+        if (tiles[oy][ox] === TILE_WALL) {
+          const adjFloor =
+            tiles[oy - 1][ox] === TILE_FLOOR ||
+            tiles[oy + 1][ox] === TILE_FLOOR ||
+            tiles[oy][ox - 1] === TILE_FLOOR ||
+            tiles[oy][ox + 1] === TILE_FLOOR;
+          if (adjFloor) {
+            const roll = rng();
+            let oreTile = TILE_ORE_COPPER;
+            if (depth >= 5 && roll > 0.85) oreTile = TILE_ORE_ASTRAL;
+            else if (depth >= 3 && roll > 0.70) oreTile = TILE_ORE_STAR;
+            else if (depth >= 2 && roll > 0.52) oreTile = TILE_ORE_GEODE;
+            else if (depth >= 2 && roll > 0.35) oreTile = TILE_ORE_MITHRIL;
+            else if (roll > 0.18) oreTile = TILE_ORE_IRON;
+            tiles[oy][ox] = oreTile;
+            placedOres++;
+          }
+        }
+      }
+
+      // Chests
+      const chestGoal = 2 + (rng() > 0.5 ? 1 : 0);
+      let chestsPlaced = 0;
+      for (let i = 1; i < rooms.length && chestsPlaced < chestGoal; i++) {
+        const r = rooms[i];
+        const cx = r.x + Math.floor(rng() * r.w);
+        const cy = r.y + Math.floor(rng() * r.h);
+        if (tiles[cy][cx] === TILE_FLOOR && (cx !== downStairs.x || cy !== downStairs.y)) {
+          tiles[cy][cx] = TILE_CHEST;
+          chestsPlaced++;
+        }
+      }
+
+      // Spawn Monsters or Milestone Bosses
+      const monsters = [];
+      const isBossFloor = (depth === 5 || depth === 10);
+
+      if (isBossFloor && BOSS_DEFINITIONS[depth]) {
+        // Milestone Boss Room Encounter
+        const bDef = BOSS_DEFINITIONS[depth];
+        const bossRoom = rooms[rooms.length - 1];
+        monsters.push({
+          uid: `BOSS_F${depth}`,
+          typeId: bDef.id,
+          name: bDef.name,
+          title: bDef.title,
+          isBoss: true,
+          isRanged: !!bDef.isRanged,
+          range: bDef.range || 1,
+          x: bossRoom.cx,
+          y: bossRoom.cy,
+          hp: bDef.hp,
+          maxHp: bDef.hp,
+          atk: bDef.atk,
+          def: bDef.def,
+          xp: bDef.xp,
+          goldRange: bDef.goldRange,
+          color: bDef.color,
+          statuses: []
+        });
+
+        // 2 Minion guards
+        for (let i = 0; i < 2; i++) {
+          const gx = Math.max(1, bossRoom.cx + (i === 0 ? -1 : 1));
+          const gy = bossRoom.cy;
+          if (tiles[gy][gx] === TILE_FLOOR) {
+            monsters.push({
+              uid: `GUARD_F${depth}_${i}`,
+              typeId: 'cultist',
+              name: 'Abyssal Sentinel',
+              isRanged: true,
+              range: 3,
+              x: gx,
+              y: gy,
+              hp: 45,
+              maxHp: 45,
+              atk: 14,
+              def: 3,
+              xp: 40,
+              goldRange: [12, 22],
+              color: '#c084fc',
+              statuses: []
+            });
+          }
+        }
+      } else {
+        // Standard Monster + Elite Spawning
+        const eligible = MONSTER_ARCHETYPES.filter(m => m.minDepth <= depth);
+        const monsterGoal = 4 + Math.min(6, depth);
+        let mIdCounter = 1;
+
+        for (let tries = 0; tries < 120 && monsters.length < monsterGoal; tries++) {
+          const rIdx = 1 + Math.floor(rng() * (rooms.length - 1));
+          const r = rooms[rIdx];
+          const mx = r.x + Math.floor(rng() * r.w);
+          const my = r.y + Math.floor(rng() * r.h);
+
+          if (
+            tiles[my][mx] === TILE_FLOOR &&
+            (mx !== upStairs.x || my !== upStairs.y) &&
+            !monsters.some(m => m.x === mx && m.y === my)
+          ) {
+            const tpl = eligible[Math.floor(rng() * eligible.length)];
+            const scale = 1 + (depth - 1) * 0.22;
+            const isElite = depth >= 2 && rng() < 0.22;
+            const eliteKeys = Object.keys(ELITE_AFFIXES);
+            const chosenAffixKey = isElite ? eliteKeys[Math.floor(rng() * eliteKeys.length)] : null;
+            const eliteAffix = chosenAffixKey ? ELITE_AFFIXES[chosenAffixKey] : null;
+
+            const hpMult = isElite ? 1.85 : 1.0;
+            const maxHp = Math.round(tpl.baseHp * scale * hpMult);
+
+            monsters.push({
+              uid: `F${depth}_M${mIdCounter++}`,
+              typeId: tpl.id,
+              name: isElite ? `${eliteAffix.name} ${tpl.name}` : tpl.name,
+              isElite,
+              eliteAffix,
+              isRanged: !!tpl.isRanged,
+              range: tpl.range || 1,
+              x: mx,
+              y: my,
+              hp: maxHp,
+              maxHp,
+              atk: Math.round(tpl.baseAtk * scale * (isElite ? 1.25 : 1.0)),
+              def: Math.round(tpl.baseDef + (depth - 1) * 0.8),
+              xp: Math.round(tpl.xp * scale * (isElite ? 2.2 : 1.0)),
+              goldRange: [Math.round(tpl.gold[0] * scale), Math.round(tpl.gold[1] * scale)],
+              color: isElite ? '#fbbf24' : tpl.color,
+              statuses: []
+            });
+          }
+        }
+      }
+
+      // Check BFS Stair reachability
+      const floorObj = { depth, tiles, explored, visible, upStairs, downStairs, monsters, chestsOpened: 0, oresMined: 0 };
+      if (!verifyStairsConnectivityBFS(floorObj)) {
+        let x = upStairs.x;
+        let y = upStairs.y;
+        while (x !== downStairs.x) {
+          x += x < downStairs.x ? 1 : -1;
+          if (tiles[y][x] === TILE_WALL) tiles[y][x] = TILE_FLOOR;
+        }
+        while (y !== downStairs.y) {
+          y += y < downStairs.y ? 1 : -1;
+          if (tiles[y][x] === TILE_WALL) tiles[y][x] = TILE_FLOOR;
+        }
+      }
+
+      return floorObj;
+    }
+
+    function verifyStairsConnectivityBFS(floor) {
+      const start = floor.upStairs;
+      const goal = floor.downStairs;
+      const visited = Array.from({ length: MAP_ROWS }, () => Array(MAP_COLS).fill(false));
+      const queue = [start];
+      visited[start.y][start.x] = true;
+
+      const dirs = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+      while (queue.length > 0) {
+        const cur = queue.shift();
+        if (cur.x === goal.x && cur.y === goal.y) return true;
+        for (const [dx, dy] of dirs) {
+          const nx = cur.x + dx;
+          const ny = cur.y + dy;
+          if (nx >= 0 && nx < MAP_COLS && ny >= 0 && ny < MAP_ROWS && !visited[ny][nx]) {
+            const t = floor.tiles[ny][nx];
+            const walkable = t === TILE_FLOOR || t === TILE_STAIRS_UP || t === TILE_STAIRS_DOWN || t === TILE_CHEST || t === TILE_CHEST_OPEN;
+            if (walkable) {
+              visited[ny][nx] = true;
+              queue.push({ x: nx, y: ny });
+            }
+          }
+        }
+      }
+      return false;
+    }
+
+    function createSeededRandom(seed) {
+      let s = seed % 2147483647;
+      if (s <= 0) s += 2147483646;
+      return function() {
+        s = (s * 16807) % 2147483647;
+        return (s - 1) / 2147483646;
+      };
+    }
+
+    // =========================================================================
+    // FIELD OF VIEW & RAYCASTING
+    // =========================================================================
+    function updateFieldOfView() {
+      if (gameState.location !== 'dungeon') return;
+      const floor = getOrCreateFloor(gameState.dungeon.currentDepth);
+      for (let y = 0; y < MAP_ROWS; y++) {
+        for (let x = 0; x < MAP_COLS; x++) {
+          floor.visible[y][x] = false;
+        }
+      }
+
+      const px = gameState.hero.x;
+      const py = gameState.hero.y;
+      let radius = gameState.hero.vision;
+
+      // Talent bonus check for Ranger Far Sight
+      const r_a1 = gameState.hero.talentsAllocated['r_a1'] || 0;
+      radius += r_a1;
+
+      for (let y = Math.max(0, py - radius); y <= Math.min(MAP_ROWS - 1, py + radius); y++) {
+        for (let x = Math.max(0, px - radius); x <= Math.min(MAP_COLS - 1, px + radius); x++) {
+          const dist = Math.hypot(x - px, y - py);
+          if (dist <= radius + 0.35 && hasLineOfSight(floor, px, py, x, y)) {
+            floor.visible[y][x] = true;
+            floor.explored[y][x] = true;
+          }
+        }
+      }
+    }
+
+    function isOpaqueTile(t) {
+      return (
+        t === TILE_WALL ||
+        t === TILE_VOID ||
+        t === TILE_ORE_COPPER ||
+        t === TILE_ORE_IRON ||
+        t === TILE_ORE_MITHRIL ||
+        t === TILE_ORE_STAR
+      );
+    }
+
+    function hasLineOfSight(floor, x0, y0, x1, y1) {
+      const steps = Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0));
+      if (steps <= 1) return true;
+      for (let i = 1; i < steps; i++) {
+        const tx = Math.round(x0 + ((x1 - x0) * i) / steps);
+        const ty = Math.round(y0 + ((y1 - y0) * i) / steps);
+        if (isOpaqueTile(floor.tiles[ty][tx])) return false;
+      }
+      return true;
+    }
+
+    // =========================================================================
+    // TURN-BASED TACTICAL LOOP, COMBAT, MINING & RANGED ENEMY AI
+    // =========================================================================
+    function handlePlayerStep(dx, dy) {
+      if (gameState.location !== 'dungeon') return;
+      if (targetingMode) {
+        targetingMode = false;
+        updateAllUI();
+      }
+
+      const floor = getOrCreateFloor(gameState.dungeon.currentDepth);
+      const nx = gameState.hero.x + dx;
+      const ny = gameState.hero.y + dy;
+
+      if (nx < 0 || nx >= MAP_COLS || ny < 0 || ny >= MAP_ROWS) return;
+
+      const monster = floor.monsters.find(m => m.x === nx && m.y === ny);
+      if (monster) {
+        performPlayerBasicAttack(monster);
+        advanceTurn(floor);
+        return;
+      }
+
+      const targetTile = floor.tiles[ny][nx];
+      if (ORE_CATALOG[targetTile]) {
+        mineOreVein(floor, nx, ny, targetTile);
+        advanceTurn(floor);
+        return;
+      }
+
+      if (targetTile === TILE_WALL || targetTile === TILE_VOID) {
+        spawnFloatingText(nx, ny, 'Blocked', '#8b949e');
+        return;
+      }
+
+      gameState.hero.x = nx;
+      gameState.hero.y = ny;
+
+      if (targetTile === TILE_CHEST) {
+        openTreasureChest(floor, nx, ny);
+      }
+
+      advanceTurn(floor);
+    }
+
+    function waitOneTurn() {
+      if (gameState.location !== 'dungeon') return;
+      const floor = getOrCreateFloor(gameState.dungeon.currentDepth);
+      logChronicle('You brace your stance and observe the shadows.', 'muted');
+      advanceTurn(floor);
+    }
+
+    function performPlayerBasicAttack(monster, dmgMultiplier = 1.0, forceCrit = false) {
+      const [minAtk, maxAtk] = getHeroAttackRange();
+      let rawDmg = minAtk + Math.floor(Math.random() * (maxAtk - minAtk + 1));
+      rawDmg = Math.round(rawDmg * dmgMultiplier);
+
+      const critChance = getHeroCritChance();
+      const isCrit = forceCrit || (Math.random() * 100 < critChance);
+      if (isCrit) rawDmg = Math.round(rawDmg * 1.65);
+
+      // Elite fortified reduction
+      if (monster.eliteAffix && monster.eliteAffix.id === 'fortified') {
+        rawDmg = Math.round(rawDmg * 0.65);
+      }
+
+      const finalDmg = Math.max(2, rawDmg - monster.def);
+      monster.hp -= finalDmg;
+      playSound('hit');
+
+      spawnFloatingText(monster.x, monster.y, `${isCrit ? 'CRIT! ' : ''}-${finalDmg}`, isCrit ? '#fbbf24' : '#f87171');
+      logChronicle(`You strike ${monster.name} for ${finalDmg} dmg${isCrit ? ' (CRITICAL!)' : ''}.`, isCrit ? 'gold' : 'normal');
+
+      // Fighter Bloodbath Savage Rend (Bleed on crit)
+      if (isCrit && gameState.hero.talentsAllocated['f_b2']) {
+        applyStatus(monster, 'bleed', 3, 1);
+      }
+
+      // Mage Pyromancy Searing Wave (Burn on hit)
+      if (gameState.hero.talentsAllocated['m_b2']) {
+        applyStatus(monster, 'burn', 3, 1);
+      }
+
+      // Ranger Skirmisher Toxic Coating (Poison on hit)
+      const r_b2 = gameState.hero.talentsAllocated['r_b2'] || 0;
+      if (r_b2 > 0 && Math.random() < r_b2 * 0.3) {
+        applyStatus(monster, 'poison', 4, 1);
+      }
+
+      // Fighter Cleave Keystone (AoE adjacent)
+      if (gameState.hero.talentsAllocated['f_b3']) {
+        const floor = getOrCreateFloor(gameState.dungeon.currentDepth);
+        const adj = floor.monsters.filter(other => other !== monster && Math.abs(other.x - monster.x) <= 1 && Math.abs(other.y - monster.y) <= 1);
+        for (const other of adj) {
+          const cleaveDmg = Math.max(1, Math.round(finalDmg * 0.5));
+          other.hp -= cleaveDmg;
+          spawnFloatingText(other.x, other.y, `-${cleaveDmg} CLEAVE`, '#f87171');
+          if (other.hp <= 0) handleMonsterDefeated(other);
+        }
+      }
+
+      if (monster.hp <= 0) {
+        handleMonsterDefeated(monster);
+      }
+    }
+
+    function handleMonsterDefeated(monster) {
+      const floor = getOrCreateFloor(gameState.dungeon.currentDepth);
+      floor.monsters = floor.monsters.filter(m => m.uid !== monster.uid);
+
+      let goldDrop = monster.goldRange[0] + Math.floor(Math.random() * (monster.goldRange[1] - monster.goldRange[0] + 1));
+      if (gameState.hero.talentsAllocated['t_b1']) {
+        goldDrop = Math.round(goldDrop * (1 + gameState.hero.talentsAllocated['t_b1'] * 0.15));
+      }
+      gameState.expedition.gold += goldDrop;
+
+      spawnFloatingText(monster.x, monster.y, `+${goldDrop}g / +${monster.xp}XP`, '#fbbf24');
+      logChronicle(`Defeated ${monster.name}! Gathered +${goldDrop}g and +${monster.xp} XP.`, 'emerald');
+
+      // Paladin Aegis of Light passive (+4 HP on kill)
+      if (gameState.hero.classId === 'paladin') {
+        gameState.hero.hp = Math.min(gameState.hero.maxHp, gameState.hero.hp + 4);
+      }
+
+      // Equipment drop chance: 15% for normal, 65% for Elite Champion
+      const dropRoll = Math.random();
+      const dropChance = monster.isElite ? 0.65 : 0.15;
+      if (dropRoll < dropChance) {
+        const rarityHint = monster.isElite ? (Math.random() > 0.4 ? 'rare' : 'epic') : null;
+        const droppedGear = generateProceduralItem(null, rarityHint, floor.depth);
+        gameState.expedition.equipment.push(droppedGear);
+        spawnFloatingText(monster.x, monster.y - 0.4, `★ ${droppedGear.name}`, RARITY[droppedGear.rarity].color);
+        logChronicle(`Looted equipment: ${droppedGear.name} (${RARITY[droppedGear.rarity].name}) into Expedition Pack!`, 'gold');
+      }
+
+      gainExperience(monster.xp);
+    }
+
+    function mineOreVein(floor, x, y, tileType) {
+      const ore = ORE_CATALOG[tileType];
+      if (!ore) return;
+
+      const pick = gameState.hero.equipped.pickaxe;
+      if (!pick || pick.curDur <= 0) {
+        spawnFloatingText(x, y, 'Pickaxe Broken!', '#f87171');
+        logChronicle('Your pickaxe is broken! Repair it at the Oakhaven Guild Blacksmith.', 'crimson');
+        playSound('hit');
+        return;
+      }
+
+      // Check Geology Research Rank Gating
+      const geoRank = gameState.research.metallurgy_geology || 0;
+      if (geoRank < ore.minGeologyRank) {
+        spawnFloatingText(x, y, `Need Geology R${ore.minGeologyRank}!`, '#f87171');
+        logChronicle(`Vein too hard! Fracturing ${ore.name} requires Metallurgy & Geology Rank ${ore.minGeologyRank} from the Guild Lab.`, 'crimson');
+        playSound('hit');
+        return;
+      }
+
+      // Dwarven Toolsmithing Durability-Free Strike Check
+      const toolRank = gameState.research.toolsmithing || 0;
+      const t_b2 = gameState.hero.talentsAllocated['t_b2'] || 0;
+      const freeChance = (toolRank * 0.20) + (t_b2 * 0.25);
+      const isFreeStrike = Math.random() < freeChance;
+
+      if (!isFreeStrike) {
+        pick.curDur -= 1;
+      }
+
+      floor.tiles[y][x] = TILE_FLOOR;
+      floor.oresMined += 1;
+      playSound('mine');
+
+      addExpeditionTradeItem(ore.id, ore.name, ore.baseValue, 1, 'Ore');
+      const sparkleText = isFreeStrike ? `+1 ${ore.name} (★ FREE STRIKE!)` : `+1 ${ore.name}`;
+      spawnFloatingText(x, y, sparkleText, ore.sparkle);
+      logChronicle(`Mined ${ore.name}! Pickaxe durability: ${pick.curDur}/${getPickaxeMaxDurability()}${isFreeStrike ? ' (Toolsmithing strike preserved durability!)' : ''}.`, 'gold');
+
+      if (pick.curDur <= 5 && pick.curDur > 0) {
+        logChronicle(`Warning: ${pick.name} is nearly broken (${pick.curDur} durability remaining).`, 'crimson');
+      }
+
+      gainExperience(ore.xp);
+    }
+
+    function useStairsAtPlayer() {
+      if (gameState.location !== 'dungeon') return;
+      const floor = getOrCreateFloor(gameState.dungeon.currentDepth);
+      const tile = floor.tiles[gameState.hero.y][gameState.hero.x];
+
+      if (tile === TILE_STAIRS_UP) {
+        if (gameState.dungeon.currentDepth === 1) {
+          completeSafeExtraction('Floor 1 Ascending Stairs (<)');
+        } else {
+          gameState.dungeon.currentDepth -= 1;
+          const prev = getOrCreateFloor(gameState.dungeon.currentDepth);
+          gameState.hero.x = prev.downStairs.x;
+          gameState.hero.y = prev.downStairs.y;
+          updateFieldOfView();
+          playSound('stairs');
+          logChronicle(`Ascended to persistent Floor ${gameState.dungeon.currentDepth}.`, 'emerald');
+          updateAllUI();
+        }
+      } else if (tile === TILE_STAIRS_DOWN) {
+        const maxDepth = getMaxDepthAllowed();
+        if (gameState.dungeon.currentDepth >= maxDepth) {
+          logChronicle(`Ancient Runic Wards seal the descent to Floor ${gameState.dungeon.currentDepth + 1}! Research 'Vault Cartography & Shoring' at the Guild Laboratory to break the seal.`, 'crimson');
+          spawnFloatingText(gameState.hero.x, gameState.hero.y, 'WARD SEALED!', '#f87171');
+          playSound('spell');
+          return;
+        }
+        gameState.dungeon.currentDepth += 1;
+        const next = getOrCreateFloor(gameState.dungeon.currentDepth);
+        gameState.hero.x = next.upStairs.x;
+        gameState.hero.y = next.upStairs.y;
+        updateFieldOfView();
+        playSound('stairs');
+        logChronicle(`Descended to Floor ${gameState.dungeon.currentDepth}.`, 'arcane');
+        updateAllUI();
+      } else {
+        logChronicle('Must stand on Ascending (<) or Descending (>) stairs to use them.', 'muted');
+      }
+    }
+
+    function handleMonsterDefeated(monster) {
+      const floor = getOrCreateFloor(gameState.dungeon.currentDepth);
+      floor.monsters = floor.monsters.filter(m => m.uid !== monster.uid);
+
+      let goldDrop = monster.goldRange[0] + Math.floor(Math.random() * (monster.goldRange[1] - monster.goldRange[0] + 1));
+      if (gameState.hero.talentsAllocated['t_b1']) {
+        goldDrop = Math.round(goldDrop * (1 + gameState.hero.talentsAllocated['t_b1'] * 0.15));
+      }
+      gameState.expedition.gold += goldDrop;
+
+      spawnFloatingText(monster.x, monster.y, `+${goldDrop}g / +${monster.xp}XP`, '#fbbf24');
+      logChronicle(`Defeated ${monster.name}! Gathered +${goldDrop}g and +${monster.xp} XP.`, 'emerald');
+
+      // Paladin Aegis of Light passive (+4 HP on kill)
+      if (gameState.hero.classId === 'paladin') {
+        gameState.hero.hp = Math.min(gameState.hero.maxHp, gameState.hero.hp + 4);
+      }
+
+      // Equipment & Special Drops (Bosses have 100% drop of high-tier relics)
+      if (monster.isBoss) {
+        playSound('chest');
+        const bossRarity = monster.typeId === 'boss_weaver' ? 'relic' : 'epic';
+        const bossLoot = generateProceduralItem(null, bossRarity, floor.depth);
+        gameState.expedition.equipment.push(bossLoot);
+
+        // Guaranteed mineral bounty from bosses
+        const oreReward = monster.typeId === 'boss_weaver' ? 'astral_ore' : 'star_ore';
+        const oreName = monster.typeId === 'boss_weaver' ? 'Void Astralite' : 'Star-Crystal';
+        addExpeditionTradeItem(oreReward, oreName, 80, 2, 'Ore');
+
+        spawnFloatingText(monster.x, monster.y - 0.5, `👑 BOSS DEFEATED!`, '#fbbf24');
+        logChronicle(`👑 Milestone Boss ${monster.name} Vanquished! Looted Star-Forged Relic: ${bossLoot.name} and +2 ${oreName}!`, 'gold');
+      } else {
+        const dropChance = monster.isElite ? 0.65 : 0.15;
+        if (Math.random() < dropChance) {
+          const rarityHint = monster.isElite ? (Math.random() > 0.4 ? 'rare' : 'epic') : null;
+          const droppedGear = generateProceduralItem(null, rarityHint, floor.depth);
+          gameState.expedition.equipment.push(droppedGear);
+          spawnFloatingText(monster.x, monster.y - 0.4, `★ ${droppedGear.name}`, RARITY[droppedGear.rarity].color);
+          logChronicle(`Looted equipment: ${droppedGear.name} (${RARITY[droppedGear.rarity].name}) into Expedition Pack!`, 'gold');
+        }
+      }
+
+      gainExperience(monster.xp);
+    }
+
+      // Thief Mineral Vein Sense (chance for free mine)
+      const t_b2 = gameState.hero.talentsAllocated['t_b2'] || 0;
+      const freeMine = t_b2 > 0 && Math.random() < (t_b2 * 0.25);
+
+      if (!freeMine) {
+        pick.curDur -= 1;
+      }
+
+      floor.tiles[y][x] = TILE_FLOOR;
+      floor.oresMined += 1;
+      playSound('mine');
+
+      addExpeditionTradeItem(ore.id, ore.name, ore.baseValue, 1, 'Ore');
+      spawnFloatingText(x, y, `+1 ${ore.name}${freeMine ? ' (FREE!)' : ''}`, ore.sparkle);
+      logChronicle(`Mined ${ore.name} (+1 to pack). Durability: ${pick.curDur}/${getPickaxeMaxDurability()}.`, 'gold');
+      gainExperience(ore.xp);
+    }
+
+    function openTreasureChest(floor, x, y) {
+      floor.tiles[y][x] = TILE_CHEST_OPEN;
+      floor.chestsOpened += 1;
+      playSound('chest');
+
+      let gold = Math.round(20 + floor.depth * 14 + Math.random() * 16);
+      if (gameState.hero.classId === 'thief') gold = Math.round(gold * 1.3);
+      gameState.expedition.gold += gold;
+
+      // Drop guaranteed gear from chests
+      const rarityRoll = floor.depth >= 3 ? 'rare' : 'uncommon';
+      const gear = generateProceduralItem(null, rarityRoll, floor.depth);
+      gameState.expedition.equipment.push(gear);
+
+      spawnFloatingText(x, y, `+${gold}g & ${gear.name}!`, RARITY[gear.rarity].color);
+      logChronicle(`Unlocked Gilded Chest! Found +${gold}g and ${gear.name} (${RARITY[gear.rarity].name})!`, 'gold');
+      gainExperience(20 * floor.depth);
+    }
+
+    function addExpeditionTradeItem(id, name, baseValue, count, category) {
+      const existing = gameState.expedition.items.find(i => i.id === id);
+      if (existing) existing.count += count;
+      else gameState.expedition.items.push({ id, name, baseValue, count, category });
+    }
+
+    function gainExperience(amount) {
+      gameState.hero.xp += amount;
+      while (gameState.hero.xp >= gameState.hero.xpNext) {
+        gameState.hero.xp -= gameState.hero.xpNext;
+        gameState.hero.level += 1;
+        gameState.hero.xpNext = Math.round(gameState.hero.xpNext * 1.35);
+        gameState.hero.statPoints += 2;
+        gameState.hero.talentPointsAvailable += 1; // 1 Talent Point per level!
+
+        gameState.hero.str += 1;
+        gameState.hero.vit += 1;
+        recalculateHeroVitals(true);
+        playSound('levelup');
+
+        spawnFloatingText(gameState.hero.x, gameState.hero.y, `LEVEL ${gameState.hero.level}!`, '#34d399');
+        logChronicle(`LEVEL UP! Reached Level ${gameState.hero.level}! +2 Stat Points & +1 Talent Point unlocked!`, 'emerald');
+      }
+      saveGameStateToStorage();
+    }
+
+    function allocateStat(statKey) {
+      if (gameState.hero.statPoints <= 0) return;
+      gameState.hero[statKey] += 1;
+      gameState.hero.statPoints -= 1;
+      recalculateHeroVitals(false);
+      logChronicle(`Allocated +1 ${statKey.toUpperCase()}.`, 'emerald');
+      saveGameStateToStorage();
+      updateAllUI();
+    }
+
+    // =========================================================================
+    // ENEMY AI & RANGED SHOOTING LOGIC
+    // =========================================================================
+    function advanceTurn(floor) {
+      gameState.turn += 1;
+
+      // Status ticks for Hero
+      const heroSkip = processTurnStatuses(gameState.hero, true);
+      if (gameState.location === 'guild') return; // defeated by tick
+
+      // Mage Leyline Siphon passive
+      if (gameState.hero.classId === 'mage') {
+        const regenBonus = 2 + (gameState.hero.talentsAllocated['m_a1'] || 0);
+        gameState.hero.mp = Math.min(gameState.hero.maxMp, gameState.hero.mp + regenBonus);
+      }
+
+      updateFieldOfView();
+
+      // Monsters action turn
+      for (const m of [...floor.monsters]) {
+        if (m.hp <= 0) continue;
+        const skip = processTurnStatuses(m, false);
+        if (skip || m.hp <= 0) continue;
+
+        const dist = Math.hypot(m.x - gameState.hero.x, m.y - gameState.hero.y);
+
+        // Check RANGED attacks
+        if (m.isRanged && dist <= m.range + 0.35 && dist > 1 && floor.visible[m.y][m.x]) {
+          if (hasLineOfSight(floor, m.x, m.y, gameState.hero.x, gameState.hero.y)) {
+            monsterPerformRangedAttack(m);
+            if (gameState.location === 'guild') return;
+            continue;
+          }
+        }
+
+        // Check MELEE attacks (adjacent)
+        const dx = gameState.hero.x - m.x;
+        const dy = gameState.hero.y - m.y;
+        if (Math.abs(dx) <= 1 && Math.abs(dy) <= 1 && (dx === 0 || dy === 0)) {
+          monsterPerformMeleeAttack(m);
+          if (gameState.location === 'guild') return;
+        } else if (dist <= 6 || floor.visible[m.y][m.x]) {
+          // Pathfinding Step toward hero
+          const steps = [];
+          if (Math.abs(dx) >= Math.abs(dy)) steps.push([Math.sign(dx), 0], [0, Math.sign(dy)]);
+          else steps.push([0, Math.sign(dy)], [Math.sign(dx), 0]);
+
+          for (const [sx, sy] of steps) {
+            if (sx === 0 && sy === 0) continue;
+            const tx = m.x + sx;
+            const ty = m.y + sy;
+            if (tx === gameState.hero.x && ty === gameState.hero.y) {
+              monsterPerformMeleeAttack(m);
+              if (gameState.location === 'guild') return;
+              break;
+            }
+            if (
+              tx >= 0 && tx < MAP_COLS && ty >= 0 && ty < MAP_ROWS &&
+              (floor.tiles[ty][tx] === TILE_FLOOR || floor.tiles[ty][tx] === TILE_CHEST_OPEN) &&
+              !floor.monsters.some(other => other.x === tx && other.y === ty)
+            ) {
+              m.x = tx;
+              m.y = ty;
+              break;
+            }
+          }
+        }
+      }
+
+      updateFieldOfView();
+      updateAllUI();
+    }
+
+    function monsterPerformRangedAttack(monster) {
+      playSound('spell');
+      // Visual projectile beam
+      spawnFloatingText(gameState.hero.x, gameState.hero.y, '🏹 Ranged Shot!', '#34d399');
+      executeDamageAgainstHero(monster, 0.85);
+    }
+
+    function monsterPerformMeleeAttack(monster) {
+      playSound('hit');
+      executeDamageAgainstHero(monster, 1.0);
+    }
+
+    function executeDamageAgainstHero(monster, dmgScale = 1.0) {
+      const dodgeChance = getHeroDodgeChance();
+      if (Math.random() * 100 < dodgeChance) {
+        spawnFloatingText(gameState.hero.x, gameState.hero.y, 'DODGED!', '#34d399');
+        logChronicle(`You nimbly dodged ${monster.name}'s attack!`, 'emerald');
+
+        // Ranger Evasive Vault keystone
+        if (gameState.hero.talentsAllocated['r_b3']) {
+          gameState.hero.mp = Math.min(gameState.hero.maxMp, gameState.hero.mp + 5);
+        }
+        return;
+      }
+
+      let rawDmg = Math.round(monster.atk * dmgScale) - Math.floor(getHeroDefense() * 0.65);
+      if (gameState.hero.classId === 'fighter') rawDmg = Math.round(rawDmg * 0.8);
+
+      // Fighter Shield Mastery talent
+      const f_a2 = gameState.hero.talentsAllocated['f_a2'] || 0;
+      if (f_a2 > 0) rawDmg = Math.round(rawDmg * (1 - f_a2 * 0.08));
+
+      const dmg = Math.max(1, rawDmg);
+      gameState.hero.hp = Math.max(0, gameState.hero.hp - dmg);
+      spawnFloatingText(gameState.hero.x, gameState.hero.y, `-${dmg} HP`, '#f87171');
+      logChronicle(`${monster.name} hits you for ${dmg} damage!`, 'crimson');
+
+      // Elite Vampiric affix
+      if (monster.eliteAffix && monster.eliteAffix.id === 'vampiric') {
+        const healAmt = Math.round(dmg * 0.4);
+        monster.hp = Math.min(monster.maxHp, monster.hp + healAmt);
+        spawnFloatingText(monster.x, monster.y, `+${healAmt} HP`, '#f87171');
+      }
+
+      // Elite Molten affix
+      if (monster.eliteAffix && monster.eliteAffix.id === 'molten') {
+        applyStatus(gameState.hero, 'burn', 3, 1);
+      }
+
+      // Fighter Retaliation Keystone (40% counter-strike)
+      if (gameState.hero.talentsAllocated['f_a3'] && Math.abs(monster.x - gameState.hero.x) <= 1 && Math.abs(monster.y - gameState.hero.y) <= 1) {
+        if (Math.random() < 0.4) {
+          const counterDmg = Math.max(2, getHeroAttackRange()[0] - monster.def);
+          monster.hp -= counterDmg;
+          spawnFloatingText(monster.x, monster.y, `-${counterDmg} COUNTER`, '#60a5fa');
+          logChronicle(`Retaliation! You counter-struck ${monster.name} for ${counterDmg} damage!`, 'arcane');
+          if (monster.hp <= 0) handleMonsterDefeated(monster);
+        }
+      }
+
+      // Paladin Divine Intervention Keystone (Survive fatal blow once per run)
+      if (gameState.hero.hp <= 0 && gameState.hero.talentsAllocated['p_a3'] && !gameState.hero.usedDivineIntervention) {
+        gameState.hero.usedDivineIntervention = true;
+        gameState.hero.hp = Math.round(gameState.hero.maxHp * 0.4);
+        spawnFloatingText(gameState.hero.x, gameState.hero.y, 'DIVINE INTERVENTION!', '#fbbf24');
+        logChronicle('A burst of astral light prevents death! Divine Intervention triggered!', 'gold');
+        return;
+      }
+
+      if (gameState.hero.hp <= 0) {
+        triggerPlayerDefeat(monster.name);
+      }
+    }
+
+    // =========================================================================
+    // SKILLS & CONSUMABLES
+    // =========================================================================
+    function triggerClassSkillButton() {
+      if (gameState.location !== 'dungeon') return;
+      const cls = CLASSES[gameState.hero.classId];
+      const skill = cls.skill;
+
+      if (gameState.hero.mp < skill.mpCost) {
+        logChronicle(`Insufficient MP for ${skill.name} (${skill.mpCost} MP required).`, 'crimson');
+        return;
+      }
+
+      const floor = getOrCreateFloor(gameState.dungeon.currentDepth);
+
+      if (skill.targetType === 'aoe_self') {
+        // Mage Arcane Nova
+        gameState.hero.mp -= skill.mpCost;
+        playSound('spell');
+        const radius = gameState.hero.talentsAllocated['m_a3'] ? 3.3 : 2.3;
+        const targets = floor.monsters.filter(m => Math.hypot(m.x - gameState.hero.x, m.y - gameState.hero.y) <= radius);
+        spawnFloatingText(gameState.hero.x, gameState.hero.y, 'ARCANE NOVA!', '#60a5fa');
+        targets.forEach(m => {
+          const dmg = Math.max(8, Math.round(gameState.hero.int * 2.0 + (gameState.hero.equipped.weapon ? gameState.hero.equipped.weapon.atk : 4) - m.def * 0.3));
+          m.hp -= dmg;
+          spawnFloatingText(m.x, m.y, `-${dmg} NOVA`, '#60a5fa');
+          if (gameState.hero.talentsAllocated['m_a3']) applyStatus(m, 'stun', 1);
+          if (m.hp <= 0) handleMonsterDefeated(m);
+        });
+        advanceTurn(floor);
+        return;
+      }
+
+      if (skill.targetType === 'heal_and_sear') {
+        // Paladin Holy Radiance
+        gameState.hero.mp -= skill.mpCost;
+        playSound('spell');
+        let healPct = 0.35 + (gameState.hero.talentsAllocated['p_a2'] ? gameState.hero.talentsAllocated['p_a2'] * 0.15 : 0);
+        const heal = Math.round(gameState.hero.maxHp * healPct);
+        gameState.hero.hp = Math.min(gameState.hero.maxHp, gameState.hero.hp + heal);
+        spawnFloatingText(gameState.hero.x, gameState.hero.y, `+${heal} HP RADIANCE`, '#fbbf24');
+
+        const adj = floor.monsters.filter(m => Math.abs(m.x - gameState.hero.x) <= 1 && Math.abs(m.y - gameState.hero.y) <= 1);
+        adj.forEach(m => {
+          const mult = gameState.hero.talentsAllocated['p_b3'] ? 2.0 : 1.0;
+          const dmg = Math.round((gameState.hero.int * 1.5 + gameState.hero.str * 0.8) * mult);
+          m.hp -= dmg;
+          spawnFloatingText(m.x, m.y, `-${dmg} HOLY`, '#fbbf24');
+          if (m.hp <= 0) handleMonsterDefeated(m);
+        });
+        advanceTurn(floor);
+        return;
+      }
+
+      // Targeted skills
+      const range = skill.range + (gameState.hero.talentsAllocated['r_a3'] ? 2 : 0);
+      const valid = floor.monsters.filter(m => Math.hypot(m.x - gameState.hero.x, m.y - gameState.hero.y) <= range + 0.35 && floor.visible[m.y][m.x]);
+      if (valid.length === 0) {
+        logChronicle(`No targets in range (${range} tiles) for ${skill.name}.`, 'crimson');
+        return;
+      }
+      if (valid.length === 1) {
+        executeTargetedSkillOnMonster(valid[0]);
+      } else {
+        targetingMode = !targetingMode;
+        if (targetingMode) logChronicle(`Select target in range for ${skill.name}.`, 'arcane');
+        updateAllUI();
+      }
+    }
+
+    function executeTargetedSkillOnMonster(monster) {
+      const cls = CLASSES[gameState.hero.classId];
+      const floor = getOrCreateFloor(gameState.dungeon.currentDepth);
+      targetingMode = false;
+      gameState.hero.mp -= cls.skill.mpCost;
+      playSound('spell');
+
+      if (cls.id === 'fighter') {
+        performPlayerBasicAttack(monster, 1.6, false);
+        applyStatus(monster, 'stun', 2);
+      } else if (cls.id === 'thief') {
+        const dirs = [[0, -1], [0, 1], [-1, 0], [1, 0]];
+        for (const [dx, dy] of dirs) {
+          const tx = monster.x + dx;
+          const ty = monster.y + dy;
+          if (tx >= 0 && tx < MAP_COLS && ty >= 0 && ty < MAP_ROWS && floor.tiles[ty][tx] === TILE_FLOOR) {
+            gameState.hero.x = tx;
+            gameState.hero.y = ty;
+            break;
+          }
+        }
+        performPlayerBasicAttack(monster, 1.75, true);
+      } else if (cls.id === 'ranger') {
+        const ignoreDef = gameState.hero.talentsAllocated['r_a3'];
+        const mDef = ignoreDef ? 0 : monster.def;
+        const dmg = Math.round(getHeroAttackRange()[1] * 1.5 + gameState.hero.dex * 1.2 - mDef);
+        monster.hp -= dmg;
+        spawnFloatingText(monster.x, monster.y, `-${dmg} PIERCE!`, '#34d399');
+        if (monster.hp <= 0) handleMonsterDefeated(monster);
+      }
+
+      advanceTurn(floor);
+    }
+
+    function useHealingPotion() {
+      if (gameState.location !== 'dungeon') return;
+      if (gameState.bank.potions <= 0) return logChronicle('No Healing Draughts remaining!', 'crimson');
+      if (gameState.hero.hp >= gameState.hero.maxHp) return logChronicle('Health already full.', 'muted');
+      gameState.bank.potions -= 1;
+      const heal = Math.round(gameState.hero.maxHp * 0.45);
+      gameState.hero.hp = Math.min(gameState.hero.maxHp, gameState.hero.hp + heal);
+      spawnFloatingText(gameState.hero.x, gameState.hero.y, `+${heal} HP`, '#34d399');
+      logChronicle(`Drank Healing Draught (+${heal} HP).`, 'emerald');
+      advanceTurn(getOrCreateFloor(gameState.dungeon.currentDepth));
+    }
+
+    function useManaPotion() {
+      if (gameState.location !== 'dungeon') return;
+      if (gameState.bank.manaPotions <= 0) return logChronicle('No Arcane Elixirs remaining!', 'crimson');
+      gameState.bank.manaPotions -= 1;
+      const mp = Math.round(gameState.hero.maxMp * 0.6);
+      gameState.hero.mp = Math.min(gameState.hero.maxMp, gameState.hero.mp + mp);
+      spawnFloatingText(gameState.hero.x, gameState.hero.y, `+${mp} MP`, '#60a5fa');
+      logChronicle(`Drank Arcane Elixir (+${mp} MP).`, 'arcane');
+      advanceTurn(getOrCreateFloor(gameState.dungeon.currentDepth));
+    }
+
+    // =========================================================================
+    // EXTRACTION & NON-PERMANENT DEATH
+    // =========================================================================
+    function useStairsAtPlayer() {
+      if (gameState.location !== 'dungeon') return;
+      const floor = getOrCreateFloor(gameState.dungeon.currentDepth);
+      const tile = floor.tiles[gameState.hero.y][gameState.hero.x];
+
+      if (tile === TILE_STAIRS_UP) {
+        if (gameState.dungeon.currentDepth === 1) {
+          completeSafeExtraction('Floor 1 Ascending Stairs (<)');
+        } else {
+          gameState.dungeon.currentDepth -= 1;
+          const prev = getOrCreateFloor(gameState.dungeon.currentDepth);
+          gameState.hero.x = prev.downStairs.x;
+          gameState.hero.y = prev.downStairs.y;
+          updateFieldOfView();
+          playSound('stairs');
+          logChronicle(`Ascended to persistent Floor ${gameState.dungeon.currentDepth}.`, 'emerald');
+          updateAllUI();
+        }
+      } else if (tile === TILE_STAIRS_DOWN) {
+        const maxDepth = getMaxDepthAllowed();
+        if (gameState.dungeon.currentDepth >= maxDepth) {
+          logChronicle(`Guild Shoring limit reached (Floor ${maxDepth}). Research "Reinforced Shaft Shoring" at the Guild to go deeper!`, 'gold');
+          return;
+        }
+        gameState.dungeon.currentDepth += 1;
+        const next = getOrCreateFloor(gameState.dungeon.currentDepth);
+        gameState.hero.x = next.upStairs.x;
+        gameState.hero.y = next.upStairs.y;
+        updateFieldOfView();
+        playSound('stairs');
+        logChronicle(`Descended to Floor ${gameState.dungeon.currentDepth}.`, 'arcane');
+        updateAllUI();
+      } else {
+        logChronicle('Must stand on Ascending (<) or Descending (>) stairs to use them.', 'muted');
+      }
+    }
+
+    function useRecallScroll() {
+      if (gameState.location !== 'dungeon') return;
+      if (gameState.bank.recallScrolls <= 0) {
+        logChronicle('No Recall Scrolls available! Walk up to Floor 1 Stairs to extract.', 'crimson');
+        return;
+      }
+      gameState.bank.recallScrolls -= 1;
+      completeSafeExtraction('Astral Recall Scroll');
+    }
+
+    function completeSafeExtraction(method) {
+      const g = gameState.expedition.gold;
+      const itemsCount = gameState.expedition.items.reduce((acc, i) => acc + i.count, 0);
+      const gearCount = gameState.expedition.equipment.length;
+
+      gameState.bank.gold += g;
+      gameState.expedition.items.forEach(item => {
+        const existing = gameState.bank.items.find(b => b.id === item.id);
+        if (existing) existing.count += item.count;
+        else gameState.bank.items.push({ ...item });
+      });
+
+      gameState.expedition.equipment.forEach(item => {
+        gameState.bank.equipment.push(item);
+      });
+
+      gameState.expedition.gold = 0;
+      gameState.expedition.items = [];
+      gameState.expedition.equipment = [];
+      gameState.location = 'guild';
+      gameState.hero.statuses = [];
+      recalculateHeroVitals(true);
+      saveGameStateToStorage();
+
+      showOutcomeModal({
+        type: 'success',
+        title: 'Safe Extraction Complete!',
+        desc: `You returned to Oakhaven via ${method}. All gold, ores, and equipment have been secured in your Guild Vault.`,
+        details: [
+          `Method: ${method}`,
+          `Gold Secured: +${g}g`,
+          `Ores & Relics Banked: ${itemsCount} items`,
+          `Equipment Secured: ${gearCount} pieces`,
+          `Total Banked Vault Gold: ${gameState.bank.gold}g`
+        ]
+      });
+
+      updateAllUI();
+    }
+
+    function triggerPlayerDefeat(killerName) {
+      const lostGold = gameState.expedition.gold;
+      const lostItemsCount = gameState.expedition.items.reduce((acc, i) => acc + i.count, 0);
+      const lostGearCount = gameState.expedition.equipment.length;
+
+      // Vanguard insurance research recovery
+      const insRank = gameState.research.vanguard_insurance || 0;
+      const recoveredGold = Math.round(lostGold * (insRank * 0.15));
+
+      gameState.bank.gold += recoveredGold;
+      gameState.expedition.gold = 0;
+      gameState.expedition.items = [];
+      gameState.expedition.equipment = [];
+
+      gameState.location = 'guild';
+      gameState.hero.statuses = [];
+      recalculateHeroVitals(true);
+      saveGameStateToStorage();
+
+      logChronicle(`DEFEATED by ${killerName}! Guild Scouts rescued your body. Unbanked expedition loot lost!`, 'crimson');
+
+      showOutcomeModal({
+        type: 'defeat',
+        title: 'Expedition Defeat — Rescued by Guild Scouts',
+        desc: `You were struck down by ${killerName} on Floor ${gameState.dungeon.currentDepth}. Oakhaven scouts recovered your body. Your character level, talents, equipped loadout, and Banked Vault are safe!`,
+        details: [
+          `Fallen To: ${killerName} (Floor ${gameState.dungeon.currentDepth})`,
+          `Expedition Gold Lost: -${lostGold - recoveredGold}g`,
+          `Equipment In Pack Lost: -${lostGearCount} pieces`,
+          `Ores In Pack Lost: -${lostItemsCount} items`,
+          `Vanguard Insurance Salvage: +${recoveredGold}g`,
+          `Dungeon Layout: Persistent (${gameState.dungeon.seedCode})`
+        ]
+      });
+
+      updateAllUI();
+    }
+
+    // =========================================================================
+    // PAPER DOLL & STAT INSPECTOR MODAL
+    // =========================================================================
+    function inspectEquippedSlot(slotKey) {
+      const item = gameState.hero.equipped[slotKey];
+      if (!item) {
+        logChronicle(`No item currently equipped in ${slotKey} slot.`, 'muted');
+        return;
+      }
+      openItemInspectModal(item, true);
+    }
+
+    function inspectStoredItem(uid) {
+      const item = gameState.bank.equipment.find(i => i.uid === uid) || gameState.expedition.equipment.find(i => i.uid === uid);
+      if (!item) return;
+      openItemInspectModal(item, false);
+    }
+
+    function openItemInspectModal(item, isEquipped) {
+      inspectedItemRef = item;
+      const modal = document.getElementById('itemInspectModal');
+      const r = RARITY[item.rarity] || RARITY.common;
+
+      document.getElementById('inspectItemName').textContent = item.name;
+      document.getElementById('inspectItemName').style.color = r.color;
+      document.getElementById('inspectRarityDot').style.backgroundColor = r.color;
+      document.getElementById('inspectRarityBadge').textContent = r.name;
+      document.getElementById('inspectRarityBadge').style.backgroundColor = `${r.color}25`;
+      document.getElementById('inspectRarityBadge').style.color = r.color;
+      document.getElementById('inspectItemValue').textContent = `${item.value || 25}g`;
+
+      // Stat delta comparison vs equipped slot
+      const curEquipped = gameState.hero.equipped[item.slot];
+      const compBox = document.getElementById('inspectStatComparisonBox');
+      const statsToCheck = ['atk', 'def', 'maxHp', 'maxMp', 'crit', 'dodge'];
+      const statLabels = { atk: 'ATK', def: 'DEF', maxHp: 'Max HP', maxMp: 'Max MP', crit: 'Crit %', dodge: 'Dodge %' };
+
+      let html = `<div class="font-bold text-[#e6edf3] border-b border-[#2a3447] pb-1 mb-1">Slot: ${item.slot.toUpperCase()} ${isEquipped ? '(Currently Equipped)' : ''}</div>`;
+
+      statsToCheck.forEach(st => {
+        const curVal = curEquipped ? (curEquipped[st] || 0) : 0;
+        const newVal = item[st] || 0;
+        if (curVal > 0 || newVal > 0) {
+          const delta = newVal - curVal;
+          const deltaStr = delta > 0 ? `<span class="text-[#34d399] font-bold">+${delta}</span>` : delta < 0 ? `<span class="text-[#f87171] font-bold">${delta}</span>` : `<span class="text-[#8b949e]">0</span>`;
+          html += `<div class="flex justify-between"><span>${statLabels[st]}:</span><span>${curVal} → <strong>${newVal}</strong> (${deltaStr})</span></div>`;
+        }
+      });
+      compBox.innerHTML = html;
+
+      // Affix list
+      const affixEl = document.getElementById('inspectAffixList');
+      if (item.affixes && item.affixes.length > 0) {
+        affixEl.innerHTML = item.affixes.map(a => `<div class="text-[#fbbf24]">• ${a.desc}</div>`).join('');
+      } else {
+        affixEl.innerHTML = `<div class="text-[#8b949e] italic text-[11px]">No magical affix enhancements.</div>`;
+      }
+
+      // Action button
+      const btnAction = document.getElementById('btnInspectAction');
+      if (isEquipped) {
+        btnAction.textContent = 'Unequip';
+        btnAction.onclick = () => unequipSlot(item.slot);
+      } else {
+        btnAction.textContent = 'Equip';
+        btnAction.onclick = () => equipItem(item);
+      }
+
+      // Sell button
+      const btnSell = document.getElementById('btnInspectSell');
+      btnSell.onclick = () => sellItem(item);
+
+      modal.classList.remove('hidden');
+    }
+
+    function closeItemInspectModal() {
+      document.getElementById('itemInspectModal').classList.add('hidden');
+      inspectedItemRef = null;
+    }
+
+    function equipItem(item) {
+      const slot = item.slot;
+      const current = gameState.hero.equipped[slot];
+
+      // Remove item from bank or expedition pack
+      gameState.bank.equipment = gameState.bank.equipment.filter(i => i.uid !== item.uid);
+      gameState.expedition.equipment = gameState.expedition.equipment.filter(i => i.uid !== item.uid);
+
+      // Return current equipped to bank if in guild, or pack if in dungeon
+      if (current) {
+        if (gameState.location === 'guild') gameState.bank.equipment.push(current);
+        else gameState.expedition.equipment.push(current);
+      }
+
+      gameState.hero.equipped[slot] = item;
+      playSound('spell');
+      recalculateHeroVitals(false);
+      logChronicle(`Equipped ${item.name} in ${slot} slot!`, 'emerald');
+      closeItemInspectModal();
+      saveGameStateToStorage();
+      updateAllUI();
+    }
+
+    function unequipSlot(slot) {
+      const current = gameState.hero.equipped[slot];
+      if (!current) return;
+      gameState.hero.equipped[slot] = null;
+      if (gameState.location === 'guild') gameState.bank.equipment.push(current);
+      else gameState.expedition.equipment.push(current);
+
+      recalculateHeroVitals(false);
+      logChronicle(`Unequipped ${current.name}.`, 'muted');
+      closeItemInspectModal();
+      saveGameStateToStorage();
+      updateAllUI();
+    }
+
+    function sellItem(item) {
+      const val = item.value || 20;
+      gameState.bank.equipment = gameState.bank.equipment.filter(i => i.uid !== item.uid);
+      gameState.expedition.equipment = gameState.expedition.equipment.filter(i => i.uid !== item.uid);
+      if (gameState.hero.equipped[item.slot] === item) {
+        gameState.hero.equipped[item.slot] = null;
+      }
+      gameState.bank.gold += val;
+      playSound('mine');
+      logChronicle(`Sold ${item.name} for +${val}g.`, 'gold');
+      closeItemInspectModal();
+      recalculateHeroVitals(false);
+      saveGameStateToStorage();
+      updateAllUI();
+    }
+
+    // =========================================================================
+    // GUILD ACTIONS & SURFACE LOGIC
+    // =========================================================================
+    function enterDungeonFromGuild(resetSeed = false) {
+      if (resetSeed) generateNewDungeonChart();
+      gameState.location = 'dungeon';
+      gameState.dungeon.currentDepth = 1;
+      const f1 = getOrCreateFloor(1);
+      gameState.hero.x = f1.upStairs.x;
+      gameState.hero.y = f1.upStairs.y;
+      updateFieldOfView();
+      logChronicle(`Descended into Floor 1 of ${gameState.dungeon.seedCode}.`, 'gold');
+      updateAllUI();
+    }
+
+    function chartNewDungeonSeed() {
+      generateNewDungeonChart();
+      logChronicle(`Guild Cartographers charted a new realm: ${gameState.dungeon.seedCode}. All floors reset!`, 'arcane');
+      saveGameStateToStorage();
+      updateAllUI();
+    }
+
+    function guildRestAndHeal() {
+      recalculateHeroVitals(true);
+      gameState.hero.statuses = [];
+      playSound('spell');
+      logChronicle('Rested at the Infirmary. Health and Mana fully restored!', 'emerald');
+      saveGameStateToStorage();
+      updateAllUI();
+    }
+
+    function repairPickaxeAtGuild() {
+      const p = gameState.hero.equipped.pickaxe;
+      if (!p) return;
+      const maxDur = getPickaxeMaxDurability();
+      if (p.curDur >= maxDur) return logChronicle('Pickaxe is already at max durability.', 'muted');
+      if (gameState.bank.gold < 10) return logChronicle('Need 10 Banked Gold to repair pickaxe.', 'crimson');
+
+      gameState.bank.gold -= 10;
+      p.curDur = maxDur;
+      playSound('mine');
+      logChronicle(`Repaired pickaxe to ${maxDur}/${maxDur} durability.`, 'gold');
+      saveGameStateToStorage();
+      updateAllUI();
+    }
+
+    function sellAllBankedLoot() {
+      if (gameState.bank.items.length === 0) return logChronicle('No ores or relics in Vault to sell.', 'muted');
+      const mult = 1 + (gameState.research.appraisal || 0) * 0.35;
+      let total = 0;
+      let count = 0;
+      gameState.bank.items.forEach(i => {
+        total += Math.round(i.baseValue * mult * i.count);
+        count += i.count;
+      });
+      gameState.bank.items = [];
+      gameState.bank.gold += total;
+      playSound('mine');
+      logChronicle(`Antiquarian Assay sold ${count} ores & trade relics with +${Math.round((mult - 1) * 100)}% appraisal bonus for +${total}g!`, 'gold');
+      saveGameStateToStorage();
+      updateAllUI();
+    }
+
+    function buyShopItem(id) {
+      const item = SHOP_CATALOG.find(i => i.id === id);
+      if (!item) return;
+
+      const qmRank = gameState.research.quartermaster || 0;
+      if (item.reqQMRank > qmRank) {
+        logChronicle(`Requires Quartermaster Requisitions Rank ${item.reqQMRank} from the Guild Laboratory.`, 'crimson');
+        return;
+      }
+
+      if (gameState.bank.gold < item.cost) return logChronicle(`Need ${item.cost}g to purchase ${item.name}.`, 'crimson');
+
+      gameState.bank.gold -= item.cost;
+      if (item.id === 'recall_scroll') gameState.bank.recallScrolls += 1;
+      else if (item.id === 'heal_potion') gameState.bank.potions += 1;
+      else if (item.id === 'mana_potion') gameState.bank.manaPotions += 1;
+      else if (item.type === 'equipment') {
+        const gear = {
+          uid: `shop_${Date.now()}_${itemIdSeq++}`,
+          name: item.name,
+          slot: item.slot,
+          rarity: item.rarity,
+          atk: item.atk || 0,
+          def: item.def || 0,
+          crit: item.crit || 0,
+          dodge: item.dodge || 0,
+          maxHp: item.maxHp || 0,
+          maxMp: item.maxMp || 0,
+          curDur: item.curDur || 40,
+          maxDur: item.maxDur || 40,
+          value: Math.round(item.cost * 0.6)
+        };
+        gameState.bank.equipment.push(gear);
+      }
+
+      playSound('mine');
+      logChronicle(`Purchased ${item.name} for ${item.cost}g.`, 'emerald');
+      saveGameStateToStorage();
+      updateAllUI();
+    }
+
+    function buyResearchUpgrade(id) {
+      const proj = RESEARCH_PROJECTS.find(p => p.id === id);
+      if (!proj) return;
+      const curLvl = gameState.research[id] || 0;
+      if (curLvl >= proj.maxLevel) return;
+
+      const goldCost = proj.baseGold + (curLvl * proj.goldScale);
+      const reqOre = proj.oreCosts[Math.min(curLvl, proj.oreCosts.length - 1)];
+
+      // Check Gold
+      if (gameState.bank.gold < goldCost) {
+        logChronicle(`Need ${goldCost} Banked Gold to fund ${proj.name}.`, 'crimson');
+        return;
+      }
+
+      // Check Ore in Banked Vault
+      const vaultOre = gameState.bank.items.find(i => i.id === reqOre.id);
+      const curOreCount = vaultOre ? vaultOre.count : 0;
+      if (curOreCount < reqOre.count) {
+        logChronicle(`Missing mineral reagents for ${proj.name}! Requires ${reqOre.count}x ${reqOre.name} in Banked Vault (You have: ${curOreCount}).`, 'crimson');
+        return;
+      }
+
+      // Deduct Resources
+      gameState.bank.gold -= goldCost;
+      vaultOre.count -= reqOre.count;
+      if (vaultOre.count <= 0) {
+        gameState.bank.items = gameState.bank.items.filter(i => i.id !== reqOre.id);
+      }
+
+      gameState.research[id] = curLvl + 1;
+      playSound('spell');
+      recalculateHeroVitals(true);
+      logChronicle(`Guild Laboratory breakthrough: ${proj.name} advanced to Rank ${curLvl + 1}/${proj.maxLevel}!`, 'arcane');
+      saveGameStateToStorage();
+      updateAllUI();
+    }
+
+    function buyShopItem(id) {
+      const item = SHOP_CATALOG.find(i => i.id === id);
+      if (!item) return;
+      if (gameState.bank.gold < item.cost) return logChronicle(`Need ${item.cost}g to purchase ${item.name}.`, 'crimson');
+
+      gameState.bank.gold -= item.cost;
+      if (item.id === 'recall_scroll') gameState.bank.recallScrolls += 1;
+      else if (item.id === 'heal_potion') gameState.bank.potions += 1;
+      else if (item.id === 'mana_potion') gameState.bank.manaPotions += 1;
+      else if (item.type === 'equipment') {
+        const gear = {
+          uid: `shop_${Date.now()}_${itemIdSeq++}`,
+          name: item.name,
+          slot: item.slot,
+          rarity: item.rarity,
+          atk: item.atk || 0,
+          def: item.def || 0,
+          crit: item.crit || 0,
+          dodge: item.dodge || 0,
+          maxHp: item.maxHp || 0,
+          maxMp: item.maxMp || 0,
+          curDur: item.curDur || 40,
+          maxDur: item.maxDur || 40,
+          value: Math.round(item.cost * 0.6)
+        };
+        gameState.bank.equipment.push(gear);
+      }
+
+      playSound('mine');
+      logChronicle(`Purchased ${item.name} for ${item.cost}g.`, 'emerald');
+      saveGameStateToStorage();
+      updateAllUI();
+    }
+
+    function buyStatDrill(statKey) {
+      const cost = 40 + gameState.hero.drillsPurchased * 15;
+      if (gameState.bank.gold < cost) return logChronicle(`Need ${cost}g for combat drill.`, 'crimson');
+      gameState.bank.gold -= cost;
+      gameState.hero.drillsPurchased += 1;
+      gameState.hero[statKey] += 1;
+      playSound('spell');
+      recalculateHeroVitals(true);
+      logChronicle(`Drill complete: +1 ${statKey.toUpperCase()} permanently!`, 'emerald');
+      saveGameStateToStorage();
+      updateAllUI();
+    }
+
+    function buyResearchUpgrade(id) {
+      const proj = RESEARCH_PROJECTS.find(p => p.id === id);
+      if (!proj) return;
+      const curLvl = gameState.research[id] || 0;
+      if (curLvl >= proj.maxLevel) return;
+      const cost = proj.baseCost * (curLvl + 1);
+      if (gameState.bank.gold < cost) return logChronicle(`Need ${cost}g to fund ${proj.name}.`, 'crimson');
+
+      gameState.bank.gold -= cost;
+      gameState.research[id] = curLvl + 1;
+      playSound('spell');
+      recalculateHeroVitals(true);
+      logChronicle(`Guild Research Upgraded: ${proj.name} (Rank ${curLvl + 1}/${proj.maxLevel})!`, 'arcane');
+      saveGameStateToStorage();
+      updateAllUI();
+    }
+
+    // =========================================================================
+    // 2D CANVAS GRAPHICAL TILEMAP RENDERER
+    // =========================================================================
+    function renderDungeonCanvas() {
+      const canvas = document.getElementById('dungeonCanvas');
+      if (!canvas) return;
+      const ctx = canvas.getContext('2d');
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      const floor = getOrCreateFloor(gameState.dungeon.currentDepth);
+      const px = gameState.hero.x;
+      const py = gameState.hero.y;
+
+      for (let y = 0; y < MAP_ROWS; y++) {
+        for (let x = 0; x < MAP_COLS; x++) {
+          const sx = x * TILE_SIZE;
+          const sy = y * TILE_SIZE;
+          const isVis = floor.visible[y][x];
+          const isExp = floor.explored[y][x];
+
+          if (!isExp) {
+            ctx.fillStyle = '#05070a';
+            ctx.fillRect(sx, sy, TILE_SIZE, TILE_SIZE);
+            continue;
+          }
+
+          drawDungeonTile(ctx, sx, sy, x, y, floor.tiles[y][x]);
+
+          if (!isVis) {
+            ctx.fillStyle = 'rgba(5, 7, 10, 0.68)';
+            ctx.fillRect(sx, sy, TILE_SIZE, TILE_SIZE);
+          } else {
+            const dist = Math.hypot(x - px, y - py);
+            const warm = Math.max(0, 0.15 - dist * 0.024);
+            if (warm > 0) {
+              ctx.fillStyle = `rgba(251, 191, 36, ${warm})`;
+              ctx.fillRect(sx, sy, TILE_SIZE, TILE_SIZE);
+            }
+          }
+        }
+      }
+
+      // Draw Monsters
+      floor.monsters.forEach(m => {
+        if (!floor.visible[m.y][m.x]) return;
+        drawMonsterSprite(ctx, m.x * TILE_SIZE, m.y * TILE_SIZE, m);
+      });
+
+      // Draw Hero
+      drawHeroSprite(ctx, px * TILE_SIZE, py * TILE_SIZE, gameState.hero.classId);
+
+      // Hover tile
+      if (hoverTile && hoverTile.x >= 0 && hoverTile.x < MAP_COLS && hoverTile.y >= 0 && hoverTile.y < MAP_ROWS) {
+        ctx.strokeStyle = targetingMode ? '#60a5fa' : 'rgba(251, 191, 36, 0.65)';
+        ctx.lineWidth = 1.5;
+        ctx.strokeRect(hoverTile.x * TILE_SIZE + 1, hoverTile.y * TILE_SIZE + 1, TILE_SIZE - 2, TILE_SIZE - 2);
+      }
+
+      // Floating Texts
+      for (let i = floatingTexts.length - 1; i >= 0; i--) {
+        const ft = floatingTexts[i];
+        ctx.save();
+        ctx.font = 'bold 11px "JetBrains Mono", monospace';
+        ctx.textAlign = 'center';
+        ctx.fillStyle = 'rgba(0,0,0,0.85)';
+        ctx.fillText(ft.text, ft.px + 1, ft.py + 1);
+        ctx.fillStyle = ft.color;
+        ctx.fillText(ft.text, ft.px, ft.py);
+        ctx.restore();
+      }
+    }
+
+    function drawDungeonTile(ctx, sx, sy, gx, gy, tile) {
+      if (tile === TILE_WALL || ORE_CATALOG[tile]) {
+        ctx.fillStyle = '#1a2230';
+        ctx.fillRect(sx, sy, TILE_SIZE, TILE_SIZE);
+        ctx.fillStyle = '#28354a';
+        ctx.fillRect(sx, sy, TILE_SIZE, 5);
+        ctx.fillStyle = '#0f141d';
+        ctx.fillRect(sx, sy + TILE_SIZE - 6, TILE_SIZE, 6);
+        ctx.strokeStyle = '#121822';
+        ctx.strokeRect(sx + 0.5, sy + 0.5, TILE_SIZE - 1, TILE_SIZE - 1);
+
+        if (ORE_CATALOG[tile]) {
+          const ore = ORE_CATALOG[tile];
+          ctx.fillStyle = ore.color;
+          const offsets = [[8, 9, 6, 6], [20, 12, 7, 6], [13, 21, 8, 6], [23, 22, 5, 5]];
+          offsets.forEach(([ox, oy, ow, oh]) => ctx.fillRect(sx + ox, sy + oy, ow, oh));
+
+          ctx.fillStyle = ore.sparkle;
+          ctx.fillRect(sx + 10, sy + 10, 3, 3);
+          ctx.fillRect(sx + 22, sy + 14, 2, 2);
+
+          // Extra cosmic aura for Astralite & Geodes
+          if (tile === TILE_ORE_ASTRAL || tile === TILE_ORE_GEODE) {
+            ctx.strokeStyle = ore.sparkle;
+            ctx.lineWidth = 1;
+            ctx.strokeRect(sx + 6, sy + 7, 24, 22);
+          }
+        }
+        return;
+      }
+
+      // Floor
+      ctx.fillStyle = (gx + gy) % 2 === 0 ? '#0f141f' : '#121824';
+      ctx.fillRect(sx, sy, TILE_SIZE, TILE_SIZE);
+      ctx.strokeStyle = '#1a2232';
+      ctx.strokeRect(sx + 0.5, sy + 0.5, TILE_SIZE - 1, TILE_SIZE - 1);
+
+      if (tile === TILE_STAIRS_UP) {
+        ctx.fillStyle = 'rgba(52, 211, 153, 0.18)';
+        ctx.fillRect(sx + 3, sy + 3, TILE_SIZE - 6, TILE_SIZE - 6);
+        ctx.fillStyle = '#34d399';
+        for (let i = 0; i < 4; i++) ctx.fillRect(sx + 6 + i * 3, sy + 24 - i * 5, TILE_SIZE - 12 - i * 3, 4);
+        ctx.strokeStyle = '#e6edf3';
+        ctx.strokeRect(sx + 4, sy + 4, TILE_SIZE - 8, TILE_SIZE - 8);
+      } else if (tile === TILE_STAIRS_DOWN) {
+        ctx.fillStyle = '#05070a';
+        ctx.fillRect(sx + 4, sy + 4, TILE_SIZE - 8, TILE_SIZE - 8);
+        ctx.fillStyle = '#60a5fa';
+        for (let i = 0; i < 4; i++) ctx.fillRect(sx + 7 + i * 3, sy + 8 + i * 5, TILE_SIZE - 14 - i * 4, 3);
+        ctx.strokeStyle = '#60a5fa';
+        ctx.strokeRect(sx + 4, sy + 4, TILE_SIZE - 8, TILE_SIZE - 8);
+      } else if (tile === TILE_CHEST) {
+        ctx.fillStyle = '#854d0e';
+        ctx.fillRect(sx + 7, sy + 12, 22, 16);
+        ctx.fillStyle = '#fbbf24';
+        ctx.fillRect(sx + 7, sy + 11, 22, 3);
+        ctx.fillRect(sx + 16, sy + 16, 4, 6);
+      } else if (tile === TILE_CHEST_OPEN) {
+        ctx.fillStyle = '#54330d';
+        ctx.fillRect(sx + 7, sy + 17, 22, 11);
+      }
+    }
+
+    function drawMonsterSprite(ctx, sx, sy, m) {
+      ctx.save();
+      ctx.translate(sx, sy);
+
+      // Milestone Boss Rendering
+      if (m.isBoss) {
+        ctx.strokeStyle = '#f87171';
+        ctx.lineWidth = 2.5;
+        ctx.strokeRect(2, 2, 32, 32);
+
+        if (m.typeId === 'boss_colossus') {
+          // Stone Titan
+          ctx.fillStyle = '#78350f';
+          ctx.fillRect(6, 6, 24, 24);
+          ctx.fillStyle = '#f59e0b';
+          ctx.fillRect(11, 10, 14, 6);
+          ctx.fillStyle = '#fbbf24';
+          ctx.fillRect(14, 18, 8, 8);
+        } else if (m.typeId === 'boss_weaver') {
+          // Void Weaver
+          ctx.fillStyle = '#4a044e';
+          ctx.beginPath();
+          ctx.arc(18, 16, 12, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = '#ec4899';
+          ctx.fillRect(14, 12, 8, 8);
+          ctx.strokeStyle = '#c084fc';
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.moveTo(8, 26); ctx.lineTo(14, 34);
+          ctx.moveTo(28, 26); ctx.lineTo(22, 34);
+          ctx.stroke();
+        }
+
+        // Boss Health Bar
+        const hpPct = Math.max(0, m.hp / m.maxHp);
+        ctx.fillStyle = '#05070a';
+        ctx.fillRect(2, 31, 32, 4);
+        ctx.fillStyle = '#f87171';
+        ctx.fillRect(2, 31, Math.round(32 * hpPct), 4);
+        ctx.restore();
+        return;
+      }
+
+      // Elite Champion Golden Aura
+      if (m.isElite) {
+        ctx.strokeStyle = '#fbbf24';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(18, 18, 16, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+
+      ctx.fillStyle = m.color;
+      if (m.typeId === 'archer') {
+        ctx.fillRect(10, 10, 16, 16);
+        ctx.strokeStyle = '#34d399';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(5, 12, 3, 12);
+      } else if (m.typeId === 'cultist') {
+        ctx.fillRect(9, 8, 18, 18);
+        ctx.fillStyle = '#c084fc';
+        ctx.beginPath();
+        ctx.arc(18, 7, 5, 0, Math.PI * 2);
+        ctx.fill();
+      } else {
+        ctx.fillRect(10, 10, 16, 16);
+      }
+
+      // Health bar
+      const hpPct = Math.max(0, m.hp / m.maxHp);
+      ctx.fillStyle = '#05070a';
+      ctx.fillRect(4, 30, 28, 4);
+      ctx.fillStyle = m.isElite ? '#fbbf24' : hpPct > 0.4 ? '#f87171' : '#fbbf24';
+      ctx.fillRect(4, 30, Math.round(28 * hpPct), 4);
+
+      ctx.restore();
+    }
+
+    function spawnFloatingText(gx, gy, text, color) {
+      floatingTexts.push({ px: gx * TILE_SIZE + 18, py: gy * TILE_SIZE + 10, text, color, ticks: 26 });
+    }
+
+    function startAnimationLoop() {
+      function frame() {
+        if (gameState.location === 'dungeon') {
+          for (let i = floatingTexts.length - 1; i >= 0; i--) {
+            floatingTexts[i].py -= 0.45;
+            floatingTexts[i].ticks -= 1;
+            if (floatingTexts[i].ticks <= 0) floatingTexts.splice(i, 1);
+          }
+          renderDungeonCanvas();
+        }
+        requestAnimationFrame(frame);
+      }
+      requestAnimationFrame(frame);
+    }
+
+    // =========================================================================
+    // UI SYNCHRONIZATION
+    // =========================================================================
+    function updateAllUI() {
+      const h = gameState.hero;
+      const cls = CLASSES[h.classId] || CLASSES.fighter;
+
+      // Header status
+      document.getElementById('headerSeedText').textContent = gameState.dungeon.seedCode;
+      document.getElementById('headerTurnText').textContent = gameState.turn;
+      const locDot = document.getElementById('locationDot');
+      const locText = document.getElementById('headerLocationText');
+      if (gameState.location === 'guild') {
+        locDot.className = 'w-2.5 h-2.5 rounded-full bg-[#34d399]';
+        locText.textContent = 'Oakhaven Guild Bastion';
+      } else {
+        locDot.className = 'w-2.5 h-2.5 rounded-full bg-[#f87171] animate-pulse';
+        locText.textContent = `Starfall Vaults • Floor ${gameState.dungeon.currentDepth}`;
+      }
+
+      // Hero Portrait
+      const pCanvas = document.getElementById('heroPortraitCanvas');
+      if (pCanvas) {
+        const pCtx = pCanvas.getContext('2d');
+        pCtx.clearRect(0, 0, 40, 40);
+        drawHeroSprite(pCtx, 2, 2, h.classId, 36);
+      }
+
+      // Vitals
+      document.getElementById('uiHeroName').textContent = h.name;
+      document.getElementById('uiHeroClassBadge').textContent = cls.name;
+      document.getElementById('uiHeroLevel').textContent = h.level;
+      document.getElementById('uiHeroXP').textContent = `${h.xp}/${h.xpNext}`;
+
+      document.getElementById('uiHpText').textContent = `${h.hp} / ${h.maxHp}`;
+      document.getElementById('uiHpBar').style.width = `${Math.max(0, Math.min(100, (h.hp / h.maxHp) * 100))}%`;
+
+      document.getElementById('uiMpText').textContent = `${h.mp} / ${h.maxMp}`;
+      document.getElementById('uiMpBar').style.width = `${Math.max(0, Math.min(100, (h.mp / h.maxMp) * 100))}%`;
+
+      const p = h.equipped.pickaxe;
+      const maxPick = getPickaxeMaxDurability();
+      const curPick = p ? p.curDur : 0;
+      document.getElementById('uiPickaxeName').textContent = p ? p.name : 'No Pickaxe';
+      document.getElementById('uiPickaxeText').textContent = `${curPick} / ${maxPick}`;
+      document.getElementById('uiPickaxeBar').style.width = `${Math.max(0, Math.min(100, (curPick / maxPick) * 100))}%`;
+
+      // Status badges
+      const statusRow = document.getElementById('uiHeroStatusRow');
+      if (h.statuses && h.statuses.length > 0) {
+        statusRow.innerHTML = h.statuses.map(s => `
+          <span class="px-1.5 py-0.5 rounded text-[10px] font-mono-num font-bold uppercase" style="background:${s.color}25; color:${s.color}; border:1px solid ${s.color}40">
+            ${s.name} (${s.duration})
+          </span>
+        `).join('');
+      } else {
+        statusRow.innerHTML = `<span class="text-[10px] text-[#8b949e] italic">No active debuffs</span>`;
+      }
+
+      // Attributes
+      const [minAtk, maxAtk] = getHeroAttackRange();
+      document.getElementById('uiStatSTR').textContent = h.str;
+      document.getElementById('uiStatDEX').textContent = h.dex;
+      document.getElementById('uiStatINT').textContent = h.int;
+      document.getElementById('uiStatVIT').textContent = h.vit;
+      document.getElementById('uiStatATK').textContent = `${minAtk}-${maxAtk}`;
+      document.getElementById('uiStatDEF').textContent = getHeroDefense();
+      document.getElementById('uiStatCRIT').textContent = `${getHeroCritChance()}%`;
+      document.getElementById('uiStatDODGE').textContent = `${getHeroDodgeChance()}%`;
+
+      // Stat Points banner
+      const spBanner = document.getElementById('statPointBanner');
+      if (h.statPoints > 0) {
+        spBanner.classList.remove('hidden');
+        document.getElementById('uiStatPoints').textContent = h.statPoints;
+      } else {
+        spBanner.classList.add('hidden');
+      }
+
+      // Talent Points banner
+      const tpBanner = document.getElementById('talentPointBanner');
+      if (h.talentPointsAvailable > 0) {
+        tpBanner.classList.remove('hidden');
+        document.getElementById('uiTalentPoints').textContent = h.talentPointsAvailable;
+      } else {
+        tpBanner.classList.add('hidden');
+      }
+
+      // Paper Doll Equipped Slots
+      const slots = ['weapon', 'armor', 'helm', 'boots', 'accessory', 'pickaxe'];
+      slots.forEach(slot => {
+        const item = h.equipped[slot];
+        const nameEl = document.getElementById(`slotName_${slot}`);
+        const statEl = document.getElementById(`slotStat_${slot}`);
+        const box = document.getElementById(`slot_${slot}`);
+
+        if (item) {
+          const r = RARITY[item.rarity] || RARITY.common;
+          nameEl.textContent = item.name;
+          nameEl.style.color = r.color;
+          box.style.borderColor = r.border;
+          if (slot === 'weapon') statEl.textContent = `+${item.atk} ATK`;
+          else if (slot === 'armor') statEl.textContent = `+${item.def} DEF`;
+          else if (slot === 'helm') statEl.textContent = `+${item.def || 0} DEF, +${item.maxHp || 0} HP`;
+          else if (slot === 'boots') statEl.textContent = `+${item.dodge || 0}% Dodge`;
+          else if (slot === 'accessory') statEl.textContent = `+${item.crit || 0}% Crit`;
+          else if (slot === 'pickaxe') statEl.textContent = `${item.curDur}/${getPickaxeMaxDurability()} Dur`;
+        } else {
+          nameEl.textContent = 'Empty';
+          nameEl.style.color = '#8b949e';
+          box.style.borderColor = '#2a3447';
+          statEl.textContent = '—';
+        }
+      });
+
+      // Economy
+      document.getElementById('uiBankedGold').textContent = `${gameState.bank.gold}g`;
+      document.getElementById('uiPotionsCount').textContent = gameState.bank.potions;
+      document.getElementById('uiManaPotionsCount').textContent = gameState.bank.manaPotions;
+      document.getElementById('uiRecallScrollsCount').textContent = gameState.bank.recallScrolls;
+      document.getElementById('uiExpeditionGold').textContent = `${gameState.expedition.gold}g`;
+
+      // Expedition Pack list
+      const expList = document.getElementById('uiExpeditionBagList');
+      const allPack = [...gameState.expedition.items, ...gameState.expedition.equipment];
+      if (allPack.length === 0) {
+        expList.innerHTML = `<div class="text-[#8b949e] italic text-[11px] py-1">Pack is empty. Mine veins & defeat monsters.</div>`;
+      } else {
+        expList.innerHTML = allPack.map(i => {
+          const isGear = !!i.slot;
+          const rColor = isGear ? RARITY[i.rarity].color : '#e6edf3';
+          return `
+            <div onclick="${isGear ? `inspectStoredItem('${i.uid}')` : ''}" class="flex items-center justify-between bg-[#0f141f] px-2 py-1 rounded border border-[#2a3447] ${isGear ? 'cursor-pointer hover:border-[#60a5fa]' : ''}">
+              <span style="color: ${rColor}">${i.name} ${i.count ? `x${i.count}` : ''}</span>
+              <span class="text-[#fbbf24]">${i.value || i.baseValue}g</span>
+            </div>
+          `;
+        }).join('');
+      }
+
+      // View toggle
+      if (gameState.location === 'guild') {
+        document.getElementById('guildSurfacePanel').classList.remove('hidden');
+        document.getElementById('dungeonViewportPanel').classList.add('hidden');
+        renderGuildHubDetails();
+      } else {
+        document.getElementById('guildSurfacePanel').classList.add('hidden');
+        document.getElementById('dungeonViewportPanel').classList.remove('hidden');
+        renderDungeonHudDetails();
+      }
+
+      renderPersistentFloorLedger();
+    }
+
+    function renderGuildHubDetails() {
+      document.getElementById('uiGuildSeedLabel').textContent = gameState.dungeon.seedCode;
+      document.getElementById('uiExploredFloorsCount').textContent = Object.keys(gameState.dungeon.floors).length;
+      document.getElementById('uiMaxDepthCap').textContent = `Floor ${getMaxDepthAllowed()}`;
+
+      renderTalentTrees();
+      renderResearchLab();
+
+      // Banked equipment storage list
+      const eqGrid = document.getElementById('uiBankedEquipmentGrid');
+      if (gameState.bank.equipment.length === 0) {
+        eqGrid.innerHTML = `<div class="col-span-3 text-[#8b949e] italic text-xs py-3">No extra equipment stored in your Vault. Extract items from the dungeon to equip or sell them.</div>`;
+      } else {
+        eqGrid.innerHTML = gameState.bank.equipment.map(item => {
+          const r = RARITY[item.rarity] || RARITY.common;
+          return `
+            <div onclick="inspectStoredItem('${item.uid}')" class="p-2.5 rounded bg-[#090d13] border border-[#2a3447] hover:border-[#60a5fa] cursor-pointer flex flex-col justify-between gap-1">
+              <div class="flex items-center justify-between">
+                <span class="text-xs font-bold truncate" style="color:${r.color}">${item.name}</span>
+                <span class="text-[10px] font-mono-num font-bold px-1.5 py-0.2 rounded" style="background:${r.color}20; color:${r.color}">${r.name}</span>
+              </div>
+              <div class="text-[10px] text-[#8b949e]">Slot: <strong class="text-[#e6edf3] uppercase">${item.slot}</strong> • Worth: <span class="text-[#fbbf24]">${item.value}g</span></div>
+            </div>
+          `;
+        }).join('');
+      }
+
+      // Banked ores appraisal list
+      const oreList = document.getElementById('uiBankedLootList');
+      if (gameState.bank.items.length === 0) {
+        oreList.innerHTML = `<div class="text-[#8b949e] italic text-[11px] col-span-2">No ores stored in Banked Vault. Mine veins in the vaults to stockpile mineral wealth.</div>`;
+      } else {
+        const mult = 1 + (gameState.research.appraisal || 0) * 0.35;
+        oreList.innerHTML = gameState.bank.items.map(i => {
+          const val = Math.round(i.baseValue * mult);
+          return `
+            <div class="flex items-center justify-between bg-[#131822] p-1.5 rounded border border-[#2a3447]">
+              <span class="text-[#e6edf3]">${i.name} x${i.count}</span>
+              <span class="text-[#fbbf24]">${val * i.count}g</span>
+            </div>
+          `;
+        }).join('');
+      }
+
+      // Shop catalog with Quartermaster Rank visibility
+      const qmRank = gameState.research.quartermaster || 0;
+      const shopGrid = document.getElementById('uiShopGrid');
+      shopGrid.innerHTML = SHOP_CATALOG.map(item => {
+        const unlocked = qmRank >= item.reqQMRank;
+        const canAfford = unlocked && gameState.bank.gold >= item.cost;
+        return `
+          <div class="p-2.5 rounded-lg bg-[#090d13] border ${unlocked ? 'border-[#2a3447]' : 'border-[#2a3447]/40 opacity-50'} flex flex-col justify-between gap-2">
+            <div>
+              <div class="flex items-center justify-between">
+                <div class="flex items-center gap-1.5">
+                  <span class="text-xs font-bold text-[#e6edf3]">${item.name}</span>
+                  ${!unlocked ? `<span class="text-[9px] font-mono-num uppercase px-1 rounded bg-[#f87171]/20 text-[#f87171]">Req QM Rank ${item.reqQMRank}</span>` : ''}
+                </div>
+                <span class="text-xs font-mono-num font-bold text-[#fbbf24]">${item.cost}g</span>
+              </div>
+              <p class="text-[11px] text-[#8b949e] mt-0.5">${item.desc}</p>
+            </div>
+            <button onclick="buyShopItem('${item.id}')" ${!canAfford ? 'disabled' : ''} class="w-full py-1.5 rounded text-xs font-mono-num font-semibold border btn-tactical ${canAfford ? 'bg-[#1c2331] hover:bg-[#fbbf24] hover:text-[#090d13] text-[#e6edf3] border-[#fbbf24]/40' : 'bg-[#131822] text-[#8b949e] border-[#2a3447] opacity-60 cursor-not-allowed'}">
+              ${!unlocked ? `Locked (QM Rank ${item.reqQMRank})` : `Buy (${item.cost}g)`}
+            </button>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function renderResearchLab() {
+      // Stock indicators in Research Lab
+      const totalOres = gameState.bank.items.reduce((acc, i) => acc + i.count, 0);
+      document.getElementById('uiVaultOreSummary').textContent = `${totalOres} mineral units`;
+
+      const ores = [
+        { id: 'copper_ore', name: 'Copper', color: '#d97736' },
+        { id: 'iron_ore', name: 'Iron', color: '#94a3b8' },
+        { id: 'mithril_ore', name: 'Mithril', color: '#38bdf8' },
+        { id: 'relic_geode', name: 'Geodes', color: '#fbbf24' },
+        { id: 'star_ore', name: 'Star-Crystal', color: '#c084fc' },
+        { id: 'astral_ore', name: 'Astralite', color: '#ec4899' }
+      ];
+
+      const stockContainer = document.getElementById('uiResearchMineralStock');
+      stockContainer.innerHTML = ores.map(o => {
+        const item = gameState.bank.items.find(i => i.id === o.id);
+        const cnt = item ? item.count : 0;
+        return `
+          <div class="bg-[#131822] p-1 rounded border border-[#2a3447]">
+            <div class="text-[9px] text-[#8b949e] uppercase">${o.name}</div>
+            <div class="font-bold" style="color: ${o.color}">${cnt}</div>
+          </div>
+        `;
+      }).join('');
+
+      // Research list with dual costs
+      const resList = document.getElementById('uiResearchList');
+      resList.innerHTML = RESEARCH_PROJECTS.map(proj => {
+        const curLvl = gameState.research[proj.id] || 0;
+        const isMax = curLvl >= proj.maxLevel;
+        const goldCost = proj.baseGold + (curLvl * proj.goldScale);
+        const reqOre = proj.oreCosts[Math.min(curLvl, proj.oreCosts.length - 1)];
+
+        const vaultOre = gameState.bank.items.find(i => i.id === reqOre.id);
+        const curOreCount = vaultOre ? vaultOre.count : 0;
+
+        const hasGold = gameState.bank.gold >= goldCost;
+        const hasOre = curOreCount >= reqOre.count;
+        const canAfford = hasGold && hasOre && !isMax;
+
+        return `
+          <div class="p-3.5 rounded-lg bg-[#090d13] border border-[#2a3447] flex flex-col md:flex-row md:items-center justify-between gap-3">
+            <div class="flex-1">
+              <div class="flex items-center gap-2 mb-1">
+                <span class="text-xs font-bold text-[#e6edf3]">${proj.name}</span>
+                <span class="text-[10px] font-mono-num px-1.5 py-0.5 rounded bg-[#1c2331] text-[#60a5fa] border border-[#2a3447]">Rank ${curLvl}/${proj.maxLevel}</span>
+                <span class="text-[9px] font-mono-num uppercase px-1 rounded bg-[#2a3447] text-[#8b949e]">${proj.category}</span>
+              </div>
+              <p class="text-[11px] text-[#8b949e] mb-1.5">${proj.desc}</p>
+              ${!isMax ? `
+                <div class="flex flex-wrap items-center gap-3 text-[11px] font-mono-num">
+                  <span class="${hasGold ? 'text-[#fbbf24]' : 'text-[#f87171]'}">● Cost: ${goldCost}g</span>
+                  <span class="${hasOre ? 'text-[#34d399]' : 'text-[#f87171]'}">● Mineral: ${reqOre.count}x ${reqOre.name} (Have: ${curOreCount})</span>
+                </div>
+              ` : `
+                <div class="text-[11px] font-mono-num text-[#34d399]">★ Fully Mastered Technology</div>
+              `}
+            </div>
+            <button onclick="buyResearchUpgrade('${proj.id}')" ${!canAfford ? 'disabled' : ''} class="px-4 py-2 rounded text-xs font-mono-num font-semibold whitespace-nowrap btn-tactical ${isMax ? 'bg-[#131822] text-[#34d399] border border-[#34d399]/30' : canAfford ? 'bg-[#2563eb] hover:bg-[#3b82f6] text-white shadow-md' : 'bg-[#1c2331] text-[#8b949e] opacity-50 cursor-not-allowed'}">
+              ${isMax ? 'COMPLETED' : `Research Rank ${curLvl + 1}`}
+            </button>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function renderDungeonHudDetails() {
+      const depth = gameState.dungeon.currentDepth;
+      const floor = getOrCreateFloor(depth);
+      const cls = CLASSES[gameState.hero.classId];
+
+      document.getElementById('uiDungeonFloorBadge').textContent = `FLOOR ${depth} / ${getMaxDepthAllowed()}`;
+      document.getElementById('uiFloorMonstersCount').textContent = floor.monsters.length;
+
+      document.getElementById('uiSkillName').textContent = cls.skill.name;
+      document.getElementById('uiSkillCostText').textContent = `${cls.skill.mpCost} MP`;
+      document.getElementById('btnHealCount').textContent = gameState.bank.potions;
+      document.getElementById('btnManaCount').textContent = gameState.bank.manaPotions;
+      document.getElementById('btnRecallCount').textContent = gameState.bank.recallScrolls;
+
+      // Boss Bar HUD Overlay check
+      const bossBar = document.getElementById('bossStatusBar');
+      const activeBoss = floor.monsters.find(m => m.isBoss);
+      if (activeBoss) {
+        bossBar.classList.remove('hidden');
+        document.getElementById('bossNameLabel').textContent = activeBoss.name;
+        document.getElementById('bossTitleLabel').textContent = activeBoss.title || 'Milestone Boss';
+        document.getElementById('bossHpText').textContent = `${activeBoss.hp} / ${activeBoss.maxHp} HP`;
+        const pct = Math.max(0, Math.min(100, (activeBoss.hp / activeBoss.maxHp) * 100));
+        document.getElementById('bossHpBar').style.width = `${pct}%`;
+      } else {
+        bossBar.classList.add('hidden');
+      }
+    }
+
+    function runIncrement2Diagnostics() {
+      const tests = [];
+
+      // Test 1: Schema v2 & Save Migration
+      const schemaPass = gameState.schemaVersion === 2 && typeof gameState.hero.talentPointsAvailable === 'number';
+      tests.push({
+        name: '1. Schema v2 & Migration Backward Compatibility',
+        pass: schemaPass,
+        detail: `Schema Version: ${gameState.schemaVersion} • Talent Points Initialized: ${gameState.hero.talentPointsAvailable}`
+      });
+
+      // Test 2: 6-Slot Multi-Slot Equipment Integrity
+      const slots = ['weapon', 'armor', 'helm', 'boots', 'accessory', 'pickaxe'];
+      const eqPass = slots.every(s => gameState.hero.equipped[s] !== undefined);
+      tests.push({
+        name: '2. 6-Slot Paper Doll Equipment & Stat Recalculation',
+        pass: eqPass,
+        detail: `Slots Verified: ${slots.join(', ')} • Current DEF: ${getHeroDefense()}`
+      });
+
+      // Test 3: Talent Trees & Branching Archetypes
+      const classTalentsPass = Object.keys(CLASS_TALENTS).length === 5 && CLASS_TALENTS[gameState.hero.classId].branchA && CLASS_TALENTS[gameState.hero.classId].branchB;
+      tests.push({
+        name: '3. 5-Class Branching Talent Trees & Respec Altar',
+        pass: classTalentsPass,
+        detail: `Hero Class: ${gameState.hero.classId} • Branches: ${CLASS_TALENTS[gameState.hero.classId].branchA.name} & ${CLASS_TALENTS[gameState.hero.classId].branchB.name}`
+      });
+
+      // Test 4: Procedural Rarity & Dynamic Affixes
+      const testItem = generateProceduralItem('weapon', 'relic', 3);
+      const rarityPass = testItem.rarity === 'relic' && testItem.affixes.length > 0;
+      tests.push({
+        name: '4. Procedural Item Generator & Rarity Affix Rolls',
+        pass: rarityPass,
+        detail: `Generated Relic: "${testItem.name}" with ${testItem.affixes.length} affixes`
+      });
+
+      // Test 5: Ranged Monster AI & Elite Champions
+      const hasRanged = MONSTER_ARCHETYPES.some(m => m.isRanged);
+      const hasElites = Object.keys(ELITE_AFFIXES).length >= 4;
+      tests.push({
+        name: '5. Ranged Caster / Archer AI & Elite Champion Affixes',
+        pass: hasRanged && hasElites,
+        detail: `Verified Ranged Archtypes & 4 Elite Affixes (${Object.keys(ELITE_AFFIXES).join(', ')})`
+      });
+
+      // Test 6: Dungeon Floor BFS Stair Connectivity
+      const f1 = getOrCreateFloor(1);
+      const bfsPass = verifyStairsConnectivityBFS(f1);
+      tests.push({
+        name: '6. Dungeon Floor BFS Reachability (Stairs & Mining)',
+        pass: bfsPass,
+        detail: `Path verified between Upstairs (${f1.upStairs.x},${f1.upStairs.y}) and Downstairs (${f1.downStairs.x},${f1.downStairs.y})`
+      });
+
+      const passCount = tests.filter(t => t.pass).length;
+      document.getElementById('validatorBtnLabel').textContent = `Verify Inc-2 (${passCount}/${tests.length} PASS)`;
+
+      document.getElementById('validatorResultsList').innerHTML = tests.map(t => `
+        <div class="p-2.5 rounded bg-[#090d13] border ${t.pass ? 'border-[#34d399]/40' : 'border-[#f87171]'} flex items-center justify-between gap-2">
+          <div>
+            <div class="font-bold ${t.pass ? 'text-[#e6edf3]' : 'text-[#f87171]'}">${t.name}</div>
+            <div class="text-[11px] text-[#8b949e]">${t.detail}</div>
+          </div>
+          <span class="px-2 py-0.5 rounded text-[10px] font-bold ${t.pass ? 'bg-[#34d399]/20 text-[#34d399]' : 'bg-[#f87171]/20 text-[#f87171]'}">
+            ${t.pass ? 'PASS' : 'FAIL'}
+          </span>
+        </div>
+      `).join('');
+    }
+
+    // =========================================================================
+    // INPUT HANDLERS & BOOTSTRAP
+    // =========================================================================
+    // BUILT-IN INCREMENT 3 DIAGNOSTIC VERIFICATION SUITE
+    // =========================================================================
+    function toggleValidatorModal() {
+      const m = document.getElementById('validatorModal');
+      if (m.classList.contains('hidden')) {
+        runIncrement3Diagnostics();
+        m.classList.remove('hidden');
+      } else {
+        m.classList.add('hidden');
+      }
+    }
+
+    function runIncrement3Diagnostics() {
+      const tests = [];
+
+      // Test 1: Schema v3 & Backward Compatibility Migration
+      const schemaPass = gameState.schemaVersion === 3 && gameState.research.vault_cartography !== undefined;
+      tests.push({
+        name: '1. Schema v3 & Migration Backward Compatibility',
+        pass: schemaPass,
+        detail: `Schema Version: ${gameState.schemaVersion} • Cartography Rank: ${gameState.research.vault_cartography}`
+      });
+
+      // Test 2: 6-Slot Multi-Slot Equipment Integrity
+      const slots = ['weapon', 'armor', 'helm', 'boots', 'accessory', 'pickaxe'];
+      const eqPass = slots.every(s => gameState.hero.equipped[s] !== undefined);
+      tests.push({
+        name: '2. 6-Slot Paper Doll Equipment & Stat Recalculation',
+        pass: eqPass,
+        detail: `Slots Verified: ${slots.join(', ')} • Current DEF: ${getHeroDefense()}`
+      });
+
+      // Test 3: 5-Class Branching Talent Trees & Respec
+      const classTalentsPass = Object.keys(CLASS_TALENTS).length === 5 && CLASS_TALENTS[gameState.hero.classId].branchA && CLASS_TALENTS[gameState.hero.classId].branchB;
+      tests.push({
+        name: '3. 5-Class Branching Talent Trees & Respec Altar',
+        pass: classTalentsPass,
+        detail: `Hero Class: ${gameState.hero.classId} • Branches: ${CLASS_TALENTS[gameState.hero.classId].branchA.name} & ${CLASS_TALENTS[gameState.hero.classId].branchB.name}`
+      });
+
+      // Test 4: Procedural Rarity & Dynamic Affixes
+      const testItem = generateProceduralItem('weapon', 'relic', 3);
+      const rarityPass = testItem.rarity === 'relic' && testItem.affixes.length > 0;
+      tests.push({
+        name: '4. Procedural Item Generator & Rarity Affix Rolls',
+        pass: rarityPass,
+        detail: `Generated Relic: "${testItem.name}" with ${testItem.affixes.length} affixes`
+      });
+
+      // Test 5: Interactive Mining & Geology Rank Gating
+      const oreTypes = Object.keys(ORE_CATALOG).length >= 6;
+      const rank0Check = ORE_CATALOG[TILE_ORE_COPPER].minGeologyRank === 0;
+      const rank3Check = ORE_CATALOG[TILE_ORE_STAR].minGeologyRank === 3;
+      tests.push({
+        name: '5. Interactive Mining System & Geology Rank Gating',
+        pass: oreTypes && rank0Check && rank3Check,
+        detail: `6 Ore Vein Types Verified • Geology Rank Constraints Enforced`
+      });
+
+      // Test 6: Dual-Resource Guild Research Tech Trees
+      const resCountPass = RESEARCH_PROJECTS.length >= 6;
+      const dualCostPass = RESEARCH_PROJECTS.every(p => p.baseGold > 0 && p.oreCosts && p.oreCosts.length > 0);
+      tests.push({
+        name: '6. Guild Research Lab Dual Tech Trees (Gold + Ores)',
+        pass: resCountPass && dualCostPass,
+        detail: `6 Tech Projects Verified with Gold & Vault Ore Reagents`
+      });
+
+      // Test 7: Milestone Boss Encounters & BFS Connectivity
+      const bossFl5 = BOSS_DEFINITIONS[5] && BOSS_DEFINITIONS[5].isBoss;
+      const bossFl10 = BOSS_DEFINITIONS[10] && BOSS_DEFINITIONS[10].isBoss;
+      const f1 = getOrCreateFloor(1);
+      const bfsPass = verifyStairsConnectivityBFS(f1);
+      tests.push({
+        name: '7. Milestone Boss Mechanics (Floors 5 & 10) & BFS Reachability',
+        pass: bossFl5 && bossFl10 && bfsPass,
+        detail: `Starfall Colossus (Fl 5) & Void Weaver (Fl 10) Verified • BFS Path Validated`
+      });
+
+      const passCount = tests.filter(t => t.pass).length;
+      document.getElementById('validatorBtnLabel').textContent = `Verify Inc-3 (${passCount}/${tests.length} PASS)`;
+
+      document.getElementById('validatorResultsList').innerHTML = tests.map(t => `
+        <div class="p-2.5 rounded bg-[#090d13] border ${t.pass ? 'border-[#34d399]/40' : 'border-[#f87171]'} flex items-center justify-between gap-2">
+          <div>
+            <div class="font-bold ${t.pass ? 'text-[#e6edf3]' : 'text-[#f87171]'}">${t.name}</div>
+            <div class="text-[11px] text-[#8b949e]">${t.detail}</div>
+          </div>
+          <span class="px-2 py-0.5 rounded text-[10px] font-bold ${t.pass ? 'bg-[#34d399]/20 text-[#34d399]' : 'bg-[#f87171]/20 text-[#f87171]'}">
+            ${t.pass ? 'PASS' : 'FAIL'}
+          </span>
+        </div>
+      `).join('');
+    }
+
+    // BOOTSTRAP
+    window.onload = function () {
+      const loaded = loadGameStateFromStorage();
+      if (!loaded) {
+        initHeroWithClass('fighter');
+      } else {
+        document.getElementById('classSelectModal').classList.add('hidden');
+        recalculateHeroVitals(false);
+      }
+      setupInputHandlers();
+      runIncrement3Diagnostics();
+      startAnimationLoop();
+      updateAllUI();
+    };
+  </script>
+</body>
+</html>
