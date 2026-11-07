@@ -1,0 +1,81 @@
+:root {
+  --bg-canvas: #080b11;
+  --bg-surface: #111722;
+  --bg-elevated: #1a2232;
+  --border-default: #283347;
+  --text-primary: #e6edf3;
+  --text-secondary: #8b949e;
+  --accent-gold: #fbbf24;
+  --accent-emerald: #34d399;
+  --accent-crimson: #f87171;
+  --accent-arcane: #60a5fa;
+}
+
+* {
+  box-sizing: border-box;
+  user-select: none;
+}
+
+body {
+  background-color: var(--bg-canvas);
+  color: var(--text-primary);
+  font-family: 'Inter', sans-serif;
+  margin: 0;
+  padding: 0;
+  overflow-x: hidden;
+}
+
+.font-display {
+  font-family: 'Cinzel', serif;
+}
+
+.font-mono-num {
+  font-family: 'JetBrains Mono', monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #080b11;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #283347;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #3b4b68;
+}
+
+canvas {
+  image-rendering: crisp-edges;
+  display: block;
+}
+
+.card-surface {
+  background-color: #111722;
+  border: 1px solid #283347;
+  border-radius: 0.5rem;
+}
+
+.btn-tactical {
+  transition: all 0.14s ease;
+}
+
+.btn-tactical:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+@keyframes relic-pulse {
+  0%, 100% { box-shadow: 0 0 8px rgba(251, 191, 36, 0.35); }
+  50% { box-shadow: 0 0 16px rgba(251, 191, 36, 0.75); }
+}
+
+.relic-glow {
+  animation: relic-pulse 2.2s infinite ease-in-out;
+}

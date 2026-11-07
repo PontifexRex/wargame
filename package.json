@@ -1,0 +1,21 @@
+{
+  "name": "aethelgard-starfall-vaults",
+  "version": "0.3.1-inc3",
+  "description": "Turn-Based Tactical Grid Roguelike & Subterranean Mining RPG",
+  "type": "module",
+  "scripts": {
+    "build": "powershell -ExecutionPolicy Bypass -File scripts/build.ps1",
+    "serve": "powershell -ExecutionPolicy Bypass -File scripts/serve.ps1",
+    "test": "node src/test/cliRunner.js",
+    "test:ps": "powershell -ExecutionPolicy Bypass -File scripts/test.ps1"
+  },
+  "keywords": [
+    "roguelike",
+    "turn-based",
+    "canvas",
+    "rpg",
+    "mining"
+  ],
+  "author": "Aethelgard Guild",
+  "license": "MIT"
+}
