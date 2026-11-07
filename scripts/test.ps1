@@ -15,7 +15,7 @@ if ($Browser) {
     Write-Host "Opening in-browser diagnostics..." -ForegroundColor Yellow
     $indexPath = Join-Path $rootDir "index.html"
     Start-Process msedge.exe "file:///$($indexPath -replace '\\','/')"
-    Write-Host "Click 'Verify Inc-3' in the top-right header to view diagnostic results." -ForegroundColor Green
+    Write-Host "Click 'Verify Inc-4' in the top-right header to view diagnostic results." -ForegroundColor Green
     exit 0
 }
 

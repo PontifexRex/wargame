@@ -6,9 +6,14 @@ import {
   GRID_H,
   TILE_CHEST,
   TILE_STAIRS_UP,
-  TILE_STAIRS_DOWN
+  TILE_STAIRS_DOWN,
+  TILE_SHRINE,
+  TILE_SHRINE_USED,
+  TILE_TRAP_VISIBLE,
+  TILE_TRAP_DISARMED
 } from '../constants.js';
 import { ORE_CATALOG } from '../data/ores.js';
+import { SHRINE_CATALOG, TRAP_CATALOG } from '../data/gems.js';
 import { gameState } from '../engine/state.js';
 import { useHealingTonic, useRecallScroll } from '../engine/actions.js';
 import {
@@ -46,6 +51,27 @@ export function updateScannerOnHover(gx, gy) {
     `;
   } else if (t === TILE_CHEST) {
     box.innerHTML = `<div class="font-bold text-[#fbbf24]">Gilded Vault Chest</div><div class="text-[11px] text-[#8b949e]">Contains relics and procedural equipment.</div>`;
+  } else if (t === TILE_SHRINE) {
+    const sMeta = (floor.shrines && floor.shrines[`${gx},${gy}`]) || { type: 'sanctuary' };
+    const sDef = SHRINE_CATALOG[sMeta.type] || SHRINE_CATALOG.sanctuary;
+    box.innerHTML = `
+      <div class="font-bold" style="color:${sDef.color}">✨ ${sDef.name}</div>
+      <div class="text-[11px] text-[#e6edf3]">${sDef.desc}</div>
+      <div class="text-[10px] text-[#8b949e]">Step onto this altar to claim its astral blessing.</div>
+    `;
+  } else if (t === TILE_SHRINE_USED) {
+    box.innerHTML = `<div class="font-semibold text-[#8b949e]">Dormant Astral Altar</div><div class="text-[11px] text-[#8b949e]">Its celestial energy has already been channeled.</div>`;
+  } else if (t === TILE_TRAP_VISIBLE) {
+    const tMeta = (floor.traps && floor.traps[`${gx},${gy}`]) || { type: 'spike' };
+    const tDef = TRAP_CATALOG[tMeta.type] || TRAP_CATALOG.spike;
+    const isScout = gameState.hero && (gameState.hero.classId === 'thief' || gameState.hero.classId === 'ranger');
+    box.innerHTML = `
+      <div class="font-bold" style="color:${tDef.color}">⚠ ${tDef.name} (Spotted)</div>
+      <div class="text-[11px] text-[#e6edf3]">${tDef.desc}</div>
+      <div class="text-[10px] text-[#34d399]">${isScout ? 'Step onto tile to safely DISARM for bonus XP!' : 'Navigate around—only Thieves & Rangers can disarm safely.'}</div>
+    `;
+  } else if (t === TILE_TRAP_DISARMED) {
+    box.innerHTML = `<div class="font-semibold text-[#8b949e]">Disarmed Runic Plate</div><div class="text-[11px] text-[#8b949e]">Mechanism neutralized; safe to walk across.</div>`;
   } else if (t === TILE_STAIRS_UP) {
     box.innerHTML = `<div class="font-bold text-[#34d399]">Ascending Stairs (&lt;)</div><div class="text-[11px] text-[#8b949e]">Stand on stairs and press [E] to ascend or extract to the Guild.</div>`;
   } else if (t === TILE_STAIRS_DOWN) {

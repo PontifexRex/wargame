@@ -1,21 +1,45 @@
-// DOM Synchronization, Guild Hub Views, Dungeon HUD, and Tactical Chronicle Log
+// DOM Synchronization, Guild Hub Views (including Notice Board & Lapidary), Dungeon HUD & Chronicle Log
 
-import { RARITY } from '../constants.js';
+import { RARITY, LAPIDARY_UNSOCKET_COST } from '../constants.js';
 import { CLASSES } from '../data/classes.js';
 import { ORE_CATALOG, MINERAL_DISPLAY } from '../data/ores.js';
+import { GEM_IDS, GEM_CATALOG, GEM_DISPLAY } from '../data/gems.js';
 import { TALENT_TREES } from '../data/talents.js';
 import { RESEARCH_PROJECTS } from '../data/research.js';
 import { SHOP_ITEMS } from '../data/items.js';
 import {
   gameState,
+  normalizeEquipmentSockets,
   recomputeHeroDerivedStats,
   getPickaxeMaxDurability
 } from '../engine/state.js';
+import { ensureGuildBounties } from '../engine/actions.js';
 import { drawHeroSprite } from './renderer.js';
+
+function formatSocketPipsHtml(item) {
+  if (!item || !item.maxSockets || item.maxSockets <= 0) return '';
+  const sockets = Array.isArray(item.sockets) ? item.sockets : [];
+  const pips = [];
+  for (let i = 0; i < item.maxSockets; i++) {
+    const gId = sockets[i];
+    if (gId && GEM_CATALOG[gId]) {
+      pips.push(`<span style="color:${GEM_CATALOG[gId].color}" title="${GEM_CATALOG[gId].name}">◆</span>`);
+    } else {
+      pips.push(`<span class="text-[#64748b]" title="Empty Socket">◇</span>`);
+    }
+  }
+  return `<span class="ml-1 tracking-tighter">${pips.join('')}</span>`;
+}
 
 export function renderGuildHub() {
   if (typeof document === 'undefined') return;
   const h = gameState.hero;
+  ensureGuildBounties(false, gameState);
+  const vaultGems = gameState.guildVault.gems || { ruby: 0, emerald: 0, sapphire: 0, topaz: 0, void_diamond: 0 };
+
+  const totalBankedGems = GEM_IDS.reduce((sum, gId) => sum + (vaultGems[gId] || 0), 0);
+  const readyBounties = (gameState.guildBounties || []).filter(b => b && b.completed).length;
+
   const permit = RESEARCH_PROJECTS.cartography.levels[gameState.guildResearch.cartography || 0].depthPermit;
   document.getElementById('uiGuildSeed').textContent = gameState.dungeon.seedCode;
   document.getElementById('uiChartedFloors').textContent = Object.keys(gameState.dungeon.floors).length;
@@ -25,6 +49,11 @@ export function renderGuildHub() {
   document.getElementById('uiArmoryCountBadge').textContent = gameState.guildVault.armory.length;
   document.getElementById('uiTalentCountBadge').textContent = h.talentPoints || 0;
 
+  const gemBadgeEl = document.getElementById('uiGemCountBadge');
+  if (gemBadgeEl) gemBadgeEl.textContent = totalBankedGems;
+  const btyBadgeEl = document.getElementById('uiBountyReadyBadge');
+  if (btyBadgeEl) btyBadgeEl.textContent = readyBounties;
+
   // Mineral Vault Grid
   const minGrid = document.getElementById('uiVaultMineralsGrid');
   minGrid.innerHTML = MINERAL_DISPLAY.map(m => `
@@ -33,6 +62,127 @@ export function renderGuildHub() {
       <div class="font-bold text-sm mt-0.5" style="color:${m.color}">${gameState.guildVault[m.id] || 0}</div>
     </div>
   `).join('');
+
+  // Astral Gem Vault Grid (Tavern + Lapidary Header)
+  const gemCardsHtml = GEM_DISPLAY.map(g => {
+    const gd = GEM_CATALOG[g.id];
+    return `
+      <div class="bg-[#111722] p-2 rounded border border-[#283347]" title="${gd ? gd.desc : ''}">
+        <div class="text-[9px] text-[#8b949e] uppercase truncate">${g.name}</div>
+        <div class="font-bold text-sm mt-0.5" style="color:${g.color}">${vaultGems[g.id] || 0}</div>
+      </div>
+    `;
+  }).join('');
+
+  const vaultGemsEl = document.getElementById('uiVaultGemsGrid');
+  if (vaultGemsEl) vaultGemsEl.innerHTML = gemCardsHtml;
+  const lapGemsEl = document.getElementById('uiLapidaryGemsBar');
+  if (lapGemsEl) lapGemsEl.innerHTML = gemCardsHtml;
+
+  // Guild Notice Board Tab (#uiBountiesGrid)
+  const btyGrid = document.getElementById('uiBountiesGrid');
+  if (btyGrid) {
+    btyGrid.innerHTML = (gameState.guildBounties || []).map(b => {
+      const pct = Math.min(100, Math.round(((b.curQty || 0) / Math.max(1, b.reqQty)) * 100));
+      return `
+        <div class="p-3 rounded-lg bg-[#080b11] border ${b.completed ? 'border-[#34d399]/60' : 'border-[#283347]'} flex flex-col justify-between gap-2.5">
+          <div>
+            <div class="flex items-center justify-between gap-1">
+              <span class="text-xs font-bold ${b.completed ? 'text-[#34d399]' : 'text-[#fbbf24]'}">${b.title}</span>
+              <span class="text-[10px] font-mono-num px-1.5 py-0.5 rounded bg-[#1a2232] text-[#e6edf3]">${b.curQty || 0}/${b.reqQty}</span>
+            </div>
+            <p class="text-[11px] text-[#8b949e] mt-1">${b.desc}</p>
+            <div class="w-full h-1.5 bg-[#111722] rounded-full overflow-hidden border border-[#283347] mt-2">
+              <div class="h-full ${b.completed ? 'bg-[#34d399]' : 'bg-[#fbbf24]'}" style="width:${pct}%"></div>
+            </div>
+          </div>
+          <div class="space-y-1.5">
+            <div class="text-[11px] font-mono-num text-[#60a5fa]">Reward: <strong>${b.rewardLabel}</strong></div>
+            ${b.completed
+              ? `<button onclick="window.Aethelgard.claimBountyAtGuild('${b.id}')" class="w-full py-1.5 rounded bg-[#34d399] hover:bg-[#10b981] text-[#080b11] text-xs font-mono-num font-bold btn-tactical">✓ Claim Reward</button>`
+              : `<div class="w-full py-1 rounded bg-[#111722] text-center text-[10px] font-mono-num text-[#8b949e] border border-[#283347]">Active on Descent</div>`
+            }
+          </div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  // Astral Lapidary Bench Tab (#uiLapidaryItemsGrid)
+  const lapGrid = document.getElementById('uiLapidaryItemsGrid');
+  if (lapGrid) {
+    const socketableEntries = [];
+    ['weapon', 'armor', 'helm', 'boots', 'accessory'].forEach(slot => {
+      const eq = h.equipment[slot];
+      if (eq) {
+        normalizeEquipmentSockets(eq);
+        if ((eq.maxSockets || 0) > 0) {
+          socketableEntries.push({ item: eq, refKey: slot, isEquipped: true, locLabel: `Equipped • ${slot.toUpperCase()}` });
+        }
+      }
+    });
+    gameState.guildVault.armory.forEach(arm => {
+      normalizeEquipmentSockets(arm);
+      if ((arm.maxSockets || 0) > 0) {
+        socketableEntries.push({ item: arm, refKey: arm.uid, isEquipped: false, locLabel: `Vault Armory • ${arm.slot.toUpperCase()}` });
+      }
+    });
+
+    if (socketableEntries.length === 0) {
+      lapGrid.innerHTML = `
+        <div class="p-4 rounded bg-[#080b11] border border-[#283347] text-xs text-[#8b949e] italic text-center">
+          No socketed equipment owned yet. Rare, Epic, and Star-Forged Relic gear (from Gilded Chests, Elites, Bosses, or Quartermaster Rank 1+) roll 1 to 2 Astral Sockets!
+        </div>
+      `;
+    } else {
+      const availGemIds = GEM_IDS.filter(k => (vaultGems[k] || 0) > 0);
+      lapGrid.innerHTML = socketableEntries.map(entry => {
+        const it = entry.item;
+        const r = RARITY[it.rarity] || RARITY.common;
+        const socketRows = [];
+        for (let sIdx = 0; sIdx < it.maxSockets; sIdx++) {
+          const gId = it.sockets[sIdx];
+          if (gId && GEM_CATALOG[gId]) {
+            const gd = GEM_CATALOG[gId];
+            socketRows.push(`
+              <div class="flex items-center justify-between bg-[#111722] px-2.5 py-1.5 rounded border border-[#283347] text-xs font-mono-num">
+                <span style="color:${gd.color}">◆ ${gd.name} <span class="text-[#8b949e] text-[10px]">(${gd.desc})</span></span>
+                <button onclick="window.Aethelgard.unsocketGemFromItem('${entry.refKey}', ${sIdx}, ${entry.isEquipped})" class="px-2 py-0.5 rounded bg-[#1a2232] hover:bg-[#283347] text-[#fbbf24] border border-[#fbbf24]/40 text-[10px] font-bold btn-tactical">
+                  Extract (${LAPIDARY_UNSOCKET_COST}g)
+                </button>
+              </div>
+            `);
+          } else {
+            const btns = availGemIds.length > 0
+              ? availGemIds.map(k => {
+                  const gd = GEM_CATALOG[k];
+                  return `<button onclick="window.Aethelgard.socketGemIntoItem('${entry.refKey}', '${k}', ${entry.isEquipped})" class="px-2 py-0.5 rounded bg-[#1a2232] hover:bg-[#283347] border border-[#283347] text-[10px] font-bold btn-tactical" style="color:${gd.color}" title="${gd.desc}">+ Socket ${gd.shortName}</button>`;
+                }).join(' ')
+              : `<span class="text-[10px] text-[#8b949e]">Mine high-tier veins for uncut gems</span>`;
+            socketRows.push(`
+              <div class="flex flex-wrap items-center justify-between gap-1.5 bg-[#111722] px-2.5 py-1.5 rounded border border-[#283347] text-xs font-mono-num">
+                <span class="text-[#8b949e]">◇ Empty Socket #${sIdx + 1}</span>
+                <div class="flex flex-wrap gap-1">${btns}</div>
+              </div>
+            `);
+          }
+        }
+
+        return `
+          <div class="p-3 rounded-lg bg-[#080b11] border border-[#283347] space-y-2">
+            <div class="flex items-center justify-between">
+              <div>
+                <span class="text-xs font-bold" style="color:${r.color}">${it.name}</span>
+                <span class="text-[10px] font-mono-num text-[#8b949e] ml-1.5">[${entry.locLabel}]</span>
+              </div>
+              <span class="text-[10px] font-mono-num text-[#60a5fa]">${it.sockets.length}/${it.maxSockets} Sockets</span>
+            </div>
+            <div class="space-y-1.5">${socketRows.join('')}</div>
+          </div>
+        `;
+      }).join('');
+    }
+  }
 
   // Quartermaster Buy Catalog
   const qmRank = gameState.guildResearch.quartermaster || 0;
@@ -82,13 +232,33 @@ export function renderGuildHub() {
     }
   });
 
+  GEM_DISPLAY.forEach(g => {
+    const cnt = vaultGems[g.id] || 0;
+    if (cnt > 0) {
+      const gDef = GEM_CATALOG[g.id];
+      const unitVal = Math.round((gDef ? gDef.baseValue : 65) * mult);
+      sellRows.push(`
+        <div class="p-2 rounded bg-[#111722] border border-[#283347] flex items-center justify-between">
+          <div>
+            <span class="font-bold" style="color:${g.color}">◆ ${g.name}</span>
+            <span class="text-[#8b949e]"> x${cnt} (${unitVal}g each)</span>
+          </div>
+          <div class="flex gap-1">
+            <button onclick="window.Aethelgard.sellGemUnit('${g.id}', false)" class="px-2 py-0.5 rounded bg-[#1a2232] hover:bg-[#283347] text-[#fbbf24] border border-[#283347]">Sell 1</button>
+            <button onclick="window.Aethelgard.sellGemUnit('${g.id}', true)" class="px-2 py-0.5 rounded bg-[#34d399]/15 hover:bg-[#34d399]/25 text-[#34d399] border border-[#34d399]/40">All (+${unitVal * cnt}g)</button>
+          </div>
+        </div>
+      `);
+    }
+  });
+
   gameState.guildVault.armory.forEach(g => {
     const r = RARITY[g.rarity] || RARITY.common;
     const salePrice = Math.round((g.value || 15) * mult);
     sellRows.push(`
       <div class="p-2 rounded bg-[#111722] border border-[#283347] flex items-center justify-between">
         <div onclick="window.Aethelgard.openItemInspectModal('${g.uid}', false, false)" class="cursor-pointer hover:underline">
-          <span class="font-bold" style="color:${r.color}">${g.name}</span>
+          <span class="font-bold" style="color:${r.color}">${g.name}</span>${formatSocketPipsHtml(g)}
           <span class="text-[10px] text-[#8b949e] uppercase ml-1">[${g.slot}]</span>
         </div>
         <button onclick="window.Aethelgard.sellArmoryItem('${g.uid}')" class="px-2.5 py-0.5 rounded bg-[#fbbf24]/15 hover:bg-[#fbbf24]/25 text-[#fbbf24] border border-[#fbbf24]/40 font-bold">
@@ -100,7 +270,7 @@ export function renderGuildHub() {
 
   sellEl.innerHTML = sellRows.length > 0
     ? sellRows.join('')
-    : `<div class="text-[#8b949e] italic py-4 text-center">No banked minerals or spare equipment to appraise. Mine veins & extract from the dungeon!</div>`;
+    : `<div class="text-[#8b949e] italic py-4 text-center">No banked minerals, gems, or spare equipment to appraise. Mine veins & extract from the dungeon!</div>`;
 
   // Vault Armory Tab
   const armoryGrid = document.getElementById('uiArmoryGrid');
@@ -112,7 +282,7 @@ export function renderGuildHub() {
       return `
         <div onclick="window.Aethelgard.openItemInspectModal('${g.uid}', false, false)" class="p-2.5 rounded bg-[#080b11] border border-[#283347] hover:border-[#60a5fa] cursor-pointer flex items-center justify-between">
           <div>
-            <div class="text-xs font-bold" style="color:${r.color}">${g.name}</div>
+            <div class="text-xs font-bold" style="color:${r.color}">${g.name}${formatSocketPipsHtml(g)}</div>
             <div class="text-[10px] text-[#8b949e] uppercase">${r.name} • ${g.slot}</div>
           </div>
           <span class="text-xs font-mono-num text-[#fbbf24]">${g.value}g</span>
@@ -222,6 +392,7 @@ export function updateAllUI() {
   const h = gameState.hero;
   if (!h) return;
   recomputeHeroDerivedStats(false, gameState);
+  ensureGuildBounties(false, gameState);
   const cls = CLASSES[h.classId];
 
   // Header
@@ -260,12 +431,12 @@ export function updateAllUI() {
   document.getElementById('uiPickaxeText').textContent = `${curDur} / ${maxDur}`;
   document.getElementById('uiPickaxeBar').style.width = `${Math.max(0, Math.min(100, (curDur / maxDur) * 100))}%`;
 
-  // Statuses
+  // Statuses & Shrine Blessings
   const stRow = document.getElementById('uiStatusEffectsRow');
   if (h.statuses && h.statuses.length > 0) {
     stRow.innerHTML = h.statuses.map(s => `
       <span class="px-1.5 py-0.5 rounded text-[10px] font-mono-num font-bold" style="background:${s.color}25; color:${s.color}; border:1px solid ${s.color}50">
-        ${s.name} (${s.duration})
+        ${s.isBuff ? '✨ ' : ''}${s.name} (${s.duration})
       </span>
     `).join('');
   } else {
@@ -290,7 +461,7 @@ export function updateAllUI() {
     spBox.classList.add('hidden');
   }
 
-  // Paper Doll 6 Slots
+  // Paper Doll 6 Slots (with Gem Socket pips)
   const dollGrid = document.getElementById('uiPaperDollGrid');
   dollGrid.innerHTML = ['weapon', 'armor', 'helm', 'boots', 'accessory', 'pickaxe'].map(slot => {
     const it = h.equipment[slot];
@@ -306,7 +477,10 @@ export function updateAllUI() {
     }
     return `
       <div onclick="window.Aethelgard.openItemInspectModal('${slot}', true)" class="p-2 rounded bg-[#080b11] border border-[#283347] hover:border-[#60a5fa] cursor-pointer">
-        <div class="text-[9px] text-[#8b949e] uppercase">${slot}</div>
+        <div class="flex items-center justify-between text-[9px] text-[#8b949e] uppercase">
+          <span>${slot}</span>
+          ${formatSocketPipsHtml(it)}
+        </div>
         <div class="font-bold truncate" style="color:${it ? r.color : '#64748b'}">${it ? it.name : 'Empty'}</div>
         <div class="text-[10px] text-[#8b949e]">${sub}</div>
       </div>
@@ -331,9 +505,12 @@ export function updateAllUI() {
   h.expeditionPack.forEach(item => {
     const v = item.val * item.qty;
     totalRiskVal += v;
+    const isGem = item.type === 'Gem' && GEM_CATALOG[item.id];
+    const nameColor = isGem ? GEM_CATALOG[item.id].color : '#e6edf3';
+    const prefix = isGem ? '◆ ' : '';
     packHtml.push(`
       <div class="flex justify-between bg-[#111722] px-2 py-1 rounded border border-[#283347]">
-        <span class="text-[#e6edf3]">${item.name} x${item.qty}</span>
+        <span style="color:${nameColor}">${prefix}${item.name} x${item.qty}</span>
         <span class="text-[#fbbf24]">${v}g</span>
       </div>
     `);
@@ -343,7 +520,7 @@ export function updateAllUI() {
     const r = RARITY[gear.rarity] || RARITY.common;
     packHtml.push(`
       <div onclick="window.Aethelgard.openItemInspectModal('${gear.uid}', false, true)" class="flex justify-between bg-[#111722] px-2 py-1 rounded border border-[#283347] cursor-pointer hover:border-[#60a5fa]">
-        <span style="color:${r.color}">★ ${gear.name}</span>
+        <span style="color:${r.color}">★ ${gear.name}${formatSocketPipsHtml(gear)}</span>
         <span class="text-[#fbbf24]">${gear.value}g</span>
       </div>
     `);
@@ -352,6 +529,20 @@ export function updateAllUI() {
     ? packHtml.join('')
     : `<div class="text-[#8b949e] italic text-[11px] py-1">Pack is empty. Mine veins & open chests.</div>`;
   document.getElementById('uiPackTotalValue').textContent = `${totalRiskVal}g Value`;
+
+  // Sidebar Live Bounties Tracker
+  const sbBounties = document.getElementById('uiSidebarBountiesList');
+  if (sbBounties) {
+    sbBounties.innerHTML = (gameState.guildBounties || []).map(b => `
+      <div class="p-1.5 rounded bg-[#080b11] border ${b.completed ? 'border-[#34d399]/50' : 'border-[#283347]'} flex items-center justify-between gap-2">
+        <div class="truncate">
+          <span class="${b.completed ? 'text-[#34d399] font-bold' : 'text-[#e6edf3]'}">${b.completed ? '✓ ' : ''}${b.title}</span>
+          <div class="text-[10px] text-[#8b949e] truncate">${b.rewardLabel}</div>
+        </div>
+        <span class="px-1.5 py-0.5 rounded bg-[#111722] text-[10px] ${b.completed ? 'text-[#34d399] font-bold' : 'text-[#fbbf24]'} whitespace-nowrap">${b.curQty || 0}/${b.reqQty}</span>
+      </div>
+    `).join('');
+  }
 
   // View Toggle
   if (gameState.inGuild) {
@@ -367,13 +558,16 @@ export function updateAllUI() {
 
 export function switchGuildTab(tabId) {
   if (typeof document === 'undefined') return;
-  ['tavern', 'shop', 'armory', 'talents', 'research'].forEach(t => {
-    document.getElementById(`guildTab_${t}`).classList.toggle('hidden', t !== tabId);
+  ['tavern', 'bounties', 'lapidary', 'shop', 'armory', 'talents', 'research'].forEach(t => {
+    const panel = document.getElementById(`guildTab_${t}`);
+    if (panel) panel.classList.toggle('hidden', t !== tabId);
     const btn = document.getElementById(`tabBtn_${t}`);
-    if (t === tabId) {
-      btn.className = 'px-3 py-1.5 text-xs font-semibold border-b-2 border-[#fbbf24] text-[#fbbf24] whitespace-nowrap';
-    } else {
-      btn.className = 'px-3 py-1.5 text-xs font-semibold border-b-2 border-transparent text-[#8b949e] hover:text-[#e6edf3] whitespace-nowrap';
+    if (btn) {
+      if (t === tabId) {
+        btn.className = 'px-3 py-1.5 text-xs font-semibold border-b-2 border-[#fbbf24] text-[#fbbf24] whitespace-nowrap';
+      } else {
+        btn.className = 'px-3 py-1.5 text-xs font-semibold border-b-2 border-transparent text-[#8b949e] hover:text-[#e6edf3] whitespace-nowrap';
+      }
     }
   });
 }

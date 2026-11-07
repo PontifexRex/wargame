@@ -1,4 +1,4 @@
-// 2D Graphical Canvas Renderer, Torchlight FOV, Hero Sprite, and Floating Combat Text
+// 2D Graphical Canvas Renderer, Torchlight FOV, Shrines, Traps, Hero Sprite, and Floating Combat Text
 
 import {
   TILE_SIZE,
@@ -8,11 +8,17 @@ import {
   TILE_STAIRS_UP,
   TILE_STAIRS_DOWN,
   TILE_CHEST,
-  TILE_CHEST_OPEN
+  TILE_CHEST_OPEN,
+  TILE_SHRINE,
+  TILE_SHRINE_USED,
+  TILE_TRAP_VISIBLE,
+  TILE_TRAP_DISARMED
 } from '../constants.js';
 import { CLASSES } from '../data/classes.js';
 import { ORE_CATALOG } from '../data/ores.js';
+import { SHRINE_CATALOG, TRAP_CATALOG } from '../data/gems.js';
 import { gameState } from '../engine/state.js';
+import { detectNearbyTraps } from '../engine/actions.js';
 
 const floatingTexts = [];
 let hoverTile = null;
@@ -48,6 +54,8 @@ export function updateFOV() {
       }
     }
   }
+
+  detectNearbyTraps(floor, gameState);
 }
 
 export function drawHeroSprite(ctx, px, py, classId, size = TILE_SIZE) {
@@ -142,7 +150,7 @@ export function renderDungeonCanvas() {
           ctx.fillRect(px + 19, py + 12, 3, 3);
         }
       } else {
-        // Walkable Floor Tile
+        // Walkable Floor Tile (including concealed traps)
         ctx.fillStyle = (x + y) % 2 === 0 ? '#0e1420' : '#111826';
         ctx.fillRect(px, py, TILE_SIZE, TILE_SIZE);
         ctx.strokeStyle = '#192234';
@@ -167,6 +175,52 @@ export function renderDungeonCanvas() {
         } else if (tile === TILE_CHEST_OPEN) {
           ctx.fillStyle = '#451a03';
           ctx.fillRect(px + 6, py + 15, 20, 9);
+        } else if (tile === TILE_SHRINE) {
+          const sMeta = (floor.shrines && floor.shrines[`${x},${y}`]) || { type: 'sanctuary' };
+          const sDef = SHRINE_CATALOG[sMeta.type] || SHRINE_CATALOG.sanctuary;
+          // Stone Altar Base
+          ctx.fillStyle = '#334155';
+          ctx.fillRect(px + 8, py + 20, 16, 6);
+          ctx.fillStyle = '#475569';
+          ctx.fillRect(px + 11, py + 14, 10, 6);
+          // Floating Astral Crystal
+          ctx.fillStyle = sDef.color;
+          ctx.beginPath();
+          ctx.moveTo(px + 16, py + 4);
+          ctx.lineTo(px + 22, py + 11);
+          ctx.lineTo(px + 16, py + 18);
+          ctx.lineTo(px + 10, py + 11);
+          ctx.closePath();
+          ctx.fill();
+        } else if (tile === TILE_SHRINE_USED) {
+          ctx.fillStyle = '#1e293b';
+          ctx.fillRect(px + 8, py + 20, 16, 6);
+          ctx.fillStyle = '#334155';
+          ctx.fillRect(px + 12, py + 14, 8, 6);
+        } else if (tile === TILE_TRAP_VISIBLE) {
+          const tMeta = (floor.traps && floor.traps[`${x},${y}`]) || { type: 'spike' };
+          const tDef = TRAP_CATALOG[tMeta.type] || TRAP_CATALOG.spike;
+          ctx.strokeStyle = tDef.color;
+          ctx.lineWidth = 1.4;
+          ctx.strokeRect(px + 5, py + 5, 22, 22);
+          ctx.fillStyle = tDef.color;
+          // Draw hazard triangles / rune nodes
+          ctx.beginPath();
+          ctx.moveTo(px + 11, py + 21);
+          ctx.lineTo(px + 14, py + 11);
+          ctx.lineTo(px + 17, py + 21);
+          ctx.fill();
+          ctx.beginPath();
+          ctx.moveTo(px + 16, py + 21);
+          ctx.lineTo(px + 19, py + 11);
+          ctx.lineTo(px + 22, py + 21);
+          ctx.fill();
+        } else if (tile === TILE_TRAP_DISARMED) {
+          ctx.strokeStyle = '#475569';
+          ctx.lineWidth = 1;
+          ctx.strokeRect(px + 7, py + 7, 18, 18);
+          ctx.fillStyle = '#334155';
+          ctx.fillRect(px + 11, py + 15, 10, 2);
         }
       }
 

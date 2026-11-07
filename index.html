@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Aethelgard: The Starfall Vaults — v0.3.1 (Inc-3 Verified)</title>
+  <title>Aethelgard: The Starfall Vaults — v0.4.0 (Inc-4 Verified)</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -24,7 +24,7 @@
         <div class="flex items-center gap-2">
           <h1 class="font-display text-base md:text-lg font-bold tracking-wider text-[#e6edf3]">AETHELGARD</h1>
           <span class="text-[11px] font-mono-num uppercase px-2 py-0.5 rounded bg-[#fbbf24]/15 text-[#fbbf24] border border-[#fbbf24]/40 font-semibold">
-            v0.3.1 • Inc-3
+            v0.4.0 • Inc-4
           </span>
         </div>
         <p class="text-[11px] text-[#8b949e] hidden sm:block">The Starfall Vaults • Procedural Tactical Roguelike</p>
@@ -57,7 +57,7 @@
       </button>
       <button id="btnVerifySuite" onclick="window.Aethelgard.openDiagnosticsModal()" class="px-3 py-1.5 rounded-md bg-[#34d399]/15 hover:bg-[#34d399]/25 border border-[#34d399]/50 text-xs font-mono-num font-bold text-[#34d399] flex items-center gap-1.5 btn-tactical">
         <span class="w-2 h-2 rounded-full bg-[#34d399]"></span>
-        <span id="verifyBtnText">Verify Inc-3 (10/10 PASS)</span>
+        <span id="verifyBtnText">Verify Inc-4 (13/13 PASS)</span>
       </button>
     </div>
   </header>
@@ -246,6 +246,12 @@
           <button onclick="window.Aethelgard.switchGuildTab('tavern')" id="tabBtn_tavern" class="px-3 py-1.5 text-xs font-semibold border-b-2 border-[#fbbf24] text-[#fbbf24] whitespace-nowrap">
             Tavern & Vault
           </button>
+          <button onclick="window.Aethelgard.switchGuildTab('bounties')" id="tabBtn_bounties" class="px-3 py-1.5 text-xs font-semibold border-b-2 border-transparent text-[#8b949e] hover:text-[#e6edf3] whitespace-nowrap">
+            Notice Board (<span id="uiBountyReadyBadge">0</span>/3)
+          </button>
+          <button onclick="window.Aethelgard.switchGuildTab('lapidary')" id="tabBtn_lapidary" class="px-3 py-1.5 text-xs font-semibold border-b-2 border-transparent text-[#8b949e] hover:text-[#e6edf3] whitespace-nowrap">
+            Lapidary (<span id="uiGemCountBadge">0</span>)
+          </button>
           <button onclick="window.Aethelgard.switchGuildTab('shop')" id="tabBtn_shop" class="px-3 py-1.5 text-xs font-semibold border-b-2 border-transparent text-[#8b949e] hover:text-[#e6edf3] whitespace-nowrap">
             Quartermaster & Assay
           </button>
@@ -293,6 +299,52 @@
             <div id="uiVaultMineralsGrid" class="grid grid-cols-3 sm:grid-cols-6 gap-2 text-center font-mono-num text-xs">
               <!-- Populated dynamically -->
             </div>
+          </div>
+
+          <!-- GUILD VAULT ASTRAL GEM RESERVES -->
+          <div class="p-3.5 rounded-lg bg-[#080b11] border border-[#283347]">
+            <div class="flex items-center justify-between mb-2">
+              <h3 class="text-xs font-bold uppercase tracking-wider text-[#60a5fa]">Banked Uncut Astral Gems (Safe)</h3>
+              <button onclick="window.Aethelgard.switchGuildTab('lapidary')" class="text-[10px] font-mono-num text-[#60a5fa] hover:underline">Open Lapidary →</button>
+            </div>
+            <div id="uiVaultGemsGrid" class="grid grid-cols-2 sm:grid-cols-5 gap-2 text-center font-mono-num text-xs">
+              <!-- Populated dynamically -->
+            </div>
+          </div>
+        </div>
+
+        <!-- TAB: GUILD NOTICE BOARD (PROCEDURAL BOUNTY CONTRACTS) -->
+        <div id="guildTab_bounties" class="hidden space-y-3">
+          <div class="p-3 rounded-lg bg-[#080b11] border border-[#283347] flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h3 class="text-xs font-bold uppercase tracking-wider text-[#fbbf24]">Oakhaven Guild Notice Board</h3>
+              <p class="text-[11px] text-[#8b949e]">Complete contracts in the vaults. Rewards pay out automatically on safe extraction (or claim below).</p>
+            </div>
+            <button onclick="window.Aethelgard.rerollGuildBounties()" class="px-3 py-1.5 rounded bg-[#1a2232] hover:bg-[#283347] text-[#fbbf24] border border-[#fbbf24]/40 text-xs font-mono-num font-bold btn-tactical">
+              ↻ Reroll Board (25g)
+            </button>
+          </div>
+          <div id="uiBountiesGrid" class="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <!-- Populated dynamically -->
+          </div>
+        </div>
+
+        <!-- TAB: ASTRAL LAPIDARY BENCH (GEM SOCKETING) -->
+        <div id="guildTab_lapidary" class="hidden space-y-3">
+          <div class="p-3 rounded-lg bg-[#080b11] border border-[#283347] space-y-2">
+            <div class="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h3 class="text-xs font-bold uppercase tracking-wider text-[#60a5fa]">Astral Lapidary Bench</h3>
+                <p class="text-[11px] text-[#8b949e]">Rare, Epic, and Star-Forged Relic gear roll 1–2 sockets. Socketing is free; extracting a gem costs 15g.</p>
+              </div>
+              <span class="text-[10px] font-mono-num text-[#34d399]">Gems Preserved on Extract</span>
+            </div>
+            <div id="uiLapidaryGemsBar" class="grid grid-cols-2 sm:grid-cols-5 gap-1.5 text-center font-mono-num text-xs pt-1">
+              <!-- Populated dynamically -->
+            </div>
+          </div>
+          <div id="uiLapidaryItemsGrid" class="space-y-2 max-h-[320px] overflow-y-auto pr-1">
+            <!-- Populated dynamically -->
           </div>
         </div>
 
@@ -522,6 +574,17 @@
         </div>
       </div>
 
+      <!-- ACTIVE BOUNTIES TRACKER -->
+      <div class="card-surface p-3.5">
+        <div class="flex items-center justify-between border-b border-[#283347] pb-1.5 mb-2">
+          <h3 class="text-xs font-bold uppercase tracking-wider text-[#fbbf24]">Active Guild Bounties</h3>
+          <span class="text-[10px] font-mono-num text-[#8b949e]">Extract to Claim</span>
+        </div>
+        <div id="uiSidebarBountiesList" class="space-y-1.5 text-xs font-mono-num">
+          <!-- Populated dynamically -->
+        </div>
+      </div>
+
       <!-- TACTICAL TILE SCANNER -->
       <div class="card-surface p-3.5">
         <div class="flex items-center justify-between border-b border-[#283347] pb-1.5 mb-2">
@@ -595,21 +658,21 @@
   </div>
 
   <!-- ===================================================================== -->
-  <!-- MODAL 3: 10/10 AUTOMATED VERIFICATION SUITE                           -->
+  <!-- MODAL 3: 13/13 AUTOMATED VERIFICATION SUITE                           -->
   <!-- ===================================================================== -->
   <div id="diagnosticsModal" class="hidden fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
     <div class="card-surface max-w-2xl w-full p-5 border border-[#34d399]/50 shadow-2xl max-h-[90vh] flex flex-col">
       <div class="flex items-center justify-between border-b border-[#283347] pb-3 mb-3">
         <div>
           <span class="text-[10px] font-mono-num uppercase px-2 py-0.5 rounded bg-[#34d399]/15 text-[#34d399] font-bold">Automated Self-Test Engine</span>
-          <h3 class="font-display text-lg font-bold text-[#e6edf3] mt-1">Increment 3 Verification Suite (10/10 Checks)</h3>
+          <h3 class="font-display text-lg font-bold text-[#e6edf3] mt-1">Increment 4 Verification Suite (13/13 Checks)</h3>
         </div>
         <button onclick="window.Aethelgard.closeDiagnosticsModal()" class="text-[#8b949e] hover:text-[#e6edf3]">✕</button>
       </div>
       <div id="diagnosticsList" class="space-y-2 overflow-y-auto pr-1 text-xs font-mono-num flex-1 mb-4"></div>
       <div class="flex items-center justify-between pt-3 border-t border-[#283347]">
         <button onclick="window.Aethelgard.runSelfTests(true)" class="px-3.5 py-1.5 rounded bg-[#1a2232] hover:bg-[#283347] border border-[#283347] text-xs font-mono-num text-[#60a5fa]">
-          ↻ Re-Run All 10 Tests
+          ↻ Re-Run All 13 Tests
         </button>
         <button onclick="window.Aethelgard.closeDiagnosticsModal()" class="px-4 py-1.5 rounded bg-[#34d399] text-[#080b11] font-bold text-xs">
           Done
@@ -624,10 +687,10 @@
   <div id="saveSyncModal" class="hidden fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
     <div class="card-surface max-w-lg w-full p-5 border border-[#60a5fa]/50 shadow-2xl">
       <div class="flex items-center justify-between border-b border-[#283347] pb-2.5 mb-3">
-        <h3 class="font-display text-base font-bold text-[#e6edf3]">Save Sync & Schema v3 Migration</h3>
+        <h3 class="font-display text-base font-bold text-[#e6edf3]">Save Sync & Schema v4 Migration</h3>
         <button onclick="window.Aethelgard.closeSaveSyncModal()" class="text-[#8b949e] hover:text-[#e6edf3]">✕</button>
       </div>
-      <p class="text-xs text-[#8b949e] mb-2">Copy or download your JSON save state, or paste a v1/v2/v3 save below to restore.</p>
+      <p class="text-xs text-[#8b949e] mb-2">Copy or download your JSON save state, or paste a v1/v2/v3/v4 save below to restore.</p>
       <textarea id="saveJsonTextarea" class="w-full h-40 bg-[#080b11] text-[#34d399] border border-[#283347] rounded p-2.5 font-mono-num text-[11px] mb-3 focus:outline-none focus:border-[#60a5fa]"></textarea>
       <div id="saveSyncStatusMsg" class="text-xs font-mono-num text-[#fbbf24] min-h-[18px] mb-2"></div>
       <div class="flex flex-wrap items-center justify-end gap-2">

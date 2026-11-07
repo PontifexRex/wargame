@@ -1,19 +1,26 @@
-// In-Game Modals, Guild Controllers, Item Inspection, Class Selection & Save Sync
+// In-Game Modals, Guild Controllers, Item Inspection (with Gem Sockets), Class Selection & Save Sync
 
-import { RARITY } from '../constants.js';
+import { RARITY, LAPIDARY_UNSOCKET_COST } from '../constants.js';
 import { CLASSES } from '../data/classes.js';
 import { TALENT_TREES } from '../data/talents.js';
+import { GEM_IDS, GEM_CATALOG } from '../data/gems.js';
 import {
   gameState,
   setGameState,
   migrateSaveData,
   saveGame,
+  normalizeEquipmentSockets,
   recomputeHeroDerivedStats,
   getPickaxeMaxDurability
 } from '../engine/state.js';
 import { generateFloor } from '../engine/procedural.js';
 import { playSound } from '../engine/audio.js';
-import { sellArmoryItem } from '../engine/actions.js';
+import {
+  sellArmoryItem,
+  socketGemIntoItem,
+  unsocketGemFromItem,
+  ensureGuildBounties
+} from '../engine/actions.js';
 import { updateFOV } from './renderer.js';
 import { updateAllUI, logChronicle } from './domSync.js';
 
@@ -63,7 +70,7 @@ export function closeOutcomeModal() {
 export function openNewDungeonModal() {
   showOutcomeModal(
     'Chart New Subterranean Dungeon?',
-    'Guild Cartographers will seal the current dungeon shaft and chart a fresh procedural layout across all floors. Your character level, Vault Gold, and minerals are preserved.',
+    'Guild Cartographers will seal the current dungeon shaft and chart a fresh procedural layout across all floors. Your character level, Vault Gold, Astral Gems, and minerals are preserved.',
     [`Current Chart: ${gameState.dungeon.seedCode}`, `Explored Floors to Reset: ${Object.keys(gameState.dungeon.floors).length}`],
     true
   );
@@ -175,8 +182,9 @@ export function openItemInspectModal(refId, isEquippedSlot = false, fromExpediti
     item = gameState.guildVault.armory.find(g => g.uid === refId);
   }
   if (!item) return;
+  normalizeEquipmentSockets(item);
 
-  inspectedItemContext = { item, isEquippedSlot, fromExpedition };
+  inspectedItemContext = { item, refId, isEquippedSlot, fromExpedition };
   const r = RARITY[item.rarity] || RARITY.common;
   const badge = document.getElementById('inspectRarityBadge');
   badge.textContent = `${r.name} • ${item.slot.toUpperCase()}`;
@@ -221,11 +229,56 @@ export function openItemInspectModal(refId, isEquippedSlot = false, fromExpediti
   document.getElementById('inspectComparisonBody').innerHTML = rows.join('') || `<div class="text-[#8b949e]">Standard equipment piece</div>`;
 
   const affEl = document.getElementById('inspectAffixesBody');
+  const affHtml = [];
   if (item.affixes && item.affixes.length > 0) {
-    affEl.innerHTML = item.affixes.map(a => `<div class="text-[#fbbf24]">★ +${a.val} ${a.stat.toUpperCase()} (${a.label})</div>`).join('');
-  } else {
-    affEl.innerHTML = '';
+    item.affixes.forEach(a => {
+      affHtml.push(`<div class="text-[#fbbf24]">★ +${a.val} ${a.stat.toUpperCase()} (${a.label})</div>`);
+    });
   }
+
+  // Render Astral Gem Sockets & Inline Lapidary Actions (when in Guild & banked/equipped)
+  if ((item.maxSockets || 0) > 0) {
+    const canModifySockets = gameState.inGuild && !fromExpedition;
+    const targetRefKey = isEquippedSlot ? refId : item.uid;
+    affHtml.push(`<div class="pt-2 mt-2 border-t border-[#283347] text-[11px] font-bold uppercase tracking-wider text-[#60a5fa]">Astral Sockets (${item.sockets.length}/${item.maxSockets})</div>`);
+
+    for (let sIdx = 0; sIdx < item.maxSockets; sIdx++) {
+      const gId = item.sockets[sIdx];
+      if (gId && GEM_CATALOG[gId]) {
+        const gDef = GEM_CATALOG[gId];
+        const unsocketBtn = canModifySockets
+          ? `<button onclick="window.Aethelgard.unsocketFromInspect('${targetRefKey}', ${sIdx}, ${isEquippedSlot})" class="px-1.5 py-0.5 rounded bg-[#1a2232] hover:bg-[#283347] text-[#fbbf24] border border-[#fbbf24]/40 text-[10px]">Extract (${LAPIDARY_UNSOCKET_COST}g)</button>`
+          : '';
+        affHtml.push(`
+          <div class="flex items-center justify-between bg-[#080b11] p-1.5 rounded border border-[#283347]">
+            <span style="color:${gDef.color}">◆ ${gDef.name} <span class="text-[#8b949e]">(${gDef.desc})</span></span>
+            ${unsocketBtn}
+          </div>
+        `);
+      } else {
+        let gemButtons = '';
+        if (canModifySockets && gameState.guildVault.gems) {
+          const avail = GEM_IDS.filter(k => (gameState.guildVault.gems[k] || 0) > 0);
+          if (avail.length > 0) {
+            gemButtons = avail.map(k => {
+              const gd = GEM_CATALOG[k];
+              return `<button onclick="window.Aethelgard.socketFromInspect('${targetRefKey}', '${k}', ${isEquippedSlot})" class="px-1.5 py-0.5 rounded bg-[#1a2232] hover:bg-[#283347] border border-[#283347] text-[10px]" style="color:${gd.color}">+${gd.shortName}</button>`;
+            }).join(' ');
+          } else {
+            gemButtons = `<span class="text-[10px] text-[#8b949e]">No banked gems</span>`;
+          }
+        }
+        affHtml.push(`
+          <div class="flex flex-wrap items-center justify-between gap-1 bg-[#080b11] p-1.5 rounded border border-[#283347]">
+            <span class="text-[#8b949e]">◇ Empty Socket</span>
+            <div class="flex flex-wrap gap-1">${gemButtons}</div>
+          </div>
+        `);
+      }
+    }
+  }
+
+  affEl.innerHTML = affHtml.join('');
 
   const btnEquip = document.getElementById('btnInspectEquip');
   const btnSell = document.getElementById('btnInspectSell');
@@ -283,6 +336,20 @@ export function openItemInspectModal(refId, isEquippedSlot = false, fromExpediti
   document.getElementById('itemInspectModal').classList.remove('hidden');
 }
 
+export function socketFromInspect(targetRef, gemId, isEquippedSlot) {
+  const res = socketGemIntoItem(targetRef, gemId, isEquippedSlot, gameState);
+  if (res.ok) {
+    openItemInspectModal(targetRef, isEquippedSlot, false);
+  }
+}
+
+export function unsocketFromInspect(targetRef, socketIdx, isEquippedSlot) {
+  const res = unsocketGemFromItem(targetRef, socketIdx, isEquippedSlot, gameState);
+  if (res.ok) {
+    openItemInspectModal(targetRef, isEquippedSlot, false);
+  }
+}
+
 export function openClassSelectModal(allowCancel = false) {
   if (typeof document === 'undefined') return;
   document.getElementById('btnCloseClassModal').classList.toggle('hidden', !allowCancel);
@@ -314,6 +381,11 @@ export function closeClassSelectModal() {
 
 export function selectAdventurerClass(classId, targetState = gameState) {
   const cls = CLASSES[classId] || CLASSES.fighter;
+  const eqCopy = JSON.parse(JSON.stringify(cls.starterGear));
+  Object.keys(eqCopy).forEach(k => {
+    normalizeEquipmentSockets(eqCopy[k]);
+  });
+
   targetState.hero = {
     name: cls.name,
     classId: cls.id,
@@ -333,7 +405,7 @@ export function selectAdventurerClass(classId, targetState = gameState) {
     talentPoints: 1,
     talentsAllocated: {},
     consumables: { potions: 2, recalls: 1 },
-    equipment: JSON.parse(JSON.stringify(cls.starterGear)),
+    equipment: eqCopy,
     expeditionPack: [],
     expeditionGear: [],
     statuses: [],
@@ -344,6 +416,7 @@ export function selectAdventurerClass(classId, targetState = gameState) {
   targetState.inGuild = true;
   targetState.dungeon.currentFloor = 1;
   targetState.dungeon.floors = { 1: generateFloor(1) };
+  ensureGuildBounties(false, targetState);
 
   recomputeHeroDerivedStats(true, targetState);
 
@@ -400,7 +473,7 @@ export function importSaveJson() {
     saveGame();
     updateAllUI();
     closeSaveSyncModal();
-    logChronicle('Imported & migrated save state to Schema v3!', 'good');
+    logChronicle('Imported & migrated save state to Schema v4!', 'good');
   } catch (e) {
     document.getElementById('saveSyncStatusMsg').textContent = '✕ Invalid JSON format.';
   }

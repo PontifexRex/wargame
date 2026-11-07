@@ -1,12 +1,32 @@
-// Game State Schema, Save v3 Migration, Persistence, and Derived Hero Stats
+// Game State Schema, Save v4 Migration, Persistence, and Derived Hero Stats
 
 import { SCHEMA_VERSION, STORAGE_KEY } from '../constants.js';
 import { CLASSES } from '../data/classes.js';
+import { GEM_IDS, GEM_CATALOG } from '../data/gems.js';
+import { buildProceduralBountySet } from '../data/bounties.js';
 
 let itemSeq = 1000;
 
 export function nextItemUid(prefix = 'gear') {
   return `${prefix}_${Date.now()}_${itemSeq++}`;
+}
+
+export function normalizeEquipmentSockets(item) {
+  if (!item) return null;
+  if (item.slot === 'pickaxe') {
+    item.maxSockets = 0;
+    item.sockets = [];
+    return item;
+  }
+  if (typeof item.maxSockets !== 'number') {
+    if (item.rarity === 'relic') item.maxSockets = 2;
+    else if (item.rarity === 'epic' || item.rarity === 'rare') item.maxSockets = 1;
+    else item.maxSockets = 0;
+  }
+  if (!Array.isArray(item.sockets)) {
+    item.sockets = [];
+  }
+  return item;
 }
 
 export function createDefaultGameState() {
@@ -29,6 +49,13 @@ export function createDefaultGameState() {
       geode: 0,
       starcrystal: 0,
       astralite: 0,
+      gems: {
+        ruby: 0,
+        emerald: 0,
+        sapphire: 0,
+        topaz: 0,
+        void_diamond: 0
+      },
       armory: []
     },
     guildResearch: {
@@ -38,7 +65,8 @@ export function createDefaultGameState() {
       assay: 0,
       quartermaster: 0,
       vanguard: 0
-    }
+    },
+    guildBounties: buildProceduralBountySet(0, 0)
   };
 }
 
@@ -71,11 +99,18 @@ export function migrateSaveData(raw) {
   migrated.guildVault.geode = srcVault.geode || 0;
   migrated.guildVault.starcrystal = srcVault.starcrystal || 0;
   migrated.guildVault.astralite = srcVault.astralite || 0;
-  migrated.guildVault.armory = Array.isArray(srcVault.armory)
+
+  const srcGems = srcVault.gems || {};
+  GEM_IDS.forEach(gId => {
+    migrated.guildVault.gems[gId] = srcGems[gId] || 0;
+  });
+
+  const rawArmory = Array.isArray(srcVault.armory)
     ? srcVault.armory
     : (Array.isArray(srcVault.equipment) ? srcVault.equipment : []);
+  migrated.guildVault.armory = rawArmory.map(g => normalizeEquipmentSockets(g));
 
-  // Migrate old v1/v2 bank items array into mineral counts
+  // Migrate old v1/v2 bank items array into mineral/gem counts
   if (Array.isArray(srcVault.items)) {
     srcVault.items.forEach(it => {
       const cleanId = (it.id || '')
@@ -83,7 +118,9 @@ export function migrateSaveData(raw) {
         .replace('relic_geode', 'geode')
         .replace('star', 'starcrystal')
         .replace('astral', 'astralite');
-      if (migrated.guildVault[cleanId] !== undefined) {
+      if (migrated.guildVault.gems[cleanId] !== undefined) {
+        migrated.guildVault.gems[cleanId] += (it.count || it.qty || 1);
+      } else if (migrated.guildVault[cleanId] !== undefined && typeof migrated.guildVault[cleanId] === 'number') {
         migrated.guildVault[cleanId] += (it.count || it.qty || 1);
       }
     });
@@ -99,6 +136,20 @@ export function migrateSaveData(raw) {
     quartermaster: srcRes.quartermaster || 0,
     vanguard:      srcRes.vanguard !== undefined ? srcRes.vanguard : (srcRes.vanguard_insurance || 0)
   };
+
+  // Migrate Bounties
+  if (Array.isArray(data.guildBounties) && data.guildBounties.length > 0) {
+    migrated.guildBounties = data.guildBounties.map(b => Object.assign({
+      curQty: 0,
+      reqQty: 1,
+      completed: false
+    }, b));
+  } else {
+    migrated.guildBounties = buildProceduralBountySet(
+      migrated.guildResearch.geology,
+      migrated.guildResearch.cartography
+    );
+  }
 
   // Migrate Hero
   if (data.hero) {
@@ -132,15 +183,17 @@ export function migrateSaveData(raw) {
           : (srcVault.recallScrolls !== undefined ? srcVault.recallScrolls : 1)
       },
       equipment: {
-        weapon:    eqSource.weapon    || JSON.parse(JSON.stringify(cls.starterGear.weapon)),
-        armor:     eqSource.armor     || JSON.parse(JSON.stringify(cls.starterGear.armor)),
-        helm:      eqSource.helm      || JSON.parse(JSON.stringify(cls.starterGear.helm)),
-        boots:     eqSource.boots     || JSON.parse(JSON.stringify(cls.starterGear.boots)),
-        accessory: eqSource.accessory || JSON.parse(JSON.stringify(cls.starterGear.accessory)),
-        pickaxe:   eqSource.pickaxe   || JSON.parse(JSON.stringify(cls.starterGear.pickaxe))
+        weapon:    normalizeEquipmentSockets(eqSource.weapon    || JSON.parse(JSON.stringify(cls.starterGear.weapon))),
+        armor:     normalizeEquipmentSockets(eqSource.armor     || JSON.parse(JSON.stringify(cls.starterGear.armor))),
+        helm:      normalizeEquipmentSockets(eqSource.helm      || JSON.parse(JSON.stringify(cls.starterGear.helm))),
+        boots:     normalizeEquipmentSockets(eqSource.boots     || JSON.parse(JSON.stringify(cls.starterGear.boots))),
+        accessory: normalizeEquipmentSockets(eqSource.accessory || JSON.parse(JSON.stringify(cls.starterGear.accessory))),
+        pickaxe:   normalizeEquipmentSockets(eqSource.pickaxe   || JSON.parse(JSON.stringify(cls.starterGear.pickaxe)))
       },
       expeditionPack: Array.isArray(data.hero.expeditionPack) ? data.hero.expeditionPack : [],
-      expeditionGear: Array.isArray(data.hero.expeditionGear) ? data.hero.expeditionGear : [],
+      expeditionGear: Array.isArray(data.hero.expeditionGear)
+        ? data.hero.expeditionGear.map(g => normalizeEquipmentSockets(g))
+        : [],
       statuses: Array.isArray(data.hero.statuses) ? data.hero.statuses : [],
       usedDivineIntervention: !!data.hero.usedDivineIntervention,
       x: data.hero.x || 1,
@@ -152,6 +205,13 @@ export function migrateSaveData(raw) {
     migrated.dungeon.seedCode = data.dungeon.seedCode || 'STAR-4812';
     migrated.dungeon.currentFloor = data.dungeon.currentFloor || data.dungeon.currentDepth || 1;
     migrated.dungeon.floors = data.dungeon.floors;
+    Object.keys(migrated.dungeon.floors).forEach(fk => {
+      const fl = migrated.dungeon.floors[fk];
+      if (fl) {
+        fl.shrines = fl.shrines || {};
+        fl.traps = fl.traps || {};
+      }
+    });
   }
 
   migrated.version = SCHEMA_VERSION;
@@ -195,7 +255,7 @@ export function recomputeHeroDerivedStats(fullRestore = false, state = gameState
   if (t.p_e1) { flatDef += t.p_e1 * 4; flatHp += t.p_e1 * 8; }
   if (t.p_e2) flatAtk += t.p_e2 * 4;
 
-  // Sum 6-Slot Equipment
+  // Sum 6-Slot Equipment & Socketed Astral Gems
   for (const slot of ['weapon', 'armor', 'helm', 'boots', 'accessory']) {
     const it = h.equipment[slot];
     if (!it) continue;
@@ -210,6 +270,39 @@ export function recomputeHeroDerivedStats(fullRestore = false, state = gameState
     if (it.maxHp) flatHp += it.maxHp;
     if (it.maxMp) flatMp += it.maxMp;
     if (it.visionBonus) visionBonus += it.visionBonus;
+
+    if (Array.isArray(it.sockets)) {
+      for (let sIdx = 0; sIdx < it.sockets.length; sIdx++) {
+        const gem = GEM_CATALOG[it.sockets[sIdx]];
+        if (!gem || !gem.bonuses) continue;
+        const gb = gem.bonuses;
+        if (gb.str) str += gb.str;
+        if (gb.dex) dex += gb.dex;
+        if (gb.int) int += gb.int;
+        if (gb.vit) vit += gb.vit;
+        if (gb.atk) flatAtk += gb.atk;
+        if (gb.def) flatDef += gb.def;
+        if (gb.crit) flatCrit += gb.crit;
+        if (gb.dodge) flatDodge += gb.dodge;
+        if (gb.maxHp) flatHp += gb.maxHp;
+        if (gb.maxMp) flatMp += gb.maxMp;
+        if (gb.visionBonus) visionBonus += gb.visionBonus;
+      }
+    }
+  }
+
+  // Active Astral Shrine Status Buffs
+  if (Array.isArray(h.statuses)) {
+    for (let i = 0; i < h.statuses.length; i++) {
+      const st = h.statuses[i];
+      if (st.id === 'shrine_starfire') {
+        flatAtk += 6;
+        flatCrit += 12;
+      } else if (st.id === 'shrine_aegis') {
+        flatDef += 6;
+        visionBonus += 1;
+      }
+    }
   }
 
   h.computedStr = str;
@@ -254,7 +347,11 @@ export function saveGame(state = gameState) {
 export function loadGame() {
   try {
     if (typeof localStorage !== 'undefined') {
-      const raw = localStorage.getItem(STORAGE_KEY) || localStorage.getItem('aethelgard_save') || localStorage.getItem('aethelgard_save_v2');
+      const raw =
+        localStorage.getItem(STORAGE_KEY) ||
+        localStorage.getItem('aethelgard_save_v3') ||
+        localStorage.getItem('aethelgard_save_v2') ||
+        localStorage.getItem('aethelgard_save');
       if (raw) {
         const migrated = migrateSaveData(raw);
         setGameState(migrated);

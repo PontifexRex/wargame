@@ -1,17 +1,35 @@
-// Interactive Mining, Consumables, Extraction, Defeat Recovery, Quartermaster & Guild Research
+// Interactive Mining, Astral Gems & Lapidary, Guild Bounties, Shrines, Traps, Extraction & Research
 
-import { TILE_FLOOR, TILE_ORE_GEODE } from '../constants.js';
+import {
+  GRID_W,
+  GRID_H,
+  TILE_FLOOR,
+  TILE_ORE_MITHRIL,
+  TILE_ORE_GEODE,
+  TILE_ORE_STAR,
+  TILE_ORE_ASTRAL,
+  TILE_SHRINE,
+  TILE_SHRINE_USED,
+  TILE_TRAP_HIDDEN,
+  TILE_TRAP_VISIBLE,
+  TILE_TRAP_DISARMED,
+  LAPIDARY_UNSOCKET_COST,
+  BOUNTY_REROLL_COST
+} from '../constants.js';
 import { ORE_CATALOG, MINERAL_IDS } from '../data/ores.js';
+import { GEM_IDS, GEM_CATALOG, SHRINE_CATALOG, TRAP_CATALOG } from '../data/gems.js';
+import { buildProceduralBountySet } from '../data/bounties.js';
 import { SHOP_ITEMS } from '../data/items.js';
 import { RESEARCH_PROJECTS } from '../data/research.js';
 import {
   gameState,
   saveGame,
   nextItemUid,
+  normalizeEquipmentSockets,
   recomputeHeroDerivedStats,
   getPickaxeMaxDurability
 } from './state.js';
-import { generateProceduralEquipment } from './procedural.js';
+import { generateProceduralEquipment, rollSocketCountForRarity } from './procedural.js';
 import { playSound } from './audio.js';
 
 const actionCallbacks = {
@@ -29,6 +47,24 @@ export function registerActionCallbacks(cbs) {
 
 export function getActionCallbacks() {
   return actionCallbacks;
+}
+
+export function applyStatusEffect(target, id, duration) {
+  if (!target.statuses) target.statuses = [];
+  const metaMap = {
+    burn:            { id: 'burn',            name: 'Burn',              color: '#fb923c', duration, isBuff: false },
+    bleed:           { id: 'bleed',           name: 'Bleed',             color: '#f87171', duration, isBuff: false },
+    poison:          { id: 'poison',          name: 'Poison',            color: '#4ade80', duration, isBuff: false },
+    stun:            { id: 'stun',            name: 'Stunned',           color: '#fbbf24', duration, isBuff: false },
+    weakened:        { id: 'weakened',        name: 'Weakened',          color: '#c084fc', duration, isBuff: false },
+    shrine_starfire: { id: 'shrine_starfire', name: 'Starfire Blessing', color: '#fbbf24', duration, isBuff: true },
+    shrine_aegis:    { id: 'shrine_aegis',    name: 'Astral Aegis',      color: '#60a5fa', duration, isBuff: true }
+  };
+  const meta = metaMap[id];
+  if (!meta) return;
+  const existing = target.statuses.find(s => s.id === id);
+  if (existing) existing.duration = Math.max(existing.duration, duration);
+  else target.statuses.push(Object.assign({}, meta));
 }
 
 export function addExpeditionTradeItem(id, name, val, qty = 1, type = 'Ore', state = gameState) {
@@ -55,6 +91,144 @@ export function gainExperience(amount, state = gameState) {
       actionCallbacks.log(`LEVEL UP! Reached Level ${h.level} (+2 Stat Points, +1 Talent Point).`, 'good');
     }
   }
+}
+
+// ============================================================================
+// GUILD NOTICE BOARD (PROCEDURAL BOUNTY CONTRACTS)
+// ============================================================================
+
+export function ensureGuildBounties(forceRefresh = false, state = gameState) {
+  const geo = (state.guildResearch && state.guildResearch.geology) || 0;
+  const cart = (state.guildResearch && state.guildResearch.cartography) || 0;
+  if (forceRefresh || !Array.isArray(state.guildBounties) || state.guildBounties.length === 0) {
+    state.guildBounties = buildProceduralBountySet(geo, cart);
+  }
+  return state.guildBounties;
+}
+
+export function rerollGuildBounties(state = gameState) {
+  if (state.guildVault.gold < BOUNTY_REROLL_COST) {
+    if (state === gameState) {
+      actionCallbacks.log(`Need ${BOUNTY_REROLL_COST} Vault Gold to post fresh Notice Board contracts.`, 'bad');
+    }
+    return { ok: false, reason: 'no_gold' };
+  }
+  state.guildVault.gold -= BOUNTY_REROLL_COST;
+  ensureGuildBounties(true, state);
+  if (state === gameState) {
+    playSound('gold');
+    actionCallbacks.log(`Posted 3 fresh Guild Bounty contracts (-${BOUNTY_REROLL_COST}g).`, 'gold');
+    saveGame();
+    actionCallbacks.updateUI();
+  }
+  return { ok: true, bounties: state.guildBounties };
+}
+
+export function recordBountyProgress(kind, targetTags, amount = 1, state = gameState) {
+  if (!Array.isArray(state.guildBounties)) return 0;
+  const tags = Array.isArray(targetTags) ? targetTags : [targetTags];
+  let newlyCompleted = 0;
+
+  for (let i = 0; i < state.guildBounties.length; i++) {
+    const b = state.guildBounties[i];
+    if (!b || b.completed || b.kind !== kind) continue;
+    if (tags.indexOf(b.targetId) !== -1) {
+      b.curQty = Math.min(b.reqQty, (b.curQty || 0) + amount);
+      if (b.curQty >= b.reqQty) {
+        b.completed = true;
+        newlyCompleted += 1;
+        if (state === gameState) {
+          playSound('lvl');
+          actionCallbacks.log(`📜 Bounty Complete: ${b.title}! Extract to the Guild to claim ${b.rewardLabel}.`, 'gold');
+        }
+      }
+    }
+  }
+  return newlyCompleted;
+}
+
+function applySingleBountyReward(bounty, state) {
+  if (!state.guildVault.gems) {
+    state.guildVault.gems = { ruby: 0, emerald: 0, sapphire: 0, topaz: 0, void_diamond: 0 };
+  }
+  if (bounty.rewardType === 'gold') {
+    state.guildVault.gold += bounty.rewardQty;
+  } else if (bounty.rewardType === 'talent_tome' && state.hero) {
+    state.hero.talentPoints = (state.hero.talentPoints || 0) + bounty.rewardQty;
+  } else if (bounty.rewardType === 'gem') {
+    state.guildVault.gems[bounty.rewardId] = (state.guildVault.gems[bounty.rewardId] || 0) + bounty.rewardQty;
+  } else if (bounty.rewardType === 'ore') {
+    state.guildVault[bounty.rewardId] = (state.guildVault[bounty.rewardId] || 0) + bounty.rewardQty;
+  }
+}
+
+export function payoutCompletedBounties(state = gameState) {
+  ensureGuildBounties(false, state);
+  const geo = (state.guildResearch && state.guildResearch.geology) || 0;
+  const cart = (state.guildResearch && state.guildResearch.cartography) || 0;
+  const replacementPool = buildProceduralBountySet(geo, cart);
+  const claimedLabels = [];
+
+  for (let i = 0; i < state.guildBounties.length; i++) {
+    const b = state.guildBounties[i];
+    if (b && b.completed) {
+      applySingleBountyReward(b, state);
+      claimedLabels.push(`${b.title} (${b.rewardLabel})`);
+      state.guildBounties[i] = replacementPool[i % replacementPool.length];
+    }
+  }
+
+  return claimedLabels;
+}
+
+export function claimBountyAtGuild(bountyId, state = gameState) {
+  ensureGuildBounties(false, state);
+  const idx = state.guildBounties.findIndex(b => b.id === bountyId);
+  if (idx === -1 || !state.guildBounties[idx].completed) {
+    return { ok: false, reason: 'not_completed' };
+  }
+  const b = state.guildBounties[idx];
+  applySingleBountyReward(b, state);
+  const geo = (state.guildResearch && state.guildResearch.geology) || 0;
+  const cart = (state.guildResearch && state.guildResearch.cartography) || 0;
+  const freshSet = buildProceduralBountySet(geo, cart);
+  state.guildBounties[idx] = freshSet[idx % freshSet.length];
+
+  if (state === gameState) {
+    playSound('gold');
+    actionCallbacks.log(`Claimed Notice Board Bounty "${b.title}": ${b.rewardLabel}!`, 'gold');
+    saveGame();
+    actionCallbacks.updateUI();
+  }
+  return { ok: true, rewardLabel: b.rewardLabel };
+}
+
+// ============================================================================
+// MINING, ASTRAL GEM DROPS & LAPIDARY BENCH
+// ============================================================================
+
+function rollUncutGemForOreTile(tile) {
+  const coreGems = ['ruby', 'emerald', 'sapphire', 'topaz'];
+  let chance = 0;
+  let voidWeight = 0;
+
+  if (tile === TILE_ORE_MITHRIL) {
+    chance = 0.22;
+  } else if (tile === TILE_ORE_GEODE) {
+    chance = 0.35;
+  } else if (tile === TILE_ORE_STAR) {
+    chance = 0.40;
+    voidWeight = 0.20;
+  } else if (tile === TILE_ORE_ASTRAL) {
+    chance = 0.55;
+    voidWeight = 0.40;
+  }
+
+  if (chance <= 0 || Math.random() >= chance) return null;
+  if (voidWeight > 0 && Math.random() < voidWeight) {
+    return 'void_diamond';
+  }
+  return coreGems[Math.floor(Math.random() * coreGems.length)];
 }
 
 export function mineTile(x, y, state = gameState) {
@@ -98,6 +272,17 @@ export function mineTile(x, y, state = gameState) {
   floor.oresMined = (floor.oresMined || 0) + 1;
 
   addExpeditionTradeItem(ore.id, ore.name, ore.baseValue, 1, 'Ore', state);
+  recordBountyProgress('mine', [ore.id], 1, state);
+
+  // High-tier vein uncut Astral Gem drop check
+  const droppedGemId = rollUncutGemForOreTile(tile);
+  if (droppedGemId && GEM_CATALOG[droppedGemId]) {
+    const gemDef = GEM_CATALOG[droppedGemId];
+    addExpeditionTradeItem(gemDef.id, gemDef.name, gemDef.baseValue, 1, 'Gem', state);
+    if (state === gameState) {
+      actionCallbacks.log(`💎 Unearthed uncut ${gemDef.name} (${gemDef.desc}) from the vein!`, 'good');
+    }
+  }
 
   if (state === gameState) {
     playSound('mine');
@@ -116,8 +301,246 @@ export function mineTile(x, y, state = gameState) {
     actionCallbacks.updateUI();
   }
 
-  return { ok: true, oreId: ore.id, freeMine };
+  return { ok: true, oreId: ore.id, freeMine, gemDropped: droppedGemId };
 }
+
+function resolveLapidaryTargetItem(targetRef, isEquipped, state) {
+  if (!state || !state.hero) return null;
+  if (isEquipped) {
+    if (state.hero.equipment[targetRef]) {
+      return state.hero.equipment[targetRef];
+    }
+    const slots = ['weapon', 'armor', 'helm', 'boots', 'accessory'];
+    for (let i = 0; i < slots.length; i++) {
+      const eq = state.hero.equipment[slots[i]];
+      if (eq && eq.uid === targetRef) return eq;
+    }
+    return null;
+  }
+  return state.guildVault.armory.find(g => g.uid === targetRef) || null;
+}
+
+export function socketGemIntoItem(targetRef, gemId, isEquipped = true, state = gameState) {
+  const gemDef = GEM_CATALOG[gemId];
+  if (!gemDef) return { ok: false, reason: 'invalid_gem' };
+
+  const item = resolveLapidaryTargetItem(targetRef, isEquipped, state);
+  if (!item) return { ok: false, reason: 'item_not_found' };
+  normalizeEquipmentSockets(item);
+
+  if (item.slot === 'pickaxe' || (item.maxSockets || 0) <= 0) {
+    if (state === gameState) actionCallbacks.log(`${item.name} has no Astral Gem sockets.`, 'bad');
+    return { ok: false, reason: 'no_sockets' };
+  }
+  if (item.sockets.length >= item.maxSockets) {
+    if (state === gameState) actionCallbacks.log(`All gem sockets on ${item.name} are already filled.`, 'bad');
+    return { ok: false, reason: 'sockets_full' };
+  }
+  if (!state.guildVault.gems || (state.guildVault.gems[gemId] || 0) <= 0) {
+    if (state === gameState) actionCallbacks.log(`No banked ${gemDef.name} in your Guild Vault.`, 'bad');
+    return { ok: false, reason: 'no_gem_in_vault' };
+  }
+
+  state.guildVault.gems[gemId] -= 1;
+  item.sockets.push(gemId);
+  recomputeHeroDerivedStats(false, state);
+
+  if (state === gameState) {
+    playSound('lvl');
+    actionCallbacks.log(`💎 Socketed ${gemDef.name} (${gemDef.desc}) into ${item.name}!`, 'good');
+    saveGame();
+    actionCallbacks.updateUI();
+  }
+  return { ok: true, gemId, sockets: item.sockets.slice() };
+}
+
+export function unsocketGemFromItem(targetRef, socketIndex = 0, isEquipped = true, state = gameState) {
+  const item = resolveLapidaryTargetItem(targetRef, isEquipped, state);
+  if (!item) return { ok: false, reason: 'item_not_found' };
+  normalizeEquipmentSockets(item);
+
+  if (socketIndex < 0 || socketIndex >= item.sockets.length) {
+    return { ok: false, reason: 'empty_socket' };
+  }
+  if (state.guildVault.gold < LAPIDARY_UNSOCKET_COST) {
+    if (state === gameState) {
+      actionCallbacks.log(`Need ${LAPIDARY_UNSOCKET_COST} Vault Gold for the Lapidary to extract a socketed gem.`, 'bad');
+    }
+    return { ok: false, reason: 'no_gold' };
+  }
+
+  state.guildVault.gold -= LAPIDARY_UNSOCKET_COST;
+  const removedGemId = item.sockets.splice(socketIndex, 1)[0];
+  if (!state.guildVault.gems) {
+    state.guildVault.gems = { ruby: 0, emerald: 0, sapphire: 0, topaz: 0, void_diamond: 0 };
+  }
+  state.guildVault.gems[removedGemId] = (state.guildVault.gems[removedGemId] || 0) + 1;
+  recomputeHeroDerivedStats(false, state);
+
+  if (state === gameState) {
+    const gemDef = GEM_CATALOG[removedGemId];
+    playSound('gold');
+    actionCallbacks.log(`Extracted ${gemDef ? gemDef.name : removedGemId} from ${item.name} back to Guild Vault (-${LAPIDARY_UNSOCKET_COST}g).`, 'gold');
+    saveGame();
+    actionCallbacks.updateUI();
+  }
+  return { ok: true, gemId: removedGemId };
+}
+
+export function sellGemUnit(gemId, sellAll = false, state = gameState) {
+  if (!state.guildVault.gems) return 0;
+  const count = state.guildVault.gems[gemId] || 0;
+  if (count <= 0) return 0;
+
+  const gemDef = GEM_CATALOG[gemId];
+  const baseVal = gemDef ? gemDef.baseValue : 65;
+  const assayRank = state.guildResearch.assay || 0;
+  const mult = 1 + assayRank * 0.35;
+
+  const qtyToSell = sellAll ? count : 1;
+  const payout = Math.round(baseVal * qtyToSell * mult);
+
+  state.guildVault.gems[gemId] -= qtyToSell;
+  state.guildVault.gold += payout;
+
+  if (state === gameState) {
+    playSound('gold');
+    actionCallbacks.log(`Sold ${qtyToSell}x ${gemDef ? gemDef.name : gemId} at Assay Counter for +${payout}g.`, 'gold');
+    saveGame();
+    actionCallbacks.updateUI();
+  }
+  return payout;
+}
+
+// ============================================================================
+// SUBTERRANEAN ASTRAL SHRINES & TACTICAL RUNIC TRAPS
+// ============================================================================
+
+export function detectNearbyTraps(floor, state = gameState) {
+  if (!floor || !state || !state.hero) return 0;
+  const h = state.hero;
+  const vision = h.visionRadius || 5;
+  const spotScore = (h.computedDex || 10) * 2 + vision * 6;
+  const threshold = 26 + (floor.depth || 1) * 3;
+  const isScoutClass = h.classId === 'thief' || h.classId === 'ranger';
+  let spottedCount = 0;
+
+  for (let y = 0; y < GRID_H; y++) {
+    for (let x = 0; x < GRID_W; x++) {
+      if (floor.tiles[y][x] !== TILE_TRAP_HIDDEN) continue;
+      const dist = Math.hypot(x - h.x, y - h.y);
+      if (dist > vision + 0.35) continue;
+
+      if ((isScoutClass && dist <= 2.5) || spotScore >= threshold) {
+        floor.tiles[y][x] = TILE_TRAP_VISIBLE;
+        spottedCount += 1;
+        if (state === gameState) {
+          const tMeta = (floor.traps && floor.traps[`${x},${y}`]) || { type: 'spike' };
+          const tDef = TRAP_CATALOG[tMeta.type] || TRAP_CATALOG.spike;
+          actionCallbacks.floatingText(x, y, '⚠ TRAP SPOTTED!', '#fbbf24');
+          actionCallbacks.log(`Keen senses revealed a ${tDef.name} at (${x}, ${y})!`, 'gold');
+        }
+      }
+    }
+  }
+  return spottedCount;
+}
+
+export function activateAstralShrine(x, y, state = gameState) {
+  const floor = state.dungeon.floors[state.dungeon.currentFloor];
+  if (!floor || floor.tiles[y][x] !== TILE_SHRINE) {
+    return { ok: false, reason: 'not_shrine' };
+  }
+
+  const h = state.hero;
+  const sMeta = (floor.shrines && floor.shrines[`${x},${y}`]) || { type: 'sanctuary' };
+  const sDef = SHRINE_CATALOG[sMeta.type] || SHRINE_CATALOG.sanctuary;
+
+  floor.tiles[y][x] = TILE_SHRINE_USED;
+  h.x = x;
+  h.y = y;
+
+  if (sDef.id === 'sanctuary') {
+    const hpGain = Math.round(h.maxHp * 0.50);
+    const mpGain = Math.round(h.maxMp * 0.50);
+    h.hp = Math.min(h.maxHp, h.hp + hpGain);
+    h.mp = Math.min(h.maxMp, h.mp + mpGain);
+    h.statuses = (h.statuses || []).filter(s => !!s.isBuff);
+    if (state === gameState) {
+      playSound('lvl');
+      actionCallbacks.floatingText(x, y, `+${hpGain} HP / +${mpGain} MP`, sDef.color);
+      actionCallbacks.log(`✨ Touched ${sDef.name}: Restored +${hpGain} HP, +${mpGain} MP & cleansed afflictions!`, 'good');
+    }
+  } else {
+    applyStatusEffect(h, sDef.statusId, sDef.duration);
+    recomputeHeroDerivedStats(false, state);
+    if (state === gameState) {
+      playSound('lvl');
+      actionCallbacks.floatingText(x, y, `${sDef.statusName.toUpperCase()}!`, sDef.color);
+      actionCallbacks.log(`✨ Touched ${sDef.name}: ${sDef.desc}`, 'good');
+    }
+  }
+
+  detectNearbyTraps(floor, state);
+  return { ok: true, shrineType: sDef.id };
+}
+
+export function resolveTrapInteraction(x, y, state = gameState) {
+  const floor = state.dungeon.floors[state.dungeon.currentFloor];
+  if (!floor) return { ok: false, reason: 'no_floor' };
+  const tile = floor.tiles[y][x];
+  if (tile !== TILE_TRAP_HIDDEN && tile !== TILE_TRAP_VISIBLE) {
+    return { ok: false, reason: 'not_trap' };
+  }
+
+  const h = state.hero;
+  const tMeta = (floor.traps && floor.traps[`${x},${y}`]) || { type: 'spike' };
+  const tDef = TRAP_CATALOG[tMeta.type] || TRAP_CATALOG.spike;
+
+  floor.tiles[y][x] = TILE_TRAP_DISARMED;
+  h.x = x;
+  h.y = y;
+
+  const canDisarm = tile === TILE_TRAP_VISIBLE && (h.classId === 'thief' || h.classId === 'ranger');
+  if (canDisarm) {
+    const xpGain = 15 + (floor.depth || 1) * 5;
+    gainExperience(xpGain, state);
+    if (state === gameState) {
+      playSound('gold');
+      actionCallbacks.floatingText(x, y, `DISARMED (+${xpGain} XP)`, '#34d399');
+      actionCallbacks.log(`Disarmed ${tDef.name} safely (+${xpGain} XP)!`, 'good');
+    }
+    detectNearbyTraps(floor, state);
+    return { ok: true, disarmed: true, triggered: false, dmg: 0, trapType: tDef.id, fatal: false };
+  }
+
+  const rawDmg = tDef.baseDmg + (floor.depth || 1) * tDef.depthScale;
+  const dmg = Math.max(3, rawDmg - Math.floor((h.def || 0) * 0.4));
+  h.hp -= dmg;
+  applyStatusEffect(h, tDef.statusId, tDef.statusDuration);
+
+  if (state === gameState) {
+    playSound('hit');
+    actionCallbacks.floatingText(x, y, `TRAP! -${dmg}`, tDef.color);
+    actionCallbacks.log(`Triggered ${tDef.name} for ${dmg} damage and ${tDef.statusId.toUpperCase()}!`, 'bad');
+  }
+
+  detectNearbyTraps(floor, state);
+  return {
+    ok: true,
+    disarmed: false,
+    triggered: true,
+    dmg,
+    statusId: tDef.statusId,
+    trapType: tDef.id,
+    fatal: h.hp <= 0,
+    killerName: tDef.name
+  };
+}
+
+// ============================================================================
+// CONSUMABLES, EXTRACTION, DEFEAT SALVAGE, SHOP & RESEARCH
+// ============================================================================
 
 export function useHealingTonic(state = gameState) {
   if (state.inGuild) {
@@ -129,7 +552,8 @@ export function useHealingTonic(state = gameState) {
     if (state === gameState) actionCallbacks.log('No Healing Tonics remaining!', 'bad');
     return false;
   }
-  if (h.hp >= h.maxHp && (!h.statuses || h.statuses.length === 0)) {
+  const hasNegativeAffliction = (h.statuses || []).some(s => !s.isBuff);
+  if (h.hp >= h.maxHp && !hasNegativeAffliction) {
     if (state === gameState) actionCallbacks.log('You are already at full health.', 'info');
     return false;
   }
@@ -153,47 +577,64 @@ export function extractToGuild(method = 'Floor 1 Ascending Stairs (<)', state = 
   const assayRank = state.guildResearch.assay || 0;
   const mult = 1 + assayRank * 0.35;
 
+  if (!state.guildVault.gems) {
+    state.guildVault.gems = { ruby: 0, emerald: 0, sapphire: 0, topaz: 0, void_diamond: 0 };
+  }
+
   let goldEarned = 0;
   let oresBanked = 0;
+  let gemsBanked = 0;
   const gearBanked = h.expeditionGear.length;
 
   for (const item of h.expeditionPack) {
     if (MINERAL_IDS.includes(item.id)) {
       state.guildVault[item.id] = (state.guildVault[item.id] || 0) + item.qty;
       oresBanked += item.qty;
+    } else if (GEM_IDS.includes(item.id)) {
+      state.guildVault.gems[item.id] = (state.guildVault.gems[item.id] || 0) + item.qty;
+      gemsBanked += item.qty;
     } else {
       goldEarned += Math.round(item.val * item.qty * mult);
     }
   }
 
   for (const gear of h.expeditionGear) {
-    state.guildVault.armory.push(gear);
+    state.guildVault.armory.push(normalizeEquipmentSockets(gear));
   }
 
   state.guildVault.gold += goldEarned;
+  const claimedBounties = payoutCompletedBounties(state);
+
   h.expeditionPack = [];
   h.expeditionGear = [];
   h.statuses = [];
   h.usedDivineIntervention = false;
-  h.hp = h.maxHp;
-  h.mp = h.maxMp;
+  recomputeHeroDerivedStats(true, state);
   state.inGuild = true;
 
   if (state === gameState) {
     saveGame();
     actionCallbacks.updateUI();
+    const details = [
+      `Extraction Method: ${method}`,
+      `Minerals Banked to Vault: ${oresBanked} ores`,
+      `Astral Gems Banked to Vault: ${gemsBanked} gems`,
+      `Equipment Secured to Armory: ${gearBanked} items`,
+      `Relics Appraised to Gold: +${goldEarned}g`
+    ];
+    if (claimedBounties.length > 0) {
+      details.push(`Bounties Claimed: ${claimedBounties.join(' • ')}`);
+    }
+    details.push(`Total Vault Gold: ${state.guildVault.gold}g`);
+
     actionCallbacks.outcomeModal(
       'Safe Extraction Complete!',
-      `You returned to the Grand Guild via ${method}. All gathered minerals and equipment have been secured in your Guild Vault.`,
-      [
-        `Extraction Method: ${method}`,
-        `Minerals Banked to Vault: ${oresBanked} ores`,
-        `Equipment Secured to Armory: ${gearBanked} items`,
-        `Relics Appraised to Gold: +${goldEarned}g`,
-        `Total Vault Gold: ${state.guildVault.gold}g`
-      ]
+      `You returned to the Grand Guild via ${method}. All gathered minerals, uncut Astral Gems, equipment, and completed Notice Board rewards have been secured.`,
+      details
     );
   }
+
+  return { oresBanked, gemsBanked, gearBanked, goldEarned, claimedBounties };
 }
 
 export function useRecallScroll(state = gameState) {
@@ -231,8 +672,7 @@ export function handleHeroDefeat(killerName = 'Abyssal Guardian', state = gameSt
   h.expeditionGear = [];
   h.statuses = [];
   h.usedDivineIntervention = false;
-  h.hp = h.maxHp;
-  h.mp = h.maxMp;
+  recomputeHeroDerivedStats(true, state);
   state.inGuild = true;
 
   if (state === gameState) {
@@ -245,7 +685,7 @@ export function handleHeroDefeat(killerName = 'Abyssal Guardian', state = gameSt
       `You fell to ${killerName} on Floor ${state.dungeon.currentFloor}. Oakhaven scouts recovered you to the surface. Your character level, equipped loadout, and Guild Vault remain intact!`,
       [
         `Defeated By: ${killerName} (Floor ${state.dungeon.currentFloor})`,
-        `Unbanked Minerals Lost: ${lostOreCount}`,
+        `Unbanked Pack Items Lost: ${lostOreCount}`,
         `Unbanked Equipment Lost: ${lostGearCount}`,
         `Vanguard Pact Salvage (${vRank * 20}%): +${salvagedGold}g`,
         `Persistent Dungeon Seed: ${state.dungeon.seedCode}`
@@ -286,7 +726,9 @@ export function buyShopItem(itemId, state = gameState) {
       maxDur: shopItem.maxDur,
       curDur: Math.round(shopItem.maxDur * (1 + (state.guildResearch.toolsmithing || 0) * 0.5)),
       value: Math.round(shopItem.cost * 0.6),
-      affixes: []
+      affixes: [],
+      maxSockets: 0,
+      sockets: []
     };
   } else if (shopItem.type === 'gear') {
     const boughtGear = {
@@ -300,7 +742,9 @@ export function buyShopItem(itemId, state = gameState) {
       crit: shopItem.crit || 0,
       maxHp: shopItem.maxHp || 0,
       value: Math.round(shopItem.cost * 0.6),
-      affixes: []
+      affixes: [],
+      maxSockets: rollSocketCountForRarity(shopItem.rarity, shopItem.slot),
+      sockets: []
     };
     state.guildVault.armory.push(boughtGear);
   }
@@ -356,6 +800,17 @@ export function sellArmoryItem(uid, state = gameState) {
   const idx = state.guildVault.armory.findIndex(g => g.uid === uid);
   if (idx === -1) return 0;
   const item = state.guildVault.armory.splice(idx, 1)[0];
+
+  // Return any socketed gems safely to Guild Vault before selling the frame
+  if (Array.isArray(item.sockets) && item.sockets.length > 0) {
+    if (!state.guildVault.gems) {
+      state.guildVault.gems = { ruby: 0, emerald: 0, sapphire: 0, topaz: 0, void_diamond: 0 };
+    }
+    item.sockets.forEach(gId => {
+      state.guildVault.gems[gId] = (state.guildVault.gems[gId] || 0) + 1;
+    });
+  }
+
   const assayRank = state.guildResearch.assay || 0;
   const payout = Math.round((item.value || 15) * (1 + assayRank * 0.35));
   state.guildVault.gold += payout;
@@ -378,7 +833,15 @@ export function sellAllSpareGear(state = gameState) {
   const mult = 1 + assayRank * 0.35;
   let total = 0;
   const count = state.guildVault.armory.length;
+  if (!state.guildVault.gems) {
+    state.guildVault.gems = { ruby: 0, emerald: 0, sapphire: 0, topaz: 0, void_diamond: 0 };
+  }
   state.guildVault.armory.forEach(g => {
+    if (Array.isArray(g.sockets)) {
+      g.sockets.forEach(gId => {
+        state.guildVault.gems[gId] = (state.guildVault.gems[gId] || 0) + 1;
+      });
+    }
     total += Math.round((g.value || 15) * mult);
   });
   state.guildVault.armory = [];

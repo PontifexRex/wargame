@@ -5,8 +5,8 @@
   // --- Module: src/constants.js ---
 // Core constants, grid dimensions, tile IDs, and rarity definitions
 
-const SCHEMA_VERSION = 'v0.3.1-inc3';
-const STORAGE_KEY = 'aethelgard_save_v3';
+const SCHEMA_VERSION = 'v0.4.0-inc4';
+const STORAGE_KEY = 'aethelgard_save_v4';
 
 const TILE_SIZE = 32;
 const GRID_W = 21;
@@ -21,12 +21,21 @@ const TILE_STAIRS_UP = 2;
 const TILE_STAIRS_DOWN = 3;
 const TILE_CHEST = 4;
 const TILE_CHEST_OPEN = 5;
+const TILE_SHRINE = 6;
+const TILE_SHRINE_USED = 7;
+const TILE_TRAP_HIDDEN = 8;
+const TILE_TRAP_VISIBLE = 9;
 const TILE_ORE_COPPER = 10;
 const TILE_ORE_IRON = 11;
 const TILE_ORE_MITHRIL = 12;
 const TILE_ORE_STAR = 13;
 const TILE_ORE_ASTRAL = 14;
 const TILE_ORE_GEODE = 15;
+const TILE_TRAP_DISARMED = 16;
+
+// Increment 4 Economy Constants
+const LAPIDARY_UNSOCKET_COST = 15;
+const BOUNTY_REROLL_COST = 25;
 
 // Rarity Definitions
 const RARITY = {
@@ -163,8 +172,228 @@ const CLASSES = {
   }
 };
 
+  // --- Module: src/data/gems.js ---
+// Astral Gem Catalog,Subterranean Shrine Variants, and Runic Trap Specifications
+
+const GEM_IDS = ['ruby', 'emerald', 'sapphire', 'topaz', 'void_diamond'];
+
+const GEM_CATALOG = {
+  ruby: {
+    id: 'ruby',
+    name: 'Ruby of Might',
+    shortName: 'Ruby',
+    color: '#ef4444',
+    baseValue: 65,
+    bonuses: { atk: 4, str: 2 },
+    desc: '+4 ATK, +2 STR'
+  },
+  emerald: {
+    id: 'emerald',
+    name: 'Emerald of the Wind',
+    shortName: 'Emerald',
+    color: '#10b981',
+    baseValue: 65,
+    bonuses: { crit: 5, dodge: 4, dex: 2 },
+    desc: '+5% Crit, +4% Dodge, +2 DEX'
+  },
+  sapphire: {
+    id: 'sapphire',
+    name: 'Sapphire of Will',
+    shortName: 'Sapphire',
+    color: '#3b82f6',
+    baseValue: 65,
+    bonuses: { maxMp: 18, int: 3 },
+    desc: '+18 Max MP, +3 INT'
+  },
+  topaz: {
+    id: 'topaz',
+    name: 'Topaz of Dawn',
+    shortName: 'Topaz',
+    color: '#f59e0b',
+    baseValue: 65,
+    bonuses: { maxHp: 24, def: 3, vit: 2 },
+    desc: '+24 Max HP, +3 DEF, +2 VIT'
+  },
+  void_diamond: {
+    id: 'void_diamond',
+    name: 'Void Diamond',
+    shortName: 'Void Diamond',
+    color: '#e879f9',
+    baseValue: 140,
+    bonuses: { atk: 5, def: 4, crit: 4, visionBonus: 1 },
+    desc: '+5 ATK, +4 DEF, +4% Crit, +1 Vision'
+  }
+};
+
+const GEM_DISPLAY = [
+  { id: 'ruby',         name: 'Ruby',         color: '#ef4444' },
+  { id: 'emerald',      name: 'Emerald',      color: '#10b981' },
+  { id: 'sapphire',     name: 'Sapphire',     color: '#3b82f6' },
+  { id: 'topaz',        name: 'Topaz',        color: '#f59e0b' },
+  { id: 'void_diamond', name: 'Void Diamond', color: '#e879f9' }
+];
+
+const SHRINE_CATALOG = {
+  sanctuary: {
+    id: 'sanctuary',
+    name: 'Shrine of Celestial Renewal',
+    color: '#34d399',
+    desc: 'Restores 50% Max HP & Max MP and purges negative afflictions.'
+  },
+  starfire: {
+    id: 'starfire',
+    name: 'Shrine of Starfire',
+    color: '#fbbf24',
+    statusId: 'shrine_starfire',
+    statusName: 'Starfire Blessing',
+    duration: 25,
+    bonuses: { atk: 6, crit: 12 },
+    desc: 'Grants +6 ATK and +12% Crit for 25 turns.'
+  },
+  aegis: {
+    id: 'aegis',
+    name: 'Shrine of the Astral Aegis',
+    color: '#60a5fa',
+    statusId: 'shrine_aegis',
+    statusName: 'Astral Aegis',
+    duration: 25,
+    bonuses: { def: 6, visionBonus: 1 },
+    desc: 'Grants +6 DEF and +1 Vision Radius for 25 turns.'
+  }
+};
+
+const TRAP_CATALOG = {
+  spike: {
+    id: 'spike',
+    name: 'Runic Spike Trap',
+    color: '#f87171',
+    baseDmg: 12,
+    depthScale: 4,
+    statusId: 'bleed',
+    statusDuration: 3,
+    desc: 'Piercing floor spikes that deal physical damage and inflict Bleed.'
+  },
+  flame: {
+    id: 'flame',
+    name: 'Runic Flame Vent',
+    color: '#fb923c',
+    baseDmg: 10,
+    depthScale: 4,
+    statusId: 'burn',
+    statusDuration: 3,
+    desc: 'Searing rune-fire glyph that deals fire damage and inflicts Burn.'
+  }
+};
+
+  // --- Module: src/data/bounties.js ---
+// Procedural Guild Notice Board Contract Templates & Generator
+
+const BOUNTY_SLAY_TEMPLATES = [
+  { targetId: 'crawler',     label: 'Vault Crawlers',     minQty: 4, maxQty: 6, minPermit: 5,  baseGold: 85 },
+  { targetId: 'archer',      label: 'Ranged Cultists & Archers', minQty: 3, maxQty: 5, minPermit: 5, baseGold: 95 },
+  { targetId: 'monster_any', label: 'Subterranean Hostiles', minQty: 6, maxQty: 9, minPermit: 5, baseGold: 100 }
+];
+
+const BOUNTY_ORE_TEMPLATES = [
+  { targetId: 'copper',      label: 'Copper Ore',     minQty: 4, maxQty: 6, reqGeo: 0, baseGold: 80 },
+  { targetId: 'iron',        label: 'Iron Ore',       minQty: 3, maxQty: 5, reqGeo: 1, baseGold: 115 },
+  { targetId: 'mithril',     label: 'Mithril Ore',    minQty: 3, maxQty: 4, reqGeo: 2, baseGold: 165 },
+  { targetId: 'geode',       label: 'Relic Geodes',   minQty: 2, maxQty: 3, reqGeo: 2, baseGold: 175 },
+  { targetId: 'starcrystal', name: 'Star-Crystal', label: 'Star-Crystal', minQty: 2, maxQty: 3, reqGeo: 3, baseGold: 220 }
+];
+
+const BOUNTY_SPECIAL_TEMPLATES = [
+  { kind: 'slay',       targetId: 'elite',      titlePrefix: 'Champion Hunt', descVerb: 'Vanquish', label: 'Elite Champions', minQty: 1, maxQty: 2, minGeo: 0, baseGold: 140 },
+  { kind: 'open_chest', targetId: 'chest',      titlePrefix: 'Relic Recovery', descVerb: 'Open',    label: 'Gilded Vault Chests', minQty: 2, maxQty: 3, minGeo: 0, baseGold: 110 }
+];
+
+let bountySeqCounter = 100;
+
+function buildProceduralBountySet(geologyRank = 0, cartographyRank = 0) {
+  const contracts = [];
+  const tierScale = 1 + cartographyRank * 0.25;
+
+  // Slot 1: Monster Cull Contract (Vault Gold Reward)
+  const slayTpl = BOUNTY_SLAY_TEMPLATES[Math.floor(Math.random() * BOUNTY_SLAY_TEMPLATES.length)];
+  const slayQty = slayTpl.minQty + Math.floor(Math.random() * (slayTpl.maxQty - slayTpl.minQty + 1));
+  const slayGold = Math.round(slayTpl.baseGold * tierScale);
+  contracts.push({
+    id: `bty_${Date.now()}_${bountySeqCounter++}`,
+    kind: 'slay',
+    targetId: slayTpl.targetId,
+    title: `Cull: ${slayTpl.label}`,
+    desc: `Slay ${slayQty} ${slayTpl.label} in the vaults.`,
+    reqQty: slayQty,
+    curQty: 0,
+    completed: false,
+    rewardType: 'gold',
+    rewardId: 'gold',
+    rewardQty: slayGold,
+    rewardLabel: `+${slayGold} Vault Gold`
+  });
+
+  // Slot 2: Geological Quota Contract (Rare Material or Uncut Gem Reward)
+  const unlockedOres = BOUNTY_ORE_TEMPLATES.filter(o => geologyRank >= o.reqGeo);
+  const orePool = unlockedOres.length > 0 ? unlockedOres : [BOUNTY_ORE_TEMPLATES[0]];
+  const oreTpl = orePool[Math.floor(Math.random() * orePool.length)];
+  const oreQty = oreTpl.minQty + Math.floor(Math.random() * (oreTpl.maxQty - oreTpl.minQty + 1));
+
+  const gemChoices = [
+    { id: 'ruby', name: 'Ruby of Might' },
+    { id: 'emerald', name: 'Emerald of the Wind' },
+    { id: 'sapphire', name: 'Sapphire of Will' },
+    { id: 'topaz', name: 'Topaz of Dawn' }
+  ];
+  if (cartographyRank >= 2) {
+    gemChoices.push({ id: 'void_diamond', name: 'Void Diamond' });
+  }
+  const chosenGem = gemChoices[Math.floor(Math.random() * gemChoices.length)];
+
+  contracts.push({
+    id: `bty_${Date.now()}_${bountySeqCounter++}`,
+    kind: 'mine',
+    targetId: oreTpl.targetId,
+    title: `Quota: ${oreTpl.label}`,
+    desc: `Mine ${oreQty} ${oreTpl.label} veins.`,
+    reqQty: oreQty,
+    curQty: 0,
+    completed: false,
+    rewardType: 'gem',
+    rewardId: chosenGem.id,
+    rewardQty: 1,
+    rewardLabel: `+1 ${chosenGem.name}`
+  });
+
+  // Slot 3: High-Value Tactical Contract (Talent Tome or Bonus Gold + Star-Crystal)
+  const specTpl = BOUNTY_SPECIAL_TEMPLATES[Math.floor(Math.random() * BOUNTY_SPECIAL_TEMPLATES.length)];
+  const specQty = specTpl.minQty + Math.floor(Math.random() * (specTpl.maxQty - specTpl.minQty + 1));
+  const awardTome = Math.random() < 0.6;
+  const specGold = Math.round(specTpl.baseGold * tierScale);
+
+  contracts.push({
+    id: `bty_${Date.now()}_${bountySeqCounter++}`,
+    kind: specTpl.kind,
+    targetId: specTpl.targetId,
+    title: `${specTpl.titlePrefix}`,
+    desc: `${specTpl.descVerb} ${specQty} ${specTpl.label}.`,
+    reqQty: specQty,
+    curQty: 0,
+    completed: false,
+    rewardType: awardTome ? 'talent_tome' : 'ore',
+    rewardId: awardTome ? 'talent' : (geologyRank >= 2 ? 'starcrystal' : 'mithril'),
+    rewardQty: awardTome ? 1 : 2,
+    rewardLabel: awardTome
+      ? '+1 Talent Tome (+1 Talent Pt)'
+      : (geologyRank >= 2 ? '+2 Star-Crystal' : '+2 Mithril Ore')
+  });
+
+  return contracts;
+}
+
   // --- Module: src/engine/state.js ---
-// Game State Schema, Save v3 Migration, Persistence, and Derived Hero Stats
+// Game State Schema, Save v4 Migration, Persistence, and Derived Hero Stats
+
+
 
 
 
@@ -172,6 +401,24 @@ let itemSeq = 1000;
 
 function nextItemUid(prefix = 'gear') {
   return `${prefix}_${Date.now()}_${itemSeq++}`;
+}
+
+function normalizeEquipmentSockets(item) {
+  if (!item) return null;
+  if (item.slot === 'pickaxe') {
+    item.maxSockets = 0;
+    item.sockets = [];
+    return item;
+  }
+  if (typeof item.maxSockets !== 'number') {
+    if (item.rarity === 'relic') item.maxSockets = 2;
+    else if (item.rarity === 'epic' || item.rarity === 'rare') item.maxSockets = 1;
+    else item.maxSockets = 0;
+  }
+  if (!Array.isArray(item.sockets)) {
+    item.sockets = [];
+  }
+  return item;
 }
 
 function createDefaultGameState() {
@@ -194,6 +441,13 @@ function createDefaultGameState() {
       geode: 0,
       starcrystal: 0,
       astralite: 0,
+      gems: {
+        ruby: 0,
+        emerald: 0,
+        sapphire: 0,
+        topaz: 0,
+        void_diamond: 0
+      },
       armory: []
     },
     guildResearch: {
@@ -203,7 +457,8 @@ function createDefaultGameState() {
       assay: 0,
       quartermaster: 0,
       vanguard: 0
-    }
+    },
+    guildBounties: buildProceduralBountySet(0, 0)
   };
 }
 
@@ -236,11 +491,18 @@ function migrateSaveData(raw) {
   migrated.guildVault.geode = srcVault.geode || 0;
   migrated.guildVault.starcrystal = srcVault.starcrystal || 0;
   migrated.guildVault.astralite = srcVault.astralite || 0;
-  migrated.guildVault.armory = Array.isArray(srcVault.armory)
+
+  const srcGems = srcVault.gems || {};
+  GEM_IDS.forEach(gId => {
+    migrated.guildVault.gems[gId] = srcGems[gId] || 0;
+  });
+
+  const rawArmory = Array.isArray(srcVault.armory)
     ? srcVault.armory
     : (Array.isArray(srcVault.equipment) ? srcVault.equipment : []);
+  migrated.guildVault.armory = rawArmory.map(g => normalizeEquipmentSockets(g));
 
-  // Migrate old v1/v2 bank items array into mineral counts
+  // Migrate old v1/v2 bank items array into mineral/gem counts
   if (Array.isArray(srcVault.items)) {
     srcVault.items.forEach(it => {
       const cleanId = (it.id || '')
@@ -248,7 +510,9 @@ function migrateSaveData(raw) {
         .replace('relic_geode', 'geode')
         .replace('star', 'starcrystal')
         .replace('astral', 'astralite');
-      if (migrated.guildVault[cleanId] !== undefined) {
+      if (migrated.guildVault.gems[cleanId] !== undefined) {
+        migrated.guildVault.gems[cleanId] += (it.count || it.qty || 1);
+      } else if (migrated.guildVault[cleanId] !== undefined && typeof migrated.guildVault[cleanId] === 'number') {
         migrated.guildVault[cleanId] += (it.count || it.qty || 1);
       }
     });
@@ -264,6 +528,20 @@ function migrateSaveData(raw) {
     quartermaster: srcRes.quartermaster || 0,
     vanguard:      srcRes.vanguard !== undefined ? srcRes.vanguard : (srcRes.vanguard_insurance || 0)
   };
+
+  // Migrate Bounties
+  if (Array.isArray(data.guildBounties) && data.guildBounties.length > 0) {
+    migrated.guildBounties = data.guildBounties.map(b => Object.assign({
+      curQty: 0,
+      reqQty: 1,
+      completed: false
+    }, b));
+  } else {
+    migrated.guildBounties = buildProceduralBountySet(
+      migrated.guildResearch.geology,
+      migrated.guildResearch.cartography
+    );
+  }
 
   // Migrate Hero
   if (data.hero) {
@@ -297,15 +575,17 @@ function migrateSaveData(raw) {
           : (srcVault.recallScrolls !== undefined ? srcVault.recallScrolls : 1)
       },
       equipment: {
-        weapon:    eqSource.weapon    || JSON.parse(JSON.stringify(cls.starterGear.weapon)),
-        armor:     eqSource.armor     || JSON.parse(JSON.stringify(cls.starterGear.armor)),
-        helm:      eqSource.helm      || JSON.parse(JSON.stringify(cls.starterGear.helm)),
-        boots:     eqSource.boots     || JSON.parse(JSON.stringify(cls.starterGear.boots)),
-        accessory: eqSource.accessory || JSON.parse(JSON.stringify(cls.starterGear.accessory)),
-        pickaxe:   eqSource.pickaxe   || JSON.parse(JSON.stringify(cls.starterGear.pickaxe))
+        weapon:    normalizeEquipmentSockets(eqSource.weapon    || JSON.parse(JSON.stringify(cls.starterGear.weapon))),
+        armor:     normalizeEquipmentSockets(eqSource.armor     || JSON.parse(JSON.stringify(cls.starterGear.armor))),
+        helm:      normalizeEquipmentSockets(eqSource.helm      || JSON.parse(JSON.stringify(cls.starterGear.helm))),
+        boots:     normalizeEquipmentSockets(eqSource.boots     || JSON.parse(JSON.stringify(cls.starterGear.boots))),
+        accessory: normalizeEquipmentSockets(eqSource.accessory || JSON.parse(JSON.stringify(cls.starterGear.accessory))),
+        pickaxe:   normalizeEquipmentSockets(eqSource.pickaxe   || JSON.parse(JSON.stringify(cls.starterGear.pickaxe)))
       },
       expeditionPack: Array.isArray(data.hero.expeditionPack) ? data.hero.expeditionPack : [],
-      expeditionGear: Array.isArray(data.hero.expeditionGear) ? data.hero.expeditionGear : [],
+      expeditionGear: Array.isArray(data.hero.expeditionGear)
+        ? data.hero.expeditionGear.map(g => normalizeEquipmentSockets(g))
+        : [],
       statuses: Array.isArray(data.hero.statuses) ? data.hero.statuses : [],
       usedDivineIntervention: !!data.hero.usedDivineIntervention,
       x: data.hero.x || 1,
@@ -317,6 +597,13 @@ function migrateSaveData(raw) {
     migrated.dungeon.seedCode = data.dungeon.seedCode || 'STAR-4812';
     migrated.dungeon.currentFloor = data.dungeon.currentFloor || data.dungeon.currentDepth || 1;
     migrated.dungeon.floors = data.dungeon.floors;
+    Object.keys(migrated.dungeon.floors).forEach(fk => {
+      const fl = migrated.dungeon.floors[fk];
+      if (fl) {
+        fl.shrines = fl.shrines || {};
+        fl.traps = fl.traps || {};
+      }
+    });
   }
 
   migrated.version = SCHEMA_VERSION;
@@ -360,7 +647,7 @@ function recomputeHeroDerivedStats(fullRestore = false, state = gameState) {
   if (t.p_e1) { flatDef += t.p_e1 * 4; flatHp += t.p_e1 * 8; }
   if (t.p_e2) flatAtk += t.p_e2 * 4;
 
-  // Sum 6-Slot Equipment
+  // Sum 6-Slot Equipment & Socketed Astral Gems
   for (const slot of ['weapon', 'armor', 'helm', 'boots', 'accessory']) {
     const it = h.equipment[slot];
     if (!it) continue;
@@ -375,6 +662,39 @@ function recomputeHeroDerivedStats(fullRestore = false, state = gameState) {
     if (it.maxHp) flatHp += it.maxHp;
     if (it.maxMp) flatMp += it.maxMp;
     if (it.visionBonus) visionBonus += it.visionBonus;
+
+    if (Array.isArray(it.sockets)) {
+      for (let sIdx = 0; sIdx < it.sockets.length; sIdx++) {
+        const gem = GEM_CATALOG[it.sockets[sIdx]];
+        if (!gem || !gem.bonuses) continue;
+        const gb = gem.bonuses;
+        if (gb.str) str += gb.str;
+        if (gb.dex) dex += gb.dex;
+        if (gb.int) int += gb.int;
+        if (gb.vit) vit += gb.vit;
+        if (gb.atk) flatAtk += gb.atk;
+        if (gb.def) flatDef += gb.def;
+        if (gb.crit) flatCrit += gb.crit;
+        if (gb.dodge) flatDodge += gb.dodge;
+        if (gb.maxHp) flatHp += gb.maxHp;
+        if (gb.maxMp) flatMp += gb.maxMp;
+        if (gb.visionBonus) visionBonus += gb.visionBonus;
+      }
+    }
+  }
+
+  // Active Astral Shrine Status Buffs
+  if (Array.isArray(h.statuses)) {
+    for (let i = 0; i < h.statuses.length; i++) {
+      const st = h.statuses[i];
+      if (st.id === 'shrine_starfire') {
+        flatAtk += 6;
+        flatCrit += 12;
+      } else if (st.id === 'shrine_aegis') {
+        flatDef += 6;
+        visionBonus += 1;
+      }
+    }
   }
 
   h.computedStr = str;
@@ -419,7 +739,11 @@ function saveGame(state = gameState) {
 function loadGame() {
   try {
     if (typeof localStorage !== 'undefined') {
-      const raw = localStorage.getItem(STORAGE_KEY) || localStorage.getItem('aethelgard_save') || localStorage.getItem('aethelgard_save_v2');
+      const raw =
+        localStorage.getItem(STORAGE_KEY) ||
+        localStorage.getItem('aethelgard_save_v3') ||
+        localStorage.getItem('aethelgard_save_v2') ||
+        localStorage.getItem('aethelgard_save');
       if (raw) {
         const migrated = migrateSaveData(raw);
         setGameState(migrated);
@@ -654,10 +978,18 @@ const RESEARCH_PROJECTS = {
 };
 
   // --- Module: src/engine/procedural.js ---
-// Procedural Dungeon Generation, Non-Blocking Ore Veins, Pure-Floor BFS, and Equipment Rolling
+// Procedural Dungeon Generation, Non-Blocking Ore Veins, Shrines, Traps, Safe-Path BFS, and Socketed Equipment Rolling
 
 
 
+
+function rollSocketCountForRarity(rarityKey, slot) {
+  if (slot === 'pickaxe') return 0;
+  if (rarityKey === 'relic') return 2;
+  if (rarityKey === 'epic') return Math.random() < 0.60 ? 2 : 1;
+  if (rarityKey === 'rare') return Math.random() < 0.25 ? 2 : 1;
+  return 0;
+}
 
 function generateProceduralEquipment(depth = 1, forcedRarity = null, forcedSlot = null) {
   const slots = ['weapon', 'armor', 'helm', 'boots', 'accessory'];
@@ -681,7 +1013,9 @@ function generateProceduralEquipment(depth = 1, forcedRarity = null, forcedSlot 
     rarity: rarityKey,
     name: baseTitle,
     value: Math.round((18 + depth * 6) * rDef.mult),
-    affixes: []
+    affixes: [],
+    maxSockets: rollSocketCountForRarity(rarityKey, slot),
+    sockets: []
   };
 
   // Primary stat by slot
@@ -733,14 +1067,18 @@ function verifyPureFloorBFS(floor) {
       const ny = cur.y + dy;
       if (nx >= 0 && nx < GRID_W && ny >= 0 && ny < GRID_H && !visited[ny][nx]) {
         const t = floor.tiles[ny][nx];
-        const isWalkable = (
+        // Live traps (TILE_TRAP_HIDDEN / TILE_TRAP_VISIBLE) are intentionally excluded so BFS guarantees a trap-free path
+        const isSafeWalkable = (
           t === TILE_FLOOR ||
           t === TILE_STAIRS_UP ||
           t === TILE_STAIRS_DOWN ||
           t === TILE_CHEST ||
-          t === TILE_CHEST_OPEN
+          t === TILE_CHEST_OPEN ||
+          t === TILE_SHRINE ||
+          t === TILE_SHRINE_USED ||
+          t === TILE_TRAP_DISARMED
         );
-        if (isWalkable) {
+        if (isSafeWalkable) {
           visited[ny][nx] = true;
           queue.push({ x: nx, y: ny });
         }
@@ -757,12 +1095,14 @@ function carveDirectFloorPath(floor) {
     cx += (floor.downPos.x > cx) ? 1 : -1;
     if (floor.tiles[cy][cx] !== TILE_STAIRS_UP && floor.tiles[cy][cx] !== TILE_STAIRS_DOWN) {
       floor.tiles[cy][cx] = TILE_FLOOR;
+      if (floor.traps) delete floor.traps[`${cx},${cy}`];
     }
   }
   while (cy !== floor.downPos.y) {
     cy += (floor.downPos.y > cy) ? 1 : -1;
     if (floor.tiles[cy][cx] !== TILE_STAIRS_UP && floor.tiles[cy][cx] !== TILE_STAIRS_DOWN) {
       floor.tiles[cy][cx] = TILE_FLOOR;
+      if (floor.traps) delete floor.traps[`${cx},${cy}`];
     }
   }
 }
@@ -870,17 +1210,57 @@ function generateFloor(depth) {
     }
   }
 
+  // Place Astral Shrine in a tactical vault room (1 per floor)
+  const shrines = {};
+  const shrineTypes = ['sanctuary', 'starfire', 'aegis'];
+  const midRoom = rooms[Math.min(rooms.length - 1, Math.max(1, Math.floor(rooms.length / 2)))];
+  for (let sTry = 0; sTry < 12; sTry++) {
+    const sx = midRoom.rx + Math.floor(Math.random() * midRoom.rw);
+    const sy = midRoom.ry + Math.floor(Math.random() * midRoom.rh);
+    if (tiles[sy][sx] === TILE_FLOOR && !(sx === upPos.x && sy === upPos.y) && !(sx === downPos.x && sy === downPos.y)) {
+      tiles[sy][sx] = TILE_SHRINE;
+      shrines[`${sx},${sy}`] = {
+        type: shrineTypes[Math.floor(Math.random() * shrineTypes.length)]
+      };
+      break;
+    }
+  }
+
+  // Place Concealed Runic Traps inside non-starting rooms (safe BFS enforced below)
+  const traps = {};
+  const trapGoal = 2 + Math.min(4, depth);
+  let trapsPlaced = 0;
+  for (let tTry = 0; tTry < 30 && trapsPlaced < trapGoal; tTry++) {
+    const rm = rooms[1 + Math.floor(Math.random() * (rooms.length - 1))];
+    const tx = rm.rx + Math.floor(Math.random() * rm.rw);
+    const ty = rm.ry + Math.floor(Math.random() * rm.rh);
+    if (
+      tiles[ty][tx] === TILE_FLOOR &&
+      !(tx === upPos.x && ty === upPos.y) &&
+      !(tx === downPos.x && ty === downPos.y) &&
+      Math.hypot(tx - upPos.x, ty - upPos.y) >= 2.2
+    ) {
+      tiles[ty][tx] = TILE_TRAP_HIDDEN;
+      traps[`${tx},${ty}`] = {
+        type: Math.random() < 0.55 ? 'spike' : 'flame'
+      };
+      trapsPlaced += 1;
+    }
+  }
+
   const floorObj = {
     depth,
     tiles,
     upPos,
     downPos,
+    shrines,
+    traps,
     monsters: [],
     explored: Array.from({ length: GRID_H }, () => Array(GRID_W).fill(false)),
     oresMined: 0
   };
 
-  // Guarantee pure-floor walkability between < and > stairs
+  // Guarantee pure trap-free walkability between < and > stairs
   if (!verifyPureFloorBFS(floorObj)) {
     carveDirectFloorPath(floorObj);
   }
@@ -967,7 +1347,9 @@ function generateFloor(depth) {
 }
 
   // --- Module: src/engine/actions.js ---
-// Interactive Mining, Consumables, Extraction, Defeat Recovery, Quartermaster & Guild Research
+// Interactive Mining, Astral Gems & Lapidary, Guild Bounties, Shrines, Traps, Extraction & Research
+
+
 
 
 
@@ -991,6 +1373,24 @@ function registerActionCallbacks(cbs) {
 
 function getActionCallbacks() {
   return actionCallbacks;
+}
+
+function applyStatusEffect(target, id, duration) {
+  if (!target.statuses) target.statuses = [];
+  const metaMap = {
+    burn:            { id: 'burn',            name: 'Burn',              color: '#fb923c', duration, isBuff: false },
+    bleed:           { id: 'bleed',           name: 'Bleed',             color: '#f87171', duration, isBuff: false },
+    poison:          { id: 'poison',          name: 'Poison',            color: '#4ade80', duration, isBuff: false },
+    stun:            { id: 'stun',            name: 'Stunned',           color: '#fbbf24', duration, isBuff: false },
+    weakened:        { id: 'weakened',        name: 'Weakened',          color: '#c084fc', duration, isBuff: false },
+    shrine_starfire: { id: 'shrine_starfire', name: 'Starfire Blessing', color: '#fbbf24', duration, isBuff: true },
+    shrine_aegis:    { id: 'shrine_aegis',    name: 'Astral Aegis',      color: '#60a5fa', duration, isBuff: true }
+  };
+  const meta = metaMap[id];
+  if (!meta) return;
+  const existing = target.statuses.find(s => s.id === id);
+  if (existing) existing.duration = Math.max(existing.duration, duration);
+  else target.statuses.push(Object.assign({}, meta));
 }
 
 function addExpeditionTradeItem(id, name, val, qty = 1, type = 'Ore', state = gameState) {
@@ -1017,6 +1417,144 @@ function gainExperience(amount, state = gameState) {
       actionCallbacks.log(`LEVEL UP! Reached Level ${h.level} (+2 Stat Points, +1 Talent Point).`, 'good');
     }
   }
+}
+
+// ============================================================================
+// GUILD NOTICE BOARD (PROCEDURAL BOUNTY CONTRACTS)
+// ============================================================================
+
+function ensureGuildBounties(forceRefresh = false, state = gameState) {
+  const geo = (state.guildResearch && state.guildResearch.geology) || 0;
+  const cart = (state.guildResearch && state.guildResearch.cartography) || 0;
+  if (forceRefresh || !Array.isArray(state.guildBounties) || state.guildBounties.length === 0) {
+    state.guildBounties = buildProceduralBountySet(geo, cart);
+  }
+  return state.guildBounties;
+}
+
+function rerollGuildBounties(state = gameState) {
+  if (state.guildVault.gold < BOUNTY_REROLL_COST) {
+    if (state === gameState) {
+      actionCallbacks.log(`Need ${BOUNTY_REROLL_COST} Vault Gold to post fresh Notice Board contracts.`, 'bad');
+    }
+    return { ok: false, reason: 'no_gold' };
+  }
+  state.guildVault.gold -= BOUNTY_REROLL_COST;
+  ensureGuildBounties(true, state);
+  if (state === gameState) {
+    playSound('gold');
+    actionCallbacks.log(`Posted 3 fresh Guild Bounty contracts (-${BOUNTY_REROLL_COST}g).`, 'gold');
+    saveGame();
+    actionCallbacks.updateUI();
+  }
+  return { ok: true, bounties: state.guildBounties };
+}
+
+function recordBountyProgress(kind, targetTags, amount = 1, state = gameState) {
+  if (!Array.isArray(state.guildBounties)) return 0;
+  const tags = Array.isArray(targetTags) ? targetTags : [targetTags];
+  let newlyCompleted = 0;
+
+  for (let i = 0; i < state.guildBounties.length; i++) {
+    const b = state.guildBounties[i];
+    if (!b || b.completed || b.kind !== kind) continue;
+    if (tags.indexOf(b.targetId) !== -1) {
+      b.curQty = Math.min(b.reqQty, (b.curQty || 0) + amount);
+      if (b.curQty >= b.reqQty) {
+        b.completed = true;
+        newlyCompleted += 1;
+        if (state === gameState) {
+          playSound('lvl');
+          actionCallbacks.log(`📜 Bounty Complete: ${b.title}! Extract to the Guild to claim ${b.rewardLabel}.`, 'gold');
+        }
+      }
+    }
+  }
+  return newlyCompleted;
+}
+
+function applySingleBountyReward(bounty, state) {
+  if (!state.guildVault.gems) {
+    state.guildVault.gems = { ruby: 0, emerald: 0, sapphire: 0, topaz: 0, void_diamond: 0 };
+  }
+  if (bounty.rewardType === 'gold') {
+    state.guildVault.gold += bounty.rewardQty;
+  } else if (bounty.rewardType === 'talent_tome' && state.hero) {
+    state.hero.talentPoints = (state.hero.talentPoints || 0) + bounty.rewardQty;
+  } else if (bounty.rewardType === 'gem') {
+    state.guildVault.gems[bounty.rewardId] = (state.guildVault.gems[bounty.rewardId] || 0) + bounty.rewardQty;
+  } else if (bounty.rewardType === 'ore') {
+    state.guildVault[bounty.rewardId] = (state.guildVault[bounty.rewardId] || 0) + bounty.rewardQty;
+  }
+}
+
+function payoutCompletedBounties(state = gameState) {
+  ensureGuildBounties(false, state);
+  const geo = (state.guildResearch && state.guildResearch.geology) || 0;
+  const cart = (state.guildResearch && state.guildResearch.cartography) || 0;
+  const replacementPool = buildProceduralBountySet(geo, cart);
+  const claimedLabels = [];
+
+  for (let i = 0; i < state.guildBounties.length; i++) {
+    const b = state.guildBounties[i];
+    if (b && b.completed) {
+      applySingleBountyReward(b, state);
+      claimedLabels.push(`${b.title} (${b.rewardLabel})`);
+      state.guildBounties[i] = replacementPool[i % replacementPool.length];
+    }
+  }
+
+  return claimedLabels;
+}
+
+function claimBountyAtGuild(bountyId, state = gameState) {
+  ensureGuildBounties(false, state);
+  const idx = state.guildBounties.findIndex(b => b.id === bountyId);
+  if (idx === -1 || !state.guildBounties[idx].completed) {
+    return { ok: false, reason: 'not_completed' };
+  }
+  const b = state.guildBounties[idx];
+  applySingleBountyReward(b, state);
+  const geo = (state.guildResearch && state.guildResearch.geology) || 0;
+  const cart = (state.guildResearch && state.guildResearch.cartography) || 0;
+  const freshSet = buildProceduralBountySet(geo, cart);
+  state.guildBounties[idx] = freshSet[idx % freshSet.length];
+
+  if (state === gameState) {
+    playSound('gold');
+    actionCallbacks.log(`Claimed Notice Board Bounty "${b.title}": ${b.rewardLabel}!`, 'gold');
+    saveGame();
+    actionCallbacks.updateUI();
+  }
+  return { ok: true, rewardLabel: b.rewardLabel };
+}
+
+// ============================================================================
+// MINING, ASTRAL GEM DROPS & LAPIDARY BENCH
+// ============================================================================
+
+function rollUncutGemForOreTile(tile) {
+  const coreGems = ['ruby', 'emerald', 'sapphire', 'topaz'];
+  let chance = 0;
+  let voidWeight = 0;
+
+  if (tile === TILE_ORE_MITHRIL) {
+    chance = 0.22;
+  } else if (tile === TILE_ORE_GEODE) {
+    chance = 0.35;
+  } else if (tile === TILE_ORE_STAR) {
+    chance = 0.40;
+    voidWeight = 0.20;
+  } else if (tile === TILE_ORE_ASTRAL) {
+    chance = 0.55;
+    voidWeight = 0.40;
+  }
+
+  if (chance <= 0 || Math.random() >= chance) return null;
+  if (voidWeight > 0 && Math.random() < voidWeight) {
+    return 'void_diamond';
+  }
+  return coreGems[Math.floor(Math.random() * coreGems.length)];
 }
 
 function mineTile(x, y, state = gameState) {
@@ -1060,6 +1598,17 @@ function mineTile(x, y, state = gameState) {
   floor.oresMined = (floor.oresMined || 0) + 1;
 
   addExpeditionTradeItem(ore.id, ore.name, ore.baseValue, 1, 'Ore', state);
+  recordBountyProgress('mine', [ore.id], 1, state);
+
+  // High-tier vein uncut Astral Gem drop check
+  const droppedGemId = rollUncutGemForOreTile(tile);
+  if (droppedGemId && GEM_CATALOG[droppedGemId]) {
+    const gemDef = GEM_CATALOG[droppedGemId];
+    addExpeditionTradeItem(gemDef.id, gemDef.name, gemDef.baseValue, 1, 'Gem', state);
+    if (state === gameState) {
+      actionCallbacks.log(`💎 Unearthed uncut ${gemDef.name} (${gemDef.desc}) from the vein!`, 'good');
+    }
+  }
 
   if (state === gameState) {
     playSound('mine');
@@ -1078,8 +1627,246 @@ function mineTile(x, y, state = gameState) {
     actionCallbacks.updateUI();
   }
 
-  return { ok: true, oreId: ore.id, freeMine };
+  return { ok: true, oreId: ore.id, freeMine, gemDropped: droppedGemId };
 }
+
+function resolveLapidaryTargetItem(targetRef, isEquipped, state) {
+  if (!state || !state.hero) return null;
+  if (isEquipped) {
+    if (state.hero.equipment[targetRef]) {
+      return state.hero.equipment[targetRef];
+    }
+    const slots = ['weapon', 'armor', 'helm', 'boots', 'accessory'];
+    for (let i = 0; i < slots.length; i++) {
+      const eq = state.hero.equipment[slots[i]];
+      if (eq && eq.uid === targetRef) return eq;
+    }
+    return null;
+  }
+  return state.guildVault.armory.find(g => g.uid === targetRef) || null;
+}
+
+function socketGemIntoItem(targetRef, gemId, isEquipped = true, state = gameState) {
+  const gemDef = GEM_CATALOG[gemId];
+  if (!gemDef) return { ok: false, reason: 'invalid_gem' };
+
+  const item = resolveLapidaryTargetItem(targetRef, isEquipped, state);
+  if (!item) return { ok: false, reason: 'item_not_found' };
+  normalizeEquipmentSockets(item);
+
+  if (item.slot === 'pickaxe' || (item.maxSockets || 0) <= 0) {
+    if (state === gameState) actionCallbacks.log(`${item.name} has no Astral Gem sockets.`, 'bad');
+    return { ok: false, reason: 'no_sockets' };
+  }
+  if (item.sockets.length >= item.maxSockets) {
+    if (state === gameState) actionCallbacks.log(`All gem sockets on ${item.name} are already filled.`, 'bad');
+    return { ok: false, reason: 'sockets_full' };
+  }
+  if (!state.guildVault.gems || (state.guildVault.gems[gemId] || 0) <= 0) {
+    if (state === gameState) actionCallbacks.log(`No banked ${gemDef.name} in your Guild Vault.`, 'bad');
+    return { ok: false, reason: 'no_gem_in_vault' };
+  }
+
+  state.guildVault.gems[gemId] -= 1;
+  item.sockets.push(gemId);
+  recomputeHeroDerivedStats(false, state);
+
+  if (state === gameState) {
+    playSound('lvl');
+    actionCallbacks.log(`💎 Socketed ${gemDef.name} (${gemDef.desc}) into ${item.name}!`, 'good');
+    saveGame();
+    actionCallbacks.updateUI();
+  }
+  return { ok: true, gemId, sockets: item.sockets.slice() };
+}
+
+function unsocketGemFromItem(targetRef, socketIndex = 0, isEquipped = true, state = gameState) {
+  const item = resolveLapidaryTargetItem(targetRef, isEquipped, state);
+  if (!item) return { ok: false, reason: 'item_not_found' };
+  normalizeEquipmentSockets(item);
+
+  if (socketIndex < 0 || socketIndex >= item.sockets.length) {
+    return { ok: false, reason: 'empty_socket' };
+  }
+  if (state.guildVault.gold < LAPIDARY_UNSOCKET_COST) {
+    if (state === gameState) {
+      actionCallbacks.log(`Need ${LAPIDARY_UNSOCKET_COST} Vault Gold for the Lapidary to extract a socketed gem.`, 'bad');
+    }
+    return { ok: false, reason: 'no_gold' };
+  }
+
+  state.guildVault.gold -= LAPIDARY_UNSOCKET_COST;
+  const removedGemId = item.sockets.splice(socketIndex, 1)[0];
+  if (!state.guildVault.gems) {
+    state.guildVault.gems = { ruby: 0, emerald: 0, sapphire: 0, topaz: 0, void_diamond: 0 };
+  }
+  state.guildVault.gems[removedGemId] = (state.guildVault.gems[removedGemId] || 0) + 1;
+  recomputeHeroDerivedStats(false, state);
+
+  if (state === gameState) {
+    const gemDef = GEM_CATALOG[removedGemId];
+    playSound('gold');
+    actionCallbacks.log(`Extracted ${gemDef ? gemDef.name : removedGemId} from ${item.name} back to Guild Vault (-${LAPIDARY_UNSOCKET_COST}g).`, 'gold');
+    saveGame();
+    actionCallbacks.updateUI();
+  }
+  return { ok: true, gemId: removedGemId };
+}
+
+function sellGemUnit(gemId, sellAll = false, state = gameState) {
+  if (!state.guildVault.gems) return 0;
+  const count = state.guildVault.gems[gemId] || 0;
+  if (count <= 0) return 0;
+
+  const gemDef = GEM_CATALOG[gemId];
+  const baseVal = gemDef ? gemDef.baseValue : 65;
+  const assayRank = state.guildResearch.assay || 0;
+  const mult = 1 + assayRank * 0.35;
+
+  const qtyToSell = sellAll ? count : 1;
+  const payout = Math.round(baseVal * qtyToSell * mult);
+
+  state.guildVault.gems[gemId] -= qtyToSell;
+  state.guildVault.gold += payout;
+
+  if (state === gameState) {
+    playSound('gold');
+    actionCallbacks.log(`Sold ${qtyToSell}x ${gemDef ? gemDef.name : gemId} at Assay Counter for +${payout}g.`, 'gold');
+    saveGame();
+    actionCallbacks.updateUI();
+  }
+  return payout;
+}
+
+// ============================================================================
+// SUBTERRANEAN ASTRAL SHRINES & TACTICAL RUNIC TRAPS
+// ============================================================================
+
+function detectNearbyTraps(floor, state = gameState) {
+  if (!floor || !state || !state.hero) return 0;
+  const h = state.hero;
+  const vision = h.visionRadius || 5;
+  const spotScore = (h.computedDex || 10) * 2 + vision * 6;
+  const threshold = 26 + (floor.depth || 1) * 3;
+  const isScoutClass = h.classId === 'thief' || h.classId === 'ranger';
+  let spottedCount = 0;
+
+  for (let y = 0; y < GRID_H; y++) {
+    for (let x = 0; x < GRID_W; x++) {
+      if (floor.tiles[y][x] !== TILE_TRAP_HIDDEN) continue;
+      const dist = Math.hypot(x - h.x, y - h.y);
+      if (dist > vision + 0.35) continue;
+
+      if ((isScoutClass && dist <= 2.5) || spotScore >= threshold) {
+        floor.tiles[y][x] = TILE_TRAP_VISIBLE;
+        spottedCount += 1;
+        if (state === gameState) {
+          const tMeta = (floor.traps && floor.traps[`${x},${y}`]) || { type: 'spike' };
+          const tDef = TRAP_CATALOG[tMeta.type] || TRAP_CATALOG.spike;
+          actionCallbacks.floatingText(x, y, '⚠ TRAP SPOTTED!', '#fbbf24');
+          actionCallbacks.log(`Keen senses revealed a ${tDef.name} at (${x}, ${y})!`, 'gold');
+        }
+      }
+    }
+  }
+  return spottedCount;
+}
+
+function activateAstralShrine(x, y, state = gameState) {
+  const floor = state.dungeon.floors[state.dungeon.currentFloor];
+  if (!floor || floor.tiles[y][x] !== TILE_SHRINE) {
+    return { ok: false, reason: 'not_shrine' };
+  }
+
+  const h = state.hero;
+  const sMeta = (floor.shrines && floor.shrines[`${x},${y}`]) || { type: 'sanctuary' };
+  const sDef = SHRINE_CATALOG[sMeta.type] || SHRINE_CATALOG.sanctuary;
+
+  floor.tiles[y][x] = TILE_SHRINE_USED;
+  h.x = x;
+  h.y = y;
+
+  if (sDef.id === 'sanctuary') {
+    const hpGain = Math.round(h.maxHp * 0.50);
+    const mpGain = Math.round(h.maxMp * 0.50);
+    h.hp = Math.min(h.maxHp, h.hp + hpGain);
+    h.mp = Math.min(h.maxMp, h.mp + mpGain);
+    h.statuses = (h.statuses || []).filter(s => !!s.isBuff);
+    if (state === gameState) {
+      playSound('lvl');
+      actionCallbacks.floatingText(x, y, `+${hpGain} HP / +${mpGain} MP`, sDef.color);
+      actionCallbacks.log(`✨ Touched ${sDef.name}: Restored +${hpGain} HP, +${mpGain} MP & cleansed afflictions!`, 'good');
+    }
+  } else {
+    applyStatusEffect(h, sDef.statusId, sDef.duration);
+    recomputeHeroDerivedStats(false, state);
+    if (state === gameState) {
+      playSound('lvl');
+      actionCallbacks.floatingText(x, y, `${sDef.statusName.toUpperCase()}!`, sDef.color);
+      actionCallbacks.log(`✨ Touched ${sDef.name}: ${sDef.desc}`, 'good');
+    }
+  }
+
+  detectNearbyTraps(floor, state);
+  return { ok: true, shrineType: sDef.id };
+}
+
+function resolveTrapInteraction(x, y, state = gameState) {
+  const floor = state.dungeon.floors[state.dungeon.currentFloor];
+  if (!floor) return { ok: false, reason: 'no_floor' };
+  const tile = floor.tiles[y][x];
+  if (tile !== TILE_TRAP_HIDDEN && tile !== TILE_TRAP_VISIBLE) {
+    return { ok: false, reason: 'not_trap' };
+  }
+
+  const h = state.hero;
+  const tMeta = (floor.traps && floor.traps[`${x},${y}`]) || { type: 'spike' };
+  const tDef = TRAP_CATALOG[tMeta.type] || TRAP_CATALOG.spike;
+
+  floor.tiles[y][x] = TILE_TRAP_DISARMED;
+  h.x = x;
+  h.y = y;
+
+  const canDisarm = tile === TILE_TRAP_VISIBLE && (h.classId === 'thief' || h.classId === 'ranger');
+  if (canDisarm) {
+    const xpGain = 15 + (floor.depth || 1) * 5;
+    gainExperience(xpGain, state);
+    if (state === gameState) {
+      playSound('gold');
+      actionCallbacks.floatingText(x, y, `DISARMED (+${xpGain} XP)`, '#34d399');
+      actionCallbacks.log(`Disarmed ${tDef.name} safely (+${xpGain} XP)!`, 'good');
+    }
+    detectNearbyTraps(floor, state);
+    return { ok: true, disarmed: true, triggered: false, dmg: 0, trapType: tDef.id, fatal: false };
+  }
+
+  const rawDmg = tDef.baseDmg + (floor.depth || 1) * tDef.depthScale;
+  const dmg = Math.max(3, rawDmg - Math.floor((h.def || 0) * 0.4));
+  h.hp -= dmg;
+  applyStatusEffect(h, tDef.statusId, tDef.statusDuration);
+
+  if (state === gameState) {
+    playSound('hit');
+    actionCallbacks.floatingText(x, y, `TRAP! -${dmg}`, tDef.color);
+    actionCallbacks.log(`Triggered ${tDef.name} for ${dmg} damage and ${tDef.statusId.toUpperCase()}!`, 'bad');
+  }
+
+  detectNearbyTraps(floor, state);
+  return {
+    ok: true,
+    disarmed: false,
+    triggered: true,
+    dmg,
+    statusId: tDef.statusId,
+    trapType: tDef.id,
+    fatal: h.hp <= 0,
+    killerName: tDef.name
+  };
+}
+
+// ============================================================================
+// CONSUMABLES, EXTRACTION, DEFEAT SALVAGE, SHOP & RESEARCH
+// ============================================================================
 
 function useHealingTonic(state = gameState) {
   if (state.inGuild) {
@@ -1091,7 +1878,8 @@ function useHealingTonic(state = gameState) {
     if (state === gameState) actionCallbacks.log('No Healing Tonics remaining!', 'bad');
     return false;
   }
-  if (h.hp >= h.maxHp && (!h.statuses || h.statuses.length === 0)) {
+  const hasNegativeAffliction = (h.statuses || []).some(s => !s.isBuff);
+  if (h.hp >= h.maxHp && !hasNegativeAffliction) {
     if (state === gameState) actionCallbacks.log('You are already at full health.', 'info');
     return false;
   }
@@ -1115,47 +1903,64 @@ function extractToGuild(method = 'Floor 1 Ascending Stairs (<)', state = gameSta
   const assayRank = state.guildResearch.assay || 0;
   const mult = 1 + assayRank * 0.35;
 
+  if (!state.guildVault.gems) {
+    state.guildVault.gems = { ruby: 0, emerald: 0, sapphire: 0, topaz: 0, void_diamond: 0 };
+  }
+
   let goldEarned = 0;
   let oresBanked = 0;
+  let gemsBanked = 0;
   const gearBanked = h.expeditionGear.length;
 
   for (const item of h.expeditionPack) {
     if (MINERAL_IDS.includes(item.id)) {
       state.guildVault[item.id] = (state.guildVault[item.id] || 0) + item.qty;
       oresBanked += item.qty;
+    } else if (GEM_IDS.includes(item.id)) {
+      state.guildVault.gems[item.id] = (state.guildVault.gems[item.id] || 0) + item.qty;
+      gemsBanked += item.qty;
     } else {
       goldEarned += Math.round(item.val * item.qty * mult);
     }
   }
 
   for (const gear of h.expeditionGear) {
-    state.guildVault.armory.push(gear);
+    state.guildVault.armory.push(normalizeEquipmentSockets(gear));
   }
 
   state.guildVault.gold += goldEarned;
+  const claimedBounties = payoutCompletedBounties(state);
+
   h.expeditionPack = [];
   h.expeditionGear = [];
   h.statuses = [];
   h.usedDivineIntervention = false;
-  h.hp = h.maxHp;
-  h.mp = h.maxMp;
+  recomputeHeroDerivedStats(true, state);
   state.inGuild = true;
 
   if (state === gameState) {
     saveGame();
     actionCallbacks.updateUI();
+    const details = [
+      `Extraction Method: ${method}`,
+      `Minerals Banked to Vault: ${oresBanked} ores`,
+      `Astral Gems Banked to Vault: ${gemsBanked} gems`,
+      `Equipment Secured to Armory: ${gearBanked} items`,
+      `Relics Appraised to Gold: +${goldEarned}g`
+    ];
+    if (claimedBounties.length > 0) {
+      details.push(`Bounties Claimed: ${claimedBounties.join(' • ')}`);
+    }
+    details.push(`Total Vault Gold: ${state.guildVault.gold}g`);
+
     actionCallbacks.outcomeModal(
       'Safe Extraction Complete!',
-      `You returned to the Grand Guild via ${method}. All gathered minerals and equipment have been secured in your Guild Vault.`,
-      [
-        `Extraction Method: ${method}`,
-        `Minerals Banked to Vault: ${oresBanked} ores`,
-        `Equipment Secured to Armory: ${gearBanked} items`,
-        `Relics Appraised to Gold: +${goldEarned}g`,
-        `Total Vault Gold: ${state.guildVault.gold}g`
-      ]
+      `You returned to the Grand Guild via ${method}. All gathered minerals, uncut Astral Gems, equipment, and completed Notice Board rewards have been secured.`,
+      details
     );
   }
+
+  return { oresBanked, gemsBanked, gearBanked, goldEarned, claimedBounties };
 }
 
 function useRecallScroll(state = gameState) {
@@ -1193,8 +1998,7 @@ function handleHeroDefeat(killerName = 'Abyssal Guardian', state = gameState) {
   h.expeditionGear = [];
   h.statuses = [];
   h.usedDivineIntervention = false;
-  h.hp = h.maxHp;
-  h.mp = h.maxMp;
+  recomputeHeroDerivedStats(true, state);
   state.inGuild = true;
 
   if (state === gameState) {
@@ -1207,7 +2011,7 @@ function handleHeroDefeat(killerName = 'Abyssal Guardian', state = gameState) {
       `You fell to ${killerName} on Floor ${state.dungeon.currentFloor}. Oakhaven scouts recovered you to the surface. Your character level, equipped loadout, and Guild Vault remain intact!`,
       [
         `Defeated By: ${killerName} (Floor ${state.dungeon.currentFloor})`,
-        `Unbanked Minerals Lost: ${lostOreCount}`,
+        `Unbanked Pack Items Lost: ${lostOreCount}`,
         `Unbanked Equipment Lost: ${lostGearCount}`,
         `Vanguard Pact Salvage (${vRank * 20}%): +${salvagedGold}g`,
         `Persistent Dungeon Seed: ${state.dungeon.seedCode}`
@@ -1248,7 +2052,9 @@ function buyShopItem(itemId, state = gameState) {
       maxDur: shopItem.maxDur,
       curDur: Math.round(shopItem.maxDur * (1 + (state.guildResearch.toolsmithing || 0) * 0.5)),
       value: Math.round(shopItem.cost * 0.6),
-      affixes: []
+      affixes: [],
+      maxSockets: 0,
+      sockets: []
     };
   } else if (shopItem.type === 'gear') {
     const boughtGear = {
@@ -1262,7 +2068,9 @@ function buyShopItem(itemId, state = gameState) {
       crit: shopItem.crit || 0,
       maxHp: shopItem.maxHp || 0,
       value: Math.round(shopItem.cost * 0.6),
-      affixes: []
+      affixes: [],
+      maxSockets: rollSocketCountForRarity(shopItem.rarity, shopItem.slot),
+      sockets: []
     };
     state.guildVault.armory.push(boughtGear);
   }
@@ -1318,6 +2126,17 @@ function sellArmoryItem(uid, state = gameState) {
   const idx = state.guildVault.armory.findIndex(g => g.uid === uid);
   if (idx === -1) return 0;
   const item = state.guildVault.armory.splice(idx, 1)[0];
+
+  // Return any socketed gems safely to Guild Vault before selling the frame
+  if (Array.isArray(item.sockets) && item.sockets.length > 0) {
+    if (!state.guildVault.gems) {
+      state.guildVault.gems = { ruby: 0, emerald: 0, sapphire: 0, topaz: 0, void_diamond: 0 };
+    }
+    item.sockets.forEach(gId => {
+      state.guildVault.gems[gId] = (state.guildVault.gems[gId] || 0) + 1;
+    });
+  }
+
   const assayRank = state.guildResearch.assay || 0;
   const payout = Math.round((item.value || 15) * (1 + assayRank * 0.35));
   state.guildVault.gold += payout;
@@ -1340,7 +2159,15 @@ function sellAllSpareGear(state = gameState) {
   const mult = 1 + assayRank * 0.35;
   let total = 0;
   const count = state.guildVault.armory.length;
+  if (!state.guildVault.gems) {
+    state.guildVault.gems = { ruby: 0, emerald: 0, sapphire: 0, topaz: 0, void_diamond: 0 };
+  }
   state.guildVault.armory.forEach(g => {
+    if (Array.isArray(g.sockets)) {
+      g.sockets.forEach(gId => {
+        state.guildVault.gems[gId] = (state.guildVault.gems[gId] || 0) + 1;
+      });
+    }
     total += Math.round((g.value || 15) * mult);
   });
   state.guildVault.armory = [];
@@ -1395,14 +2222,7 @@ function purchaseResearchRank(projId, state = gameState) {
 }
 
   // --- Module: src/engine/combat.js ---
-// Turn-Based Movement, Combat Resolution, Active Class Skills, Monster AI, and Stairs
-
-
-
-
-
-
-
+// Turn-Based Movement, Combat Resolution, Active Class Skills, Monster AI, Shrines, Traps & Stairs
 
 
 let fovCallback = () => {};
@@ -1412,22 +2232,6 @@ function registerCombatFOVCallback(fn) {
     fovCallback = fn;
     registerActionCallbacks({ updateFOV: fn });
   }
-}
-
-function applyStatusEffect(target, id, duration) {
-  if (!target.statuses) target.statuses = [];
-  const metaMap = {
-    burn:     { id: 'burn',     name: 'Burn',     color: '#fb923c', duration },
-    bleed:    { id: 'bleed',    name: 'Bleed',    color: '#f87171', duration },
-    poison:   { id: 'poison',   name: 'Poison',   color: '#4ade80', duration },
-    stun:     { id: 'stun',     name: 'Stunned',  color: '#fbbf24', duration },
-    weakened: { id: 'weakened', name: 'Weakened', color: '#c084fc', duration }
-  };
-  const meta = metaMap[id];
-  if (!meta) return;
-  const existing = target.statuses.find(s => s.id === id);
-  if (existing) existing.duration = Math.max(existing.duration, duration);
-  else target.statuses.push(Object.assign({}, meta));
 }
 
 function killMonster(monster, state = gameState) {
@@ -1441,6 +2245,12 @@ function killMonster(monster, state = gameState) {
   if (h.classId === 'thief' && ((h.talentsAllocated && h.talentsAllocated.t_b3) || 0) > 0) {
     h.mp = Math.min(h.maxMp, h.mp + 6);
   }
+
+  // Record Guild Notice Board Bounty Progress
+  const killTags = ['monster_any', monster.id];
+  if (monster.isElite) killTags.push('elite');
+  if (monster.isBoss) killTags.push('boss');
+  recordBountyProgress('slay', killTags, 1, state);
 
   if (monster.isBoss) {
     const bossRarity = monster.id === 'boss_weaver' ? 'relic' : 'epic';
@@ -1561,8 +2371,9 @@ function processTurn() {
     h.hp = Math.min(h.maxHp, h.hp + 1);
   }
 
-  // Hero Status Ticks
+  // Hero Status & Shrine Buff Ticks
   if (h.statuses && h.statuses.length > 0) {
+    let buffExpired = false;
     for (let i = h.statuses.length - 1; i >= 0; i--) {
       const st = h.statuses[i];
       if (st.id === 'burn' || st.id === 'bleed' || st.id === 'poison') {
@@ -1571,7 +2382,13 @@ function processTurn() {
         ui.floatingText(h.x, h.y, `-${dot} ${st.name.toUpperCase()}`, st.color);
       }
       st.duration -= 1;
-      if (st.duration <= 0) h.statuses.splice(i, 1);
+      if (st.duration <= 0) {
+        if (st.isBuff) buffExpired = true;
+        h.statuses.splice(i, 1);
+      }
+    }
+    if (buffExpired) {
+      recomputeHeroDerivedStats(false, gameState);
     }
     if (h.hp <= 0) {
       checkHeroFatalDamage('Affliction');
@@ -1579,6 +2396,7 @@ function processTurn() {
     }
   }
 
+  detectNearbyTraps(floor, gameState);
   fovCallback();
 
   // Monsters AI Turn
@@ -1627,15 +2445,23 @@ function processTurn() {
           if (dx === 0 && dy === 0) continue;
           const tx = m.x + dx;
           const ty = m.y + dy;
-          if (
-            tx >= 0 && tx < GRID_W && ty >= 0 && ty < GRID_H &&
-            floor.tiles[ty][tx] === TILE_FLOOR &&
-            !(tx === h.x && ty === h.y) &&
-            !floor.monsters.some(other => other.x === tx && other.y === ty)
-          ) {
-            m.x = tx;
-            m.y = ty;
-            break;
+          if (tx >= 0 && tx < GRID_W && ty >= 0 && ty < GRID_H) {
+            const destTile = floor.tiles[ty][tx];
+            const monsterWalkable = (
+              destTile === TILE_FLOOR ||
+              destTile === TILE_CHEST_OPEN ||
+              destTile === TILE_SHRINE_USED ||
+              destTile === TILE_TRAP_DISARMED
+            );
+            if (
+              monsterWalkable &&
+              !(tx === h.x && ty === h.y) &&
+              !floor.monsters.some(other => other.x === tx && other.y === ty)
+            ) {
+              m.x = tx;
+              m.y = ty;
+              break;
+            }
           }
         }
       }
@@ -1691,7 +2517,7 @@ function executeClassSkill(state = gameState) {
     return { ok: true, skill: 'whirlwind' };
   }
 
-  // 2. THIEF: Shadowstep Strike (Requires visible target within 3.5 tiles AND an unoccupied walkable floor tile adjacent to target)
+  // 2. THIEF: Shadowstep Strike (Requires visible target within 3.5 tiles AND an unoccupied safe floor tile adjacent to target)
   if (h.classId === 'thief') {
     const candidates = floor.monsters.filter(m => Math.hypot(m.x - h.x, m.y - h.y) <= 3.5);
     let chosenTarget = null;
@@ -1704,7 +2530,14 @@ function executeClassSkill(state = gameState) {
         const ty = m.y + dy;
         if (tx >= 0 && tx < GRID_W && ty >= 0 && ty < GRID_H) {
           const t = floor.tiles[ty][tx];
-          const walkable = (t === TILE_FLOOR || t === TILE_STAIRS_UP || t === TILE_STAIRS_DOWN || t === TILE_CHEST_OPEN);
+          const walkable = (
+            t === TILE_FLOOR ||
+            t === TILE_STAIRS_UP ||
+            t === TILE_STAIRS_DOWN ||
+            t === TILE_CHEST_OPEN ||
+            t === TILE_SHRINE_USED ||
+            t === TILE_TRAP_DISARMED
+          );
           const occupied = floor.monsters.some(other => other.x === tx && other.y === ty);
           if (walkable && !occupied) {
             chosenTarget = m;
@@ -1877,6 +2710,7 @@ function handlePlayerAction(dx, dy) {
     const depth = gameState.dungeon.currentFloor;
     const goldVal = Math.round((22 + depth * 12) * (gameState.hero.classId === 'thief' ? 1.25 : 1.0));
     addExpeditionTradeItem('star_relic', 'Star-etched Relic', goldVal, 1, 'Relic');
+    recordBountyProgress('open_chest', ['chest'], 1, gameState);
 
     const chestGear = generateProceduralEquipment(depth, depth >= 3 ? 'rare' : 'uncommon');
     gameState.hero.expeditionGear.push(chestGear);
@@ -1888,10 +2722,29 @@ function handlePlayerAction(dx, dy) {
     return;
   }
 
-  // 4. Step onto Walkable Tile
+  // 4. Astral Shrine Activation
+  if (targetTile === TILE_SHRINE) {
+    activateAstralShrine(nx, ny, gameState);
+    processTurn();
+    return;
+  }
+
+  // 5. Runic Trap Interaction (Disarm for Scout on Spotted Trap, else Trigger)
+  if (targetTile === TILE_TRAP_HIDDEN || targetTile === TILE_TRAP_VISIBLE) {
+    const trapRes = resolveTrapInteraction(nx, ny, gameState);
+    if (trapRes.fatal) {
+      checkHeroFatalDamage(trapRes.killerName);
+      return;
+    }
+    processTurn();
+    return;
+  }
+
+  // 6. Step onto Walkable Tile
   if (targetTile !== TILE_WALL) {
     gameState.hero.x = nx;
     gameState.hero.y = ny;
+    detectNearbyTraps(floor, gameState);
     processTurn();
   } else {
     ui.floatingText(nx, ny, 'Blocked', '#8b949e');
@@ -1912,6 +2765,7 @@ function useStairsAtPlayer() {
       const prev = gameState.dungeon.floors[gameState.dungeon.currentFloor];
       gameState.hero.x = prev.downPos.x;
       gameState.hero.y = prev.downPos.y;
+      detectNearbyTraps(prev, gameState);
       fovCallback();
       ui.updateUI();
       ui.log(`Ascended to Floor ${gameState.dungeon.currentFloor}.`, 'info');
@@ -1931,6 +2785,7 @@ function useStairsAtPlayer() {
     const next = gameState.dungeon.floors[gameState.dungeon.currentFloor];
     gameState.hero.x = next.upPos.x;
     gameState.hero.y = next.upPos.y;
+    detectNearbyTraps(next, gameState);
     fovCallback();
     ui.updateUI();
     ui.log(`Descended to Floor ${gameState.dungeon.currentFloor}.`, 'info');
@@ -1947,7 +2802,9 @@ function waitTurn() {
 }
 
   // --- Module: src/ui/renderer.js ---
-// 2D Graphical Canvas Renderer, Torchlight FOV, Hero Sprite, and Floating Combat Text
+// 2D Graphical Canvas Renderer, Torchlight FOV, Shrines, Traps, Hero Sprite, and Floating Combat Text
+
+
 
 
 
@@ -1987,6 +2844,8 @@ function updateFOV() {
       }
     }
   }
+
+  detectNearbyTraps(floor, gameState);
 }
 
 function drawHeroSprite(ctx, px, py, classId, size = TILE_SIZE) {
@@ -2081,7 +2940,7 @@ function renderDungeonCanvas() {
           ctx.fillRect(px + 19, py + 12, 3, 3);
         }
       } else {
-        // Walkable Floor Tile
+        // Walkable Floor Tile (including concealed traps)
         ctx.fillStyle = (x + y) % 2 === 0 ? '#0e1420' : '#111826';
         ctx.fillRect(px, py, TILE_SIZE, TILE_SIZE);
         ctx.strokeStyle = '#192234';
@@ -2106,6 +2965,52 @@ function renderDungeonCanvas() {
         } else if (tile === TILE_CHEST_OPEN) {
           ctx.fillStyle = '#451a03';
           ctx.fillRect(px + 6, py + 15, 20, 9);
+        } else if (tile === TILE_SHRINE) {
+          const sMeta = (floor.shrines && floor.shrines[`${x},${y}`]) || { type: 'sanctuary' };
+          const sDef = SHRINE_CATALOG[sMeta.type] || SHRINE_CATALOG.sanctuary;
+          // Stone Altar Base
+          ctx.fillStyle = '#334155';
+          ctx.fillRect(px + 8, py + 20, 16, 6);
+          ctx.fillStyle = '#475569';
+          ctx.fillRect(px + 11, py + 14, 10, 6);
+          // Floating Astral Crystal
+          ctx.fillStyle = sDef.color;
+          ctx.beginPath();
+          ctx.moveTo(px + 16, py + 4);
+          ctx.lineTo(px + 22, py + 11);
+          ctx.lineTo(px + 16, py + 18);
+          ctx.lineTo(px + 10, py + 11);
+          ctx.closePath();
+          ctx.fill();
+        } else if (tile === TILE_SHRINE_USED) {
+          ctx.fillStyle = '#1e293b';
+          ctx.fillRect(px + 8, py + 20, 16, 6);
+          ctx.fillStyle = '#334155';
+          ctx.fillRect(px + 12, py + 14, 8, 6);
+        } else if (tile === TILE_TRAP_VISIBLE) {
+          const tMeta = (floor.traps && floor.traps[`${x},${y}`]) || { type: 'spike' };
+          const tDef = TRAP_CATALOG[tMeta.type] || TRAP_CATALOG.spike;
+          ctx.strokeStyle = tDef.color;
+          ctx.lineWidth = 1.4;
+          ctx.strokeRect(px + 5, py + 5, 22, 22);
+          ctx.fillStyle = tDef.color;
+          // Draw hazard triangles / rune nodes
+          ctx.beginPath();
+          ctx.moveTo(px + 11, py + 21);
+          ctx.lineTo(px + 14, py + 11);
+          ctx.lineTo(px + 17, py + 21);
+          ctx.fill();
+          ctx.beginPath();
+          ctx.moveTo(px + 16, py + 21);
+          ctx.lineTo(px + 19, py + 11);
+          ctx.lineTo(px + 22, py + 21);
+          ctx.fill();
+        } else if (tile === TILE_TRAP_DISARMED) {
+          ctx.strokeStyle = '#475569';
+          ctx.lineWidth = 1;
+          ctx.strokeRect(px + 7, py + 7, 18, 18);
+          ctx.fillStyle = '#334155';
+          ctx.fillRect(px + 11, py + 15, 10, 2);
         }
       }
 
@@ -2212,7 +3117,7 @@ const TALENT_TREES = {
 };
 
   // --- Module: src/ui/domSync.js ---
-// DOM Synchronization, Guild Hub Views, Dungeon HUD, and Tactical Chronicle Log
+// DOM Synchronization, Guild Hub Views (including Notice Board & Lapidary), Dungeon HUD & Chronicle Log
 
 
 
@@ -2221,10 +3126,33 @@ const TALENT_TREES = {
 
 
 
+
+
+
+function formatSocketPipsHtml(item) {
+  if (!item || !item.maxSockets || item.maxSockets <= 0) return '';
+  const sockets = Array.isArray(item.sockets) ? item.sockets : [];
+  const pips = [];
+  for (let i = 0; i < item.maxSockets; i++) {
+    const gId = sockets[i];
+    if (gId && GEM_CATALOG[gId]) {
+      pips.push(`<span style="color:${GEM_CATALOG[gId].color}" title="${GEM_CATALOG[gId].name}">◆</span>`);
+    } else {
+      pips.push(`<span class="text-[#64748b]" title="Empty Socket">◇</span>`);
+    }
+  }
+  return `<span class="ml-1 tracking-tighter">${pips.join('')}</span>`;
+}
 
 function renderGuildHub() {
   if (typeof document === 'undefined') return;
   const h = gameState.hero;
+  ensureGuildBounties(false, gameState);
+  const vaultGems = gameState.guildVault.gems || { ruby: 0, emerald: 0, sapphire: 0, topaz: 0, void_diamond: 0 };
+
+  const totalBankedGems = GEM_IDS.reduce((sum, gId) => sum + (vaultGems[gId] || 0), 0);
+  const readyBounties = (gameState.guildBounties || []).filter(b => b && b.completed).length;
+
   const permit = RESEARCH_PROJECTS.cartography.levels[gameState.guildResearch.cartography || 0].depthPermit;
   document.getElementById('uiGuildSeed').textContent = gameState.dungeon.seedCode;
   document.getElementById('uiChartedFloors').textContent = Object.keys(gameState.dungeon.floors).length;
@@ -2234,6 +3162,11 @@ function renderGuildHub() {
   document.getElementById('uiArmoryCountBadge').textContent = gameState.guildVault.armory.length;
   document.getElementById('uiTalentCountBadge').textContent = h.talentPoints || 0;
 
+  const gemBadgeEl = document.getElementById('uiGemCountBadge');
+  if (gemBadgeEl) gemBadgeEl.textContent = totalBankedGems;
+  const btyBadgeEl = document.getElementById('uiBountyReadyBadge');
+  if (btyBadgeEl) btyBadgeEl.textContent = readyBounties;
+
   // Mineral Vault Grid
   const minGrid = document.getElementById('uiVaultMineralsGrid');
   minGrid.innerHTML = MINERAL_DISPLAY.map(m => `
@@ -2242,6 +3175,127 @@ function renderGuildHub() {
       <div class="font-bold text-sm mt-0.5" style="color:${m.color}">${gameState.guildVault[m.id] || 0}</div>
     </div>
   `).join('');
+
+  // Astral Gem Vault Grid (Tavern + Lapidary Header)
+  const gemCardsHtml = GEM_DISPLAY.map(g => {
+    const gd = GEM_CATALOG[g.id];
+    return `
+      <div class="bg-[#111722] p-2 rounded border border-[#283347]" title="${gd ? gd.desc : ''}">
+        <div class="text-[9px] text-[#8b949e] uppercase truncate">${g.name}</div>
+        <div class="font-bold text-sm mt-0.5" style="color:${g.color}">${vaultGems[g.id] || 0}</div>
+      </div>
+    `;
+  }).join('');
+
+  const vaultGemsEl = document.getElementById('uiVaultGemsGrid');
+  if (vaultGemsEl) vaultGemsEl.innerHTML = gemCardsHtml;
+  const lapGemsEl = document.getElementById('uiLapidaryGemsBar');
+  if (lapGemsEl) lapGemsEl.innerHTML = gemCardsHtml;
+
+  // Guild Notice Board Tab (#uiBountiesGrid)
+  const btyGrid = document.getElementById('uiBountiesGrid');
+  if (btyGrid) {
+    btyGrid.innerHTML = (gameState.guildBounties || []).map(b => {
+      const pct = Math.min(100, Math.round(((b.curQty || 0) / Math.max(1, b.reqQty)) * 100));
+      return `
+        <div class="p-3 rounded-lg bg-[#080b11] border ${b.completed ? 'border-[#34d399]/60' : 'border-[#283347]'} flex flex-col justify-between gap-2.5">
+          <div>
+            <div class="flex items-center justify-between gap-1">
+              <span class="text-xs font-bold ${b.completed ? 'text-[#34d399]' : 'text-[#fbbf24]'}">${b.title}</span>
+              <span class="text-[10px] font-mono-num px-1.5 py-0.5 rounded bg-[#1a2232] text-[#e6edf3]">${b.curQty || 0}/${b.reqQty}</span>
+            </div>
+            <p class="text-[11px] text-[#8b949e] mt-1">${b.desc}</p>
+            <div class="w-full h-1.5 bg-[#111722] rounded-full overflow-hidden border border-[#283347] mt-2">
+              <div class="h-full ${b.completed ? 'bg-[#34d399]' : 'bg-[#fbbf24]'}" style="width:${pct}%"></div>
+            </div>
+          </div>
+          <div class="space-y-1.5">
+            <div class="text-[11px] font-mono-num text-[#60a5fa]">Reward: <strong>${b.rewardLabel}</strong></div>
+            ${b.completed
+              ? `<button onclick="window.Aethelgard.claimBountyAtGuild('${b.id}')" class="w-full py-1.5 rounded bg-[#34d399] hover:bg-[#10b981] text-[#080b11] text-xs font-mono-num font-bold btn-tactical">✓ Claim Reward</button>`
+              : `<div class="w-full py-1 rounded bg-[#111722] text-center text-[10px] font-mono-num text-[#8b949e] border border-[#283347]">Active on Descent</div>`
+            }
+          </div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  // Astral Lapidary Bench Tab (#uiLapidaryItemsGrid)
+  const lapGrid = document.getElementById('uiLapidaryItemsGrid');
+  if (lapGrid) {
+    const socketableEntries = [];
+    ['weapon', 'armor', 'helm', 'boots', 'accessory'].forEach(slot => {
+      const eq = h.equipment[slot];
+      if (eq) {
+        normalizeEquipmentSockets(eq);
+        if ((eq.maxSockets || 0) > 0) {
+          socketableEntries.push({ item: eq, refKey: slot, isEquipped: true, locLabel: `Equipped • ${slot.toUpperCase()}` });
+        }
+      }
+    });
+    gameState.guildVault.armory.forEach(arm => {
+      normalizeEquipmentSockets(arm);
+      if ((arm.maxSockets || 0) > 0) {
+        socketableEntries.push({ item: arm, refKey: arm.uid, isEquipped: false, locLabel: `Vault Armory • ${arm.slot.toUpperCase()}` });
+      }
+    });
+
+    if (socketableEntries.length === 0) {
+      lapGrid.innerHTML = `
+        <div class="p-4 rounded bg-[#080b11] border border-[#283347] text-xs text-[#8b949e] italic text-center">
+          No socketed equipment owned yet. Rare, Epic, and Star-Forged Relic gear (from Gilded Chests, Elites, Bosses, or Quartermaster Rank 1+) roll 1 to 2 Astral Sockets!
+        </div>
+      `;
+    } else {
+      const availGemIds = GEM_IDS.filter(k => (vaultGems[k] || 0) > 0);
+      lapGrid.innerHTML = socketableEntries.map(entry => {
+        const it = entry.item;
+        const r = RARITY[it.rarity] || RARITY.common;
+        const socketRows = [];
+        for (let sIdx = 0; sIdx < it.maxSockets; sIdx++) {
+          const gId = it.sockets[sIdx];
+          if (gId && GEM_CATALOG[gId]) {
+            const gd = GEM_CATALOG[gId];
+            socketRows.push(`
+              <div class="flex items-center justify-between bg-[#111722] px-2.5 py-1.5 rounded border border-[#283347] text-xs font-mono-num">
+                <span style="color:${gd.color}">◆ ${gd.name} <span class="text-[#8b949e] text-[10px]">(${gd.desc})</span></span>
+                <button onclick="window.Aethelgard.unsocketGemFromItem('${entry.refKey}', ${sIdx}, ${entry.isEquipped})" class="px-2 py-0.5 rounded bg-[#1a2232] hover:bg-[#283347] text-[#fbbf24] border border-[#fbbf24]/40 text-[10px] font-bold btn-tactical">
+                  Extract (${LAPIDARY_UNSOCKET_COST}g)
+                </button>
+              </div>
+            `);
+          } else {
+            const btns = availGemIds.length > 0
+              ? availGemIds.map(k => {
+                  const gd = GEM_CATALOG[k];
+                  return `<button onclick="window.Aethelgard.socketGemIntoItem('${entry.refKey}', '${k}', ${entry.isEquipped})" class="px-2 py-0.5 rounded bg-[#1a2232] hover:bg-[#283347] border border-[#283347] text-[10px] font-bold btn-tactical" style="color:${gd.color}" title="${gd.desc}">+ Socket ${gd.shortName}</button>`;
+                }).join(' ')
+              : `<span class="text-[10px] text-[#8b949e]">Mine high-tier veins for uncut gems</span>`;
+            socketRows.push(`
+              <div class="flex flex-wrap items-center justify-between gap-1.5 bg-[#111722] px-2.5 py-1.5 rounded border border-[#283347] text-xs font-mono-num">
+                <span class="text-[#8b949e]">◇ Empty Socket #${sIdx + 1}</span>
+                <div class="flex flex-wrap gap-1">${btns}</div>
+              </div>
+            `);
+          }
+        }
+
+        return `
+          <div class="p-3 rounded-lg bg-[#080b11] border border-[#283347] space-y-2">
+            <div class="flex items-center justify-between">
+              <div>
+                <span class="text-xs font-bold" style="color:${r.color}">${it.name}</span>
+                <span class="text-[10px] font-mono-num text-[#8b949e] ml-1.5">[${entry.locLabel}]</span>
+              </div>
+              <span class="text-[10px] font-mono-num text-[#60a5fa]">${it.sockets.length}/${it.maxSockets} Sockets</span>
+            </div>
+            <div class="space-y-1.5">${socketRows.join('')}</div>
+          </div>
+        `;
+      }).join('');
+    }
+  }
 
   // Quartermaster Buy Catalog
   const qmRank = gameState.guildResearch.quartermaster || 0;
@@ -2291,13 +3345,33 @@ function renderGuildHub() {
     }
   });
 
+  GEM_DISPLAY.forEach(g => {
+    const cnt = vaultGems[g.id] || 0;
+    if (cnt > 0) {
+      const gDef = GEM_CATALOG[g.id];
+      const unitVal = Math.round((gDef ? gDef.baseValue : 65) * mult);
+      sellRows.push(`
+        <div class="p-2 rounded bg-[#111722] border border-[#283347] flex items-center justify-between">
+          <div>
+            <span class="font-bold" style="color:${g.color}">◆ ${g.name}</span>
+            <span class="text-[#8b949e]"> x${cnt} (${unitVal}g each)</span>
+          </div>
+          <div class="flex gap-1">
+            <button onclick="window.Aethelgard.sellGemUnit('${g.id}', false)" class="px-2 py-0.5 rounded bg-[#1a2232] hover:bg-[#283347] text-[#fbbf24] border border-[#283347]">Sell 1</button>
+            <button onclick="window.Aethelgard.sellGemUnit('${g.id}', true)" class="px-2 py-0.5 rounded bg-[#34d399]/15 hover:bg-[#34d399]/25 text-[#34d399] border border-[#34d399]/40">All (+${unitVal * cnt}g)</button>
+          </div>
+        </div>
+      `);
+    }
+  });
+
   gameState.guildVault.armory.forEach(g => {
     const r = RARITY[g.rarity] || RARITY.common;
     const salePrice = Math.round((g.value || 15) * mult);
     sellRows.push(`
       <div class="p-2 rounded bg-[#111722] border border-[#283347] flex items-center justify-between">
         <div onclick="window.Aethelgard.openItemInspectModal('${g.uid}', false, false)" class="cursor-pointer hover:underline">
-          <span class="font-bold" style="color:${r.color}">${g.name}</span>
+          <span class="font-bold" style="color:${r.color}">${g.name}</span>${formatSocketPipsHtml(g)}
           <span class="text-[10px] text-[#8b949e] uppercase ml-1">[${g.slot}]</span>
         </div>
         <button onclick="window.Aethelgard.sellArmoryItem('${g.uid}')" class="px-2.5 py-0.5 rounded bg-[#fbbf24]/15 hover:bg-[#fbbf24]/25 text-[#fbbf24] border border-[#fbbf24]/40 font-bold">
@@ -2309,7 +3383,7 @@ function renderGuildHub() {
 
   sellEl.innerHTML = sellRows.length > 0
     ? sellRows.join('')
-    : `<div class="text-[#8b949e] italic py-4 text-center">No banked minerals or spare equipment to appraise. Mine veins & extract from the dungeon!</div>`;
+    : `<div class="text-[#8b949e] italic py-4 text-center">No banked minerals, gems, or spare equipment to appraise. Mine veins & extract from the dungeon!</div>`;
 
   // Vault Armory Tab
   const armoryGrid = document.getElementById('uiArmoryGrid');
@@ -2321,7 +3395,7 @@ function renderGuildHub() {
       return `
         <div onclick="window.Aethelgard.openItemInspectModal('${g.uid}', false, false)" class="p-2.5 rounded bg-[#080b11] border border-[#283347] hover:border-[#60a5fa] cursor-pointer flex items-center justify-between">
           <div>
-            <div class="text-xs font-bold" style="color:${r.color}">${g.name}</div>
+            <div class="text-xs font-bold" style="color:${r.color}">${g.name}${formatSocketPipsHtml(g)}</div>
             <div class="text-[10px] text-[#8b949e] uppercase">${r.name} • ${g.slot}</div>
           </div>
           <span class="text-xs font-mono-num text-[#fbbf24]">${g.value}g</span>
@@ -2431,6 +3505,7 @@ function updateAllUI() {
   const h = gameState.hero;
   if (!h) return;
   recomputeHeroDerivedStats(false, gameState);
+  ensureGuildBounties(false, gameState);
   const cls = CLASSES[h.classId];
 
   // Header
@@ -2469,12 +3544,12 @@ function updateAllUI() {
   document.getElementById('uiPickaxeText').textContent = `${curDur} / ${maxDur}`;
   document.getElementById('uiPickaxeBar').style.width = `${Math.max(0, Math.min(100, (curDur / maxDur) * 100))}%`;
 
-  // Statuses
+  // Statuses & Shrine Blessings
   const stRow = document.getElementById('uiStatusEffectsRow');
   if (h.statuses && h.statuses.length > 0) {
     stRow.innerHTML = h.statuses.map(s => `
       <span class="px-1.5 py-0.5 rounded text-[10px] font-mono-num font-bold" style="background:${s.color}25; color:${s.color}; border:1px solid ${s.color}50">
-        ${s.name} (${s.duration})
+        ${s.isBuff ? '✨ ' : ''}${s.name} (${s.duration})
       </span>
     `).join('');
   } else {
@@ -2499,7 +3574,7 @@ function updateAllUI() {
     spBox.classList.add('hidden');
   }
 
-  // Paper Doll 6 Slots
+  // Paper Doll 6 Slots (with Gem Socket pips)
   const dollGrid = document.getElementById('uiPaperDollGrid');
   dollGrid.innerHTML = ['weapon', 'armor', 'helm', 'boots', 'accessory', 'pickaxe'].map(slot => {
     const it = h.equipment[slot];
@@ -2515,7 +3590,10 @@ function updateAllUI() {
     }
     return `
       <div onclick="window.Aethelgard.openItemInspectModal('${slot}', true)" class="p-2 rounded bg-[#080b11] border border-[#283347] hover:border-[#60a5fa] cursor-pointer">
-        <div class="text-[9px] text-[#8b949e] uppercase">${slot}</div>
+        <div class="flex items-center justify-between text-[9px] text-[#8b949e] uppercase">
+          <span>${slot}</span>
+          ${formatSocketPipsHtml(it)}
+        </div>
         <div class="font-bold truncate" style="color:${it ? r.color : '#64748b'}">${it ? it.name : 'Empty'}</div>
         <div class="text-[10px] text-[#8b949e]">${sub}</div>
       </div>
@@ -2540,9 +3618,12 @@ function updateAllUI() {
   h.expeditionPack.forEach(item => {
     const v = item.val * item.qty;
     totalRiskVal += v;
+    const isGem = item.type === 'Gem' && GEM_CATALOG[item.id];
+    const nameColor = isGem ? GEM_CATALOG[item.id].color : '#e6edf3';
+    const prefix = isGem ? '◆ ' : '';
     packHtml.push(`
       <div class="flex justify-between bg-[#111722] px-2 py-1 rounded border border-[#283347]">
-        <span class="text-[#e6edf3]">${item.name} x${item.qty}</span>
+        <span style="color:${nameColor}">${prefix}${item.name} x${item.qty}</span>
         <span class="text-[#fbbf24]">${v}g</span>
       </div>
     `);
@@ -2552,7 +3633,7 @@ function updateAllUI() {
     const r = RARITY[gear.rarity] || RARITY.common;
     packHtml.push(`
       <div onclick="window.Aethelgard.openItemInspectModal('${gear.uid}', false, true)" class="flex justify-between bg-[#111722] px-2 py-1 rounded border border-[#283347] cursor-pointer hover:border-[#60a5fa]">
-        <span style="color:${r.color}">★ ${gear.name}</span>
+        <span style="color:${r.color}">★ ${gear.name}${formatSocketPipsHtml(gear)}</span>
         <span class="text-[#fbbf24]">${gear.value}g</span>
       </div>
     `);
@@ -2561,6 +3642,20 @@ function updateAllUI() {
     ? packHtml.join('')
     : `<div class="text-[#8b949e] italic text-[11px] py-1">Pack is empty. Mine veins & open chests.</div>`;
   document.getElementById('uiPackTotalValue').textContent = `${totalRiskVal}g Value`;
+
+  // Sidebar Live Bounties Tracker
+  const sbBounties = document.getElementById('uiSidebarBountiesList');
+  if (sbBounties) {
+    sbBounties.innerHTML = (gameState.guildBounties || []).map(b => `
+      <div class="p-1.5 rounded bg-[#080b11] border ${b.completed ? 'border-[#34d399]/50' : 'border-[#283347]'} flex items-center justify-between gap-2">
+        <div class="truncate">
+          <span class="${b.completed ? 'text-[#34d399] font-bold' : 'text-[#e6edf3]'}">${b.completed ? '✓ ' : ''}${b.title}</span>
+          <div class="text-[10px] text-[#8b949e] truncate">${b.rewardLabel}</div>
+        </div>
+        <span class="px-1.5 py-0.5 rounded bg-[#111722] text-[10px] ${b.completed ? 'text-[#34d399] font-bold' : 'text-[#fbbf24]'} whitespace-nowrap">${b.curQty || 0}/${b.reqQty}</span>
+      </div>
+    `).join('');
+  }
 
   // View Toggle
   if (gameState.inGuild) {
@@ -2576,13 +3671,16 @@ function updateAllUI() {
 
 function switchGuildTab(tabId) {
   if (typeof document === 'undefined') return;
-  ['tavern', 'shop', 'armory', 'talents', 'research'].forEach(t => {
-    document.getElementById(`guildTab_${t}`).classList.toggle('hidden', t !== tabId);
+  ['tavern', 'bounties', 'lapidary', 'shop', 'armory', 'talents', 'research'].forEach(t => {
+    const panel = document.getElementById(`guildTab_${t}`);
+    if (panel) panel.classList.toggle('hidden', t !== tabId);
     const btn = document.getElementById(`tabBtn_${t}`);
-    if (t === tabId) {
-      btn.className = 'px-3 py-1.5 text-xs font-semibold border-b-2 border-[#fbbf24] text-[#fbbf24] whitespace-nowrap';
-    } else {
-      btn.className = 'px-3 py-1.5 text-xs font-semibold border-b-2 border-transparent text-[#8b949e] hover:text-[#e6edf3] whitespace-nowrap';
+    if (btn) {
+      if (t === tabId) {
+        btn.className = 'px-3 py-1.5 text-xs font-semibold border-b-2 border-[#fbbf24] text-[#fbbf24] whitespace-nowrap';
+      } else {
+        btn.className = 'px-3 py-1.5 text-xs font-semibold border-b-2 border-transparent text-[#8b949e] hover:text-[#e6edf3] whitespace-nowrap';
+      }
     }
   });
 }
@@ -2614,7 +3712,8 @@ function clearChronicle() {
 }
 
   // --- Module: src/ui/modals.js ---
-// In-Game Modals, Guild Controllers, Item Inspection, Class Selection & Save Sync
+// In-Game Modals, Guild Controllers, Item Inspection (with Gem Sockets), Class Selection & Save Sync
+
 
 
 
@@ -2671,7 +3770,7 @@ function closeOutcomeModal() {
 function openNewDungeonModal() {
   showOutcomeModal(
     'Chart New Subterranean Dungeon?',
-    'Guild Cartographers will seal the current dungeon shaft and chart a fresh procedural layout across all floors. Your character level, Vault Gold, and minerals are preserved.',
+    'Guild Cartographers will seal the current dungeon shaft and chart a fresh procedural layout across all floors. Your character level, Vault Gold, Astral Gems, and minerals are preserved.',
     [`Current Chart: ${gameState.dungeon.seedCode}`, `Explored Floors to Reset: ${Object.keys(gameState.dungeon.floors).length}`],
     true
   );
@@ -2783,8 +3882,9 @@ function openItemInspectModal(refId, isEquippedSlot = false, fromExpedition = fa
     item = gameState.guildVault.armory.find(g => g.uid === refId);
   }
   if (!item) return;
+  normalizeEquipmentSockets(item);
 
-  inspectedItemContext = { item, isEquippedSlot, fromExpedition };
+  inspectedItemContext = { item, refId, isEquippedSlot, fromExpedition };
   const r = RARITY[item.rarity] || RARITY.common;
   const badge = document.getElementById('inspectRarityBadge');
   badge.textContent = `${r.name} • ${item.slot.toUpperCase()}`;
@@ -2829,11 +3929,56 @@ function openItemInspectModal(refId, isEquippedSlot = false, fromExpedition = fa
   document.getElementById('inspectComparisonBody').innerHTML = rows.join('') || `<div class="text-[#8b949e]">Standard equipment piece</div>`;
 
   const affEl = document.getElementById('inspectAffixesBody');
+  const affHtml = [];
   if (item.affixes && item.affixes.length > 0) {
-    affEl.innerHTML = item.affixes.map(a => `<div class="text-[#fbbf24]">★ +${a.val} ${a.stat.toUpperCase()} (${a.label})</div>`).join('');
-  } else {
-    affEl.innerHTML = '';
+    item.affixes.forEach(a => {
+      affHtml.push(`<div class="text-[#fbbf24]">★ +${a.val} ${a.stat.toUpperCase()} (${a.label})</div>`);
+    });
   }
+
+  // Render Astral Gem Sockets & Inline Lapidary Actions (when in Guild & banked/equipped)
+  if ((item.maxSockets || 0) > 0) {
+    const canModifySockets = gameState.inGuild && !fromExpedition;
+    const targetRefKey = isEquippedSlot ? refId : item.uid;
+    affHtml.push(`<div class="pt-2 mt-2 border-t border-[#283347] text-[11px] font-bold uppercase tracking-wider text-[#60a5fa]">Astral Sockets (${item.sockets.length}/${item.maxSockets})</div>`);
+
+    for (let sIdx = 0; sIdx < item.maxSockets; sIdx++) {
+      const gId = item.sockets[sIdx];
+      if (gId && GEM_CATALOG[gId]) {
+        const gDef = GEM_CATALOG[gId];
+        const unsocketBtn = canModifySockets
+          ? `<button onclick="window.Aethelgard.unsocketFromInspect('${targetRefKey}', ${sIdx}, ${isEquippedSlot})" class="px-1.5 py-0.5 rounded bg-[#1a2232] hover:bg-[#283347] text-[#fbbf24] border border-[#fbbf24]/40 text-[10px]">Extract (${LAPIDARY_UNSOCKET_COST}g)</button>`
+          : '';
+        affHtml.push(`
+          <div class="flex items-center justify-between bg-[#080b11] p-1.5 rounded border border-[#283347]">
+            <span style="color:${gDef.color}">◆ ${gDef.name} <span class="text-[#8b949e]">(${gDef.desc})</span></span>
+            ${unsocketBtn}
+          </div>
+        `);
+      } else {
+        let gemButtons = '';
+        if (canModifySockets && gameState.guildVault.gems) {
+          const avail = GEM_IDS.filter(k => (gameState.guildVault.gems[k] || 0) > 0);
+          if (avail.length > 0) {
+            gemButtons = avail.map(k => {
+              const gd = GEM_CATALOG[k];
+              return `<button onclick="window.Aethelgard.socketFromInspect('${targetRefKey}', '${k}', ${isEquippedSlot})" class="px-1.5 py-0.5 rounded bg-[#1a2232] hover:bg-[#283347] border border-[#283347] text-[10px]" style="color:${gd.color}">+${gd.shortName}</button>`;
+            }).join(' ');
+          } else {
+            gemButtons = `<span class="text-[10px] text-[#8b949e]">No banked gems</span>`;
+          }
+        }
+        affHtml.push(`
+          <div class="flex flex-wrap items-center justify-between gap-1 bg-[#080b11] p-1.5 rounded border border-[#283347]">
+            <span class="text-[#8b949e]">◇ Empty Socket</span>
+            <div class="flex flex-wrap gap-1">${gemButtons}</div>
+          </div>
+        `);
+      }
+    }
+  }
+
+  affEl.innerHTML = affHtml.join('');
 
   const btnEquip = document.getElementById('btnInspectEquip');
   const btnSell = document.getElementById('btnInspectSell');
@@ -2891,6 +4036,20 @@ function openItemInspectModal(refId, isEquippedSlot = false, fromExpedition = fa
   document.getElementById('itemInspectModal').classList.remove('hidden');
 }
 
+function socketFromInspect(targetRef, gemId, isEquippedSlot) {
+  const res = socketGemIntoItem(targetRef, gemId, isEquippedSlot, gameState);
+  if (res.ok) {
+    openItemInspectModal(targetRef, isEquippedSlot, false);
+  }
+}
+
+function unsocketFromInspect(targetRef, socketIdx, isEquippedSlot) {
+  const res = unsocketGemFromItem(targetRef, socketIdx, isEquippedSlot, gameState);
+  if (res.ok) {
+    openItemInspectModal(targetRef, isEquippedSlot, false);
+  }
+}
+
 function openClassSelectModal(allowCancel = false) {
   if (typeof document === 'undefined') return;
   document.getElementById('btnCloseClassModal').classList.toggle('hidden', !allowCancel);
@@ -2922,6 +4081,11 @@ function closeClassSelectModal() {
 
 function selectAdventurerClass(classId, targetState = gameState) {
   const cls = CLASSES[classId] || CLASSES.fighter;
+  const eqCopy = JSON.parse(JSON.stringify(cls.starterGear));
+  Object.keys(eqCopy).forEach(k => {
+    normalizeEquipmentSockets(eqCopy[k]);
+  });
+
   targetState.hero = {
     name: cls.name,
     classId: cls.id,
@@ -2941,7 +4105,7 @@ function selectAdventurerClass(classId, targetState = gameState) {
     talentPoints: 1,
     talentsAllocated: {},
     consumables: { potions: 2, recalls: 1 },
-    equipment: JSON.parse(JSON.stringify(cls.starterGear)),
+    equipment: eqCopy,
     expeditionPack: [],
     expeditionGear: [],
     statuses: [],
@@ -2952,6 +4116,7 @@ function selectAdventurerClass(classId, targetState = gameState) {
   targetState.inGuild = true;
   targetState.dungeon.currentFloor = 1;
   targetState.dungeon.floors = { 1: generateFloor(1) };
+  ensureGuildBounties(false, targetState);
 
   recomputeHeroDerivedStats(true, targetState);
 
@@ -3008,7 +4173,7 @@ function importSaveJson() {
     saveGame();
     updateAllUI();
     closeSaveSyncModal();
-    logChronicle('Imported & migrated save state to Schema v3!', 'good');
+    logChronicle('Imported & migrated save state to Schema v4!', 'good');
   } catch (e) {
     document.getElementById('saveSyncStatusMsg').textContent = '✕ Invalid JSON format.';
   }
@@ -3016,6 +4181,7 @@ function importSaveJson() {
 
   // --- Module: src/ui/input.js ---
 // Unified Keyboard, Mouse & Tactical Tile Scanner Input Listeners
+
 
 
 
@@ -3050,6 +4216,27 @@ function updateScannerOnHover(gx, gy) {
     `;
   } else if (t === TILE_CHEST) {
     box.innerHTML = `<div class="font-bold text-[#fbbf24]">Gilded Vault Chest</div><div class="text-[11px] text-[#8b949e]">Contains relics and procedural equipment.</div>`;
+  } else if (t === TILE_SHRINE) {
+    const sMeta = (floor.shrines && floor.shrines[`${gx},${gy}`]) || { type: 'sanctuary' };
+    const sDef = SHRINE_CATALOG[sMeta.type] || SHRINE_CATALOG.sanctuary;
+    box.innerHTML = `
+      <div class="font-bold" style="color:${sDef.color}">✨ ${sDef.name}</div>
+      <div class="text-[11px] text-[#e6edf3]">${sDef.desc}</div>
+      <div class="text-[10px] text-[#8b949e]">Step onto this altar to claim its astral blessing.</div>
+    `;
+  } else if (t === TILE_SHRINE_USED) {
+    box.innerHTML = `<div class="font-semibold text-[#8b949e]">Dormant Astral Altar</div><div class="text-[11px] text-[#8b949e]">Its celestial energy has already been channeled.</div>`;
+  } else if (t === TILE_TRAP_VISIBLE) {
+    const tMeta = (floor.traps && floor.traps[`${gx},${gy}`]) || { type: 'spike' };
+    const tDef = TRAP_CATALOG[tMeta.type] || TRAP_CATALOG.spike;
+    const isScout = gameState.hero && (gameState.hero.classId === 'thief' || gameState.hero.classId === 'ranger');
+    box.innerHTML = `
+      <div class="font-bold" style="color:${tDef.color}">⚠ ${tDef.name} (Spotted)</div>
+      <div class="text-[11px] text-[#e6edf3]">${tDef.desc}</div>
+      <div class="text-[10px] text-[#34d399]">${isScout ? 'Step onto tile to safely DISARM for bonus XP!' : 'Navigate around—only Thieves & Rangers can disarm safely.'}</div>
+    `;
+  } else if (t === TILE_TRAP_DISARMED) {
+    box.innerHTML = `<div class="font-semibold text-[#8b949e]">Disarmed Runic Plate</div><div class="text-[11px] text-[#8b949e]">Mechanism neutralized; safe to walk across.</div>`;
   } else if (t === TILE_STAIRS_UP) {
     box.innerHTML = `<div class="font-bold text-[#34d399]">Ascending Stairs (&lt;)</div><div class="text-[11px] text-[#8b949e]">Stand on stairs and press [E] to ascend or extract to the Guild.</div>`;
   } else if (t === TILE_STAIRS_DOWN) {
@@ -3117,7 +4304,7 @@ function setupInputs() {
 }
 
   // --- Module: src/test/selfTest.js ---
-// 10/10 Comprehensive Automated Self-Test Suite (Sandboxed & Non-Destructive)
+// 13/13 Comprehensive Automated Self-Test Suite (Sandboxed & Non-Destructive)
 
 
 
@@ -3129,7 +4316,7 @@ function setupInputs() {
 function evaluateSelfTests() {
   const results = [];
 
-  // 1. Schema v3 Migration preserves v1/v2 saves
+  // 1. Schema v4 Migration preserves v1/v2/v3 saves & backfills gems + bounties
   const legacySave = {
     version: 'v0.1.0-inc1',
     hero: { classId: 'ranger', level: 4, xp: 20 },
@@ -3143,11 +4330,14 @@ function evaluateSelfTests() {
     mig.guildVault.gold === 120 &&
     mig.guildVault.copper === 5 &&
     mig.hero.consumables.potions === 4 &&
-    mig.guildResearch.geology === 2;
+    mig.guildResearch.geology === 2 &&
+    mig.guildVault.gems &&
+    Array.isArray(mig.guildBounties) &&
+    mig.guildBounties.length === 3;
   results.push({
-    name: '1. Schema v3 Save Migration (v1/v2 Compatibility)',
+    name: '1. Schema v4 Save Migration (v1/v2/v3 Compatibility)',
     pass: t1Pass,
-    detail: `Migrated Lv4 Ranger, 120g, 5 Copper, 4 Potions, Geology Rank ${mig.guildResearch.geology}`
+    detail: `Migrated Lv4 Ranger, 120g, 5 Copper, Geology R${mig.guildResearch.geology}, Gems & 3 Bounties initialized`
   });
 
   // 2. All 5 Classes Registered with Complete Declarations
@@ -3161,25 +4351,31 @@ function evaluateSelfTests() {
     detail: `Ranger Skill: ${CLASSES.ranger.skillName} • Paladin Skill: ${CLASSES.paladin.skillName}`
   });
 
-  // 3. Pure-Floor BFS Staircase Reachability & Non-Blocking Ores
+  // 3. Pure-Floor BFS Staircase Reachability & Non-Blocking Ores/Traps
   let bfsAllPass = true;
   for (let i = 0; i < 5; i++) {
     const testFl = generateFloor(i + 1);
     if (!verifyPureFloorBFS(testFl)) bfsAllPass = false;
   }
   results.push({
-    name: '3. Pure-Floor BFS Staircase Reachability (Non-Blocking Veins)',
+    name: '3. Pure-Floor BFS Staircase Reachability (Trap-Free & Non-Blocking)',
     pass: bfsAllPass,
-    detail: '5/5 procedural floors verified with unobstructed TILE_FLOOR paths from < to >'
+    detail: '5/5 procedural floors verified with safe trap-free walkable paths from < to >'
   });
 
   // 4. Procedural 6-Slot Equipment & 5 Rarity Tiers
   const relicItem = generateProceduralEquipment(6, 'relic', 'weapon');
-  const t4Pass = !!(relicItem && relicItem.rarity === 'relic' && relicItem.affixes.length >= 3 && relicItem.atk > 0);
+  const t4Pass = !!(
+    relicItem &&
+    relicItem.rarity === 'relic' &&
+    relicItem.affixes.length >= 3 &&
+    relicItem.atk > 0 &&
+    relicItem.maxSockets === 2
+  );
   results.push({
-    name: '4. Procedural 6-Slot Equipment & Rarity Affix Engine',
+    name: '4. Procedural 6-Slot Equipment, Affix & Socket Roll Engine',
     pass: t4Pass,
-    detail: `Generated "${relicItem.name}" (+${relicItem.atk} ATK, ${relicItem.affixes.length} affixes)`
+    detail: `Generated "${relicItem.name}" (+${relicItem.atk} ATK, ${relicItem.affixes.length} affixes, ${relicItem.maxSockets} sockets)`
   });
 
   // 5. Mining Engine, Geology Gating & Durability Math
@@ -3280,6 +4476,101 @@ function evaluateSelfTests() {
     detail: `Returned to Guild with full HP; salvaged +${defeatOut.salvagedGold}g (40% of 100g pack)`
   });
 
+  // 11. Astral Gem Socketing, Lapidary Stat Recomputation & Unsocketing
+  const sandbox11 = createDefaultGameState();
+  selectAdventurerClass('fighter', sandbox11);
+  const socketBlade = generateProceduralEquipment(4, 'relic', 'weapon');
+  sandbox11.hero.equipment.weapon = socketBlade;
+  sandbox11.guildVault.gold = 50;
+  sandbox11.guildVault.gems.ruby = 1;
+  socketGemIntoItem('weapon', 'ruby', true, sandbox11);
+  const atkSocketed = sandbox11.hero.atk;
+  const gemAfterSocket = sandbox11.guildVault.gems.ruby;
+  const unsocketOut = unsocketGemFromItem('weapon', 0, true, sandbox11);
+  const atkUnsocketed = sandbox11.hero.atk;
+  const t11Pass =
+    unsocketOut.ok &&
+    gemAfterSocket === 0 &&
+    sandbox11.guildVault.gems.ruby === 1 &&
+    sandbox11.guildVault.gold === 35 &&
+    atkSocketed > atkUnsocketed;
+  results.push({
+    name: '11. Astral Gem Socketing & Lapidary Bench Extraction',
+    pass: t11Pass,
+    detail: `Ruby socketed (${atkUnsocketed} -> ${atkSocketed} ATK) & extracted cleanly (-15g, gem returned)`
+  });
+
+  // 12. Guild Notice Board Bounties & Extraction Reward Payout
+  const sandbox12 = createDefaultGameState();
+  selectAdventurerClass('ranger', sandbox12);
+  sandbox12.inGuild = false;
+  const baseTalentPts = sandbox12.hero.talentPoints;
+  sandbox12.guildBounties[0] = {
+    id: 'bty_test_copper',
+    kind: 'mine',
+    targetId: 'copper',
+    title: 'Quota: Copper Ore',
+    desc: 'Mine 2 Copper Ore veins.',
+    reqQty: 2,
+    curQty: 0,
+    completed: false,
+    rewardType: 'talent_tome',
+    rewardId: 'talent',
+    rewardQty: 1,
+    rewardLabel: '+1 Talent Tome (+1 Talent Pt)'
+  };
+  const fl12 = sandbox12.dungeon.floors[1];
+  fl12.tiles[1][1] = TILE_ORE_COPPER;
+  fl12.tiles[1][2] = TILE_ORE_COPPER;
+  mineTile(1, 1, sandbox12);
+  mineTile(2, 1, sandbox12);
+  const completedBeforeExtract = sandbox12.guildBounties[0].completed === true;
+  const extOut = extractToGuild('Floor 1 Ascending Stairs (<)', sandbox12);
+  const t12Pass =
+    completedBeforeExtract &&
+    extOut.claimedBounties.length >= 1 &&
+    sandbox12.hero.talentPoints === baseTalentPts + 1 &&
+    sandbox12.guildBounties[0].id !== 'bty_test_copper';
+  results.push({
+    name: '12. Guild Notice Board Contracts & Extraction Payout',
+    pass: t12Pass,
+    detail: `Completed Copper quota -> claimed +1 Talent Point & rotated fresh contract`
+  });
+
+  // 13. Subterranean Astral Shrines & Scout Trap Detection/Disarming
+  const sandbox13 = createDefaultGameState();
+  selectAdventurerClass('thief', sandbox13);
+  sandbox13.inGuild = false;
+  const fl13 = sandbox13.dungeon.floors[1];
+  sandbox13.hero.x = 4;
+  sandbox13.hero.y = 4;
+  fl13.tiles[4][5] = TILE_TRAP_HIDDEN;
+  fl13.traps['5,4'] = { type: 'spike' };
+  fl13.tiles[4][6] = TILE_SHRINE;
+  fl13.shrines['6,4'] = { type: 'starfire' };
+
+  const spotted = detectNearbyTraps(fl13, sandbox13);
+  const trapVisible = fl13.tiles[4][5] === TILE_TRAP_VISIBLE;
+  const hpBeforeTrap = sandbox13.hero.hp;
+  const disarmRes = resolveTrapInteraction(5, 4, sandbox13);
+  const atkBeforeShrine = sandbox13.hero.atk;
+  const shrineRes = activateAstralShrine(6, 4, sandbox13);
+  const t13Pass =
+    spotted >= 1 &&
+    trapVisible &&
+    disarmRes.ok &&
+    disarmRes.disarmed === true &&
+    sandbox13.hero.hp === hpBeforeTrap &&
+    fl13.tiles[4][5] === TILE_TRAP_DISARMED &&
+    shrineRes.ok &&
+    fl13.tiles[4][6] === TILE_SHRINE_USED &&
+    sandbox13.hero.atk === atkBeforeShrine + 6;
+  results.push({
+    name: '13. Astral Shrines & Scout Runic Trap Detection/Disarming',
+    pass: t13Pass,
+    detail: `Thief spotted & disarmed Spike Trap (0 dmg) + channeled Starfire Shrine (+6 ATK)`
+  });
+
   return results;
 }
 
@@ -3290,7 +4581,7 @@ function runSelfTests(renderModal = false) {
   if (typeof document !== 'undefined') {
     const btnText = document.getElementById('verifyBtnText');
     if (btnText) {
-      btnText.textContent = `Verify Inc-3 (${passCount}/${results.length} PASS)`;
+      btnText.textContent = `Verify Inc-4 (${passCount}/${results.length} PASS)`;
     }
 
     if (renderModal) {
@@ -3340,6 +4631,7 @@ function closeDiagnosticsModal() {
 
 
 
+
 // Bind UI callbacks into engine actions & combat
 registerActionCallbacks({
   log: logChronicle,
@@ -3370,6 +4662,8 @@ const AethelgardAPI = {
   selectAdventurerClass,
   openItemInspectModal,
   closeItemInspectModal,
+  socketFromInspect,
+  unsocketFromInspect,
   showOutcomeModal,
   closeOutcomeModal,
   openNewDungeonModal,
@@ -3384,10 +4678,15 @@ const AethelgardAPI = {
   respecTalents,
   buyShopItem,
   sellMineralUnit,
+  sellGemUnit,
   sellAllOresAtAssay,
   sellArmoryItem,
   sellAllSpareGear,
   purchaseResearchRank,
+  socketGemIntoItem,
+  unsocketGemFromItem,
+  rerollGuildBounties,
+  claimBountyAtGuild,
   executeClassSkill,
   useHealingTonic,
   useRecallScroll,
@@ -3395,7 +4694,8 @@ const AethelgardAPI = {
   handlePlayerAction,
   waitTurn,
   clearChronicle,
-  TALENT_TREES
+  TALENT_TREES,
+  GEM_CATALOG
 };
 
 function bootstrapApp() {

@@ -40,29 +40,21 @@ Added Floor 5 (Starfall Colossus) and Floor 10 (Void Weaver) milestone boss enco
 
 Expanded automated verification suite to 10/10 PASS.
 
+v0.4.0-inc4 - Increment 4: Astral Gem Socketing, Guild Bounties & Tactical Vault Rooms
+
+Upgraded to Schema v4 (v0.4.0-inc4) with full v1/v2/v3 migration compatibility on top of the modular ES6 src/ architecture.
+
+Implemented 5 uncut Astral Gems (Ruby of Might, Emerald of the Wind, Sapphire of Will, Topaz of Dawn, Void Diamond) unearthed from Mithril, Relic Geode, Star-Crystal, and Void Astralite veins.
+
+Added 1 to 2 Gem Sockets on Rare, Epic, and Star-Forged Relic equipment plus the Guild Astral Lapidary Bench (and inline Item Inspect socketing/extraction).
+
+Added the Guild Notice Board offering 3 procedural contracts per descent (Monster Cull, Geological Quota, and Champion/Chest objectives) awarding bonus Vault Gold, Talent Tomes, and rare materials/gems upon extraction.
+
+Added interactive Subterranean Astral Shrines (Celestial Renewal, Starfire Blessing, Astral Aegis) and Runic Spike/Flame Traps (spotted via Vision/DEX and safely disarmable by Thieves and Rangers) with guaranteed trap-free Pure-Floor BFS paths.
+
+Expanded automated verification suite to 13/13 PASS.
+
 2. Upcoming Increment Backlog
-
-Increment 4 (v0.4.0-inc4) - Astral Gem Socketing, Guild Bounties & Tactical Vault Rooms
-
-Scope & Deliverables:
-
-Astral Gem Socketing & Lapidary Bench:
-
-Mining high-tier veins (Mithril, Relic Geode, Star-Crystal, Void Astralite) has a chance to yield uncut Astral Gems (Ruby of Might, Emerald of the Wind, Sapphire of Will, Topaz of Dawn, Void Diamond).
-
-Rare, Epic, and Star-Forged Relic equipment roll 1 to 2 Gem Sockets. Players can socket/unsocket gems at the Guild Lapidary Bench.
-
-Guild Notice Board (Procedural Bounty Contracts):
-
-New Guild tab offering 3 active contracts per descent (e.g., Slay 5 Vault Crawlers, Mine 4 Iron Ore, Vanquish an Elite Champion).
-
-Completing bounties awards bonus Vault Gold, Talent Tomes, or rare crafting materials upon extraction.
-
-Interactive Subterranean Shrines & Tactical Traps:
-
-Procedural floors spawn Astral Shrines (granting temporary floor buffs or healing) and Runic Spike/Flame Traps (spotted via Vision/DEX and disarmable by Thieves/Rangers).
-
-Verification Gate: Bump to 13/13 PASS in runSelfTests().
 
 Increment 5 (v0.5.0-inc5) - Deep Abyssal Biomes, Floor 15/20 Bosses & Bestiary Codex
 

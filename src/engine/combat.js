@@ -1,4 +1,4 @@
-// Turn-Based Movement, Combat Resolution, Active Class Skills, Monster AI, and Stairs
+// Turn-Based Movement, Combat Resolution, Active Class Skills, Monster AI, Shrines, Traps & Stairs
 
 import {
   GRID_W,
@@ -9,23 +9,35 @@ import {
   TILE_STAIRS_DOWN,
   TILE_CHEST,
   TILE_CHEST_OPEN,
+  TILE_SHRINE,
+  TILE_SHRINE_USED,
+  TILE_TRAP_HIDDEN,
+  TILE_TRAP_VISIBLE,
+  TILE_TRAP_DISARMED,
   RARITY
 } from '../constants.js';
 import { CLASSES } from '../data/classes.js';
 import { ORE_CATALOG } from '../data/ores.js';
 import { RESEARCH_PROJECTS } from '../data/research.js';
-import { gameState, saveGame } from './state.js';
+import { gameState, saveGame, recomputeHeroDerivedStats } from './state.js';
 import { generateFloor, generateProceduralEquipment } from './procedural.js';
 import { playSound } from './audio.js';
 import {
   registerActionCallbacks,
   getActionCallbacks,
+  applyStatusEffect,
   mineTile,
   addExpeditionTradeItem,
   gainExperience,
+  recordBountyProgress,
+  detectNearbyTraps,
+  activateAstralShrine,
+  resolveTrapInteraction,
   extractToGuild,
   handleHeroDefeat
 } from './actions.js';
+
+export { applyStatusEffect };
 
 let fovCallback = () => {};
 
@@ -34,22 +46,6 @@ export function registerCombatFOVCallback(fn) {
     fovCallback = fn;
     registerActionCallbacks({ updateFOV: fn });
   }
-}
-
-export function applyStatusEffect(target, id, duration) {
-  if (!target.statuses) target.statuses = [];
-  const metaMap = {
-    burn:     { id: 'burn',     name: 'Burn',     color: '#fb923c', duration },
-    bleed:    { id: 'bleed',    name: 'Bleed',    color: '#f87171', duration },
-    poison:   { id: 'poison',   name: 'Poison',   color: '#4ade80', duration },
-    stun:     { id: 'stun',     name: 'Stunned',  color: '#fbbf24', duration },
-    weakened: { id: 'weakened', name: 'Weakened', color: '#c084fc', duration }
-  };
-  const meta = metaMap[id];
-  if (!meta) return;
-  const existing = target.statuses.find(s => s.id === id);
-  if (existing) existing.duration = Math.max(existing.duration, duration);
-  else target.statuses.push(Object.assign({}, meta));
 }
 
 export function killMonster(monster, state = gameState) {
@@ -63,6 +59,12 @@ export function killMonster(monster, state = gameState) {
   if (h.classId === 'thief' && ((h.talentsAllocated && h.talentsAllocated.t_b3) || 0) > 0) {
     h.mp = Math.min(h.maxMp, h.mp + 6);
   }
+
+  // Record Guild Notice Board Bounty Progress
+  const killTags = ['monster_any', monster.id];
+  if (monster.isElite) killTags.push('elite');
+  if (monster.isBoss) killTags.push('boss');
+  recordBountyProgress('slay', killTags, 1, state);
 
   if (monster.isBoss) {
     const bossRarity = monster.id === 'boss_weaver' ? 'relic' : 'epic';
@@ -183,8 +185,9 @@ export function processTurn() {
     h.hp = Math.min(h.maxHp, h.hp + 1);
   }
 
-  // Hero Status Ticks
+  // Hero Status & Shrine Buff Ticks
   if (h.statuses && h.statuses.length > 0) {
+    let buffExpired = false;
     for (let i = h.statuses.length - 1; i >= 0; i--) {
       const st = h.statuses[i];
       if (st.id === 'burn' || st.id === 'bleed' || st.id === 'poison') {
@@ -193,7 +196,13 @@ export function processTurn() {
         ui.floatingText(h.x, h.y, `-${dot} ${st.name.toUpperCase()}`, st.color);
       }
       st.duration -= 1;
-      if (st.duration <= 0) h.statuses.splice(i, 1);
+      if (st.duration <= 0) {
+        if (st.isBuff) buffExpired = true;
+        h.statuses.splice(i, 1);
+      }
+    }
+    if (buffExpired) {
+      recomputeHeroDerivedStats(false, gameState);
     }
     if (h.hp <= 0) {
       checkHeroFatalDamage('Affliction');
@@ -201,6 +210,7 @@ export function processTurn() {
     }
   }
 
+  detectNearbyTraps(floor, gameState);
   fovCallback();
 
   // Monsters AI Turn
@@ -249,15 +259,23 @@ export function processTurn() {
           if (dx === 0 && dy === 0) continue;
           const tx = m.x + dx;
           const ty = m.y + dy;
-          if (
-            tx >= 0 && tx < GRID_W && ty >= 0 && ty < GRID_H &&
-            floor.tiles[ty][tx] === TILE_FLOOR &&
-            !(tx === h.x && ty === h.y) &&
-            !floor.monsters.some(other => other.x === tx && other.y === ty)
-          ) {
-            m.x = tx;
-            m.y = ty;
-            break;
+          if (tx >= 0 && tx < GRID_W && ty >= 0 && ty < GRID_H) {
+            const destTile = floor.tiles[ty][tx];
+            const monsterWalkable = (
+              destTile === TILE_FLOOR ||
+              destTile === TILE_CHEST_OPEN ||
+              destTile === TILE_SHRINE_USED ||
+              destTile === TILE_TRAP_DISARMED
+            );
+            if (
+              monsterWalkable &&
+              !(tx === h.x && ty === h.y) &&
+              !floor.monsters.some(other => other.x === tx && other.y === ty)
+            ) {
+              m.x = tx;
+              m.y = ty;
+              break;
+            }
           }
         }
       }
@@ -313,7 +331,7 @@ export function executeClassSkill(state = gameState) {
     return { ok: true, skill: 'whirlwind' };
   }
 
-  // 2. THIEF: Shadowstep Strike (Requires visible target within 3.5 tiles AND an unoccupied walkable floor tile adjacent to target)
+  // 2. THIEF: Shadowstep Strike (Requires visible target within 3.5 tiles AND an unoccupied safe floor tile adjacent to target)
   if (h.classId === 'thief') {
     const candidates = floor.monsters.filter(m => Math.hypot(m.x - h.x, m.y - h.y) <= 3.5);
     let chosenTarget = null;
@@ -326,7 +344,14 @@ export function executeClassSkill(state = gameState) {
         const ty = m.y + dy;
         if (tx >= 0 && tx < GRID_W && ty >= 0 && ty < GRID_H) {
           const t = floor.tiles[ty][tx];
-          const walkable = (t === TILE_FLOOR || t === TILE_STAIRS_UP || t === TILE_STAIRS_DOWN || t === TILE_CHEST_OPEN);
+          const walkable = (
+            t === TILE_FLOOR ||
+            t === TILE_STAIRS_UP ||
+            t === TILE_STAIRS_DOWN ||
+            t === TILE_CHEST_OPEN ||
+            t === TILE_SHRINE_USED ||
+            t === TILE_TRAP_DISARMED
+          );
           const occupied = floor.monsters.some(other => other.x === tx && other.y === ty);
           if (walkable && !occupied) {
             chosenTarget = m;
@@ -499,6 +524,7 @@ export function handlePlayerAction(dx, dy) {
     const depth = gameState.dungeon.currentFloor;
     const goldVal = Math.round((22 + depth * 12) * (gameState.hero.classId === 'thief' ? 1.25 : 1.0));
     addExpeditionTradeItem('star_relic', 'Star-etched Relic', goldVal, 1, 'Relic');
+    recordBountyProgress('open_chest', ['chest'], 1, gameState);
 
     const chestGear = generateProceduralEquipment(depth, depth >= 3 ? 'rare' : 'uncommon');
     gameState.hero.expeditionGear.push(chestGear);
@@ -510,10 +536,29 @@ export function handlePlayerAction(dx, dy) {
     return;
   }
 
-  // 4. Step onto Walkable Tile
+  // 4. Astral Shrine Activation
+  if (targetTile === TILE_SHRINE) {
+    activateAstralShrine(nx, ny, gameState);
+    processTurn();
+    return;
+  }
+
+  // 5. Runic Trap Interaction (Disarm for Scout on Spotted Trap, else Trigger)
+  if (targetTile === TILE_TRAP_HIDDEN || targetTile === TILE_TRAP_VISIBLE) {
+    const trapRes = resolveTrapInteraction(nx, ny, gameState);
+    if (trapRes.fatal) {
+      checkHeroFatalDamage(trapRes.killerName);
+      return;
+    }
+    processTurn();
+    return;
+  }
+
+  // 6. Step onto Walkable Tile
   if (targetTile !== TILE_WALL) {
     gameState.hero.x = nx;
     gameState.hero.y = ny;
+    detectNearbyTraps(floor, gameState);
     processTurn();
   } else {
     ui.floatingText(nx, ny, 'Blocked', '#8b949e');
@@ -534,6 +579,7 @@ export function useStairsAtPlayer() {
       const prev = gameState.dungeon.floors[gameState.dungeon.currentFloor];
       gameState.hero.x = prev.downPos.x;
       gameState.hero.y = prev.downPos.y;
+      detectNearbyTraps(prev, gameState);
       fovCallback();
       ui.updateUI();
       ui.log(`Ascended to Floor ${gameState.dungeon.currentFloor}.`, 'info');
@@ -553,6 +599,7 @@ export function useStairsAtPlayer() {
     const next = gameState.dungeon.floors[gameState.dungeon.currentFloor];
     gameState.hero.x = next.upPos.x;
     gameState.hero.y = next.upPos.y;
+    detectNearbyTraps(next, gameState);
     fovCallback();
     ui.updateUI();
     ui.log(`Descended to Floor ${gameState.dungeon.currentFloor}.`, 'info');

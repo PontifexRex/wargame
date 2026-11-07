@@ -1,6 +1,16 @@
-// 10/10 Comprehensive Automated Self-Test Suite (Sandboxed & Non-Destructive)
+// 13/13 Comprehensive Automated Self-Test Suite (Sandboxed & Non-Destructive)
 
-import { SCHEMA_VERSION, TILE_FLOOR, TILE_ORE_STAR } from '../constants.js';
+import {
+  SCHEMA_VERSION,
+  TILE_FLOOR,
+  TILE_ORE_COPPER,
+  TILE_ORE_STAR,
+  TILE_SHRINE,
+  TILE_SHRINE_USED,
+  TILE_TRAP_HIDDEN,
+  TILE_TRAP_VISIBLE,
+  TILE_TRAP_DISARMED
+} from '../constants.js';
 import { CLASSES } from '../data/classes.js';
 import { createDefaultGameState, migrateSaveData } from '../engine/state.js';
 import { generateFloor, verifyPureFloorBFS, generateProceduralEquipment } from '../engine/procedural.js';
@@ -11,14 +21,20 @@ import {
   sellMineralUnit,
   addExpeditionTradeItem,
   purchaseResearchRank,
-  handleHeroDefeat
+  extractToGuild,
+  handleHeroDefeat,
+  socketGemIntoItem,
+  unsocketGemFromItem,
+  detectNearbyTraps,
+  activateAstralShrine,
+  resolveTrapInteraction
 } from '../engine/actions.js';
 import { executeClassSkill } from '../engine/combat.js';
 
 export function evaluateSelfTests() {
   const results = [];
 
-  // 1. Schema v3 Migration preserves v1/v2 saves
+  // 1. Schema v4 Migration preserves v1/v2/v3 saves & backfills gems + bounties
   const legacySave = {
     version: 'v0.1.0-inc1',
     hero: { classId: 'ranger', level: 4, xp: 20 },
@@ -32,11 +48,14 @@ export function evaluateSelfTests() {
     mig.guildVault.gold === 120 &&
     mig.guildVault.copper === 5 &&
     mig.hero.consumables.potions === 4 &&
-    mig.guildResearch.geology === 2;
+    mig.guildResearch.geology === 2 &&
+    mig.guildVault.gems &&
+    Array.isArray(mig.guildBounties) &&
+    mig.guildBounties.length === 3;
   results.push({
-    name: '1. Schema v3 Save Migration (v1/v2 Compatibility)',
+    name: '1. Schema v4 Save Migration (v1/v2/v3 Compatibility)',
     pass: t1Pass,
-    detail: `Migrated Lv4 Ranger, 120g, 5 Copper, 4 Potions, Geology Rank ${mig.guildResearch.geology}`
+    detail: `Migrated Lv4 Ranger, 120g, 5 Copper, Geology R${mig.guildResearch.geology}, Gems & 3 Bounties initialized`
   });
 
   // 2. All 5 Classes Registered with Complete Declarations
@@ -50,25 +69,31 @@ export function evaluateSelfTests() {
     detail: `Ranger Skill: ${CLASSES.ranger.skillName} • Paladin Skill: ${CLASSES.paladin.skillName}`
   });
 
-  // 3. Pure-Floor BFS Staircase Reachability & Non-Blocking Ores
+  // 3. Pure-Floor BFS Staircase Reachability & Non-Blocking Ores/Traps
   let bfsAllPass = true;
   for (let i = 0; i < 5; i++) {
     const testFl = generateFloor(i + 1);
     if (!verifyPureFloorBFS(testFl)) bfsAllPass = false;
   }
   results.push({
-    name: '3. Pure-Floor BFS Staircase Reachability (Non-Blocking Veins)',
+    name: '3. Pure-Floor BFS Staircase Reachability (Trap-Free & Non-Blocking)',
     pass: bfsAllPass,
-    detail: '5/5 procedural floors verified with unobstructed TILE_FLOOR paths from < to >'
+    detail: '5/5 procedural floors verified with safe trap-free walkable paths from < to >'
   });
 
   // 4. Procedural 6-Slot Equipment & 5 Rarity Tiers
   const relicItem = generateProceduralEquipment(6, 'relic', 'weapon');
-  const t4Pass = !!(relicItem && relicItem.rarity === 'relic' && relicItem.affixes.length >= 3 && relicItem.atk > 0);
+  const t4Pass = !!(
+    relicItem &&
+    relicItem.rarity === 'relic' &&
+    relicItem.affixes.length >= 3 &&
+    relicItem.atk > 0 &&
+    relicItem.maxSockets === 2
+  );
   results.push({
-    name: '4. Procedural 6-Slot Equipment & Rarity Affix Engine',
+    name: '4. Procedural 6-Slot Equipment, Affix & Socket Roll Engine',
     pass: t4Pass,
-    detail: `Generated "${relicItem.name}" (+${relicItem.atk} ATK, ${relicItem.affixes.length} affixes)`
+    detail: `Generated "${relicItem.name}" (+${relicItem.atk} ATK, ${relicItem.affixes.length} affixes, ${relicItem.maxSockets} sockets)`
   });
 
   // 5. Mining Engine, Geology Gating & Durability Math
@@ -169,6 +194,101 @@ export function evaluateSelfTests() {
     detail: `Returned to Guild with full HP; salvaged +${defeatOut.salvagedGold}g (40% of 100g pack)`
   });
 
+  // 11. Astral Gem Socketing, Lapidary Stat Recomputation & Unsocketing
+  const sandbox11 = createDefaultGameState();
+  selectAdventurerClass('fighter', sandbox11);
+  const socketBlade = generateProceduralEquipment(4, 'relic', 'weapon');
+  sandbox11.hero.equipment.weapon = socketBlade;
+  sandbox11.guildVault.gold = 50;
+  sandbox11.guildVault.gems.ruby = 1;
+  socketGemIntoItem('weapon', 'ruby', true, sandbox11);
+  const atkSocketed = sandbox11.hero.atk;
+  const gemAfterSocket = sandbox11.guildVault.gems.ruby;
+  const unsocketOut = unsocketGemFromItem('weapon', 0, true, sandbox11);
+  const atkUnsocketed = sandbox11.hero.atk;
+  const t11Pass =
+    unsocketOut.ok &&
+    gemAfterSocket === 0 &&
+    sandbox11.guildVault.gems.ruby === 1 &&
+    sandbox11.guildVault.gold === 35 &&
+    atkSocketed > atkUnsocketed;
+  results.push({
+    name: '11. Astral Gem Socketing & Lapidary Bench Extraction',
+    pass: t11Pass,
+    detail: `Ruby socketed (${atkUnsocketed} -> ${atkSocketed} ATK) & extracted cleanly (-15g, gem returned)`
+  });
+
+  // 12. Guild Notice Board Bounties & Extraction Reward Payout
+  const sandbox12 = createDefaultGameState();
+  selectAdventurerClass('ranger', sandbox12);
+  sandbox12.inGuild = false;
+  const baseTalentPts = sandbox12.hero.talentPoints;
+  sandbox12.guildBounties[0] = {
+    id: 'bty_test_copper',
+    kind: 'mine',
+    targetId: 'copper',
+    title: 'Quota: Copper Ore',
+    desc: 'Mine 2 Copper Ore veins.',
+    reqQty: 2,
+    curQty: 0,
+    completed: false,
+    rewardType: 'talent_tome',
+    rewardId: 'talent',
+    rewardQty: 1,
+    rewardLabel: '+1 Talent Tome (+1 Talent Pt)'
+  };
+  const fl12 = sandbox12.dungeon.floors[1];
+  fl12.tiles[1][1] = TILE_ORE_COPPER;
+  fl12.tiles[1][2] = TILE_ORE_COPPER;
+  mineTile(1, 1, sandbox12);
+  mineTile(2, 1, sandbox12);
+  const completedBeforeExtract = sandbox12.guildBounties[0].completed === true;
+  const extOut = extractToGuild('Floor 1 Ascending Stairs (<)', sandbox12);
+  const t12Pass =
+    completedBeforeExtract &&
+    extOut.claimedBounties.length >= 1 &&
+    sandbox12.hero.talentPoints === baseTalentPts + 1 &&
+    sandbox12.guildBounties[0].id !== 'bty_test_copper';
+  results.push({
+    name: '12. Guild Notice Board Contracts & Extraction Payout',
+    pass: t12Pass,
+    detail: `Completed Copper quota -> claimed +1 Talent Point & rotated fresh contract`
+  });
+
+  // 13. Subterranean Astral Shrines & Scout Trap Detection/Disarming
+  const sandbox13 = createDefaultGameState();
+  selectAdventurerClass('thief', sandbox13);
+  sandbox13.inGuild = false;
+  const fl13 = sandbox13.dungeon.floors[1];
+  sandbox13.hero.x = 4;
+  sandbox13.hero.y = 4;
+  fl13.tiles[4][5] = TILE_TRAP_HIDDEN;
+  fl13.traps['5,4'] = { type: 'spike' };
+  fl13.tiles[4][6] = TILE_SHRINE;
+  fl13.shrines['6,4'] = { type: 'starfire' };
+
+  const spotted = detectNearbyTraps(fl13, sandbox13);
+  const trapVisible = fl13.tiles[4][5] === TILE_TRAP_VISIBLE;
+  const hpBeforeTrap = sandbox13.hero.hp;
+  const disarmRes = resolveTrapInteraction(5, 4, sandbox13);
+  const atkBeforeShrine = sandbox13.hero.atk;
+  const shrineRes = activateAstralShrine(6, 4, sandbox13);
+  const t13Pass =
+    spotted >= 1 &&
+    trapVisible &&
+    disarmRes.ok &&
+    disarmRes.disarmed === true &&
+    sandbox13.hero.hp === hpBeforeTrap &&
+    fl13.tiles[4][5] === TILE_TRAP_DISARMED &&
+    shrineRes.ok &&
+    fl13.tiles[4][6] === TILE_SHRINE_USED &&
+    sandbox13.hero.atk === atkBeforeShrine + 6;
+  results.push({
+    name: '13. Astral Shrines & Scout Runic Trap Detection/Disarming',
+    pass: t13Pass,
+    detail: `Thief spotted & disarmed Spike Trap (0 dmg) + channeled Starfire Shrine (+6 ATK)`
+  });
+
   return results;
 }
 
@@ -179,7 +299,7 @@ export function runSelfTests(renderModal = false) {
   if (typeof document !== 'undefined') {
     const btnText = document.getElementById('verifyBtnText');
     if (btnText) {
-      btnText.textContent = `Verify Inc-3 (${passCount}/${results.length} PASS)`;
+      btnText.textContent = `Verify Inc-4 (${passCount}/${results.length} PASS)`;
     }
 
     if (renderModal) {

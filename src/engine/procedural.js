@@ -1,4 +1,4 @@
-// Procedural Dungeon Generation, Non-Blocking Ore Veins, Pure-Floor BFS, and Equipment Rolling
+// Procedural Dungeon Generation, Non-Blocking Ore Veins, Shrines, Traps, Safe-Path BFS, and Socketed Equipment Rolling
 
 import {
   GRID_W,
@@ -9,6 +9,10 @@ import {
   TILE_STAIRS_DOWN,
   TILE_CHEST,
   TILE_CHEST_OPEN,
+  TILE_SHRINE,
+  TILE_SHRINE_USED,
+  TILE_TRAP_HIDDEN,
+  TILE_TRAP_DISARMED,
   TILE_ORE_COPPER,
   TILE_ORE_IRON,
   TILE_ORE_MITHRIL,
@@ -19,6 +23,14 @@ import {
 } from '../constants.js';
 import { AFFIX_POOL, BASE_GEAR_NAMES, ELITE_AFFIXES } from '../data/items.js';
 import { nextItemUid } from './state.js';
+
+export function rollSocketCountForRarity(rarityKey, slot) {
+  if (slot === 'pickaxe') return 0;
+  if (rarityKey === 'relic') return 2;
+  if (rarityKey === 'epic') return Math.random() < 0.60 ? 2 : 1;
+  if (rarityKey === 'rare') return Math.random() < 0.25 ? 2 : 1;
+  return 0;
+}
 
 export function generateProceduralEquipment(depth = 1, forcedRarity = null, forcedSlot = null) {
   const slots = ['weapon', 'armor', 'helm', 'boots', 'accessory'];
@@ -42,7 +54,9 @@ export function generateProceduralEquipment(depth = 1, forcedRarity = null, forc
     rarity: rarityKey,
     name: baseTitle,
     value: Math.round((18 + depth * 6) * rDef.mult),
-    affixes: []
+    affixes: [],
+    maxSockets: rollSocketCountForRarity(rarityKey, slot),
+    sockets: []
   };
 
   // Primary stat by slot
@@ -94,14 +108,18 @@ export function verifyPureFloorBFS(floor) {
       const ny = cur.y + dy;
       if (nx >= 0 && nx < GRID_W && ny >= 0 && ny < GRID_H && !visited[ny][nx]) {
         const t = floor.tiles[ny][nx];
-        const isWalkable = (
+        // Live traps (TILE_TRAP_HIDDEN / TILE_TRAP_VISIBLE) are intentionally excluded so BFS guarantees a trap-free path
+        const isSafeWalkable = (
           t === TILE_FLOOR ||
           t === TILE_STAIRS_UP ||
           t === TILE_STAIRS_DOWN ||
           t === TILE_CHEST ||
-          t === TILE_CHEST_OPEN
+          t === TILE_CHEST_OPEN ||
+          t === TILE_SHRINE ||
+          t === TILE_SHRINE_USED ||
+          t === TILE_TRAP_DISARMED
         );
-        if (isWalkable) {
+        if (isSafeWalkable) {
           visited[ny][nx] = true;
           queue.push({ x: nx, y: ny });
         }
@@ -118,12 +136,14 @@ export function carveDirectFloorPath(floor) {
     cx += (floor.downPos.x > cx) ? 1 : -1;
     if (floor.tiles[cy][cx] !== TILE_STAIRS_UP && floor.tiles[cy][cx] !== TILE_STAIRS_DOWN) {
       floor.tiles[cy][cx] = TILE_FLOOR;
+      if (floor.traps) delete floor.traps[`${cx},${cy}`];
     }
   }
   while (cy !== floor.downPos.y) {
     cy += (floor.downPos.y > cy) ? 1 : -1;
     if (floor.tiles[cy][cx] !== TILE_STAIRS_UP && floor.tiles[cy][cx] !== TILE_STAIRS_DOWN) {
       floor.tiles[cy][cx] = TILE_FLOOR;
+      if (floor.traps) delete floor.traps[`${cx},${cy}`];
     }
   }
 }
@@ -231,17 +251,57 @@ export function generateFloor(depth) {
     }
   }
 
+  // Place Astral Shrine in a tactical vault room (1 per floor)
+  const shrines = {};
+  const shrineTypes = ['sanctuary', 'starfire', 'aegis'];
+  const midRoom = rooms[Math.min(rooms.length - 1, Math.max(1, Math.floor(rooms.length / 2)))];
+  for (let sTry = 0; sTry < 12; sTry++) {
+    const sx = midRoom.rx + Math.floor(Math.random() * midRoom.rw);
+    const sy = midRoom.ry + Math.floor(Math.random() * midRoom.rh);
+    if (tiles[sy][sx] === TILE_FLOOR && !(sx === upPos.x && sy === upPos.y) && !(sx === downPos.x && sy === downPos.y)) {
+      tiles[sy][sx] = TILE_SHRINE;
+      shrines[`${sx},${sy}`] = {
+        type: shrineTypes[Math.floor(Math.random() * shrineTypes.length)]
+      };
+      break;
+    }
+  }
+
+  // Place Concealed Runic Traps inside non-starting rooms (safe BFS enforced below)
+  const traps = {};
+  const trapGoal = 2 + Math.min(4, depth);
+  let trapsPlaced = 0;
+  for (let tTry = 0; tTry < 30 && trapsPlaced < trapGoal; tTry++) {
+    const rm = rooms[1 + Math.floor(Math.random() * (rooms.length - 1))];
+    const tx = rm.rx + Math.floor(Math.random() * rm.rw);
+    const ty = rm.ry + Math.floor(Math.random() * rm.rh);
+    if (
+      tiles[ty][tx] === TILE_FLOOR &&
+      !(tx === upPos.x && ty === upPos.y) &&
+      !(tx === downPos.x && ty === downPos.y) &&
+      Math.hypot(tx - upPos.x, ty - upPos.y) >= 2.2
+    ) {
+      tiles[ty][tx] = TILE_TRAP_HIDDEN;
+      traps[`${tx},${ty}`] = {
+        type: Math.random() < 0.55 ? 'spike' : 'flame'
+      };
+      trapsPlaced += 1;
+    }
+  }
+
   const floorObj = {
     depth,
     tiles,
     upPos,
     downPos,
+    shrines,
+    traps,
     monsters: [],
     explored: Array.from({ length: GRID_H }, () => Array(GRID_W).fill(false)),
     oresMined: 0
   };
 
-  // Guarantee pure-floor walkability between < and > stairs
+  // Guarantee pure trap-free walkability between < and > stairs
   if (!verifyPureFloorBFS(floorObj)) {
     carveDirectFloorPath(floorObj);
   }

@@ -8,10 +8,15 @@ import {
   useRecallScroll,
   buyShopItem,
   sellMineralUnit,
+  sellGemUnit,
   sellAllOresAtAssay,
   sellArmoryItem,
   sellAllSpareGear,
-  purchaseResearchRank
+  purchaseResearchRank,
+  socketGemIntoItem,
+  unsocketGemFromItem,
+  rerollGuildBounties,
+  claimBountyAtGuild
 } from './engine/actions.js';
 import {
   registerCombatFOVCallback,
@@ -28,6 +33,8 @@ import {
   selectAdventurerClass,
   openItemInspectModal,
   closeItemInspectModal,
+  socketFromInspect,
+  unsocketFromInspect,
   showOutcomeModal,
   closeOutcomeModal,
   openSaveSyncModal,
@@ -53,6 +60,7 @@ import {
   closeDiagnosticsModal
 } from './test/selfTest.js';
 import { TALENT_TREES } from './data/talents.js';
+import { GEM_CATALOG } from './data/gems.js';
 
 // Bind UI callbacks into engine actions & combat
 registerActionCallbacks({
@@ -84,6 +92,8 @@ export const AethelgardAPI = {
   selectAdventurerClass,
   openItemInspectModal,
   closeItemInspectModal,
+  socketFromInspect,
+  unsocketFromInspect,
   showOutcomeModal,
   closeOutcomeModal,
   openNewDungeonModal,
@@ -98,10 +108,15 @@ export const AethelgardAPI = {
   respecTalents,
   buyShopItem,
   sellMineralUnit,
+  sellGemUnit,
   sellAllOresAtAssay,
   sellArmoryItem,
   sellAllSpareGear,
   purchaseResearchRank,
+  socketGemIntoItem,
+  unsocketGemFromItem,
+  rerollGuildBounties,
+  claimBountyAtGuild,
   executeClassSkill,
   useHealingTonic,
   useRecallScroll,
@@ -109,7 +124,8 @@ export const AethelgardAPI = {
   handlePlayerAction,
   waitTurn,
   clearChronicle,
-  TALENT_TREES
+  TALENT_TREES,
+  GEM_CATALOG
 };
 
 function bootstrapApp() {
