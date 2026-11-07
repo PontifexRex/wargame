@@ -2,6 +2,7 @@
 
 import { gameState, loadGame, saveGame } from './engine/state.js';
 import { toggleAudio } from './engine/audio.js';
+import { ENGINE_EVENTS, onEngineEvent, offEngineEvent, emitEngineEvent } from './engine/events.js';
 import {
   registerActionCallbacks,
   useHealingTonic,
@@ -163,6 +164,10 @@ export const AethelgardAPI = {
   renderMinimapCanvas,
   waitTurn,
   clearChronicle,
+  ENGINE_EVENTS,
+  onEngineEvent,
+  offEngineEvent,
+  emitEngineEvent,
   TALENT_TREES,
   GEM_CATALOG,
   CURATED_DUNGEON_PROFILES

@@ -72,12 +72,20 @@ function Parse-ESModule([string]$filePath) {
     $body = $reExportRegex.Replace($body, '')
     $body = [regex]::Replace($body, '(?m)^(\s*)export\s+(const|let|var|function|class)\s+', '$1$2 ')
 
+    # Collect top-level declarations to guard against cross-module IIFE scope collisions
+    $topDecls = New-Object 'System.Collections.Generic.HashSet[string]'
+    $topDeclRegex = [regex]'(?m)^(?:const|let|var|function|class)\s+(\w+)'
+    foreach ($m in $topDeclRegex.Matches($body)) {
+        [void]$topDecls.Add($m.Groups[1].Value)
+    }
+
     $info = [PSCustomObject]@{
-        Path    = $filePath
-        Raw     = $raw
-        Body    = $body.Trim()
-        Imports = $imports
-        Exports = $exports
+        Path     = $filePath
+        Raw      = $raw
+        Body     = $body.Trim()
+        Imports  = $imports
+        Exports  = $exports
+        TopDecls = $topDecls
     }
     $modules[$filePath] = $info
     return $info
@@ -122,8 +130,15 @@ $sb = [System.Text.StringBuilder]::new()
 [void]$sb.AppendLine("")
 
 $rootDir = [System.IO.Path]::GetFullPath("$PSScriptRoot\..")
+$globalSymbolOwners = @{}
 foreach ($modPath in $topoOrder) {
     $relLabel = $modPath.Substring($rootDir.Length + 1) -replace '\\', '/'
+    foreach ($sym in $modules[$modPath].TopDecls) {
+        if ($globalSymbolOwners.ContainsKey($sym)) {
+            throw "Top-level scope collision: identifier '$sym' is declared in both '$($globalSymbolOwners[$sym])' and '$relLabel'"
+        }
+        $globalSymbolOwners[$sym] = $relLabel
+    }
     [void]$sb.AppendLine("  // --- Module: $relLabel ---")
     [void]$sb.AppendLine($modules[$modPath].Body)
     [void]$sb.AppendLine("")

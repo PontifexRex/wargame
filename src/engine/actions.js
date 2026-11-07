@@ -36,18 +36,47 @@ import {
 } from './state.js';
 import { generateProceduralEquipment, rollSocketCountForRarity } from './procedural.js';
 import { playSound } from './audio.js';
+import { ENGINE_EVENTS, onEngineEvent, offEngineEvent, emitEngineEvent } from './events.js';
 
 const actionCallbacks = {
-  log: () => {},
-  updateUI: () => {},
-  floatingText: () => {},
-  outcomeModal: () => {},
-  updateFOV: () => {},
-  onTurnEnd: () => {}
+  log: (msg, tone) => emitEngineEvent(ENGINE_EVENTS.LOG, { msg, tone }, gameState),
+  updateUI: () => emitEngineEvent(ENGINE_EVENTS.UI_SYNC, {}, gameState),
+  floatingText: (x, y, text, color) => emitEngineEvent(ENGINE_EVENTS.FLOATING_TEXT, { x, y, text, color }, gameState),
+  outcomeModal: (title, desc, details, isConfirm) => emitEngineEvent(ENGINE_EVENTS.OUTCOME_MODAL, { title, desc, details, isConfirm }, gameState),
+  updateFOV: () => emitEngineEvent(ENGINE_EVENTS.FOV_SYNC, {}, gameState),
+  onTurnEnd: () => emitEngineEvent(ENGINE_EVENTS.TURN_END, {}, gameState)
 };
 
+const registeredBridgeHandlers = {};
+
+function bindBridgeHandler(slot, eventName, handlerFn) {
+  if (registeredBridgeHandlers[slot]) {
+    offEngineEvent(eventName, registeredBridgeHandlers[slot]);
+  }
+  registeredBridgeHandlers[slot] = handlerFn;
+  onEngineEvent(eventName, handlerFn);
+}
+
 export function registerActionCallbacks(cbs) {
-  Object.assign(actionCallbacks, cbs);
+  if (!cbs) return;
+  if (typeof cbs.log === 'function') {
+    bindBridgeHandler('log', ENGINE_EVENTS.LOG, p => cbs.log(p.msg, p.tone));
+  }
+  if (typeof cbs.updateUI === 'function') {
+    bindBridgeHandler('updateUI', ENGINE_EVENTS.UI_SYNC, () => cbs.updateUI());
+  }
+  if (typeof cbs.floatingText === 'function') {
+    bindBridgeHandler('floatingText', ENGINE_EVENTS.FLOATING_TEXT, p => cbs.floatingText(p.x, p.y, p.text, p.color));
+  }
+  if (typeof cbs.outcomeModal === 'function') {
+    bindBridgeHandler('outcomeModal', ENGINE_EVENTS.OUTCOME_MODAL, p => cbs.outcomeModal(p.title, p.desc, p.details, p.isConfirm));
+  }
+  if (typeof cbs.updateFOV === 'function') {
+    bindBridgeHandler('updateFOV', ENGINE_EVENTS.FOV_SYNC, () => cbs.updateFOV());
+  }
+  if (typeof cbs.onTurnEnd === 'function') {
+    bindBridgeHandler('onTurnEnd', ENGINE_EVENTS.TURN_END, () => cbs.onTurnEnd());
+  }
 }
 
 export function getActionCallbacks() {
@@ -403,6 +432,15 @@ export function mineTile(x, y, state = gameState) {
     }
   }
 
+  emitEngineEvent(ENGINE_EVENTS.ORE_MINED, {
+    oreId: ore.id,
+    tile,
+    freeMine,
+    gemDropped: droppedGemId,
+    floorDepth: floor.depth,
+    dungeonId: state.activeDungeonId
+  }, state);
+
   if (state === gameState) {
     playSound('mine');
     actionCallbacks.floatingText(x, y, `+1 ${ore.name}${freeMine ? ' (FREE!)' : ''}`, ore.sparkle);
@@ -609,6 +647,11 @@ export function activateAstralShrine(x, y, state = gameState) {
   }
 
   detectNearbyTraps(floor, state);
+  emitEngineEvent(ENGINE_EVENTS.SHRINE_ACTIVATED, {
+    shrineType: sDef.id,
+    floorDepth: floor.depth,
+    dungeonId: state.activeDungeonId
+  }, state);
   return { ok: true, shrineType: sDef.id };
 }
 
@@ -761,6 +804,15 @@ export function extractToGuild(method = 'Floor 1 Ascending Stairs (<)', state = 
     );
   }
 
+  emitEngineEvent(ENGINE_EVENTS.EXTRACTED, {
+    method,
+    oresBanked,
+    gemsBanked,
+    gearBanked,
+    goldEarned,
+    claimedBounties
+  }, state);
+
   return { oresBanked, gemsBanked, gearBanked, goldEarned, claimedBounties };
 }
 
@@ -819,6 +871,15 @@ export function handleHeroDefeat(killerName = 'Abyssal Guardian', state = gameSt
       ]
     );
   }
+
+  emitEngineEvent(ENGINE_EVENTS.HERO_DEFEATED, {
+    killerName,
+    floorDepth: state.dungeon.currentFloor,
+    dungeonId: state.activeDungeonId,
+    salvagedGold,
+    lostOreCount,
+    lostGearCount
+  }, state);
 
   return { salvagedGold, lostOreCount, lostGearCount };
 }

@@ -20,6 +20,7 @@ import { CLASSES } from '../data/classes.js';
 import { ORE_CATALOG } from '../data/ores.js';
 import { CURATED_DUNGEON_PROFILES } from '../data/dungeons.js';
 import { packFloorForStorage, hydrateFloorFromStorage } from '../engine/compression.js';
+import { ENGINE_EVENTS, onEngineEvent } from '../engine/events.js';
 import {
   createDefaultGameState,
   migrateSaveData,
@@ -125,23 +126,29 @@ export function evaluateSelfTests() {
     detail: `Generated "${relicItem.name}" (+${relicItem.atk} ATK, ${relicItem.affixes.length} affixes, ${relicItem.maxSockets} sockets)`
   });
 
-  // 5. Mining Engine, Geology Gating & Durability Math
+  // 5. Mining Engine, Geology Gating, Durability Math & Domain Event Bus Telemetry
   const sandbox5 = createDefaultGameState();
   selectAdventurerClass('thief', sandbox5);
   const fl5 = ensureDungeonFloorHydrated(sandbox5.dungeon, 1);
   fl5.tiles[2][2] = TILE_ORE_STAR; // Requires Geology 3
+  let minedEvents = 0;
+  const unsubMine = onEngineEvent(ENGINE_EVENTS.ORE_MINED, payload => {
+    if (payload && payload.oreId === 'starcrystal') minedEvents += 1;
+  });
   const blockedMine = mineTile(2, 2, sandbox5);
   sandbox5.guildResearch.geology = 3;
   const allowedMine = mineTile(2, 2, sandbox5);
+  unsubMine();
   const t5Pass =
     !blockedMine.ok &&
     blockedMine.reason === 'geology_locked' &&
     allowedMine.ok &&
+    minedEvents === 1 &&
     fl5.tiles[2][2] === TILE_FLOOR;
   results.push({
-    name: '5. Interactive Mining, Geology Gating & Durability Math',
+    name: '5. Interactive Mining, Geology Gating & Domain Event Bus',
     pass: t5Pass,
-    detail: 'Star-Crystal blocked at Geo R0, mined cleanly at Geo R3 -> converted wall to TILE_FLOOR'
+    detail: 'Star-Crystal blocked at Geo R0, mined at Geo R3 -> TILE_FLOOR & emitted ORE_MINED event'
   });
 
   // 6. Dual-Cost Guild Research Execution

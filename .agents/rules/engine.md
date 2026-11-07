@@ -3,63 +3,43 @@
 ## 1. Turn-Based Tick Cycle
 
 1. **Player Turn**: The engine is strictly turn-based. Enemies do not act in real-time. An engine tick occurs only when the player:
-   - Moves or bumps an enemy / mineral / chest (`handlePlayerAction`)
+   - Moves or bumps an enemy / mineral / chest / shrine / visible trap (`handlePlayerAction`)
    - Uses an active skill (`executeClassSkill`)
    - Quaffs a potion or reads a recall scroll (`useHealingTonic`, `useRecallScroll`)
    - Waits (`waitTurn` via Spacebar)
-2. **Enemy AI Tick**:
-   - Only living monsters on the current floor within sensory range act on tick.
-   - Slain monsters drop loot/XP and are immediately removed from active turns.
-3. **Passive Regeneration**:
-   - Health and mana regeneration ticks occur per turn based on equipped affix bonuses and class passives.
+2. **Enemy AI Tick (`processTurn`)**:
+   - Only living monsters on the current floor within sensory range (`14` tiles Manhattan distance) act on tick.
+   - Ranged and caster monsters must verify unobstructed wall Line-of-Sight (`hasLineOfSight(floor, mx, my, hx, hy)`) before firing projectiles or hexes (`ADR-0005`).
+   - Slain monsters drop loot/XP, emit `ENGINE_EVENTS.MONSTER_SLAIN`, and are immediately removed from active turns.
 
 ---
 
-## 2. Combat Resolution Formulas
-
-All damage calculations must adhere to the design specification:
-
-- **Physical Damage**:
-  $$\text{Damage} = \max(1, \text{Attacker Physical Power} - \lfloor \text{Defender Armor} \times 0.4 \rfloor)$$
-- **Magical Damage**:
-  $$\text{Damage} = \max(1, \text{Attacker Spell Power} - \lfloor \text{Defender Ward} \times 0.5 \rfloor)$$
-- **Critical Strike**:
-  - Chance: `critChance` (Base 5% + Agility/Affix bonus).
-  - Multiplier: Flat 1.5x damage on crit, formatted with a gold exclamation mark in combat logs.
-- **Evasion**:
-  - Chance: $\min(40\%, \lfloor \text{Defender Agility} \times 0.5\% \rfloor)$. Evaded hits deal 0 damage.
-
----
-
-## 3. Mining, Durability & Geology Gating
+## 2. Mining, Durability, Geology Gating & Astral Gems
 
 - **Geology Requirement**:
   - Copper: Geology Rank 0
   - Iron: Geology Rank 1
-  - Mithril: Geology Rank 2
-  - Geodes: Geology Rank 3
-  - Star-Crystal: Geology Rank 4
-  - Void Astralite: Geology Rank 5
+  - Mithril & Relic Geodes: Geology Rank 2
+  - Star-Crystal & Void Astralite: Geology Rank 3
 - **Durability Consumption**:
-  - Each mining action costs 1 Pickaxe Durability.
-  - When durability reaches 0, the pickaxe is fractured and cannot mine until repaired at the Guild Hearth.
-- **Ore Wall Conversion**:
-  - Once mined, a mineral wall tile converts to `TILE_FLOOR` and the player receives the mineral in their `expeditionPack`.
+  - Each mining action costs 1 Pickaxe Durability unless a Free-Strike procs (`Thief Mineral Vein Sense` or `Dwarven Toolsmithing`).
+  - When durability reaches 0, the pickaxe cannot mine until repaired at the Guild or via a Shrine of the Earthbreaker.
+- **Ore Wall Conversion & Gem Drops**:
+  - Once mined, a mineral wall tile converts to `TILE_FLOOR`, emits `ENGINE_EVENTS.ORE_MINED`, and adds the ore (plus any rolled uncut Astral Gem on Geode/Star-Crystal/Astralite veins) to `expeditionPack`.
 
 ---
 
-## 4. Procedural Dungeon Generation & Pure-Floor BFS
+## 3. Procedural Dungeon Generation & Pure-Floor BFS (`ADR-0004`)
 
-- **Adjacency Rule for Mineral Veins**: Veins must **only** replace `TILE_WALL` tiles that have at least one adjacent orthogonal `TILE_FLOOR` neighbor. Never spawn a vein in the middle of a corridor.
-- **Pure-Floor BFS Guarantee**:
-  - Every generated floor must guarantee reachability from Player Entrance `(startX, startY)` to Descending Stairs `(stairsDownX, stairsDownY)` and all chests using **only walkable floor tiles** (`TILE_FLOOR`, `TILE_STAIRS_*`, `TILE_CHEST`).
-  - Corridors must never be blocked by un-mined ore veins or impassable obstacles.
+- **Dynamic Exploration-Scale Grids**: Map dimensions (`floor.width`, `floor.height`) are determined by the active dungeon's `DungeonConfig` (`64x44` to `168x120`, with legacy `21x15` saves supported). Never hardcode `21` or `15` in engine loops.
+- **Adjacency Rule for Mineral Veins & Shrines**: Veins (`TILE_ORE_*`) and Shrines (`TILE_SHRINE`) must **only** replace `TILE_WALL` tiles that have at least one adjacent orthogonal `TILE_FLOOR` neighbor. Never spawn a vein or shrine on a corridor floor tile.
+- **Pure-Floor BFS Guarantee (`verifyPureFloorBFS`)**:
+  - Every generated floor must guarantee reachability from `upPos` (`<`) to `downPos` (`>`) and all chests using a zero-allocation `Int32Array` BFS over walkable floor tiles (`TILE_FLOOR`, `TILE_STAIRS_*`, `TILE_CHEST*`, `TILE_TRAP_*`).
 
 ---
 
-## 5. State Management & Save Migration
+## 4. State Management, Save Migration & RLE Persistence (`ADR-0002`, `ADR-0003`)
 
-- **State Immutability in Pure Functions**: Math and combat calculation functions should avoid mutating global state directly when computing outcomes.
-- **Save Migration Guarantee**:
-  - Any new state properties must be initialized in `createDefaultGameState()` and handled in `migrateSaveData(rawSave)`.
-  - Schema migration must always preserve existing player progress (gold, banked minerals, character level, equipped items).
+- **Sandboxed State Injection**: Every state-mutating function accepts `state = gameState` as its final parameter and suppresses DOM/audio/localStorage side effects when `state !== gameState`.
+- **Save Migration Guarantee**: Any new state properties must be initialized in `createDefaultGameState()` and back-filled in `migrateSaveData(rawSave)`.
+- **RLE Floor Compaction**: Inactive floors are RLE-packed via `compactFloorForStorage(floor)` on save and transparently hydrated via `ensureDungeonFloorHydrated(dungeon, depth)` on access.

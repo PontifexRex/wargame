@@ -8,14 +8,36 @@ param (
 $ErrorActionPreference = "Stop"
 $rootDir = [System.IO.Path]::GetFullPath("$PSScriptRoot\..")
 
-# Step 1: Validate ES6 module graph & update dist/bundle.js
+# Step 1: Validate ES6 module graph, top-level scope hygiene & update dist/bundle.js
 & "$PSScriptRoot\build.ps1"
+
+# Step 1b: Validate HTML DOM ID Contract (every getElementById literal in src/ must exist in index.html)
+$htmlContent = [System.IO.File]::ReadAllText((Join-Path $rootDir "index.html"), [System.Text.Encoding]::UTF8)
+$htmlIds = New-Object 'System.Collections.Generic.HashSet[string]'
+foreach ($m in [regex]::Matches($htmlContent, 'id="([^"]+)"')) {
+    [void]$htmlIds.Add($m.Groups[1].Value)
+}
+$missingDomIds = @()
+foreach ($jsFile in Get-ChildItem -Path (Join-Path $rootDir "src") -Recurse -Filter "*.js") {
+    $jsText = [System.IO.File]::ReadAllText($jsFile.FullName, [System.Text.Encoding]::UTF8)
+    foreach ($m in [regex]::Matches($jsText, "getElementById\(\s*['""]([^'""`$]+)['""]\s*\)")) {
+        $reqId = $m.Groups[1].Value
+        if (-not $htmlIds.Contains($reqId) -and ($missingDomIds -notcontains $reqId)) {
+            $missingDomIds += "$reqId ($($jsFile.Name))"
+        }
+    }
+}
+if ($missingDomIds.Count -gt 0) {
+    Write-Host "DOM CONTRACT ERROR: Missing HTML element IDs referenced in src/: $($missingDomIds -join ', ')" -ForegroundColor Red
+    exit 1
+}
+Write-Host "Validated HTML DOM contract ($($htmlIds.Count) element IDs verified, 0 missing references)" -ForegroundColor DarkGray
 
 if ($Browser) {
     Write-Host "Opening in-browser diagnostics..." -ForegroundColor Yellow
     $indexPath = Join-Path $rootDir "index.html"
     Start-Process msedge.exe "file:///$($indexPath -replace '\\','/')"
-    Write-Host "Click 'Verify Inc-4' in the top-right header to view diagnostic results." -ForegroundColor Green
+    Write-Host "Click 'Verify Atlas' in the top-right header to view diagnostic results." -ForegroundColor Green
     exit 0
 }
 

@@ -1,16 +1,16 @@
 # UI, Canvas & Presentation Rules
 
-## 1. Canvas 2D Rendering Pipeline
+## 1. Canvas 2D Camera Frustum & Exploration Overview (`ADR-0005`)
 
-- **Viewport Size**: Exactly 21 columns by 15 rows of tiles.
-- **Centering & Camera**: The camera centers on the player coordinates, clamping smoothly at dungeon boundaries.
+- **Viewport Size**: Fixed `21` columns by `15` rows of `32x32` tiles (`672x480` canvas) scrolling smoothly over exploration-scale maps (`64x44` to `168x120`+).
+- **Camera Clamping (`getCameraOrigin`)**: Centers on `(hero.x, hero.y)` and clamps to `[0, floor.width - 21]` and `[0, floor.height - 15]`.
+- **Full-Map Exploration Overview (`[M]`)**:
+  - Toggled via key `M` or the HUD Map button (`toggleMapOverview()`).
+  - Auto-scales explored tiles to fit the `672x480` canvas and highlights Stairs (`<`/`>`), Chests, Shrines, visible monsters, and the Hero beacon.
 - **Shadowcasting Field-of-View (FOV)**:
-  - Radius: 6 tiles.
   - Unexplored tiles: Hidden in deep fog (`#0a0a0f`).
-  - Previously explored but out-of-sight tiles: Rendered with a desaturated memory tint (`rgba(20, 25, 35, 0.65)`).
-  - Visible tiles: Rendered in full color with dynamic entity highlights.
-- **Floating Combat Text**:
-  - Damage numbers, critical hits, heal numbers, and mineral pickups float upward for 800ms before fading.
+  - Explored out-of-sight tiles: Rendered with a desaturated memory tint.
+  - Visible tiles: Rendered in full color with entity highlights and floating combat text.
 
 ---
 
@@ -19,32 +19,29 @@
 > [!WARNING]
 > Never call `window.alert()`, `window.confirm()`, or `window.prompt()`.
 
-All dialogs and user confirmations must use in-game modal components:
-- **`#outcomeModal`**: Displays descent outcomes, victory summaries, or defeat salvage reports.
-- **`#classSelectModal`**: Class selection modal at run start.
-- **`#inspectModal`**: Detailed tooltips and stat comparisons for equipped items vs. armory items.
-- **`#saveSyncModal`**: Export/import of base64/JSON save strings.
-- **`#newDungeonModal`**: Confirmation modal before resetting persistent dungeon floors.
-- **`#diagnosticsModal`**: In-game display of the automated self-test suite results.
+All dialogs and user confirmations must use custom in-game modal components:
+- **`#outcomeModal`**: Descent outcomes, extraction summaries, defeat salvage reports, and dungeon charter confirmations.
+- **`#classSelectModal`**: Class selection modal.
+- **`#itemInspectModal`**: Detailed tooltips and stat/socket comparisons for equipped items vs. armory items.
+- **`#saveSyncModal`**: Export/import of JSON save strings.
+- **`#diagnosticsModal`**: In-game display of the 17/17 automated self-test suite results.
 
 ---
 
-## 3. DOM Sync & Tactical Chronicle
+## 3. DOM Sync & HTML Contract Gate
 
-- **State Syncing (`updateAllUI`)**:
-  - Always call `updateAllUI()` after state mutations that impact health, inventory, equipped gear, or gold.
-  - Keep DOM manipulations targeted to avoid unnecessary full-page repaints.
-- **Chronicle Combat Log**:
-  - Messages must use semantic color tags:
-    - Damage dealt / critical: `#eab308` (Yellow/Gold)
-    - Damage taken: `#ef4444` (Red)
-    - Minerals mined / items found: `#38bdf8` (Cyan/Sky)
-    - Lore / recovery events: `#a855f7` (Purple)
-  - Limit chronicle history to the most recent 100 entries to prevent memory leaks.
+- **DOM ID Contract**: Every `document.getElementById('...')` in `src/` is automatically verified against `index.html` by `./scripts/test.ps1`. Never reference a DOM ID in `src/` without ensuring the element exists in `index.html`.
+- **Guild Hub Tabs**:
+  1. Quartermaster & Mercenary Shop
+  2. Antiquarian Assay & Ore Smelting
+  3. Astral Lapidary & Gem Socketing
+  4. Guild Research Lab
+  5. Vanguard Notice Board (Bounties)
+  6. Expedition Atlas (Multi-Dungeon Selector & Custom Charter Builder)
 
 ---
 
-## 4. Input Handling & Tactical Scanner
+## 4. Input Handling & Safe Click-to-Autowalk (`ADR-0005`)
 
 - **Keyboard Controls**:
   - Movement: `W`, `A`, `S`, `D` or Arrow Keys
@@ -52,7 +49,8 @@ All dialogs and user confirmations must use in-game modal components:
   - Quaff Healing Tonic: `H`
   - Read Astral Recall Scroll: `R`
   - Stairs: `E`
+  - Full-Map Exploration Overview: `M`
   - Wait: `Space`
-- **Mouse & Tactical Scanner**:
-  - Hovering over a tile displays target info in the tactical scanner HUD (monster stats, mineral tier, wall type).
-  - Clicking an adjacent tile triggers context-sensitive action (move, attack, mine, open chest, ascend/descend stairs).
+- **Mouse & Safe A* Click-to-Autowalk**:
+  - Translates canvas pixel coordinates via `cameraX`/`cameraY` into world tile coordinates `(tx, ty)`.
+  - Clicking an adjacent tile executes a context-sensitive action; clicking a distant explored walkable tile steps along a bounded A* path (`findSafeExplorePath`) and halts immediately if a monster, shrine, chest, visible trap, or damage interrupt occurs.

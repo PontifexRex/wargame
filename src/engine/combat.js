@@ -27,6 +27,7 @@ import {
 } from './state.js';
 import { generateFloor, generateProceduralEquipment } from './procedural.js';
 import { playSound } from './audio.js';
+import { ENGINE_EVENTS, emitEngineEvent } from './events.js';
 import {
   registerActionCallbacks,
   getActionCallbacks,
@@ -423,6 +424,15 @@ export function killMonster(monster, state = gameState) {
   if (state === gameState) {
     gainExperience(monster.xp, state);
   }
+
+  emitEngineEvent(ENGINE_EVENTS.MONSTER_SLAIN, {
+    monsterId: monster.id,
+    monsterName: monster.name,
+    isElite: !!monster.isElite,
+    isBoss: !!monster.isBoss,
+    floorDepth: floor.depth,
+    dungeonId: state.activeDungeonId
+  }, state);
 }
 
 export function attackMonster(monster, state = gameState) {
@@ -911,6 +921,13 @@ export function handlePlayerAction(dx, dy, state = gameState) {
     const forcedRarity = effDepth >= 4 ? 'rare' : 'uncommon';
     const chestGear = generateProceduralEquipment(effDepth, forcedRarity, cfg.lootSlotBias || null, rarityBonus);
     state.hero.expeditionGear.push(chestGear);
+
+    emitEngineEvent(ENGINE_EVENTS.CHEST_OPENED, {
+      goldVal,
+      gear: chestGear,
+      floorDepth: depth,
+      dungeonId: state.activeDungeonId
+    }, state);
 
     if (state === gameState) {
       playSound('gold');

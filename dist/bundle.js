@@ -1522,6 +1522,72 @@ function toggleAudio() {
   saveGame();
 }
 
+  // --- Module: src/engine/events.js ---
+// Synchronous Domain Event Bus & Gameplay Telemetry Dispatcher (ADR-0006)
+// Decouples engine state mutations from UI/Audio side effects and provides telemetry hooks for Bestiary/Codex tracking.
+
+const ENGINE_EVENTS = {
+  LOG:              'log',
+  FLOATING_TEXT:    'floatingText',
+  OUTCOME_MODAL:    'outcomeModal',
+  UI_SYNC:          'uiSync',
+  FOV_SYNC:         'fovSync',
+  TURN_END:         'turnEnd',
+  MONSTER_SLAIN:    'monsterSlain',
+  ORE_MINED:        'oreMined',
+  CHEST_OPENED:     'chestOpened',
+  SHRINE_ACTIVATED: 'shrineActivated',
+  TRAP_RESOLVED:    'trapResolved',
+  EXTRACTED:        'extracted',
+  HERO_DEFEATED:    'heroDefeated'
+};
+
+const eventListenersMap = {};
+
+function onEngineEvent(eventName, handler) {
+  if (!eventName || typeof handler !== 'function') {
+    return () => {};
+  }
+  if (!eventListenersMap[eventName]) {
+    eventListenersMap[eventName] = [];
+  }
+  if (eventListenersMap[eventName].indexOf(handler) === -1) {
+    eventListenersMap[eventName].push(handler);
+  }
+  return function unsubscribe() {
+    offEngineEvent(eventName, handler);
+  };
+}
+
+function offEngineEvent(eventName, handler) {
+  const list = eventListenersMap[eventName];
+  if (!list) return;
+  const idx = list.indexOf(handler);
+  if (idx !== -1) {
+    list.splice(idx, 1);
+  }
+}
+
+function emitEngineEvent(eventName, payload, state = null) {
+  const list = eventListenersMap[eventName];
+  if (!list || list.length === 0) return 0;
+  const snapshot = list.slice();
+  for (let i = 0; i < snapshot.length; i++) {
+    snapshot[i](payload, state);
+  }
+  return snapshot.length;
+}
+
+function clearEngineEventListeners(eventName = null) {
+  if (eventName) {
+    delete eventListenersMap[eventName];
+    return;
+  }
+  Object.keys(eventListenersMap).forEach(k => {
+    delete eventListenersMap[k];
+  });
+}
+
   // --- Module: src/data/ores.js ---
 // 6 Mineral Vein Types & Geology Requirements
 
@@ -2613,17 +2679,46 @@ function generateFloor(depth, dungeonConfig = null, dungeonSeed = null) {
 
 
 
+
 const actionCallbacks = {
-  log: () => {},
-  updateUI: () => {},
-  floatingText: () => {},
-  outcomeModal: () => {},
-  updateFOV: () => {},
-  onTurnEnd: () => {}
+  log: (msg, tone) => emitEngineEvent(ENGINE_EVENTS.LOG, { msg, tone }, gameState),
+  updateUI: () => emitEngineEvent(ENGINE_EVENTS.UI_SYNC, {}, gameState),
+  floatingText: (x, y, text, color) => emitEngineEvent(ENGINE_EVENTS.FLOATING_TEXT, { x, y, text, color }, gameState),
+  outcomeModal: (title, desc, details, isConfirm) => emitEngineEvent(ENGINE_EVENTS.OUTCOME_MODAL, { title, desc, details, isConfirm }, gameState),
+  updateFOV: () => emitEngineEvent(ENGINE_EVENTS.FOV_SYNC, {}, gameState),
+  onTurnEnd: () => emitEngineEvent(ENGINE_EVENTS.TURN_END, {}, gameState)
 };
 
+const registeredBridgeHandlers = {};
+
+function bindBridgeHandler(slot, eventName, handlerFn) {
+  if (registeredBridgeHandlers[slot]) {
+    offEngineEvent(eventName, registeredBridgeHandlers[slot]);
+  }
+  registeredBridgeHandlers[slot] = handlerFn;
+  onEngineEvent(eventName, handlerFn);
+}
+
 function registerActionCallbacks(cbs) {
-  Object.assign(actionCallbacks, cbs);
+  if (!cbs) return;
+  if (typeof cbs.log === 'function') {
+    bindBridgeHandler('log', ENGINE_EVENTS.LOG, p => cbs.log(p.msg, p.tone));
+  }
+  if (typeof cbs.updateUI === 'function') {
+    bindBridgeHandler('updateUI', ENGINE_EVENTS.UI_SYNC, () => cbs.updateUI());
+  }
+  if (typeof cbs.floatingText === 'function') {
+    bindBridgeHandler('floatingText', ENGINE_EVENTS.FLOATING_TEXT, p => cbs.floatingText(p.x, p.y, p.text, p.color));
+  }
+  if (typeof cbs.outcomeModal === 'function') {
+    bindBridgeHandler('outcomeModal', ENGINE_EVENTS.OUTCOME_MODAL, p => cbs.outcomeModal(p.title, p.desc, p.details, p.isConfirm));
+  }
+  if (typeof cbs.updateFOV === 'function') {
+    bindBridgeHandler('updateFOV', ENGINE_EVENTS.FOV_SYNC, () => cbs.updateFOV());
+  }
+  if (typeof cbs.onTurnEnd === 'function') {
+    bindBridgeHandler('onTurnEnd', ENGINE_EVENTS.TURN_END, () => cbs.onTurnEnd());
+  }
 }
 
 function getActionCallbacks() {
@@ -2979,6 +3074,15 @@ function mineTile(x, y, state = gameState) {
     }
   }
 
+  emitEngineEvent(ENGINE_EVENTS.ORE_MINED, {
+    oreId: ore.id,
+    tile,
+    freeMine,
+    gemDropped: droppedGemId,
+    floorDepth: floor.depth,
+    dungeonId: state.activeDungeonId
+  }, state);
+
   if (state === gameState) {
     playSound('mine');
     actionCallbacks.floatingText(x, y, `+1 ${ore.name}${freeMine ? ' (FREE!)' : ''}`, ore.sparkle);
@@ -3185,6 +3289,11 @@ function activateAstralShrine(x, y, state = gameState) {
   }
 
   detectNearbyTraps(floor, state);
+  emitEngineEvent(ENGINE_EVENTS.SHRINE_ACTIVATED, {
+    shrineType: sDef.id,
+    floorDepth: floor.depth,
+    dungeonId: state.activeDungeonId
+  }, state);
   return { ok: true, shrineType: sDef.id };
 }
 
@@ -3337,6 +3446,15 @@ function extractToGuild(method = 'Floor 1 Ascending Stairs (<)', state = gameSta
     );
   }
 
+  emitEngineEvent(ENGINE_EVENTS.EXTRACTED, {
+    method,
+    oresBanked,
+    gemsBanked,
+    gearBanked,
+    goldEarned,
+    claimedBounties
+  }, state);
+
   return { oresBanked, gemsBanked, gearBanked, goldEarned, claimedBounties };
 }
 
@@ -3395,6 +3513,15 @@ function handleHeroDefeat(killerName = 'Abyssal Guardian', state = gameState) {
       ]
     );
   }
+
+  emitEngineEvent(ENGINE_EVENTS.HERO_DEFEATED, {
+    killerName,
+    floorDepth: state.dungeon.currentFloor,
+    dungeonId: state.activeDungeonId,
+    salvagedGold,
+    lostOreCount,
+    lostGearCount
+  }, state);
 
   return { salvagedGold, lostOreCount, lostGearCount };
 }
@@ -3981,6 +4108,15 @@ function killMonster(monster, state = gameState) {
   if (state === gameState) {
     gainExperience(monster.xp, state);
   }
+
+  emitEngineEvent(ENGINE_EVENTS.MONSTER_SLAIN, {
+    monsterId: monster.id,
+    monsterName: monster.name,
+    isElite: !!monster.isElite,
+    isBoss: !!monster.isBoss,
+    floorDepth: floor.depth,
+    dungeonId: state.activeDungeonId
+  }, state);
 }
 
 function attackMonster(monster, state = gameState) {
@@ -4469,6 +4605,13 @@ function handlePlayerAction(dx, dy, state = gameState) {
     const forcedRarity = effDepth >= 4 ? 'rare' : 'uncommon';
     const chestGear = generateProceduralEquipment(effDepth, forcedRarity, cfg.lootSlotBias || null, rarityBonus);
     state.hero.expeditionGear.push(chestGear);
+
+    emitEngineEvent(ENGINE_EVENTS.CHEST_OPENED, {
+      goldVal,
+      gear: chestGear,
+      floorDepth: depth,
+      dungeonId: state.activeDungeonId
+    }, state);
 
     if (state === gameState) {
       playSound('gold');
@@ -6747,6 +6890,7 @@ function setupInputs() {
 
 
 
+
 function evaluateSelfTests() {
   const results = [];
 
@@ -6816,23 +6960,29 @@ function evaluateSelfTests() {
     detail: `Generated "${relicItem.name}" (+${relicItem.atk} ATK, ${relicItem.affixes.length} affixes, ${relicItem.maxSockets} sockets)`
   });
 
-  // 5. Mining Engine, Geology Gating & Durability Math
+  // 5. Mining Engine, Geology Gating, Durability Math & Domain Event Bus Telemetry
   const sandbox5 = createDefaultGameState();
   selectAdventurerClass('thief', sandbox5);
   const fl5 = ensureDungeonFloorHydrated(sandbox5.dungeon, 1);
   fl5.tiles[2][2] = TILE_ORE_STAR; // Requires Geology 3
+  let minedEvents = 0;
+  const unsubMine = onEngineEvent(ENGINE_EVENTS.ORE_MINED, payload => {
+    if (payload && payload.oreId === 'starcrystal') minedEvents += 1;
+  });
   const blockedMine = mineTile(2, 2, sandbox5);
   sandbox5.guildResearch.geology = 3;
   const allowedMine = mineTile(2, 2, sandbox5);
+  unsubMine();
   const t5Pass =
     !blockedMine.ok &&
     blockedMine.reason === 'geology_locked' &&
     allowedMine.ok &&
+    minedEvents === 1 &&
     fl5.tiles[2][2] === TILE_FLOOR;
   results.push({
-    name: '5. Interactive Mining, Geology Gating & Durability Math',
+    name: '5. Interactive Mining, Geology Gating & Domain Event Bus',
     pass: t5Pass,
-    detail: 'Star-Crystal blocked at Geo R0, mined cleanly at Geo R3 -> converted wall to TILE_FLOOR'
+    detail: 'Star-Crystal blocked at Geo R0, mined at Geo R3 -> TILE_FLOOR & emitted ORE_MINED event'
   });
 
   // 6. Dual-Cost Guild Research Execution
@@ -7297,6 +7447,7 @@ function closeDiagnosticsModal() {
 
 
 
+
 // Bind UI callbacks into engine actions & combat
 registerActionCallbacks({
   log: logChronicle,
@@ -7376,6 +7527,10 @@ const AethelgardAPI = {
   renderMinimapCanvas,
   waitTurn,
   clearChronicle,
+  ENGINE_EVENTS,
+  onEngineEvent,
+  offEngineEvent,
+  emitEngineEvent,
   TALENT_TREES,
   GEM_CATALOG,
   CURATED_DUNGEON_PROFILES

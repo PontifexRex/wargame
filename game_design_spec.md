@@ -373,3 +373,48 @@ Recovers $20\% \times \text{Rank}_{\text{vanguard}}$ (up to $80\%$ at Rank 4) of
 Floor 5 Boss — Starfall Colossus (boss_colossus): $240\text{ HP}$, $20\text{ ATK}$, $10\text{ DEF}$, $260\text{ XP}$. Guaranteed epic equipment drop + $2\times\text{ Star-Crystal}$.
 
 Floor 10 Boss — Void Weaver (boss_weaver): $420\text{ HP}$, $28\text{ ATK}$, $14\text{ DEF}$, Ranged ($4$ tiles), $520\text{ XP}$. Guaranteed relic equipment drop + $2\times\text{ Star-Crystal}$.
+
+
+---
+
+## 7. Increment 4 Systems — Astral Gems, Lapidary Forge, Bounties, Shrines & Traps
+
+### Astral Gems & Lapidary Socketing (`src/data/gems.js`)
+- **Gem Extraction**: Mining Relic Geodes (`28%`), Star-Crystal (`35%`), and Void Astralite (`50%`) yields uncut Astral Gems into the `expeditionPack`, banking into `guildVault.gems` on extraction.
+- **Socket Rolling**: Procedural equipment rolls sockets by rarity (`common: 0`, `uncommon: 0–1`, `rare: 1`, `epic: 1–2`, `relic: 2`).
+- **5 Gem Types (`GEM_CATALOG`)**:
+  - **Crimson Star-Ruby (`ruby`)**: Weapon `+5 ATK` | Armor/Helm/Boots `+22 Max HP` | Accessory/Pickaxe `+4% Crit`
+  - **Azure Star-Sapphire (`sapphire`)**: Weapon `+4 ATK, +8 Max MP` | Armor/Helm/Boots `+16 Max MP, +2 DEF` | Accessory/Pickaxe `+15 Max MP`
+  - **Verdant Star-Emerald (`emerald`)**: Weapon `+5% Crit` | Armor/Helm/Boots `+4% Dodge` | Accessory/Pickaxe `+4% Dodge, +3% Crit`
+  - **Solar Topaz (`topaz`)**: Weapon `+3 ATK, +3 DEF` | Armor/Helm/Boots `+4 DEF` | Accessory/Pickaxe `+12 Max Durability, +1 Vision`
+  - **Abyssal Voidstone (`voidstone`)**: Weapon `+8 ATK` | Armor/Helm/Boots `+4 DEF, +18 Max HP` | Accessory/Pickaxe `+5% Crit, +4% Dodge`
+- **Unsocketing**: Costs `25g` (`LAPIDARY_UNSOCKET_COST`) at the Lapidary Forge and returns all socketed gems intact to `guildVault.gems`.
+
+### Guild Notice Board Bounties (`src/data/bounties.js`)
+- **3 Active Contracts**: Generated deterministically (`slay_monster`, `mine_ore`, `clear_floor`), tracking `progress / target` during descents and awarding Gold, XP, and bonus Minerals/Gems when claimed in the Guild. Refreshing the board costs `25g`.
+
+### Subterranean Shrines & Runic Traps (`src/data/gems.js`)
+- **Astral Shrines (`TILE_SHRINE = 16`)**:
+  - *Shrine of Starfire*: Grants `Starfire Blessing` (`+25% ATK` for 30 turns).
+  - *Shrine of the Deep Aegis*: Grants `Astral Aegis` (`+25% DEF` for 30 turns) and restores `30% Max HP`.
+  - *Shrine of the Earthbreaker*: Repairs `+15` Pickaxe Durability and restores `40% Max MP`.
+- **Runic Floor Traps (`TILE_TRAP_HIDDEN = 18`, `TILE_TRAP_VISIBLE = 19`)**:
+  - Stepping onto a trap triggers `Seismic Spike Trap` (`14% Max HP` physical + `Bleed`) or `Abyssal Miasma Vent` (`10% Max HP` + `Poison`).
+  - High Vision/DEX heroes passively spot adjacent hidden traps; interacting with a visible trap (`TILE_TRAP_VISIBLE`) attempts a DEX-based disarm (`15 XP` on success).
+
+---
+
+## 8. Multi-Dungeon Expedition Atlas & Exploration-Scale Maps (`v0.4.5-atlas`)
+
+### 4 Regional Dungeon Profiles (`src/data/dungeons.js`)
+1. **Starfall Crater (`starfall_crater`)**: Medium (`84x60`), Balanced Halls & Caverns (`standard`), Difficulty Tier `1`, balanced ore distribution.
+2. **Sunken Reliquary (`sunken_reliquary`)**: Large (`128x90`), Ancient Vault Network (`labyrinth`), Difficulty Tier `2`, rich in Mithril, Relic Geodes, and treasure chests.
+3. **Pyroclast Fissure (`pyroclast_fissure`)**: Large (`128x90`), Winding Subterranean Caverns (`cavernous`), Difficulty Tier `3`, dense Iron, Mithril, and Star-Crystal seams.
+4. **The Abyssal Citadel (`abyssal_citadel`)**: Colossal (`168x120`), Grand Pillared Halls (`cathedral`), Difficulty Tier `4`, endgame Void Astralite & Star-Crystal stronghold.
+
+### Custom Expedition Chartering
+- Players can maintain up to **6 concurrent chartered dungeons** (`maxCharteredDungeons = 6`), choosing a Regional Profile, Map Size Tier (`small: 64x44`, `medium: 84x60`, `large: 128x90`, `colossal: 168x120`), Layout Style (`standard`, `cavernous`, `labyrinth`, `cathedral`), Difficulty Tier (`1–5`), and custom Seed Code.
+
+### Expanded Bestiary (`src/data/monsters.js`)
+- **12 Monster Archetypes**: Scavenger Imp, Cavern Crawler, Kobold Sapper, Star-Cult Acolyte, Ironclad Automaton, Void Stalker, Sunken Specter, Reliquary Guardian, Magma Hound, Cinder Drake, Abyssal Templar, and Star-Eater Mindflayer across 4 AI behavior patterns (`melee`, `ranged_kite`, `caster_debuff`, `skirmisher`, `tank`).
+- **4 Milestone Bosses**: Starfall Colossus (Floor 5), Void Weaver (Floor 10), Magma Behemoth (Floor 15), and Astral Archon (Floor 20+).
