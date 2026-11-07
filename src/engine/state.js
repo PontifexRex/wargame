@@ -1,9 +1,16 @@
-// Game State Schema, Save v4 Migration, Persistence, and Derived Hero Stats
+// Game State Schema (Multi-Dungeon Atlas v5), Save Migration, RLE Persistence & Derived Hero Stats
 
-import { SCHEMA_VERSION, STORAGE_KEY } from '../constants.js';
+import { SCHEMA_VERSION, STORAGE_KEY, DEFAULT_MAX_CHARTERED_DUNGEONS } from '../constants.js';
 import { CLASSES } from '../data/classes.js';
 import { GEM_IDS, GEM_CATALOG } from '../data/gems.js';
 import { buildProceduralBountySet } from '../data/bounties.js';
+import {
+  CURATED_DUNGEON_PROFILES,
+  normalizeDungeonConfig,
+  createDungeonInstance
+} from '../data/dungeons.js';
+import { hashSeedString } from './rng.js';
+import { packFloorForStorage, hydrateFloorFromStorage } from './compression.js';
 
 let itemSeq = 1000;
 
@@ -29,18 +36,63 @@ export function normalizeEquipmentSockets(item) {
   return item;
 }
 
+export function createDefaultDungeonsRegistry() {
+  return {
+    dng_starfall: createDungeonInstance('starfall_vaults', { id: 'dng_starfall', originType: 'curated' }),
+    dng_quarry:   createDungeonInstance('sunken_quarry',   { id: 'dng_quarry',   originType: 'curated' }),
+    dng_mycelium: createDungeonInstance('mycelium_labyrinth', { id: 'dng_mycelium', originType: 'curated' }),
+    dng_citadel:  createDungeonInstance('citadel_ruins',   { id: 'dng_citadel',  originType: 'curated' })
+  };
+}
+
+export function ensureDungeonFloorHydrated(dungeonObj, depth) {
+  if (!dungeonObj || !dungeonObj.floors || !dungeonObj.floors[depth]) return null;
+  dungeonObj.floors[depth] = hydrateFloorFromStorage(dungeonObj.floors[depth]);
+  return dungeonObj.floors[depth];
+}
+
+export function syncActiveDungeonAlias(state) {
+  if (!state) return null;
+  if (!state.dungeons || Object.keys(state.dungeons).length === 0) {
+    state.dungeons = createDefaultDungeonsRegistry();
+  }
+  if (!state.activeDungeonId || !state.dungeons[state.activeDungeonId]) {
+    const firstKey = state.dungeons.dng_starfall ? 'dng_starfall' : Object.keys(state.dungeons)[0];
+    state.activeDungeonId = firstKey;
+  }
+
+  // Keep inactive dungeons compactly RLE-packed in memory so hundreds of dungeons stay lightweight
+  Object.keys(state.dungeons).forEach(dId => {
+    const dng = state.dungeons[dId];
+    if (!dng || !dng.floors) return;
+    if (dId !== state.activeDungeonId) {
+      Object.keys(dng.floors).forEach(fk => {
+        if (dng.floors[fk] && !dng.floors[fk].packed) {
+          dng.floors[fk] = packFloorForStorage(dng.floors[fk]);
+        }
+      });
+    }
+  });
+
+  const active = state.dungeons[state.activeDungeonId];
+  ensureDungeonFloorHydrated(active, active.currentFloor || 1);
+  state.dungeon = active;
+  return active;
+}
+
 export function createDefaultGameState() {
+  const dungeons = createDefaultDungeonsRegistry();
+  const activeId = 'dng_starfall';
   return {
     version: SCHEMA_VERSION,
     turn: 0,
     inGuild: true,
     audioEnabled: true,
+    maxCharteredDungeons: DEFAULT_MAX_CHARTERED_DUNGEONS,
     hero: null,
-    dungeon: {
-      seedCode: 'STAR-' + (1000 + Math.floor(Math.random() * 8999)),
-      currentFloor: 1,
-      floors: {}
-    },
+    activeDungeonId: activeId,
+    dungeons,
+    dungeon: dungeons[activeId],
     guildVault: {
       gold: 35,
       copper: 0,
@@ -78,6 +130,7 @@ export function setGameState(nextState) {
     delete gameState[k];
   });
   Object.assign(gameState, nextState);
+  syncActiveDungeonAlias(gameState);
   return gameState;
 }
 
@@ -89,6 +142,9 @@ export function migrateSaveData(raw) {
   migrated.turn = data.turn || 0;
   migrated.inGuild = data.inGuild !== undefined ? data.inGuild : (data.location !== 'dungeon');
   migrated.audioEnabled = data.audioEnabled !== undefined ? data.audioEnabled : true;
+  migrated.maxCharteredDungeons = typeof data.maxCharteredDungeons === 'number'
+    ? data.maxCharteredDungeons
+    : DEFAULT_MAX_CHARTERED_DUNGEONS;
 
   // Migrate Vault & Bank
   const srcVault = data.guildVault || data.bank || {};
@@ -201,19 +257,46 @@ export function migrateSaveData(raw) {
     };
   }
 
-  if (data.dungeon && data.dungeon.floors) {
-    migrated.dungeon.seedCode = data.dungeon.seedCode || 'STAR-4812';
-    migrated.dungeon.currentFloor = data.dungeon.currentFloor || data.dungeon.currentDepth || 1;
-    migrated.dungeon.floors = data.dungeon.floors;
-    Object.keys(migrated.dungeon.floors).forEach(fk => {
-      const fl = migrated.dungeon.floors[fk];
-      if (fl) {
-        fl.shrines = fl.shrines || {};
-        fl.traps = fl.traps || {};
-      }
+  // Migrate Multi-Dungeon Registry OR Legacy Single Dungeon
+  if (data.dungeons && typeof data.dungeons === 'object' && Object.keys(data.dungeons).length > 0) {
+    Object.keys(data.dungeons).forEach(dId => {
+      const rawDng = data.dungeons[dId];
+      if (!rawDng) return;
+      const baseProf = CURATED_DUNGEON_PROFILES[rawDng.profileId] || {};
+      const normCfg = normalizeDungeonConfig(Object.assign({}, baseProf, rawDng.config || {}));
+      const seedCode = rawDng.seedCode || 'STAR-4812';
+      migrated.dungeons[dId] = {
+        id: dId,
+        name: rawDng.name || normCfg.name,
+        profileId: rawDng.profileId || normCfg.profileId,
+        originType: rawDng.originType || (CURATED_DUNGEON_PROFILES[normCfg.profileId] ? 'curated' : 'chartered'),
+        worldCoords: rawDng.worldCoords || null,
+        seedCode,
+        numericSeed: rawDng.numericSeed || hashSeedString(seedCode, 0),
+        config: normCfg,
+        currentFloor: rawDng.currentFloor || 1,
+        deepestFloor: rawDng.deepestFloor || rawDng.currentFloor || 1,
+        isCleared: !!rawDng.isCleared,
+        floors: rawDng.floors || {}
+      };
     });
+    migrated.activeDungeonId = data.activeDungeonId && migrated.dungeons[data.activeDungeonId]
+      ? data.activeDungeonId
+      : Object.keys(migrated.dungeons)[0];
+  } else if (data.dungeon && data.dungeon.floors) {
+    const targetDng = migrated.dungeons.dng_starfall;
+    targetDng.seedCode = data.dungeon.seedCode || 'STAR-4812';
+    targetDng.numericSeed = hashSeedString(targetDng.seedCode, 0);
+    targetDng.currentFloor = data.dungeon.currentFloor || data.dungeon.currentDepth || 1;
+    targetDng.deepestFloor = Math.max(1, targetDng.currentFloor, Object.keys(data.dungeon.floors).length);
+    targetDng.floors = {};
+    Object.keys(data.dungeon.floors).forEach(fk => {
+      targetDng.floors[fk] = hydrateFloorFromStorage(data.dungeon.floors[fk]);
+    });
+    migrated.activeDungeonId = 'dng_starfall';
   }
 
+  syncActiveDungeonAlias(migrated);
   migrated.version = SCHEMA_VERSION;
   return migrated;
 }
@@ -334,10 +417,54 @@ export function recomputeHeroDerivedStats(fullRestore = false, state = gameState
   }
 }
 
+export function serializeStateForStorage(state = gameState) {
+  const packedDungeons = {};
+  const srcDungeons = state.dungeons || {};
+  Object.keys(srcDungeons).forEach(dId => {
+    const dng = srcDungeons[dId];
+    if (!dng) return;
+    const packedFloors = {};
+    if (dng.floors) {
+      Object.keys(dng.floors).forEach(fk => {
+        packedFloors[fk] = packFloorForStorage(dng.floors[fk]);
+      });
+    }
+    packedDungeons[dId] = {
+      id: dng.id,
+      name: dng.name,
+      profileId: dng.profileId,
+      originType: dng.originType,
+      worldCoords: dng.worldCoords || null,
+      seedCode: dng.seedCode,
+      numericSeed: dng.numericSeed,
+      config: dng.config,
+      currentFloor: dng.currentFloor,
+      deepestFloor: dng.deepestFloor || dng.currentFloor || 1,
+      isCleared: !!dng.isCleared,
+      floors: packedFloors
+    };
+  });
+
+  return {
+    version: state.version || SCHEMA_VERSION,
+    turn: state.turn || 0,
+    inGuild: state.inGuild !== false,
+    audioEnabled: state.audioEnabled !== false,
+    maxCharteredDungeons: state.maxCharteredDungeons || DEFAULT_MAX_CHARTERED_DUNGEONS,
+    activeDungeonId: state.activeDungeonId,
+    dungeons: packedDungeons,
+    hero: state.hero,
+    guildVault: state.guildVault,
+    guildResearch: state.guildResearch,
+    guildBounties: state.guildBounties
+  };
+}
+
 export function saveGame(state = gameState) {
   try {
     if (typeof localStorage !== 'undefined') {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      const payload = serializeStateForStorage(state);
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
     }
   } catch (e) {
     // Ignore storage quota or sandbox errors
@@ -349,6 +476,7 @@ export function loadGame() {
     if (typeof localStorage !== 'undefined') {
       const raw =
         localStorage.getItem(STORAGE_KEY) ||
+        localStorage.getItem('aethelgard_save_v4') ||
         localStorage.getItem('aethelgard_save_v3') ||
         localStorage.getItem('aethelgard_save_v2') ||
         localStorage.getItem('aethelgard_save');

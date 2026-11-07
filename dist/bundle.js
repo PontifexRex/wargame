@@ -3,16 +3,30 @@
   'use strict';
 
   // --- Module: src/constants.js ---
-// Core constants, grid dimensions, tile IDs, and rarity definitions
+// Core constants, viewport dimensions, map scale presets, tile IDs, and rarity definitions
 
-const SCHEMA_VERSION = 'v0.4.0-inc4';
-const STORAGE_KEY = 'aethelgard_save_v4';
+const SCHEMA_VERSION = 'v0.4.5-atlas';
+const STORAGE_KEY = 'aethelgard_save_v5';
 
 const TILE_SIZE = 32;
-const GRID_W = 21;
-const GRID_H = 15;
-const VIEWPORT_WIDTH = GRID_W;
-const VIEWPORT_HEIGHT = GRID_H;
+const VIEWPORT_WIDTH = 21;
+const VIEWPORT_HEIGHT = 15;
+
+// Legacy viewport aliases + new exploration-scale default floor dimensions
+const GRID_W = VIEWPORT_WIDTH;
+const GRID_H = VIEWPORT_HEIGHT;
+const DEFAULT_MAP_W = 80;
+const DEFAULT_MAP_H = 60;
+
+// Soft configurable cap on simultaneously chartered custom expeditions (not a structural limit; can be raised to 500+)
+const DEFAULT_MAX_CHARTERED_DUNGEONS = 12;
+
+const MAP_SIZE_PRESETS = {
+  small:     { id: 'small',     name: 'Small Outpost',        width: 48,  height: 36,  desc: '48x36 (~5.5x classic) • 14–18 chambers' },
+  standard:  { id: 'standard',  name: 'Standard Delve',       width: 80,  height: 60,  desc: '80x60 (~15x classic) • Multi-wing halls & vaults' },
+  sprawling: { id: 'sprawling', name: 'Sprawling Labyrinth',  width: 128, height: 96,  desc: '128x96 (~39x classic) • Deep avenues & caverns' },
+  colossal:  { id: 'colossal',  name: 'Colossal Megadungeon', width: 192, height: 144, desc: '192x144 (~88x classic) • Massive subterranean expanse' }
+};
 
 // Tile Constants
 const TILE_WALL = 0;
@@ -33,7 +47,7 @@ const TILE_ORE_ASTRAL = 14;
 const TILE_ORE_GEODE = 15;
 const TILE_TRAP_DISARMED = 16;
 
-// Increment 4 Economy Constants
+// Economy Constants
 const LAPIDARY_UNSOCKET_COST = 15;
 const BOUNTY_REROLL_COST = 25;
 
@@ -390,8 +404,561 @@ function buildProceduralBountySet(geologyRank = 0, cartographyRank = 0) {
   return contracts;
 }
 
+  // --- Module: src/engine/rng.js ---
+// Deterministic Seeded PRNG (Mulberry32) & Seed String Hashing
+
+function hashSeedString(seedStr, salt = 0) {
+  const str = String(seedStr || 'STAR-1000') + ':' + String(salt);
+  let h = 2166136261 >>> 0;
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return (h >>> 0) || 1;
+}
+
+function createSeededRng(numericSeed) {
+  let state = (numericSeed >>> 0) || 1;
+  return function nextRand() {
+    state = (state + 0x6D2B79F5) >>> 0;
+    let t = Math.imul(state ^ (state >>> 15), 1 | state);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function randomSeedCode(prefix = 'STAR') {
+  const num = 1000 + Math.floor(Math.random() * 8999);
+  return `${prefix}-${num}`;
+}
+
+  // --- Module: src/data/dungeons.js ---
+// Declarative Dungeon Profiles, Layout Styles, Monster/Ore Rosters & Custom Charter Builder
+
+
+
+const LAYOUT_STYLES = {
+  masonry_vaults: {
+    id: 'masonry_vaults',
+    name: 'Masonry Vaults & Avenues',
+    desc: 'Structured halls, pillared plazas, 2-tile main avenues, and looping corridors.'
+  },
+  excavation_quarry: {
+    id: 'excavation_quarry',
+    name: 'Dwarven Mining Quarry',
+    desc: 'Long cross-cut excavation drifts with high wall perimeter and rich ore motherlodes.'
+  },
+  crystalline_caverns: {
+    id: 'crystalline_caverns',
+    name: 'Crystalline & Mycelium Caverns',
+    desc: 'Organic chamfered grottoes, winding tunnels, and dense subterranean shrines.'
+  },
+  grand_ruins: {
+    id: 'grand_ruins',
+    name: 'Grand Colonnade Ruins',
+    desc: 'Vast pillared courts, side sanctums, and heavily guarded Treasure Vaults.'
+  }
+};
+
+const MONSTER_FAMILY_POOLS = {
+  balanced: [
+    { id: 'vault_crawler',     weight: 30, minFloor: 1 },
+    { id: 'starfall_archer',   weight: 22, minFloor: 1 },
+    { id: 'brood_skitterer',   weight: 16, minFloor: 1 },
+    { id: 'dwarven_automaton', weight: 14, minFloor: 2 },
+    { id: 'abyssal_cultist',   weight: 18, minFloor: 3 },
+    { id: 'crypt_stalker',     weight: 14, minFloor: 3 },
+    { id: 'void_hexer',        weight: 12, minFloor: 5 }
+  ],
+  beasts: [
+    { id: 'vault_crawler',     weight: 36, minFloor: 1 },
+    { id: 'brood_skitterer',   weight: 32, minFloor: 1 },
+    { id: 'spore_lurker',      weight: 28, minFloor: 1 },
+    { id: 'starfall_archer',   weight: 12, minFloor: 2 }
+  ],
+  dwarven_forge: [
+    { id: 'dwarven_automaton', weight: 35, minFloor: 1 },
+    { id: 'ember_pyromancer',  weight: 26, minFloor: 1 },
+    { id: 'vault_crawler',     weight: 18, minFloor: 1 },
+    { id: 'magma_golem',       weight: 24, minFloor: 2 }
+  ],
+  astral_cult: [
+    { id: 'starfall_archer',   weight: 24, minFloor: 1 },
+    { id: 'abyssal_cultist',   weight: 32, minFloor: 1 },
+    { id: 'astral_wraith',     weight: 24, minFloor: 1 },
+    { id: 'void_hexer',        weight: 22, minFloor: 2 }
+  ],
+  ancient_crypt: [
+    { id: 'crypt_stalker',     weight: 34, minFloor: 1 },
+    { id: 'bone_warden',       weight: 32, minFloor: 1 },
+    { id: 'abyssal_cultist',   weight: 20, minFloor: 1 },
+    { id: 'astral_wraith',     weight: 18, minFloor: 2 }
+  ]
+};
+
+const ORE_FOCUS_TABLES = {
+  balanced: [
+    { tile: TILE_ORE_COPPER,  weight: 38, minFloor: 1 },
+    { tile: TILE_ORE_IRON,    weight: 28, minFloor: 1 },
+    { tile: TILE_ORE_MITHRIL, weight: 16, minFloor: 2 },
+    { tile: TILE_ORE_GEODE,   weight: 14, minFloor: 2 },
+    { tile: TILE_ORE_STAR,    weight: 12, minFloor: 3 },
+    { tile: TILE_ORE_ASTRAL,  weight: 8,  minFloor: 5 }
+  ],
+  copper_iron: [
+    { tile: TILE_ORE_COPPER,  weight: 50, minFloor: 1 },
+    { tile: TILE_ORE_IRON,    weight: 38, minFloor: 1 },
+    { tile: TILE_ORE_GEODE,   weight: 12, minFloor: 2 },
+    { tile: TILE_ORE_MITHRIL, weight: 8,  minFloor: 3 }
+  ],
+  mithril_geode: [
+    { tile: TILE_ORE_IRON,    weight: 22, minFloor: 1 },
+    { tile: TILE_ORE_MITHRIL, weight: 36, minFloor: 1 },
+    { tile: TILE_ORE_GEODE,   weight: 34, minFloor: 1 },
+    { tile: TILE_ORE_STAR,    weight: 12, minFloor: 3 }
+  ],
+  astral_crystal: [
+    { tile: TILE_ORE_MITHRIL, weight: 20, minFloor: 1 },
+    { tile: TILE_ORE_GEODE,   weight: 20, minFloor: 1 },
+    { tile: TILE_ORE_STAR,    weight: 36, minFloor: 1 },
+    { tile: TILE_ORE_ASTRAL,  weight: 28, minFloor: 2 }
+  ]
+};
+
+const CURATED_DUNGEON_PROFILES = {
+  starfall_vaults: {
+    profileId: 'starfall_vaults',
+    name: 'The Starfall Vaults',
+    subtitle: 'Primary Astral Shaft • Multi-Wing Masonry Halls',
+    themeColor: '#fbbf24',
+    seedPrefix: 'STAR',
+    reqCartography: 0,
+    width: 80,
+    height: 60,
+    sizeTier: 'standard',
+    maxDepth: 999,
+    baseDangerDepth: 0,
+    respectsCartographyPermit: true,
+    layoutStyle: 'masonry_vaults',
+    loopRatio: 0.35,
+    vaultRoomCount: 1,
+    monsterFamily: 'balanced',
+    monsterDensityMult: 1.0,
+    eliteChance: 0.22,
+    oreFocus: 'balanced',
+    veinDensityMult: 1.0,
+    motherlodeChance: 0.45,
+    chestDensityMult: 1.0,
+    lootRarityBonus: 0,
+    shrineDensityMult: 1.0,
+    trapDensityMult: 1.0,
+    allowedTraps: ['spike', 'flame'],
+    bossSchedule: {
+      5: 'boss_colossus',
+      10: 'boss_weaver'
+    }
+  },
+  sunken_quarry: {
+    profileId: 'sunken_quarry',
+    name: 'Sunken Copper Quarry',
+    subtitle: 'Abandoned Dwarven Drift • Rich Copper & Iron Seams',
+    themeColor: '#f59e0b',
+    seedPrefix: 'QUAR',
+    reqCartography: 0,
+    width: 48,
+    height: 36,
+    sizeTier: 'small',
+    maxDepth: 4,
+    baseDangerDepth: 0,
+    respectsCartographyPermit: false,
+    layoutStyle: 'excavation_quarry',
+    loopRatio: 0.40,
+    vaultRoomCount: 1,
+    monsterFamily: 'dwarven_forge',
+    monsterDensityMult: 0.9,
+    eliteChance: 0.18,
+    oreFocus: 'copper_iron',
+    veinDensityMult: 1.55,
+    motherlodeChance: 0.75,
+    chestDensityMult: 0.95,
+    lootRarityBonus: 0,
+    shrineDensityMult: 1.0,
+    trapDensityMult: 0.85,
+    allowedTraps: ['spike', 'flame'],
+    bossSchedule: {
+      4: 'boss_runelord'
+    }
+  },
+  mycelium_labyrinth: {
+    profileId: 'mycelium_labyrinth',
+    name: 'Whispering Mycelium Labyrinth',
+    subtitle: 'Sprawling Bioluminescent Grottoes • Geodes & Shrines',
+    themeColor: '#34d399',
+    seedPrefix: 'MYCE',
+    reqCartography: 1,
+    width: 128,
+    height: 96,
+    sizeTier: 'sprawling',
+    maxDepth: 5,
+    baseDangerDepth: 1,
+    respectsCartographyPermit: false,
+    layoutStyle: 'crystalline_caverns',
+    loopRatio: 0.42,
+    vaultRoomCount: 2,
+    monsterFamily: 'beasts',
+    monsterDensityMult: 1.05,
+    eliteChance: 0.25,
+    oreFocus: 'mithril_geode',
+    veinDensityMult: 1.25,
+    motherlodeChance: 0.60,
+    chestDensityMult: 1.15,
+    lootRarityBonus: 0.08,
+    shrineDensityMult: 1.5,
+    trapDensityMult: 1.1,
+    allowedTraps: ['spike'],
+    bossSchedule: {
+      5: 'boss_broodmother'
+    }
+  },
+  citadel_ruins: {
+    profileId: 'citadel_ruins',
+    name: 'Citadel of the Fallen Star',
+    subtitle: 'Colossal 2-Floor Sunken Metropolis • High-Tier Vaults',
+    themeColor: '#c084fc',
+    seedPrefix: 'CITA',
+    reqCartography: 1,
+    width: 192,
+    height: 144,
+    sizeTier: 'colossal',
+    maxDepth: 2,
+    baseDangerDepth: 3,
+    respectsCartographyPermit: false,
+    layoutStyle: 'grand_ruins',
+    loopRatio: 0.45,
+    vaultRoomCount: 4,
+    monsterFamily: 'ancient_crypt',
+    monsterDensityMult: 1.1,
+    eliteChance: 0.30,
+    oreFocus: 'astral_crystal',
+    veinDensityMult: 1.2,
+    motherlodeChance: 0.65,
+    chestDensityMult: 1.4,
+    lootRarityBonus: 0.16,
+    shrineDensityMult: 1.35,
+    trapDensityMult: 1.2,
+    allowedTraps: ['spike', 'flame'],
+    bossSchedule: {
+      2: 'boss_weaver'
+    }
+  }
+};
+
+function normalizeDungeonConfig(rawCfg) {
+  const base = CURATED_DUNGEON_PROFILES.starfall_vaults;
+  const src = rawCfg || {};
+
+  const width = Math.max(15, Math.min(500, Math.round(Number(src.width) || base.width || DEFAULT_MAP_W)));
+  const height = Math.max(15, Math.min(500, Math.round(Number(src.height) || base.height || DEFAULT_MAP_H)));
+  const maxDepth = Math.max(1, Math.min(999, Math.round(Number(src.maxDepth) || base.maxDepth)));
+  const layoutStyle = LAYOUT_STYLES[src.layoutStyle] ? src.layoutStyle : base.layoutStyle;
+  const monsterFamily = MONSTER_FAMILY_POOLS[src.monsterFamily] ? src.monsterFamily : base.monsterFamily;
+  const oreFocus = ORE_FOCUS_TABLES[src.oreFocus] ? src.oreFocus : base.oreFocus;
+
+  const monsterPool = Array.isArray(src.monsterPool) && src.monsterPool.length > 0
+    ? src.monsterPool
+    : MONSTER_FAMILY_POOLS[monsterFamily];
+
+  const oreTable = Array.isArray(src.oreTable) && src.oreTable.length > 0
+    ? src.oreTable
+    : ORE_FOCUS_TABLES[oreFocus];
+
+  return {
+    profileId: src.profileId || 'custom_charter',
+    name: src.name || base.name,
+    subtitle: src.subtitle || `${width}x${height} • Max Depth ${maxDepth}`,
+    themeColor: src.themeColor || '#60a5fa',
+    seedPrefix: src.seedPrefix || 'CHRT',
+    reqCartography: typeof src.reqCartography === 'number' ? src.reqCartography : 0,
+    width,
+    height,
+    sizeTier: src.sizeTier || 'custom',
+    maxDepth,
+    baseDangerDepth: typeof src.baseDangerDepth === 'number' ? src.baseDangerDepth : 0,
+    respectsCartographyPermit: src.respectsCartographyPermit !== undefined ? !!src.respectsCartographyPermit : false,
+    layoutStyle,
+    loopRatio: typeof src.loopRatio === 'number' ? src.loopRatio : 0.35,
+    vaultRoomCount: typeof src.vaultRoomCount === 'number' ? src.vaultRoomCount : Math.max(1, Math.round((width * height) / 4800)),
+    monsterFamily,
+    monsterPool,
+    monsterDensityMult: typeof src.monsterDensityMult === 'number' ? src.monsterDensityMult : 1.0,
+    eliteChance: typeof src.eliteChance === 'number' ? src.eliteChance : 0.22,
+    oreFocus,
+    oreTable,
+    veinDensityMult: typeof src.veinDensityMult === 'number' ? src.veinDensityMult : 1.0,
+    motherlodeChance: typeof src.motherlodeChance === 'number' ? src.motherlodeChance : 0.50,
+    chestDensityMult: typeof src.chestDensityMult === 'number' ? src.chestDensityMult : 1.0,
+    lootRarityBonus: typeof src.lootRarityBonus === 'number' ? src.lootRarityBonus : 0,
+    lootSlotBias: src.lootSlotBias || null,
+    shrineDensityMult: typeof src.shrineDensityMult === 'number' ? src.shrineDensityMult : 1.0,
+    trapDensityMult: typeof src.trapDensityMult === 'number' ? src.trapDensityMult : 1.0,
+    allowedTraps: Array.isArray(src.allowedTraps) && src.allowedTraps.length > 0 ? src.allowedTraps : ['spike', 'flame'],
+    bossSchedule: src.bossSchedule ? Object.assign({}, src.bossSchedule) : {}
+  };
+}
+
+let dungeonInstSeq = 100;
+
+function createDungeonInstance(profileOrConfig, options = {}) {
+  const baseProfile = typeof profileOrConfig === 'string'
+    ? (CURATED_DUNGEON_PROFILES[profileOrConfig] || CURATED_DUNGEON_PROFILES.starfall_vaults)
+    : (profileOrConfig || CURATED_DUNGEON_PROFILES.starfall_vaults);
+
+  const mergedCfg = normalizeDungeonConfig(Object.assign({}, baseProfile, options.configOverrides || {}));
+  const id = options.id || `dng_${mergedCfg.profileId}_${Date.now()}_${dungeonInstSeq++}`;
+  const seedCode = options.seedCode || randomSeedCode(mergedCfg.seedPrefix || 'STAR');
+  const numericSeed = options.numericSeed || hashSeedString(seedCode, 0);
+
+  return {
+    id,
+    name: mergedCfg.name,
+    profileId: mergedCfg.profileId,
+    originType: options.originType || (CURATED_DUNGEON_PROFILES[mergedCfg.profileId] ? 'curated' : 'chartered'),
+    worldCoords: options.worldCoords || null, // Ready for future World Map { x, y, regionId }
+    seedCode,
+    numericSeed,
+    config: mergedCfg,
+    currentFloor: 1,
+    deepestFloor: 1,
+    isCleared: false,
+    floors: {}
+  };
+}
+
+function buildCharteredDungeonInstance(opts = {}) {
+  const preset = opts.sizePreset && MAP_SIZE_PRESETS[opts.sizePreset] ? MAP_SIZE_PRESETS[opts.sizePreset] : null;
+  const width = opts.width ? Number(opts.width) : (preset ? preset.width : 80);
+  const height = opts.height ? Number(opts.height) : (preset ? preset.height : 60);
+  const maxDepth = Math.max(1, Math.min(999, Number(opts.maxDepth) || 5));
+
+  const styleKeys = Object.keys(LAYOUT_STYLES);
+  const famKeys = Object.keys(MONSTER_FAMILY_POOLS);
+  const oreKeys = Object.keys(ORE_FOCUS_TABLES);
+
+  const layoutStyle = LAYOUT_STYLES[opts.layoutStyle] ? opts.layoutStyle : styleKeys[Math.floor(Math.random() * styleKeys.length)];
+  const monsterFamily = MONSTER_FAMILY_POOLS[opts.monsterFamily] ? opts.monsterFamily : famKeys[Math.floor(Math.random() * famKeys.length)];
+  const oreFocus = ORE_FOCUS_TABLES[opts.oreFocus] ? opts.oreFocus : oreKeys[Math.floor(Math.random() * oreKeys.length)];
+  const richness = opts.richness === 'high' ? 1.45 : (opts.richness === 'extreme' ? 1.85 : 1.0);
+
+  const adjPool = ['Forgotten', 'Sunken', 'Obsidian', 'Shattered', 'Astral', 'Gilded', 'Whispering', 'eldritch'];
+  const nounPool = {
+    masonry_vaults: 'Vaults',
+    excavation_quarry: 'Delve',
+    crystalline_caverns: 'Grottoes',
+    grand_ruins: 'Sanctum'
+  };
+  const autoTitle = opts.name && String(opts.name).trim()
+    ? String(opts.name).trim()
+    : `${adjPool[Math.floor(Math.random() * adjPool.length)].replace(/^e/, 'E')} ${nounPool[layoutStyle] || 'Expanse'}`;
+
+  const bossPool = ['boss_colossus', 'boss_runelord', 'boss_broodmother', 'boss_weaver'];
+  const finalBoss = bossPool[Math.min(bossPool.length - 1, Math.floor((maxDepth - 1) / 3) % bossPool.length)];
+  const bossSchedule = {};
+  bossSchedule[maxDepth] = finalBoss;
+
+  const customCfg = normalizeDungeonConfig({
+    profileId: 'custom_charter',
+    name: autoTitle,
+    subtitle: `Chartered ${width}x${height} • ${LAYOUT_STYLES[layoutStyle].name}`,
+    themeColor: '#60a5fa',
+    seedPrefix: 'CHRT',
+    width,
+    height,
+    sizeTier: preset ? preset.id : 'custom',
+    maxDepth,
+    baseDangerDepth: Number(opts.baseDangerDepth) || 0,
+    respectsCartographyPermit: false,
+    layoutStyle,
+    monsterFamily,
+    oreFocus,
+    veinDensityMult: richness,
+    chestDensityMult: richness,
+    lootRarityBonus: richness > 1.2 ? 0.10 : 0,
+    bossSchedule
+  });
+
+  return createDungeonInstance(customCfg, {
+    originType: 'chartered',
+    seedCode: opts.seedCode || randomSeedCode('CHRT')
+  });
+}
+
+  // --- Module: src/engine/compression.js ---
+// Compact Run-Length Encoding (RLE) & Lazy Floor Hydration for Large Multi-Dungeon Saves
+
+
+function createUint8Grid(width, height, fillVal = 0) {
+  const rows = new Array(height);
+  for (let y = 0; y < height; y++) {
+    const row = new Uint8Array(width);
+    if (fillVal !== 0) row.fill(fillVal);
+    rows[y] = row;
+  }
+  return rows;
+}
+
+function encodeGridToRle(grid, width, height, boolMode = false) {
+  if (!grid || height <= 0 || width <= 0) return '';
+  const parts = [];
+  let curVal = -1;
+  let runLen = 0;
+
+  for (let y = 0; y < height; y++) {
+    const row = grid[y];
+    for (let x = 0; x < width; x++) {
+      const raw = row ? row[x] : 0;
+      const v = boolMode ? (raw ? 1 : 0) : (raw | 0);
+      if (v === curVal) {
+        runLen += 1;
+      } else {
+        if (runLen > 0) {
+          parts.push(runLen > 1 ? `${curVal}:${runLen}` : `${curVal}`);
+        }
+        curVal = v;
+        runLen = 1;
+      }
+    }
+  }
+  if (runLen > 0) {
+    parts.push(runLen > 1 ? `${curVal}:${runLen}` : `${curVal}`);
+  }
+  return parts.join(',');
+}
+
+function decodeRleToGrid(rleStr, width, height) {
+  const rows = createUint8Grid(width, height, 0);
+  if (!rleStr || typeof rleStr !== 'string') return rows;
+
+  const total = width * height;
+  let cellIdx = 0;
+  let i = 0;
+  const len = rleStr.length;
+
+  while (i < len && cellIdx < total) {
+    let val = 0;
+    while (i < len) {
+      const c = rleStr.charCodeAt(i);
+      if (c >= 48 && c <= 57) {
+        val = val * 10 + (c - 48);
+        i += 1;
+      } else {
+        break;
+      }
+    }
+
+    let count = 1;
+    if (i < len && rleStr.charCodeAt(i) === 58) { // ':'
+      i += 1;
+      count = 0;
+      while (i < len) {
+        const c = rleStr.charCodeAt(i);
+        if (c >= 48 && c <= 57) {
+          count = count * 10 + (c - 48);
+          i += 1;
+        } else {
+          break;
+        }
+      }
+      if (count <= 0) count = 1;
+    }
+
+    if (i < len && rleStr.charCodeAt(i) === 44) { // ','
+      i += 1;
+    }
+
+    const endIdx = Math.min(total, cellIdx + count);
+    if (val !== 0) {
+      while (cellIdx < endIdx) {
+        const r = (cellIdx / width) | 0;
+        const col = cellIdx - r * width;
+        rows[r][col] = val;
+        cellIdx += 1;
+      }
+    } else {
+      cellIdx = endIdx;
+    }
+  }
+
+  return rows;
+}
+
+function packFloorForStorage(floor) {
+  if (!floor) return null;
+  if (floor.packed && typeof floor.tilesRle === 'string') {
+    return floor;
+  }
+  const h = floor.height || (floor.tiles ? floor.tiles.length : DEFAULT_MAP_H);
+  const w = floor.width || (floor.tiles && floor.tiles[0] ? floor.tiles[0].length : DEFAULT_MAP_W);
+
+  return {
+    packed: true,
+    depth: floor.depth || 1,
+    width: w,
+    height: h,
+    roomCount: floor.roomCount || 0,
+    upPos: floor.upPos || { x: 2, y: 2 },
+    downPos: floor.downPos || { x: w - 3, y: h - 3 },
+    hasDownStairs: floor.hasDownStairs !== undefined ? !!floor.hasDownStairs : true,
+    shrines: floor.shrines || {},
+    traps: floor.traps || {},
+    vaults: floor.vaults || [],
+    monsters: Array.isArray(floor.monsters) ? floor.monsters : [],
+    oresMined: floor.oresMined || 0,
+    tilesRle: encodeGridToRle(floor.tiles, w, h, false),
+    exploredRle: encodeGridToRle(floor.explored, w, h, true)
+  };
+}
+
+function hydrateFloorFromStorage(rawFloor) {
+  if (!rawFloor) return null;
+  if (!rawFloor.packed && rawFloor.tiles && rawFloor.tiles.length > 0) {
+    const h = rawFloor.height || rawFloor.tiles.length;
+    const w = rawFloor.width || rawFloor.tiles[0].length;
+    rawFloor.packed = false;
+    rawFloor.width = w;
+    rawFloor.height = h;
+    rawFloor.shrines = rawFloor.shrines || {};
+    rawFloor.traps = rawFloor.traps || {};
+    rawFloor.vaults = rawFloor.vaults || [];
+    if (rawFloor.hasDownStairs === undefined) rawFloor.hasDownStairs = true;
+    return rawFloor;
+  }
+
+  const w = rawFloor.width || DEFAULT_MAP_W;
+  const h = rawFloor.height || DEFAULT_MAP_H;
+  return {
+    packed: false,
+    depth: rawFloor.depth || 1,
+    width: w,
+    height: h,
+    roomCount: rawFloor.roomCount || 0,
+    tiles: decodeRleToGrid(rawFloor.tilesRle || '', w, h),
+    explored: decodeRleToGrid(rawFloor.exploredRle || '', w, h),
+    upPos: rawFloor.upPos || { x: 2, y: 2 },
+    downPos: rawFloor.downPos || { x: w - 3, y: h - 3 },
+    hasDownStairs: rawFloor.hasDownStairs !== undefined ? !!rawFloor.hasDownStairs : true,
+    shrines: rawFloor.shrines || {},
+    traps: rawFloor.traps || {},
+    vaults: rawFloor.vaults || [],
+    monsters: Array.isArray(rawFloor.monsters) ? rawFloor.monsters : [],
+    oresMined: rawFloor.oresMined || 0
+  };
+}
+
   // --- Module: src/engine/state.js ---
-// Game State Schema, Save v4 Migration, Persistence, and Derived Hero Stats
+// Game State Schema (Multi-Dungeon Atlas v5), Save Migration, RLE Persistence & Derived Hero Stats
+
+
+
 
 
 
@@ -421,18 +988,63 @@ function normalizeEquipmentSockets(item) {
   return item;
 }
 
+function createDefaultDungeonsRegistry() {
+  return {
+    dng_starfall: createDungeonInstance('starfall_vaults', { id: 'dng_starfall', originType: 'curated' }),
+    dng_quarry:   createDungeonInstance('sunken_quarry',   { id: 'dng_quarry',   originType: 'curated' }),
+    dng_mycelium: createDungeonInstance('mycelium_labyrinth', { id: 'dng_mycelium', originType: 'curated' }),
+    dng_citadel:  createDungeonInstance('citadel_ruins',   { id: 'dng_citadel',  originType: 'curated' })
+  };
+}
+
+function ensureDungeonFloorHydrated(dungeonObj, depth) {
+  if (!dungeonObj || !dungeonObj.floors || !dungeonObj.floors[depth]) return null;
+  dungeonObj.floors[depth] = hydrateFloorFromStorage(dungeonObj.floors[depth]);
+  return dungeonObj.floors[depth];
+}
+
+function syncActiveDungeonAlias(state) {
+  if (!state) return null;
+  if (!state.dungeons || Object.keys(state.dungeons).length === 0) {
+    state.dungeons = createDefaultDungeonsRegistry();
+  }
+  if (!state.activeDungeonId || !state.dungeons[state.activeDungeonId]) {
+    const firstKey = state.dungeons.dng_starfall ? 'dng_starfall' : Object.keys(state.dungeons)[0];
+    state.activeDungeonId = firstKey;
+  }
+
+  // Keep inactive dungeons compactly RLE-packed in memory so hundreds of dungeons stay lightweight
+  Object.keys(state.dungeons).forEach(dId => {
+    const dng = state.dungeons[dId];
+    if (!dng || !dng.floors) return;
+    if (dId !== state.activeDungeonId) {
+      Object.keys(dng.floors).forEach(fk => {
+        if (dng.floors[fk] && !dng.floors[fk].packed) {
+          dng.floors[fk] = packFloorForStorage(dng.floors[fk]);
+        }
+      });
+    }
+  });
+
+  const active = state.dungeons[state.activeDungeonId];
+  ensureDungeonFloorHydrated(active, active.currentFloor || 1);
+  state.dungeon = active;
+  return active;
+}
+
 function createDefaultGameState() {
+  const dungeons = createDefaultDungeonsRegistry();
+  const activeId = 'dng_starfall';
   return {
     version: SCHEMA_VERSION,
     turn: 0,
     inGuild: true,
     audioEnabled: true,
+    maxCharteredDungeons: DEFAULT_MAX_CHARTERED_DUNGEONS,
     hero: null,
-    dungeon: {
-      seedCode: 'STAR-' + (1000 + Math.floor(Math.random() * 8999)),
-      currentFloor: 1,
-      floors: {}
-    },
+    activeDungeonId: activeId,
+    dungeons,
+    dungeon: dungeons[activeId],
     guildVault: {
       gold: 35,
       copper: 0,
@@ -470,6 +1082,7 @@ function setGameState(nextState) {
     delete gameState[k];
   });
   Object.assign(gameState, nextState);
+  syncActiveDungeonAlias(gameState);
   return gameState;
 }
 
@@ -481,6 +1094,9 @@ function migrateSaveData(raw) {
   migrated.turn = data.turn || 0;
   migrated.inGuild = data.inGuild !== undefined ? data.inGuild : (data.location !== 'dungeon');
   migrated.audioEnabled = data.audioEnabled !== undefined ? data.audioEnabled : true;
+  migrated.maxCharteredDungeons = typeof data.maxCharteredDungeons === 'number'
+    ? data.maxCharteredDungeons
+    : DEFAULT_MAX_CHARTERED_DUNGEONS;
 
   // Migrate Vault & Bank
   const srcVault = data.guildVault || data.bank || {};
@@ -593,19 +1209,46 @@ function migrateSaveData(raw) {
     };
   }
 
-  if (data.dungeon && data.dungeon.floors) {
-    migrated.dungeon.seedCode = data.dungeon.seedCode || 'STAR-4812';
-    migrated.dungeon.currentFloor = data.dungeon.currentFloor || data.dungeon.currentDepth || 1;
-    migrated.dungeon.floors = data.dungeon.floors;
-    Object.keys(migrated.dungeon.floors).forEach(fk => {
-      const fl = migrated.dungeon.floors[fk];
-      if (fl) {
-        fl.shrines = fl.shrines || {};
-        fl.traps = fl.traps || {};
-      }
+  // Migrate Multi-Dungeon Registry OR Legacy Single Dungeon
+  if (data.dungeons && typeof data.dungeons === 'object' && Object.keys(data.dungeons).length > 0) {
+    Object.keys(data.dungeons).forEach(dId => {
+      const rawDng = data.dungeons[dId];
+      if (!rawDng) return;
+      const baseProf = CURATED_DUNGEON_PROFILES[rawDng.profileId] || {};
+      const normCfg = normalizeDungeonConfig(Object.assign({}, baseProf, rawDng.config || {}));
+      const seedCode = rawDng.seedCode || 'STAR-4812';
+      migrated.dungeons[dId] = {
+        id: dId,
+        name: rawDng.name || normCfg.name,
+        profileId: rawDng.profileId || normCfg.profileId,
+        originType: rawDng.originType || (CURATED_DUNGEON_PROFILES[normCfg.profileId] ? 'curated' : 'chartered'),
+        worldCoords: rawDng.worldCoords || null,
+        seedCode,
+        numericSeed: rawDng.numericSeed || hashSeedString(seedCode, 0),
+        config: normCfg,
+        currentFloor: rawDng.currentFloor || 1,
+        deepestFloor: rawDng.deepestFloor || rawDng.currentFloor || 1,
+        isCleared: !!rawDng.isCleared,
+        floors: rawDng.floors || {}
+      };
     });
+    migrated.activeDungeonId = data.activeDungeonId && migrated.dungeons[data.activeDungeonId]
+      ? data.activeDungeonId
+      : Object.keys(migrated.dungeons)[0];
+  } else if (data.dungeon && data.dungeon.floors) {
+    const targetDng = migrated.dungeons.dng_starfall;
+    targetDng.seedCode = data.dungeon.seedCode || 'STAR-4812';
+    targetDng.numericSeed = hashSeedString(targetDng.seedCode, 0);
+    targetDng.currentFloor = data.dungeon.currentFloor || data.dungeon.currentDepth || 1;
+    targetDng.deepestFloor = Math.max(1, targetDng.currentFloor, Object.keys(data.dungeon.floors).length);
+    targetDng.floors = {};
+    Object.keys(data.dungeon.floors).forEach(fk => {
+      targetDng.floors[fk] = hydrateFloorFromStorage(data.dungeon.floors[fk]);
+    });
+    migrated.activeDungeonId = 'dng_starfall';
   }
 
+  syncActiveDungeonAlias(migrated);
   migrated.version = SCHEMA_VERSION;
   return migrated;
 }
@@ -726,10 +1369,54 @@ function recomputeHeroDerivedStats(fullRestore = false, state = gameState) {
   }
 }
 
+function serializeStateForStorage(state = gameState) {
+  const packedDungeons = {};
+  const srcDungeons = state.dungeons || {};
+  Object.keys(srcDungeons).forEach(dId => {
+    const dng = srcDungeons[dId];
+    if (!dng) return;
+    const packedFloors = {};
+    if (dng.floors) {
+      Object.keys(dng.floors).forEach(fk => {
+        packedFloors[fk] = packFloorForStorage(dng.floors[fk]);
+      });
+    }
+    packedDungeons[dId] = {
+      id: dng.id,
+      name: dng.name,
+      profileId: dng.profileId,
+      originType: dng.originType,
+      worldCoords: dng.worldCoords || null,
+      seedCode: dng.seedCode,
+      numericSeed: dng.numericSeed,
+      config: dng.config,
+      currentFloor: dng.currentFloor,
+      deepestFloor: dng.deepestFloor || dng.currentFloor || 1,
+      isCleared: !!dng.isCleared,
+      floors: packedFloors
+    };
+  });
+
+  return {
+    version: state.version || SCHEMA_VERSION,
+    turn: state.turn || 0,
+    inGuild: state.inGuild !== false,
+    audioEnabled: state.audioEnabled !== false,
+    maxCharteredDungeons: state.maxCharteredDungeons || DEFAULT_MAX_CHARTERED_DUNGEONS,
+    activeDungeonId: state.activeDungeonId,
+    dungeons: packedDungeons,
+    hero: state.hero,
+    guildVault: state.guildVault,
+    guildResearch: state.guildResearch,
+    guildBounties: state.guildBounties
+  };
+}
+
 function saveGame(state = gameState) {
   try {
     if (typeof localStorage !== 'undefined') {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      const payload = serializeStateForStorage(state);
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
     }
   } catch (e) {
     // Ignore storage quota or sandbox errors
@@ -741,6 +1428,7 @@ function loadGame() {
     if (typeof localStorage !== 'undefined') {
       const raw =
         localStorage.getItem(STORAGE_KEY) ||
+        localStorage.getItem('aethelgard_save_v4') ||
         localStorage.getItem('aethelgard_save_v3') ||
         localStorage.getItem('aethelgard_save_v2') ||
         localStorage.getItem('aethelgard_save');
@@ -977,8 +1665,248 @@ const RESEARCH_PROJECTS = {
   }
 };
 
+  // --- Module: src/data/monsters.js ---
+// Monster & Boss Archetype Registry for Configurable Multi-Dungeon Rosters
+
+const MONSTER_ARCHETYPES = {
+  vault_crawler: {
+    id: 'vault_crawler',
+    bountyTag: 'crawler',
+    family: 'beasts',
+    name: 'Vault Crawler',
+    isRanged: false,
+    range: 1,
+    hpMult: 1.0,
+    atkMult: 1.0,
+    defMult: 1.0,
+    xpMult: 1.0,
+    color: '#f87171',
+    desc: 'Chitinous subterranean hunter.'
+  },
+  brood_skitterer: {
+    id: 'brood_skitterer',
+    bountyTag: 'crawler',
+    family: 'beasts',
+    name: 'Brood Skitterer',
+    isRanged: false,
+    range: 1,
+    hpMult: 0.82,
+    atkMult: 1.15,
+    defMult: 0.8,
+    xpMult: 1.05,
+    color: '#fb923c',
+    desc: 'Razor-limbed swarm predator.'
+  },
+  spore_lurker: {
+    id: 'spore_lurker',
+    bountyTag: 'crawler',
+    family: 'beasts',
+    name: 'Mycelium Lurker',
+    isRanged: false,
+    range: 1,
+    hpMult: 1.15,
+    atkMult: 0.95,
+    defMult: 1.05,
+    xpMult: 1.15,
+    onHitStatus: 'poison',
+    color: '#4ade80',
+    desc: 'Toxic fungal ambusher that inflicts Poison.'
+  },
+  starfall_archer: {
+    id: 'starfall_archer',
+    bountyTag: 'archer',
+    family: 'astral_cult',
+    name: 'Starfall Archer',
+    isRanged: true,
+    range: 3,
+    hpMult: 0.88,
+    atkMult: 1.0,
+    defMult: 0.85,
+    xpMult: 1.05,
+    color: '#60a5fa',
+    desc: 'Marksman firing shard-tipped arrows (3 tiles).'
+  },
+  abyssal_cultist: {
+    id: 'abyssal_cultist',
+    bountyTag: 'archer',
+    family: 'astral_cult',
+    name: 'Abyssal Cultist',
+    isRanged: true,
+    range: 4,
+    hpMult: 0.95,
+    atkMult: 1.12,
+    defMult: 0.9,
+    xpMult: 1.2,
+    color: '#818cf8',
+    desc: 'Zealot channeling void bolts (4 tiles).'
+  },
+  void_hexer: {
+    id: 'void_hexer',
+    bountyTag: 'archer',
+    family: 'astral_cult',
+    name: 'Void Hexer',
+    isRanged: true,
+    range: 4,
+    hpMult: 0.9,
+    atkMult: 1.18,
+    defMult: 0.9,
+    xpMult: 1.3,
+    onHitStatus: 'weakened',
+    color: '#c084fc',
+    desc: 'Astral caster weaving weakening curses (4 tiles).'
+  },
+  astral_wraith: {
+    id: 'astral_wraith',
+    bountyTag: 'crawler',
+    family: 'astral_cult',
+    name: 'Astral Wraith',
+    isRanged: false,
+    range: 1,
+    hpMult: 0.95,
+    atkMult: 1.25,
+    defMult: 0.85,
+    xpMult: 1.25,
+    color: '#e879f9',
+    desc: 'Phasing star-spirit with searing claws.'
+  },
+  dwarven_automaton: {
+    id: 'dwarven_automaton',
+    bountyTag: 'crawler',
+    family: 'dwarven_forge',
+    name: 'Dwarven Automaton',
+    isRanged: false,
+    range: 1,
+    hpMult: 1.28,
+    atkMult: 1.05,
+    defMult: 1.45,
+    xpMult: 1.25,
+    color: '#94a3b8',
+    desc: 'Clockwork bronze sentinel with heavy plating.'
+  },
+  magma_golem: {
+    id: 'magma_golem',
+    bountyTag: 'crawler',
+    family: 'dwarven_forge',
+    name: 'Slag Golem',
+    isRanged: false,
+    range: 1,
+    hpMult: 1.45,
+    atkMult: 1.18,
+    defMult: 1.35,
+    xpMult: 1.4,
+    onHitStatus: 'burn',
+    color: '#f97316',
+    desc: 'Molten forge-construct radiating intense heat.'
+  },
+  ember_pyromancer: {
+    id: 'ember_pyromancer',
+    bountyTag: 'archer',
+    family: 'dwarven_forge',
+    name: 'Forge Pyromancer',
+    isRanged: true,
+    range: 3,
+    hpMult: 0.92,
+    atkMult: 1.15,
+    defMult: 0.95,
+    xpMult: 1.25,
+    onHitStatus: 'burn',
+    color: '#fbbf24',
+    desc: 'Hurls cinder-bolts that inflict Burn (3 tiles).'
+  },
+  crypt_stalker: {
+    id: 'crypt_stalker',
+    bountyTag: 'crawler',
+    family: 'ancient_crypt',
+    name: 'Crypt Stalker',
+    isRanged: false,
+    range: 1,
+    hpMult: 0.95,
+    atkMult: 1.22,
+    defMult: 0.95,
+    xpMult: 1.2,
+    onHitStatus: 'bleed',
+    color: '#fda4af',
+    desc: 'Relentless tomb-revenant that inflicts Bleed.'
+  },
+  bone_warden: {
+    id: 'bone_warden',
+    bountyTag: 'crawler',
+    family: 'ancient_crypt',
+    name: 'Ossuary Warden',
+    isRanged: false,
+    range: 1,
+    hpMult: 1.32,
+    atkMult: 1.1,
+    defMult: 1.3,
+    xpMult: 1.3,
+    color: '#cbd5e1',
+    desc: 'Ancient shield-bearer guarding royal vaults.'
+  }
+};
+
+const BOSS_ARCHETYPES = {
+  boss_colossus: {
+    id: 'boss_colossus',
+    name: 'Starfall Colossus',
+    isRanged: false,
+    range: 1,
+    hp: 240,
+    atk: 20,
+    def: 10,
+    xp: 260,
+    dropRarity: 'epic',
+    color: '#f59e0b',
+    desc: 'Towering monolith animated by meteoric core-fire.'
+  },
+  boss_weaver: {
+    id: 'boss_weaver',
+    name: 'Void Weaver',
+    isRanged: true,
+    range: 4,
+    hp: 420,
+    atk: 28,
+    def: 14,
+    xp: 520,
+    dropRarity: 'relic',
+    color: '#ec4899',
+    desc: 'Sovereign arachnid-seer of the Vespera rift (4 tiles).'
+  },
+  boss_runelord: {
+    id: 'boss_runelord',
+    name: 'Thane Kazador, Runeforge Warden',
+    isRanged: false,
+    range: 1,
+    hp: 210,
+    atk: 18,
+    def: 12,
+    xp: 240,
+    dropRarity: 'epic',
+    onHitStatus: 'burn',
+    color: '#fb923c',
+    desc: 'Undying master of the Sunken Quarry excavation.'
+  },
+  boss_broodmother: {
+    id: 'boss_broodmother',
+    name: 'Spore-Queen Mycelia',
+    isRanged: true,
+    range: 3,
+    hp: 310,
+    atk: 23,
+    def: 11,
+    xp: 360,
+    dropRarity: 'epic',
+    onHitStatus: 'poison',
+    color: '#34d399',
+    desc: 'Matriarch of the Whispering Labyrinth (3 tiles).'
+  }
+};
+
   // --- Module: src/engine/procedural.js ---
-// Procedural Dungeon Generation, Non-Blocking Ore Veins, Shrines, Traps, Safe-Path BFS, and Socketed Equipment Rolling
+// Multi-Style Sector-Grid Procedural Floor Generator, Fast O(W*H) BFS, Declarative Spawns & Socketed Gear
+
+
+
+
 
 
 
@@ -991,13 +1919,13 @@ function rollSocketCountForRarity(rarityKey, slot) {
   return 0;
 }
 
-function generateProceduralEquipment(depth = 1, forcedRarity = null, forcedSlot = null) {
+function generateProceduralEquipment(depth = 1, forcedRarity = null, forcedSlot = null, rarityBonus = 0) {
   const slots = ['weapon', 'armor', 'helm', 'boots', 'accessory'];
   const slot = forcedSlot || slots[Math.floor(Math.random() * slots.length)];
 
   let rarityKey = forcedRarity;
   if (!rarityKey) {
-    const roll = Math.random() + (depth * 0.04);
+    const roll = Math.random() + (depth * 0.04) + (rarityBonus || 0);
     if (roll > 1.22) rarityKey = 'relic';
     else if (roll > 0.94) rarityKey = 'epic';
     else if (roll > 0.64) rarityKey = 'rare';
@@ -1052,35 +1980,65 @@ function generateProceduralEquipment(depth = 1, forcedRarity = null, forcedSlot 
   return item;
 }
 
+// Fast O(W * H) zero-allocation BFS guaranteeing a trap-free walkable path between upPos and downPos
 function verifyPureFloorBFS(floor) {
-  const start = floor.upPos;
-  const goal = floor.downPos;
-  const visited = Array.from({ length: GRID_H }, () => Array(GRID_W).fill(false));
-  const queue = [{ x: start.x, y: start.y }];
-  visited[start.y][start.x] = true;
+  if (!floor || !floor.tiles || !floor.upPos || !floor.downPos) return false;
+  const fh = floor.height || floor.tiles.length;
+  const fw = floor.width || (floor.tiles[0] ? floor.tiles[0].length : 0);
+  if (fw <= 0 || fh <= 0) return false;
 
-  while (queue.length > 0) {
-    const cur = queue.shift();
-    if (cur.x === goal.x && cur.y === goal.y) return true;
-    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
-      const nx = cur.x + dx;
-      const ny = cur.y + dy;
-      if (nx >= 0 && nx < GRID_W && ny >= 0 && ny < GRID_H && !visited[ny][nx]) {
-        const t = floor.tiles[ny][nx];
-        // Live traps (TILE_TRAP_HIDDEN / TILE_TRAP_VISIBLE) are intentionally excluded so BFS guarantees a trap-free path
-        const isSafeWalkable = (
-          t === TILE_FLOOR ||
-          t === TILE_STAIRS_UP ||
-          t === TILE_STAIRS_DOWN ||
-          t === TILE_CHEST ||
-          t === TILE_CHEST_OPEN ||
-          t === TILE_SHRINE ||
-          t === TILE_SHRINE_USED ||
-          t === TILE_TRAP_DISARMED
-        );
-        if (isSafeWalkable) {
-          visited[ny][nx] = true;
-          queue.push({ x: nx, y: ny });
+  const sx = floor.upPos.x;
+  const sy = floor.upPos.y;
+  const gx = floor.downPos.x;
+  const gy = floor.downPos.y;
+  if (sx < 0 || sx >= fw || sy < 0 || sy >= fh || gx < 0 || gx >= fw || gy < 0 || gy >= fh) {
+    return false;
+  }
+
+  const total = fw * fh;
+  const visited = new Uint8Array(total);
+  const qx = new Int32Array(total);
+  const qy = new Int32Array(total);
+
+  let head = 0;
+  let tail = 0;
+  qx[tail] = sx;
+  qy[tail] = sy;
+  tail += 1;
+  visited[sy * fw + sx] = 1;
+
+  const dxs = [1, -1, 0, 0];
+  const dys = [0, 0, 1, -1];
+
+  while (head < tail) {
+    const cx = qx[head];
+    const cy = qy[head];
+    head += 1;
+    if (cx === gx && cy === gy) return true;
+
+    for (let d = 0; d < 4; d++) {
+      const nx = cx + dxs[d];
+      const ny = cy + dys[d];
+      if (nx >= 0 && nx < fw && ny >= 0 && ny < fh) {
+        const idx = ny * fw + nx;
+        if (visited[idx] === 0) {
+          const t = floor.tiles[ny][nx];
+          const isSafeWalkable = (
+            t === TILE_FLOOR ||
+            t === TILE_STAIRS_UP ||
+            t === TILE_STAIRS_DOWN ||
+            t === TILE_CHEST ||
+            t === TILE_CHEST_OPEN ||
+            t === TILE_SHRINE ||
+            t === TILE_SHRINE_USED ||
+            t === TILE_TRAP_DISARMED
+          );
+          if (isSafeWalkable) {
+            visited[idx] = 1;
+            qx[tail] = nx;
+            qy[tail] = ny;
+            tail += 1;
+          }
         }
       }
     }
@@ -1107,238 +2065,533 @@ function carveDirectFloorPath(floor) {
   }
 }
 
-function generateFloor(depth) {
-  const tiles = Array.from({ length: GRID_H }, () => Array(GRID_W).fill(TILE_WALL));
-  const rooms = [];
-  const targetRooms = 6;
+function pickWeightedEntry(entries, effDepth, rand) {
+  const valid = entries.filter(e => effDepth >= (e.minFloor || 1));
+  const pool = valid.length > 0 ? valid : entries;
+  let totalWeight = 0;
+  for (let i = 0; i < pool.length; i++) {
+    totalWeight += (pool[i].weight || 10);
+  }
+  let r = rand() * totalWeight;
+  for (let i = 0; i < pool.length; i++) {
+    r -= (pool[i].weight || 10);
+    if (r <= 0) return pool[i];
+  }
+  return pool[pool.length - 1];
+}
 
-  for (let attempt = 0; attempt < 30 && rooms.length < targetRooms; attempt++) {
-    const rw = 3 + Math.floor(Math.random() * 3);
-    const rh = 3 + Math.floor(Math.random() * 2);
-    const rx = 1 + Math.floor(Math.random() * (GRID_W - rw - 2));
-    const ry = 1 + Math.floor(Math.random() * (GRID_H - rh - 2));
+function carveRoomByStyle(tiles, w, h, room, layoutStyle, rand) {
+  const { rx, ry, rw, rh, cx, cy } = room;
 
-    let overlap = false;
-    for (const r of rooms) {
-      if (rx <= r.rx + r.rw && rx + rw >= r.rx && ry <= r.ry + r.rh && ry + rh >= r.ry) {
-        overlap = true;
-        break;
-      }
-    }
-    if (!overlap) {
-      for (let y = ry; y < ry + rh; y++) {
-        for (let x = rx; x < rx + rw; x++) {
+  if (layoutStyle === 'crystalline_caverns') {
+    // Chamfered / organic cavern pocket
+    const radX = rw * 0.54;
+    const radY = rh * 0.54;
+    for (let y = ry; y < ry + rh; y++) {
+      for (let x = rx; x < rx + rw; x++) {
+        const nx = (x + 0.5 - (rx + rw * 0.5)) / radX;
+        const ny = (y + 0.5 - (ry + rh * 0.5)) / radY;
+        if (nx * nx + ny * ny <= 1.15 + (rand() * 0.28 - 0.1)) {
           tiles[y][x] = TILE_FLOOR;
         }
       }
-      rooms.push({ rx, ry, rw, rh, cx: rx + Math.floor(rw / 2), cy: ry + Math.floor(rh / 2) });
+    }
+    tiles[cy][cx] = TILE_FLOOR;
+    return;
+  }
+
+  // Carve base rectangular hall
+  for (let y = ry; y < ry + rh; y++) {
+    for (let x = rx; x < rx + rw; x++) {
+      tiles[y][x] = TILE_FLOOR;
     }
   }
 
-  if (rooms.length < 2) {
-    rooms.push({ rx: 2, ry: 2, rw: 4, rh: 4, cx: 4, cy: 4 });
-    rooms.push({ rx: 14, ry: 9, rw: 4, rh: 4, cx: 16, cy: 11 });
-    for (const r of rooms) {
-      for (let y = r.ry; y < r.ry + r.rh; y++) {
-        for (let x = r.rx; x < r.rx + r.rw; x++) tiles[y][x] = TILE_FLOOR;
+  // Add architectural stone pillars in large plazas / grand ruins (always keeping >=2-tile walkways & room center clear)
+  if ((layoutStyle === 'grand_ruins' || layoutStyle === 'masonry_vaults') && rw >= 8 && rh >= 7 && rand() < 0.65) {
+    const px1 = rx + 2;
+    const px2 = rx + rw - 3;
+    const py1 = ry + 2;
+    const py2 = ry + rh - 3;
+    const pts = [[px1, py1], [px2, py1], [px1, py2], [px2, py2]];
+    for (let i = 0; i < pts.length; i++) {
+      const px = pts[i][0];
+      const py = pts[i][1];
+      if (!(px === cx && py === cy)) {
+        tiles[py][px] = TILE_WALL;
+      }
+    }
+  } else if (layoutStyle === 'excavation_quarry' && rw >= 7 && rh >= 5 && rand() < 0.55) {
+    // Quarry support pier off-center so ore veins can form along drift ribs
+    const px = rx + 2;
+    const py = ry + Math.floor(rh / 2);
+    if (!(px === cx && py === cy)) {
+      tiles[py][px] = TILE_WALL;
+    }
+  }
+}
+
+function carveCorridorBetweenRooms(tiles, w, h, rA, rB, wideAvenue, bendHorizontalFirst) {
+  let cx = rA.cx;
+  let cy = rA.cy;
+  const tx = rB.cx;
+  const ty = rB.cy;
+
+  function stampFloor(x, y) {
+    if (x >= 1 && x < w - 1 && y >= 1 && y < h - 1) {
+      tiles[y][x] = TILE_FLOOR;
+      if (wideAvenue) {
+        if (x + 1 < w - 1) tiles[y][x + 1] = TILE_FLOOR;
+        if (y + 1 < h - 1) tiles[y + 1][x] = TILE_FLOOR;
       }
     }
   }
 
-  // Carve L-corridors between rooms
-  for (let i = 1; i < rooms.length; i++) {
-    let cx = rooms[i - 1].cx;
-    let cy = rooms[i - 1].cy;
-    const tx = rooms[i].cx;
-    const ty = rooms[i].cy;
+  if (bendHorizontalFirst) {
     while (cx !== tx) {
-      tiles[cy][cx] = TILE_FLOOR;
+      stampFloor(cx, cy);
       cx += (tx > cx) ? 1 : -1;
     }
     while (cy !== ty) {
-      tiles[cy][cx] = TILE_FLOOR;
+      stampFloor(cx, cy);
       cy += (ty > cy) ? 1 : -1;
     }
-    tiles[cy][cx] = TILE_FLOOR;
+  } else {
+    while (cy !== ty) {
+      stampFloor(cx, cy);
+      cy += (ty > cy) ? 1 : -1;
+    }
+    while (cx !== tx) {
+      stampFloor(cx, cy);
+      cx += (tx > cx) ? 1 : -1;
+    }
+  }
+  stampFloor(tx, ty);
+}
+
+function createMonsterEntityFromArchetype(archId, effDepth, mx, my, isElite, rand, seqIdx) {
+  const arch = MONSTER_ARCHETYPES[archId] || MONSTER_ARCHETYPES.vault_crawler;
+  const affix = isElite ? ELITE_AFFIXES[Math.floor(rand() * ELITE_AFFIXES.length)] : null;
+  const hpBase = (28 + effDepth * 8) * arch.hpMult * (isElite ? 1.65 : 1.0);
+  const atkBase = (8 + effDepth * 2.2) * arch.atkMult * (isElite ? 1.25 : 1.0);
+  const defBase = (2 + effDepth * 1.1) * arch.defMult * ((affix && affix.id === 'fortified') ? 1.35 : 1.0);
+  const xpBase = (16 + effDepth * 6) * arch.xpMult * (isElite ? 2.0 : 1.0);
+
+  return {
+    uid: `m_${effDepth}_${seqIdx}_${Math.floor(rand() * 100000)}`,
+    id: arch.id,
+    bountyTag: arch.bountyTag || 'crawler',
+    name: isElite ? `${affix.name} ${arch.name}` : arch.name,
+    isElite: !!isElite,
+    affix,
+    isRanged: !!arch.isRanged,
+    range: arch.range || 1,
+    onHitStatus: arch.onHitStatus || null,
+    x: mx,
+    y: my,
+    hp: Math.max(10, Math.round(hpBase)),
+    maxHp: Math.max(10, Math.round(hpBase)),
+    atk: Math.max(3, Math.round(atkBase)),
+    def: Math.max(0, Math.round(defBase)),
+    xp: Math.max(8, Math.round(xpBase)),
+    color: isElite ? '#fbbf24' : arch.color,
+    statuses: []
+  };
+}
+
+function generateFloor(depth, dungeonConfig = null, dungeonSeed = null) {
+  const cfg = normalizeDungeonConfig(dungeonConfig);
+  const w = cfg.width || DEFAULT_MAP_W;
+  const h = cfg.height || DEFAULT_MAP_H;
+  const effDepth = Math.max(1, depth + (cfg.baseDangerDepth || 0));
+  const rand = dungeonSeed
+    ? createSeededRng(((dungeonSeed >>> 0) + depth * 7919) >>> 0)
+    : Math.random;
+
+  const tiles = createUint8Grid(w, h, TILE_WALL);
+  const explored = createUint8Grid(w, h, 0);
+  const rooms = [];
+
+  // Macro-Sector Partitioning for O(Sectors) multi-wing generation at any size (21x15 up to 400x300+)
+  const usableW = w - 2;
+  const usableH = h - 2;
+  const secCols = Math.max(2, Math.round(usableW / 13));
+  const secRows = Math.max(2, Math.round(usableH / 10));
+  const cellW = usableW / secCols;
+  const cellH = usableH / secRows;
+
+  const sectorRoomGrid = Array.from({ length: secRows }, () => Array(secCols).fill(null));
+  const keepChance = (secCols * secRows <= 6) ? 1.0 : 0.82;
+
+  for (let sr = 0; sr < secRows; sr++) {
+    for (let sc = 0; sc < secCols; sc++) {
+      if (rand() > keepChance && rooms.length >= 2) continue;
+
+      const sLeft = 1 + Math.floor(sc * cellW);
+      const sTop = 1 + Math.floor(sr * cellH);
+      const sRight = Math.min(w - 2, Math.floor((sc + 1) * cellW));
+      const sBottom = Math.min(h - 2, Math.floor((sr + 1) * cellH));
+      const maxRW = Math.max(3, sRight - sLeft - 1);
+      const maxRH = Math.max(3, sBottom - sTop - 1);
+
+      let minRW = Math.min(maxRW, cfg.layoutStyle === 'grand_ruins' ? 6 : 5);
+      let minRH = Math.min(maxRH, cfg.layoutStyle === 'excavation_quarry' ? 4 : 5);
+      if (maxRW <= 4) minRW = 3;
+      if (maxRH <= 4) minRH = 3;
+
+      const rw = minRW + Math.floor(rand() * (maxRW - minRW + 1));
+      const rh = minRH + Math.floor(rand() * (maxRH - minRH + 1));
+      const slackX = Math.max(0, (sRight - sLeft) - rw);
+      const slackY = Math.max(0, (sBottom - sTop) - rh);
+      const rx = Math.min(w - rw - 1, sLeft + Math.floor(rand() * (slackX + 1)));
+      const ry = Math.min(h - rh - 1, sTop + Math.floor(rand() * (slackY + 1)));
+
+      const room = {
+        id: rooms.length,
+        sc,
+        sr,
+        rx,
+        ry,
+        rw,
+        rh,
+        cx: rx + Math.floor(rw / 2),
+        cy: ry + Math.floor(rh / 2)
+      };
+
+      carveRoomByStyle(tiles, w, h, room, cfg.layoutStyle, rand);
+      rooms.push(room);
+      sectorRoomGrid[sr][sc] = room;
+    }
   }
 
-  const upPos = { x: rooms[0].cx, y: rooms[0].cy };
-  let downPos = { x: rooms[rooms.length - 1].cx, y: rooms[rooms.length - 1].cy };
+  // Fallback guarantee if tiny custom dimensions were passed
+  if (rooms.length < 2) {
+    const r1 = { id: 0, sc: 0, sr: 0, rx: 2, ry: 2, rw: 4, rh: 4, cx: 4, cy: 4 };
+    const r2 = { id: 1, sc: 1, sr: 1, rx: Math.max(6, w - 6), ry: Math.max(6, h - 6), rw: 4, rh: 4, cx: Math.max(7, w - 4), cy: Math.max(7, h - 4) };
+    carveRoomByStyle(tiles, w, h, r1, 'masonry_vaults', rand);
+    carveRoomByStyle(tiles, w, h, r2, 'masonry_vaults', rand);
+    rooms.length = 0;
+    rooms.push(r1, r2);
+  }
+
+  // Build nearest-neighbor Spanning Tree across rooms so corridors form natural local wings
+  const connected = new Uint8Array(rooms.length);
+  const edgeSet = {};
+  connected[0] = 1;
+  let connectedCount = 1;
+
+  while (connectedCount < rooms.length) {
+    let bestA = -1;
+    let bestB = -1;
+    let bestDist = Infinity;
+
+    for (let i = 0; i < rooms.length; i++) {
+      if (!connected[i]) continue;
+      for (let j = 0; j < rooms.length; j++) {
+        if (connected[j]) continue;
+        const d = Math.abs(rooms[i].cx - rooms[j].cx) + Math.abs(rooms[i].cy - rooms[j].cy);
+        if (d < bestDist) {
+          bestDist = d;
+          bestA = i;
+          bestB = j;
+        }
+      }
+    }
+
+    if (bestA === -1 || bestB === -1) break;
+    connected[bestB] = 1;
+    connectedCount += 1;
+    const eKey = bestA < bestB ? `${bestA}:${bestB}` : `${bestB}:${bestA}`;
+    edgeSet[eKey] = true;
+
+    const wideAve = w >= 48 && (cfg.layoutStyle === 'masonry_vaults' || cfg.layoutStyle === 'grand_ruins') && rand() < 0.30;
+    carveCorridorBetweenRooms(tiles, w, h, rooms[bestA], rooms[bestB], wideAve, rand() < 0.5);
+  }
+
+  // Add Loop Passages between nearby sector neighbors so players have flanking loops & exploration choices
+  for (let i = 0; i < rooms.length; i++) {
+    for (let j = i + 1; j < rooms.length; j++) {
+      const ds = Math.abs(rooms[i].sc - rooms[j].sc) + Math.abs(rooms[i].sr - rooms[j].sr);
+      if (ds > 2) continue;
+      const eKey = `${i}:${j}`;
+      if (edgeSet[eKey]) continue;
+      if (rand() < cfg.loopRatio) {
+        edgeSet[eKey] = true;
+        carveCorridorBetweenRooms(tiles, w, h, rooms[i], rooms[j], false, rand() < 0.5);
+      }
+    }
+  }
+
+  // Choose well-separated Entrance (upRoom) and Goal/Exit (downRoom) across opposite wings
+  const startIdx = Math.min(rooms.length - 1, Math.floor(rand() * Math.max(1, Math.ceil(rooms.length * 0.2))));
+  const upRoom = rooms[startIdx];
+  let downRoom = rooms[rooms.length - 1];
+  let maxStairDist = -1;
+  for (let i = 0; i < rooms.length; i++) {
+    if (i === startIdx) continue;
+    const d = Math.hypot(rooms[i].cx - upRoom.cx, rooms[i].cy - upRoom.cy);
+    if (d > maxStairDist) {
+      maxStairDist = d;
+      downRoom = rooms[i];
+    }
+  }
+
+  const upPos = { x: upRoom.cx, y: upRoom.cy };
+  let downPos = { x: downRoom.cx, y: downRoom.cy };
   if (upPos.x === downPos.x && upPos.y === downPos.y) {
-    downPos = { x: Math.min(GRID_W - 2, upPos.x + 3), y: upPos.y };
+    downPos = { x: Math.min(w - 2, upPos.x + 3), y: upPos.y };
     for (let x = upPos.x; x <= downPos.x; x++) tiles[upPos.y][x] = TILE_FLOOR;
   }
-  tiles[upPos.y][upPos.x] = TILE_STAIRS_UP;
-  tiles[downPos.y][downPos.x] = TILE_STAIRS_DOWN;
 
-  // Seed Ore Veins ONLY on WALL tiles bordering FLOOR tiles (never blocking corridors!)
+  const hasDownStairs = depth < cfg.maxDepth;
+  tiles[upPos.y][upPos.x] = TILE_STAIRS_UP;
+  if (hasDownStairs) {
+    tiles[downPos.y][downPos.x] = TILE_STAIRS_DOWN;
+  } else {
+    // Final floor of a finite-depth dungeon: sanctum floor / reward chest instead of deeper stairs
+    tiles[downPos.y][downPos.x] = TILE_CHEST;
+  }
+
+  // Area scaling ratio relative to legacy 21x15 (315 tiles)
+  const areaRatio = Math.max(1, (w * h) / 315);
+
+  // Designate Guarded Treasure Vault Chambers in remote sectors
+  const vaults = [];
+  const candidateVaultRooms = rooms.filter(r => r !== upRoom && r !== downRoom);
+  const desiredVaults = Math.min(candidateVaultRooms.length, cfg.vaultRoomCount || 0);
+  for (let v = 0; v < desiredVaults; v++) {
+    const pickIdx = Math.floor(rand() * candidateVaultRooms.length);
+    const vr = candidateVaultRooms.splice(pickIdx, 1)[0];
+    if (!vr) break;
+    if (tiles[vr.cy][vr.cx] === TILE_FLOOR) {
+      tiles[vr.cy][vr.cx] = TILE_CHEST;
+    }
+    vaults.push({ roomId: vr.id, cx: vr.cx, cy: vr.cy, rx: vr.rx, ry: vr.ry, rw: vr.rw, rh: vr.rh });
+  }
+
+  // Seed Ore Veins ONLY on WALL tiles bordering FLOOR tiles (Golden Rule #4), including Motherlode Seams!
   const candidateWalls = [];
-  for (let y = 1; y < GRID_H - 1; y++) {
-    for (let x = 1; x < GRID_W - 1; x++) {
+  const wallIndexMap = new Int32Array(w * h);
+  wallIndexMap.fill(-1);
+
+  for (let y = 1; y < h - 1; y++) {
+    for (let x = 1; x < w - 1; x++) {
       if (tiles[y][x] === TILE_WALL) {
         const bordersFloor =
           tiles[y - 1][x] === TILE_FLOOR ||
           tiles[y + 1][x] === TILE_FLOOR ||
           tiles[y][x - 1] === TILE_FLOOR ||
           tiles[y][x + 1] === TILE_FLOOR;
-        if (bordersFloor) candidateWalls.push({ x, y });
+        if (bordersFloor) {
+          wallIndexMap[y * w + x] = 1;
+          candidateWalls.push({ x, y });
+        }
       }
     }
   }
 
-  const veinGoal = 8 + Math.min(8, depth);
-  for (let i = 0; i < veinGoal && candidateWalls.length > 0; i++) {
-    const idx = Math.floor(Math.random() * candidateWalls.length);
-    const pos = candidateWalls.splice(idx, 1)[0];
-    const roll = Math.random();
-    if (depth >= 5 && roll < 0.16) tiles[pos.y][pos.x] = TILE_ORE_ASTRAL;
-    else if (depth >= 3 && roll < 0.34) tiles[pos.y][pos.x] = TILE_ORE_STAR;
-    else if (depth >= 2 && roll < 0.56) tiles[pos.y][pos.x] = (Math.random() < 0.5) ? TILE_ORE_MITHRIL : TILE_ORE_GEODE;
-    else if (roll < 0.78) tiles[pos.y][pos.x] = TILE_ORE_IRON;
-    else tiles[pos.y][pos.x] = TILE_ORE_COPPER;
+  const veinGoal = Math.round((9 + Math.min(8, effDepth)) * Math.pow(areaRatio, 0.78) * cfg.veinDensityMult);
+  let veinsPlaced = 0;
+  let safetyVeinIter = 0;
+
+  while (veinsPlaced < veinGoal && candidateWalls.length > 0 && safetyVeinIter < veinGoal * 3) {
+    safetyVeinIter += 1;
+    const idx = Math.floor(rand() * candidateWalls.length);
+    const pos = candidateWalls[idx];
+    // O(1) swap-remove
+    candidateWalls[idx] = candidateWalls[candidateWalls.length - 1];
+    candidateWalls.pop();
+
+    if (tiles[pos.y][pos.x] !== TILE_WALL) continue;
+    const pickedOre = pickWeightedEntry(cfg.oreTable, effDepth, rand);
+    const oreTile = pickedOre ? pickedOre.tile : TILE_ORE_COPPER;
+    tiles[pos.y][pos.x] = oreTile;
+    veinsPlaced += 1;
+
+    // Motherlode seam expansion onto adjacent eligible border walls
+    if (veinsPlaced < veinGoal && rand() < cfg.motherlodeChance) {
+      const clusterSize = 2 + Math.floor(rand() * 3);
+      let cx = pos.x;
+      let cy = pos.y;
+      for (let c = 0; c < clusterSize && veinsPlaced < veinGoal; c++) {
+        const dirs = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, -1]];
+        const d = dirs[Math.floor(rand() * dirs.length)];
+        const nx = cx + d[0];
+        const ny = cy + d[1];
+        if (nx >= 1 && nx < w - 1 && ny >= 1 && ny < h - 1 && tiles[ny][nx] === TILE_WALL && wallIndexMap[ny * w + nx] === 1) {
+          tiles[ny][nx] = oreTile;
+          veinsPlaced += 1;
+          cx = nx;
+          cy = ny;
+        }
+      }
+    }
   }
 
-  // Place Chests inside rooms (not on stairs)
-  for (let i = 1; i < rooms.length; i++) {
-    if (Math.random() < 0.65) {
-      const r = rooms[i];
-      const cx = r.rx + Math.floor(Math.random() * r.rw);
-      const cy = r.ry + Math.floor(Math.random() * r.rh);
+  // Place Chests inside rooms (scaled by room count & chestDensityMult)
+  const chestChance = Math.min(0.85, 0.38 * cfg.chestDensityMult);
+  for (let i = 0; i < rooms.length; i++) {
+    const r = rooms[i];
+    if (r === upRoom) continue;
+    if (rand() < chestChance) {
+      const cx = r.rx + Math.floor(rand() * r.rw);
+      const cy = r.ry + Math.floor(rand() * r.rh);
       if (tiles[cy][cx] === TILE_FLOOR && !(cx === downPos.x && cy === downPos.y) && !(cx === upPos.x && cy === upPos.y)) {
         tiles[cy][cx] = TILE_CHEST;
       }
     }
   }
 
-  // Place Astral Shrine in a tactical vault room (1 per floor)
+  // Place Subterranean Astral Shrines across wings
   const shrines = {};
   const shrineTypes = ['sanctuary', 'starfire', 'aegis'];
-  const midRoom = rooms[Math.min(rooms.length - 1, Math.max(1, Math.floor(rooms.length / 2)))];
-  for (let sTry = 0; sTry < 12; sTry++) {
-    const sx = midRoom.rx + Math.floor(Math.random() * midRoom.rw);
-    const sy = midRoom.ry + Math.floor(Math.random() * midRoom.rh);
+  const shrineGoal = Math.max(1, Math.round(Math.pow(areaRatio, 0.52) * cfg.shrineDensityMult * 0.75));
+  let shrinesPlaced = 0;
+  for (let sTry = 0; sTry < shrineGoal * 14 && shrinesPlaced < shrineGoal; sTry++) {
+    const rm = rooms[Math.floor(rand() * rooms.length)];
+    if (rm === upRoom && rooms.length > 2) continue;
+    const sx = rm.rx + Math.floor(rand() * rm.rw);
+    const sy = rm.ry + Math.floor(rand() * rm.rh);
     if (tiles[sy][sx] === TILE_FLOOR && !(sx === upPos.x && sy === upPos.y) && !(sx === downPos.x && sy === downPos.y)) {
       tiles[sy][sx] = TILE_SHRINE;
       shrines[`${sx},${sy}`] = {
-        type: shrineTypes[Math.floor(Math.random() * shrineTypes.length)]
+        type: shrineTypes[Math.floor(rand() * shrineTypes.length)]
       };
-      break;
+      shrinesPlaced += 1;
     }
   }
 
   // Place Concealed Runic Traps inside non-starting rooms (safe BFS enforced below)
   const traps = {};
-  const trapGoal = 2 + Math.min(4, depth);
+  const trapGoal = Math.round((2 + Math.min(4, effDepth)) * Math.pow(areaRatio, 0.65) * cfg.trapDensityMult);
   let trapsPlaced = 0;
-  for (let tTry = 0; tTry < 30 && trapsPlaced < trapGoal; tTry++) {
-    const rm = rooms[1 + Math.floor(Math.random() * (rooms.length - 1))];
-    const tx = rm.rx + Math.floor(Math.random() * rm.rw);
-    const ty = rm.ry + Math.floor(Math.random() * rm.rh);
+  for (let tTry = 0; tTry < trapGoal * 10 && trapsPlaced < trapGoal; tTry++) {
+    const rm = rooms[Math.floor(rand() * rooms.length)];
+    if (rm === upRoom) continue;
+    const tx = rm.rx + Math.floor(rand() * rm.rw);
+    const ty = rm.ry + Math.floor(rand() * rm.rh);
     if (
       tiles[ty][tx] === TILE_FLOOR &&
       !(tx === upPos.x && ty === upPos.y) &&
       !(tx === downPos.x && ty === downPos.y) &&
-      Math.hypot(tx - upPos.x, ty - upPos.y) >= 2.2
+      Math.hypot(tx - upPos.x, ty - upPos.y) >= 3.0
     ) {
       tiles[ty][tx] = TILE_TRAP_HIDDEN;
-      traps[`${tx},${ty}`] = {
-        type: Math.random() < 0.55 ? 'spike' : 'flame'
-      };
+      const tType = cfg.allowedTraps[Math.floor(rand() * cfg.allowedTraps.length)] || 'spike';
+      traps[`${tx},${ty}`] = { type: tType };
       trapsPlaced += 1;
     }
   }
 
   const floorObj = {
+    packed: false,
     depth,
+    width: w,
+    height: h,
+    roomCount: rooms.length,
     tiles,
+    explored,
     upPos,
     downPos,
+    hasDownStairs,
     shrines,
     traps,
+    vaults,
     monsters: [],
-    explored: Array.from({ length: GRID_H }, () => Array(GRID_W).fill(false)),
     oresMined: 0
   };
 
-  // Guarantee pure trap-free walkability between < and > stairs
+  // Guarantee pure trap-free walkability between < and > (or final sanctum)
   if (!verifyPureFloorBFS(floorObj)) {
     carveDirectFloorPath(floorObj);
   }
 
-  // Spawn Monsters or Milestone Bosses (Floors 5 & 10)
-  if (depth === 5) {
-    const br = rooms[rooms.length - 1];
+  // Occupancy bitmap for fast O(1) monster placement collision checks on huge floors
+  const occupied = new Uint8Array(w * h);
+  occupied[upPos.y * w + upPos.x] = 1;
+
+  // 1. Spawn Scheduled Boss (if configured for this floor depth)
+  const scheduledBossId = cfg.bossSchedule && cfg.bossSchedule[depth];
+  if (scheduledBossId && BOSS_ARCHETYPES[scheduledBossId]) {
+    const bDef = BOSS_ARCHETYPES[scheduledBossId];
+    let bx = downRoom.cx;
+    let by = downRoom.cy;
+    if (!hasDownStairs && tiles[by][bx] === TILE_CHEST) {
+      // Place boss adjacent to the final sanctum chest if possible
+      const adj = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+      for (let a = 0; a < adj.length; a++) {
+        const nx = bx + adj[a][0];
+        const ny = by + adj[a][1];
+        if (nx > 0 && nx < w - 1 && ny > 0 && ny < h - 1 && tiles[ny][nx] === TILE_FLOOR) {
+          bx = nx;
+          by = ny;
+          break;
+        }
+      }
+    }
+    occupied[by * w + bx] = 1;
     floorObj.monsters.push({
-      uid: `boss_5_${Date.now()}`,
-      id: 'boss_colossus',
-      name: 'Starfall Colossus',
+      uid: `boss_${depth}_${Date.now()}`,
+      id: bDef.id,
+      bountyTag: 'boss',
+      name: bDef.name,
       isBoss: true,
-      isRanged: false,
-      x: br.cx,
-      y: br.cy,
-      hp: 240,
-      maxHp: 240,
-      atk: 20,
-      def: 10,
-      xp: 260,
-      color: '#f59e0b',
+      dropRarity: bDef.dropRarity || 'epic',
+      isRanged: !!bDef.isRanged,
+      range: bDef.range || 1,
+      onHitStatus: bDef.onHitStatus || null,
+      x: bx,
+      y: by,
+      hp: bDef.hp,
+      maxHp: bDef.hp,
+      atk: bDef.atk,
+      def: bDef.def,
+      xp: bDef.xp,
+      color: bDef.color,
       statuses: []
     });
-  } else if (depth === 10) {
-    const br = rooms[rooms.length - 1];
-    floorObj.monsters.push({
-      uid: `boss_10_${Date.now()}`,
-      id: 'boss_weaver',
-      name: 'Void Weaver',
-      isBoss: true,
-      isRanged: true,
-      range: 4,
-      x: br.cx,
-      y: br.cy,
-      hp: 420,
-      maxHp: 420,
-      atk: 28,
-      def: 14,
-      xp: 520,
-      color: '#ec4899',
-      statuses: []
-    });
-  } else {
-    const monsterGoal = 3 + Math.min(6, depth);
-    for (let m = 0; m < monsterGoal; m++) {
-      const rm = rooms[1 + Math.floor(Math.random() * (rooms.length - 1))];
-      const mx = rm.rx + Math.floor(Math.random() * rm.rw);
-      const my = rm.ry + Math.floor(Math.random() * rm.rh);
+  }
+
+  // 2. Spawn Elite Vault Wardens inside Guarded Treasure Vaults
+  let mSeq = 1;
+  for (let v = 0; v < vaults.length; v++) {
+    const vr = vaults[v];
+    for (let tries = 0; tries < 10; tries++) {
+      const mx = vr.rx + Math.floor(rand() * vr.rw);
+      const my = vr.ry + Math.floor(rand() * vr.rh);
+      if (tiles[my][mx] === TILE_FLOOR && occupied[my * w + mx] === 0 && Math.hypot(mx - upPos.x, my - upPos.y) > 5) {
+        occupied[my * w + mx] = 1;
+        const pickedM = pickWeightedEntry(cfg.monsterPool, effDepth, rand);
+        floorObj.monsters.push(createMonsterEntityFromArchetype(pickedM.id, effDepth, mx, my, true, rand, mSeq++));
+        break;
+      }
+    }
+  }
+
+  // 3. Spawn Sector Monster Roster across rooms (scaled smoothly by floor area)
+  const spawnRegularPack = !scheduledBossId || areaRatio >= 2.5;
+  if (spawnRegularPack) {
+    const baseCount = scheduledBossId ? 2 + Math.min(4, effDepth) : 4 + Math.min(6, effDepth);
+    const monsterGoal = Math.round(baseCount * Math.pow(areaRatio, 0.70) * cfg.monsterDensityMult);
+    let spawned = 0;
+
+    for (let attempt = 0; attempt < monsterGoal * 6 && spawned < monsterGoal; attempt++) {
+      const rm = rooms[Math.floor(rand() * rooms.length)];
+      if (rm === upRoom) continue;
+      if (scheduledBossId && rm === downRoom) continue;
+
+      const mx = rm.rx + Math.floor(rand() * rm.rw);
+      const my = rm.ry + Math.floor(rand() * rm.rh);
       if (
         (tiles[my][mx] === TILE_FLOOR || tiles[my][mx] === TILE_STAIRS_DOWN) &&
-        !(mx === upPos.x && my === upPos.y) &&
-        !floorObj.monsters.some(other => other.x === mx && other.y === my)
+        occupied[my * w + mx] === 0 &&
+        Math.hypot(mx - upPos.x, my - upPos.y) >= 5.0
       ) {
-        const isElite = depth >= 2 && Math.random() < 0.22;
-        const affix = isElite ? ELITE_AFFIXES[Math.floor(Math.random() * ELITE_AFFIXES.length)] : null;
-        const rollType = Math.random();
-        const isRanged = rollType < 0.35;
-        const baseName = isRanged ? (depth >= 3 ? 'Abyssal Cultist' : 'Starfall Archer') : 'Vault Crawler';
-        const hpBase = (28 + depth * 8) * (isElite ? 1.6 : 1.0);
-
-        floorObj.monsters.push({
-          uid: `m_${depth}_${m}_${Date.now()}`,
-          id: isRanged ? 'archer' : 'crawler',
-          name: isElite ? `${affix.name} ${baseName}` : baseName,
-          isElite,
-          affix,
-          isRanged,
-          range: isRanged ? 3 : 1,
-          x: mx,
-          y: my,
-          hp: Math.round(hpBase),
-          maxHp: Math.round(hpBase),
-          atk: Math.round((8 + depth * 2.2) * (isElite ? 1.25 : 1.0)),
-          def: Math.round((2 + depth * 1.1) * ((affix && affix.id === 'fortified') ? 1.35 : 1.0)),
-          xp: Math.round((16 + depth * 6) * (isElite ? 2.0 : 1.0)),
-          color: isElite ? '#fbbf24' : (isRanged ? '#60a5fa' : '#f87171'),
-          statuses: []
-        });
+        occupied[my * w + mx] = 1;
+        const isElite = effDepth >= 2 && rand() < cfg.eliteChance;
+        const pickedM = pickWeightedEntry(cfg.monsterPool, effDepth, rand);
+        floorObj.monsters.push(createMonsterEntityFromArchetype(pickedM.id, effDepth, mx, my, isElite, rand, mSeq++));
+        spawned += 1;
       }
     }
   }
@@ -1347,7 +2600,9 @@ function generateFloor(depth) {
 }
 
   // --- Module: src/engine/actions.js ---
-// Interactive Mining, Astral Gems & Lapidary, Guild Bounties, Shrines, Traps, Extraction & Research
+// Interactive Mining, Multi-Dungeon Atlas Management, Astral Gems & Lapidary, Guild Bounties, Shrines, Traps & Extraction
+
+
 
 
 
@@ -1417,6 +2672,117 @@ function gainExperience(amount, state = gameState) {
       actionCallbacks.log(`LEVEL UP! Reached Level ${h.level} (+2 Stat Points, +1 Talent Point).`, 'good');
     }
   }
+}
+
+// ============================================================================
+// MULTI-DUNGEON EXPEDITION ATLAS & CUSTOM CHARTER MANAGEMENT
+// ============================================================================
+
+function selectActiveDungeon(dungeonId, state = gameState) {
+  if (!state || !state.inGuild) {
+    return { ok: false, reason: 'in_dungeon' };
+  }
+  if (!state.dungeons || !state.dungeons[dungeonId]) {
+    return { ok: false, reason: 'not_found' };
+  }
+  const dng = state.dungeons[dungeonId];
+  const reqCart = (dng.config && dng.config.reqCartography) || 0;
+  const curCart = (state.guildResearch && state.guildResearch.cartography) || 0;
+  if (curCart < reqCart) {
+    if (state === gameState) {
+      actionCallbacks.log(`Requires Vault Cartography Rank ${reqCart} to chart routes to ${dng.name}.`, 'bad');
+    }
+    return { ok: false, reason: 'cartography_locked', reqCart };
+  }
+
+  state.activeDungeonId = dungeonId;
+  syncActiveDungeonAlias(state);
+
+  if (state === gameState) {
+    playSound('gold');
+    actionCallbacks.log(`🗺️ Expedition destination set to ${dng.name} (${dng.config.width}x${dng.config.height}, Seed ${dng.seedCode}).`, 'gold');
+    saveGame();
+    actionCallbacks.updateUI();
+  }
+  return { ok: true, dungeonId, dungeon: state.dungeon };
+}
+
+function chartCustomExpedition(opts = {}, state = gameState) {
+  if (!state || !state.inGuild) {
+    return { ok: false, reason: 'in_dungeon' };
+  }
+  const allDungeons = state.dungeons || {};
+  const charteredCount = Object.keys(allDungeons).filter(
+    k => allDungeons[k] && allDungeons[k].originType === 'chartered'
+  ).length;
+  const cap = state.maxCharteredDungeons || DEFAULT_MAX_CHARTERED_DUNGEONS;
+  if (charteredCount >= cap) {
+    if (state === gameState) {
+      actionCallbacks.log(`Charter limit reached (${charteredCount}/${cap}). Abandon an old charter first.`, 'bad');
+    }
+    return { ok: false, reason: 'charter_cap_reached', cap };
+  }
+
+  const newDng = buildCharteredDungeonInstance(opts);
+  state.dungeons[newDng.id] = newDng;
+  state.activeDungeonId = newDng.id;
+  syncActiveDungeonAlias(state);
+
+  if (state === gameState) {
+    playSound('lvl');
+    actionCallbacks.log(
+      `🧭 Chartered "${newDng.name}" (${newDng.config.width}x${newDng.config.height} • Max Fl ${newDng.config.maxDepth} • ${newDng.seedCode})!`,
+      'gold'
+    );
+    saveGame();
+    actionCallbacks.updateUI();
+  }
+  return { ok: true, dungeon: newDng };
+}
+
+function resetOrAbandonDungeon(dungeonId, state = gameState) {
+  if (!state || !state.inGuild) {
+    return { ok: false, reason: 'in_dungeon' };
+  }
+  const dng = state.dungeons && state.dungeons[dungeonId];
+  if (!dng) {
+    return { ok: false, reason: 'not_found' };
+  }
+
+  if (dng.originType === 'chartered') {
+    const oldName = dng.name;
+    delete state.dungeons[dungeonId];
+    if (state.activeDungeonId === dungeonId) {
+      state.activeDungeonId = state.dungeons.dng_starfall
+        ? 'dng_starfall'
+        : Object.keys(state.dungeons)[0];
+    }
+    syncActiveDungeonAlias(state);
+    if (state === gameState) {
+      playSound('hit');
+      actionCallbacks.log(`Sealed and retired expedition charter "${oldName}".`, 'info');
+      saveGame();
+      actionCallbacks.updateUI();
+    }
+    return { ok: true, action: 'abandoned', activeDungeonId: state.activeDungeonId };
+  }
+
+  const prefix = (dng.config && dng.config.seedPrefix) || 'STAR';
+  dng.seedCode = randomSeedCode(prefix);
+  dng.numericSeed = hashSeedString(dng.seedCode, 0);
+  dng.currentFloor = 1;
+  dng.deepestFloor = 1;
+  dng.isCleared = false;
+  dng.floors = {};
+  syncActiveDungeonAlias(state);
+
+  if (state === gameState) {
+    playSound('lvl');
+    actionCallbacks.log(`Re-charted ${dng.name} with fresh subterranean seed ${dng.seedCode}!`, 'gold');
+    saveGame();
+    actionCallbacks.updateUI();
+  }
+  return { ok: true, action: 'reset', seedCode: dng.seedCode };
 }
 
 // ============================================================================
@@ -1558,8 +2924,11 @@ function rollUncutGemForOreTile(tile) {
 }
 
 function mineTile(x, y, state = gameState) {
-  const floor = state.dungeon.floors[state.dungeon.currentFloor];
+  const floor = ensureDungeonFloorHydrated(state.dungeon, state.dungeon.currentFloor);
   if (!floor) return { ok: false, reason: 'no_floor' };
+  if (y < 0 || y >= floor.tiles.length || x < 0 || x >= floor.tiles[0].length) {
+    return { ok: false, reason: 'out_of_bounds' };
+  }
 
   const tile = floor.tiles[y][x];
   const ore = ORE_CATALOG[tile];
@@ -1617,7 +2986,8 @@ function mineTile(x, y, state = gameState) {
 
     // Geode bonus equipment roll
     if (tile === TILE_ORE_GEODE && Math.random() < 0.45) {
-      const dropGear = generateProceduralEquipment(floor.depth, 'rare');
+      const rarityBonus = (state.dungeon && state.dungeon.config && state.dungeon.config.lootRarityBonus) || 0;
+      const dropGear = generateProceduralEquipment(floor.depth, 'rare', null, rarityBonus);
       state.hero.expeditionGear.push(dropGear);
       actionCallbacks.log(`Cracked Relic Geode contained ${dropGear.name}!`, 'good');
     }
@@ -1743,16 +3113,23 @@ function sellGemUnit(gemId, sellAll = false, state = gameState) {
 // ============================================================================
 
 function detectNearbyTraps(floor, state = gameState) {
-  if (!floor || !state || !state.hero) return 0;
+  if (!floor || !floor.tiles || !state || !state.hero) return 0;
   const h = state.hero;
+  const fw = floor.width || (floor.tiles[0] ? floor.tiles[0].length : DEFAULT_MAP_W);
+  const fh = floor.height || floor.tiles.length || DEFAULT_MAP_H;
   const vision = h.visionRadius || 5;
   const spotScore = (h.computedDex || 10) * 2 + vision * 6;
   const threshold = 26 + (floor.depth || 1) * 3;
   const isScoutClass = h.classId === 'thief' || h.classId === 'ranger';
   let spottedCount = 0;
 
-  for (let y = 0; y < GRID_H; y++) {
-    for (let x = 0; x < GRID_W; x++) {
+  const minY = Math.max(0, Math.floor(h.y - vision - 1));
+  const maxY = Math.min(fh - 1, Math.ceil(h.y + vision + 1));
+  const minX = Math.max(0, Math.floor(h.x - vision - 1));
+  const maxX = Math.min(fw - 1, Math.ceil(h.x + vision + 1));
+
+  for (let y = minY; y <= maxY; y++) {
+    for (let x = minX; x <= maxX; x++) {
       if (floor.tiles[y][x] !== TILE_TRAP_HIDDEN) continue;
       const dist = Math.hypot(x - h.x, y - h.y);
       if (dist > vision + 0.35) continue;
@@ -1773,7 +3150,7 @@ function detectNearbyTraps(floor, state = gameState) {
 }
 
 function activateAstralShrine(x, y, state = gameState) {
-  const floor = state.dungeon.floors[state.dungeon.currentFloor];
+  const floor = ensureDungeonFloorHydrated(state.dungeon, state.dungeon.currentFloor);
   if (!floor || floor.tiles[y][x] !== TILE_SHRINE) {
     return { ok: false, reason: 'not_shrine' };
   }
@@ -1812,7 +3189,7 @@ function activateAstralShrine(x, y, state = gameState) {
 }
 
 function resolveTrapInteraction(x, y, state = gameState) {
-  const floor = state.dungeon.floors[state.dungeon.currentFloor];
+  const floor = ensureDungeonFloorHydrated(state.dungeon, state.dungeon.currentFloor);
   if (!floor) return { ok: false, reason: 'no_floor' };
   const tile = floor.tiles[y][x];
   if (tile !== TILE_TRAP_HIDDEN && tile !== TILE_TRAP_VISIBLE) {
@@ -2008,13 +3385,13 @@ function handleHeroDefeat(killerName = 'Abyssal Guardian', state = gameState) {
     actionCallbacks.updateUI();
     actionCallbacks.outcomeModal(
       'Expedition Defeat — Rescued by Guild Scouts',
-      `You fell to ${killerName} on Floor ${state.dungeon.currentFloor}. Oakhaven scouts recovered you to the surface. Your character level, equipped loadout, and Guild Vault remain intact!`,
+      `You fell to ${killerName} on Floor ${state.dungeon.currentFloor} of ${state.dungeon.name}. Oakhaven scouts recovered you to the surface. Your character level, equipped loadout, and Guild Vault remain intact!`,
       [
         `Defeated By: ${killerName} (Floor ${state.dungeon.currentFloor})`,
         `Unbanked Pack Items Lost: ${lostOreCount}`,
         `Unbanked Equipment Lost: ${lostGearCount}`,
         `Vanguard Pact Salvage (${vRank * 20}%): +${salvagedGold}g`,
-        `Persistent Dungeon Seed: ${state.dungeon.seedCode}`
+        `Persistent Dungeon: ${state.dungeon.name} (${state.dungeon.seedCode})`
       ]
     );
   }
@@ -2222,7 +3599,7 @@ function purchaseResearchRank(projId, state = gameState) {
 }
 
   // --- Module: src/engine/combat.js ---
-// Turn-Based Movement, Combat Resolution, Active Class Skills, Monster AI, Shrines, Traps & Stairs
+// Turn-Based Movement, Combat Resolution, Active Class Skills, Monster AI, Wall LOS, Auto-Walk & Stairs
 
 
 let fovCallback = () => {};
@@ -2234,9 +3611,320 @@ function registerCombatFOVCallback(fn) {
   }
 }
 
+// ============================================================================
+// BRESENHAM LINE-OF-SIGHT & HOSTILE AWARENESS
+// ============================================================================
+
+function hasLineOfSight(floor, x0, y0, x1, y1) {
+  if (!floor || !floor.tiles) return false;
+  let cx = Math.round(x0);
+  let cy = Math.round(y0);
+  const tx = Math.round(x1);
+  const ty = Math.round(y1);
+
+  if (cx === tx && cy === ty) return true;
+
+  const fh = floor.tiles.length;
+  const fw = floor.tiles[0] ? floor.tiles[0].length : 0;
+  if (tx < 0 || tx >= fw || ty < 0 || ty >= fh) return false;
+
+  const dx = Math.abs(tx - cx);
+  const dy = Math.abs(ty - cy);
+  const sx = cx < tx ? 1 : -1;
+  const sy = cy < ty ? 1 : -1;
+  let err = dx - dy;
+
+  while (!(cx === tx && cy === ty)) {
+    const e2 = err * 2;
+    if (e2 > -dy) {
+      err -= dy;
+      cx += sx;
+    }
+    if (e2 < dx) {
+      err += dx;
+      cy += sy;
+    }
+    if (cx === tx && cy === ty) {
+      return true;
+    }
+    if (cx < 0 || cx >= fw || cy < 0 || cy >= fh) {
+      return false;
+    }
+    const tile = floor.tiles[cy][cx];
+    if (tile === TILE_WALL || ORE_CATALOG[tile]) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function areHostilesInSight(floor, state = gameState) {
+  if (!floor || !floor.monsters || !state || !state.hero) return false;
+  const h = state.hero;
+  const vision = h.visionRadius || 5;
+  const maxBox = Math.ceil(vision + 1);
+
+  for (let i = 0; i < floor.monsters.length; i++) {
+    const m = floor.monsters[i];
+    if (!m || m.hp <= 0) continue;
+    if (Math.abs(m.x - h.x) > maxBox || Math.abs(m.y - h.y) > maxBox) continue;
+    if (Math.hypot(m.x - h.x, m.y - h.y) <= vision + 0.35 && hasLineOfSight(floor, h.x, h.y, m.x, m.y)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// ============================================================================
+// SAFE EXPLORED PATHFINDING & CLICK-TO-TRAVEL AUTO-WALK
+// ============================================================================
+
+let activeAutoWalkQueue = [];
+let autoWalkTimerId = null;
+
+function isAutoWalking() {
+  return activeAutoWalkQueue.length > 0;
+}
+
+function getAutoWalkPath() {
+  return activeAutoWalkQueue.slice();
+}
+
+function setAutoWalkPath(pathArray) {
+  activeAutoWalkQueue = Array.isArray(pathArray) ? pathArray.slice() : [];
+}
+
+function cancelAutoWalk() {
+  activeAutoWalkQueue = [];
+  if (autoWalkTimerId !== null && typeof clearTimeout !== 'undefined') {
+    clearTimeout(autoWalkTimerId);
+    autoWalkTimerId = null;
+  }
+}
+
+function computeSafeExploredPath(floor, sx, sy, tx, ty) {
+  if (!floor || !floor.tiles || !floor.explored) return null;
+  const fh = floor.tiles.length;
+  const fw = floor.tiles[0] ? floor.tiles[0].length : 0;
+  if (tx < 0 || tx >= fw || ty < 0 || ty >= fh) return null;
+  if (sx < 0 || sx >= fw || sy < 0 || sy >= fh) return null;
+  if (!floor.explored[ty] || !floor.explored[ty][tx]) return null;
+  if (sx === tx && sy === ty) return [];
+
+  const destTile = floor.tiles[ty][tx];
+  if (destTile === TILE_WALL || destTile === TILE_TRAP_VISIBLE) {
+    return null;
+  }
+
+  const total = fw * fh;
+  const visited = new Uint8Array(total);
+  const parent = new Int32Array(total);
+  parent.fill(-1);
+  const queue = new Int32Array(total);
+
+  // Mark monster positions as blocked (except if clicking directly adjacent monster, handled by click)
+  const monsterBlocked = new Uint8Array(total);
+  if (Array.isArray(floor.monsters)) {
+    for (let i = 0; i < floor.monsters.length; i++) {
+      const m = floor.monsters[i];
+      if (m && m.hp > 0 && m.x >= 0 && m.x < fw && m.y >= 0 && m.y < fh) {
+        monsterBlocked[m.y * fw + m.x] = 1;
+      }
+    }
+  }
+
+  const startIdx = sy * fw + sx;
+  const targetIdx = ty * fw + tx;
+  visited[startIdx] = 1;
+  let head = 0;
+  let tail = 0;
+  queue[tail++] = startIdx;
+
+  const dirsX = [0, 0, -1, 1];
+  const dirsY = [-1, 1, 0, 0];
+  let found = false;
+
+  while (head < tail) {
+    const cur = queue[head++];
+    if (cur === targetIdx) {
+      found = true;
+      break;
+    }
+    const cx = cur % fw;
+    const cy = (cur - cx) / fw;
+
+    for (let d = 0; d < 4; d++) {
+      const nx = cx + dirsX[d];
+      const ny = cy + dirsY[d];
+      if (nx < 0 || nx >= fw || ny < 0 || ny >= fh) continue;
+      const nIdx = ny * fw + nx;
+      if (visited[nIdx]) continue;
+      if (!floor.explored[ny] || !floor.explored[ny][nx]) continue;
+      if (monsterBlocked[nIdx] && nIdx !== targetIdx) continue;
+
+      const t = floor.tiles[ny][nx];
+      const isSafeStep = (
+        t === TILE_FLOOR ||
+        t === TILE_STAIRS_UP ||
+        t === TILE_STAIRS_DOWN ||
+        t === TILE_CHEST_OPEN ||
+        t === TILE_SHRINE_USED ||
+        t === TILE_TRAP_DISARMED ||
+        t === TILE_TRAP_HIDDEN
+      );
+      const isInteractiveGoal = nIdx === targetIdx && (
+        t === TILE_CHEST ||
+        t === TILE_SHRINE ||
+        !!ORE_CATALOG[t]
+      );
+
+      if (!isSafeStep && !isInteractiveGoal) continue;
+
+      visited[nIdx] = 1;
+      parent[nIdx] = cur;
+      queue[tail++] = nIdx;
+    }
+  }
+
+  if (!found) return null;
+
+  const steps = [];
+  let trace = targetIdx;
+  while (trace !== startIdx && trace !== -1) {
+    const px = trace % fw;
+    const py = (trace - px) / fw;
+    steps.push({ x: px, y: py });
+    trace = parent[trace];
+  }
+  steps.reverse();
+  return steps;
+}
+
+function stepAutoWalkOnce(state = gameState) {
+  const ui = getActionCallbacks();
+  if (!state || state.inGuild || !state.hero || activeAutoWalkQueue.length === 0) {
+    cancelAutoWalk();
+    return { ok: false, done: true, reason: 'idle' };
+  }
+
+  const floor = ensureDungeonFloorHydrated(state.dungeon, state.dungeon.currentFloor);
+  if (!floor) {
+    cancelAutoWalk();
+    return { ok: false, halted: true, reason: 'no_floor' };
+  }
+
+  if (areHostilesInSight(floor, state)) {
+    cancelAutoWalk();
+    if (state === gameState) {
+      ui.floatingText(state.hero.x, state.hero.y, '⚔ Hostile Sighted!', '#fbbf24');
+      ui.log('Auto-walk halted: hostile guardian in sight!', 'gold');
+    }
+    return { ok: false, halted: true, reason: 'hostile_in_sight' };
+  }
+
+  const nextStep = activeAutoWalkQueue.shift();
+  const dx = nextStep.x - state.hero.x;
+  const dy = nextStep.y - state.hero.y;
+  if (Math.abs(dx) + Math.abs(dy) !== 1) {
+    cancelAutoWalk();
+    return { ok: false, halted: true, reason: 'desync' };
+  }
+
+  if (floor.tiles[nextStep.y][nextStep.x] === TILE_TRAP_VISIBLE) {
+    cancelAutoWalk();
+    if (state === gameState) {
+      ui.floatingText(nextStep.x, nextStep.y, '⚠ Trap Ahead!', '#fbbf24');
+      ui.log('Auto-walk halted before spotted trap.', 'gold');
+    }
+    return { ok: false, halted: true, reason: 'trap_ahead' };
+  }
+
+  const hpBefore = state.hero.hp;
+  handlePlayerAction(dx, dy, state);
+
+  if (state.inGuild) {
+    cancelAutoWalk();
+    return { ok: true, stepped: true, halted: true, reason: 'left_dungeon' };
+  }
+
+  if (state.hero.hp < hpBefore) {
+    cancelAutoWalk();
+    return { ok: true, stepped: true, halted: true, reason: 'took_damage' };
+  }
+
+  const postFloor = ensureDungeonFloorHydrated(state.dungeon, state.dungeon.currentFloor);
+  if (areHostilesInSight(postFloor, state)) {
+    cancelAutoWalk();
+    if (state === gameState) {
+      ui.floatingText(state.hero.x, state.hero.y, '⚔ Hostile Sighted!', '#fbbf24');
+      ui.log('Auto-walk halted: hostile guardian in sight!', 'gold');
+    }
+    return { ok: true, stepped: true, halted: true, reason: 'hostile_in_sight' };
+  }
+
+  return {
+    ok: true,
+    stepped: true,
+    halted: false,
+    remaining: activeAutoWalkQueue.length
+  };
+}
+
+function scheduleNextAutoWalkTick() {
+  if (autoWalkTimerId !== null && typeof clearTimeout !== 'undefined') {
+    clearTimeout(autoWalkTimerId);
+    autoWalkTimerId = null;
+  }
+  if (activeAutoWalkQueue.length === 0 || typeof setTimeout === 'undefined') return;
+  autoWalkTimerId = setTimeout(() => {
+    autoWalkTimerId = null;
+    const res = stepAutoWalkOnce(gameState);
+    if (res && res.ok && !res.halted && res.remaining > 0) {
+      scheduleNextAutoWalkTick();
+    }
+  }, 36);
+}
+
+function startAutoWalkTo(tx, ty, state = gameState) {
+  const ui = getActionCallbacks();
+  cancelAutoWalk();
+  if (!state || state.inGuild || !state.hero) {
+    return { ok: false, reason: 'in_guild' };
+  }
+
+  const floor = ensureDungeonFloorHydrated(state.dungeon, state.dungeon.currentFloor);
+  if (!floor) return { ok: false, reason: 'no_floor' };
+
+  if (areHostilesInSight(floor, state)) {
+    if (state === gameState) {
+      ui.floatingText(state.hero.x, state.hero.y, 'Hostiles Nearby!', '#f87171');
+      ui.log('Cannot auto-walk while hostile guardians are in sight.', 'bad');
+    }
+    return { ok: false, reason: 'hostile_in_sight' };
+  }
+
+  const path = computeSafeExploredPath(floor, state.hero.x, state.hero.y, tx, ty);
+  if (!path || path.length === 0) {
+    if (state === gameState) {
+      ui.floatingText(tx, ty, 'Unexplored / Blocked', '#8b949e');
+    }
+    return { ok: false, reason: 'no_path' };
+  }
+
+  activeAutoWalkQueue = path;
+  if (state === gameState) {
+    scheduleNextAutoWalkTick();
+  }
+  return { ok: true, steps: path.length, path: path.slice() };
+}
+
+// ============================================================================
+// COMBAT RESOLUTION, BOSS DROPS & MONSTER AI
+// ============================================================================
+
 function killMonster(monster, state = gameState) {
   const ui = getActionCallbacks();
-  const floor = state.dungeon.floors[state.dungeon.currentFloor];
+  const floor = ensureDungeonFloorHydrated(state.dungeon, state.dungeon.currentFloor);
   if (!floor) return;
   floor.monsters = floor.monsters.filter(m => m !== monster);
 
@@ -2246,17 +3934,28 @@ function killMonster(monster, state = gameState) {
     h.mp = Math.min(h.maxMp, h.mp + 6);
   }
 
-  // Record Guild Notice Board Bounty Progress
+  // Record Guild Notice Board Bounty Progress (supports archetype bountyTag)
   const killTags = ['monster_any', monster.id];
+  if (monster.bountyTag && killTags.indexOf(monster.bountyTag) === -1) {
+    killTags.push(monster.bountyTag);
+  }
   if (monster.isElite) killTags.push('elite');
   if (monster.isBoss) killTags.push('boss');
   recordBountyProgress('slay', killTags, 1, state);
 
+  const rarityBonus = (state.dungeon && state.dungeon.config && state.dungeon.config.lootRarityBonus) || 0;
+
   if (monster.isBoss) {
-    const bossRarity = monster.id === 'boss_weaver' ? 'relic' : 'epic';
-    const bossGear = generateProceduralEquipment(floor.depth, bossRarity);
+    const bossRarity = monster.dropRarity || (monster.id === 'boss_weaver' ? 'relic' : 'epic');
+    const bossGear = generateProceduralEquipment(floor.depth, bossRarity, null, rarityBonus);
     h.expeditionGear.push(bossGear);
     addExpeditionTradeItem('starcrystal', 'Star-Crystal', 90, 2, 'Ore', state);
+
+    const maxDepth = (state.dungeon && state.dungeon.config && state.dungeon.config.maxDepth) || 999;
+    if (floor.depth >= maxDepth) {
+      state.dungeon.isCleared = true;
+    }
+
     if (state === gameState) {
       playSound('lvl');
       ui.floatingText(monster.x, monster.y, '👑 BOSS VANQUISHED!', '#fbbf24');
@@ -2266,7 +3965,12 @@ function killMonster(monster, state = gameState) {
     const goldVal = 8 + floor.depth * 5 + (monster.isElite ? 18 : 0);
     addExpeditionTradeItem('monster_trophy', 'Abyssal Shard', goldVal, 1, 'Relic', state);
     if (monster.isElite || Math.random() < 0.25) {
-      const dropGear = generateProceduralEquipment(floor.depth, monster.isElite ? 'rare' : null);
+      const dropGear = generateProceduralEquipment(
+        floor.depth,
+        monster.isElite ? 'rare' : null,
+        null,
+        rarityBonus
+      );
       h.expeditionGear.push(dropGear);
       if (state === gameState) {
         ui.log(`${monster.name} dropped ${dropGear.name}!`, 'good');
@@ -2284,10 +3988,11 @@ function attackMonster(monster, state = gameState) {
   const h = state.hero;
   const isCrit = Math.random() * 100 < h.crit;
   const critMult = isCrit ? 1.65 : 1.0;
+  const weakMult = (h.statuses || []).some(s => s.id === 'weakened') ? 0.80 : 1.0;
   const pierceRank = (h.talentsAllocated && h.talentsAllocated.r_d2) || 0;
   const effDef = Math.round(monster.def * (1 - Math.min(0.8, pierceRank * 0.30)));
 
-  const dmg = Math.max(2, Math.round(h.atk * critMult) - effDef);
+  const dmg = Math.max(2, Math.round(h.atk * weakMult * critMult) - effDef);
   monster.hp -= dmg;
 
   if (state === gameState) {
@@ -2301,28 +4006,32 @@ function attackMonster(monster, state = gameState) {
   }
 }
 
-function checkHeroFatalDamage(killerName) {
+function checkHeroFatalDamage(killerName, state = gameState) {
   const ui = getActionCallbacks();
-  const h = gameState.hero;
+  const h = state.hero;
   // Paladin Divine Intervention Keystone
   if (h.classId === 'paladin' && ((h.talentsAllocated && h.talentsAllocated.p_e3) || 0) > 0 && !h.usedDivineIntervention) {
     h.usedDivineIntervention = true;
     h.hp = Math.round(h.maxHp * 0.40);
-    playSound('lvl');
-    ui.floatingText(h.x, h.y, 'DIVINE INTERVENTION!', '#fbbf24');
-    ui.log('Divine Intervention prevented fatal damage and restored 40% Max HP!', 'gold');
-    ui.updateUI();
+    if (state === gameState) {
+      playSound('lvl');
+      ui.floatingText(h.x, h.y, 'DIVINE INTERVENTION!', '#fbbf24');
+      ui.log('Divine Intervention prevented fatal damage and restored 40% Max HP!', 'gold');
+      ui.updateUI();
+    }
     return;
   }
-  handleHeroDefeat(killerName);
+  handleHeroDefeat(killerName, state);
 }
 
-function monsterAttackHero(m, isRanged) {
+function monsterAttackHero(m, isRanged, state = gameState) {
   const ui = getActionCallbacks();
-  const h = gameState.hero;
+  const h = state.hero;
   if (Math.random() * 100 < h.dodge) {
-    ui.floatingText(h.x, h.y, 'DODGE!', '#34d399');
-    ui.log(`You dodged ${m.name}'s attack!`, 'good');
+    if (state === gameState) {
+      ui.floatingText(h.x, h.y, 'DODGE!', '#34d399');
+      ui.log(`You dodged ${m.name}'s attack!`, 'good');
+    }
     return;
   }
 
@@ -2330,11 +4039,17 @@ function monsterAttackHero(m, isRanged) {
   if (h.classId === 'fighter') raw = Math.round(raw * 0.85);
   const dmg = Math.max(1, raw - Math.floor(h.def * 0.6));
   h.hp -= dmg;
-  playSound('hit');
-  ui.floatingText(h.x, h.y, `-${dmg}${isRanged ? ' 🏹' : ''}`, '#f87171');
-  ui.log(`${m.name} strikes you for ${dmg} damage!`, 'bad');
 
-  // Elite Affix Effects
+  if (state === gameState) {
+    playSound('hit');
+    ui.floatingText(h.x, h.y, `-${dmg}${isRanged ? ' 🏹' : ''}`, '#f87171');
+    ui.log(`${m.name} strikes you for ${dmg} damage!`, 'bad');
+  }
+
+  // Archetype On-Hit Status + Elite Affix Effects
+  if (m.onHitStatus && Math.random() < 0.45) {
+    applyStatusEffect(h, m.onHitStatus, 3);
+  }
   if (m.affix && m.affix.id === 'vampiric') {
     m.hp = Math.min(m.maxHp, m.hp + Math.round(dmg * 0.4));
   } else if (m.affix && m.affix.id === 'molten') {
@@ -2347,27 +4062,32 @@ function monsterAttackHero(m, isRanged) {
   if (!isRanged && h.classId === 'fighter' && ((h.talentsAllocated && h.talentsAllocated.f_a3) || 0) > 0 && Math.random() < 0.35) {
     const counterDmg = Math.max(2, Math.round(h.atk * 0.5));
     m.hp -= counterDmg;
-    ui.floatingText(m.x, m.y, `-${counterDmg} COUNTER!`, '#60a5fa');
-    if (m.hp <= 0) killMonster(m);
+    if (state === gameState) {
+      ui.floatingText(m.x, m.y, `-${counterDmg} COUNTER!`, '#60a5fa');
+    }
+    if (m.hp <= 0) killMonster(m, state);
   }
 
   if (h.hp <= 0) {
-    checkHeroFatalDamage(m.name);
+    checkHeroFatalDamage(m.name, state);
   }
 }
 
-function processTurn() {
+function processTurn(state = gameState) {
   const ui = getActionCallbacks();
-  gameState.turn += 1;
-  const h = gameState.hero;
-  const floor = gameState.dungeon.floors[gameState.dungeon.currentFloor];
+  state.turn += 1;
+  const h = state.hero;
+  const floor = ensureDungeonFloorHydrated(state.dungeon, state.dungeon.currentFloor);
   if (!floor) return;
+
+  const fw = floor.width || (floor.tiles[0] ? floor.tiles[0].length : DEFAULT_MAP_W);
+  const fh = floor.height || floor.tiles.length || DEFAULT_MAP_H;
 
   // Passive Class Turn Ticks
   if (h.classId === 'mage') {
     h.mp = Math.min(h.maxMp, h.mp + 2);
   }
-  if (h.classId === 'paladin' && gameState.turn % 3 === 0) {
+  if (h.classId === 'paladin' && state.turn % 3 === 0) {
     h.hp = Math.min(h.maxHp, h.hp + 1);
   }
 
@@ -2379,7 +4099,9 @@ function processTurn() {
       if (st.id === 'burn' || st.id === 'bleed' || st.id === 'poison') {
         const dot = Math.max(2, Math.round(h.maxHp * 0.04));
         h.hp -= dot;
-        ui.floatingText(h.x, h.y, `-${dot} ${st.name.toUpperCase()}`, st.color);
+        if (state === gameState) {
+          ui.floatingText(h.x, h.y, `-${dot} ${st.name.toUpperCase()}`, st.color);
+        }
       }
       st.duration -= 1;
       if (st.duration <= 0) {
@@ -2388,20 +4110,27 @@ function processTurn() {
       }
     }
     if (buffExpired) {
-      recomputeHeroDerivedStats(false, gameState);
+      recomputeHeroDerivedStats(false, state);
     }
     if (h.hp <= 0) {
-      checkHeroFatalDamage('Affliction');
+      checkHeroFatalDamage('Affliction', state);
       return;
     }
   }
 
-  detectNearbyTraps(floor, gameState);
-  fovCallback();
+  const spottedTraps = detectNearbyTraps(floor, state);
+  if (spottedTraps > 0 && isAutoWalking()) {
+    cancelAutoWalk();
+  }
+  if (state === gameState) {
+    fovCallback();
+  }
 
-  // Monsters AI Turn
-  for (const m of floor.monsters.slice()) {
-    if (m.hp <= 0) continue;
+  // Monsters AI Turn (pre-culled by Chebyshev distance for O(1) large-map turn speed)
+  const monstersSnapshot = floor.monsters.slice();
+  for (let mIdx = 0; mIdx < monstersSnapshot.length; mIdx++) {
+    const m = monstersSnapshot[mIdx];
+    if (!m || m.hp <= 0) continue;
 
     // Monster Status Ticks
     if (m.statuses && m.statuses.length > 0) {
@@ -2412,40 +4141,49 @@ function processTurn() {
         if (st.id === 'burn' || st.id === 'bleed' || st.id === 'poison') {
           const dot = Math.max(3, Math.round(m.maxHp * 0.06));
           m.hp -= dot;
-          ui.floatingText(m.x, m.y, `-${dot}`, st.color);
+          if (state === gameState) {
+            ui.floatingText(m.x, m.y, `-${dot}`, st.color);
+          }
         }
         st.duration -= 1;
         if (st.duration <= 0) m.statuses.splice(i, 1);
       }
       if (m.hp <= 0) {
-        killMonster(m);
+        killMonster(m, state);
         continue;
       }
       if (stunned) {
-        ui.floatingText(m.x, m.y, 'STUNNED', '#fbbf24');
+        if (state === gameState) {
+          ui.floatingText(m.x, m.y, 'STUNNED', '#fbbf24');
+        }
         continue;
       }
     }
 
+    // Fast bounding-box skip so distant monsters on 192x144 maps cost zero CPU
+    if (Math.abs(m.x - h.x) > 8 || Math.abs(m.y - h.y) > 8) continue;
+
     const dist = Math.hypot(m.x - h.x, m.y - h.y);
-    if (dist <= 6.5) {
+    if (dist <= 7.0) {
       if (dist <= 1.5) {
-        monsterAttackHero(m, false);
-        if (gameState.inGuild) return;
-      } else if (m.isRanged && dist <= (m.range || 3) + 0.3) {
-        monsterAttackHero(m, true);
-        if (gameState.inGuild) return;
-      } else {
+        monsterAttackHero(m, false, state);
+        if (state.inGuild) return;
+      } else if (m.isRanged && dist <= (m.range || 3) + 0.3 && hasLineOfSight(floor, m.x, m.y, h.x, h.y)) {
+        monsterAttackHero(m, true, state);
+        if (state.inGuild) return;
+      } else if (hasLineOfSight(floor, m.x, m.y, h.x, h.y) || dist <= 4.2) {
         const sx = Math.sign(h.x - m.x);
         const sy = Math.sign(h.y - m.y);
         const candidates = Math.abs(h.x - m.x) >= Math.abs(h.y - m.y)
           ? [[sx, 0], [0, sy]]
           : [[0, sy], [sx, 0]];
-        for (const [dx, dy] of candidates) {
+        for (let c = 0; c < candidates.length; c++) {
+          const dx = candidates[c][0];
+          const dy = candidates[c][1];
           if (dx === 0 && dy === 0) continue;
           const tx = m.x + dx;
           const ty = m.y + dy;
-          if (tx >= 0 && tx < GRID_W && ty >= 0 && ty < GRID_H) {
+          if (tx >= 0 && tx < fw && ty >= 0 && ty < fh) {
             const destTile = floor.tiles[ty][tx];
             const monsterWalkable = (
               destTile === TILE_FLOOR ||
@@ -2468,20 +4206,26 @@ function processTurn() {
     }
   }
 
-  saveGame();
-  ui.updateUI();
+  if (state === gameState) {
+    saveGame();
+    ui.updateUI();
+  }
 }
 
 // Wire turn-end hook into actions.js (for Healing Tonic turn advance)
-registerActionCallbacks({ onTurnEnd: processTurn });
+registerActionCallbacks({ onTurnEnd: () => processTurn(gameState) });
 
 function executeClassSkill(state = gameState) {
   const ui = getActionCallbacks();
+  cancelAutoWalk();
   if (state.inGuild) return { ok: false, reason: 'in_guild' };
   const h = state.hero;
   const cls = CLASSES[h.classId];
-  const floor = state.dungeon.floors[state.dungeon.currentFloor];
+  const floor = ensureDungeonFloorHydrated(state.dungeon, state.dungeon.currentFloor);
   if (!floor) return { ok: false, reason: 'no_floor' };
+
+  const fw = floor.width || (floor.tiles[0] ? floor.tiles[0].length : DEFAULT_MAP_W);
+  const fh = floor.height || floor.tiles.length || DEFAULT_MAP_H;
 
   if (h.mp < cls.skillCost) {
     if (state === gameState) {
@@ -2513,22 +4257,25 @@ function executeClassSkill(state = gameState) {
       if (state === gameState) ui.floatingText(m.x, m.y, `-${dmg} STUN`, '#f87171');
       if (m.hp <= 0) killMonster(m, state);
     });
-    if (state === gameState) processTurn();
+    if (state === gameState) processTurn(state);
     return { ok: true, skill: 'whirlwind' };
   }
 
   // 2. THIEF: Shadowstep Strike (Requires visible target within 3.5 tiles AND an unoccupied safe floor tile adjacent to target)
   if (h.classId === 'thief') {
-    const candidates = floor.monsters.filter(m => Math.hypot(m.x - h.x, m.y - h.y) <= 3.5);
+    const candidates = floor.monsters.filter(
+      m => Math.hypot(m.x - h.x, m.y - h.y) <= 3.5 && hasLineOfSight(floor, h.x, h.y, m.x, m.y)
+    );
     let chosenTarget = null;
     let destTile = null;
 
-    for (const m of candidates) {
+    for (let cIdx = 0; cIdx < candidates.length; cIdx++) {
+      const m = candidates[cIdx];
       const neighbors = [[0, -1], [0, 1], [-1, 0], [1, 0]];
-      for (const [dx, dy] of neighbors) {
-        const tx = m.x + dx;
-        const ty = m.y + dy;
-        if (tx >= 0 && tx < GRID_W && ty >= 0 && ty < GRID_H) {
+      for (let nIdx = 0; nIdx < neighbors.length; nIdx++) {
+        const tx = m.x + neighbors[nIdx][0];
+        const ty = m.y + neighbors[nIdx][1];
+        if (tx >= 0 && tx < fw && ty >= 0 && ty < fh) {
           const t = floor.tiles[ty][tx];
           const walkable = (
             t === TILE_FLOOR ||
@@ -2552,7 +4299,7 @@ function executeClassSkill(state = gameState) {
     if (!chosenTarget || !destTile) {
       if (state === gameState) {
         ui.floatingText(h.x, h.y, 'No Valid Shadowstep!', '#c084fc');
-        ui.log('Shadowstep Strike requires a target within 3 tiles with an open adjacent floor tile.', 'bad');
+        ui.log('Shadowstep Strike requires a visible target within 3 tiles with an open adjacent floor tile.', 'bad');
       }
       return { ok: false, reason: 'no_valid_shadowstep' };
     }
@@ -2569,17 +4316,19 @@ function executeClassSkill(state = gameState) {
       ui.log(`Shadowstep Strike hits ${chosenTarget.name} for ${dmg} critical damage!`, 'gold');
     }
     if (chosenTarget.hp <= 0) killMonster(chosenTarget, state);
-    if (state === gameState) processTurn();
+    if (state === gameState) processTurn(state);
     return { ok: true, skill: 'shadowstep', destTile };
   }
 
-  // 3. MAGE: Starfall Nova (Requires at least 1 enemy within 4 tiles, applies Arcane Amplification & Supernova Echo)
+  // 3. MAGE: Starfall Nova (Requires at least 1 enemy within 4 tiles)
   if (h.classId === 'mage') {
-    const targets = floor.monsters.filter(m => Math.hypot(m.x - h.x, m.y - h.y) <= 4.2);
+    const targets = floor.monsters.filter(
+      m => Math.hypot(m.x - h.x, m.y - h.y) <= 4.2 && hasLineOfSight(floor, h.x, h.y, m.x, m.y)
+    );
     if (targets.length === 0) {
       if (state === gameState) {
         ui.floatingText(h.x, h.y, 'No Foes in Range!', '#60a5fa');
-        ui.log('Starfall Nova requires at least one enemy within 4 tiles.', 'bad');
+        ui.log('Starfall Nova requires at least one visible enemy within 4 tiles.', 'bad');
       }
       return { ok: false, reason: 'no_target' };
     }
@@ -2605,25 +4354,25 @@ function executeClassSkill(state = gameState) {
       if (m.hp <= 0) killMonster(m, state);
     });
 
-    if (state === gameState) processTurn();
+    if (state === gameState) processTurn(state);
     return { ok: true, skill: 'nova' };
   }
 
-  // 4. RANGER: Starfall Volley (Up to 3—or 5 with Rain of Needles—targets within 5 tiles)
+  // 4. RANGER: Starfall Volley (Up to 3—or 5 with Rain of Needles—visible targets within 5 tiles)
   if (h.classId === 'ranger') {
     const maxTargets = ((h.talentsAllocated && h.talentsAllocated.r_d3) || 0) > 0 ? 5 : 3;
     const pierceRank = (h.talentsAllocated && h.talentsAllocated.r_d2) || 0;
     const defIgnore = Math.min(0.8, pierceRank * 0.30);
 
     const targets = floor.monsters
-      .filter(m => Math.hypot(m.x - h.x, m.y - h.y) <= 5.2)
+      .filter(m => Math.hypot(m.x - h.x, m.y - h.y) <= 5.2 && hasLineOfSight(floor, h.x, h.y, m.x, m.y))
       .sort((a, b) => Math.hypot(a.x - h.x, a.y - h.y) - Math.hypot(b.x - h.x, b.y - h.y))
       .slice(0, maxTargets);
 
     if (targets.length === 0) {
       if (state === gameState) {
         ui.floatingText(h.x, h.y, 'No Targets in Sight!', '#34d399');
-        ui.log('Starfall Volley requires at least one enemy within 5 tiles.', 'bad');
+        ui.log('Starfall Volley requires at least one visible enemy within 5 tiles.', 'bad');
       }
       return { ok: false, reason: 'no_target' };
     }
@@ -2642,7 +4391,7 @@ function executeClassSkill(state = gameState) {
       if (m.hp <= 0) killMonster(m, state);
     });
 
-    if (state === gameState) processTurn();
+    if (state === gameState) processTurn(state);
     return { ok: true, skill: 'volley', count: targets.length };
   }
 
@@ -2670,148 +4419,184 @@ function executeClassSkill(state = gameState) {
       ui.log(`Holy Smite sears ${target.name} for ${dmg} damage and heals you for +${healAmt} HP!`, 'gold');
     }
     if (target.hp <= 0) killMonster(target, state);
-    if (state === gameState) processTurn();
+    if (state === gameState) processTurn(state);
     return { ok: true, skill: 'smite', dmg, healAmt };
   }
 
   return { ok: false };
 }
 
-function handlePlayerAction(dx, dy) {
+function handlePlayerAction(dx, dy, state = gameState) {
   const ui = getActionCallbacks();
-  if (gameState.inGuild || !gameState.hero) return;
-  const floor = gameState.dungeon.floors[gameState.dungeon.currentFloor];
+  if (!state || state.inGuild || !state.hero) return;
+  const floor = ensureDungeonFloorHydrated(state.dungeon, state.dungeon.currentFloor);
   if (!floor) return;
 
-  const nx = gameState.hero.x + dx;
-  const ny = gameState.hero.y + dy;
-  if (nx < 0 || nx >= GRID_W || ny < 0 || ny >= GRID_H) return;
+  const fw = floor.width || (floor.tiles[0] ? floor.tiles[0].length : DEFAULT_MAP_W);
+  const fh = floor.height || floor.tiles.length || DEFAULT_MAP_H;
 
-  // 1. Monster Melee/Ranged Bump Attack
+  const nx = state.hero.x + dx;
+  const ny = state.hero.y + dy;
+  if (nx < 0 || nx >= fw || ny < 0 || ny >= fh) return;
+
+  // 1. Monster Melee Bump Attack
   const targetMonster = floor.monsters.find(m => m.x === nx && m.y === ny);
   if (targetMonster) {
-    attackMonster(targetMonster);
-    processTurn();
+    attackMonster(targetMonster, state);
+    processTurn(state);
     return;
   }
 
   // 2. Ore Vein Mining
   const targetTile = floor.tiles[ny][nx];
   if (ORE_CATALOG[targetTile]) {
-    mineTile(nx, ny);
-    processTurn();
+    mineTile(nx, ny, state);
+    processTurn(state);
     return;
   }
 
   // 3. Gilded Chest Opening
   if (targetTile === TILE_CHEST) {
     floor.tiles[ny][nx] = TILE_CHEST_OPEN;
-    playSound('gold');
-    const depth = gameState.dungeon.currentFloor;
-    const goldVal = Math.round((22 + depth * 12) * (gameState.hero.classId === 'thief' ? 1.25 : 1.0));
-    addExpeditionTradeItem('star_relic', 'Star-etched Relic', goldVal, 1, 'Relic');
-    recordBountyProgress('open_chest', ['chest'], 1, gameState);
+    const depth = state.dungeon.currentFloor;
+    const cfg = state.dungeon.config || {};
+    const effDepth = depth + (cfg.baseDangerDepth || 0);
+    const goldVal = Math.round((22 + effDepth * 12) * (state.hero.classId === 'thief' ? 1.25 : 1.0));
+    addExpeditionTradeItem('star_relic', 'Star-etched Relic', goldVal, 1, 'Relic', state);
+    recordBountyProgress('open_chest', ['chest'], 1, state);
 
-    const chestGear = generateProceduralEquipment(depth, depth >= 3 ? 'rare' : 'uncommon');
-    gameState.hero.expeditionGear.push(chestGear);
+    const rarityBonus = cfg.lootRarityBonus || 0;
+    const forcedRarity = effDepth >= 4 ? 'rare' : 'uncommon';
+    const chestGear = generateProceduralEquipment(effDepth, forcedRarity, cfg.lootSlotBias || null, rarityBonus);
+    state.hero.expeditionGear.push(chestGear);
 
-    ui.floatingText(nx, ny, `+${goldVal}g & ${chestGear.name}!`, RARITY[chestGear.rarity].color);
-    ui.log(`Opened Gilded Chest! Found Star-etched Relic (${goldVal}g) & ${chestGear.name}!`, 'gold');
-    gainExperience(18 + depth * 6);
-    processTurn();
+    if (state === gameState) {
+      playSound('gold');
+      ui.floatingText(nx, ny, `+${goldVal}g & ${chestGear.name}!`, RARITY[chestGear.rarity].color);
+      ui.log(`Opened Gilded Chest! Found Star-etched Relic (${goldVal}g) & ${chestGear.name}!`, 'gold');
+      gainExperience(18 + effDepth * 6, state);
+    }
+    processTurn(state);
     return;
   }
 
   // 4. Astral Shrine Activation
   if (targetTile === TILE_SHRINE) {
-    activateAstralShrine(nx, ny, gameState);
-    processTurn();
+    activateAstralShrine(nx, ny, state);
+    processTurn(state);
     return;
   }
 
   // 5. Runic Trap Interaction (Disarm for Scout on Spotted Trap, else Trigger)
   if (targetTile === TILE_TRAP_HIDDEN || targetTile === TILE_TRAP_VISIBLE) {
-    const trapRes = resolveTrapInteraction(nx, ny, gameState);
+    const trapRes = resolveTrapInteraction(nx, ny, state);
     if (trapRes.fatal) {
-      checkHeroFatalDamage(trapRes.killerName);
+      checkHeroFatalDamage(trapRes.killerName, state);
       return;
     }
-    processTurn();
+    processTurn(state);
     return;
   }
 
   // 6. Step onto Walkable Tile
   if (targetTile !== TILE_WALL) {
-    gameState.hero.x = nx;
-    gameState.hero.y = ny;
-    detectNearbyTraps(floor, gameState);
-    processTurn();
-  } else {
+    state.hero.x = nx;
+    state.hero.y = ny;
+    detectNearbyTraps(floor, state);
+    processTurn(state);
+  } else if (state === gameState) {
     ui.floatingText(nx, ny, 'Blocked', '#8b949e');
   }
 }
 
-function useStairsAtPlayer() {
+function useStairsAtPlayer(state = gameState) {
   const ui = getActionCallbacks();
-  if (gameState.inGuild) return;
-  const floor = gameState.dungeon.floors[gameState.dungeon.currentFloor];
-  const tile = floor.tiles[gameState.hero.y][gameState.hero.x];
+  cancelAutoWalk();
+  if (!state || state.inGuild || !state.hero) return;
+  const floor = ensureDungeonFloorHydrated(state.dungeon, state.dungeon.currentFloor);
+  if (!floor) return;
+  const tile = floor.tiles[state.hero.y][state.hero.x];
 
   if (tile === TILE_STAIRS_UP) {
-    if (gameState.dungeon.currentFloor === 1) {
-      extractToGuild('Floor 1 Ascending Stairs (<)');
+    if (state.dungeon.currentFloor === 1) {
+      extractToGuild('Floor 1 Ascending Stairs (<)', state);
     } else {
-      gameState.dungeon.currentFloor -= 1;
-      const prev = gameState.dungeon.floors[gameState.dungeon.currentFloor];
-      gameState.hero.x = prev.downPos.x;
-      gameState.hero.y = prev.downPos.y;
-      detectNearbyTraps(prev, gameState);
-      fovCallback();
-      ui.updateUI();
-      ui.log(`Ascended to Floor ${gameState.dungeon.currentFloor}.`, 'info');
+      state.dungeon.currentFloor -= 1;
+      const prev = ensureDungeonFloorHydrated(state.dungeon, state.dungeon.currentFloor);
+      state.hero.x = prev.downPos.x;
+      state.hero.y = prev.downPos.y;
+      detectNearbyTraps(prev, state);
+      if (state === gameState) {
+        fovCallback();
+        saveGame();
+        ui.updateUI();
+        ui.log(`Ascended to Floor ${state.dungeon.currentFloor} of ${state.dungeon.name}.`, 'info');
+      }
     }
   } else if (tile === TILE_STAIRS_DOWN) {
-    const permit = RESEARCH_PROJECTS.cartography.levels[gameState.guildResearch.cartography || 0].depthPermit;
-    if (gameState.dungeon.currentFloor + 1 > permit) {
-      ui.floatingText(gameState.hero.x, gameState.hero.y, 'Ward Sealed!', '#f87171');
-      ui.log(`Astral Ward blocks Floor ${gameState.dungeon.currentFloor + 1}! Research Vault Cartography at the Guild Lab.`, 'bad');
-      playSound('hit');
+    const cfg = state.dungeon.config || {};
+    const maxDepth = cfg.maxDepth || 999;
+    if (state.dungeon.currentFloor >= maxDepth) {
+      if (state === gameState) {
+        ui.log(`You have reached the deepest sanctum of ${state.dungeon.name} (Floor ${maxDepth}).`, 'gold');
+      }
       return;
     }
-    gameState.dungeon.currentFloor += 1;
-    if (!gameState.dungeon.floors[gameState.dungeon.currentFloor]) {
-      gameState.dungeon.floors[gameState.dungeon.currentFloor] = generateFloor(gameState.dungeon.currentFloor);
+
+    if (cfg.respectsCartographyPermit !== false) {
+      const permit = RESEARCH_PROJECTS.cartography.levels[state.guildResearch.cartography || 0].depthPermit;
+      if (state.dungeon.currentFloor + 1 > permit) {
+        if (state === gameState) {
+          ui.floatingText(state.hero.x, state.hero.y, 'Ward Sealed!', '#f87171');
+          ui.log(`Astral Ward blocks Floor ${state.dungeon.currentFloor + 1}! Research Vault Cartography at the Guild Lab.`, 'bad');
+          playSound('hit');
+        }
+        return;
+      }
     }
-    const next = gameState.dungeon.floors[gameState.dungeon.currentFloor];
-    gameState.hero.x = next.upPos.x;
-    gameState.hero.y = next.upPos.y;
-    detectNearbyTraps(next, gameState);
-    fovCallback();
-    ui.updateUI();
-    ui.log(`Descended to Floor ${gameState.dungeon.currentFloor}.`, 'info');
-  } else {
+
+    const nextDepth = state.dungeon.currentFloor + 1;
+    state.dungeon.currentFloor = nextDepth;
+    state.dungeon.deepestFloor = Math.max(state.dungeon.deepestFloor || 1, nextDepth);
+    if (!state.dungeon.floors[nextDepth]) {
+      state.dungeon.floors[nextDepth] = generateFloor(
+        nextDepth,
+        state.dungeon.config,
+        state.dungeon.numericSeed
+      );
+    }
+    const next = ensureDungeonFloorHydrated(state.dungeon, nextDepth);
+    state.hero.x = next.upPos.x;
+    state.hero.y = next.upPos.y;
+    detectNearbyTraps(next, state);
+    if (state === gameState) {
+      fovCallback();
+      saveGame();
+      ui.updateUI();
+      ui.log(`Descended to Floor ${nextDepth} of ${state.dungeon.name} (${next.width}x${next.height}).`, 'info');
+    }
+  } else if (state === gameState) {
     ui.log('Stand on Ascending (<) or Descending (>) stairs to use them.', 'info');
   }
 }
 
-function waitTurn() {
+function waitTurn(state = gameState) {
   const ui = getActionCallbacks();
-  if (gameState.inGuild) return;
-  ui.log('You hold your ground and scan the shadows.', 'info');
-  processTurn();
+  cancelAutoWalk();
+  if (!state || state.inGuild) return;
+  if (state === gameState) {
+    ui.log('You hold your ground and scan the shadows.', 'info');
+  }
+  processTurn(state);
 }
 
   // --- Module: src/ui/renderer.js ---
-// 2D Graphical Canvas Renderer, Torchlight FOV, Shrines, Traps, Hero Sprite, and Floating Combat Text
-
-
-
-
-
+// 2D Frustum-Culled Camera Renderer, Bresenham Torchlight FOV, Minimap / Cartographer's Map & Floating Text
 
 
 const floatingTexts = [];
 let hoverTile = null;
+let visibleCoordMap = {};
 
 function setHoverTile(tile) {
   hoverTile = tile;
@@ -2821,31 +4606,68 @@ function getHoverTile() {
   return hoverTile;
 }
 
+function getCameraOrigin(floor, hx, hy) {
+  const fw = (floor && floor.width) || (floor && floor.tiles && floor.tiles[0] ? floor.tiles[0].length : VIEWPORT_WIDTH);
+  const fh = (floor && floor.height) || (floor && floor.tiles ? floor.tiles.length : VIEWPORT_HEIGHT);
+  const maxCamX = Math.max(0, fw - VIEWPORT_WIDTH);
+  const maxCamY = Math.max(0, fh - VIEWPORT_HEIGHT);
+  const camX = Math.max(0, Math.min(maxCamX, Math.round(hx) - Math.floor(VIEWPORT_WIDTH / 2)));
+  const camY = Math.max(0, Math.min(maxCamY, Math.round(hy) - Math.floor(VIEWPORT_HEIGHT / 2)));
+  return { camX, camY, fw, fh };
+}
+
 function spawnFloatingText(gx, gy, text, color = '#fff') {
   floatingTexts.push({
-    px: gx * TILE_SIZE + 16,
-    py: gy * TILE_SIZE + 10,
+    gx,
+    gy,
+    riseOffset: 0,
     text,
     color,
     ticks: 28
   });
 }
 
-function updateFOV() {
-  if (gameState.inGuild || !gameState.hero) return;
-  const floor = gameState.dungeon.floors[gameState.dungeon.currentFloor];
-  if (!floor) return;
-  const radius = gameState.hero.visionRadius || 5;
+function updateFOV(state = gameState) {
+  visibleCoordMap = {};
+  if (!state || state.inGuild || !state.hero) return;
+  const floor = ensureDungeonFloorHydrated(state.dungeon, state.dungeon.currentFloor);
+  if (!floor || !floor.tiles) return;
 
-  for (let y = 0; y < GRID_H; y++) {
-    for (let x = 0; x < GRID_W; x++) {
-      if (Math.hypot(x - gameState.hero.x, y - gameState.hero.y) <= radius + 0.35) {
-        floor.explored[y][x] = true;
+  const fw = floor.width || (floor.tiles[0] ? floor.tiles[0].length : DEFAULT_MAP_W);
+  const fh = floor.height || floor.tiles.length || DEFAULT_MAP_H;
+  const hx = state.hero.x;
+  const hy = state.hero.y;
+  const radius = state.hero.visionRadius || 5;
+
+  const minY = Math.max(0, Math.floor(hy - radius - 1));
+  const maxY = Math.min(fh - 1, Math.ceil(hy + radius + 1));
+  const minX = Math.max(0, Math.floor(hx - radius - 1));
+  const maxX = Math.min(fw - 1, Math.ceil(hx + radius + 1));
+
+  for (let y = minY; y <= maxY; y++) {
+    for (let x = minX; x <= maxX; x++) {
+      if (Math.hypot(x - hx, y - hy) <= radius + 0.35 && hasLineOfSight(floor, hx, hy, x, y)) {
+        floor.explored[y][x] = 1;
+        visibleCoordMap[`${x},${y}`] = true;
       }
     }
   }
 
-  detectNearbyTraps(floor, gameState);
+  detectNearbyTraps(floor, state);
+
+  if (state === gameState && typeof document !== 'undefined') {
+    renderMinimapCanvas('minimapCanvas');
+    const fullModal = document.getElementById('fullMapModal');
+    if (fullModal && !fullModal.classList.contains('hidden')) {
+      renderMinimapCanvas('fullMapCanvas');
+    }
+  }
+}
+
+function isTileVisibleNow(floor, hx, hy, vision, x, y) {
+  if (visibleCoordMap[`${x},${y}`]) return true;
+  if (Math.abs(x - hx) > vision + 1 || Math.abs(y - hy) > vision + 1) return false;
+  return Math.hypot(x - hx, y - hy) <= vision + 0.35 && hasLineOfSight(floor, hx, hy, x, y);
 }
 
 function drawHeroSprite(ctx, px, py, classId, size = TILE_SIZE) {
@@ -2894,6 +4716,126 @@ function drawHeroSprite(ctx, px, py, classId, size = TILE_SIZE) {
   ctx.restore();
 }
 
+function minimapPixelToGrid(canvas, clientX, clientY, floor) {
+  if (!canvas || !floor || !floor.tiles) return null;
+  const fw = floor.width || (floor.tiles[0] ? floor.tiles[0].length : DEFAULT_MAP_W);
+  const fh = floor.height || floor.tiles.length || DEFAULT_MAP_H;
+  const rect = canvas.getBoundingClientRect();
+  if (!rect || rect.width <= 0 || rect.height <= 0) return null;
+
+  const px = (clientX - rect.left) * (canvas.width / rect.width);
+  const py = (clientY - rect.top) * (canvas.height / rect.height);
+  const scale = Math.min(canvas.width / fw, canvas.height / fh);
+  const offX = Math.floor((canvas.width - fw * scale) / 2);
+  const offY = Math.floor((canvas.height - fh * scale) / 2);
+
+  const gx = Math.floor((px - offX) / scale);
+  const gy = Math.floor((py - offY) / scale);
+  if (gx < 0 || gx >= fw || gy < 0 || gy >= fh) return null;
+  return { x: gx, y: gy };
+}
+
+function renderMinimapCanvas(targetCanvasId = 'minimapCanvas') {
+  if (typeof document === 'undefined') return;
+  const canvas = document.getElementById(targetCanvasId);
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#04060a';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  if (gameState.inGuild || !gameState.hero) {
+    ctx.fillStyle = '#64748b';
+    ctx.font = '11px "JetBrains Mono", monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('Descend to chart subterranean floors', Math.floor(canvas.width / 2), Math.floor(canvas.height / 2));
+    return;
+  }
+
+  const floor = ensureDungeonFloorHydrated(gameState.dungeon, gameState.dungeon.currentFloor);
+  if (!floor || !floor.tiles) return;
+
+  const fw = floor.width || (floor.tiles[0] ? floor.tiles[0].length : DEFAULT_MAP_W);
+  const fh = floor.height || floor.tiles.length || DEFAULT_MAP_H;
+  const scale = Math.min(canvas.width / fw, canvas.height / fh);
+  const offX = Math.floor((canvas.width - fw * scale) / 2);
+  const offY = Math.floor((canvas.height - fh * scale) / 2);
+  const drawSize = Math.max(1, Math.ceil(scale));
+
+  const hx = gameState.hero.x;
+  const hy = gameState.hero.y;
+  const vision = gameState.hero.visionRadius || 5;
+  const poiMarkers = [];
+
+  for (let y = 0; y < fh; y++) {
+    const expRow = floor.explored[y];
+    if (!expRow) continue;
+    const tileRow = floor.tiles[y];
+    for (let x = 0; x < fw; x++) {
+      if (!expRow[x]) continue;
+      const t = tileRow[x];
+      const rx = Math.floor(offX + x * scale);
+      const ry = Math.floor(offY + y * scale);
+
+      if (t === TILE_WALL) {
+        ctx.fillStyle = '#253247';
+        ctx.fillRect(rx, ry, drawSize, drawSize);
+      } else if (ORE_CATALOG[t]) {
+        ctx.fillStyle = ORE_CATALOG[t].color;
+        ctx.fillRect(rx, ry, Math.max(2, drawSize), Math.max(2, drawSize));
+      } else {
+        ctx.fillStyle = '#111a2b';
+        ctx.fillRect(rx, ry, drawSize, drawSize);
+        if (t === TILE_STAIRS_UP) {
+          poiMarkers.push({ x: rx, y: ry, color: '#10b981', size: Math.max(3, drawSize + 1) });
+        } else if (t === TILE_STAIRS_DOWN) {
+          poiMarkers.push({ x: rx, y: ry, color: '#60a5fa', size: Math.max(3, drawSize + 1) });
+        } else if (t === TILE_CHEST) {
+          poiMarkers.push({ x: rx, y: ry, color: '#fbbf24', size: Math.max(2, drawSize) });
+        } else if (t === TILE_SHRINE) {
+          poiMarkers.push({ x: rx, y: ry, color: '#34d399', size: Math.max(2, drawSize) });
+        } else if (t === TILE_TRAP_VISIBLE) {
+          poiMarkers.push({ x: rx, y: ry, color: '#fb923c', size: Math.max(2, drawSize) });
+        }
+      }
+    }
+  }
+
+  for (let i = 0; i < poiMarkers.length; i++) {
+    const p = poiMarkers[i];
+    ctx.fillStyle = p.color;
+    ctx.fillRect(p.x, p.y, p.size, p.size);
+  }
+
+  // Visible Monsters on Minimap
+  for (let i = 0; i < floor.monsters.length; i++) {
+    const m = floor.monsters[i];
+    if (!m || m.hp <= 0) continue;
+    if (!isTileVisibleNow(floor, hx, hy, vision, m.x, m.y)) continue;
+    ctx.fillStyle = m.isBoss ? '#fbbf24' : '#f87171';
+    const mx = Math.floor(offX + m.x * scale);
+    const my = Math.floor(offY + m.y * scale);
+    ctx.fillRect(mx, my, Math.max(2, drawSize), Math.max(2, drawSize));
+  }
+
+  // Camera Viewport Outline
+  const cam = getCameraOrigin(floor, hx, hy);
+  ctx.strokeStyle = 'rgba(251, 191, 36, 0.55)';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(
+    Math.floor(offX + cam.camX * scale) + 0.5,
+    Math.floor(offY + cam.camY * scale) + 0.5,
+    Math.min(fw, VIEWPORT_WIDTH) * scale,
+    Math.min(fh, VIEWPORT_HEIGHT) * scale
+  );
+
+  // Hero Beacon
+  const heroPx = Math.floor(offX + hx * scale);
+  const heroPy = Math.floor(offY + hy * scale);
+  const beacon = Math.max(3, drawSize + 1);
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(heroPx - 1, heroPy - 1, beacon, beacon);
+}
+
 function renderDungeonCanvas() {
   if (typeof document === 'undefined') return;
   const canvas = document.getElementById('dungeonCanvas');
@@ -2903,21 +4845,34 @@ function renderDungeonCanvas() {
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
   if (gameState.inGuild || !gameState.hero) return;
-  const floor = gameState.dungeon.floors[gameState.dungeon.currentFloor];
-  if (!floor) return;
+  const floor = ensureDungeonFloorHydrated(gameState.dungeon, gameState.dungeon.currentFloor);
+  if (!floor || !floor.tiles) return;
 
   const hx = gameState.hero.x;
   const hy = gameState.hero.y;
   const vision = gameState.hero.visionRadius || 5;
+  const cam = getCameraOrigin(floor, hx, hy);
+  const camX = cam.camX;
+  const camY = cam.camY;
+  const fw = cam.fw;
+  const fh = cam.fh;
 
-  for (let y = 0; y < GRID_H; y++) {
-    for (let x = 0; x < GRID_W; x++) {
-      if (!floor.explored[y][x]) continue;
+  // Frustum-culled O(21*15) tile render loop
+  for (let vy = 0; vy < VIEWPORT_HEIGHT; vy++) {
+    const y = camY + vy;
+    if (y < 0 || y >= fh) continue;
+    const expRow = floor.explored[y];
+    if (!expRow) continue;
 
-      const px = x * TILE_SIZE;
-      const py = y * TILE_SIZE;
+    for (let vx = 0; vx < VIEWPORT_WIDTH; vx++) {
+      const x = camX + vx;
+      if (x < 0 || x >= fw) continue;
+      if (!expRow[x]) continue;
+
+      const px = vx * TILE_SIZE;
+      const py = vy * TILE_SIZE;
       const dist = Math.hypot(x - hx, y - hy);
-      const inSight = dist <= vision + 0.35;
+      const inSight = isTileVisibleNow(floor, hx, hy, vision, x, y);
       const tile = floor.tiles[y][x];
 
       // Draw Wall or Ore Vein Wall
@@ -2968,12 +4923,10 @@ function renderDungeonCanvas() {
         } else if (tile === TILE_SHRINE) {
           const sMeta = (floor.shrines && floor.shrines[`${x},${y}`]) || { type: 'sanctuary' };
           const sDef = SHRINE_CATALOG[sMeta.type] || SHRINE_CATALOG.sanctuary;
-          // Stone Altar Base
           ctx.fillStyle = '#334155';
           ctx.fillRect(px + 8, py + 20, 16, 6);
           ctx.fillStyle = '#475569';
           ctx.fillRect(px + 11, py + 14, 10, 6);
-          // Floating Astral Crystal
           ctx.fillStyle = sDef.color;
           ctx.beginPath();
           ctx.moveTo(px + 16, py + 4);
@@ -2994,7 +4947,6 @@ function renderDungeonCanvas() {
           ctx.lineWidth = 1.4;
           ctx.strokeRect(px + 5, py + 5, 22, 22);
           ctx.fillStyle = tDef.color;
-          // Draw hazard triangles / rune nodes
           ctx.beginPath();
           ctx.moveTo(px + 11, py + 21);
           ctx.lineTo(px + 14, py + 11);
@@ -3028,11 +4980,33 @@ function renderDungeonCanvas() {
     }
   }
 
-  // Draw Visible Monsters
-  for (const m of floor.monsters) {
-    if (Math.hypot(m.x - hx, m.y - hy) > vision + 0.35) continue;
-    const mx = m.x * TILE_SIZE;
-    const my = m.y * TILE_SIZE;
+  // Draw Auto-Walk Breadcrumb Trail (if active)
+  const walkPath = getAutoWalkPath();
+  if (walkPath.length > 0) {
+    ctx.fillStyle = 'rgba(96, 165, 250, 0.7)';
+    for (let i = 0; i < walkPath.length; i++) {
+      const st = walkPath[i];
+      const vx = st.x - camX;
+      const vy = st.y - camY;
+      if (vx >= 0 && vx < VIEWPORT_WIDTH && vy >= 0 && vy < VIEWPORT_HEIGHT) {
+        ctx.beginPath();
+        ctx.arc(vx * TILE_SIZE + 16, vy * TILE_SIZE + 16, i === walkPath.length - 1 ? 5 : 2.5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+  }
+
+  // Draw Visible Monsters inside Camera Frustum
+  for (let i = 0; i < floor.monsters.length; i++) {
+    const m = floor.monsters[i];
+    if (!m || m.hp <= 0) continue;
+    const vx = m.x - camX;
+    const vy = m.y - camY;
+    if (vx < 0 || vx >= VIEWPORT_WIDTH || vy < 0 || vy >= VIEWPORT_HEIGHT) continue;
+    if (!isTileVisibleNow(floor, hx, hy, vision, m.x, m.y)) continue;
+
+    const mx = vx * TILE_SIZE;
+    const my = vy * TILE_SIZE;
 
     if (m.isBoss) {
       ctx.strokeStyle = '#f87171';
@@ -3060,26 +5034,34 @@ function renderDungeonCanvas() {
     ctx.fillRect(mx + 4, my + 26, Math.round(24 * pct), 4);
   }
 
-  // Draw Player Sprite
-  drawHeroSprite(ctx, hx * TILE_SIZE, hy * TILE_SIZE, gameState.hero.classId, TILE_SIZE);
+  // Draw Player Sprite relative to Camera Origin
+  drawHeroSprite(ctx, (hx - camX) * TILE_SIZE, (hy - camY) * TILE_SIZE, gameState.hero.classId, TILE_SIZE);
 
-  // Draw Hover Highlight
+  // Draw Hover Highlight relative to Camera Origin
   if (hoverTile) {
-    ctx.strokeStyle = 'rgba(251, 191, 36, 0.7)';
-    ctx.lineWidth = 1.5;
-    ctx.strokeRect(hoverTile.x * TILE_SIZE + 1, hoverTile.y * TILE_SIZE + 1, TILE_SIZE - 2, TILE_SIZE - 2);
+    const hvx = hoverTile.x - camX;
+    const hvy = hoverTile.y - camY;
+    if (hvx >= 0 && hvx < VIEWPORT_WIDTH && hvy >= 0 && hvy < VIEWPORT_HEIGHT) {
+      ctx.strokeStyle = 'rgba(251, 191, 36, 0.75)';
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(hvx * TILE_SIZE + 1, hvy * TILE_SIZE + 1, TILE_SIZE - 2, TILE_SIZE - 2);
+    }
   }
 
-  // Draw Floating Combat/Mining Numbers
+  // Draw Floating Combat/Mining Numbers projected into Camera Space
   for (let i = floatingTexts.length - 1; i >= 0; i--) {
     const ft = floatingTexts[i];
-    ctx.font = 'bold 11px "JetBrains Mono", monospace';
-    ctx.textAlign = 'center';
-    ctx.fillStyle = '#000';
-    ctx.fillText(ft.text, ft.px + 1, ft.py + 1);
-    ctx.fillStyle = ft.color;
-    ctx.fillText(ft.text, ft.px, ft.py);
-    ft.py -= 0.45;
+    const px = (ft.gx - camX) * TILE_SIZE + 16;
+    const py = (ft.gy - camY) * TILE_SIZE + 10 - ft.riseOffset;
+    if (px >= -40 && px <= canvas.width + 40 && py >= -20 && py <= canvas.height + 20) {
+      ctx.font = 'bold 11px "JetBrains Mono", monospace';
+      ctx.textAlign = 'center';
+      ctx.fillStyle = '#000';
+      ctx.fillText(ft.text, px + 1, py + 1);
+      ctx.fillStyle = ft.color;
+      ctx.fillText(ft.text, px, py);
+    }
+    ft.riseOffset += 0.45;
     ft.ticks -= 1;
     if (ft.ticks <= 0) floatingTexts.splice(i, 1);
   }
@@ -3153,10 +5135,22 @@ function renderGuildHub() {
   const totalBankedGems = GEM_IDS.reduce((sum, gId) => sum + (vaultGems[gId] || 0), 0);
   const readyBounties = (gameState.guildBounties || []).filter(b => b && b.completed).length;
 
+  const dng = gameState.dungeon;
+  const cfg = dng.config || {};
   const permit = RESEARCH_PROJECTS.cartography.levels[gameState.guildResearch.cartography || 0].depthPermit;
-  document.getElementById('uiGuildSeed').textContent = gameState.dungeon.seedCode;
-  document.getElementById('uiChartedFloors').textContent = Object.keys(gameState.dungeon.floors).length;
-  document.getElementById('uiDepthPermit').textContent = `Floor ${permit}`;
+
+  const activeNameEl = document.getElementById('uiActiveDungeonName');
+  if (activeNameEl) activeNameEl.textContent = dng.name;
+  const mapSizeEl = document.getElementById('uiGuildMapSize');
+  if (mapSizeEl) mapSizeEl.textContent = `${cfg.width || 80}x${cfg.height || 60}`;
+
+  document.getElementById('uiGuildSeed').textContent = dng.seedCode;
+  document.getElementById('uiChartedFloors').textContent = cfg.maxDepth >= 999
+    ? `${Object.keys(dng.floors || {}).length}`
+    : `${Object.keys(dng.floors || {}).length} / ${cfg.maxDepth}`;
+  document.getElementById('uiDepthPermit').textContent = cfg.respectsCartographyPermit !== false
+    ? `Permit Fl ${permit}`
+    : `Max Fl ${cfg.maxDepth}`;
   document.getElementById('uiForgeMaxDur').textContent = getPickaxeMaxDurability();
   document.getElementById('uiTavernGold').textContent = gameState.guildVault.gold;
   document.getElementById('uiArmoryCountBadge').textContent = gameState.guildVault.armory.length;
@@ -3474,11 +5468,24 @@ function renderDungeonHud() {
   if (typeof document === 'undefined') return;
   const h = gameState.hero;
   const cls = CLASSES[h.classId];
-  const depth = gameState.dungeon.currentFloor;
+  const dng = gameState.dungeon;
+  const cfg = dng.config || {};
+  const depth = dng.currentFloor;
   const permit = RESEARCH_PROJECTS.cartography.levels[gameState.guildResearch.cartography || 0].depthPermit;
-  const floor = gameState.dungeon.floors[depth];
+  const capLabel = cfg.respectsCartographyPermit !== false ? permit : cfg.maxDepth;
+  const floor = ensureDungeonFloorHydrated(dng, depth);
+  const fw = floor ? floor.width : (cfg.width || 80);
+  const fh = floor ? floor.height : (cfg.height || 60);
 
-  document.getElementById('uiFloorBadge').textContent = `FLOOR ${depth} / ${permit}`;
+  document.getElementById('uiFloorBadge').textContent = `FLOOR ${depth} / ${capLabel >= 999 ? '∞' : capLabel}`;
+  const zoneLabelEl = document.getElementById('uiZoneDangerLabel');
+  if (zoneLabelEl) {
+    zoneLabelEl.textContent = `${dng.name} • ${fw}x${fh}`;
+  }
+  const coordEl = document.getElementById('uiCoordBadge');
+  if (coordEl) {
+    coordEl.textContent = `(${h.x}, ${h.y})`;
+  }
   document.getElementById('uiHostilesCount').textContent = floor ? floor.monsters.length : 0;
   document.getElementById('uiVisionRadiusText').textContent = h.visionRadius || 5;
 
@@ -3513,10 +5520,18 @@ function updateAllUI() {
   document.getElementById('headerTurnText').textContent = gameState.turn;
   document.getElementById('headerLocationText').textContent = gameState.inGuild
     ? 'Oakhaven Guild Bastion'
-    : `Starfall Vaults • Floor ${gameState.dungeon.currentFloor}`;
+    : `${gameState.dungeon.name} • Floor ${gameState.dungeon.currentFloor}`;
   document.getElementById('headerLocationDot').className = gameState.inGuild
     ? 'w-2.5 h-2.5 rounded-full bg-[#34d399]'
     : 'w-2.5 h-2.5 rounded-full bg-[#f87171] animate-pulse';
+
+  const mmScaleEl = document.getElementById('uiMinimapScaleLabel');
+  if (mmScaleEl) {
+    const dCfg = gameState.dungeon && gameState.dungeon.config ? gameState.dungeon.config : { width: 80, height: 60 };
+    mmScaleEl.textContent = gameState.inGuild
+      ? `${dCfg.width}x${dCfg.height} Chart`
+      : `Fl ${gameState.dungeon.currentFloor} • ${dCfg.width}x${dCfg.height}`;
+  }
 
   // Portrait
   const pCanvas = document.getElementById('heroPortraitCanvas');
@@ -3667,6 +5682,7 @@ function updateAllUI() {
     document.getElementById('dungeonViewPanel').classList.remove('hidden');
     renderDungeonHud();
   }
+  renderMinimapCanvas('minimapCanvas');
 }
 
 function switchGuildTab(tabId) {
@@ -3712,7 +5728,9 @@ function clearChronicle() {
 }
 
   // --- Module: src/ui/modals.js ---
-// In-Game Modals, Guild Controllers, Item Inspection (with Gem Sockets), Class Selection & Save Sync
+// In-Game Modals, Expedition Atlas & Custom Charter Builder, Full-Floor Survey Map, Item Inspect & Save Sync
+
+
 
 
 
@@ -3725,24 +5743,34 @@ function clearChronicle() {
 
 
 let inspectedItemContext = null;
+let pendingAtlasResetId = null;
 
 function getInspectedItemContext() {
   return inspectedItemContext;
 }
 
 function descendIntoDungeon() {
+  cancelAutoWalk();
+  syncActiveDungeonAlias(gameState);
   gameState.inGuild = false;
   gameState.dungeon.currentFloor = 1;
   if (!gameState.dungeon.floors[1]) {
-    gameState.dungeon.floors[1] = generateFloor(1);
+    gameState.dungeon.floors[1] = generateFloor(
+      1,
+      gameState.dungeon.config,
+      gameState.dungeon.numericSeed
+    );
   }
-  const f1 = gameState.dungeon.floors[1];
+  const f1 = ensureDungeonFloorHydrated(gameState.dungeon, 1);
   gameState.hero.x = f1.upPos.x;
   gameState.hero.y = f1.upPos.y;
   updateFOV();
   saveGame();
   updateAllUI();
-  logChronicle(`Descended into Floor 1 of ${gameState.dungeon.seedCode}.`, 'gold');
+  logChronicle(
+    `Descended into Floor 1 of ${gameState.dungeon.name} (${f1.width}x${f1.height} • ${gameState.dungeon.seedCode}).`,
+    'gold'
+  );
 }
 
 function showOutcomeModal(title, desc, details = [], isConfirmNewDungeon = false) {
@@ -3754,7 +5782,7 @@ function showOutcomeModal(title, desc, details = [], isConfirmNewDungeon = false
   if (isConfirmNewDungeon) {
     btnBox.innerHTML = `
       <button onclick="window.Aethelgard.closeOutcomeModal()" class="px-3 py-1.5 rounded bg-[#1a2232] text-xs font-mono-num text-[#8b949e]">Cancel</button>
-      <button onclick="window.Aethelgard.confirmChartNewDungeon()" class="px-4 py-1.5 rounded bg-[#f87171] text-[#080b11] font-bold text-xs font-mono-num">Confirm New Chart</button>
+      <button onclick="window.Aethelgard.confirmChartNewDungeon()" class="px-4 py-1.5 rounded bg-[#f87171] text-[#080b11] font-bold text-xs font-mono-num">Confirm Re-Chart</button>
     `;
   } else {
     btnBox.innerHTML = `<button onclick="window.Aethelgard.closeOutcomeModal()" class="px-4 py-1.5 rounded bg-[#fbbf24] text-[#080b11] font-bold text-xs">Continue</button>`;
@@ -3767,29 +5795,323 @@ function closeOutcomeModal() {
   document.getElementById('outcomeModal').classList.add('hidden');
 }
 
+// ============================================================================
+// MULTI-DUNGEON EXPEDITION ATLAS & CUSTOM CHARTER MODAL
+// ============================================================================
+
+const FAMILY_LABELS = {
+  balanced: 'Mixed Vault Host',
+  beasts: 'Subterranean Beasts',
+  dwarven_forge: 'Dwarven Forge Constructs',
+  astral_cult: 'Astral Void Cult',
+  ancient_crypt: 'Ancient Undead Crypt'
+};
+
+const ORE_LABELS = {
+  balanced: 'Balanced Seams',
+  copper_iron: 'Copper & Iron Heavy',
+  mithril_geode: 'Mithril & Relic Geodes',
+  astral_crystal: 'Star-Crystal & Astralite'
+};
+
+function renderExpeditionAtlasContents() {
+  if (typeof document === 'undefined') return;
+  const listEl = document.getElementById('atlasDungeonsList');
+  if (!listEl) return;
+
+  const allIds = Object.keys(gameState.dungeons || {});
+  const sortedIds = allIds.slice().sort((a, b) => {
+    const da = gameState.dungeons[a];
+    const db = gameState.dungeons[b];
+    if (da.originType !== db.originType) {
+      return da.originType === 'curated' ? -1 : 1;
+    }
+    return 0;
+  });
+
+  const charteredCount = sortedIds.filter(
+    id => gameState.dungeons[id] && gameState.dungeons[id].originType === 'chartered'
+  ).length;
+  const cap = gameState.maxCharteredDungeons || DEFAULT_MAX_CHARTERED_DUNGEONS;
+  const badgeEl = document.getElementById('uiAtlasCharterCountBadge');
+  if (badgeEl) {
+    badgeEl.textContent = `${charteredCount} / ${cap} Chartered`;
+  }
+
+  const curCart = (gameState.guildResearch && gameState.guildResearch.cartography) || 0;
+
+  listEl.innerHTML = sortedIds.map(id => {
+    const dng = gameState.dungeons[id];
+    const cfg = dng.config || {};
+    const isActive = id === gameState.activeDungeonId;
+    const reqCart = cfg.reqCartography || 0;
+    const locked = curCart < reqCart;
+    const chartedCount = Object.keys(dng.floors || {}).length;
+    const maxDepthText = cfg.maxDepth >= 999 ? '∞ Floors' : `Max Fl ${cfg.maxDepth}`;
+    const styleDef = LAYOUT_STYLES[cfg.layoutStyle] || LAYOUT_STYLES.masonry_vaults;
+    const famLabel = FAMILY_LABELS[cfg.monsterFamily] || cfg.monsterFamily;
+    const oreLabel = ORE_LABELS[cfg.oreFocus] || cfg.oreFocus;
+    const isConfirmingReset = pendingAtlasResetId === id;
+
+    let actionButtons = '';
+    if (locked) {
+      actionButtons = `
+        <span class="px-2.5 py-1 rounded bg-[#1a2232] text-[#f87171] border border-[#f87171]/40 text-[11px] font-mono-num">
+          🔒 Req Vault Cartography R${reqCart}
+        </span>
+      `;
+    } else if (isConfirmingReset) {
+      actionButtons = `
+        <span class="text-[11px] text-[#f87171] font-bold mr-1">${dng.originType === 'chartered' ? 'Abandon charter?' : 'Seal & re-chart floors?'}</span>
+        <button onclick="window.Aethelgard.handleResetDungeonFromAtlas('${id}')" class="px-2.5 py-1 rounded bg-[#f87171] text-[#080b11] text-[11px] font-mono-num font-bold btn-tactical">Confirm</button>
+        <button onclick="window.Aethelgard.cancelResetDungeonFromAtlas()" class="px-2 py-1 rounded bg-[#1a2232] text-[#8b949e] text-[11px] font-mono-num">Cancel</button>
+      `;
+    } else {
+      actionButtons = `
+        ${isActive
+          ? `<span class="px-2.5 py-1 rounded bg-[#34d399]/20 text-[#34d399] border border-[#34d399]/50 text-[11px] font-mono-num font-bold">✓ Selected</span>`
+          : `<button onclick="window.Aethelgard.handleSelectDungeonFromAtlas('${id}', false)" class="px-2.5 py-1 rounded bg-[#1a2232] hover:bg-[#283347] text-[#e6edf3] border border-[#283347] text-[11px] font-mono-num font-bold btn-tactical">Select</button>`
+        }
+        <button onclick="window.Aethelgard.handleSelectDungeonFromAtlas('${id}', true)" class="px-3 py-1 rounded bg-[#fbbf24] hover:bg-[#f59e0b] text-[#080b11] text-[11px] font-mono-num font-bold btn-tactical">
+          ⚔️ Descend
+        </button>
+        <button onclick="window.Aethelgard.promptResetDungeonFromAtlas('${id}')" class="px-2 py-1 rounded bg-[#111722] hover:bg-[#1a2232] text-[#8b949e] hover:text-[#f87171] border border-[#283347] text-[11px] font-mono-num btn-tactical">
+          ${dng.originType === 'chartered' ? '✕ Abandon' : '↻ Re-Chart'}
+        </button>
+      `;
+    }
+
+    return `
+      <div class="p-3 rounded-lg bg-[#080b11] border ${isActive ? 'border-[#fbbf24]' : 'border-[#283347]'} space-y-2">
+        <div class="flex flex-wrap items-start justify-between gap-2">
+          <div>
+            <div class="flex flex-wrap items-center gap-1.5">
+              <span class="font-display font-bold text-sm" style="color:${cfg.themeColor || '#e6edf3'}">${dng.name}</span>
+              <span class="text-[9px] font-mono-num uppercase px-1.5 py-0.5 rounded bg-[#1a2232] text-[#8b949e] border border-[#283347]">
+                ${dng.originType === 'curated' ? 'Regional' : 'Charter'}
+              </span>
+              ${dng.isCleared ? `<span class="text-[9px] font-mono-num uppercase px-1.5 py-0.5 rounded bg-[#34d399]/20 text-[#34d399] font-bold">★ Cleared</span>` : ''}
+            </div>
+            <div class="text-[11px] text-[#8b949e] mt-0.5">${cfg.subtitle || ''}</div>
+          </div>
+          <span class="text-[11px] font-mono-num text-[#60a5fa] font-bold">${dng.seedCode}</span>
+        </div>
+
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-1.5 text-[10px] font-mono-num">
+          <div class="bg-[#111722] px-2 py-1 rounded border border-[#283347]">
+            <span class="text-[#8b949e]">Scale:</span> <strong class="text-[#fbbf24]">${cfg.width}x${cfg.height}</strong>
+          </div>
+          <div class="bg-[#111722] px-2 py-1 rounded border border-[#283347]">
+            <span class="text-[#8b949e]">Depth:</span> <strong class="text-[#e6edf3]">${chartedCount} charted / ${maxDepthText}</strong>
+          </div>
+          <div class="bg-[#111722] px-2 py-1 rounded border border-[#283347] truncate" title="${famLabel}">
+            <span class="text-[#8b949e]">Foes:</span> <strong class="text-[#f87171]">${famLabel}</strong>
+          </div>
+          <div class="bg-[#111722] px-2 py-1 rounded border border-[#283347] truncate" title="${oreLabel}">
+            <span class="text-[#8b949e]">Veins:</span> <strong class="text-[#34d399]">${oreLabel}</strong>
+          </div>
+        </div>
+
+        <div class="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-[#192234]">
+          <span class="text-[10px] text-[#8b949e]">Architecture: <strong class="text-[#e6edf3]">${styleDef.name}</strong></span>
+          <div class="flex flex-wrap items-center gap-1.5">${actionButtons}</div>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+function openExpeditionAtlasModal() {
+  if (typeof document === 'undefined') return;
+  pendingAtlasResetId = null;
+  const msgEl = document.getElementById('charterStatusMsg');
+  if (msgEl) msgEl.textContent = '';
+  renderExpeditionAtlasContents();
+  const modal = document.getElementById('expeditionAtlasModal');
+  if (modal) modal.classList.remove('hidden');
+}
+
+function closeExpeditionAtlasModal() {
+  if (typeof document === 'undefined') return;
+  pendingAtlasResetId = null;
+  const modal = document.getElementById('expeditionAtlasModal');
+  if (modal) modal.classList.add('hidden');
+}
+
+function handleSelectDungeonFromAtlas(dungeonId, descendImmediately = false) {
+  const res = selectActiveDungeon(dungeonId, gameState);
+  if (!res.ok) return;
+  renderExpeditionAtlasContents();
+  if (descendImmediately) {
+    closeExpeditionAtlasModal();
+    descendIntoDungeon();
+  }
+}
+
+function promptResetDungeonFromAtlas(dungeonId) {
+  pendingAtlasResetId = dungeonId;
+  renderExpeditionAtlasContents();
+}
+
+function cancelResetDungeonFromAtlas() {
+  pendingAtlasResetId = null;
+  renderExpeditionAtlasContents();
+}
+
+function handleResetDungeonFromAtlas(dungeonId) {
+  pendingAtlasResetId = null;
+  resetOrAbandonDungeon(dungeonId, gameState);
+  renderExpeditionAtlasContents();
+}
+
+function onCharterSizePresetChange() {
+  if (typeof document === 'undefined') return;
+  const sel = document.getElementById('charterSizeSelect');
+  const wIn = document.getElementById('charterWidthInput');
+  const hIn = document.getElementById('charterHeightInput');
+  if (!sel || !wIn || !hIn) return;
+  const preset = MAP_SIZE_PRESETS[sel.value];
+  if (preset) {
+    wIn.value = preset.width;
+    hIn.value = preset.height;
+  }
+}
+
+function submitCharterForm(randomize = false) {
+  if (typeof document === 'undefined') return;
+  const nameEl = document.getElementById('charterNameInput');
+  const sizeEl = document.getElementById('charterSizeSelect');
+  const wEl = document.getElementById('charterWidthInput');
+  const hEl = document.getElementById('charterHeightInput');
+  const depthEl = document.getElementById('charterDepthInput');
+  const styleEl = document.getElementById('charterStyleSelect');
+  const monEl = document.getElementById('charterMonsterSelect');
+  const oreEl = document.getElementById('charterOreSelect');
+  const richEl = document.getElementById('charterRichnessSelect');
+  const statusEl = document.getElementById('charterStatusMsg');
+
+  let opts = {};
+  if (randomize) {
+    const sizeKeys = ['small', 'standard', 'sprawling', 'colossal'];
+    const pickedSize = sizeKeys[Math.floor(Math.random() * sizeKeys.length)];
+    const preset = MAP_SIZE_PRESETS[pickedSize];
+    const randDepths = [1, 2, 3, 5, 8, 12];
+    const richKeys = ['standard', 'rich', 'jackpot'];
+    opts = {
+      randomize: true,
+      sizePreset: pickedSize,
+      width: preset.width,
+      height: preset.height,
+      maxDepth: randDepths[Math.floor(Math.random() * randDepths.length)],
+      richness: richKeys[Math.floor(Math.random() * richKeys.length)]
+    };
+  } else {
+    const rawW = Math.max(36, Math.min(400, Math.round(Number(wEl && wEl.value) || 80)));
+    const rawH = Math.max(28, Math.min(300, Math.round(Number(hEl && hEl.value) || 60)));
+    const rawD = Math.max(1, Math.min(999, Math.round(Number(depthEl && depthEl.value) || 5)));
+    if (wEl) wEl.value = rawW;
+    if (hEl) hEl.value = rawH;
+    if (depthEl) depthEl.value = rawD;
+
+    opts = {
+      name: nameEl && nameEl.value ? nameEl.value.trim() : '',
+      sizePreset: sizeEl ? sizeEl.value : 'custom',
+      width: rawW,
+      height: rawH,
+      maxDepth: rawD,
+      layoutStyle: styleEl ? styleEl.value : 'masonry_vaults',
+      monsterFamily: monEl ? monEl.value : 'balanced',
+      oreFocus: oreEl ? oreEl.value : 'balanced',
+      richness: richEl ? richEl.value : 'standard'
+    };
+  }
+
+  const res = chartCustomExpedition(opts, gameState);
+  if (statusEl) {
+    if (res.ok) {
+      statusEl.style.color = '#34d399';
+      statusEl.textContent = `✓ Chartered "${res.dungeon.name}" (${res.dungeon.config.width}x${res.dungeon.config.height}, Max Fl ${res.dungeon.config.maxDepth})!`;
+      if (nameEl && !randomize) nameEl.value = '';
+    } else {
+      statusEl.style.color = '#f87171';
+      statusEl.textContent = res.reason === 'charter_cap_reached'
+        ? `✕ Charter cap reached (${res.cap}). Abandon an existing charter first.`
+        : '✕ Return to Guild Bastion before charting.';
+    }
+  }
+  renderExpeditionAtlasContents();
+}
+
 function openNewDungeonModal() {
-  showOutcomeModal(
-    'Chart New Subterranean Dungeon?',
-    'Guild Cartographers will seal the current dungeon shaft and chart a fresh procedural layout across all floors. Your character level, Vault Gold, Astral Gems, and minerals are preserved.',
-    [`Current Chart: ${gameState.dungeon.seedCode}`, `Explored Floors to Reset: ${Object.keys(gameState.dungeon.floors).length}`],
-    true
-  );
+  openExpeditionAtlasModal();
 }
 
 function closeNewDungeonModal() {
+  closeExpeditionAtlasModal();
   closeOutcomeModal();
 }
 
 function confirmChartNewDungeon() {
-  gameState.dungeon.seedCode = 'STAR-' + (1000 + Math.floor(Math.random() * 8999));
-  gameState.dungeon.currentFloor = 1;
-  gameState.dungeon.floors = { 1: generateFloor(1) };
+  resetOrAbandonDungeon(gameState.activeDungeonId, gameState);
+  gameState.dungeon.floors = {
+    1: generateFloor(1, gameState.dungeon.config, gameState.dungeon.numericSeed)
+  };
   closeOutcomeModal();
-  playSound('lvl');
-  logChronicle(`Charted new dungeon seed ${gameState.dungeon.seedCode}!`, 'gold');
   saveGame();
   updateAllUI();
 }
+
+// ============================================================================
+// FULL-FLOOR CARTOGRAPHER'S SURVEY MAP MODAL ([M])
+// ============================================================================
+
+function openFullMapModal() {
+  if (typeof document === 'undefined') return;
+  if (gameState.inGuild) {
+    openExpeditionAtlasModal();
+    return;
+  }
+  const modal = document.getElementById('fullMapModal');
+  if (!modal) return;
+
+  const dng = gameState.dungeon;
+  const floor = ensureDungeonFloorHydrated(dng, dng.currentFloor);
+  const fw = floor ? floor.width : (dng.config.width || 80);
+  const fh = floor ? floor.height : (dng.config.height || 60);
+
+  const titleEl = document.getElementById('fullMapModalTitle');
+  if (titleEl) {
+    titleEl.textContent = `${dng.name} — Floor ${dng.currentFloor} (${fw}x${fh})`;
+  }
+  const subEl = document.getElementById('fullMapModalSubtitle');
+  if (subEl) {
+    subEl.textContent = `Seed ${dng.seedCode} • Position (${gameState.hero.x}, ${gameState.hero.y}) • Click any explored chamber or corridor to Auto-Walk`;
+  }
+
+  modal.classList.remove('hidden');
+  renderMinimapCanvas('fullMapCanvas');
+}
+
+function closeFullMapModal() {
+  if (typeof document === 'undefined') return;
+  const modal = document.getElementById('fullMapModal');
+  if (modal) modal.classList.add('hidden');
+}
+
+function toggleFullMapModal() {
+  if (typeof document === 'undefined') return;
+  const modal = document.getElementById('fullMapModal');
+  if (!modal) return;
+  if (modal.classList.contains('hidden')) {
+    openFullMapModal();
+  } else {
+    closeFullMapModal();
+  }
+}
+
+// ============================================================================
+// GUILD SERVICES, STATS, TALENTS, ITEM INSPECT, CLASS SELECT & SAVE SYNC
+// ============================================================================
 
 function restAtGuild() {
   recomputeHeroDerivedStats(true, gameState);
@@ -4080,6 +6402,7 @@ function closeClassSelectModal() {
 }
 
 function selectAdventurerClass(classId, targetState = gameState) {
+  syncActiveDungeonAlias(targetState);
   const cls = CLASSES[classId] || CLASSES.fighter;
   const eqCopy = JSON.parse(JSON.stringify(cls.starterGear));
   Object.keys(eqCopy).forEach(k => {
@@ -4115,7 +6438,10 @@ function selectAdventurerClass(classId, targetState = gameState) {
   };
   targetState.inGuild = true;
   targetState.dungeon.currentFloor = 1;
-  targetState.dungeon.floors = { 1: generateFloor(1) };
+  const f1 = generateFloor(1, targetState.dungeon.config, targetState.dungeon.numericSeed);
+  targetState.dungeon.floors = { 1: f1 };
+  targetState.hero.x = f1.upPos.x;
+  targetState.hero.y = f1.upPos.y;
   ensureGuildBounties(false, targetState);
 
   recomputeHeroDerivedStats(true, targetState);
@@ -4130,7 +6456,7 @@ function selectAdventurerClass(classId, targetState = gameState) {
 
 function openSaveSyncModal() {
   if (typeof document === 'undefined') return;
-  document.getElementById('saveJsonTextarea').value = JSON.stringify(gameState, null, 2);
+  document.getElementById('saveJsonTextarea').value = JSON.stringify(serializeStateForStorage(gameState), null, 2);
   document.getElementById('saveSyncStatusMsg').textContent = '';
   document.getElementById('saveSyncModal').classList.remove('hidden');
 }
@@ -4151,7 +6477,7 @@ function copySaveJson() {
   } else {
     document.execCommand('copy');
   }
-  document.getElementById('saveSyncStatusMsg').textContent = '✓ Copied save JSON to clipboard!';
+  document.getElementById('saveSyncStatusMsg').textContent = '✓ Copied compact RLE save JSON to clipboard!';
 }
 
 function downloadSaveJson() {
@@ -4173,14 +6499,15 @@ function importSaveJson() {
     saveGame();
     updateAllUI();
     closeSaveSyncModal();
-    logChronicle('Imported & migrated save state to Schema v4!', 'good');
+    logChronicle('Imported & migrated save state to Multi-Dungeon Atlas Schema v5!', 'good');
   } catch (e) {
     document.getElementById('saveSyncStatusMsg').textContent = '✕ Invalid JSON format.';
   }
 }
 
   // --- Module: src/ui/input.js ---
-// Unified Keyboard, Mouse & Tactical Tile Scanner Input Listeners
+// Unified Keyboard, Camera-Translated Mouse, Minimap / Full-Map Click-to-Travel & Tactical Scanner Listeners
+
 
 
 
@@ -4191,17 +6518,24 @@ function importSaveJson() {
 
 function updateScannerOnHover(gx, gy) {
   if (typeof document === 'undefined') return;
-  const floor = gameState.dungeon.floors[gameState.dungeon.currentFloor];
-  if (!floor || !floor.explored[gy][gx]) return;
+  const floor = ensureDungeonFloorHydrated(gameState.dungeon, gameState.dungeon.currentFloor);
+  if (!floor || !floor.tiles) return;
+  if (gy < 0 || gy >= floor.tiles.length || gx < 0 || gx >= floor.tiles[0].length) return;
+  if (!floor.explored[gy] || !floor.explored[gy][gx]) return;
+
   const box = document.getElementById('uiScannerContent');
   if (!box) return;
 
-  const monster = floor.monsters.find(m => m.x === gx && m.y === gy);
+  const h = gameState.hero;
+  const vision = (h && h.visionRadius) || 5;
+  const inSight = h && Math.hypot(gx - h.x, gy - h.y) <= vision + 0.35 && hasLineOfSight(floor, h.x, h.y, gx, gy);
+
+  const monster = inSight ? floor.monsters.find(m => m.x === gx && m.y === gy) : null;
   if (monster) {
     box.innerHTML = `
       <div class="font-bold" style="color:${monster.color}">${monster.name} ${monster.isBoss ? '👑' : ''}</div>
       <div class="text-[11px] text-[#e6edf3]">HP: ${monster.hp}/${monster.maxHp} • ATK: ${monster.atk} • DEF: ${monster.def}</div>
-      <div class="text-[10px] text-[#8b949e]">${monster.affix ? monster.affix.desc : (monster.isRanged ? 'Ranged Attacker (3 tiles)' : 'Melee Guardian')}</div>
+      <div class="text-[10px] text-[#8b949e]">${monster.affix ? monster.affix.desc : (monster.isRanged ? `Ranged Attacker (${monster.range || 3} tiles)` : 'Melee Guardian')}</div>
     `;
     return;
   }
@@ -4210,39 +6544,39 @@ function updateScannerOnHover(gx, gy) {
   if (ORE_CATALOG[t]) {
     const ore = ORE_CATALOG[t];
     box.innerHTML = `
-      <div class="font-bold" style="color:${ore.color}">${ore.name} Vein</div>
+      <div class="font-bold" style="color:${ore.color}">${ore.name} Vein (${gx}, ${gy})</div>
       <div class="text-[11px] text-[#e6edf3]">Base Value: ${ore.baseValue}g • Requires Geology Rank ${ore.minGeology}</div>
-      <div class="text-[10px] text-[#8b949e]">Step into this wall to swing your pickaxe.</div>
+      <div class="text-[10px] text-[#8b949e]">Step into or click vein to swing your pickaxe.</div>
     `;
   } else if (t === TILE_CHEST) {
-    box.innerHTML = `<div class="font-bold text-[#fbbf24]">Gilded Vault Chest</div><div class="text-[11px] text-[#8b949e]">Contains relics and procedural equipment.</div>`;
+    box.innerHTML = `<div class="font-bold text-[#fbbf24]">Gilded Vault Chest (${gx}, ${gy})</div><div class="text-[11px] text-[#8b949e]">Contains relics and procedural equipment. Click to travel & open.</div>`;
   } else if (t === TILE_SHRINE) {
     const sMeta = (floor.shrines && floor.shrines[`${gx},${gy}`]) || { type: 'sanctuary' };
     const sDef = SHRINE_CATALOG[sMeta.type] || SHRINE_CATALOG.sanctuary;
     box.innerHTML = `
-      <div class="font-bold" style="color:${sDef.color}">✨ ${sDef.name}</div>
+      <div class="font-bold" style="color:${sDef.color}">✨ ${sDef.name} (${gx}, ${gy})</div>
       <div class="text-[11px] text-[#e6edf3]">${sDef.desc}</div>
-      <div class="text-[10px] text-[#8b949e]">Step onto this altar to claim its astral blessing.</div>
+      <div class="text-[10px] text-[#8b949e]">Step onto or click this altar to claim its astral blessing.</div>
     `;
   } else if (t === TILE_SHRINE_USED) {
-    box.innerHTML = `<div class="font-semibold text-[#8b949e]">Dormant Astral Altar</div><div class="text-[11px] text-[#8b949e]">Its celestial energy has already been channeled.</div>`;
+    box.innerHTML = `<div class="font-semibold text-[#8b949e]">Dormant Astral Altar (${gx}, ${gy})</div><div class="text-[11px] text-[#8b949e]">Its celestial energy has already been channeled.</div>`;
   } else if (t === TILE_TRAP_VISIBLE) {
     const tMeta = (floor.traps && floor.traps[`${gx},${gy}`]) || { type: 'spike' };
     const tDef = TRAP_CATALOG[tMeta.type] || TRAP_CATALOG.spike;
-    const isScout = gameState.hero && (gameState.hero.classId === 'thief' || gameState.hero.classId === 'ranger');
+    const isScout = h && (h.classId === 'thief' || h.classId === 'ranger');
     box.innerHTML = `
-      <div class="font-bold" style="color:${tDef.color}">⚠ ${tDef.name} (Spotted)</div>
+      <div class="font-bold" style="color:${tDef.color}">⚠ ${tDef.name} (${gx}, ${gy})</div>
       <div class="text-[11px] text-[#e6edf3]">${tDef.desc}</div>
-      <div class="text-[10px] text-[#34d399]">${isScout ? 'Step onto tile to safely DISARM for bonus XP!' : 'Navigate around—only Thieves & Rangers can disarm safely.'}</div>
+      <div class="text-[10px] text-[#34d399]">${isScout ? 'Step onto tile to safely DISARM for bonus XP!' : 'Auto-walk routes around spotted traps automatically.'}</div>
     `;
   } else if (t === TILE_TRAP_DISARMED) {
-    box.innerHTML = `<div class="font-semibold text-[#8b949e]">Disarmed Runic Plate</div><div class="text-[11px] text-[#8b949e]">Mechanism neutralized; safe to walk across.</div>`;
+    box.innerHTML = `<div class="font-semibold text-[#8b949e]">Disarmed Runic Plate (${gx}, ${gy})</div><div class="text-[11px] text-[#8b949e]">Mechanism neutralized; safe to walk across.</div>`;
   } else if (t === TILE_STAIRS_UP) {
-    box.innerHTML = `<div class="font-bold text-[#34d399]">Ascending Stairs (&lt;)</div><div class="text-[11px] text-[#8b949e]">Stand on stairs and press [E] to ascend or extract to the Guild.</div>`;
+    box.innerHTML = `<div class="font-bold text-[#34d399]">Ascending Stairs (&lt;) (${gx}, ${gy})</div><div class="text-[11px] text-[#8b949e]">Click to Auto-Walk here, then press [E] to ascend or extract.</div>`;
   } else if (t === TILE_STAIRS_DOWN) {
-    box.innerHTML = `<div class="font-bold text-[#60a5fa]">Descending Stairs (&gt;)</div><div class="text-[11px] text-[#8b949e]">Stand on stairs and press [E] to descend deeper.</div>`;
+    box.innerHTML = `<div class="font-bold text-[#60a5fa]">Descending Stairs (&gt;) (${gx}, ${gy})</div><div class="text-[11px] text-[#8b949e]">Click to Auto-Walk here, then press [E] to descend deeper.</div>`;
   } else {
-    box.innerHTML = `<div class="font-semibold text-[#8b949e]">Vault Masonry (${gx}, ${gy})</div><div class="text-[11px] text-[#8b949e]">Click adjacent tiles or use WASD/Arrows to move.</div>`;
+    box.innerHTML = `<div class="font-semibold text-[#8b949e]">Vault Masonry (${gx}, ${gy})</div><div class="text-[11px] text-[#8b949e]">Click any explored tile to safely Auto-Walk, or press [M] for full map.</div>`;
   }
 }
 
@@ -4250,10 +6584,36 @@ function setupInputs() {
   if (typeof window === 'undefined' || typeof document === 'undefined') return;
 
   window.addEventListener('keydown', e => {
+    if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT')) {
+      return;
+    }
+
+    if (isAutoWalking()) {
+      cancelAutoWalk();
+    }
+
+    if (e.code === 'Escape') {
+      closeFullMapModal();
+      closeExpeditionAtlasModal();
+      closeItemInspectModal();
+      return;
+    }
+
     const classModal = document.getElementById('classSelectModal');
     const saveModal = document.getElementById('saveSyncModal');
+    const atlasModal = document.getElementById('expeditionAtlasModal');
+    const fullMapModal = document.getElementById('fullMapModal');
     if (classModal && !classModal.classList.contains('hidden')) return;
     if (saveModal && !saveModal.classList.contains('hidden')) return;
+    if (atlasModal && !atlasModal.classList.contains('hidden')) return;
+
+    if (e.code === 'KeyM') {
+      e.preventDefault();
+      toggleFullMapModal();
+      return;
+    }
+
+    if (fullMapModal && !fullMapModal.classList.contains('hidden')) return;
     if (gameState.inGuild) return;
 
     if (['ArrowUp', 'KeyW'].includes(e.code)) { e.preventDefault(); handlePlayerAction(0, -1); }
@@ -4268,43 +6628,117 @@ function setupInputs() {
   });
 
   const canvas = document.getElementById('dungeonCanvas');
-  if (!canvas) return;
+  if (canvas) {
+    canvas.addEventListener('mousemove', e => {
+      if (gameState.inGuild || !gameState.hero) return;
+      const floor = ensureDungeonFloorHydrated(gameState.dungeon, gameState.dungeon.currentFloor);
+      if (!floor) return;
+      const cam = getCameraOrigin(floor, gameState.hero.x, gameState.hero.y);
+      const rect = canvas.getBoundingClientRect();
+      const scaleX = canvas.width / rect.width;
+      const scaleY = canvas.height / rect.height;
+      const vx = Math.floor(((e.clientX - rect.left) * scaleX) / TILE_SIZE);
+      const vy = Math.floor(((e.clientY - rect.top) * scaleY) / TILE_SIZE);
 
-  canvas.addEventListener('mousemove', e => {
-    if (gameState.inGuild || !gameState.hero) return;
-    const rect = canvas.getBoundingClientRect();
-    const scaleX = canvas.width / rect.width;
-    const scaleY = canvas.height / rect.height;
-    const gx = Math.floor(((e.clientX - rect.left) * scaleX) / TILE_SIZE);
-    const gy = Math.floor(((e.clientY - rect.top) * scaleY) / TILE_SIZE);
+      if (vx >= 0 && vx < VIEWPORT_WIDTH && vy >= 0 && vy < VIEWPORT_HEIGHT) {
+        const gx = cam.camX + vx;
+        const gy = cam.camY + vy;
+        if (gx >= 0 && gx < cam.fw && gy >= 0 && gy < cam.fh) {
+          setHoverTile({ x: gx, y: gy });
+          updateScannerOnHover(gx, gy);
+        }
+      }
+    });
 
-    if (gx >= 0 && gx < GRID_W && gy >= 0 && gy < GRID_H) {
-      setHoverTile({ x: gx, y: gy });
-      updateScannerOnHover(gx, gy);
-    }
-  });
+    canvas.addEventListener('mouseleave', () => {
+      setHoverTile(null);
+    });
 
-  canvas.addEventListener('mouseleave', () => {
-    setHoverTile(null);
-  });
+    canvas.addEventListener('click', e => {
+      if (gameState.inGuild || !gameState.hero) return;
+      const floor = ensureDungeonFloorHydrated(gameState.dungeon, gameState.dungeon.currentFloor);
+      if (!floor) return;
+      const cam = getCameraOrigin(floor, gameState.hero.x, gameState.hero.y);
+      const rect = canvas.getBoundingClientRect();
+      const vx = Math.floor(((e.clientX - rect.left) * (canvas.width / rect.width)) / TILE_SIZE);
+      const vy = Math.floor(((e.clientY - rect.top) * (canvas.height / rect.height)) / TILE_SIZE);
+      if (vx < 0 || vx >= VIEWPORT_WIDTH || vy < 0 || vy >= VIEWPORT_HEIGHT) return;
 
-  canvas.addEventListener('click', e => {
-    if (gameState.inGuild || !gameState.hero) return;
-    const rect = canvas.getBoundingClientRect();
-    const gx = Math.floor(((e.clientX - rect.left) * (canvas.width / rect.width)) / TILE_SIZE);
-    const gy = Math.floor(((e.clientY - rect.top) * (canvas.height / rect.height)) / TILE_SIZE);
-    const dx = gx - gameState.hero.x;
-    const dy = gy - gameState.hero.y;
-    if (dx === 0 && dy === 0) {
-      useStairsAtPlayer();
-    } else if (Math.abs(dx) + Math.abs(dy) === 1) {
-      handlePlayerAction(dx, dy);
-    }
-  });
+      const gx = cam.camX + vx;
+      const gy = cam.camY + vy;
+      const dx = gx - gameState.hero.x;
+      const dy = gy - gameState.hero.y;
+
+      if (dx === 0 && dy === 0) {
+        if (isAutoWalking()) {
+          cancelAutoWalk();
+        } else {
+          useStairsAtPlayer();
+        }
+      } else if (Math.abs(dx) + Math.abs(dy) === 1) {
+        cancelAutoWalk();
+        handlePlayerAction(dx, dy);
+      } else if (gx >= 0 && gx < cam.fw && gy >= 0 && gy < cam.fh) {
+        startAutoWalkTo(gx, gy);
+      }
+    });
+  }
+
+  // Sidebar Minimap Click-to-Travel
+  const minimap = document.getElementById('minimapCanvas');
+  if (minimap) {
+    minimap.addEventListener('click', e => {
+      if (gameState.inGuild || !gameState.hero) return;
+      const floor = ensureDungeonFloorHydrated(gameState.dungeon, gameState.dungeon.currentFloor);
+      if (!floor) return;
+      const pt = minimapPixelToGrid(minimap, e.clientX, e.clientY, floor);
+      if (pt && floor.explored[pt.y] && floor.explored[pt.y][pt.x]) {
+        startAutoWalkTo(pt.x, pt.y);
+      }
+    });
+  }
+
+  // Full-Floor Survey Map Hover & Click-to-Travel
+  const fullMap = document.getElementById('fullMapCanvas');
+  if (fullMap) {
+    fullMap.addEventListener('mousemove', e => {
+      if (gameState.inGuild || !gameState.hero) return;
+      const floor = ensureDungeonFloorHydrated(gameState.dungeon, gameState.dungeon.currentFloor);
+      if (!floor) return;
+      const lbl = document.getElementById('fullMapHoverLabel');
+      if (!lbl) return;
+      const pt = minimapPixelToGrid(fullMap, e.clientX, e.clientY, floor);
+      if (!pt || !floor.explored[pt.y] || !floor.explored[pt.y][pt.x]) {
+        lbl.textContent = 'Unexplored Shadow';
+        return;
+      }
+      const t = floor.tiles[pt.y][pt.x];
+      if (ORE_CATALOG[t]) lbl.textContent = `(${pt.x}, ${pt.y}) • ${ORE_CATALOG[t].name} Vein — Click to Auto-Walk`;
+      else if (t === TILE_STAIRS_UP) lbl.textContent = `(${pt.x}, ${pt.y}) • Ascending Stairs (<) — Click to Auto-Walk`;
+      else if (t === TILE_STAIRS_DOWN) lbl.textContent = `(${pt.x}, ${pt.y}) • Descending Stairs (>) — Click to Auto-Walk`;
+      else if (t === TILE_CHEST) lbl.textContent = `(${pt.x}, ${pt.y}) • Gilded Vault Chest — Click to Auto-Walk`;
+      else if (t === TILE_SHRINE) lbl.textContent = `(${pt.x}, ${pt.y}) • Astral Shrine — Click to Auto-Walk`;
+      else lbl.textContent = `(${pt.x}, ${pt.y}) • Explored Tile — Click to Auto-Walk`;
+    });
+
+    fullMap.addEventListener('click', e => {
+      if (gameState.inGuild || !gameState.hero) return;
+      const floor = ensureDungeonFloorHydrated(gameState.dungeon, gameState.dungeon.currentFloor);
+      if (!floor) return;
+      const pt = minimapPixelToGrid(fullMap, e.clientX, e.clientY, floor);
+      if (pt && floor.explored[pt.y] && floor.explored[pt.y][pt.x]) {
+        closeFullMapModal();
+        startAutoWalkTo(pt.x, pt.y);
+      }
+    });
+  }
 }
 
   // --- Module: src/test/selfTest.js ---
-// 13/13 Comprehensive Automated Self-Test Suite (Sandboxed & Non-Destructive)
+// 17/17 Comprehensive Automated Self-Test Suite (Sandboxed & Non-Destructive)
+
+
+
 
 
 
@@ -4316,7 +6750,7 @@ function setupInputs() {
 function evaluateSelfTests() {
   const results = [];
 
-  // 1. Schema v4 Migration preserves v1/v2/v3 saves & backfills gems + bounties
+  // 1. Schema v5 Migration preserves v1/v2/v3/v4 saves & backfills Multi-Dungeon Atlas + gems + bounties
   const legacySave = {
     version: 'v0.1.0-inc1',
     hero: { classId: 'ranger', level: 4, xp: 20 },
@@ -4324,7 +6758,7 @@ function evaluateSelfTests() {
     research: { max_depth: 1, metallurgy_geology: 2 }
   };
   const mig = migrateSaveData(legacySave);
-  const t1Pass =
+  const t1Pass = !!(
     mig.version === SCHEMA_VERSION &&
     mig.hero.classId === 'ranger' &&
     mig.guildVault.gold === 120 &&
@@ -4332,12 +6766,16 @@ function evaluateSelfTests() {
     mig.hero.consumables.potions === 4 &&
     mig.guildResearch.geology === 2 &&
     mig.guildVault.gems &&
+    mig.dungeons &&
+    mig.dungeons.dng_starfall &&
+    mig.dungeon === mig.dungeons[mig.activeDungeonId] &&
     Array.isArray(mig.guildBounties) &&
-    mig.guildBounties.length === 3;
+    mig.guildBounties.length === 3
+  );
   results.push({
-    name: '1. Schema v4 Save Migration (v1/v2/v3 Compatibility)',
+    name: '1. Schema v5 Save Migration (v1–v4 & Multi-Dungeon Compatibility)',
     pass: t1Pass,
-    detail: `Migrated Lv4 Ranger, 120g, 5 Copper, Geology R${mig.guildResearch.geology}, Gems & 3 Bounties initialized`
+    detail: `Migrated Lv4 Ranger, 120g, 5 Copper, ${Object.keys(mig.dungeons).length} Regional Dungeons & 3 Bounties`
   });
 
   // 2. All 5 Classes Registered with Complete Declarations
@@ -4351,16 +6789,16 @@ function evaluateSelfTests() {
     detail: `Ranger Skill: ${CLASSES.ranger.skillName} • Paladin Skill: ${CLASSES.paladin.skillName}`
   });
 
-  // 3. Pure-Floor BFS Staircase Reachability & Non-Blocking Ores/Traps
+  // 3. Pure-Floor BFS Staircase Reachability & Non-Blocking Ores/Traps (80x60 Standard Scale)
   let bfsAllPass = true;
   for (let i = 0; i < 5; i++) {
-    const testFl = generateFloor(i + 1);
+    const testFl = generateFloor(i + 1, CURATED_DUNGEON_PROFILES.starfall_vaults, 4100 + i);
     if (!verifyPureFloorBFS(testFl)) bfsAllPass = false;
   }
   results.push({
-    name: '3. Pure-Floor BFS Staircase Reachability (Trap-Free & Non-Blocking)',
+    name: '3. Pure-Floor BFS Staircase Reachability (80x60 Trap-Free & Non-Blocking)',
     pass: bfsAllPass,
-    detail: '5/5 procedural floors verified with safe trap-free walkable paths from < to >'
+    detail: '5/5 80x60 procedural floors verified with safe trap-free walkable paths from < to >'
   });
 
   // 4. Procedural 6-Slot Equipment & 5 Rarity Tiers
@@ -4381,7 +6819,7 @@ function evaluateSelfTests() {
   // 5. Mining Engine, Geology Gating & Durability Math
   const sandbox5 = createDefaultGameState();
   selectAdventurerClass('thief', sandbox5);
-  const fl5 = sandbox5.dungeon.floors[1];
+  const fl5 = ensureDungeonFloorHydrated(sandbox5.dungeon, 1);
   fl5.tiles[2][2] = TILE_ORE_STAR; // Requires Geology 3
   const blockedMine = mineTile(2, 2, sandbox5);
   sandbox5.guildResearch.geology = 3;
@@ -4448,8 +6886,8 @@ function evaluateSelfTests() {
   });
 
   // 9. Milestone Boss Spawns (Floor 5 Starfall Colossus & Floor 10 Void Weaver)
-  const bossFl5 = generateFloor(5);
-  const bossFl10 = generateFloor(10);
+  const bossFl5 = generateFloor(5, CURATED_DUNGEON_PROFILES.starfall_vaults, 5505);
+  const bossFl10 = generateFloor(10, CURATED_DUNGEON_PROFILES.starfall_vaults, 5510);
   const b5 = bossFl5.monsters.find(m => m.isBoss && m.id === 'boss_colossus');
   const b10 = bossFl10.monsters.find(m => m.isBoss && m.id === 'boss_weaver');
   const t9Pass = !!b5 && !!b10;
@@ -4519,7 +6957,7 @@ function evaluateSelfTests() {
     rewardQty: 1,
     rewardLabel: '+1 Talent Tome (+1 Talent Pt)'
   };
-  const fl12 = sandbox12.dungeon.floors[1];
+  const fl12 = ensureDungeonFloorHydrated(sandbox12.dungeon, 1);
   fl12.tiles[1][1] = TILE_ORE_COPPER;
   fl12.tiles[1][2] = TILE_ORE_COPPER;
   mineTile(1, 1, sandbox12);
@@ -4534,14 +6972,14 @@ function evaluateSelfTests() {
   results.push({
     name: '12. Guild Notice Board Contracts & Extraction Payout',
     pass: t12Pass,
-    detail: `Completed Copper quota -> claimed +1 Talent Point & rotated fresh contract`
+    detail: 'Completed Copper quota -> claimed +1 Talent Point & rotated fresh contract'
   });
 
   // 13. Subterranean Astral Shrines & Scout Trap Detection/Disarming
   const sandbox13 = createDefaultGameState();
   selectAdventurerClass('thief', sandbox13);
   sandbox13.inGuild = false;
-  const fl13 = sandbox13.dungeon.floors[1];
+  const fl13 = ensureDungeonFloorHydrated(sandbox13.dungeon, 1);
   sandbox13.hero.x = 4;
   sandbox13.hero.y = 4;
   fl13.tiles[4][5] = TILE_TRAP_HIDDEN;
@@ -4568,7 +7006,233 @@ function evaluateSelfTests() {
   results.push({
     name: '13. Astral Shrines & Scout Runic Trap Detection/Disarming',
     pass: t13Pass,
-    detail: `Thief spotted & disarmed Spike Trap (0 dmg) + channeled Starfire Shrine (+6 ATK)`
+    detail: 'Thief spotted & disarmed Spike Trap (0 dmg) + channeled Starfire Shrine (+6 ATK)'
+  });
+
+  // 14. Multi-Dungeon Registry Isolation, Switching & Lazy RLE Packing
+  const sandbox14 = createDefaultGameState();
+  selectAdventurerClass('fighter', sandbox14);
+  const sfFl1 = ensureDungeonFloorHydrated(sandbox14.dungeon, 1);
+  sfFl1.oresMined = 9;
+  const swQuarry = selectActiveDungeon('dng_quarry', sandbox14);
+  const starfallPackedInRam = !!(
+    sandbox14.dungeons.dng_starfall.floors[1] &&
+    sandbox14.dungeons.dng_starfall.floors[1].packed === true
+  );
+  sandbox14.dungeon.floors[1] = generateFloor(1, sandbox14.dungeon.config, sandbox14.dungeon.numericSeed);
+  const quarryW = sandbox14.dungeon.floors[1].width;
+  const quarryH = sandbox14.dungeon.floors[1].height;
+  const swBack = selectActiveDungeon('dng_starfall', sandbox14);
+  const sfHydratedAgain = ensureDungeonFloorHydrated(sandbox14.dungeon, 1);
+  const t14Pass = !!(
+    swQuarry.ok &&
+    swBack.ok &&
+    starfallPackedInRam &&
+    quarryW === 48 &&
+    quarryH === 36 &&
+    sfHydratedAgain &&
+    sfHydratedAgain.packed === false &&
+    sfHydratedAgain.width === 80 &&
+    sfHydratedAgain.oresMined === 9 &&
+    sandbox14.dungeons.dng_quarry.floors[1].packed === true
+  );
+  results.push({
+    name: '14. Multi-Dungeon Registry Isolation & Lazy RLE Memory Packing',
+    pass: t14Pass,
+    detail: `Switched Starfall (80x60, 9 mined) <-> Quarry (${quarryW}x${quarryH}) with isolated state & auto-RLE`
+  });
+
+  // 15. Exploration-Scale Colossal (192x144) Generation, Decoupled Depth & Non-Blocking Veins
+  const sandbox15 = createDefaultGameState();
+  selectAdventurerClass('ranger', sandbox15);
+  const charterCol = chartCustomExpedition({
+    name: 'Colossal Ruin Test',
+    width: 192,
+    height: 144,
+    maxDepth: 1,
+    layoutStyle: 'grand_ruins',
+    richness: 'rich'
+  }, sandbox15);
+  const colFl = generateFloor(1, sandbox15.dungeon.config, 77715);
+  let veinsAllBorderFloor = true;
+  let veinTotal = 0;
+  for (let y = 1; y < colFl.height - 1; y++) {
+    for (let x = 1; x < colFl.width - 1; x++) {
+      if (ORE_CATALOG[colFl.tiles[y][x]]) {
+        veinTotal += 1;
+        const adjWalk =
+          (colFl.tiles[y - 1][x] !== TILE_WALL && !ORE_CATALOG[colFl.tiles[y - 1][x]]) ||
+          (colFl.tiles[y + 1][x] !== TILE_WALL && !ORE_CATALOG[colFl.tiles[y + 1][x]]) ||
+          (colFl.tiles[y][x - 1] !== TILE_WALL && !ORE_CATALOG[colFl.tiles[y][x - 1]]) ||
+          (colFl.tiles[y][x + 1] !== TILE_WALL && !ORE_CATALOG[colFl.tiles[y][x + 1]]);
+        if (!adjWalk) {
+          veinsAllBorderFloor = false;
+        }
+      }
+    }
+  }
+  const colBfsOk = verifyPureFloorBFS(colFl);
+  const t15Pass = !!(
+    charterCol.ok &&
+    colFl.width === 192 &&
+    colFl.height === 144 &&
+    colFl.hasDownStairs === false &&
+    colFl.roomCount >= 25 &&
+    veinTotal >= 20 &&
+    veinsAllBorderFloor &&
+    colBfsOk
+  );
+  results.push({
+    name: '15. Colossal 192x144 Megadungeon Sector Generation & Fast BFS',
+    pass: t15Pass,
+    detail: `192x144 MaxFl-1 Ruin: ${colFl.roomCount} chambers, ${veinTotal} wall veins, 100% BFS reachable`
+  });
+
+  // 16. Declarative DungeonConfig Enforcement (Monster Family, Ore Table & Final-Floor Boss)
+  const sandbox16 = createDefaultGameState();
+  selectAdventurerClass('mage', sandbox16);
+  chartCustomExpedition({
+    name: 'Dwarven Crystal Delve',
+    width: 64,
+    height: 48,
+    maxDepth: 1,
+    layoutStyle: 'excavation_quarry',
+    monsterFamily: 'dwarven_forge',
+    oreFocus: 'astral_crystal',
+    richness: 'rich'
+  }, sandbox16);
+  const cfgFl = generateFloor(1, sandbox16.dungeon.config, 88216);
+  const allowedForgeIds = {
+    dwarven_automaton: true,
+    ember_pyromancer: true,
+    vault_crawler: true,
+    magma_golem: true
+  };
+  const nonBossMonsters = cfgFl.monsters.filter(m => !m.isBoss);
+  const hasFinalBoss = cfgFl.monsters.some(m => m.isBoss);
+  const monstersMatchFamily = nonBossMonsters.length > 0 && nonBossMonsters.every(m => !!allowedForgeIds[m.id]);
+
+  let oresMatchFocus = true;
+  let focusVeinCount = 0;
+  for (let y = 0; y < cfgFl.height; y++) {
+    for (let x = 0; x < cfgFl.width; x++) {
+      const t = cfgFl.tiles[y][x];
+      if (ORE_CATALOG[t]) {
+        focusVeinCount += 1;
+        if (
+          t !== TILE_ORE_MITHRIL &&
+          t !== TILE_ORE_GEODE &&
+          t !== TILE_ORE_STAR &&
+          t !== TILE_ORE_ASTRAL
+        ) {
+          oresMatchFocus = false;
+        }
+        if (t === TILE_ORE_COPPER || t === TILE_ORE_IRON) {
+          oresMatchFocus = false;
+        }
+      }
+    }
+  }
+  const t16Pass = !!(hasFinalBoss && monstersMatchFamily && focusVeinCount > 0 && oresMatchFocus);
+  results.push({
+    name: '16. Declarative DungeonConfig Rosters (Monsters, Ores & Bosses)',
+    pass: t16Pass,
+    detail: `Dwarven Forge roster (${nonBossMonsters.length} foes + Boss) & ${focusVeinCount} Astral/Mithril veins verified`
+  });
+
+  // 17. Lossless RLE Compression, Bresenham Wall LOS & Safe Auto-Walk Hostile Interrupt
+  const rawRleFl = generateFloor(1, CURATED_DUNGEON_PROFILES.mycelium_labyrinth, 99117);
+  rawRleFl.explored[12][15] = 1;
+  rawRleFl.explored[40][60] = 1;
+  const packedRle = packFloorForStorage(rawRleFl);
+  const hydratedRle = hydrateFloorFromStorage(packedRle);
+  let rleExactMatch = !!(
+    packedRle.packed === true &&
+    typeof packedRle.tilesRle === 'string' &&
+    hydratedRle.packed === false &&
+    hydratedRle.width === 128 &&
+    hydratedRle.height === 96
+  );
+  if (rleExactMatch) {
+    for (let y = 0; y < 96; y++) {
+      for (let x = 0; x < 128; x++) {
+        if (
+          hydratedRle.tiles[y][x] !== rawRleFl.tiles[y][x] ||
+          !!hydratedRle.explored[y][x] !== !!rawRleFl.explored[y][x]
+        ) {
+          rleExactMatch = false;
+          break;
+        }
+      }
+      if (!rleExactMatch) break;
+    }
+  }
+
+  // Bresenham Wall LOS + Auto-Walk Interrupt in isolated sandbox
+  const sandbox17 = createDefaultGameState();
+  selectAdventurerClass('fighter', sandbox17);
+  sandbox17.inGuild = false;
+  const navFl = ensureDungeonFloorHydrated(sandbox17.dungeon, 1);
+  for (let y = 8; y <= 18; y++) {
+    for (let x = 8; x <= 18; x++) {
+      navFl.tiles[y][x] = TILE_WALL;
+      navFl.explored[y][x] = 1;
+    }
+  }
+  // Carve L-corridor: (10,10) -> (11,10) -> (12,10) -> (12,11) -> (12,12) -> (12,13) -> (12,14)
+  navFl.tiles[10][10] = TILE_FLOOR;
+  navFl.tiles[10][11] = TILE_FLOOR;
+  navFl.tiles[10][12] = TILE_FLOOR;
+  navFl.tiles[11][12] = TILE_FLOOR;
+  navFl.tiles[12][12] = TILE_FLOOR;
+  navFl.tiles[13][12] = TILE_FLOOR;
+  navFl.tiles[14][12] = TILE_FLOOR;
+
+  const wallSeen = hasLineOfSight(navFl, 10, 10, 10, 11) === true;
+  const occludedByWall = hasLineOfSight(navFl, 10, 10, 12, 14) === false;
+  const downHallClear = hasLineOfSight(navFl, 12, 10, 12, 14) === true;
+
+  sandbox17.hero.x = 10;
+  sandbox17.hero.y = 10;
+  navFl.monsters = [{
+    id: 'vault_crawler',
+    name: 'Test Crawler',
+    x: 12,
+    y: 14,
+    hp: 30,
+    maxHp: 30,
+    atk: 6,
+    def: 2,
+    xp: 10,
+    isRanged: false,
+    statuses: []
+  }];
+
+  const safePath = computeSafeExploredPath(navFl, 10, 10, 12, 12);
+  setAutoWalkPath(safePath || []);
+  const stepA = stepAutoWalkOnce(sandbox17); // Moves to (11,10) — monster at (12,14) still behind wall (11,11)
+  const stepB = stepAutoWalkOnce(sandbox17); // Moves to (12,10) — gains LOS down hall to monster -> HALTS!
+  cancelAutoWalk();
+
+  const t17Pass = !!(
+    rleExactMatch &&
+    wallSeen &&
+    occludedByWall &&
+    downHallClear &&
+    safePath &&
+    safePath.length === 4 &&
+    stepA.ok &&
+    stepA.halted === false &&
+    stepB.ok &&
+    stepB.halted === true &&
+    stepB.reason === 'hostile_in_sight' &&
+    sandbox17.hero.x === 12 &&
+    sandbox17.hero.y === 10
+  );
+  results.push({
+    name: '17. Lossless RLE Compression, Wall LOS & Safe Auto-Walk Interrupt',
+    pass: t17Pass,
+    detail: `128x96 RLE 100% lossless (${packedRle.tilesRle.length} chars); LOS wall occlusion & hostile halt verified`
   });
 
   return results;
@@ -4581,7 +7245,7 @@ function runSelfTests(renderModal = false) {
   if (typeof document !== 'undefined') {
     const btnText = document.getElementById('verifyBtnText');
     if (btnText) {
-      btnText.textContent = `Verify Inc-4 (${passCount}/${results.length} PASS)`;
+      btnText.textContent = `Verify Atlas (${passCount}/${results.length} PASS)`;
     }
 
     if (renderModal) {
@@ -4632,6 +7296,7 @@ function closeDiagnosticsModal() {
 
 
 
+
 // Bind UI callbacks into engine actions & combat
 registerActionCallbacks({
   log: logChronicle,
@@ -4666,10 +7331,24 @@ const AethelgardAPI = {
   unsocketFromInspect,
   showOutcomeModal,
   closeOutcomeModal,
+  openExpeditionAtlasModal,
+  closeExpeditionAtlasModal,
+  handleSelectDungeonFromAtlas,
+  promptResetDungeonFromAtlas,
+  cancelResetDungeonFromAtlas,
+  handleResetDungeonFromAtlas,
+  onCharterSizePresetChange,
+  submitCharterForm,
+  openFullMapModal,
+  closeFullMapModal,
+  toggleFullMapModal,
   openNewDungeonModal,
   closeNewDungeonModal,
   confirmChartNewDungeon,
   descendIntoDungeon,
+  selectActiveDungeon,
+  chartCustomExpedition,
+  resetOrAbandonDungeon,
   switchGuildTab,
   restAtGuild,
   repairPickaxeAtGuild,
@@ -4692,10 +7371,14 @@ const AethelgardAPI = {
   useRecallScroll,
   useStairsAtPlayer,
   handlePlayerAction,
+  startAutoWalkTo,
+  cancelAutoWalk,
+  renderMinimapCanvas,
   waitTurn,
   clearChronicle,
   TALENT_TREES,
-  GEM_CATALOG
+  GEM_CATALOG,
+  CURATED_DUNGEON_PROFILES
 };
 
 function bootstrapApp() {
@@ -4705,6 +7388,7 @@ function bootstrapApp() {
     selectAdventurerClass('fighter');
     openClassSelectModal(false);
   } else {
+    updateFOV();
     updateAllUI();
   }
   runSelfTests(false);

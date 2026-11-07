@@ -1,8 +1,9 @@
-// Interactive Mining, Astral Gems & Lapidary, Guild Bounties, Shrines, Traps, Extraction & Research
+// Interactive Mining, Multi-Dungeon Atlas Management, Astral Gems & Lapidary, Guild Bounties, Shrines, Traps & Extraction
 
 import {
-  GRID_W,
-  GRID_H,
+  DEFAULT_MAP_W,
+  DEFAULT_MAP_H,
+  DEFAULT_MAX_CHARTERED_DUNGEONS,
   TILE_FLOOR,
   TILE_ORE_MITHRIL,
   TILE_ORE_GEODE,
@@ -21,11 +22,15 @@ import { GEM_IDS, GEM_CATALOG, SHRINE_CATALOG, TRAP_CATALOG } from '../data/gems
 import { buildProceduralBountySet } from '../data/bounties.js';
 import { SHOP_ITEMS } from '../data/items.js';
 import { RESEARCH_PROJECTS } from '../data/research.js';
+import { buildCharteredDungeonInstance } from '../data/dungeons.js';
+import { hashSeedString, randomSeedCode } from './rng.js';
 import {
   gameState,
   saveGame,
   nextItemUid,
   normalizeEquipmentSockets,
+  ensureDungeonFloorHydrated,
+  syncActiveDungeonAlias,
   recomputeHeroDerivedStats,
   getPickaxeMaxDurability
 } from './state.js';
@@ -91,6 +96,117 @@ export function gainExperience(amount, state = gameState) {
       actionCallbacks.log(`LEVEL UP! Reached Level ${h.level} (+2 Stat Points, +1 Talent Point).`, 'good');
     }
   }
+}
+
+// ============================================================================
+// MULTI-DUNGEON EXPEDITION ATLAS & CUSTOM CHARTER MANAGEMENT
+// ============================================================================
+
+export function selectActiveDungeon(dungeonId, state = gameState) {
+  if (!state || !state.inGuild) {
+    return { ok: false, reason: 'in_dungeon' };
+  }
+  if (!state.dungeons || !state.dungeons[dungeonId]) {
+    return { ok: false, reason: 'not_found' };
+  }
+  const dng = state.dungeons[dungeonId];
+  const reqCart = (dng.config && dng.config.reqCartography) || 0;
+  const curCart = (state.guildResearch && state.guildResearch.cartography) || 0;
+  if (curCart < reqCart) {
+    if (state === gameState) {
+      actionCallbacks.log(`Requires Vault Cartography Rank ${reqCart} to chart routes to ${dng.name}.`, 'bad');
+    }
+    return { ok: false, reason: 'cartography_locked', reqCart };
+  }
+
+  state.activeDungeonId = dungeonId;
+  syncActiveDungeonAlias(state);
+
+  if (state === gameState) {
+    playSound('gold');
+    actionCallbacks.log(`🗺️ Expedition destination set to ${dng.name} (${dng.config.width}x${dng.config.height}, Seed ${dng.seedCode}).`, 'gold');
+    saveGame();
+    actionCallbacks.updateUI();
+  }
+  return { ok: true, dungeonId, dungeon: state.dungeon };
+}
+
+export function chartCustomExpedition(opts = {}, state = gameState) {
+  if (!state || !state.inGuild) {
+    return { ok: false, reason: 'in_dungeon' };
+  }
+  const allDungeons = state.dungeons || {};
+  const charteredCount = Object.keys(allDungeons).filter(
+    k => allDungeons[k] && allDungeons[k].originType === 'chartered'
+  ).length;
+  const cap = state.maxCharteredDungeons || DEFAULT_MAX_CHARTERED_DUNGEONS;
+  if (charteredCount >= cap) {
+    if (state === gameState) {
+      actionCallbacks.log(`Charter limit reached (${charteredCount}/${cap}). Abandon an old charter first.`, 'bad');
+    }
+    return { ok: false, reason: 'charter_cap_reached', cap };
+  }
+
+  const newDng = buildCharteredDungeonInstance(opts);
+  state.dungeons[newDng.id] = newDng;
+  state.activeDungeonId = newDng.id;
+  syncActiveDungeonAlias(state);
+
+  if (state === gameState) {
+    playSound('lvl');
+    actionCallbacks.log(
+      `🧭 Chartered "${newDng.name}" (${newDng.config.width}x${newDng.config.height} • Max Fl ${newDng.config.maxDepth} • ${newDng.seedCode})!`,
+      'gold'
+    );
+    saveGame();
+    actionCallbacks.updateUI();
+  }
+  return { ok: true, dungeon: newDng };
+}
+
+export function resetOrAbandonDungeon(dungeonId, state = gameState) {
+  if (!state || !state.inGuild) {
+    return { ok: false, reason: 'in_dungeon' };
+  }
+  const dng = state.dungeons && state.dungeons[dungeonId];
+  if (!dng) {
+    return { ok: false, reason: 'not_found' };
+  }
+
+  if (dng.originType === 'chartered') {
+    const oldName = dng.name;
+    delete state.dungeons[dungeonId];
+    if (state.activeDungeonId === dungeonId) {
+      state.activeDungeonId = state.dungeons.dng_starfall
+        ? 'dng_starfall'
+        : Object.keys(state.dungeons)[0];
+    }
+    syncActiveDungeonAlias(state);
+    if (state === gameState) {
+      playSound('hit');
+      actionCallbacks.log(`Sealed and retired expedition charter "${oldName}".`, 'info');
+      saveGame();
+      actionCallbacks.updateUI();
+    }
+    return { ok: true, action: 'abandoned', activeDungeonId: state.activeDungeonId };
+  }
+
+  const prefix = (dng.config && dng.config.seedPrefix) || 'STAR';
+  dng.seedCode = randomSeedCode(prefix);
+  dng.numericSeed = hashSeedString(dng.seedCode, 0);
+  dng.currentFloor = 1;
+  dng.deepestFloor = 1;
+  dng.isCleared = false;
+  dng.floors = {};
+  syncActiveDungeonAlias(state);
+
+  if (state === gameState) {
+    playSound('lvl');
+    actionCallbacks.log(`Re-charted ${dng.name} with fresh subterranean seed ${dng.seedCode}!`, 'gold');
+    saveGame();
+    actionCallbacks.updateUI();
+  }
+  return { ok: true, action: 'reset', seedCode: dng.seedCode };
 }
 
 // ============================================================================
@@ -232,8 +348,11 @@ function rollUncutGemForOreTile(tile) {
 }
 
 export function mineTile(x, y, state = gameState) {
-  const floor = state.dungeon.floors[state.dungeon.currentFloor];
+  const floor = ensureDungeonFloorHydrated(state.dungeon, state.dungeon.currentFloor);
   if (!floor) return { ok: false, reason: 'no_floor' };
+  if (y < 0 || y >= floor.tiles.length || x < 0 || x >= floor.tiles[0].length) {
+    return { ok: false, reason: 'out_of_bounds' };
+  }
 
   const tile = floor.tiles[y][x];
   const ore = ORE_CATALOG[tile];
@@ -291,7 +410,8 @@ export function mineTile(x, y, state = gameState) {
 
     // Geode bonus equipment roll
     if (tile === TILE_ORE_GEODE && Math.random() < 0.45) {
-      const dropGear = generateProceduralEquipment(floor.depth, 'rare');
+      const rarityBonus = (state.dungeon && state.dungeon.config && state.dungeon.config.lootRarityBonus) || 0;
+      const dropGear = generateProceduralEquipment(floor.depth, 'rare', null, rarityBonus);
       state.hero.expeditionGear.push(dropGear);
       actionCallbacks.log(`Cracked Relic Geode contained ${dropGear.name}!`, 'good');
     }
@@ -417,16 +537,23 @@ export function sellGemUnit(gemId, sellAll = false, state = gameState) {
 // ============================================================================
 
 export function detectNearbyTraps(floor, state = gameState) {
-  if (!floor || !state || !state.hero) return 0;
+  if (!floor || !floor.tiles || !state || !state.hero) return 0;
   const h = state.hero;
+  const fw = floor.width || (floor.tiles[0] ? floor.tiles[0].length : DEFAULT_MAP_W);
+  const fh = floor.height || floor.tiles.length || DEFAULT_MAP_H;
   const vision = h.visionRadius || 5;
   const spotScore = (h.computedDex || 10) * 2 + vision * 6;
   const threshold = 26 + (floor.depth || 1) * 3;
   const isScoutClass = h.classId === 'thief' || h.classId === 'ranger';
   let spottedCount = 0;
 
-  for (let y = 0; y < GRID_H; y++) {
-    for (let x = 0; x < GRID_W; x++) {
+  const minY = Math.max(0, Math.floor(h.y - vision - 1));
+  const maxY = Math.min(fh - 1, Math.ceil(h.y + vision + 1));
+  const minX = Math.max(0, Math.floor(h.x - vision - 1));
+  const maxX = Math.min(fw - 1, Math.ceil(h.x + vision + 1));
+
+  for (let y = minY; y <= maxY; y++) {
+    for (let x = minX; x <= maxX; x++) {
       if (floor.tiles[y][x] !== TILE_TRAP_HIDDEN) continue;
       const dist = Math.hypot(x - h.x, y - h.y);
       if (dist > vision + 0.35) continue;
@@ -447,7 +574,7 @@ export function detectNearbyTraps(floor, state = gameState) {
 }
 
 export function activateAstralShrine(x, y, state = gameState) {
-  const floor = state.dungeon.floors[state.dungeon.currentFloor];
+  const floor = ensureDungeonFloorHydrated(state.dungeon, state.dungeon.currentFloor);
   if (!floor || floor.tiles[y][x] !== TILE_SHRINE) {
     return { ok: false, reason: 'not_shrine' };
   }
@@ -486,7 +613,7 @@ export function activateAstralShrine(x, y, state = gameState) {
 }
 
 export function resolveTrapInteraction(x, y, state = gameState) {
-  const floor = state.dungeon.floors[state.dungeon.currentFloor];
+  const floor = ensureDungeonFloorHydrated(state.dungeon, state.dungeon.currentFloor);
   if (!floor) return { ok: false, reason: 'no_floor' };
   const tile = floor.tiles[y][x];
   if (tile !== TILE_TRAP_HIDDEN && tile !== TILE_TRAP_VISIBLE) {
@@ -682,13 +809,13 @@ export function handleHeroDefeat(killerName = 'Abyssal Guardian', state = gameSt
     actionCallbacks.updateUI();
     actionCallbacks.outcomeModal(
       'Expedition Defeat — Rescued by Guild Scouts',
-      `You fell to ${killerName} on Floor ${state.dungeon.currentFloor}. Oakhaven scouts recovered you to the surface. Your character level, equipped loadout, and Guild Vault remain intact!`,
+      `You fell to ${killerName} on Floor ${state.dungeon.currentFloor} of ${state.dungeon.name}. Oakhaven scouts recovered you to the surface. Your character level, equipped loadout, and Guild Vault remain intact!`,
       [
         `Defeated By: ${killerName} (Floor ${state.dungeon.currentFloor})`,
         `Unbanked Pack Items Lost: ${lostOreCount}`,
         `Unbanked Equipment Lost: ${lostGearCount}`,
         `Vanguard Pact Salvage (${vRank * 20}%): +${salvagedGold}g`,
-        `Persistent Dungeon Seed: ${state.dungeon.seedCode}`
+        `Persistent Dungeon: ${state.dungeon.name} (${state.dungeon.seedCode})`
       ]
     );
   }

@@ -7,9 +7,9 @@ Welcome to the development workspace for **Aethelgard: The Starfall Vaults**, a 
 ## 1. Project Overview & Current Architecture
 
 - **Genre**: Tactical Grid Roguelike & Subterranean Mining RPG
-- **Target Display**: 21x15 tile tactical canvas viewport + Tailwind CSS UI
-- **Current Baseline**: `v0.4.0-inc4` (13/13 automated self-tests passing)
-- **Architecture**: Modular ES6 architecture under `src/` (with auto-built `dist/bundle.js` fallback for `file://`) and a dual verification pipeline (headless CLI runner + in-browser diagnostics).
+- **Target Display**: 21x15 tile scrolling tactical canvas viewport over exploration-scale maps (48x36 to 192x144+) + Tailwind CSS UI
+- **Current Baseline**: `v0.4.5-atlas` (17/17 automated self-tests passing)
+- **Architecture**: Modular ES6 architecture under `src/` (with auto-built `dist/bundle.js` fallback for `file://`), multi-dungeon RLE persistence, and a dual verification pipeline (headless CLI runner + in-browser diagnostics).
 
 ---
 

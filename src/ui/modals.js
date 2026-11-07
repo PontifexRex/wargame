@@ -1,15 +1,24 @@
-// In-Game Modals, Guild Controllers, Item Inspection (with Gem Sockets), Class Selection & Save Sync
+// In-Game Modals, Expedition Atlas & Custom Charter Builder, Full-Floor Survey Map, Item Inspect & Save Sync
 
-import { RARITY, LAPIDARY_UNSOCKET_COST } from '../constants.js';
+import {
+  RARITY,
+  LAPIDARY_UNSOCKET_COST,
+  MAP_SIZE_PRESETS,
+  DEFAULT_MAX_CHARTERED_DUNGEONS
+} from '../constants.js';
 import { CLASSES } from '../data/classes.js';
 import { TALENT_TREES } from '../data/talents.js';
 import { GEM_IDS, GEM_CATALOG } from '../data/gems.js';
+import { LAYOUT_STYLES } from '../data/dungeons.js';
 import {
   gameState,
   setGameState,
   migrateSaveData,
+  serializeStateForStorage,
   saveGame,
   normalizeEquipmentSockets,
+  ensureDungeonFloorHydrated,
+  syncActiveDungeonAlias,
   recomputeHeroDerivedStats,
   getPickaxeMaxDurability
 } from '../engine/state.js';
@@ -19,30 +28,44 @@ import {
   sellArmoryItem,
   socketGemIntoItem,
   unsocketGemFromItem,
-  ensureGuildBounties
+  ensureGuildBounties,
+  selectActiveDungeon,
+  chartCustomExpedition,
+  resetOrAbandonDungeon
 } from '../engine/actions.js';
-import { updateFOV } from './renderer.js';
+import { cancelAutoWalk } from '../engine/combat.js';
+import { updateFOV, renderMinimapCanvas } from './renderer.js';
 import { updateAllUI, logChronicle } from './domSync.js';
 
 let inspectedItemContext = null;
+let pendingAtlasResetId = null;
 
 export function getInspectedItemContext() {
   return inspectedItemContext;
 }
 
 export function descendIntoDungeon() {
+  cancelAutoWalk();
+  syncActiveDungeonAlias(gameState);
   gameState.inGuild = false;
   gameState.dungeon.currentFloor = 1;
   if (!gameState.dungeon.floors[1]) {
-    gameState.dungeon.floors[1] = generateFloor(1);
+    gameState.dungeon.floors[1] = generateFloor(
+      1,
+      gameState.dungeon.config,
+      gameState.dungeon.numericSeed
+    );
   }
-  const f1 = gameState.dungeon.floors[1];
+  const f1 = ensureDungeonFloorHydrated(gameState.dungeon, 1);
   gameState.hero.x = f1.upPos.x;
   gameState.hero.y = f1.upPos.y;
   updateFOV();
   saveGame();
   updateAllUI();
-  logChronicle(`Descended into Floor 1 of ${gameState.dungeon.seedCode}.`, 'gold');
+  logChronicle(
+    `Descended into Floor 1 of ${gameState.dungeon.name} (${f1.width}x${f1.height} • ${gameState.dungeon.seedCode}).`,
+    'gold'
+  );
 }
 
 export function showOutcomeModal(title, desc, details = [], isConfirmNewDungeon = false) {
@@ -54,7 +77,7 @@ export function showOutcomeModal(title, desc, details = [], isConfirmNewDungeon 
   if (isConfirmNewDungeon) {
     btnBox.innerHTML = `
       <button onclick="window.Aethelgard.closeOutcomeModal()" class="px-3 py-1.5 rounded bg-[#1a2232] text-xs font-mono-num text-[#8b949e]">Cancel</button>
-      <button onclick="window.Aethelgard.confirmChartNewDungeon()" class="px-4 py-1.5 rounded bg-[#f87171] text-[#080b11] font-bold text-xs font-mono-num">Confirm New Chart</button>
+      <button onclick="window.Aethelgard.confirmChartNewDungeon()" class="px-4 py-1.5 rounded bg-[#f87171] text-[#080b11] font-bold text-xs font-mono-num">Confirm Re-Chart</button>
     `;
   } else {
     btnBox.innerHTML = `<button onclick="window.Aethelgard.closeOutcomeModal()" class="px-4 py-1.5 rounded bg-[#fbbf24] text-[#080b11] font-bold text-xs">Continue</button>`;
@@ -67,29 +90,323 @@ export function closeOutcomeModal() {
   document.getElementById('outcomeModal').classList.add('hidden');
 }
 
+// ============================================================================
+// MULTI-DUNGEON EXPEDITION ATLAS & CUSTOM CHARTER MODAL
+// ============================================================================
+
+const FAMILY_LABELS = {
+  balanced: 'Mixed Vault Host',
+  beasts: 'Subterranean Beasts',
+  dwarven_forge: 'Dwarven Forge Constructs',
+  astral_cult: 'Astral Void Cult',
+  ancient_crypt: 'Ancient Undead Crypt'
+};
+
+const ORE_LABELS = {
+  balanced: 'Balanced Seams',
+  copper_iron: 'Copper & Iron Heavy',
+  mithril_geode: 'Mithril & Relic Geodes',
+  astral_crystal: 'Star-Crystal & Astralite'
+};
+
+export function renderExpeditionAtlasContents() {
+  if (typeof document === 'undefined') return;
+  const listEl = document.getElementById('atlasDungeonsList');
+  if (!listEl) return;
+
+  const allIds = Object.keys(gameState.dungeons || {});
+  const sortedIds = allIds.slice().sort((a, b) => {
+    const da = gameState.dungeons[a];
+    const db = gameState.dungeons[b];
+    if (da.originType !== db.originType) {
+      return da.originType === 'curated' ? -1 : 1;
+    }
+    return 0;
+  });
+
+  const charteredCount = sortedIds.filter(
+    id => gameState.dungeons[id] && gameState.dungeons[id].originType === 'chartered'
+  ).length;
+  const cap = gameState.maxCharteredDungeons || DEFAULT_MAX_CHARTERED_DUNGEONS;
+  const badgeEl = document.getElementById('uiAtlasCharterCountBadge');
+  if (badgeEl) {
+    badgeEl.textContent = `${charteredCount} / ${cap} Chartered`;
+  }
+
+  const curCart = (gameState.guildResearch && gameState.guildResearch.cartography) || 0;
+
+  listEl.innerHTML = sortedIds.map(id => {
+    const dng = gameState.dungeons[id];
+    const cfg = dng.config || {};
+    const isActive = id === gameState.activeDungeonId;
+    const reqCart = cfg.reqCartography || 0;
+    const locked = curCart < reqCart;
+    const chartedCount = Object.keys(dng.floors || {}).length;
+    const maxDepthText = cfg.maxDepth >= 999 ? '∞ Floors' : `Max Fl ${cfg.maxDepth}`;
+    const styleDef = LAYOUT_STYLES[cfg.layoutStyle] || LAYOUT_STYLES.masonry_vaults;
+    const famLabel = FAMILY_LABELS[cfg.monsterFamily] || cfg.monsterFamily;
+    const oreLabel = ORE_LABELS[cfg.oreFocus] || cfg.oreFocus;
+    const isConfirmingReset = pendingAtlasResetId === id;
+
+    let actionButtons = '';
+    if (locked) {
+      actionButtons = `
+        <span class="px-2.5 py-1 rounded bg-[#1a2232] text-[#f87171] border border-[#f87171]/40 text-[11px] font-mono-num">
+          🔒 Req Vault Cartography R${reqCart}
+        </span>
+      `;
+    } else if (isConfirmingReset) {
+      actionButtons = `
+        <span class="text-[11px] text-[#f87171] font-bold mr-1">${dng.originType === 'chartered' ? 'Abandon charter?' : 'Seal & re-chart floors?'}</span>
+        <button onclick="window.Aethelgard.handleResetDungeonFromAtlas('${id}')" class="px-2.5 py-1 rounded bg-[#f87171] text-[#080b11] text-[11px] font-mono-num font-bold btn-tactical">Confirm</button>
+        <button onclick="window.Aethelgard.cancelResetDungeonFromAtlas()" class="px-2 py-1 rounded bg-[#1a2232] text-[#8b949e] text-[11px] font-mono-num">Cancel</button>
+      `;
+    } else {
+      actionButtons = `
+        ${isActive
+          ? `<span class="px-2.5 py-1 rounded bg-[#34d399]/20 text-[#34d399] border border-[#34d399]/50 text-[11px] font-mono-num font-bold">✓ Selected</span>`
+          : `<button onclick="window.Aethelgard.handleSelectDungeonFromAtlas('${id}', false)" class="px-2.5 py-1 rounded bg-[#1a2232] hover:bg-[#283347] text-[#e6edf3] border border-[#283347] text-[11px] font-mono-num font-bold btn-tactical">Select</button>`
+        }
+        <button onclick="window.Aethelgard.handleSelectDungeonFromAtlas('${id}', true)" class="px-3 py-1 rounded bg-[#fbbf24] hover:bg-[#f59e0b] text-[#080b11] text-[11px] font-mono-num font-bold btn-tactical">
+          ⚔️ Descend
+        </button>
+        <button onclick="window.Aethelgard.promptResetDungeonFromAtlas('${id}')" class="px-2 py-1 rounded bg-[#111722] hover:bg-[#1a2232] text-[#8b949e] hover:text-[#f87171] border border-[#283347] text-[11px] font-mono-num btn-tactical">
+          ${dng.originType === 'chartered' ? '✕ Abandon' : '↻ Re-Chart'}
+        </button>
+      `;
+    }
+
+    return `
+      <div class="p-3 rounded-lg bg-[#080b11] border ${isActive ? 'border-[#fbbf24]' : 'border-[#283347]'} space-y-2">
+        <div class="flex flex-wrap items-start justify-between gap-2">
+          <div>
+            <div class="flex flex-wrap items-center gap-1.5">
+              <span class="font-display font-bold text-sm" style="color:${cfg.themeColor || '#e6edf3'}">${dng.name}</span>
+              <span class="text-[9px] font-mono-num uppercase px-1.5 py-0.5 rounded bg-[#1a2232] text-[#8b949e] border border-[#283347]">
+                ${dng.originType === 'curated' ? 'Regional' : 'Charter'}
+              </span>
+              ${dng.isCleared ? `<span class="text-[9px] font-mono-num uppercase px-1.5 py-0.5 rounded bg-[#34d399]/20 text-[#34d399] font-bold">★ Cleared</span>` : ''}
+            </div>
+            <div class="text-[11px] text-[#8b949e] mt-0.5">${cfg.subtitle || ''}</div>
+          </div>
+          <span class="text-[11px] font-mono-num text-[#60a5fa] font-bold">${dng.seedCode}</span>
+        </div>
+
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-1.5 text-[10px] font-mono-num">
+          <div class="bg-[#111722] px-2 py-1 rounded border border-[#283347]">
+            <span class="text-[#8b949e]">Scale:</span> <strong class="text-[#fbbf24]">${cfg.width}x${cfg.height}</strong>
+          </div>
+          <div class="bg-[#111722] px-2 py-1 rounded border border-[#283347]">
+            <span class="text-[#8b949e]">Depth:</span> <strong class="text-[#e6edf3]">${chartedCount} charted / ${maxDepthText}</strong>
+          </div>
+          <div class="bg-[#111722] px-2 py-1 rounded border border-[#283347] truncate" title="${famLabel}">
+            <span class="text-[#8b949e]">Foes:</span> <strong class="text-[#f87171]">${famLabel}</strong>
+          </div>
+          <div class="bg-[#111722] px-2 py-1 rounded border border-[#283347] truncate" title="${oreLabel}">
+            <span class="text-[#8b949e]">Veins:</span> <strong class="text-[#34d399]">${oreLabel}</strong>
+          </div>
+        </div>
+
+        <div class="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-[#192234]">
+          <span class="text-[10px] text-[#8b949e]">Architecture: <strong class="text-[#e6edf3]">${styleDef.name}</strong></span>
+          <div class="flex flex-wrap items-center gap-1.5">${actionButtons}</div>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+export function openExpeditionAtlasModal() {
+  if (typeof document === 'undefined') return;
+  pendingAtlasResetId = null;
+  const msgEl = document.getElementById('charterStatusMsg');
+  if (msgEl) msgEl.textContent = '';
+  renderExpeditionAtlasContents();
+  const modal = document.getElementById('expeditionAtlasModal');
+  if (modal) modal.classList.remove('hidden');
+}
+
+export function closeExpeditionAtlasModal() {
+  if (typeof document === 'undefined') return;
+  pendingAtlasResetId = null;
+  const modal = document.getElementById('expeditionAtlasModal');
+  if (modal) modal.classList.add('hidden');
+}
+
+export function handleSelectDungeonFromAtlas(dungeonId, descendImmediately = false) {
+  const res = selectActiveDungeon(dungeonId, gameState);
+  if (!res.ok) return;
+  renderExpeditionAtlasContents();
+  if (descendImmediately) {
+    closeExpeditionAtlasModal();
+    descendIntoDungeon();
+  }
+}
+
+export function promptResetDungeonFromAtlas(dungeonId) {
+  pendingAtlasResetId = dungeonId;
+  renderExpeditionAtlasContents();
+}
+
+export function cancelResetDungeonFromAtlas() {
+  pendingAtlasResetId = null;
+  renderExpeditionAtlasContents();
+}
+
+export function handleResetDungeonFromAtlas(dungeonId) {
+  pendingAtlasResetId = null;
+  resetOrAbandonDungeon(dungeonId, gameState);
+  renderExpeditionAtlasContents();
+}
+
+export function onCharterSizePresetChange() {
+  if (typeof document === 'undefined') return;
+  const sel = document.getElementById('charterSizeSelect');
+  const wIn = document.getElementById('charterWidthInput');
+  const hIn = document.getElementById('charterHeightInput');
+  if (!sel || !wIn || !hIn) return;
+  const preset = MAP_SIZE_PRESETS[sel.value];
+  if (preset) {
+    wIn.value = preset.width;
+    hIn.value = preset.height;
+  }
+}
+
+export function submitCharterForm(randomize = false) {
+  if (typeof document === 'undefined') return;
+  const nameEl = document.getElementById('charterNameInput');
+  const sizeEl = document.getElementById('charterSizeSelect');
+  const wEl = document.getElementById('charterWidthInput');
+  const hEl = document.getElementById('charterHeightInput');
+  const depthEl = document.getElementById('charterDepthInput');
+  const styleEl = document.getElementById('charterStyleSelect');
+  const monEl = document.getElementById('charterMonsterSelect');
+  const oreEl = document.getElementById('charterOreSelect');
+  const richEl = document.getElementById('charterRichnessSelect');
+  const statusEl = document.getElementById('charterStatusMsg');
+
+  let opts = {};
+  if (randomize) {
+    const sizeKeys = ['small', 'standard', 'sprawling', 'colossal'];
+    const pickedSize = sizeKeys[Math.floor(Math.random() * sizeKeys.length)];
+    const preset = MAP_SIZE_PRESETS[pickedSize];
+    const randDepths = [1, 2, 3, 5, 8, 12];
+    const richKeys = ['standard', 'rich', 'jackpot'];
+    opts = {
+      randomize: true,
+      sizePreset: pickedSize,
+      width: preset.width,
+      height: preset.height,
+      maxDepth: randDepths[Math.floor(Math.random() * randDepths.length)],
+      richness: richKeys[Math.floor(Math.random() * richKeys.length)]
+    };
+  } else {
+    const rawW = Math.max(36, Math.min(400, Math.round(Number(wEl && wEl.value) || 80)));
+    const rawH = Math.max(28, Math.min(300, Math.round(Number(hEl && hEl.value) || 60)));
+    const rawD = Math.max(1, Math.min(999, Math.round(Number(depthEl && depthEl.value) || 5)));
+    if (wEl) wEl.value = rawW;
+    if (hEl) hEl.value = rawH;
+    if (depthEl) depthEl.value = rawD;
+
+    opts = {
+      name: nameEl && nameEl.value ? nameEl.value.trim() : '',
+      sizePreset: sizeEl ? sizeEl.value : 'custom',
+      width: rawW,
+      height: rawH,
+      maxDepth: rawD,
+      layoutStyle: styleEl ? styleEl.value : 'masonry_vaults',
+      monsterFamily: monEl ? monEl.value : 'balanced',
+      oreFocus: oreEl ? oreEl.value : 'balanced',
+      richness: richEl ? richEl.value : 'standard'
+    };
+  }
+
+  const res = chartCustomExpedition(opts, gameState);
+  if (statusEl) {
+    if (res.ok) {
+      statusEl.style.color = '#34d399';
+      statusEl.textContent = `✓ Chartered "${res.dungeon.name}" (${res.dungeon.config.width}x${res.dungeon.config.height}, Max Fl ${res.dungeon.config.maxDepth})!`;
+      if (nameEl && !randomize) nameEl.value = '';
+    } else {
+      statusEl.style.color = '#f87171';
+      statusEl.textContent = res.reason === 'charter_cap_reached'
+        ? `✕ Charter cap reached (${res.cap}). Abandon an existing charter first.`
+        : '✕ Return to Guild Bastion before charting.';
+    }
+  }
+  renderExpeditionAtlasContents();
+}
+
 export function openNewDungeonModal() {
-  showOutcomeModal(
-    'Chart New Subterranean Dungeon?',
-    'Guild Cartographers will seal the current dungeon shaft and chart a fresh procedural layout across all floors. Your character level, Vault Gold, Astral Gems, and minerals are preserved.',
-    [`Current Chart: ${gameState.dungeon.seedCode}`, `Explored Floors to Reset: ${Object.keys(gameState.dungeon.floors).length}`],
-    true
-  );
+  openExpeditionAtlasModal();
 }
 
 export function closeNewDungeonModal() {
+  closeExpeditionAtlasModal();
   closeOutcomeModal();
 }
 
 export function confirmChartNewDungeon() {
-  gameState.dungeon.seedCode = 'STAR-' + (1000 + Math.floor(Math.random() * 8999));
-  gameState.dungeon.currentFloor = 1;
-  gameState.dungeon.floors = { 1: generateFloor(1) };
+  resetOrAbandonDungeon(gameState.activeDungeonId, gameState);
+  gameState.dungeon.floors = {
+    1: generateFloor(1, gameState.dungeon.config, gameState.dungeon.numericSeed)
+  };
   closeOutcomeModal();
-  playSound('lvl');
-  logChronicle(`Charted new dungeon seed ${gameState.dungeon.seedCode}!`, 'gold');
   saveGame();
   updateAllUI();
 }
+
+// ============================================================================
+// FULL-FLOOR CARTOGRAPHER'S SURVEY MAP MODAL ([M])
+// ============================================================================
+
+export function openFullMapModal() {
+  if (typeof document === 'undefined') return;
+  if (gameState.inGuild) {
+    openExpeditionAtlasModal();
+    return;
+  }
+  const modal = document.getElementById('fullMapModal');
+  if (!modal) return;
+
+  const dng = gameState.dungeon;
+  const floor = ensureDungeonFloorHydrated(dng, dng.currentFloor);
+  const fw = floor ? floor.width : (dng.config.width || 80);
+  const fh = floor ? floor.height : (dng.config.height || 60);
+
+  const titleEl = document.getElementById('fullMapModalTitle');
+  if (titleEl) {
+    titleEl.textContent = `${dng.name} — Floor ${dng.currentFloor} (${fw}x${fh})`;
+  }
+  const subEl = document.getElementById('fullMapModalSubtitle');
+  if (subEl) {
+    subEl.textContent = `Seed ${dng.seedCode} • Position (${gameState.hero.x}, ${gameState.hero.y}) • Click any explored chamber or corridor to Auto-Walk`;
+  }
+
+  modal.classList.remove('hidden');
+  renderMinimapCanvas('fullMapCanvas');
+}
+
+export function closeFullMapModal() {
+  if (typeof document === 'undefined') return;
+  const modal = document.getElementById('fullMapModal');
+  if (modal) modal.classList.add('hidden');
+}
+
+export function toggleFullMapModal() {
+  if (typeof document === 'undefined') return;
+  const modal = document.getElementById('fullMapModal');
+  if (!modal) return;
+  if (modal.classList.contains('hidden')) {
+    openFullMapModal();
+  } else {
+    closeFullMapModal();
+  }
+}
+
+// ============================================================================
+// GUILD SERVICES, STATS, TALENTS, ITEM INSPECT, CLASS SELECT & SAVE SYNC
+// ============================================================================
 
 export function restAtGuild() {
   recomputeHeroDerivedStats(true, gameState);
@@ -380,6 +697,7 @@ export function closeClassSelectModal() {
 }
 
 export function selectAdventurerClass(classId, targetState = gameState) {
+  syncActiveDungeonAlias(targetState);
   const cls = CLASSES[classId] || CLASSES.fighter;
   const eqCopy = JSON.parse(JSON.stringify(cls.starterGear));
   Object.keys(eqCopy).forEach(k => {
@@ -415,7 +733,10 @@ export function selectAdventurerClass(classId, targetState = gameState) {
   };
   targetState.inGuild = true;
   targetState.dungeon.currentFloor = 1;
-  targetState.dungeon.floors = { 1: generateFloor(1) };
+  const f1 = generateFloor(1, targetState.dungeon.config, targetState.dungeon.numericSeed);
+  targetState.dungeon.floors = { 1: f1 };
+  targetState.hero.x = f1.upPos.x;
+  targetState.hero.y = f1.upPos.y;
   ensureGuildBounties(false, targetState);
 
   recomputeHeroDerivedStats(true, targetState);
@@ -430,7 +751,7 @@ export function selectAdventurerClass(classId, targetState = gameState) {
 
 export function openSaveSyncModal() {
   if (typeof document === 'undefined') return;
-  document.getElementById('saveJsonTextarea').value = JSON.stringify(gameState, null, 2);
+  document.getElementById('saveJsonTextarea').value = JSON.stringify(serializeStateForStorage(gameState), null, 2);
   document.getElementById('saveSyncStatusMsg').textContent = '';
   document.getElementById('saveSyncModal').classList.remove('hidden');
 }
@@ -451,7 +772,7 @@ export function copySaveJson() {
   } else {
     document.execCommand('copy');
   }
-  document.getElementById('saveSyncStatusMsg').textContent = '✓ Copied save JSON to clipboard!';
+  document.getElementById('saveSyncStatusMsg').textContent = '✓ Copied compact RLE save JSON to clipboard!';
 }
 
 export function downloadSaveJson() {
@@ -473,7 +794,7 @@ export function importSaveJson() {
     saveGame();
     updateAllUI();
     closeSaveSyncModal();
-    logChronicle('Imported & migrated save state to Schema v4!', 'good');
+    logChronicle('Imported & migrated save state to Multi-Dungeon Atlas Schema v5!', 'good');
   } catch (e) {
     document.getElementById('saveSyncStatusMsg').textContent = '✕ Invalid JSON format.';
   }

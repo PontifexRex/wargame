@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Aethelgard: The Starfall Vaults — v0.4.0 (Inc-4 Verified)</title>
+  <title>Aethelgard: The Starfall Vaults — v0.4.5 (Multi-Dungeon Atlas)</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -24,7 +24,7 @@
         <div class="flex items-center gap-2">
           <h1 class="font-display text-base md:text-lg font-bold tracking-wider text-[#e6edf3]">AETHELGARD</h1>
           <span class="text-[11px] font-mono-num uppercase px-2 py-0.5 rounded bg-[#fbbf24]/15 text-[#fbbf24] border border-[#fbbf24]/40 font-semibold">
-            v0.4.0 • Inc-4
+            v0.4.5 • Atlas
           </span>
         </div>
         <p class="text-[11px] text-[#8b949e] hidden sm:block">The Starfall Vaults • Procedural Tactical Roguelike</p>
@@ -57,7 +57,7 @@
       </button>
       <button id="btnVerifySuite" onclick="window.Aethelgard.openDiagnosticsModal()" class="px-3 py-1.5 rounded-md bg-[#34d399]/15 hover:bg-[#34d399]/25 border border-[#34d399]/50 text-xs font-mono-num font-bold text-[#34d399] flex items-center gap-1.5 btn-tactical">
         <span class="w-2 h-2 rounded-full bg-[#34d399]"></span>
-        <span id="verifyBtnText">Verify Inc-4 (13/13 PASS)</span>
+        <span id="verifyBtnText">Verify Atlas (17/17 PASS)</span>
       </button>
     </div>
   </header>
@@ -218,26 +218,30 @@
             <button onclick="window.Aethelgard.descendIntoDungeon()" class="px-4 py-2 rounded-lg bg-[#fbbf24] hover:bg-[#f59e0b] text-[#080b11] font-bold text-xs uppercase tracking-wider shadow-lg btn-tactical">
               ⚔️ Descend (Fl 1)
             </button>
-            <button onclick="window.Aethelgard.openNewDungeonModal()" class="px-3 py-2 rounded-lg bg-[#1a2232] hover:bg-[#283347] text-[#e6edf3] border border-[#f87171]/40 text-xs font-medium btn-tactical">
-              🎲 New Dungeon
+            <button onclick="window.Aethelgard.openExpeditionAtlasModal()" class="px-3 py-2 rounded-lg bg-[#1a2232] hover:bg-[#283347] text-[#60a5fa] border border-[#60a5fa]/50 text-xs font-bold btn-tactical">
+              🗺️ Expedition Atlas
             </button>
           </div>
         </div>
 
-        <!-- PERSISTENT DUNGEON SUMMARY BAR -->
+        <!-- PERSISTENT ACTIVE DUNGEON SUMMARY BAR -->
         <div class="p-2.5 rounded-lg bg-[#080b11] border border-[#283347] flex flex-wrap items-center justify-between gap-2 text-xs font-mono-num">
-          <div class="flex items-center gap-2">
+          <div class="flex flex-wrap items-center gap-2">
+            <span class="text-[#8b949e]">Destination:</span>
+            <span id="uiActiveDungeonName" class="text-[#fbbf24] font-bold">The Starfall Vaults</span>
+            <span class="text-[#283347]">|</span>
+            <span id="uiGuildMapSize" class="text-[#34d399] font-bold">80x60</span>
+            <span class="text-[#283347]">|</span>
             <span class="text-[#8b949e]">Seed:</span>
             <span id="uiGuildSeed" class="text-[#60a5fa] font-bold">STAR-0000</span>
             <span class="text-[#283347]">|</span>
-            <span class="text-[#8b949e]">Charted Floors:</span>
+            <span class="text-[#8b949e]">Charted:</span>
             <span id="uiChartedFloors" class="text-[#e6edf3] font-bold">1</span>
             <span class="text-[#283347]">|</span>
-            <span class="text-[#8b949e]">Depth Permit:</span>
-            <span id="uiDepthPermit" class="text-[#fbbf24] font-bold">Floor 5</span>
+            <span id="uiDepthPermit" class="text-[#fbbf24] font-bold">Permit Fl 5</span>
           </div>
           <div class="text-[11px] text-[#8b949e]">
-            Extract via <span class="text-[#34d399] font-semibold">Floor 1 Stairs (&lt;)</span> or <span class="text-[#fbbf24] font-semibold">Recall Scroll [R]</span>
+            Extract via <span class="text-[#34d399] font-semibold">Floor 1 (&lt;)</span> or <span class="text-[#fbbf24] font-semibold">Recall [R]</span>
           </div>
         </div>
 
@@ -441,16 +445,20 @@
       <div id="dungeonViewPanel" class="hidden card-surface p-3 flex flex-col gap-3">
         <!-- TOP FLOOR HUD -->
         <div class="flex flex-wrap items-center justify-between gap-2 px-3 py-1.5 rounded bg-[#080b11] border border-[#283347]">
-          <div class="flex items-center gap-2.5">
+          <div class="flex flex-wrap items-center gap-2">
             <span id="uiFloorBadge" class="px-2.5 py-0.5 rounded bg-[#f87171]/15 text-[#f87171] border border-[#f87171]/40 font-mono-num font-bold text-xs">
               FLOOR 1 / 5
             </span>
-            <span id="uiZoneDangerLabel" class="text-xs text-[#8b949e]">Upper Catacombs</span>
+            <span id="uiZoneDangerLabel" class="text-xs font-semibold text-[#e6edf3]">The Starfall Vaults • 80x60</span>
+            <span id="uiCoordBadge" class="text-[11px] font-mono-num text-[#60a5fa]">(1, 1)</span>
           </div>
-          <div class="flex items-center gap-3 text-xs font-mono-num">
+          <div class="flex items-center gap-2.5 text-xs font-mono-num">
             <span class="text-[#8b949e]">Hostiles: <strong id="uiHostilesCount" class="text-[#e6edf3]">0</strong></span>
             <span class="text-[#283347]">|</span>
-            <span class="text-[#8b949e]">Vision: <strong id="uiVisionRadiusText" class="text-[#34d399]">5</strong> tiles</span>
+            <span class="text-[#8b949e]">Vision: <strong id="uiVisionRadiusText" class="text-[#34d399]">5</strong></span>
+            <button onclick="window.Aethelgard.openFullMapModal()" class="px-2 py-0.5 rounded bg-[#1a2232] hover:bg-[#283347] text-[#60a5fa] border border-[#60a5fa]/40 text-[11px] font-bold btn-tactical">
+              🗺️ Map [M]
+            </button>
           </div>
         </div>
 
@@ -471,10 +479,11 @@
         <!-- 2D CANVAS VIEWPORT -->
         <div class="relative w-full flex justify-center items-center bg-[#04060a] rounded-lg border border-[#283347] overflow-hidden shadow-inner">
           <canvas id="dungeonCanvas" width="672" height="480" class="max-w-full h-auto cursor-crosshair"></canvas>
-          <div class="absolute bottom-2 left-2 pointer-events-none bg-[#080b11]/85 backdrop-blur px-2.5 py-1 rounded border border-[#283347] text-[10px] font-mono-num text-[#8b949e] hidden sm:flex items-center gap-3">
-            <span><strong class="text-[#e6edf3]">WASD / Arrows / Click:</strong> Move / Attack / Mine</span>
+          <div class="absolute bottom-2 left-2 pointer-events-none bg-[#080b11]/85 backdrop-blur px-2.5 py-1 rounded border border-[#283347] text-[10px] font-mono-num text-[#8b949e] hidden sm:flex items-center gap-2.5">
+            <span><strong class="text-[#e6edf3]">WASD / Click:</strong> Act • <strong class="text-[#60a5fa]">Distant Click:</strong> Auto-Walk</span>
+            <span><strong class="text-[#60a5fa]">M:</strong> Map</span>
             <span><strong class="text-[#60a5fa]">Q:</strong> Skill</span>
-            <span><strong class="text-[#34d399]">H:</strong> Heal Tonic</span>
+            <span><strong class="text-[#34d399]">H:</strong> Tonic</span>
             <span><strong class="text-[#fbbf24]">R:</strong> Recall</span>
             <span><strong class="text-[#e6edf3]">E:</strong> Stairs</span>
           </div>
@@ -585,6 +594,20 @@
         </div>
       </div>
 
+      <!-- CARTOGRAPHER'S LIVE MINIMAP -->
+      <div id="sidebarMinimapCard" class="card-surface p-3.5">
+        <div class="flex items-center justify-between border-b border-[#283347] pb-1.5 mb-2">
+          <div>
+            <h3 class="text-xs font-bold uppercase tracking-wider text-[#60a5fa]">Cartographer's Map</h3>
+            <div id="uiMinimapScaleLabel" class="text-[10px] font-mono-num text-[#8b949e]">80x60 Chart</div>
+          </div>
+          <button onclick="window.Aethelgard.openFullMapModal()" class="px-2 py-0.5 rounded bg-[#1a2232] hover:bg-[#283347] text-[#fbbf24] border border-[#283347] text-[10px] font-mono-num font-bold btn-tactical">
+            Expand [M]
+          </button>
+        </div>
+        <canvas id="minimapCanvas" width="232" height="164" class="w-full h-auto rounded bg-[#04060a] border border-[#283347] cursor-pointer" title="Click any explored tile to safely Auto-Walk"></canvas>
+      </div>
+
       <!-- TACTICAL TILE SCANNER -->
       <div class="card-surface p-3.5">
         <div class="flex items-center justify-between border-b border-[#283347] pb-1.5 mb-2">
@@ -658,21 +681,21 @@
   </div>
 
   <!-- ===================================================================== -->
-  <!-- MODAL 3: 13/13 AUTOMATED VERIFICATION SUITE                           -->
+  <!-- MODAL 3: 17/17 AUTOMATED VERIFICATION SUITE                           -->
   <!-- ===================================================================== -->
   <div id="diagnosticsModal" class="hidden fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
     <div class="card-surface max-w-2xl w-full p-5 border border-[#34d399]/50 shadow-2xl max-h-[90vh] flex flex-col">
       <div class="flex items-center justify-between border-b border-[#283347] pb-3 mb-3">
         <div>
           <span class="text-[10px] font-mono-num uppercase px-2 py-0.5 rounded bg-[#34d399]/15 text-[#34d399] font-bold">Automated Self-Test Engine</span>
-          <h3 class="font-display text-lg font-bold text-[#e6edf3] mt-1">Increment 4 Verification Suite (13/13 Checks)</h3>
+          <h3 class="font-display text-lg font-bold text-[#e6edf3] mt-1">Multi-Dungeon Atlas Verification Suite (17/17 Checks)</h3>
         </div>
         <button onclick="window.Aethelgard.closeDiagnosticsModal()" class="text-[#8b949e] hover:text-[#e6edf3]">✕</button>
       </div>
       <div id="diagnosticsList" class="space-y-2 overflow-y-auto pr-1 text-xs font-mono-num flex-1 mb-4"></div>
       <div class="flex items-center justify-between pt-3 border-t border-[#283347]">
         <button onclick="window.Aethelgard.runSelfTests(true)" class="px-3.5 py-1.5 rounded bg-[#1a2232] hover:bg-[#283347] border border-[#283347] text-xs font-mono-num text-[#60a5fa]">
-          ↻ Re-Run All 13 Tests
+          ↻ Re-Run All 17 Tests
         </button>
         <button onclick="window.Aethelgard.closeDiagnosticsModal()" class="px-4 py-1.5 rounded bg-[#34d399] text-[#080b11] font-bold text-xs">
           Done
@@ -687,10 +710,10 @@
   <div id="saveSyncModal" class="hidden fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
     <div class="card-surface max-w-lg w-full p-5 border border-[#60a5fa]/50 shadow-2xl">
       <div class="flex items-center justify-between border-b border-[#283347] pb-2.5 mb-3">
-        <h3 class="font-display text-base font-bold text-[#e6edf3]">Save Sync & Schema v4 Migration</h3>
+        <h3 class="font-display text-base font-bold text-[#e6edf3]">Save Sync &amp; Schema v5 RLE Migration</h3>
         <button onclick="window.Aethelgard.closeSaveSyncModal()" class="text-[#8b949e] hover:text-[#e6edf3]">✕</button>
       </div>
-      <p class="text-xs text-[#8b949e] mb-2">Copy or download your JSON save state, or paste a v1/v2/v3/v4 save below to restore.</p>
+      <p class="text-xs text-[#8b949e] mb-2">Copy or download your compact RLE JSON save state, or paste any v1–v5 save below to restore.</p>
       <textarea id="saveJsonTextarea" class="w-full h-40 bg-[#080b11] text-[#34d399] border border-[#283347] rounded p-2.5 font-mono-num text-[11px] mb-3 focus:outline-none focus:border-[#60a5fa]"></textarea>
       <div id="saveSyncStatusMsg" class="text-xs font-mono-num text-[#fbbf24] min-h-[18px] mb-2"></div>
       <div class="flex flex-wrap items-center justify-end gap-2">
@@ -712,6 +735,161 @@
       <div id="outcomeModalDetails" class="bg-[#080b11] p-3 rounded border border-[#283347] text-xs font-mono-num space-y-1 mb-4"></div>
       <div id="outcomeModalButtons" class="flex justify-end gap-2">
         <button onclick="window.Aethelgard.closeOutcomeModal()" class="px-4 py-1.5 rounded bg-[#fbbf24] text-[#080b11] font-bold text-xs">Continue</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================================================================== -->
+  <!-- MODAL 6: MULTI-DUNGEON EXPEDITION ATLAS & CUSTOM CHARTER BUILDER      -->
+  <!-- ===================================================================== -->
+  <div id="expeditionAtlasModal" class="hidden fixed inset-0 z-50 bg-black/85 backdrop-blur-sm flex items-center justify-center p-3 md:p-5">
+    <div class="card-surface max-w-5xl w-full p-4 md:p-5 border border-[#60a5fa]/50 shadow-2xl max-h-[94vh] flex flex-col">
+      <div class="flex items-center justify-between border-b border-[#283347] pb-3 mb-3">
+        <div>
+          <div class="flex items-center gap-2">
+            <span class="text-[10px] font-mono-num uppercase px-2 py-0.5 rounded bg-[#60a5fa]/15 text-[#60a5fa] font-bold">Subterranean Registry</span>
+            <span id="uiAtlasCharterCountBadge" class="text-[10px] font-mono-num px-2 py-0.5 rounded bg-[#1a2232] text-[#fbbf24] border border-[#283347]">0 / 12 Chartered</span>
+          </div>
+          <h3 class="font-display text-lg md:text-xl font-bold text-[#e6edf3] mt-1">Guild Cartographer's Expedition Atlas</h3>
+        </div>
+        <button onclick="window.Aethelgard.closeExpeditionAtlasModal()" class="text-[#8b949e] hover:text-[#e6edf3] text-base px-2">✕</button>
+      </div>
+
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-4 overflow-y-auto pr-1 flex-1">
+        <!-- LEFT 7 COLS: ACTIVE REGIONAL & CHARTERED DUNGEONS -->
+        <div class="lg:col-span-7 space-y-2.5">
+          <div class="text-xs text-[#8b949e]">
+            Every dungeon below persists its explored layouts, mined walls, and opened vaults independently across expeditions.
+          </div>
+          <div id="atlasDungeonsList" class="space-y-2.5 max-h-[58vh] overflow-y-auto pr-1">
+            <!-- Populated dynamically -->
+          </div>
+        </div>
+
+        <!-- RIGHT 5 COLS: CHART NEW CUSTOM EXPEDITION -->
+        <div class="lg:col-span-5 p-3.5 rounded-lg bg-[#080b11] border border-[#283347] flex flex-col justify-between gap-3">
+          <div class="space-y-2.5">
+            <div class="border-b border-[#283347] pb-2">
+              <h4 class="font-display text-sm font-bold text-[#fbbf24]">Chart New Subterranean Expedition</h4>
+              <p class="text-[11px] text-[#8b949e] mt-0.5">Configure floor dimensions (decoupled from depth!), architecture, monster rosters, and mineral tables.</p>
+            </div>
+
+            <div>
+              <label class="block text-[10px] font-mono-num uppercase text-[#8b949e] mb-1">Expedition Name (Optional)</label>
+              <input id="charterNameInput" type="text" maxlength="40" placeholder="e.g. Obsidian Rift of Vespera" class="w-full bg-[#111722] border border-[#283347] rounded px-2.5 py-1.5 text-xs text-[#e6edf3] focus:outline-none focus:border-[#60a5fa]" />
+            </div>
+
+            <div>
+              <label class="block text-[10px] font-mono-num uppercase text-[#8b949e] mb-1">Floor Size Preset</label>
+              <select id="charterSizeSelect" onchange="window.Aethelgard.onCharterSizePresetChange()" class="w-full bg-[#111722] border border-[#283347] rounded px-2.5 py-1.5 text-xs font-mono-num text-[#e6edf3]">
+                <option value="small">Small Outpost — 48x36 (~5.5x classic)</option>
+                <option value="standard" selected>Standard Delve — 80x60 (~15x classic)</option>
+                <option value="sprawling">Sprawling Labyrinth — 128x96 (~39x classic)</option>
+                <option value="colossal">Colossal Megadungeon — 192x144 (~88x classic)</option>
+                <option value="custom">Custom Width × Height (36..400 × 28..300)</option>
+              </select>
+            </div>
+
+            <div class="grid grid-cols-3 gap-2">
+              <div>
+                <label class="block text-[10px] font-mono-num uppercase text-[#8b949e] mb-1">Width</label>
+                <input id="charterWidthInput" type="number" min="36" max="400" value="80" class="w-full bg-[#111722] border border-[#283347] rounded px-2 py-1.5 text-xs font-mono-num text-[#fbbf24]" />
+              </div>
+              <div>
+                <label class="block text-[10px] font-mono-num uppercase text-[#8b949e] mb-1">Height</label>
+                <input id="charterHeightInput" type="number" min="28" max="300" value="60" class="w-full bg-[#111722] border border-[#283347] rounded px-2 py-1.5 text-xs font-mono-num text-[#fbbf24]" />
+              </div>
+              <div>
+                <label class="block text-[10px] font-mono-num uppercase text-[#8b949e] mb-1">Max Floors</label>
+                <input id="charterDepthInput" type="number" min="1" max="999" value="5" class="w-full bg-[#111722] border border-[#283347] rounded px-2 py-1.5 text-xs font-mono-num text-[#60a5fa]" />
+              </div>
+            </div>
+
+            <div>
+              <label class="block text-[10px] font-mono-num uppercase text-[#8b949e] mb-1">Architectural Layout Style</label>
+              <select id="charterStyleSelect" class="w-full bg-[#111722] border border-[#283347] rounded px-2.5 py-1.5 text-xs text-[#e6edf3]">
+                <option value="masonry_vaults">Masonry Vaults &amp; Avenues</option>
+                <option value="excavation_quarry">Dwarven Mining Quarry (High Veins)</option>
+                <option value="crystalline_caverns">Crystalline &amp; Mycelium Caverns</option>
+                <option value="grand_ruins">Grand Colonnade Ruins (Pillared Courts)</option>
+              </select>
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <div>
+                <label class="block text-[10px] font-mono-num uppercase text-[#8b949e] mb-1">Monster Roster</label>
+                <select id="charterMonsterSelect" class="w-full bg-[#111722] border border-[#283347] rounded px-2 py-1.5 text-xs text-[#e6edf3]">
+                  <option value="balanced">Balanced Vault Host</option>
+                  <option value="beasts">Subterranean Beasts</option>
+                  <option value="dwarven_forge">Dwarven Forge Constructs</option>
+                  <option value="astral_cult">Astral Void Cult</option>
+                  <option value="ancient_crypt">Ancient Undead Crypt</option>
+                </select>
+              </div>
+              <div>
+                <label class="block text-[10px] font-mono-num uppercase text-[#8b949e] mb-1">Mineral Seam Table</label>
+                <select id="charterOreSelect" class="w-full bg-[#111722] border border-[#283347] rounded px-2 py-1.5 text-xs text-[#e6edf3]">
+                  <option value="balanced">Balanced Seams</option>
+                  <option value="copper_iron">Copper &amp; Iron Heavy</option>
+                  <option value="mithril_geode">Mithril &amp; Relic Geodes</option>
+                  <option value="astral_crystal">Star-Crystal &amp; Astralite</option>
+                </select>
+              </div>
+            </div>
+
+            <div>
+              <label class="block text-[10px] font-mono-num uppercase text-[#8b949e] mb-1">Treasure &amp; Hazard Density</label>
+              <select id="charterRichnessSelect" class="w-full bg-[#111722] border border-[#283347] rounded px-2.5 py-1.5 text-xs text-[#e6edf3]">
+                <option value="standard">Standard Expedition Balance</option>
+                <option value="rich">Rich Seams &amp; Guarded Vaults (+Danger)</option>
+                <option value="jackpot">High-Stakes Jackpot Reliquary (++Danger)</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="space-y-2 pt-2 border-t border-[#283347]">
+            <div id="charterStatusMsg" class="text-[11px] font-mono-num min-h-[16px]"></div>
+            <div class="grid grid-cols-2 gap-2">
+              <button onclick="window.Aethelgard.submitCharterForm(false)" class="py-2 rounded-lg bg-[#2563eb] hover:bg-[#3b82f6] text-white font-bold text-xs font-mono-num btn-tactical">
+                🧭 Chart Expedition
+              </button>
+              <button onclick="window.Aethelgard.submitCharterForm(true)" class="py-2 rounded-lg bg-[#fbbf24]/20 hover:bg-[#fbbf24]/30 text-[#fbbf24] border border-[#fbbf24]/50 font-bold text-xs font-mono-num btn-tactical">
+                🎲 Random Charter
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================================================================== -->
+  <!-- MODAL 7: [M] FULL-FLOOR CARTOGRAPHER'S SURVEY MAP OVERLAY             -->
+  <!-- ===================================================================== -->
+  <div id="fullMapModal" class="hidden fixed inset-0 z-50 bg-black/85 backdrop-blur-sm flex items-center justify-center p-3 md:p-5">
+    <div class="card-surface max-w-4xl w-full p-4 border border-[#fbbf24]/50 shadow-2xl flex flex-col gap-3 max-h-[94vh]">
+      <div class="flex items-center justify-between border-b border-[#283347] pb-2.5">
+        <div>
+          <h3 id="fullMapModalTitle" class="font-display text-base md:text-lg font-bold text-[#fbbf24]">The Starfall Vaults — Floor 1</h3>
+          <p id="fullMapModalSubtitle" class="text-[11px] font-mono-num text-[#8b949e]">Click any explored tile to safely Auto-Walk (halts immediately on hostile sight).</p>
+        </div>
+        <button onclick="window.Aethelgard.closeFullMapModal()" class="px-2.5 py-1 rounded bg-[#1a2232] hover:bg-[#283347] text-xs font-mono-num text-[#e6edf3]">Close [M / Esc]</button>
+      </div>
+
+      <div class="flex justify-center items-center bg-[#04060a] rounded-lg border border-[#283347] p-2 overflow-hidden">
+        <canvas id="fullMapCanvas" width="720" height="520" class="max-w-full max-h-[65vh] h-auto cursor-crosshair"></canvas>
+      </div>
+
+      <div class="flex flex-wrap items-center justify-between gap-2 text-[11px] font-mono-num pt-1 border-t border-[#283347]">
+        <div id="fullMapHoverLabel" class="text-[#60a5fa]">Hover or click an explored chamber to navigate</div>
+        <div class="flex flex-wrap items-center gap-3 text-[10px] text-[#8b949e]">
+          <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 inline-block bg-white"></span> Hero</span>
+          <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 inline-block bg-[#10b981]"></span> Stairs Up (&lt;)</span>
+          <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 inline-block bg-[#60a5fa]"></span> Stairs Down (&gt;)</span>
+          <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 inline-block bg-[#fbbf24]"></span> Chest / Boss</span>
+          <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 inline-block bg-[#34d399]"></span> Shrine</span>
+          <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 inline-block bg-[#f87171]"></span> Hostile</span>
+        </div>
       </div>
     </div>
   </div>

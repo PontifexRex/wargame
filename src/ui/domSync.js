@@ -10,11 +10,12 @@ import { SHOP_ITEMS } from '../data/items.js';
 import {
   gameState,
   normalizeEquipmentSockets,
+  ensureDungeonFloorHydrated,
   recomputeHeroDerivedStats,
   getPickaxeMaxDurability
 } from '../engine/state.js';
 import { ensureGuildBounties } from '../engine/actions.js';
-import { drawHeroSprite } from './renderer.js';
+import { drawHeroSprite, renderMinimapCanvas } from './renderer.js';
 
 function formatSocketPipsHtml(item) {
   if (!item || !item.maxSockets || item.maxSockets <= 0) return '';
@@ -40,10 +41,22 @@ export function renderGuildHub() {
   const totalBankedGems = GEM_IDS.reduce((sum, gId) => sum + (vaultGems[gId] || 0), 0);
   const readyBounties = (gameState.guildBounties || []).filter(b => b && b.completed).length;
 
+  const dng = gameState.dungeon;
+  const cfg = dng.config || {};
   const permit = RESEARCH_PROJECTS.cartography.levels[gameState.guildResearch.cartography || 0].depthPermit;
-  document.getElementById('uiGuildSeed').textContent = gameState.dungeon.seedCode;
-  document.getElementById('uiChartedFloors').textContent = Object.keys(gameState.dungeon.floors).length;
-  document.getElementById('uiDepthPermit').textContent = `Floor ${permit}`;
+
+  const activeNameEl = document.getElementById('uiActiveDungeonName');
+  if (activeNameEl) activeNameEl.textContent = dng.name;
+  const mapSizeEl = document.getElementById('uiGuildMapSize');
+  if (mapSizeEl) mapSizeEl.textContent = `${cfg.width || 80}x${cfg.height || 60}`;
+
+  document.getElementById('uiGuildSeed').textContent = dng.seedCode;
+  document.getElementById('uiChartedFloors').textContent = cfg.maxDepth >= 999
+    ? `${Object.keys(dng.floors || {}).length}`
+    : `${Object.keys(dng.floors || {}).length} / ${cfg.maxDepth}`;
+  document.getElementById('uiDepthPermit').textContent = cfg.respectsCartographyPermit !== false
+    ? `Permit Fl ${permit}`
+    : `Max Fl ${cfg.maxDepth}`;
   document.getElementById('uiForgeMaxDur').textContent = getPickaxeMaxDurability();
   document.getElementById('uiTavernGold').textContent = gameState.guildVault.gold;
   document.getElementById('uiArmoryCountBadge').textContent = gameState.guildVault.armory.length;
@@ -361,11 +374,24 @@ export function renderDungeonHud() {
   if (typeof document === 'undefined') return;
   const h = gameState.hero;
   const cls = CLASSES[h.classId];
-  const depth = gameState.dungeon.currentFloor;
+  const dng = gameState.dungeon;
+  const cfg = dng.config || {};
+  const depth = dng.currentFloor;
   const permit = RESEARCH_PROJECTS.cartography.levels[gameState.guildResearch.cartography || 0].depthPermit;
-  const floor = gameState.dungeon.floors[depth];
+  const capLabel = cfg.respectsCartographyPermit !== false ? permit : cfg.maxDepth;
+  const floor = ensureDungeonFloorHydrated(dng, depth);
+  const fw = floor ? floor.width : (cfg.width || 80);
+  const fh = floor ? floor.height : (cfg.height || 60);
 
-  document.getElementById('uiFloorBadge').textContent = `FLOOR ${depth} / ${permit}`;
+  document.getElementById('uiFloorBadge').textContent = `FLOOR ${depth} / ${capLabel >= 999 ? '∞' : capLabel}`;
+  const zoneLabelEl = document.getElementById('uiZoneDangerLabel');
+  if (zoneLabelEl) {
+    zoneLabelEl.textContent = `${dng.name} • ${fw}x${fh}`;
+  }
+  const coordEl = document.getElementById('uiCoordBadge');
+  if (coordEl) {
+    coordEl.textContent = `(${h.x}, ${h.y})`;
+  }
   document.getElementById('uiHostilesCount').textContent = floor ? floor.monsters.length : 0;
   document.getElementById('uiVisionRadiusText').textContent = h.visionRadius || 5;
 
@@ -400,10 +426,18 @@ export function updateAllUI() {
   document.getElementById('headerTurnText').textContent = gameState.turn;
   document.getElementById('headerLocationText').textContent = gameState.inGuild
     ? 'Oakhaven Guild Bastion'
-    : `Starfall Vaults • Floor ${gameState.dungeon.currentFloor}`;
+    : `${gameState.dungeon.name} • Floor ${gameState.dungeon.currentFloor}`;
   document.getElementById('headerLocationDot').className = gameState.inGuild
     ? 'w-2.5 h-2.5 rounded-full bg-[#34d399]'
     : 'w-2.5 h-2.5 rounded-full bg-[#f87171] animate-pulse';
+
+  const mmScaleEl = document.getElementById('uiMinimapScaleLabel');
+  if (mmScaleEl) {
+    const dCfg = gameState.dungeon && gameState.dungeon.config ? gameState.dungeon.config : { width: 80, height: 60 };
+    mmScaleEl.textContent = gameState.inGuild
+      ? `${dCfg.width}x${dCfg.height} Chart`
+      : `Fl ${gameState.dungeon.currentFloor} • ${dCfg.width}x${dCfg.height}`;
+  }
 
   // Portrait
   const pCanvas = document.getElementById('heroPortraitCanvas');
@@ -554,6 +588,7 @@ export function updateAllUI() {
     document.getElementById('dungeonViewPanel').classList.remove('hidden');
     renderDungeonHud();
   }
+  renderMinimapCanvas('minimapCanvas');
 }
 
 export function switchGuildTab(tabId) {

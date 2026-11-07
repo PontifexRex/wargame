@@ -16,16 +16,26 @@ import {
   socketGemIntoItem,
   unsocketGemFromItem,
   rerollGuildBounties,
-  claimBountyAtGuild
+  claimBountyAtGuild,
+  selectActiveDungeon,
+  chartCustomExpedition,
+  resetOrAbandonDungeon
 } from './engine/actions.js';
 import {
   registerCombatFOVCallback,
   handlePlayerAction,
   executeClassSkill,
   useStairsAtPlayer,
-  waitTurn
+  waitTurn,
+  startAutoWalkTo,
+  cancelAutoWalk
 } from './engine/combat.js';
-import { renderDungeonCanvas, updateFOV, spawnFloatingText } from './ui/renderer.js';
+import {
+  renderDungeonCanvas,
+  renderMinimapCanvas,
+  updateFOV,
+  spawnFloatingText
+} from './ui/renderer.js';
 import { updateAllUI, switchGuildTab, logChronicle, clearChronicle } from './ui/domSync.js';
 import {
   openClassSelectModal,
@@ -42,6 +52,17 @@ import {
   copySaveJson,
   downloadSaveJson,
   importSaveJson,
+  openExpeditionAtlasModal,
+  closeExpeditionAtlasModal,
+  handleSelectDungeonFromAtlas,
+  promptResetDungeonFromAtlas,
+  cancelResetDungeonFromAtlas,
+  handleResetDungeonFromAtlas,
+  onCharterSizePresetChange,
+  submitCharterForm,
+  openFullMapModal,
+  closeFullMapModal,
+  toggleFullMapModal,
   openNewDungeonModal,
   closeNewDungeonModal,
   confirmChartNewDungeon,
@@ -61,6 +82,7 @@ import {
 } from './test/selfTest.js';
 import { TALENT_TREES } from './data/talents.js';
 import { GEM_CATALOG } from './data/gems.js';
+import { CURATED_DUNGEON_PROFILES } from './data/dungeons.js';
 
 // Bind UI callbacks into engine actions & combat
 registerActionCallbacks({
@@ -96,10 +118,24 @@ export const AethelgardAPI = {
   unsocketFromInspect,
   showOutcomeModal,
   closeOutcomeModal,
+  openExpeditionAtlasModal,
+  closeExpeditionAtlasModal,
+  handleSelectDungeonFromAtlas,
+  promptResetDungeonFromAtlas,
+  cancelResetDungeonFromAtlas,
+  handleResetDungeonFromAtlas,
+  onCharterSizePresetChange,
+  submitCharterForm,
+  openFullMapModal,
+  closeFullMapModal,
+  toggleFullMapModal,
   openNewDungeonModal,
   closeNewDungeonModal,
   confirmChartNewDungeon,
   descendIntoDungeon,
+  selectActiveDungeon,
+  chartCustomExpedition,
+  resetOrAbandonDungeon,
   switchGuildTab,
   restAtGuild,
   repairPickaxeAtGuild,
@@ -122,10 +158,14 @@ export const AethelgardAPI = {
   useRecallScroll,
   useStairsAtPlayer,
   handlePlayerAction,
+  startAutoWalkTo,
+  cancelAutoWalk,
+  renderMinimapCanvas,
   waitTurn,
   clearChronicle,
   TALENT_TREES,
-  GEM_CATALOG
+  GEM_CATALOG,
+  CURATED_DUNGEON_PROFILES
 };
 
 function bootstrapApp() {
@@ -135,6 +175,7 @@ function bootstrapApp() {
     selectAdventurerClass('fighter');
     openClassSelectModal(false);
   } else {
+    updateFOV();
     updateAllUI();
   }
   runSelfTests(false);

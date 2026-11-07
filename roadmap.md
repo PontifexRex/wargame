@@ -54,21 +54,33 @@ Added interactive Subterranean Astral Shrines (Celestial Renewal, Starfire Bless
 
 Expanded automated verification suite to 13/13 PASS.
 
+v0.4.5-atlas - Multi-Dungeon Expedition Atlas & Exploration-Scale Maps
+
+Upgraded to Schema v5 (v0.4.5-atlas) with lossless RLE floor compression, lazy active-dungeon hydration, world-map coordinate readiness (worldCoords), and full v1–v4 migration compatibility.
+
+Implemented simultaneous persistent multi-dungeon registry (gameState.dungeons) featuring 4 curated Regional Dungeons (The Starfall Vaults 80x60, Sunken Copper Quarry 48x36, Whispering Mycelium Labyrinth 128x96, Citadel of the Fallen Star 192x144) plus an interactive Custom Expedition Charter Builder supporting custom Width x Height decoupled from maxDepth.
+
+Built O(Sectors) multi-wing procedural floor generator supporting 4 architectural layout styles (masonry_vaults, excavation_quarry, crystalline_caverns, grand_ruins), pillared courts, 2-tile avenues, loop corridors, Motherlode ore seams, Guarded Treasure Vaults, 12 monster archetypes, and 4 boss archetypes.
+
+Added O(21x15) frustum-culled scrolling camera, Bresenham raycast wall line-of-sight, live Sidebar Minimap (#minimapCanvas), [M] Full-Floor Cartographer's Survey Map Modal (#fullMapModal), and safe BFS Click-to-Travel Auto-Walk (interrupting immediately on hostile sight, spotted trap, or damage).
+
+Expanded automated verification suite to 17/17 PASS.
+
 2. Upcoming Increment Backlog
 
 Increment 5 (v0.5.0-inc5) - Deep Abyssal Biomes, Floor 15/20 Bosses & Bestiary Codex
 
 Scope & Deliverables:
 
-Distinct Visual Biomes by Depth:
+Distinct Visual Biomes by Depth & Profile:
 
-Floors 1-5: Dwarven Catacombs (slate masonry)
+Dwarven Catacombs (slate masonry)
 
-Floors 6-10: Crystalline Caverns (indigo & quartz walls)
+Crystalline Caverns (indigo & quartz walls)
 
-Floors 11-15: Molten Forgeworks (basalt & magma veins)
+Molten Forgeworks (basalt & magma veins)
 
-Floors 16+: The Vespera Crater (cosmic void masonry)
+The Vespera Crater (cosmic void masonry)
 
 Deeper Boss Encounters:
 
@@ -78,6 +90,6 @@ Floor 20 Boss: Vespera's Avatar, Heart of the Fallen Star
 
 Guild Bestiary & Hall of Records:
 
-Tracks total monsters slain, deepest floor reached, total ores mined, and unlocked Star-Forged Relics.
+Tracks total monsters slain, deepest floor reached per dungeon, total ores mined, and unlocked Star-Forged Relics.
 
-Verification Gate: Bump to 16/16 PASS in runSelfTests().
+Verification Gate: Bump to 20/20 PASS in runSelfTests().

@@ -1,10 +1,15 @@
-// 13/13 Comprehensive Automated Self-Test Suite (Sandboxed & Non-Destructive)
+// 17/17 Comprehensive Automated Self-Test Suite (Sandboxed & Non-Destructive)
 
 import {
   SCHEMA_VERSION,
+  TILE_WALL,
   TILE_FLOOR,
   TILE_ORE_COPPER,
+  TILE_ORE_IRON,
+  TILE_ORE_MITHRIL,
+  TILE_ORE_GEODE,
   TILE_ORE_STAR,
+  TILE_ORE_ASTRAL,
   TILE_SHRINE,
   TILE_SHRINE_USED,
   TILE_TRAP_HIDDEN,
@@ -12,8 +17,19 @@ import {
   TILE_TRAP_DISARMED
 } from '../constants.js';
 import { CLASSES } from '../data/classes.js';
-import { createDefaultGameState, migrateSaveData } from '../engine/state.js';
-import { generateFloor, verifyPureFloorBFS, generateProceduralEquipment } from '../engine/procedural.js';
+import { ORE_CATALOG } from '../data/ores.js';
+import { CURATED_DUNGEON_PROFILES } from '../data/dungeons.js';
+import { packFloorForStorage, hydrateFloorFromStorage } from '../engine/compression.js';
+import {
+  createDefaultGameState,
+  migrateSaveData,
+  ensureDungeonFloorHydrated
+} from '../engine/state.js';
+import {
+  generateFloor,
+  verifyPureFloorBFS,
+  generateProceduralEquipment
+} from '../engine/procedural.js';
 import { selectAdventurerClass } from '../ui/modals.js';
 import {
   mineTile,
@@ -27,14 +43,23 @@ import {
   unsocketGemFromItem,
   detectNearbyTraps,
   activateAstralShrine,
-  resolveTrapInteraction
+  resolveTrapInteraction,
+  selectActiveDungeon,
+  chartCustomExpedition
 } from '../engine/actions.js';
-import { executeClassSkill } from '../engine/combat.js';
+import {
+  executeClassSkill,
+  hasLineOfSight,
+  computeSafeExploredPath,
+  setAutoWalkPath,
+  stepAutoWalkOnce,
+  cancelAutoWalk
+} from '../engine/combat.js';
 
 export function evaluateSelfTests() {
   const results = [];
 
-  // 1. Schema v4 Migration preserves v1/v2/v3 saves & backfills gems + bounties
+  // 1. Schema v5 Migration preserves v1/v2/v3/v4 saves & backfills Multi-Dungeon Atlas + gems + bounties
   const legacySave = {
     version: 'v0.1.0-inc1',
     hero: { classId: 'ranger', level: 4, xp: 20 },
@@ -42,7 +67,7 @@ export function evaluateSelfTests() {
     research: { max_depth: 1, metallurgy_geology: 2 }
   };
   const mig = migrateSaveData(legacySave);
-  const t1Pass =
+  const t1Pass = !!(
     mig.version === SCHEMA_VERSION &&
     mig.hero.classId === 'ranger' &&
     mig.guildVault.gold === 120 &&
@@ -50,12 +75,16 @@ export function evaluateSelfTests() {
     mig.hero.consumables.potions === 4 &&
     mig.guildResearch.geology === 2 &&
     mig.guildVault.gems &&
+    mig.dungeons &&
+    mig.dungeons.dng_starfall &&
+    mig.dungeon === mig.dungeons[mig.activeDungeonId] &&
     Array.isArray(mig.guildBounties) &&
-    mig.guildBounties.length === 3;
+    mig.guildBounties.length === 3
+  );
   results.push({
-    name: '1. Schema v4 Save Migration (v1/v2/v3 Compatibility)',
+    name: '1. Schema v5 Save Migration (v1–v4 & Multi-Dungeon Compatibility)',
     pass: t1Pass,
-    detail: `Migrated Lv4 Ranger, 120g, 5 Copper, Geology R${mig.guildResearch.geology}, Gems & 3 Bounties initialized`
+    detail: `Migrated Lv4 Ranger, 120g, 5 Copper, ${Object.keys(mig.dungeons).length} Regional Dungeons & 3 Bounties`
   });
 
   // 2. All 5 Classes Registered with Complete Declarations
@@ -69,16 +98,16 @@ export function evaluateSelfTests() {
     detail: `Ranger Skill: ${CLASSES.ranger.skillName} • Paladin Skill: ${CLASSES.paladin.skillName}`
   });
 
-  // 3. Pure-Floor BFS Staircase Reachability & Non-Blocking Ores/Traps
+  // 3. Pure-Floor BFS Staircase Reachability & Non-Blocking Ores/Traps (80x60 Standard Scale)
   let bfsAllPass = true;
   for (let i = 0; i < 5; i++) {
-    const testFl = generateFloor(i + 1);
+    const testFl = generateFloor(i + 1, CURATED_DUNGEON_PROFILES.starfall_vaults, 4100 + i);
     if (!verifyPureFloorBFS(testFl)) bfsAllPass = false;
   }
   results.push({
-    name: '3. Pure-Floor BFS Staircase Reachability (Trap-Free & Non-Blocking)',
+    name: '3. Pure-Floor BFS Staircase Reachability (80x60 Trap-Free & Non-Blocking)',
     pass: bfsAllPass,
-    detail: '5/5 procedural floors verified with safe trap-free walkable paths from < to >'
+    detail: '5/5 80x60 procedural floors verified with safe trap-free walkable paths from < to >'
   });
 
   // 4. Procedural 6-Slot Equipment & 5 Rarity Tiers
@@ -99,7 +128,7 @@ export function evaluateSelfTests() {
   // 5. Mining Engine, Geology Gating & Durability Math
   const sandbox5 = createDefaultGameState();
   selectAdventurerClass('thief', sandbox5);
-  const fl5 = sandbox5.dungeon.floors[1];
+  const fl5 = ensureDungeonFloorHydrated(sandbox5.dungeon, 1);
   fl5.tiles[2][2] = TILE_ORE_STAR; // Requires Geology 3
   const blockedMine = mineTile(2, 2, sandbox5);
   sandbox5.guildResearch.geology = 3;
@@ -166,8 +195,8 @@ export function evaluateSelfTests() {
   });
 
   // 9. Milestone Boss Spawns (Floor 5 Starfall Colossus & Floor 10 Void Weaver)
-  const bossFl5 = generateFloor(5);
-  const bossFl10 = generateFloor(10);
+  const bossFl5 = generateFloor(5, CURATED_DUNGEON_PROFILES.starfall_vaults, 5505);
+  const bossFl10 = generateFloor(10, CURATED_DUNGEON_PROFILES.starfall_vaults, 5510);
   const b5 = bossFl5.monsters.find(m => m.isBoss && m.id === 'boss_colossus');
   const b10 = bossFl10.monsters.find(m => m.isBoss && m.id === 'boss_weaver');
   const t9Pass = !!b5 && !!b10;
@@ -237,7 +266,7 @@ export function evaluateSelfTests() {
     rewardQty: 1,
     rewardLabel: '+1 Talent Tome (+1 Talent Pt)'
   };
-  const fl12 = sandbox12.dungeon.floors[1];
+  const fl12 = ensureDungeonFloorHydrated(sandbox12.dungeon, 1);
   fl12.tiles[1][1] = TILE_ORE_COPPER;
   fl12.tiles[1][2] = TILE_ORE_COPPER;
   mineTile(1, 1, sandbox12);
@@ -252,14 +281,14 @@ export function evaluateSelfTests() {
   results.push({
     name: '12. Guild Notice Board Contracts & Extraction Payout',
     pass: t12Pass,
-    detail: `Completed Copper quota -> claimed +1 Talent Point & rotated fresh contract`
+    detail: 'Completed Copper quota -> claimed +1 Talent Point & rotated fresh contract'
   });
 
   // 13. Subterranean Astral Shrines & Scout Trap Detection/Disarming
   const sandbox13 = createDefaultGameState();
   selectAdventurerClass('thief', sandbox13);
   sandbox13.inGuild = false;
-  const fl13 = sandbox13.dungeon.floors[1];
+  const fl13 = ensureDungeonFloorHydrated(sandbox13.dungeon, 1);
   sandbox13.hero.x = 4;
   sandbox13.hero.y = 4;
   fl13.tiles[4][5] = TILE_TRAP_HIDDEN;
@@ -286,7 +315,233 @@ export function evaluateSelfTests() {
   results.push({
     name: '13. Astral Shrines & Scout Runic Trap Detection/Disarming',
     pass: t13Pass,
-    detail: `Thief spotted & disarmed Spike Trap (0 dmg) + channeled Starfire Shrine (+6 ATK)`
+    detail: 'Thief spotted & disarmed Spike Trap (0 dmg) + channeled Starfire Shrine (+6 ATK)'
+  });
+
+  // 14. Multi-Dungeon Registry Isolation, Switching & Lazy RLE Packing
+  const sandbox14 = createDefaultGameState();
+  selectAdventurerClass('fighter', sandbox14);
+  const sfFl1 = ensureDungeonFloorHydrated(sandbox14.dungeon, 1);
+  sfFl1.oresMined = 9;
+  const swQuarry = selectActiveDungeon('dng_quarry', sandbox14);
+  const starfallPackedInRam = !!(
+    sandbox14.dungeons.dng_starfall.floors[1] &&
+    sandbox14.dungeons.dng_starfall.floors[1].packed === true
+  );
+  sandbox14.dungeon.floors[1] = generateFloor(1, sandbox14.dungeon.config, sandbox14.dungeon.numericSeed);
+  const quarryW = sandbox14.dungeon.floors[1].width;
+  const quarryH = sandbox14.dungeon.floors[1].height;
+  const swBack = selectActiveDungeon('dng_starfall', sandbox14);
+  const sfHydratedAgain = ensureDungeonFloorHydrated(sandbox14.dungeon, 1);
+  const t14Pass = !!(
+    swQuarry.ok &&
+    swBack.ok &&
+    starfallPackedInRam &&
+    quarryW === 48 &&
+    quarryH === 36 &&
+    sfHydratedAgain &&
+    sfHydratedAgain.packed === false &&
+    sfHydratedAgain.width === 80 &&
+    sfHydratedAgain.oresMined === 9 &&
+    sandbox14.dungeons.dng_quarry.floors[1].packed === true
+  );
+  results.push({
+    name: '14. Multi-Dungeon Registry Isolation & Lazy RLE Memory Packing',
+    pass: t14Pass,
+    detail: `Switched Starfall (80x60, 9 mined) <-> Quarry (${quarryW}x${quarryH}) with isolated state & auto-RLE`
+  });
+
+  // 15. Exploration-Scale Colossal (192x144) Generation, Decoupled Depth & Non-Blocking Veins
+  const sandbox15 = createDefaultGameState();
+  selectAdventurerClass('ranger', sandbox15);
+  const charterCol = chartCustomExpedition({
+    name: 'Colossal Ruin Test',
+    width: 192,
+    height: 144,
+    maxDepth: 1,
+    layoutStyle: 'grand_ruins',
+    richness: 'rich'
+  }, sandbox15);
+  const colFl = generateFloor(1, sandbox15.dungeon.config, 77715);
+  let veinsAllBorderFloor = true;
+  let veinTotal = 0;
+  for (let y = 1; y < colFl.height - 1; y++) {
+    for (let x = 1; x < colFl.width - 1; x++) {
+      if (ORE_CATALOG[colFl.tiles[y][x]]) {
+        veinTotal += 1;
+        const adjWalk =
+          (colFl.tiles[y - 1][x] !== TILE_WALL && !ORE_CATALOG[colFl.tiles[y - 1][x]]) ||
+          (colFl.tiles[y + 1][x] !== TILE_WALL && !ORE_CATALOG[colFl.tiles[y + 1][x]]) ||
+          (colFl.tiles[y][x - 1] !== TILE_WALL && !ORE_CATALOG[colFl.tiles[y][x - 1]]) ||
+          (colFl.tiles[y][x + 1] !== TILE_WALL && !ORE_CATALOG[colFl.tiles[y][x + 1]]);
+        if (!adjWalk) {
+          veinsAllBorderFloor = false;
+        }
+      }
+    }
+  }
+  const colBfsOk = verifyPureFloorBFS(colFl);
+  const t15Pass = !!(
+    charterCol.ok &&
+    colFl.width === 192 &&
+    colFl.height === 144 &&
+    colFl.hasDownStairs === false &&
+    colFl.roomCount >= 25 &&
+    veinTotal >= 20 &&
+    veinsAllBorderFloor &&
+    colBfsOk
+  );
+  results.push({
+    name: '15. Colossal 192x144 Megadungeon Sector Generation & Fast BFS',
+    pass: t15Pass,
+    detail: `192x144 MaxFl-1 Ruin: ${colFl.roomCount} chambers, ${veinTotal} wall veins, 100% BFS reachable`
+  });
+
+  // 16. Declarative DungeonConfig Enforcement (Monster Family, Ore Table & Final-Floor Boss)
+  const sandbox16 = createDefaultGameState();
+  selectAdventurerClass('mage', sandbox16);
+  chartCustomExpedition({
+    name: 'Dwarven Crystal Delve',
+    width: 64,
+    height: 48,
+    maxDepth: 1,
+    layoutStyle: 'excavation_quarry',
+    monsterFamily: 'dwarven_forge',
+    oreFocus: 'astral_crystal',
+    richness: 'rich'
+  }, sandbox16);
+  const cfgFl = generateFloor(1, sandbox16.dungeon.config, 88216);
+  const allowedForgeIds = {
+    dwarven_automaton: true,
+    ember_pyromancer: true,
+    vault_crawler: true,
+    magma_golem: true
+  };
+  const nonBossMonsters = cfgFl.monsters.filter(m => !m.isBoss);
+  const hasFinalBoss = cfgFl.monsters.some(m => m.isBoss);
+  const monstersMatchFamily = nonBossMonsters.length > 0 && nonBossMonsters.every(m => !!allowedForgeIds[m.id]);
+
+  let oresMatchFocus = true;
+  let focusVeinCount = 0;
+  for (let y = 0; y < cfgFl.height; y++) {
+    for (let x = 0; x < cfgFl.width; x++) {
+      const t = cfgFl.tiles[y][x];
+      if (ORE_CATALOG[t]) {
+        focusVeinCount += 1;
+        if (
+          t !== TILE_ORE_MITHRIL &&
+          t !== TILE_ORE_GEODE &&
+          t !== TILE_ORE_STAR &&
+          t !== TILE_ORE_ASTRAL
+        ) {
+          oresMatchFocus = false;
+        }
+        if (t === TILE_ORE_COPPER || t === TILE_ORE_IRON) {
+          oresMatchFocus = false;
+        }
+      }
+    }
+  }
+  const t16Pass = !!(hasFinalBoss && monstersMatchFamily && focusVeinCount > 0 && oresMatchFocus);
+  results.push({
+    name: '16. Declarative DungeonConfig Rosters (Monsters, Ores & Bosses)',
+    pass: t16Pass,
+    detail: `Dwarven Forge roster (${nonBossMonsters.length} foes + Boss) & ${focusVeinCount} Astral/Mithril veins verified`
+  });
+
+  // 17. Lossless RLE Compression, Bresenham Wall LOS & Safe Auto-Walk Hostile Interrupt
+  const rawRleFl = generateFloor(1, CURATED_DUNGEON_PROFILES.mycelium_labyrinth, 99117);
+  rawRleFl.explored[12][15] = 1;
+  rawRleFl.explored[40][60] = 1;
+  const packedRle = packFloorForStorage(rawRleFl);
+  const hydratedRle = hydrateFloorFromStorage(packedRle);
+  let rleExactMatch = !!(
+    packedRle.packed === true &&
+    typeof packedRle.tilesRle === 'string' &&
+    hydratedRle.packed === false &&
+    hydratedRle.width === 128 &&
+    hydratedRle.height === 96
+  );
+  if (rleExactMatch) {
+    for (let y = 0; y < 96; y++) {
+      for (let x = 0; x < 128; x++) {
+        if (
+          hydratedRle.tiles[y][x] !== rawRleFl.tiles[y][x] ||
+          !!hydratedRle.explored[y][x] !== !!rawRleFl.explored[y][x]
+        ) {
+          rleExactMatch = false;
+          break;
+        }
+      }
+      if (!rleExactMatch) break;
+    }
+  }
+
+  // Bresenham Wall LOS + Auto-Walk Interrupt in isolated sandbox
+  const sandbox17 = createDefaultGameState();
+  selectAdventurerClass('fighter', sandbox17);
+  sandbox17.inGuild = false;
+  const navFl = ensureDungeonFloorHydrated(sandbox17.dungeon, 1);
+  for (let y = 8; y <= 18; y++) {
+    for (let x = 8; x <= 18; x++) {
+      navFl.tiles[y][x] = TILE_WALL;
+      navFl.explored[y][x] = 1;
+    }
+  }
+  // Carve L-corridor: (10,10) -> (11,10) -> (12,10) -> (12,11) -> (12,12) -> (12,13) -> (12,14)
+  navFl.tiles[10][10] = TILE_FLOOR;
+  navFl.tiles[10][11] = TILE_FLOOR;
+  navFl.tiles[10][12] = TILE_FLOOR;
+  navFl.tiles[11][12] = TILE_FLOOR;
+  navFl.tiles[12][12] = TILE_FLOOR;
+  navFl.tiles[13][12] = TILE_FLOOR;
+  navFl.tiles[14][12] = TILE_FLOOR;
+
+  const wallSeen = hasLineOfSight(navFl, 10, 10, 10, 11) === true;
+  const occludedByWall = hasLineOfSight(navFl, 10, 10, 12, 14) === false;
+  const downHallClear = hasLineOfSight(navFl, 12, 10, 12, 14) === true;
+
+  sandbox17.hero.x = 10;
+  sandbox17.hero.y = 10;
+  navFl.monsters = [{
+    id: 'vault_crawler',
+    name: 'Test Crawler',
+    x: 12,
+    y: 14,
+    hp: 30,
+    maxHp: 30,
+    atk: 6,
+    def: 2,
+    xp: 10,
+    isRanged: false,
+    statuses: []
+  }];
+
+  const safePath = computeSafeExploredPath(navFl, 10, 10, 12, 12);
+  setAutoWalkPath(safePath || []);
+  const stepA = stepAutoWalkOnce(sandbox17); // Moves to (11,10) — monster at (12,14) still behind wall (11,11)
+  const stepB = stepAutoWalkOnce(sandbox17); // Moves to (12,10) — gains LOS down hall to monster -> HALTS!
+  cancelAutoWalk();
+
+  const t17Pass = !!(
+    rleExactMatch &&
+    wallSeen &&
+    occludedByWall &&
+    downHallClear &&
+    safePath &&
+    safePath.length === 4 &&
+    stepA.ok &&
+    stepA.halted === false &&
+    stepB.ok &&
+    stepB.halted === true &&
+    stepB.reason === 'hostile_in_sight' &&
+    sandbox17.hero.x === 12 &&
+    sandbox17.hero.y === 10
+  );
+  results.push({
+    name: '17. Lossless RLE Compression, Wall LOS & Safe Auto-Walk Interrupt',
+    pass: t17Pass,
+    detail: `128x96 RLE 100% lossless (${packedRle.tilesRle.length} chars); LOS wall occlusion & hostile halt verified`
   });
 
   return results;
@@ -299,7 +554,7 @@ export function runSelfTests(renderModal = false) {
   if (typeof document !== 'undefined') {
     const btnText = document.getElementById('verifyBtnText');
     if (btnText) {
-      btnText.textContent = `Verify Inc-4 (${passCount}/${results.length} PASS)`;
+      btnText.textContent = `Verify Atlas (${passCount}/${results.length} PASS)`;
     }
 
     if (renderModal) {

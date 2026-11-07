@@ -1,13 +1,27 @@
-// Core constants, grid dimensions, tile IDs, and rarity definitions
+// Core constants, viewport dimensions, map scale presets, tile IDs, and rarity definitions
 
-export const SCHEMA_VERSION = 'v0.4.0-inc4';
-export const STORAGE_KEY = 'aethelgard_save_v4';
+export const SCHEMA_VERSION = 'v0.4.5-atlas';
+export const STORAGE_KEY = 'aethelgard_save_v5';
 
 export const TILE_SIZE = 32;
-export const GRID_W = 21;
-export const GRID_H = 15;
-export const VIEWPORT_WIDTH = GRID_W;
-export const VIEWPORT_HEIGHT = GRID_H;
+export const VIEWPORT_WIDTH = 21;
+export const VIEWPORT_HEIGHT = 15;
+
+// Legacy viewport aliases + new exploration-scale default floor dimensions
+export const GRID_W = VIEWPORT_WIDTH;
+export const GRID_H = VIEWPORT_HEIGHT;
+export const DEFAULT_MAP_W = 80;
+export const DEFAULT_MAP_H = 60;
+
+// Soft configurable cap on simultaneously chartered custom expeditions (not a structural limit; can be raised to 500+)
+export const DEFAULT_MAX_CHARTERED_DUNGEONS = 12;
+
+export const MAP_SIZE_PRESETS = {
+  small:     { id: 'small',     name: 'Small Outpost',        width: 48,  height: 36,  desc: '48x36 (~5.5x classic) • 14–18 chambers' },
+  standard:  { id: 'standard',  name: 'Standard Delve',       width: 80,  height: 60,  desc: '80x60 (~15x classic) • Multi-wing halls & vaults' },
+  sprawling: { id: 'sprawling', name: 'Sprawling Labyrinth',  width: 128, height: 96,  desc: '128x96 (~39x classic) • Deep avenues & caverns' },
+  colossal:  { id: 'colossal',  name: 'Colossal Megadungeon', width: 192, height: 144, desc: '192x144 (~88x classic) • Massive subterranean expanse' }
+};
 
 // Tile Constants
 export const TILE_WALL = 0;
@@ -28,7 +42,7 @@ export const TILE_ORE_ASTRAL = 14;
 export const TILE_ORE_GEODE = 15;
 export const TILE_TRAP_DISARMED = 16;
 
-// Increment 4 Economy Constants
+// Economy Constants
 export const LAPIDARY_UNSOCKET_COST = 15;
 export const BOUNTY_REROLL_COST = 25;
 
