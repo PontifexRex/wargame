@@ -17,3 +17,8 @@ This directory records the foundational architectural decisions, runtime constra
 
 1. **New Subsystem or Persistence Change**: Any change to `gameState` serialization, module boundaries, or rendering pipelines should be recorded as a new `ADR-000X` document.
 2. **Immutable History**: If a later milestone replaces an older decision, mark the older ADR's status as `Superseded by ADR-000Y` rather than deleting it.
+
+## Related Workflow & Architecture Documents
+
+- **[Agentic Development Workflow & Diagrams (`docs/agentic_workflow.md`)](../agentic_workflow.md)**: Living diagrams of the end-to-end SDLC loop, automated build/verification pipeline (`scripts/test.ps1`), and module DAG.
+- **[Agentic Workflow Roadmap (`docs/agentic_workflow_roadmap.md`)](../agentic_workflow_roadmap.md)**: Staged maturity plan (`W1`–`W4`) for evolving toward high-autonomy development.

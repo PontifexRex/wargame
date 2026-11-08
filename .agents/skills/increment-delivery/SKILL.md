@@ -1,49 +1,61 @@
 ---
 name: increment-delivery
 description: >-
-  Use this skill when implementing a new milestone increment from roadmap.md (such as Increment 4 or 5). Outlines planning, implementation, unit testing expansion, and tagging workflow.
+  Use this skill when implementing a new milestone increment from roadmap.md (such as Increment 5 or 6). Outlines planning, ADR evaluation, topological implementation, unit testing expansion, and release tagging workflow.
 ---
 
-# Increment Delivery Workflow
+# Increment Delivery Workflow (`v0.4.6-arch`)
 
-Follow this procedure when developing a new milestone from `roadmap.md`.
+Follow this procedure when developing a new milestone increment from `roadmap.md`.
 
 ---
 
-## 1. Specification Review
+## 1. Specification & Architectural Review
 
-1. Open `roadmap.md` and read the detailed feature specification for the target increment (e.g. Increment 4).
+1. Open `roadmap.md` and read the detailed feature specification for the target increment.
 2. Cross-reference formulas and values with `game_design_spec.md`.
-3. Check `architecture.md` for any required state schema modifications.
+3. Check `architecture.md` and `docs/adr/README.md` (`ADR-0001` through `ADR-0006`) for state schema, event bus, or persistence contracts.
+4. If the increment introduces a new architectural pattern or persistence change, plan a new `docs/adr/ADR-000X-*.md` record.
 
 ---
 
-## 2. Implementation Protocol
+## 2. Topological Implementation Protocol
 
-1. **Schema Migration First**:
-   - If new state properties are needed (e.g. `talentsSpent`, `activeAffixPool`), update `createDefaultGameState()` in `src/engine/state.js`.
-   - Update `migrateSaveData()` so older saves seamlessly gain default values for the new properties.
-2. **Domain Logic Implementation**:
-   - Implement pure mechanics in `src/engine/` or `src/data/`.
-   - Implement DOM and canvas elements in `src/ui/`.
-3. **Append Self-Tests**:
-   - Never overwrite existing tests.
-   - Append new tests to `src/test/selfTest.js` and `src/test/cliRunner.js`.
+1. **Constants & Schema Migration First (`src/constants.js`, `src/engine/state.js`)**:
+   - Bump `SCHEMA_VERSION` if needed.
+   - Add default state properties in `createDefaultGameState()`.
+   - Back-fill missing properties in `migrateSaveData(raw)` preserving saves from `v0.1.0-inc1` onward (`ADR-0003`).
+2. **Pure Data Registries (`src/data/*.js`)**:
+   - Add static catalogs in `src/data/` with zero imports from `engine/` or `ui/`.
+   - Register any new module in `scripts/build.ps1` (`$moduleOrder`).
+3. **Sandboxed Engine & Event Emissions (`src/engine/*.js`)**:
+   - Accept `state = gameState` as the final parameter on all state-mutating functions (`ADR-0002`).
+   - Emit domain events via `emitEngineEvent(ENGINE_EVENTS.*, payload, state)` (`ADR-0006`).
+   - Use strictly ES2017-compatible syntax (`ADR-0001`: no `?.` or `{ ...obj }`).
+4. **UI, Modals & `window.Aethelgard` Bridge (`src/ui/*.js`, `src/main.js`, `index.html`)**:
+   - Ensure every `getElementById('...')` in `src/` has a matching `id="..."` in `index.html`.
+   - Ensure every `window.Aethelgard.<fn>` in `index.html` is exported on `AethelgardAPI` in `src/main.js`.
+5. **Append Cumulative Self-Tests (`src/test/selfTest.js`)**:
+   - Never delete or weaken existing tests (`Tests 1..17`).
+   - Append new sandboxed unit tests verifying the new increment's mechanics.
 
 ---
 
-## 3. Verification & Milestone Release
+## 3. Automated Verification & Milestone Release
 
-1. Run the test suite:
+1. Run the full verification pipeline:
    ```powershell
-   ./scripts/test.ps1
+   powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\test.ps1
    ```
-2. Verify visual appearance and manual interactions in `index.html`.
-3. Update `readme.md` build version badge.
-4. Update `roadmap.md` marking the increment completed.
-5. Create a tagged Git commit:
-   ```bash
-   git add .
-   git commit -m "Release v0.4.0-inc4: Implemented Increment 4 with 13/13 verified tests"
-   git tag -a v0.4.0-inc4 -m "Verified 13/13 self-tests passing"
+   Confirm all 4 gates pass:
+   - `Validated N ES6 modules (0 circular dependencies) -> dist/bundle.js`
+   - `Validated HTML DOM contract (... element IDs verified, 0 missing references)`
+   - `Validated window.Aethelgard API contract (... exports) & Golden Rule/ES2017 static gates`
+   - `Result: X/X Self-Tests + UI Smoke Suite Passed. Build is healthy!`
+2. Update living documentation (`architecture.md`, `game_design_spec.md`, `docs/adr/`, `docs/agentic_workflow.md`, `roadmap.md`).
+3. Create a conventional commit and annotated Git tag:
+   ```powershell
+   git add -A
+   git commit -m "feat(incX): implement <Increment Name> with X/X verified tests"
+   git tag -a v0.X.0-incX -m "Verified X/X self-tests + UI smoke passing"
    ```
