@@ -382,7 +382,6 @@ function buildProceduralBountySet(geologyRank = 0, cartographyRank = 0) {
   const specTpl = BOUNTY_SPECIAL_TEMPLATES[Math.floor(Math.random() * BOUNTY_SPECIAL_TEMPLATES.length)];
   const specQty = specTpl.minQty + Math.floor(Math.random() * (specTpl.maxQty - specTpl.minQty + 1));
   const awardTome = Math.random() < 0.6;
-  const specGold = Math.round(specTpl.baseGold * tierScale);
 
   contracts.push({
     id: `bty_${Date.now()}_${bountySeqCounter++}`,
