@@ -38,9 +38,9 @@ import {
   dropItem
 } from '../engine/actions.js';
 import { cancelAutoWalk } from '../engine/combat.js';
-import { updateFOV, renderMinimapCanvas, drawHeroSprite } from './renderer.js';
+import { updateFOV, renderMinimapCanvas, drawHeroSprite, drawPaperDollMannequin } from './renderer.js';
 import { updateAllUI, logChronicle, formatSocketPipsHtml } from './domSync.js';
-import { computeItemPowerScore, isItemUpgrade } from '../data/items.js';
+import { computeItemPowerScore, isItemUpgrade, getItemTypeIcon, SLOT_METADATA } from '../data/items.js';
 
 let inspectedItemContext = null;
 let pendingAtlasResetId = null;
@@ -975,51 +975,117 @@ export function renderInventoryModal() {
     if (el) el.textContent = statIds[i][1];
   }
 
-  // Paper-Doll 6 Slots
+  // Mannequin Canvas & Anatomical Paper-Doll Slots
+  const dollCanvas = document.getElementById('inventoryPaperDollCanvas');
+  if (dollCanvas) {
+    drawPaperDollMannequin(dollCanvas, h);
+  }
+
   const dollGrid = document.getElementById('inventoryPaperDollGrid');
   if (dollGrid) {
-    const slots = ['helm', 'weapon', 'armor', 'accessory', 'boots', 'pickaxe'];
-    dollGrid.innerHTML = slots.map(slot => {
-      const it = h.equipment ? h.equipment[slot] : null;
-      const r = it ? (RARITY[it.rarity] || RARITY.common) : RARITY.common;
-      const pwr = it ? computeItemPowerScore(it) : 0;
-      let statSummary = '—';
-      if (it) {
-        if (slot === 'weapon') statSummary = `+${it.atk || 0} ATK`;
-        else if (slot === 'armor') statSummary = `+${it.def || 0} DEF`;
-        else if (slot === 'helm') statSummary = `+${it.def || 0} DEF`;
-        else if (slot === 'boots') statSummary = `+${it.dodge || 0}% Dodge`;
-        else if (slot === 'accessory') statSummary = `+${it.crit || 0}% Crit`;
-        else if (slot === 'pickaxe') statSummary = `${it.curDur || 0}/${maxDur} Dur`;
+    const PAPER_DOLL_SLOTS = [
+      // Row 1: Head & Neck
+      { id: 'accessory', label: 'Trinket',  left: '10px',  top: '10px',  width: '84px', height: '64px', active: true },
+      { id: 'helm',      label: 'Helm',     left: '128px', top: '10px',  width: '84px', height: '64px', active: true },
+      { id: 'amulet',    label: 'Amulet',   right: '10px', top: '10px',  width: '84px', height: '64px', active: false, tier: 'Tier 2 Expansion' },
+
+      // Row 2: Torso & Weapons
+      { id: 'weapon',    label: 'Weapon',   left: '10px',  top: '86px',  width: '84px', height: '70px', active: true },
+      { id: 'armor',     label: 'Armor',    left: '128px', top: '86px',  width: '84px', height: '70px', active: true },
+      { id: 'pickaxe',   label: 'Off-Hand', right: '10px', top: '86px',  width: '84px', height: '70px', active: true },
+
+      // Row 3: Hands, Waist, Rings (Reserved)
+      { id: 'gloves',    label: 'Gloves',   left: '10px',  top: '168px', width: '84px', height: '64px', active: false, tier: 'Tier 2 Expansion' },
+      { id: 'belt',      label: 'Belt',     left: '128px', top: '168px', width: '84px', height: '64px', active: false, tier: 'Tier 3 Expansion' },
+      { id: 'ring',      label: 'Ring',     right: '10px', top: '168px', width: '84px', height: '64px', active: false, tier: 'Tier 2 Expansion' },
+
+      // Row 4: Feet
+      { id: 'boots',     label: 'Boots',    left: '128px', top: '254px', width: '84px', height: '64px', active: true }
+    ];
+
+    dollGrid.innerHTML = PAPER_DOLL_SLOTS.map(cfg => {
+      const posStyle = `top:${cfg.top};width:${cfg.width};height:${cfg.height};` +
+        (cfg.left ? `left:${cfg.left};` : `right:${cfg.right};`);
+
+      if (!cfg.active) {
+        const icon = getItemTypeIcon(cfg.id);
+        return `
+          <div class="pointer-events-auto absolute p-1.5 rounded-lg bg-[#05080e]/80 backdrop-blur-sm border border-[#1e293b]/60 flex flex-col justify-between items-center text-center opacity-60 cursor-not-allowed select-none group"
+               style="${posStyle}"
+               title="${cfg.label} Slot (${cfg.tier}) — Reserved for upcoming content expansion">
+            <div class="w-full flex items-center justify-between text-[9px] text-[#475569]">
+              <span class="uppercase tracking-wider font-semibold">${cfg.label}</span>
+              <span>🔒</span>
+            </div>
+            <div class="text-base opacity-30 group-hover:opacity-50 transition-opacity">
+              ${icon}
+            </div>
+            <div class="text-[8px] font-mono-num text-[#475569]">
+              Locked
+            </div>
+          </div>
+        `;
       }
 
-      const unequipBtn = (it && slot !== 'pickaxe')
-        ? `<button onclick="window.Aethelgard.handleInventoryUnequip('${slot}')" class="px-2 py-0.5 rounded bg-[#1a2232] hover:bg-[#283347] text-[#f87171] border border-[#f87171]/40 text-[10px] font-bold btn-tactical">Unequip</button>`
-        : '';
-      const inspectBtn = it
-        ? `<button onclick="window.Aethelgard.openItemInspectModal('${slot}', true)" class="px-2 py-0.5 rounded bg-[#1a2232] hover:bg-[#283347] text-[#60a5fa] border border-[#60a5fa]/40 text-[10px] font-bold btn-tactical">Inspect</button>`
-        : '';
+      const it = h.equipment ? h.equipment[cfg.id] : null;
+      const typeIcon = getItemTypeIcon(cfg.id);
 
-      const hoverAttr = it
-        ? `onmouseenter="window.Aethelgard.showFloatingItemTooltip(event, '${slot}', true)" onmouseleave="window.Aethelgard.hideFloatingItemTooltip()"`
+      if (!it) {
+        return `
+          <div class="pointer-events-auto absolute p-1.5 rounded-lg bg-[#080b11]/70 backdrop-blur-sm border border-dashed border-[#283347]/80 hover:border-[#fbbf24]/50 flex flex-col justify-between items-center text-center transition-colors group cursor-default select-none"
+               style="${posStyle}">
+            <div class="w-full flex items-center justify-between text-[9px] text-[#64748b]">
+              <span class="uppercase tracking-wider font-semibold">${cfg.label}</span>
+              <span>${typeIcon}</span>
+            </div>
+            <div class="text-lg opacity-40 group-hover:opacity-75 transition-opacity">
+              ${typeIcon}
+            </div>
+            <div class="text-[9px] text-[#64748b] italic">
+              (Empty)
+            </div>
+          </div>
+        `;
+      }
+
+      const r = RARITY[it.rarity] || RARITY.common;
+      const pwr = computeItemPowerScore(it);
+      let statSummary = '—';
+      if (cfg.id === 'weapon') statSummary = `+${it.atk || 0} ATK`;
+      else if (cfg.id === 'armor') statSummary = `+${it.def || 0} DEF`;
+      else if (cfg.id === 'helm') statSummary = `+${it.def || 0} DEF`;
+      else if (cfg.id === 'boots') statSummary = `+${it.dodge || 0}% Ddg`;
+      else if (cfg.id === 'accessory') statSummary = `+${it.crit || 0}% Crt`;
+      else if (cfg.id === 'pickaxe') statSummary = `${it.curDur || 0}/${maxDur} Dur`;
+
+      const unequipBtn = (cfg.id !== 'pickaxe')
+        ? `<button onclick="event.stopPropagation(); window.Aethelgard.handleInventoryUnequip('${cfg.id}')"
+                   class="text-[9px] font-bold text-[#8b949e] hover:text-[#f87171] px-1 rounded bg-[#1a2232]/80 hover:bg-[#283347] transition-colors"
+                   title="Unequip to Bag">✕</button>`
         : '';
 
       return `
-        <div ${hoverAttr} class="p-2.5 rounded-lg bg-[#080b11] border ${it ? 'border-[#283347] hover:border-[#60a5fa]/60' : 'border-[#283347]/50 border-dashed'} flex flex-col justify-between gap-1.5 transition-colors">
+        <div class="pointer-events-auto absolute p-1.5 rounded-lg bg-[#080b11]/90 backdrop-blur-sm border border-[#283347] hover:border-[#60a5fa] hover:bg-[#111722]/95 cursor-pointer flex flex-col justify-between transition-colors shadow-lg select-none group"
+             style="${posStyle}"
+             onclick="window.Aethelgard.openItemInspectModal('${cfg.id}', true)"
+             onmouseenter="window.Aethelgard.showFloatingItemTooltip(event, '${cfg.id}', true)"
+             onmouseleave="window.Aethelgard.hideFloatingItemTooltip()">
           <div class="flex items-center justify-between">
-            <span class="text-[10px] font-bold uppercase tracking-wider text-[#8b949e]">${slot}</span>
-            <div class="flex items-center gap-1">
-              ${it ? `<span class="text-[10px] text-[#60a5fa] font-mono-num font-bold">Pwr ${pwr}</span>` : ''}
+            <span class="text-[9px] font-bold text-[#8b949e] flex items-center gap-1">
+              <span>${typeIcon}</span>
+              <span class="uppercase tracking-wider">${cfg.label}</span>
+            </span>
+            ${unequipBtn}
+          </div>
+          <div class="font-bold text-[11px] truncate leading-tight" style="color:${r.color}">
+            ${it.name}
+          </div>
+          <div class="flex items-center justify-between text-[10px] text-[#8b949e]">
+            <span class="truncate">${statSummary}</span>
+            <div class="flex items-center gap-0.5 shrink-0">
+              <span class="text-[#60a5fa] font-mono-num font-bold">P${pwr}</span>
               ${formatSocketPipsHtml(it)}
             </div>
-          </div>
-          <div class="font-bold text-xs truncate" style="color:${it ? r.color : '#64748b'}">
-            ${it ? it.name : '(Empty Slot)'}
-          </div>
-          <div class="text-[11px] text-[#8b949e]">${statSummary}</div>
-          <div class="flex items-center justify-end gap-1.5 pt-1 border-t border-[#283347]/40">
-            ${unequipBtn}
-            ${inspectBtn}
           </div>
         </div>
       `;
@@ -1087,19 +1153,24 @@ export function renderInventoryModal() {
         if (it.dodge) statDetail += `+${it.dodge}% Dodge `;
         if (it.crit) statDetail += `+${it.crit}% Crit `;
 
+        const typeIcon = getItemTypeIcon(it);
+
         return `
           <div onmouseenter="window.Aethelgard.showFloatingItemTooltip(event, '${it.uid}', false)" onmouseleave="window.Aethelgard.hideFloatingItemTooltip()" class="p-2.5 rounded-lg bg-[#080b11] border ${isUp ? 'border-[#34d399]/60 bg-[#06140d]/40' : 'border-[#283347]'} hover:border-[#60a5fa] flex items-center justify-between gap-2.5 transition-colors">
-            <div class="flex-1 min-w-0">
-              <div class="flex items-center gap-1.5">
-                <span class="font-bold text-xs truncate" style="color:${r.color}">${it.name}</span>
-                ${formatSocketPipsHtml(it)}
-                ${isUp ? '<span class="px-1.5 py-0.2 rounded text-[9px] font-bold bg-[#34d399]/20 text-[#34d399] border border-[#34d399]/40">▲ UPGRADE</span>' : ''}
-                <span class="text-[9px] font-mono-num uppercase px-1 py-0.2 rounded bg-[#111722] text-[#8b949e] border border-[#283347]">${it.slot}</span>
-              </div>
-              <div class="text-[11px] text-[#8b949e] truncate mt-0.5">
-                <span class="text-[#e6edf3] font-semibold">${statDetail || 'Standard frame'}</span>
-                • <span class="text-[#60a5fa]">Power ${pwr}</span>
-                ${entry.source === 'armory' ? '• <span class="text-[#fbbf24]">Vault Stored</span>' : ''}
+            <div class="flex items-center gap-2 flex-1 min-w-0">
+              <span class="text-base shrink-0 select-none" title="${it.slot}">${typeIcon}</span>
+              <div class="flex-1 min-w-0">
+                <div class="flex items-center gap-1.5">
+                  <span class="font-bold text-xs truncate" style="color:${r.color}">${it.name}</span>
+                  ${formatSocketPipsHtml(it)}
+                  ${isUp ? '<span class="px-1.5 py-0.2 rounded text-[9px] font-bold bg-[#34d399]/20 text-[#34d399] border border-[#34d399]/40">▲ UPGRADE</span>' : ''}
+                  <span class="text-[9px] font-mono-num uppercase px-1 py-0.2 rounded bg-[#111722] text-[#8b949e] border border-[#283347]">${it.slot}</span>
+                </div>
+                <div class="text-[11px] text-[#8b949e] truncate mt-0.5">
+                  <span class="text-[#e6edf3] font-semibold">${statDetail || 'Standard frame'}</span>
+                  • <span class="text-[#60a5fa]">Power ${pwr}</span>
+                  ${entry.source === 'armory' ? '• <span class="text-[#fbbf24]">Vault Stored</span>' : ''}
+                </div>
               </div>
             </div>
             <div class="flex items-center gap-1 shrink-0">
@@ -1124,15 +1195,16 @@ export function renderInventoryModal() {
       conListEl.innerHTML = pack.map(item => {
         const isGem = item.type === 'Gem' && GEM_CATALOG[item.id];
         const col = isGem ? GEM_CATALOG[item.id].color : '#e6edf3';
-        const prefix = isGem ? '◆ ' : '';
+        const typeIcon = getItemTypeIcon(item);
         const totalVal = (item.val || 0) * (item.qty || 1);
         return `
           <div class="p-2 rounded bg-[#080b11] border border-[#283347] flex items-center justify-between text-xs font-mono-num">
-            <div>
-              <span class="font-bold" style="color:${col}">${prefix}${item.name}</span>
-              <span class="text-[#8b949e] ml-1">x${item.qty} (${item.val}g each)</span>
+            <div class="flex items-center gap-2 truncate">
+              <span class="text-sm shrink-0 select-none">${typeIcon}</span>
+              <span class="font-bold truncate" style="color:${col}">${item.name}</span>
+              <span class="text-[#8b949e] ml-1 shrink-0">x${item.qty} (${item.val}g each)</span>
             </div>
-            <div class="flex items-center gap-2">
+            <div class="flex items-center gap-2 shrink-0">
               <span class="text-[#fbbf24] font-bold">${totalVal}g</span>
               <button onclick="window.Aethelgard.handleInventoryDrop('${item.id}', false)" class="px-1.5 py-0.5 rounded bg-[#1a2232] hover:bg-[#283347] text-[#8b949e] hover:text-[#f87171] border border-[#283347] text-[10px]" title="Drop 1">Drop 1</button>
             </div>
@@ -1241,9 +1313,12 @@ export function showFloatingItemTooltip(event, refKey, isEquipped = false) {
 
   tip.innerHTML = `
     <div class="flex items-center justify-between border-b border-[#283347] pb-1 mb-1">
-      <div>
-        <div class="font-bold text-xs" style="color:${r.color}">${item.name}</div>
-        <div class="text-[10px] text-[#8b949e] uppercase">${r.name} • ${item.slot || 'Item'}</div>
+      <div class="flex items-center gap-2">
+        <span class="text-lg shrink-0 select-none">${getItemTypeIcon(item)}</span>
+        <div>
+          <div class="font-bold text-xs" style="color:${r.color}">${item.name}</div>
+          <div class="text-[10px] text-[#8b949e] uppercase">${r.name} • ${item.slot || 'Item'}</div>
+        </div>
       </div>
       <div class="text-right">
         <div class="text-[#60a5fa] font-bold text-xs">Pwr ${power}</div>

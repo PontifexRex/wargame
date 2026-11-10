@@ -148,6 +148,195 @@ export function drawHeroSprite(ctx, px, py, classId, size = TILE_SIZE) {
   ctx.restore();
 }
 
+export function drawPaperDollMannequin(canvas, hero) {
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+
+  const w = canvas.width;
+  const h = canvas.height;
+  ctx.clearRect(0, 0, w, h);
+
+  const classId = hero ? hero.classId : 'fighter';
+  const cls = CLASSES[classId] || CLASSES.fighter;
+  const themeColor = cls.color || '#fbbf24';
+
+  ctx.save();
+
+  const cx = Math.floor(w / 2);
+  const cy = Math.floor(h / 2);
+
+  // Radial celestial aura behind chest
+  if (typeof ctx.createRadialGradient === 'function') {
+    const grad = ctx.createRadialGradient(cx, cy - 20, 10, cx, cy - 20, 120);
+    if (grad && typeof grad.addColorStop === 'function') {
+      grad.addColorStop(0, themeColor + '22');
+      grad.addColorStop(0.6, themeColor + '08');
+      grad.addColorStop(1, 'transparent');
+      ctx.fillStyle = grad;
+    }
+  } else {
+    ctx.fillStyle = themeColor + '15';
+  }
+  ctx.beginPath();
+  ctx.arc(cx, cy - 20, 120, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Helper for drawing ellipses safely across environments
+  const drawSafeEllipse = (ex, ey, rx, ry) => {
+    if (typeof ctx.ellipse === 'function') {
+      ctx.ellipse(ex, ey, rx, ry, 0, 0, Math.PI * 2);
+    } else {
+      ctx.save();
+      ctx.translate(ex, ey);
+      ctx.scale(1, ry / rx);
+      ctx.arc(0, 0, rx, 0, Math.PI * 2);
+      ctx.restore();
+    }
+  };
+
+  // Pedestal / Dais ellipse at feet
+  ctx.fillStyle = '#0f172a';
+  ctx.beginPath();
+  drawSafeEllipse(cx, h - 35, 75, 18);
+  ctx.fill();
+  ctx.strokeStyle = themeColor + '44';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+
+  // Runic floor circle rings
+  ctx.strokeStyle = '#283347';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  drawSafeEllipse(cx, h - 35, 60, 14);
+  ctx.stroke();
+
+  // Body shadow
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
+  ctx.beginPath();
+  drawSafeEllipse(cx, h - 34, 45, 10);
+  ctx.fill();
+
+  // Head
+  ctx.fillStyle = '#1e293b';
+  ctx.strokeStyle = themeColor + '66';
+  ctx.lineWidth = 1.6;
+  ctx.beginPath();
+  ctx.arc(cx, 68, 18, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+
+  // Helm Visor Slit
+  ctx.fillStyle = themeColor;
+  ctx.fillRect(cx - 9, 66, 18, 3.5);
+
+  // Neck
+  ctx.fillStyle = '#1e293b';
+  ctx.fillRect(cx - 6, 84, 12, 10);
+
+  // Torso / Chest & Abdomen
+  ctx.fillStyle = '#182234';
+  ctx.beginPath();
+  ctx.moveTo(cx - 36, 94);
+  ctx.lineTo(cx + 36, 94);
+  ctx.lineTo(cx + 22, 175);
+  ctx.lineTo(cx - 22, 175);
+  ctx.closePath();
+  ctx.fill();
+  ctx.strokeStyle = themeColor + '55';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+
+  // Breastplate contour lines
+  ctx.strokeStyle = '#334155';
+  ctx.lineWidth = 1.2;
+  ctx.beginPath();
+  ctx.moveTo(cx, 98);
+  ctx.lineTo(cx, 165);
+  ctx.moveTo(cx - 24, 118);
+  ctx.lineTo(cx, 134);
+  ctx.lineTo(cx + 24, 118);
+  ctx.stroke();
+
+  // Shoulders / Pauldrons
+  ctx.fillStyle = '#223048';
+  ctx.strokeStyle = themeColor + '77';
+  ctx.beginPath();
+  ctx.arc(cx - 38, 98, 12, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.arc(cx + 38, 98, 12, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+
+  // Left Arm (holding weapon position)
+  ctx.strokeStyle = '#182234';
+  ctx.lineWidth = 14;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(cx - 38, 106);
+  ctx.lineTo(cx - 62, 150);
+  ctx.lineTo(cx - 58, 180);
+  ctx.stroke();
+  ctx.strokeStyle = themeColor + '44';
+  ctx.lineWidth = 1.2;
+  ctx.stroke();
+
+  // Right Arm (holding offhand/pickaxe position)
+  ctx.strokeStyle = '#182234';
+  ctx.lineWidth = 14;
+  ctx.beginPath();
+  ctx.moveTo(cx + 38, 106);
+  ctx.lineTo(cx + 62, 150);
+  ctx.lineTo(cx + 58, 180);
+  ctx.stroke();
+  ctx.strokeStyle = themeColor + '44';
+  ctx.lineWidth = 1.2;
+  ctx.stroke();
+
+  // Belt & Tassets
+  ctx.fillStyle = '#2d3748';
+  ctx.fillRect(cx - 24, 174, 48, 8);
+  ctx.fillStyle = themeColor;
+  ctx.fillRect(cx - 4, 173, 8, 10);
+
+  // Left Leg
+  ctx.strokeStyle = '#182234';
+  ctx.lineWidth = 15;
+  ctx.beginPath();
+  ctx.moveTo(cx - 14, 185);
+  ctx.lineTo(cx - 18, 240);
+  ctx.lineTo(cx - 20, 280);
+  ctx.stroke();
+  ctx.strokeStyle = themeColor + '44';
+  ctx.lineWidth = 1.2;
+  ctx.stroke();
+
+  // Right Leg
+  ctx.strokeStyle = '#182234';
+  ctx.lineWidth = 15;
+  ctx.beginPath();
+  ctx.moveTo(cx + 14, 185);
+  ctx.lineTo(cx + 18, 240);
+  ctx.lineTo(cx + 20, 280);
+  ctx.stroke();
+  ctx.strokeStyle = themeColor + '44';
+  ctx.lineWidth = 1.2;
+  ctx.stroke();
+
+  // Boots
+  ctx.fillStyle = '#223048';
+  ctx.strokeStyle = themeColor + '66';
+  ctx.lineWidth = 1.2;
+  ctx.fillRect(cx - 28, 275, 17, 18);
+  ctx.strokeRect(cx - 28, 275, 17, 18);
+  ctx.fillRect(cx + 11, 275, 17, 18);
+  ctx.strokeRect(cx + 11, 275, 17, 18);
+
+  ctx.restore();
+}
+
 export function minimapPixelToGrid(canvas, clientX, clientY, floor) {
   if (!canvas || !floor || !floor.tiles) return null;
   const fw = floor.width || (floor.tiles[0] ? floor.tiles[0].length : DEFAULT_MAP_W);

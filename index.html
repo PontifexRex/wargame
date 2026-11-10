@@ -1127,14 +1127,25 @@
             </div>
           </div>
 
-          <!-- 6-Slot Paper-Doll Grid -->
-          <div class="p-3 rounded-lg bg-[#080b11] border border-[#283347]">
-            <div class="flex items-center justify-between border-b border-[#283347] pb-1.5 mb-2">
-              <h4 class="text-xs font-bold uppercase tracking-wider text-[#fbbf24]">Equipped Loadout (6 Slots)</h4>
-              <span class="text-[10px] text-[#8b949e]">Hover for comparison</span>
+          <!-- Anatomical Paper Doll Stage -->
+          <div class="p-3 rounded-lg bg-[#080b11] border border-[#283347] flex flex-col items-center">
+            <div class="w-full flex items-center justify-between border-b border-[#283347] pb-1.5 mb-2">
+              <div class="flex items-center gap-1.5">
+                <h4 class="text-xs font-bold uppercase tracking-wider text-[#fbbf24]">Hero Paper Doll</h4>
+                <span class="text-[9px] font-mono-num px-1.5 py-0.2 rounded bg-[#111722] text-[#8b949e] border border-[#283347]">6 Active • 4 Reserved</span>
+              </div>
+              <span class="text-[10px] text-[#8b949e]">Click slot to inspect • Hover stats</span>
             </div>
-            <div id="inventoryPaperDollGrid" class="grid grid-cols-2 gap-2 text-xs font-mono-num">
-              <!-- Dynamically populated -->
+
+            <!-- Mannequin Viewport with Anatomical Slots -->
+            <div class="relative w-[340px] h-[370px] bg-[#070b12] rounded-lg border border-[#283347]/80 overflow-hidden select-none shadow-2xl">
+              <!-- Background Mannequin Silhouette Canvas -->
+              <canvas id="inventoryPaperDollCanvas" width="340" height="370" class="absolute inset-0 pointer-events-none"></canvas>
+
+              <!-- Anatomical Equipment Slots Container -->
+              <div id="inventoryPaperDollGrid" class="absolute inset-0 w-full h-full pointer-events-none">
+                <!-- Dynamically populated slot boxes (with pointer-events-auto) -->
+              </div>
             </div>
           </div>
         </div>

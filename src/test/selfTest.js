@@ -21,7 +21,7 @@ import {
 } from '../constants.js';
 import { CLASSES } from '../data/classes.js';
 import { ORE_CATALOG } from '../data/ores.js';
-import { computeItemPowerScore, isItemUpgrade } from '../data/items.js';
+import { computeItemPowerScore, isItemUpgrade, getItemTypeIcon, SLOT_METADATA } from '../data/items.js';
 import { CURATED_DUNGEON_PROFILES, BIOME_PALETTES, resolveFloorBiome } from '../data/dungeons.js';
 import { MONSTER_ARCHETYPES, BOSS_ARCHETYPES } from '../data/monsters.js';
 import { packFloorForStorage, hydrateFloorFromStorage } from '../engine/compression.js';
@@ -48,6 +48,7 @@ import {
   generateProceduralEquipment
 } from '../engine/procedural.js';
 import { selectAdventurerClass } from '../ui/modals.js';
+import { drawPaperDollMannequin } from '../ui/renderer.js';
 import {
   mineTile,
   buyShopItem,
@@ -1106,6 +1107,36 @@ export function evaluateSelfTests() {
   const runRes = runCorridor(1, 0, sandbox24);
   const corridorRunValid = runRes.ok && typeof runRes.stepsTaken === 'number' && typeof runRes.stopReason === 'string';
 
+  // 6. Upfront Item Type Icons & Slot Metadata Canonical Contract
+  const iconArmor = getItemTypeIcon('armor') === '🦺';
+  const iconWeapon = getItemTypeIcon('weapon') === '⚔️';
+  const iconHelm = getItemTypeIcon('helm') === '🪖';
+  const iconBoots = getItemTypeIcon('boots') === '👢';
+  const iconAccessory = getItemTypeIcon('accessory') === '💍';
+  const iconPickaxe = getItemTypeIcon('pickaxe') === '⛏️';
+  const iconConsumable = getItemTypeIcon({ id: 'healing_tonic' }) === '🧪' && getItemTypeIcon({ id: 'recall_scroll' }) === '📜';
+  const iconGem = getItemTypeIcon({ type: 'Gem' }) === '◆';
+  const iconOre = getItemTypeIcon({ id: 'copper' }) === '🪨';
+  const iconsValid = iconArmor && iconWeapon && iconHelm && iconBoots && iconAccessory && iconPickaxe && iconConsumable && iconGem && iconOre;
+
+  // 7. Canonical Equipment Slot Definitions (active + reserved future slots)
+  const canonicalSlots = ['helm', 'armor', 'weapon', 'boots', 'accessory', 'pickaxe', 'shield', 'gloves', 'amulet', 'ring', 'belt'];
+  const slotsDefined = canonicalSlots.every(s => Boolean(SLOT_METADATA[s] && SLOT_METADATA[s].icon && SLOT_METADATA[s].label));
+
+  // 8. Paper-Doll Anatomical Mannequin Renderer execution
+  let mannequinRenders = false;
+  try {
+    const mockCanvas = (typeof document !== 'undefined') ? document.createElement('canvas') : { width: 340, height: 370, getContext: () => ({ fillStyle: '', beginPath: () => {}, stroke: () => {}, fill: () => {}, arc: () => {}, fillRect: () => {}, strokeRect: () => {}, save: () => {}, restore: () => {} }) };
+    if (mockCanvas) {
+      mockCanvas.width = 340;
+      mockCanvas.height = 370;
+      drawPaperDollMannequin(mockCanvas, sandbox24.hero);
+      mannequinRenders = true;
+    }
+  } catch (e) {
+    mannequinRenders = false;
+  }
+
   const t24Checks = {
     equipSuccess: !!equipSuccess,
     unequipSuccess: !!unequipSuccess,
@@ -1113,7 +1144,10 @@ export function evaluateSelfTests() {
     gearDropped: !!gearDropped,
     packDropped: !!packDropped,
     sellingBlockedInDungeon: !!sellingBlockedInDungeon,
-    corridorRunValid: !!corridorRunValid
+    corridorRunValid: !!corridorRunValid,
+    iconsValid: !!iconsValid,
+    slotsDefined: !!slotsDefined,
+    mannequinRenders: !!mannequinRenders
   };
   const failedKeys24 = Object.keys(t24Checks).filter(k => !t24Checks[k]);
   const t24Pass = failedKeys24.length === 0;
@@ -1121,7 +1155,7 @@ export function evaluateSelfTests() {
     name: '24. Character Paper-Doll Inventory Engine, In-Dungeon Equipment Management & Corridor Run',
     pass: t24Pass,
     detail: failedKeys24.length === 0
-      ? 'Field equip/swap/unequip verified, pickaxe protected, in-dungeon selling strictly prohibited, corridor fast-run verified'
+      ? 'Anatomical paper-doll mannequin verified, upfront item type icons verified, field equip/swap/unequip verified, pickaxe protected, in-dungeon selling strictly prohibited, corridor fast-run verified'
       : `Failed checks: ${failedKeys24.join(', ')}`
   });
 

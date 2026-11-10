@@ -1964,6 +1964,37 @@ function isItemUpgrade(candidateItem, equipment) {
   return computeItemPowerScore(candidateItem) > computeItemPowerScore(curEq);
 }
 
+const SLOT_METADATA = {
+  helm:      { id: 'helm',      label: 'Head / Helm',         icon: '🪖', placeholder: 'Helm' },
+  armor:     { id: 'armor',     label: 'Chest / Body Armor',  icon: '🦺', placeholder: 'Armor' },
+  weapon:    { id: 'weapon',    label: 'Main Hand / Weapon',  icon: '⚔️', placeholder: 'Weapon' },
+  boots:     { id: 'boots',     label: 'Feet / Boots',        icon: '👢', placeholder: 'Boots' },
+  accessory: { id: 'accessory', label: 'Neck / Accessory',    icon: '💍', placeholder: 'Trinket' },
+  pickaxe:   { id: 'pickaxe',   label: 'Off-Hand / Pickaxe',  icon: '⛏️', placeholder: 'Pickaxe' },
+  shield:    { id: 'shield',    label: 'Off-Hand / Shield',   icon: '🛡️', placeholder: 'Shield' },
+  gloves:    { id: 'gloves',    label: 'Hands / Gauntlets',   icon: '🧤', placeholder: 'Gloves' },
+  amulet:    { id: 'amulet',    label: 'Necklace / Amulet',   icon: '📿', placeholder: 'Amulet' },
+  ring:      { id: 'ring',      label: 'Finger / Ring',       icon: '💍', placeholder: 'Ring' },
+  belt:      { id: 'belt',      label: 'Waist / Belt',        icon: '🎗️', placeholder: 'Belt' }
+};
+
+function getItemTypeIcon(itemOrSlot) {
+  if (!itemOrSlot) return '📦';
+  if (typeof itemOrSlot === 'string') {
+    const meta = SLOT_METADATA[itemOrSlot];
+    return meta ? meta.icon : '📦';
+  }
+  if (itemOrSlot.slot && SLOT_METADATA[itemOrSlot.slot]) {
+    return SLOT_METADATA[itemOrSlot.slot].icon;
+  }
+  const idStr = String(itemOrSlot.id || '');
+  if (idStr === 'healing_tonic' || idStr === 'buy_heal' || idStr === 'potions') return '🧪';
+  if (idStr === 'recall_scroll' || idStr === 'buy_recall' || idStr === 'recalls') return '📜';
+  if (itemOrSlot.type === 'Gem') return '◆';
+  if (itemOrSlot.type === 'Ore' || ['copper', 'iron', 'mithril', 'geode', 'starcrystal', 'astralite'].includes(idStr) || idStr.indexOf('ore') !== -1) return '🪨';
+  return '📦';
+}
+
   // --- Module: src/data/research.js ---
 // 6 Dual-Cost Guild Research Tech Trees
 
@@ -5851,6 +5882,195 @@ function drawHeroSprite(ctx, px, py, classId, size = TILE_SIZE) {
   ctx.restore();
 }
 
+function drawPaperDollMannequin(canvas, hero) {
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+
+  const w = canvas.width;
+  const h = canvas.height;
+  ctx.clearRect(0, 0, w, h);
+
+  const classId = hero ? hero.classId : 'fighter';
+  const cls = CLASSES[classId] || CLASSES.fighter;
+  const themeColor = cls.color || '#fbbf24';
+
+  ctx.save();
+
+  const cx = Math.floor(w / 2);
+  const cy = Math.floor(h / 2);
+
+  // Radial celestial aura behind chest
+  if (typeof ctx.createRadialGradient === 'function') {
+    const grad = ctx.createRadialGradient(cx, cy - 20, 10, cx, cy - 20, 120);
+    if (grad && typeof grad.addColorStop === 'function') {
+      grad.addColorStop(0, themeColor + '22');
+      grad.addColorStop(0.6, themeColor + '08');
+      grad.addColorStop(1, 'transparent');
+      ctx.fillStyle = grad;
+    }
+  } else {
+    ctx.fillStyle = themeColor + '15';
+  }
+  ctx.beginPath();
+  ctx.arc(cx, cy - 20, 120, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Helper for drawing ellipses safely across environments
+  const drawSafeEllipse = (ex, ey, rx, ry) => {
+    if (typeof ctx.ellipse === 'function') {
+      ctx.ellipse(ex, ey, rx, ry, 0, 0, Math.PI * 2);
+    } else {
+      ctx.save();
+      ctx.translate(ex, ey);
+      ctx.scale(1, ry / rx);
+      ctx.arc(0, 0, rx, 0, Math.PI * 2);
+      ctx.restore();
+    }
+  };
+
+  // Pedestal / Dais ellipse at feet
+  ctx.fillStyle = '#0f172a';
+  ctx.beginPath();
+  drawSafeEllipse(cx, h - 35, 75, 18);
+  ctx.fill();
+  ctx.strokeStyle = themeColor + '44';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+
+  // Runic floor circle rings
+  ctx.strokeStyle = '#283347';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  drawSafeEllipse(cx, h - 35, 60, 14);
+  ctx.stroke();
+
+  // Body shadow
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
+  ctx.beginPath();
+  drawSafeEllipse(cx, h - 34, 45, 10);
+  ctx.fill();
+
+  // Head
+  ctx.fillStyle = '#1e293b';
+  ctx.strokeStyle = themeColor + '66';
+  ctx.lineWidth = 1.6;
+  ctx.beginPath();
+  ctx.arc(cx, 68, 18, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+
+  // Helm Visor Slit
+  ctx.fillStyle = themeColor;
+  ctx.fillRect(cx - 9, 66, 18, 3.5);
+
+  // Neck
+  ctx.fillStyle = '#1e293b';
+  ctx.fillRect(cx - 6, 84, 12, 10);
+
+  // Torso / Chest & Abdomen
+  ctx.fillStyle = '#182234';
+  ctx.beginPath();
+  ctx.moveTo(cx - 36, 94);
+  ctx.lineTo(cx + 36, 94);
+  ctx.lineTo(cx + 22, 175);
+  ctx.lineTo(cx - 22, 175);
+  ctx.closePath();
+  ctx.fill();
+  ctx.strokeStyle = themeColor + '55';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+
+  // Breastplate contour lines
+  ctx.strokeStyle = '#334155';
+  ctx.lineWidth = 1.2;
+  ctx.beginPath();
+  ctx.moveTo(cx, 98);
+  ctx.lineTo(cx, 165);
+  ctx.moveTo(cx - 24, 118);
+  ctx.lineTo(cx, 134);
+  ctx.lineTo(cx + 24, 118);
+  ctx.stroke();
+
+  // Shoulders / Pauldrons
+  ctx.fillStyle = '#223048';
+  ctx.strokeStyle = themeColor + '77';
+  ctx.beginPath();
+  ctx.arc(cx - 38, 98, 12, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.arc(cx + 38, 98, 12, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+
+  // Left Arm (holding weapon position)
+  ctx.strokeStyle = '#182234';
+  ctx.lineWidth = 14;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(cx - 38, 106);
+  ctx.lineTo(cx - 62, 150);
+  ctx.lineTo(cx - 58, 180);
+  ctx.stroke();
+  ctx.strokeStyle = themeColor + '44';
+  ctx.lineWidth = 1.2;
+  ctx.stroke();
+
+  // Right Arm (holding offhand/pickaxe position)
+  ctx.strokeStyle = '#182234';
+  ctx.lineWidth = 14;
+  ctx.beginPath();
+  ctx.moveTo(cx + 38, 106);
+  ctx.lineTo(cx + 62, 150);
+  ctx.lineTo(cx + 58, 180);
+  ctx.stroke();
+  ctx.strokeStyle = themeColor + '44';
+  ctx.lineWidth = 1.2;
+  ctx.stroke();
+
+  // Belt & Tassets
+  ctx.fillStyle = '#2d3748';
+  ctx.fillRect(cx - 24, 174, 48, 8);
+  ctx.fillStyle = themeColor;
+  ctx.fillRect(cx - 4, 173, 8, 10);
+
+  // Left Leg
+  ctx.strokeStyle = '#182234';
+  ctx.lineWidth = 15;
+  ctx.beginPath();
+  ctx.moveTo(cx - 14, 185);
+  ctx.lineTo(cx - 18, 240);
+  ctx.lineTo(cx - 20, 280);
+  ctx.stroke();
+  ctx.strokeStyle = themeColor + '44';
+  ctx.lineWidth = 1.2;
+  ctx.stroke();
+
+  // Right Leg
+  ctx.strokeStyle = '#182234';
+  ctx.lineWidth = 15;
+  ctx.beginPath();
+  ctx.moveTo(cx + 14, 185);
+  ctx.lineTo(cx + 18, 240);
+  ctx.lineTo(cx + 20, 280);
+  ctx.stroke();
+  ctx.strokeStyle = themeColor + '44';
+  ctx.lineWidth = 1.2;
+  ctx.stroke();
+
+  // Boots
+  ctx.fillStyle = '#223048';
+  ctx.strokeStyle = themeColor + '66';
+  ctx.lineWidth = 1.2;
+  ctx.fillRect(cx - 28, 275, 17, 18);
+  ctx.strokeRect(cx - 28, 275, 17, 18);
+  ctx.fillRect(cx + 11, 275, 17, 18);
+  ctx.strokeRect(cx + 11, 275, 17, 18);
+
+  ctx.restore();
+}
+
 function minimapPixelToGrid(canvas, clientX, clientY, floor) {
   if (!canvas || !floor || !floor.tiles) return null;
   const fw = floor.width || (floor.tiles[0] ? floor.tiles[0].length : DEFAULT_MAP_W);
@@ -6448,11 +6668,15 @@ function renderGuildHub() {
     const unlocked = qmRank >= s.reqQM;
     const canBuy = unlocked && gameState.guildVault.gold >= s.cost;
     const rColor = s.rarity ? RARITY[s.rarity].color : '#e6edf3';
+    const typeIcon = getItemTypeIcon(s);
     return `
       <div class="p-2.5 rounded bg-[#111722] border border-[#283347] flex items-center justify-between gap-2 ${!unlocked ? 'opacity-50' : ''}">
-        <div>
-          <div class="text-xs font-bold" style="color:${rColor}">${s.name}</div>
-          <div class="text-[11px] text-[#8b949e]">${s.desc}</div>
+        <div class="flex items-center gap-2">
+          <span class="text-base shrink-0 select-none">${typeIcon}</span>
+          <div>
+            <div class="text-xs font-bold" style="color:${rColor}">${s.name}</div>
+            <div class="text-[11px] text-[#8b949e]">${s.desc}</div>
+          </div>
         </div>
         <button onclick="window.Aethelgard.buyShopItem('${s.id}')" ${!canBuy ? 'disabled' : ''} class="px-3 py-1.5 rounded text-xs font-mono-num font-bold whitespace-nowrap btn-tactical ${canBuy ? 'bg-[#fbbf24] text-[#080b11] hover:bg-[#f59e0b]' : 'bg-[#1a2232] text-[#8b949e] cursor-not-allowed'}">
           ${!unlocked ? `Req QM ${s.reqQM}` : `Buy (${s.cost}g)`}
@@ -6609,16 +6833,21 @@ function renderGuildHub() {
         </button>
       `;
 
+      const typeIcon = getItemTypeIcon(g);
+
       return `
         <div onclick="window.Aethelgard.openItemInspectModal('${g.uid}', false, false)" class="p-2.5 rounded ${borderClass} hover:border-[#60a5fa] cursor-pointer flex items-center justify-between gap-2">
-          <div class="truncate">
-            <div class="flex items-center gap-1.5 truncate">
-              <span class="text-xs font-bold truncate" style="color:${r.color}">${g.name}${formatSocketPipsHtml(g)}</span>
-              ${upgradeBadgeHtml}
-            </div>
-            <div class="text-[10px] text-[#8b949e] uppercase mt-0.5">
-              <span>${r.name} • ${g.slot}</span>
-              <span class="text-[#60a5fa] font-mono-num ml-1">PWR ${pwr}</span>
+          <div class="flex items-center gap-2 truncate flex-1 min-w-0">
+            <span class="text-base shrink-0 select-none">${typeIcon}</span>
+            <div class="truncate flex-1 min-w-0">
+              <div class="flex items-center gap-1.5 truncate">
+                <span class="text-xs font-bold truncate" style="color:${r.color}">${g.name}${formatSocketPipsHtml(g)}</span>
+                ${upgradeBadgeHtml}
+              </div>
+              <div class="text-[10px] text-[#8b949e] uppercase mt-0.5">
+                <span>${r.name} • ${g.slot}</span>
+                <span class="text-[#60a5fa] font-mono-num ml-1">PWR ${pwr}</span>
+              </div>
             </div>
           </div>
           <div class="flex items-center gap-1.5 shrink-0">
@@ -6948,11 +7177,12 @@ function updateAllUI() {
     spBox.classList.add('hidden');
   }
 
-  // Paper Doll 6 Slots (with Gem Socket pips)
+  // Paper Doll 6 Slots (with Gem Socket pips & Upfront Icons)
   const dollGrid = document.getElementById('uiPaperDollGrid');
   dollGrid.innerHTML = ['weapon', 'armor', 'helm', 'boots', 'accessory', 'pickaxe'].map(slot => {
     const it = h.equipment[slot];
     const r = it ? (RARITY[it.rarity] || RARITY.common) : RARITY.common;
+    const typeIcon = getItemTypeIcon(it || slot);
     let sub = '—';
     if (it) {
       if (slot === 'weapon') sub = `+${it.atk} ATK`;
@@ -6965,7 +7195,7 @@ function updateAllUI() {
     return `
       <div onclick="window.Aethelgard.openItemInspectModal('${slot}', true)" class="p-2 rounded bg-[#080b11] border border-[#283347] hover:border-[#60a5fa] cursor-pointer">
         <div class="flex items-center justify-between text-[9px] text-[#8b949e] uppercase">
-          <span>${slot}</span>
+          <span class="flex items-center gap-1"><span>${typeIcon}</span><span>${slot}</span></span>
           ${formatSocketPipsHtml(it)}
         </div>
         <div class="font-bold truncate" style="color:${it ? r.color : '#64748b'}">${it ? it.name : 'Empty'}</div>
@@ -6994,21 +7224,29 @@ function updateAllUI() {
     totalRiskVal += v;
     const isGem = item.type === 'Gem' && GEM_CATALOG[item.id];
     const nameColor = isGem ? GEM_CATALOG[item.id].color : '#e6edf3';
-    const prefix = isGem ? '◆ ' : '';
+    const typeIcon = getItemTypeIcon(item);
     packHtml.push(`
-      <div class="flex justify-between bg-[#111722] px-2 py-1 rounded border border-[#283347]">
-        <span style="color:${nameColor}">${prefix}${item.name} x${item.qty}</span>
-        <span class="text-[#fbbf24]">${v}g</span>
+      <div class="flex justify-between bg-[#111722] px-2 py-1 rounded border border-[#283347] text-xs">
+        <span class="flex items-center gap-1.5 truncate" style="color:${nameColor}">
+          <span class="text-xs shrink-0 select-none">${typeIcon}</span>
+          <span class="truncate">${item.name} x${item.qty}</span>
+        </span>
+        <span class="text-[#fbbf24] shrink-0 ml-1 font-mono-num">${v}g</span>
       </div>
     `);
   });
   h.expeditionGear.forEach(gear => {
     totalRiskVal += (gear.value || 20);
     const r = RARITY[gear.rarity] || RARITY.common;
+    const typeIcon = getItemTypeIcon(gear);
     packHtml.push(`
-      <div onclick="window.Aethelgard.openItemInspectModal('${gear.uid}', false, true)" class="flex justify-between bg-[#111722] px-2 py-1 rounded border border-[#283347] cursor-pointer hover:border-[#60a5fa]">
-        <span style="color:${r.color}">★ ${gear.name}${formatSocketPipsHtml(gear)}</span>
-        <span class="text-[#fbbf24]">${gear.value}g</span>
+      <div onclick="window.Aethelgard.openItemInspectModal('${gear.uid}', false, true)" class="flex justify-between bg-[#111722] px-2 py-1 rounded border border-[#283347] cursor-pointer hover:border-[#60a5fa] text-xs">
+        <span class="flex items-center gap-1.5 truncate" style="color:${r.color}">
+          <span class="text-xs shrink-0 select-none">${typeIcon}</span>
+          <span class="truncate">${gear.name}</span>
+          ${formatSocketPipsHtml(gear)}
+        </span>
+        <span class="text-[#fbbf24] shrink-0 ml-1 font-mono-num">${gear.value}g</span>
       </div>
     `);
   });
@@ -8043,51 +8281,117 @@ function renderInventoryModal() {
     if (el) el.textContent = statIds[i][1];
   }
 
-  // Paper-Doll 6 Slots
+  // Mannequin Canvas & Anatomical Paper-Doll Slots
+  const dollCanvas = document.getElementById('inventoryPaperDollCanvas');
+  if (dollCanvas) {
+    drawPaperDollMannequin(dollCanvas, h);
+  }
+
   const dollGrid = document.getElementById('inventoryPaperDollGrid');
   if (dollGrid) {
-    const slots = ['helm', 'weapon', 'armor', 'accessory', 'boots', 'pickaxe'];
-    dollGrid.innerHTML = slots.map(slot => {
-      const it = h.equipment ? h.equipment[slot] : null;
-      const r = it ? (RARITY[it.rarity] || RARITY.common) : RARITY.common;
-      const pwr = it ? computeItemPowerScore(it) : 0;
-      let statSummary = '—';
-      if (it) {
-        if (slot === 'weapon') statSummary = `+${it.atk || 0} ATK`;
-        else if (slot === 'armor') statSummary = `+${it.def || 0} DEF`;
-        else if (slot === 'helm') statSummary = `+${it.def || 0} DEF`;
-        else if (slot === 'boots') statSummary = `+${it.dodge || 0}% Dodge`;
-        else if (slot === 'accessory') statSummary = `+${it.crit || 0}% Crit`;
-        else if (slot === 'pickaxe') statSummary = `${it.curDur || 0}/${maxDur} Dur`;
+    const PAPER_DOLL_SLOTS = [
+      // Row 1: Head & Neck
+      { id: 'accessory', label: 'Trinket',  left: '10px',  top: '10px',  width: '84px', height: '64px', active: true },
+      { id: 'helm',      label: 'Helm',     left: '128px', top: '10px',  width: '84px', height: '64px', active: true },
+      { id: 'amulet',    label: 'Amulet',   right: '10px', top: '10px',  width: '84px', height: '64px', active: false, tier: 'Tier 2 Expansion' },
+
+      // Row 2: Torso & Weapons
+      { id: 'weapon',    label: 'Weapon',   left: '10px',  top: '86px',  width: '84px', height: '70px', active: true },
+      { id: 'armor',     label: 'Armor',    left: '128px', top: '86px',  width: '84px', height: '70px', active: true },
+      { id: 'pickaxe',   label: 'Off-Hand', right: '10px', top: '86px',  width: '84px', height: '70px', active: true },
+
+      // Row 3: Hands, Waist, Rings (Reserved)
+      { id: 'gloves',    label: 'Gloves',   left: '10px',  top: '168px', width: '84px', height: '64px', active: false, tier: 'Tier 2 Expansion' },
+      { id: 'belt',      label: 'Belt',     left: '128px', top: '168px', width: '84px', height: '64px', active: false, tier: 'Tier 3 Expansion' },
+      { id: 'ring',      label: 'Ring',     right: '10px', top: '168px', width: '84px', height: '64px', active: false, tier: 'Tier 2 Expansion' },
+
+      // Row 4: Feet
+      { id: 'boots',     label: 'Boots',    left: '128px', top: '254px', width: '84px', height: '64px', active: true }
+    ];
+
+    dollGrid.innerHTML = PAPER_DOLL_SLOTS.map(cfg => {
+      const posStyle = `top:${cfg.top};width:${cfg.width};height:${cfg.height};` +
+        (cfg.left ? `left:${cfg.left};` : `right:${cfg.right};`);
+
+      if (!cfg.active) {
+        const icon = getItemTypeIcon(cfg.id);
+        return `
+          <div class="pointer-events-auto absolute p-1.5 rounded-lg bg-[#05080e]/80 backdrop-blur-sm border border-[#1e293b]/60 flex flex-col justify-between items-center text-center opacity-60 cursor-not-allowed select-none group"
+               style="${posStyle}"
+               title="${cfg.label} Slot (${cfg.tier}) — Reserved for upcoming content expansion">
+            <div class="w-full flex items-center justify-between text-[9px] text-[#475569]">
+              <span class="uppercase tracking-wider font-semibold">${cfg.label}</span>
+              <span>🔒</span>
+            </div>
+            <div class="text-base opacity-30 group-hover:opacity-50 transition-opacity">
+              ${icon}
+            </div>
+            <div class="text-[8px] font-mono-num text-[#475569]">
+              Locked
+            </div>
+          </div>
+        `;
       }
 
-      const unequipBtn = (it && slot !== 'pickaxe')
-        ? `<button onclick="window.Aethelgard.handleInventoryUnequip('${slot}')" class="px-2 py-0.5 rounded bg-[#1a2232] hover:bg-[#283347] text-[#f87171] border border-[#f87171]/40 text-[10px] font-bold btn-tactical">Unequip</button>`
-        : '';
-      const inspectBtn = it
-        ? `<button onclick="window.Aethelgard.openItemInspectModal('${slot}', true)" class="px-2 py-0.5 rounded bg-[#1a2232] hover:bg-[#283347] text-[#60a5fa] border border-[#60a5fa]/40 text-[10px] font-bold btn-tactical">Inspect</button>`
-        : '';
+      const it = h.equipment ? h.equipment[cfg.id] : null;
+      const typeIcon = getItemTypeIcon(cfg.id);
 
-      const hoverAttr = it
-        ? `onmouseenter="window.Aethelgard.showFloatingItemTooltip(event, '${slot}', true)" onmouseleave="window.Aethelgard.hideFloatingItemTooltip()"`
+      if (!it) {
+        return `
+          <div class="pointer-events-auto absolute p-1.5 rounded-lg bg-[#080b11]/70 backdrop-blur-sm border border-dashed border-[#283347]/80 hover:border-[#fbbf24]/50 flex flex-col justify-between items-center text-center transition-colors group cursor-default select-none"
+               style="${posStyle}">
+            <div class="w-full flex items-center justify-between text-[9px] text-[#64748b]">
+              <span class="uppercase tracking-wider font-semibold">${cfg.label}</span>
+              <span>${typeIcon}</span>
+            </div>
+            <div class="text-lg opacity-40 group-hover:opacity-75 transition-opacity">
+              ${typeIcon}
+            </div>
+            <div class="text-[9px] text-[#64748b] italic">
+              (Empty)
+            </div>
+          </div>
+        `;
+      }
+
+      const r = RARITY[it.rarity] || RARITY.common;
+      const pwr = computeItemPowerScore(it);
+      let statSummary = '—';
+      if (cfg.id === 'weapon') statSummary = `+${it.atk || 0} ATK`;
+      else if (cfg.id === 'armor') statSummary = `+${it.def || 0} DEF`;
+      else if (cfg.id === 'helm') statSummary = `+${it.def || 0} DEF`;
+      else if (cfg.id === 'boots') statSummary = `+${it.dodge || 0}% Ddg`;
+      else if (cfg.id === 'accessory') statSummary = `+${it.crit || 0}% Crt`;
+      else if (cfg.id === 'pickaxe') statSummary = `${it.curDur || 0}/${maxDur} Dur`;
+
+      const unequipBtn = (cfg.id !== 'pickaxe')
+        ? `<button onclick="event.stopPropagation(); window.Aethelgard.handleInventoryUnequip('${cfg.id}')"
+                   class="text-[9px] font-bold text-[#8b949e] hover:text-[#f87171] px-1 rounded bg-[#1a2232]/80 hover:bg-[#283347] transition-colors"
+                   title="Unequip to Bag">✕</button>`
         : '';
 
       return `
-        <div ${hoverAttr} class="p-2.5 rounded-lg bg-[#080b11] border ${it ? 'border-[#283347] hover:border-[#60a5fa]/60' : 'border-[#283347]/50 border-dashed'} flex flex-col justify-between gap-1.5 transition-colors">
+        <div class="pointer-events-auto absolute p-1.5 rounded-lg bg-[#080b11]/90 backdrop-blur-sm border border-[#283347] hover:border-[#60a5fa] hover:bg-[#111722]/95 cursor-pointer flex flex-col justify-between transition-colors shadow-lg select-none group"
+             style="${posStyle}"
+             onclick="window.Aethelgard.openItemInspectModal('${cfg.id}', true)"
+             onmouseenter="window.Aethelgard.showFloatingItemTooltip(event, '${cfg.id}', true)"
+             onmouseleave="window.Aethelgard.hideFloatingItemTooltip()">
           <div class="flex items-center justify-between">
-            <span class="text-[10px] font-bold uppercase tracking-wider text-[#8b949e]">${slot}</span>
-            <div class="flex items-center gap-1">
-              ${it ? `<span class="text-[10px] text-[#60a5fa] font-mono-num font-bold">Pwr ${pwr}</span>` : ''}
+            <span class="text-[9px] font-bold text-[#8b949e] flex items-center gap-1">
+              <span>${typeIcon}</span>
+              <span class="uppercase tracking-wider">${cfg.label}</span>
+            </span>
+            ${unequipBtn}
+          </div>
+          <div class="font-bold text-[11px] truncate leading-tight" style="color:${r.color}">
+            ${it.name}
+          </div>
+          <div class="flex items-center justify-between text-[10px] text-[#8b949e]">
+            <span class="truncate">${statSummary}</span>
+            <div class="flex items-center gap-0.5 shrink-0">
+              <span class="text-[#60a5fa] font-mono-num font-bold">P${pwr}</span>
               ${formatSocketPipsHtml(it)}
             </div>
-          </div>
-          <div class="font-bold text-xs truncate" style="color:${it ? r.color : '#64748b'}">
-            ${it ? it.name : '(Empty Slot)'}
-          </div>
-          <div class="text-[11px] text-[#8b949e]">${statSummary}</div>
-          <div class="flex items-center justify-end gap-1.5 pt-1 border-t border-[#283347]/40">
-            ${unequipBtn}
-            ${inspectBtn}
           </div>
         </div>
       `;
@@ -8155,19 +8459,24 @@ function renderInventoryModal() {
         if (it.dodge) statDetail += `+${it.dodge}% Dodge `;
         if (it.crit) statDetail += `+${it.crit}% Crit `;
 
+        const typeIcon = getItemTypeIcon(it);
+
         return `
           <div onmouseenter="window.Aethelgard.showFloatingItemTooltip(event, '${it.uid}', false)" onmouseleave="window.Aethelgard.hideFloatingItemTooltip()" class="p-2.5 rounded-lg bg-[#080b11] border ${isUp ? 'border-[#34d399]/60 bg-[#06140d]/40' : 'border-[#283347]'} hover:border-[#60a5fa] flex items-center justify-between gap-2.5 transition-colors">
-            <div class="flex-1 min-w-0">
-              <div class="flex items-center gap-1.5">
-                <span class="font-bold text-xs truncate" style="color:${r.color}">${it.name}</span>
-                ${formatSocketPipsHtml(it)}
-                ${isUp ? '<span class="px-1.5 py-0.2 rounded text-[9px] font-bold bg-[#34d399]/20 text-[#34d399] border border-[#34d399]/40">▲ UPGRADE</span>' : ''}
-                <span class="text-[9px] font-mono-num uppercase px-1 py-0.2 rounded bg-[#111722] text-[#8b949e] border border-[#283347]">${it.slot}</span>
-              </div>
-              <div class="text-[11px] text-[#8b949e] truncate mt-0.5">
-                <span class="text-[#e6edf3] font-semibold">${statDetail || 'Standard frame'}</span>
-                • <span class="text-[#60a5fa]">Power ${pwr}</span>
-                ${entry.source === 'armory' ? '• <span class="text-[#fbbf24]">Vault Stored</span>' : ''}
+            <div class="flex items-center gap-2 flex-1 min-w-0">
+              <span class="text-base shrink-0 select-none" title="${it.slot}">${typeIcon}</span>
+              <div class="flex-1 min-w-0">
+                <div class="flex items-center gap-1.5">
+                  <span class="font-bold text-xs truncate" style="color:${r.color}">${it.name}</span>
+                  ${formatSocketPipsHtml(it)}
+                  ${isUp ? '<span class="px-1.5 py-0.2 rounded text-[9px] font-bold bg-[#34d399]/20 text-[#34d399] border border-[#34d399]/40">▲ UPGRADE</span>' : ''}
+                  <span class="text-[9px] font-mono-num uppercase px-1 py-0.2 rounded bg-[#111722] text-[#8b949e] border border-[#283347]">${it.slot}</span>
+                </div>
+                <div class="text-[11px] text-[#8b949e] truncate mt-0.5">
+                  <span class="text-[#e6edf3] font-semibold">${statDetail || 'Standard frame'}</span>
+                  • <span class="text-[#60a5fa]">Power ${pwr}</span>
+                  ${entry.source === 'armory' ? '• <span class="text-[#fbbf24]">Vault Stored</span>' : ''}
+                </div>
               </div>
             </div>
             <div class="flex items-center gap-1 shrink-0">
@@ -8192,15 +8501,16 @@ function renderInventoryModal() {
       conListEl.innerHTML = pack.map(item => {
         const isGem = item.type === 'Gem' && GEM_CATALOG[item.id];
         const col = isGem ? GEM_CATALOG[item.id].color : '#e6edf3';
-        const prefix = isGem ? '◆ ' : '';
+        const typeIcon = getItemTypeIcon(item);
         const totalVal = (item.val || 0) * (item.qty || 1);
         return `
           <div class="p-2 rounded bg-[#080b11] border border-[#283347] flex items-center justify-between text-xs font-mono-num">
-            <div>
-              <span class="font-bold" style="color:${col}">${prefix}${item.name}</span>
-              <span class="text-[#8b949e] ml-1">x${item.qty} (${item.val}g each)</span>
+            <div class="flex items-center gap-2 truncate">
+              <span class="text-sm shrink-0 select-none">${typeIcon}</span>
+              <span class="font-bold truncate" style="color:${col}">${item.name}</span>
+              <span class="text-[#8b949e] ml-1 shrink-0">x${item.qty} (${item.val}g each)</span>
             </div>
-            <div class="flex items-center gap-2">
+            <div class="flex items-center gap-2 shrink-0">
               <span class="text-[#fbbf24] font-bold">${totalVal}g</span>
               <button onclick="window.Aethelgard.handleInventoryDrop('${item.id}', false)" class="px-1.5 py-0.5 rounded bg-[#1a2232] hover:bg-[#283347] text-[#8b949e] hover:text-[#f87171] border border-[#283347] text-[10px]" title="Drop 1">Drop 1</button>
             </div>
@@ -8309,9 +8619,12 @@ function showFloatingItemTooltip(event, refKey, isEquipped = false) {
 
   tip.innerHTML = `
     <div class="flex items-center justify-between border-b border-[#283347] pb-1 mb-1">
-      <div>
-        <div class="font-bold text-xs" style="color:${r.color}">${item.name}</div>
-        <div class="text-[10px] text-[#8b949e] uppercase">${r.name} • ${item.slot || 'Item'}</div>
+      <div class="flex items-center gap-2">
+        <span class="text-lg shrink-0 select-none">${getItemTypeIcon(item)}</span>
+        <div>
+          <div class="font-bold text-xs" style="color:${r.color}">${item.name}</div>
+          <div class="text-[10px] text-[#8b949e] uppercase">${r.name} • ${item.slot || 'Item'}</div>
+        </div>
       </div>
       <div class="text-right">
         <div class="text-[#60a5fa] font-bold text-xs">Pwr ${power}</div>
@@ -9100,6 +9413,7 @@ function setupInputs() {
 
   // --- Module: src/test/selfTest.js ---
 // 23/23 Comprehensive Automated Self-Test Suite (Sandboxed & Non-Destructive)
+
 
 
 
@@ -10135,6 +10449,36 @@ function evaluateSelfTests() {
   const runRes = runCorridor(1, 0, sandbox24);
   const corridorRunValid = runRes.ok && typeof runRes.stepsTaken === 'number' && typeof runRes.stopReason === 'string';
 
+  // 6. Upfront Item Type Icons & Slot Metadata Canonical Contract
+  const iconArmor = getItemTypeIcon('armor') === '🦺';
+  const iconWeapon = getItemTypeIcon('weapon') === '⚔️';
+  const iconHelm = getItemTypeIcon('helm') === '🪖';
+  const iconBoots = getItemTypeIcon('boots') === '👢';
+  const iconAccessory = getItemTypeIcon('accessory') === '💍';
+  const iconPickaxe = getItemTypeIcon('pickaxe') === '⛏️';
+  const iconConsumable = getItemTypeIcon({ id: 'healing_tonic' }) === '🧪' && getItemTypeIcon({ id: 'recall_scroll' }) === '📜';
+  const iconGem = getItemTypeIcon({ type: 'Gem' }) === '◆';
+  const iconOre = getItemTypeIcon({ id: 'copper' }) === '🪨';
+  const iconsValid = iconArmor && iconWeapon && iconHelm && iconBoots && iconAccessory && iconPickaxe && iconConsumable && iconGem && iconOre;
+
+  // 7. Canonical Equipment Slot Definitions (active + reserved future slots)
+  const canonicalSlots = ['helm', 'armor', 'weapon', 'boots', 'accessory', 'pickaxe', 'shield', 'gloves', 'amulet', 'ring', 'belt'];
+  const slotsDefined = canonicalSlots.every(s => Boolean(SLOT_METADATA[s] && SLOT_METADATA[s].icon && SLOT_METADATA[s].label));
+
+  // 8. Paper-Doll Anatomical Mannequin Renderer execution
+  let mannequinRenders = false;
+  try {
+    const mockCanvas = (typeof document !== 'undefined') ? document.createElement('canvas') : { width: 340, height: 370, getContext: () => ({ fillStyle: '', beginPath: () => {}, stroke: () => {}, fill: () => {}, arc: () => {}, fillRect: () => {}, strokeRect: () => {}, save: () => {}, restore: () => {} }) };
+    if (mockCanvas) {
+      mockCanvas.width = 340;
+      mockCanvas.height = 370;
+      drawPaperDollMannequin(mockCanvas, sandbox24.hero);
+      mannequinRenders = true;
+    }
+  } catch (e) {
+    mannequinRenders = false;
+  }
+
   const t24Checks = {
     equipSuccess: !!equipSuccess,
     unequipSuccess: !!unequipSuccess,
@@ -10142,7 +10486,10 @@ function evaluateSelfTests() {
     gearDropped: !!gearDropped,
     packDropped: !!packDropped,
     sellingBlockedInDungeon: !!sellingBlockedInDungeon,
-    corridorRunValid: !!corridorRunValid
+    corridorRunValid: !!corridorRunValid,
+    iconsValid: !!iconsValid,
+    slotsDefined: !!slotsDefined,
+    mannequinRenders: !!mannequinRenders
   };
   const failedKeys24 = Object.keys(t24Checks).filter(k => !t24Checks[k]);
   const t24Pass = failedKeys24.length === 0;
@@ -10150,7 +10497,7 @@ function evaluateSelfTests() {
     name: '24. Character Paper-Doll Inventory Engine, In-Dungeon Equipment Management & Corridor Run',
     pass: t24Pass,
     detail: failedKeys24.length === 0
-      ? 'Field equip/swap/unequip verified, pickaxe protected, in-dungeon selling strictly prohibited, corridor fast-run verified'
+      ? 'Anatomical paper-doll mannequin verified, upfront item type icons verified, field equip/swap/unequip verified, pickaxe protected, in-dungeon selling strictly prohibited, corridor fast-run verified'
       : `Failed checks: ${failedKeys24.join(', ')}`
   });
 
@@ -10306,6 +10653,7 @@ function runChaosFuzzer(seedCount = 25) {
 
 
 
+
 // Bind UI callbacks into engine actions & combat
 registerActionCallbacks({
   log: logChronicle,
@@ -10417,6 +10765,9 @@ const AethelgardAPI = {
   getCodexMasteryMultiplier,
   renderCodexTab,
   runChaosFuzzer,
+  drawPaperDollMannequin,
+  getItemTypeIcon,
+  SLOT_METADATA,
   dev: {
     gotoFloor: gotoFloor,
     setLevel: setHeroLevel,

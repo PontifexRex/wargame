@@ -11,7 +11,7 @@ import { ORE_CATALOG, MINERAL_DISPLAY } from '../data/ores.js';
 import { GEM_IDS, GEM_CATALOG, GEM_DISPLAY } from '../data/gems.js';
 import { TALENT_TREES } from '../data/talents.js';
 import { RESEARCH_PROJECTS } from '../data/research.js';
-import { SHOP_ITEMS, computeItemPowerScore, isItemUpgrade } from '../data/items.js';
+import { SHOP_ITEMS, computeItemPowerScore, isItemUpgrade, getItemTypeIcon } from '../data/items.js';
 import { MONSTER_ARCHETYPES, BOSS_ARCHETYPES } from '../data/monsters.js';
 import { BIOME_PALETTES, resolveFloorBiome, CURATED_DUNGEON_PROFILES } from '../data/dungeons.js';
 import {
@@ -214,11 +214,15 @@ export function renderGuildHub() {
     const unlocked = qmRank >= s.reqQM;
     const canBuy = unlocked && gameState.guildVault.gold >= s.cost;
     const rColor = s.rarity ? RARITY[s.rarity].color : '#e6edf3';
+    const typeIcon = getItemTypeIcon(s);
     return `
       <div class="p-2.5 rounded bg-[#111722] border border-[#283347] flex items-center justify-between gap-2 ${!unlocked ? 'opacity-50' : ''}">
-        <div>
-          <div class="text-xs font-bold" style="color:${rColor}">${s.name}</div>
-          <div class="text-[11px] text-[#8b949e]">${s.desc}</div>
+        <div class="flex items-center gap-2">
+          <span class="text-base shrink-0 select-none">${typeIcon}</span>
+          <div>
+            <div class="text-xs font-bold" style="color:${rColor}">${s.name}</div>
+            <div class="text-[11px] text-[#8b949e]">${s.desc}</div>
+          </div>
         </div>
         <button onclick="window.Aethelgard.buyShopItem('${s.id}')" ${!canBuy ? 'disabled' : ''} class="px-3 py-1.5 rounded text-xs font-mono-num font-bold whitespace-nowrap btn-tactical ${canBuy ? 'bg-[#fbbf24] text-[#080b11] hover:bg-[#f59e0b]' : 'bg-[#1a2232] text-[#8b949e] cursor-not-allowed'}">
           ${!unlocked ? `Req QM ${s.reqQM}` : `Buy (${s.cost}g)`}
@@ -375,16 +379,21 @@ export function renderGuildHub() {
         </button>
       `;
 
+      const typeIcon = getItemTypeIcon(g);
+
       return `
         <div onclick="window.Aethelgard.openItemInspectModal('${g.uid}', false, false)" class="p-2.5 rounded ${borderClass} hover:border-[#60a5fa] cursor-pointer flex items-center justify-between gap-2">
-          <div class="truncate">
-            <div class="flex items-center gap-1.5 truncate">
-              <span class="text-xs font-bold truncate" style="color:${r.color}">${g.name}${formatSocketPipsHtml(g)}</span>
-              ${upgradeBadgeHtml}
-            </div>
-            <div class="text-[10px] text-[#8b949e] uppercase mt-0.5">
-              <span>${r.name} • ${g.slot}</span>
-              <span class="text-[#60a5fa] font-mono-num ml-1">PWR ${pwr}</span>
+          <div class="flex items-center gap-2 truncate flex-1 min-w-0">
+            <span class="text-base shrink-0 select-none">${typeIcon}</span>
+            <div class="truncate flex-1 min-w-0">
+              <div class="flex items-center gap-1.5 truncate">
+                <span class="text-xs font-bold truncate" style="color:${r.color}">${g.name}${formatSocketPipsHtml(g)}</span>
+                ${upgradeBadgeHtml}
+              </div>
+              <div class="text-[10px] text-[#8b949e] uppercase mt-0.5">
+                <span>${r.name} • ${g.slot}</span>
+                <span class="text-[#60a5fa] font-mono-num ml-1">PWR ${pwr}</span>
+              </div>
             </div>
           </div>
           <div class="flex items-center gap-1.5 shrink-0">
@@ -714,11 +723,12 @@ export function updateAllUI() {
     spBox.classList.add('hidden');
   }
 
-  // Paper Doll 6 Slots (with Gem Socket pips)
+  // Paper Doll 6 Slots (with Gem Socket pips & Upfront Icons)
   const dollGrid = document.getElementById('uiPaperDollGrid');
   dollGrid.innerHTML = ['weapon', 'armor', 'helm', 'boots', 'accessory', 'pickaxe'].map(slot => {
     const it = h.equipment[slot];
     const r = it ? (RARITY[it.rarity] || RARITY.common) : RARITY.common;
+    const typeIcon = getItemTypeIcon(it || slot);
     let sub = '—';
     if (it) {
       if (slot === 'weapon') sub = `+${it.atk} ATK`;
@@ -731,7 +741,7 @@ export function updateAllUI() {
     return `
       <div onclick="window.Aethelgard.openItemInspectModal('${slot}', true)" class="p-2 rounded bg-[#080b11] border border-[#283347] hover:border-[#60a5fa] cursor-pointer">
         <div class="flex items-center justify-between text-[9px] text-[#8b949e] uppercase">
-          <span>${slot}</span>
+          <span class="flex items-center gap-1"><span>${typeIcon}</span><span>${slot}</span></span>
           ${formatSocketPipsHtml(it)}
         </div>
         <div class="font-bold truncate" style="color:${it ? r.color : '#64748b'}">${it ? it.name : 'Empty'}</div>
@@ -760,21 +770,29 @@ export function updateAllUI() {
     totalRiskVal += v;
     const isGem = item.type === 'Gem' && GEM_CATALOG[item.id];
     const nameColor = isGem ? GEM_CATALOG[item.id].color : '#e6edf3';
-    const prefix = isGem ? '◆ ' : '';
+    const typeIcon = getItemTypeIcon(item);
     packHtml.push(`
-      <div class="flex justify-between bg-[#111722] px-2 py-1 rounded border border-[#283347]">
-        <span style="color:${nameColor}">${prefix}${item.name} x${item.qty}</span>
-        <span class="text-[#fbbf24]">${v}g</span>
+      <div class="flex justify-between bg-[#111722] px-2 py-1 rounded border border-[#283347] text-xs">
+        <span class="flex items-center gap-1.5 truncate" style="color:${nameColor}">
+          <span class="text-xs shrink-0 select-none">${typeIcon}</span>
+          <span class="truncate">${item.name} x${item.qty}</span>
+        </span>
+        <span class="text-[#fbbf24] shrink-0 ml-1 font-mono-num">${v}g</span>
       </div>
     `);
   });
   h.expeditionGear.forEach(gear => {
     totalRiskVal += (gear.value || 20);
     const r = RARITY[gear.rarity] || RARITY.common;
+    const typeIcon = getItemTypeIcon(gear);
     packHtml.push(`
-      <div onclick="window.Aethelgard.openItemInspectModal('${gear.uid}', false, true)" class="flex justify-between bg-[#111722] px-2 py-1 rounded border border-[#283347] cursor-pointer hover:border-[#60a5fa]">
-        <span style="color:${r.color}">★ ${gear.name}${formatSocketPipsHtml(gear)}</span>
-        <span class="text-[#fbbf24]">${gear.value}g</span>
+      <div onclick="window.Aethelgard.openItemInspectModal('${gear.uid}', false, true)" class="flex justify-between bg-[#111722] px-2 py-1 rounded border border-[#283347] cursor-pointer hover:border-[#60a5fa] text-xs">
+        <span class="flex items-center gap-1.5 truncate" style="color:${r.color}">
+          <span class="text-xs shrink-0 select-none">${typeIcon}</span>
+          <span class="truncate">${gear.name}</span>
+          ${formatSocketPipsHtml(gear)}
+        </span>
+        <span class="text-[#fbbf24] shrink-0 ml-1 font-mono-num">${gear.value}g</span>
       </div>
     `);
   });

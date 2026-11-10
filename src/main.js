@@ -41,8 +41,10 @@ import {
   renderDungeonCanvas,
   renderMinimapCanvas,
   updateFOV,
-  spawnFloatingText
+  spawnFloatingText,
+  drawPaperDollMannequin
 } from './ui/renderer.js';
+import { getItemTypeIcon, SLOT_METADATA } from './data/items.js';
 import { updateAllUI, switchGuildTab, setArmorySortBy, logChronicle, clearChronicle, renderCodexTab } from './ui/domSync.js';
 import {
   openClassSelectModal,
@@ -236,6 +238,9 @@ export const AethelgardAPI = {
   getCodexMasteryMultiplier,
   renderCodexTab,
   runChaosFuzzer,
+  drawPaperDollMannequin,
+  getItemTypeIcon,
+  SLOT_METADATA,
   dev: {
     gotoFloor: gotoFloor,
     setLevel: setHeroLevel,

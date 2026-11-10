@@ -74,3 +74,34 @@ export function isItemUpgrade(candidateItem, equipment) {
   if (!curEq) return true;
   return computeItemPowerScore(candidateItem) > computeItemPowerScore(curEq);
 }
+
+export const SLOT_METADATA = {
+  helm:      { id: 'helm',      label: 'Head / Helm',         icon: '🪖', placeholder: 'Helm' },
+  armor:     { id: 'armor',     label: 'Chest / Body Armor',  icon: '🦺', placeholder: 'Armor' },
+  weapon:    { id: 'weapon',    label: 'Main Hand / Weapon',  icon: '⚔️', placeholder: 'Weapon' },
+  boots:     { id: 'boots',     label: 'Feet / Boots',        icon: '👢', placeholder: 'Boots' },
+  accessory: { id: 'accessory', label: 'Neck / Accessory',    icon: '💍', placeholder: 'Trinket' },
+  pickaxe:   { id: 'pickaxe',   label: 'Off-Hand / Pickaxe',  icon: '⛏️', placeholder: 'Pickaxe' },
+  shield:    { id: 'shield',    label: 'Off-Hand / Shield',   icon: '🛡️', placeholder: 'Shield' },
+  gloves:    { id: 'gloves',    label: 'Hands / Gauntlets',   icon: '🧤', placeholder: 'Gloves' },
+  amulet:    { id: 'amulet',    label: 'Necklace / Amulet',   icon: '📿', placeholder: 'Amulet' },
+  ring:      { id: 'ring',      label: 'Finger / Ring',       icon: '💍', placeholder: 'Ring' },
+  belt:      { id: 'belt',      label: 'Waist / Belt',        icon: '🎗️', placeholder: 'Belt' }
+};
+
+export function getItemTypeIcon(itemOrSlot) {
+  if (!itemOrSlot) return '📦';
+  if (typeof itemOrSlot === 'string') {
+    const meta = SLOT_METADATA[itemOrSlot];
+    return meta ? meta.icon : '📦';
+  }
+  if (itemOrSlot.slot && SLOT_METADATA[itemOrSlot.slot]) {
+    return SLOT_METADATA[itemOrSlot.slot].icon;
+  }
+  const idStr = String(itemOrSlot.id || '');
+  if (idStr === 'healing_tonic' || idStr === 'buy_heal' || idStr === 'potions') return '🧪';
+  if (idStr === 'recall_scroll' || idStr === 'buy_recall' || idStr === 'recalls') return '📜';
+  if (itemOrSlot.type === 'Gem') return '◆';
+  if (itemOrSlot.type === 'Ore' || ['copper', 'iron', 'mithril', 'geode', 'starcrystal', 'astralite'].includes(idStr) || idStr.indexOf('ore') !== -1) return '🪨';
+  return '📦';
+}

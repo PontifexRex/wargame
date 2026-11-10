@@ -144,23 +144,30 @@ Implemented an extensible, developer-only control interface and programmatic API
 v0.7.0-ux1 - Increment 7.0: Character Paper-Doll Inventory Screen, Floating Stat Comparison Tooltips & Corridor Fast-Run
 
 Delivered comprehensive character sheet and inventory ergonomics:
-- **Full Character & Inventory Management Modal (`[I]` / `[C]` / `#inventoryModal`)**:
+- **Full Anatomical Character Paper-Doll & Inventory Management Modal (`[I]` / `[C]` / `#inventoryModal`)**:
   - Two-column modal accessible from keyboard hotkeys `[I]` / `[C]`, the top header bar, or tactical action bar.
-  - Left Column: Visual hero portrait, identity, vitals (HP, MP, Pickaxe Durability), core attributes (STR, DEX, INT, VIT, ATK, DEF, CRIT, DODGE), and full 6-slot Paper-Doll loadout (`Helm`, `Weapon`, `Armor`, `Accessory`, `Boots`, `Pickaxe`).
+  - Left Column: Visual hero portrait, identity, vitals (HP, MP, Pickaxe Durability), core attributes (STR, DEX, INT, VIT, ATK, DEF, CRIT, DODGE), and **Anatomical Paper-Doll Mannequin Stage** (`#inventoryPaperDollCanvas` + `#inventoryPaperDollGrid`).
+    - Renders central anatomical mannequin figure with class color aura, runic dais, breastplate contours, and visor slit.
+    - 6 active slots anatomically placed around the hero: Head (`Helm` 🪖), Torso (`Armor` 🦺), Main Hand (`Weapon` ⚔️), Off-Hand (`Pickaxe` ⛏️), Neck (`Accessory` 💍), Feet (`Boots` 👢).
+    - 4 reserved future equipment slots rendered with locked watermarks: Neck/Right (`Amulet` 📿), Wrist/Hands (`Gloves` 🧤), Waist (`Belt` 🎗️), Finger (`Ring` 💍).
+    - One-click `✕` unequip button on active slots, click-to-inspect, and hover stat comparison tooltips.
   - Right Column: Filterable Bag Gear (`All`, `Weapons`, `Armor`, `Accessories`) and Consumables/Minerals list.
   - Equip / Swap: Instant field equipping of weapons and armor from the pack or armory with automatic stat delta recomputation and returning replaced items to the bag.
   - Unequip: Unequip any worn piece to the bag/armory (pickaxes protected from direct unequip to safeguard mining capability).
   - Drop / Discard: Drop unwanted items from the pack to clear clutter.
   - Strict Economy Boundary: Selling/liquidating items for gold is strictly prohibited while inside the dungeon (`!gameState.inGuild`).
+- **Upfront Item Type Icons Across All Inventories (`getItemTypeIcon`)**:
+  - Immediate visual type identification prefixing item names: `🦺` Armor, `⚔️` Weapon, `🪖` Helm, `👢` Boots, `💍` Accessory/Ring, `⛏️` Pickaxe, `🛡️` Shield, `🧤` Gloves, `📿` Amulet, `🎗️` Belt, `🧪` Healing Tonic, `📜` Astral Recall, `🪨` Ores/Minerals, `◆` Gems.
+  - Applied across Bag List, Pack Consumables, Sidebar Paper-Doll, Expedition Pack, Vault Armory, and Quartermaster Shop.
 - **Floating Hover Comparison Tooltip (`#floatingItemTooltip`)**:
   - Glassmorphic floating tooltip triggered on hovering over items in the inventory bag, armory, or paper-doll.
-  - Renders item rarity, power score, primary stats with side-by-side green `▲ +X` and red `▼ -Y` deltas comparing directly against the equipped item in that slot, plus socketed gems and rolled affixes.
+  - Renders upfront item icon, rarity, power score, primary stats with side-by-side green `▲ +X` and red `▼ -Y` deltas comparing directly against the equipped item in that slot, plus socketed gems and rolled affixes.
 - **Corridor Fast-Run (`Shift + Direction` / `runCorridor`) & Numpad Movement**:
   - Holding `Shift + WASD / Arrow` (or Numpad keys) triggers smooth corridor fast-running up to 50 steps.
   - Automatically halts on: hostile sighted in FOV, trap spotted, damage taken, reaching a landmark (Stairs, Chest, Shrine), adjacent unmined ore vein, or reaching a corridor intersection/room.
   - Full Numpad 8-direction movement + `Numpad5` wait.
 - **Verification Gate**:
-  - Added Sandboxed **Test 24** in `src/test/selfTest.js` verifying field equip/swap, unequip, drop, in-dungeon selling prohibition, and corridor run.
+  - Added Sandboxed **Test 24** in `src/test/selfTest.js` verifying field equip/swap, unequip, drop, in-dungeon selling prohibition, corridor run, upfront item icons, canonical slot definitions, and anatomical paper-doll rendering.
   - Expanded automated verification suite to **24/24 PASS** + Headless UI Smoke Suite + 10-seed fuzzer pass.
 
 2. Upcoming Increment Backlog
