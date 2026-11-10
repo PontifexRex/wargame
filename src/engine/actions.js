@@ -32,7 +32,8 @@ import {
   ensureDungeonFloorHydrated,
   syncActiveDungeonAlias,
   recomputeHeroDerivedStats,
-  getPickaxeMaxDurability
+  getPickaxeMaxDurability,
+  ensureCodexState
 } from './state.js';
 import { generateProceduralEquipment, rollSocketCountForRarity } from './procedural.js';
 import { playSound } from './audio.js';
@@ -419,12 +420,17 @@ export function mineTile(x, y, state = gameState) {
   floor.tiles[y][x] = TILE_FLOOR;
   floor.oresMined = (floor.oresMined || 0) + 1;
 
+  const codex = ensureCodexState(state);
+  codex.totalOresMined = (codex.totalOresMined || 0) + 1;
+  codex.oreMinedById[ore.id] = (codex.oreMinedById[ore.id] || 0) + 1;
+
   addExpeditionTradeItem(ore.id, ore.name, ore.baseValue, 1, 'Ore', state);
   recordBountyProgress('mine', [ore.id], 1, state);
 
   // High-tier vein uncut Astral Gem drop check
   const droppedGemId = rollUncutGemForOreTile(tile);
   if (droppedGemId && GEM_CATALOG[droppedGemId]) {
+    codex.totalGemsUnearthed = (codex.totalGemsUnearthed || 0) + 1;
     const gemDef = GEM_CATALOG[droppedGemId];
     addExpeditionTradeItem(gemDef.id, gemDef.name, gemDef.baseValue, 1, 'Gem', state);
     if (state === gameState) {
@@ -646,6 +652,9 @@ export function activateAstralShrine(x, y, state = gameState) {
     }
   }
 
+  const codex = ensureCodexState(state);
+  codex.totalShrinesActivated = (codex.totalShrinesActivated || 0) + 1;
+
   detectNearbyTraps(floor, state);
   emitEngineEvent(ENGINE_EVENTS.SHRINE_ACTIVATED, {
     shrineType: sDef.id,
@@ -742,10 +751,34 @@ export function useHealingTonic(state = gameState) {
   return true;
 }
 
+function recordDungeonDepthInCodex(state) {
+  if (!state || !state.dungeon) return;
+  const codex = ensureCodexState(state);
+  const dId = state.activeDungeonId || state.dungeon.id;
+  const curFl = state.dungeon.currentFloor || 1;
+  const cfg = state.dungeon.config || {};
+  if (!codex.deepestFloorByDungeon[dId]) {
+    codex.deepestFloorByDungeon[dId] = {
+      name: state.dungeon.name,
+      deepestFloor: curFl,
+      maxDepth: cfg.maxDepth || 999
+    };
+  } else {
+    const entry = codex.deepestFloorByDungeon[dId];
+    entry.name = state.dungeon.name;
+    entry.deepestFloor = Math.max(entry.deepestFloor || 1, curFl);
+    entry.maxDepth = cfg.maxDepth || 999;
+  }
+}
+
 export function extractToGuild(method = 'Floor 1 Ascending Stairs (<)', state = gameState) {
   const h = state.hero;
   const assayRank = state.guildResearch.assay || 0;
   const mult = 1 + assayRank * 0.35;
+
+  const codex = ensureCodexState(state);
+  codex.totalExtractions = (codex.totalExtractions || 0) + 1;
+  recordDungeonDepthInCodex(state);
 
   if (!state.guildVault.gems) {
     state.guildVault.gems = { ruby: 0, emerald: 0, sapphire: 0, topaz: 0, void_diamond: 0 };
@@ -837,6 +870,10 @@ export function handleHeroDefeat(killerName = 'Abyssal Guardian', state = gameSt
   const h = state.hero;
   const vRank = state.guildResearch.vanguard || 0;
   const recoveryPct = vRank * 0.20;
+
+  const codex = ensureCodexState(state);
+  codex.totalDefeats = (codex.totalDefeats || 0) + 1;
+  recordDungeonDepthInCodex(state);
 
   let packValue = 0;
   h.expeditionPack.forEach(i => { packValue += i.val * i.qty; });

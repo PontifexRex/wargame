@@ -66,30 +66,37 @@ Added O(21x15) frustum-culled scrolling camera, Bresenham raycast wall line-of-s
 
 Expanded automated verification suite to 17/17 PASS.
 
+v0.5.0-inc5 - Increment 5: Deep Abyssal Biomes, Floor 15/20 Bosses & Guild Bestiary Codex
+
+Upgraded to Schema v6 (v0.5.0-inc5, storage key aethelgard_save_v6) with backward migration supporting v1–v5 saves.
+
+Implemented 4 Distinct Visual Biomes by Depth & Curated Profile:
+- Dwarven Catacombs (Floors 1-5 & Sunken Quarry)
+- Crystalline Caverns (Floors 6-10 & Mycelium Labyrinth)
+- Molten Forgeworks (Floors 11-15 & Molten Crucible)
+- The Vespera Crater (Floors 16-20 & Citadel of the Fallen Star)
+Each biome renders tailored 2D canvas wall fills, caps, bases, accents, torchlight tints, and dynamic minimap coloring.
+
+Added 5th Curated Regional Dungeon: The Molten Forgeworks (molten_crucible, 96x72, 15 floors) featuring basalt chambers, slag pools, and heavy Mithril/Astral veins.
+
+Added Deep Vault Milestone Bosses:
+- Floor 15: Ignis, The Forge Tyrant (680 HP, 38 ATK, 20 DEF, Burn, guaranteed Relic equipment + 2 Astralite + Crimson Ruby)
+- Floor 20: Vespera's Avatar, Heart of the Fallen Star (1050 HP, 48 ATK, 26 DEF, Weakened, guaranteed 2-socket Relic equipment + 3 Astralite + Void Diamond)
+
+Implemented Guild Bestiary Codex & Hall of Records (gameState.codex):
+- Tracks lifetime monsters slain, bosses fallen, elites vanquished, ores mined, gems unearthed, extractions, defeats, and deepest floor reached per dungeon.
+- Star-Forged Relic discoveries archive logging legendary equipment finds.
+- Hunter's Mastery: Slaying 5 foes of a monster archetype (or 1 boss) grants permanent +8% Mastery Damage against that archetype across all melee and class skills.
+- Guild Hub Codex Tab (#guildTab_codex) with dynamic stat counters, deepest delvings, relic archive, and bestiary grid.
+
+Expanded automated verification suite to 20/20 PASS + Headless UI Smoke Suite.
+
 2. Upcoming Increment Backlog
 
-Increment 5 (v0.5.0-inc5) - Deep Abyssal Biomes, Floor 15/20 Bosses & Bestiary Codex
+Increment 6 (v0.6.0-inc6) - Guild Forge Runecrafting, Deep Affix Synthesis & Abyss Expeditions
 
 Scope & Deliverables:
-
-Distinct Visual Biomes by Depth & Profile:
-
-Dwarven Catacombs (slate masonry)
-
-Crystalline Caverns (indigo & quartz walls)
-
-Molten Forgeworks (basalt & magma veins)
-
-The Vespera Crater (cosmic void masonry)
-
-Deeper Boss Encounters:
-
-Floor 15 Boss: Ignis, The Forge Tyrant
-
-Floor 20 Boss: Vespera's Avatar, Heart of the Fallen Star
-
-Guild Bestiary & Hall of Records:
-
-Tracks total monsters slain, deepest floor reached per dungeon, total ores mined, and unlocked Star-Forged Relics.
-
-Verification Gate: Bump to 20/20 PASS in runSelfTests().
+- Star-Forge Runecrafting & Affix Synthesis: Guild facility to re-roll item affixes or upgrade item rarity using star-ores and lapidary gems.
+- Abyssal Affixes & Elite Modifiers: New monster modifier affixes (Reflective, Chilled, Temporal Warp) and enhanced procedural loot affixes.
+- Endless Strata Delve Mode: Infinitely descending dungeon profile beyond Floor 20 with scaling monster danger and celestial vault rewards.
+- Verification Gate: Bump to 23/23 PASS in runSelfTests().

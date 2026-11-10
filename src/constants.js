@@ -1,7 +1,7 @@
 // Core constants, viewport dimensions, map scale presets, tile IDs, and rarity definitions
 
-export const SCHEMA_VERSION = 'v0.4.5-atlas';
-export const STORAGE_KEY = 'aethelgard_save_v5';
+export const SCHEMA_VERSION = 'v0.5.0-inc5';
+export const STORAGE_KEY = 'aethelgard_save_v6';
 
 export const TILE_SIZE = 32;
 export const VIEWPORT_WIDTH = 21;
@@ -15,6 +15,10 @@ export const DEFAULT_MAP_H = 60;
 
 // Soft configurable cap on simultaneously chartered custom expeditions (not a structural limit; can be raised to 500+)
 export const DEFAULT_MAX_CHARTERED_DUNGEONS = 12;
+
+// Bestiary & Codex Mastery Constants
+export const CODEX_MASTERY_KILLS = 5;
+export const CODEX_MASTERY_DMG_MULT = 1.08;
 
 export const MAP_SIZE_PRESETS = {
   small:     { id: 'small',     name: 'Small Outpost',        width: 48,  height: 36,  desc: '48x36 (~5.5x classic) • 14–18 chambers' },

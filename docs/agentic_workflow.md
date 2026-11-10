@@ -30,14 +30,14 @@ flowchart TD
     S2["2. Pure Data Catalogs\n(src/data/*.js — zero engine/UI imports)"]
     S3["3. Sandboxed Engine & Events\n(src/engine/*.js — state = gameState, emitEngineEvent)"]
     S4["4. Presentation & Input\n(src/ui/*.js, index.html, src/main.js window.Aethelgard)"]
-    S5["5. Cumulative Sandboxed Self-Tests\n(src/test/selfTest.js — Tests 1..17+)"]
+    S5["5. Cumulative Sandboxed Self-Tests\n(src/test/selfTest.js — Tests 1..20+)"]
   end
 
   subgraph Verify["4. Automated Verification Pipeline (./scripts/test.ps1)"]
     G1["Gate 1: Module Graph & Top-Level Collision Check\n(scripts/build.ps1 -> dist/bundle.js)"]
-    G2["Gate 2: HTML DOM ID Contract (141 IDs)\n& window.Aethelgard API Contract (74 Exports)\n& Golden Rule / ES2017 Static Gate"]
-    G3["Gate 3: Headless Chakra ES2017 Self-Test Suite (17/17 PASS)\n+ Headless UI, 6-Tab Guild Hub, Atlas & Canvas Smoke Suite"]
-    G4["Optional Gate 4: In-Browser Diagnostics\n(index.html 'Verify Atlas' modal & visual check)"]
+    G2["Gate 2: HTML DOM ID Contract (154 IDs)\n& window.Aethelgard API Contract (78 Exports)\n& Golden Rule / ES2017 Static Gate"]
+    G3["Gate 3: Headless Chakra ES2017 Self-Test Suite (20/20 PASS)\n+ Headless UI, 7-Tab Guild Hub, Atlas & Canvas Smoke Suite"]
+    G4["Optional Gate 4: In-Browser Diagnostics\n(index.html 'Verify Inc-5' modal & visual check)"]
   end
 
   subgraph Release["5. Milestone Release & Documentation Sync"]

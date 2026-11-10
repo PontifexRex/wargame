@@ -1,18 +1,27 @@
 // DOM Synchronization, Guild Hub Views (including Notice Board & Lapidary), Dungeon HUD & Chronicle Log
 
-import { RARITY, LAPIDARY_UNSOCKET_COST } from '../constants.js';
+import {
+  RARITY,
+  LAPIDARY_UNSOCKET_COST,
+  CODEX_MASTERY_KILLS,
+  CODEX_MASTERY_DMG_MULT
+} from '../constants.js';
 import { CLASSES } from '../data/classes.js';
 import { ORE_CATALOG, MINERAL_DISPLAY } from '../data/ores.js';
 import { GEM_IDS, GEM_CATALOG, GEM_DISPLAY } from '../data/gems.js';
 import { TALENT_TREES } from '../data/talents.js';
 import { RESEARCH_PROJECTS } from '../data/research.js';
 import { SHOP_ITEMS } from '../data/items.js';
+import { MONSTER_ARCHETYPES, BOSS_ARCHETYPES } from '../data/monsters.js';
+import { BIOME_PALETTES, resolveFloorBiome, CURATED_DUNGEON_PROFILES } from '../data/dungeons.js';
 import {
   gameState,
   normalizeEquipmentSockets,
   ensureDungeonFloorHydrated,
   recomputeHeroDerivedStats,
-  getPickaxeMaxDurability
+  getPickaxeMaxDurability,
+  ensureCodexState,
+  getCodexMasteryMultiplier
 } from '../engine/state.js';
 import { ensureGuildBounties } from '../engine/actions.js';
 import { drawHeroSprite, renderMinimapCanvas } from './renderer.js';
@@ -368,6 +377,124 @@ export function renderGuildHub() {
       </div>
     `;
   }).join('');
+
+  renderCodexTab();
+}
+
+export function renderCodexTab() {
+  if (typeof document === 'undefined') return;
+  const codex = ensureCodexState(gameState);
+
+  const setTxt = (id, val) => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = val;
+  };
+
+  setTxt('uiCodexMonstersSlain', codex.totalMonstersSlain || 0);
+  setTxt('uiCodexBossesSlain', codex.totalBossesSlain || 0);
+  setTxt('uiCodexOresMined', codex.totalOresMined || 0);
+  setTxt('uiCodexGemsUnearthed', codex.totalGemsUnearthed || 0);
+  setTxt('uiCodexExtractions', codex.totalExtractions || 0);
+
+  const allMonsters = Object.values(MONSTER_ARCHETYPES).concat(Object.values(BOSS_ARCHETYPES));
+  let masteredCount = 0;
+
+  for (let i = 0; i < allMonsters.length; i++) {
+    const m = allMonsters[i];
+    const kills = (codex.killsByArchetype && codex.killsByArchetype[m.id]) || 0;
+    const req = m.isBoss ? 1 : CODEX_MASTERY_KILLS;
+    if (kills >= req) {
+      masteredCount++;
+    }
+  }
+
+  setTxt('uiCodexMasteredCount', masteredCount);
+  setTxt('uiCodexMasteryBadge', masteredCount);
+
+  // Deepest Floor Grid
+  const deepestGrid = document.getElementById('uiCodexDeepestGrid');
+  if (deepestGrid) {
+    const depths = codex.deepestFloorByDungeon || {};
+    const dngKeys = Object.keys(depths);
+    if (dngKeys.length === 0) {
+      deepestGrid.innerHTML = '<div class="col-span-full text-xs text-[#8b949e] italic py-2 text-center">No expeditions recorded yet. Descend the stairs to chart records!</div>';
+    } else {
+      deepestGrid.innerHTML = dngKeys.map(dKey => {
+        const dProf = CURATED_DUNGEON_PROFILES[dKey];
+        const dName = (dProf && dProf.name) || dKey;
+        const maxF = depths[dKey] || 0;
+        return `
+          <div class="bg-[#111722] p-2.5 rounded border border-[#283347] flex items-center justify-between">
+            <span class="text-xs text-[#e6edf3] font-bold truncate">${dName}</span>
+            <span class="text-xs font-mono-num text-[#34d399] font-bold ml-2">Fl ${maxF}</span>
+          </div>
+        `;
+      }).join('');
+    }
+  }
+
+  // Star-Forged Relics Grid
+  const relicsGrid = document.getElementById('uiCodexRelicsGrid');
+  if (relicsGrid) {
+    const relics = Array.isArray(codex.relicsUnlocked) ? codex.relicsUnlocked : [];
+    if (relics.length === 0) {
+      relicsGrid.innerHTML = '<div class="col-span-full text-xs text-[#8b949e] italic py-2 text-center">No relics unearthed yet. Challenge deep Vault bosses (Floors 10, 15, 20) or rare chests!</div>';
+    } else {
+      relicsGrid.innerHTML = relics.map(r => {
+        const rar = RARITY[r.rarity] || RARITY.relic;
+        return `
+          <div class="bg-[#111722] p-2.5 rounded border border-[#fbbf24]/40 flex items-center justify-between">
+            <div>
+              <div class="text-xs font-bold" style="color:${rar.color}">★ ${r.name}</div>
+              <div class="text-[10px] text-[#8b949e] uppercase">${r.slot} • Fl ${r.floorDepth || 1}</div>
+            </div>
+            <span class="text-[10px] font-mono-num text-[#fbbf24] px-1.5 py-0.5 rounded bg-[#080b11]">Relic</span>
+          </div>
+        `;
+      }).join('');
+    }
+  }
+
+  // Bestiary & Hunter Mastery Grid
+  const bestiaryGrid = document.getElementById('uiBestiaryGrid');
+  if (bestiaryGrid) {
+    bestiaryGrid.innerHTML = allMonsters.map(m => {
+      const kills = (codex.killsByArchetype && codex.killsByArchetype[m.id]) || 0;
+      const req = m.isBoss ? 1 : CODEX_MASTERY_KILLS;
+      const isMastered = kills >= req;
+      const borderCol = isMastered ? 'border-[#fbbf24]/50' : 'border-[#283347]';
+      const bgCol = isMastered ? 'bg-[#181308]' : 'bg-[#111722]';
+      const sym = m.isBoss ? '👑' : (m.isRanged ? '🏹' : '⚔️');
+      const badgeText = m.isBoss ? 'BOSS' : (m.bountyTag ? m.bountyTag.toUpperCase() : 'FOE');
+      const statLine = m.isBoss ? `HP: ${m.hp} | ATK: ${m.atk} | DEF: ${m.def}` : (m.desc || '');
+      const statRight = m.isBoss ? `+${m.xp} XP` : (m.family ? m.family.replace('_', ' ').toUpperCase() : '');
+
+      return `
+        <div class="${bgCol} p-2.5 rounded border ${borderCol} flex flex-col justify-between gap-1.5">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-1.5 truncate">
+              <span class="text-sm font-bold font-mono" style="color:${m.color}">${sym}</span>
+              <span class="text-xs font-bold truncate ${m.isBoss ? 'text-[#f87171]' : 'text-[#e6edf3]'}">${m.name}</span>
+            </div>
+            <span class="text-[10px] font-mono-num px-1 rounded bg-[#080b11] ${m.isBoss ? 'text-[#f87171]' : 'text-[#8b949e]'}">
+              ${badgeText}
+            </span>
+          </div>
+          <div class="text-[10px] font-mono-num text-[#8b949e] flex justify-between gap-1">
+            <span class="truncate">${statLine}</span>
+            <span class="shrink-0 text-[#60a5fa]">${statRight}</span>
+          </div>
+          <div class="flex items-center justify-between pt-1 border-t border-[#283347]/50 text-[11px] font-mono-num">
+            <span class="text-[#8b949e]">Kills: <strong class="${kills > 0 ? 'text-[#e6edf3]' : 'text-[#8b949e]'}">${kills}</strong>/${req}</span>
+            ${isMastered
+              ? '<span class="text-[#fbbf24] font-bold">★ +8% DMG</span>'
+              : `<span class="text-[#64748b]">${req - kills} more</span>`
+            }
+          </div>
+        </div>
+      `;
+    }).join('');
+  }
 }
 
 export function renderDungeonHud() {
@@ -384,6 +511,14 @@ export function renderDungeonHud() {
   const fh = floor ? floor.height : (cfg.height || 60);
 
   document.getElementById('uiFloorBadge').textContent = `FLOOR ${depth} / ${capLabel >= 999 ? '∞' : capLabel}`;
+  const biomeId = resolveFloorBiome(cfg, depth);
+  const biome = BIOME_PALETTES[biomeId] || BIOME_PALETTES.dwarven_catacombs;
+  const biomeBadge = document.getElementById('uiFloorBiomeBadge');
+  if (biomeBadge && biome) {
+    biomeBadge.textContent = biome.name;
+    biomeBadge.style.color = biome.badgeColor || '#38bdf8';
+    biomeBadge.style.borderColor = (biome.badgeColor || '#38bdf8') + '55';
+  }
   const zoneLabelEl = document.getElementById('uiZoneDangerLabel');
   if (zoneLabelEl) {
     zoneLabelEl.textContent = `${dng.name} • ${fw}x${fh}`;
@@ -593,7 +728,7 @@ export function updateAllUI() {
 
 export function switchGuildTab(tabId) {
   if (typeof document === 'undefined') return;
-  ['tavern', 'bounties', 'lapidary', 'shop', 'armory', 'talents', 'research'].forEach(t => {
+  ['tavern', 'bounties', 'lapidary', 'shop', 'armory', 'talents', 'research', 'codex'].forEach(t => {
     const panel = document.getElementById(`guildTab_${t}`);
     if (panel) panel.classList.toggle('hidden', t !== tabId);
     const btn = document.getElementById(`tabBtn_${t}`);

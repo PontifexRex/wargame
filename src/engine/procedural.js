@@ -18,7 +18,7 @@ import {
 } from '../constants.js';
 import { AFFIX_POOL, BASE_GEAR_NAMES, ELITE_AFFIXES } from '../data/items.js';
 import { MONSTER_ARCHETYPES, BOSS_ARCHETYPES } from '../data/monsters.js';
-import { normalizeDungeonConfig } from '../data/dungeons.js';
+import { normalizeDungeonConfig, resolveFloorBiome } from '../data/dungeons.js';
 import { createSeededRng } from './rng.js';
 import { createUint8Grid } from './compression.js';
 import { nextItemUid } from './state.js';
@@ -598,6 +598,7 @@ export function generateFloor(depth, dungeonConfig = null, dungeonSeed = null) {
   const floorObj = {
     packed: false,
     depth,
+    biomeId: resolveFloorBiome(cfg, depth),
     width: w,
     height: h,
     roomCount: rooms.length,

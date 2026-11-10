@@ -251,7 +251,7 @@ $bundleCode
 
   // Headless UI, 6-Tab Guild Hub, Atlas Charter & Canvas Render Smoke Suite
   var api = window.Aethelgard;
-  var tabs = ['shop', 'assay', 'lapidary', 'research', 'bounties', 'talents'];
+  var tabs = ['tavern', 'shop', 'assay', 'lapidary', 'research', 'bounties', 'talents', 'codex'];
   for (var ti = 0; ti < tabs.length; ti++) {
     api.switchGuildTab(tabs[ti]);
   }

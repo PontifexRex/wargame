@@ -230,5 +230,33 @@ export const BOSS_ARCHETYPES = {
     onHitStatus: 'poison',
     color: '#34d399',
     desc: 'Matriarch of the Whispering Labyrinth (3 tiles).'
+  },
+  boss_ignis: {
+    id: 'boss_ignis',
+    name: 'Ignis, The Forge Tyrant',
+    isRanged: true,
+    range: 3,
+    hp: 680,
+    atk: 38,
+    def: 20,
+    xp: 850,
+    dropRarity: 'relic',
+    onHitStatus: 'burn',
+    color: '#f97316',
+    desc: 'Ancient molten behemoth wielding the white-hot wrath of the subterranean deeps (3 tiles).'
+  },
+  boss_vespera: {
+    id: 'boss_vespera',
+    name: "Vespera's Avatar, Heart of the Fallen Star",
+    isRanged: true,
+    range: 4,
+    hp: 1050,
+    atk: 48,
+    def: 26,
+    xp: 1500,
+    dropRarity: 'relic',
+    onHitStatus: 'weakened',
+    color: '#c084fc',
+    desc: 'Cosmic astral divinity descending through the abyssal rift to claim the shattered star (4 tiles).'
   }
 };

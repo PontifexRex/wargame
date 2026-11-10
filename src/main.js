@@ -1,6 +1,6 @@
 // Application Bootstrap, Event Wiring, and window.Aethelgard Global Export Bridge
 
-import { gameState, loadGame, saveGame } from './engine/state.js';
+import { gameState, loadGame, saveGame, getCodexMasteryMultiplier } from './engine/state.js';
 import { toggleAudio } from './engine/audio.js';
 import { ENGINE_EVENTS, onEngineEvent, offEngineEvent, emitEngineEvent } from './engine/events.js';
 import {
@@ -37,7 +37,7 @@ import {
   updateFOV,
   spawnFloatingText
 } from './ui/renderer.js';
-import { updateAllUI, switchGuildTab, logChronicle, clearChronicle } from './ui/domSync.js';
+import { updateAllUI, switchGuildTab, logChronicle, clearChronicle, renderCodexTab } from './ui/domSync.js';
 import {
   openClassSelectModal,
   closeClassSelectModal,
@@ -83,7 +83,7 @@ import {
 } from './test/selfTest.js';
 import { TALENT_TREES } from './data/talents.js';
 import { GEM_CATALOG } from './data/gems.js';
-import { CURATED_DUNGEON_PROFILES } from './data/dungeons.js';
+import { CURATED_DUNGEON_PROFILES, BIOME_PALETTES, resolveFloorBiome } from './data/dungeons.js';
 
 // Bind UI callbacks into engine actions & combat
 registerActionCallbacks({
@@ -170,7 +170,11 @@ export const AethelgardAPI = {
   emitEngineEvent,
   TALENT_TREES,
   GEM_CATALOG,
-  CURATED_DUNGEON_PROFILES
+  CURATED_DUNGEON_PROFILES,
+  BIOME_PALETTES,
+  resolveFloorBiome,
+  getCodexMasteryMultiplier,
+  renderCodexTab
 };
 
 function bootstrapApp() {

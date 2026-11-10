@@ -1,6 +1,12 @@
-// Game State Schema (Multi-Dungeon Atlas v5), Save Migration, RLE Persistence & Derived Hero Stats
+// Game State Schema (Multi-Dungeon Atlas v5/v6), Save Migration, RLE Persistence & Derived Hero Stats
 
-import { SCHEMA_VERSION, STORAGE_KEY, DEFAULT_MAX_CHARTERED_DUNGEONS } from '../constants.js';
+import {
+  SCHEMA_VERSION,
+  STORAGE_KEY,
+  DEFAULT_MAX_CHARTERED_DUNGEONS,
+  CODEX_MASTERY_KILLS,
+  CODEX_MASTERY_DMG_MULT
+} from '../constants.js';
 import { CLASSES } from '../data/classes.js';
 import { GEM_IDS, GEM_CATALOG } from '../data/gems.js';
 import { buildProceduralBountySet } from '../data/bounties.js';
@@ -36,12 +42,92 @@ export function normalizeEquipmentSockets(item) {
   return item;
 }
 
+export function createDefaultCodexState() {
+  const kills = {};
+  return {
+    totalMonstersSlain: 0,
+    totalBossesSlain: 0,
+    totalElitesSlain: 0,
+    totalOresMined: 0,
+    totalGemsUnearthed: 0,
+    totalChestsOpened: 0,
+    totalShrinesActivated: 0,
+    totalExtractions: 0,
+    totalDefeats: 0,
+    deepestFloorByDungeon: {},
+    monsterKills: kills,
+    killsByArchetype: kills,
+    oreMinedById: {},
+    relicsUnlocked: []
+  };
+}
+
+export function ensureCodexState(state) {
+  if (!state) return createDefaultCodexState();
+  if (!state.codex || typeof state.codex !== 'object') {
+    state.codex = createDefaultCodexState();
+  } else {
+    const c = state.codex;
+    c.totalMonstersSlain = c.totalMonstersSlain || 0;
+    c.totalBossesSlain = c.totalBossesSlain || 0;
+    c.totalElitesSlain = c.totalElitesSlain || 0;
+    c.totalOresMined = c.totalOresMined || 0;
+    c.totalGemsUnearthed = c.totalGemsUnearthed || 0;
+    c.totalChestsOpened = c.totalChestsOpened || 0;
+    c.totalShrinesActivated = c.totalShrinesActivated || 0;
+    c.totalExtractions = c.totalExtractions || 0;
+    c.totalDefeats = c.totalDefeats || 0;
+    if (!c.deepestFloorByDungeon || typeof c.deepestFloorByDungeon !== 'object') c.deepestFloorByDungeon = {};
+    if (!c.monsterKills || typeof c.monsterKills !== 'object') {
+      c.monsterKills = c.killsByArchetype || {};
+    }
+    if (!c.killsByArchetype || typeof c.killsByArchetype !== 'object') {
+      c.killsByArchetype = c.monsterKills;
+    }
+    if (!c.oreMinedById || typeof c.oreMinedById !== 'object') c.oreMinedById = {};
+    if (!Array.isArray(c.relicsUnlocked)) c.relicsUnlocked = [];
+  }
+  return state.codex;
+}
+
+export function getCodexMasteryMultiplier(monsterId, state) {
+  const targetState = state || gameState;
+  if (!targetState || !targetState.codex) return 1.0;
+  const killsMap = targetState.codex.monsterKills || targetState.codex.killsByArchetype;
+  if (!killsMap) return 1.0;
+  const kills = killsMap[monsterId] || 0;
+  const isBoss = typeof monsterId === 'string' && monsterId.indexOf('boss_') === 0;
+  const req = isBoss ? 1 : CODEX_MASTERY_KILLS;
+  return kills >= req ? CODEX_MASTERY_DMG_MULT : 1.0;
+}
+
+export function recordRelicUnlock(item, floorDepth = 1, dungeonName = 'The Starfall Vaults', state) {
+  const targetState = state || gameState;
+  if (!item || item.rarity !== 'relic' || !targetState) return;
+  const codex = ensureCodexState(targetState);
+  const exists = codex.relicsUnlocked.some(r => r.name === item.name);
+  if (!exists) {
+    codex.relicsUnlocked.push({
+      name: item.name,
+      slot: item.slot,
+      atk: item.atk || 0,
+      def: item.def || 0,
+      floor: floorDepth || 1,
+      dungeonName: dungeonName || (targetState.dungeon && targetState.dungeon.name) || 'Subterranean Delve'
+    });
+    if (codex.relicsUnlocked.length > 50) {
+      codex.relicsUnlocked.shift();
+    }
+  }
+}
+
 export function createDefaultDungeonsRegistry() {
   return {
     dng_starfall: createDungeonInstance('starfall_vaults', { id: 'dng_starfall', originType: 'curated' }),
     dng_quarry:   createDungeonInstance('sunken_quarry',   { id: 'dng_quarry',   originType: 'curated' }),
     dng_mycelium: createDungeonInstance('mycelium_labyrinth', { id: 'dng_mycelium', originType: 'curated' }),
-    dng_citadel:  createDungeonInstance('citadel_ruins',   { id: 'dng_citadel',  originType: 'curated' })
+    dng_citadel:  createDungeonInstance('citadel_ruins',   { id: 'dng_citadel',  originType: 'curated' }),
+    dng_molten:   createDungeonInstance('molten_crucible', { id: 'dng_molten',   originType: 'curated' })
   };
 }
 
@@ -118,7 +204,8 @@ export function createDefaultGameState() {
       quartermaster: 0,
       vanguard: 0
     },
-    guildBounties: buildProceduralBountySet(0, 0)
+    guildBounties: buildProceduralBountySet(0, 0),
+    codex: createDefaultCodexState()
   };
 }
 
@@ -297,6 +384,14 @@ export function migrateSaveData(raw) {
   }
 
   syncActiveDungeonAlias(migrated);
+
+  // Migrate Codex & Hall of Records
+  migrated.codex = createDefaultCodexState();
+  if (data.codex && typeof data.codex === 'object') {
+    Object.assign(migrated.codex, data.codex);
+    ensureCodexState(migrated);
+  }
+
   migrated.version = SCHEMA_VERSION;
   return migrated;
 }
@@ -456,7 +551,8 @@ export function serializeStateForStorage(state = gameState) {
     hero: state.hero,
     guildVault: state.guildVault,
     guildResearch: state.guildResearch,
-    guildBounties: state.guildBounties
+    guildBounties: state.guildBounties,
+    codex: state.codex ? JSON.parse(JSON.stringify(state.codex)) : createDefaultCodexState()
   };
 }
 
@@ -476,6 +572,7 @@ export function loadGame() {
     if (typeof localStorage !== 'undefined') {
       const raw =
         localStorage.getItem(STORAGE_KEY) ||
+        localStorage.getItem('aethelgard_save_v5') ||
         localStorage.getItem('aethelgard_save_v4') ||
         localStorage.getItem('aethelgard_save_v3') ||
         localStorage.getItem('aethelgard_save_v2') ||

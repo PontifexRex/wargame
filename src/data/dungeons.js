@@ -101,6 +101,91 @@ export const ORE_FOCUS_TABLES = {
   ]
 };
 
+export const BIOME_PALETTES = {
+  dwarven_catacombs: {
+    id: 'dwarven_catacombs',
+    name: 'Dwarven Catacombs',
+    subtitle: 'Ancient Masonry Strata',
+    wallFill: '#1b2434',
+    wallCap: '#293548',
+    wallBase: '#0d131d',
+    wallAccent: null,
+    floor1: '#0e1420',
+    floor2: '#111826',
+    floorBorder: '#192234',
+    minimapWall: '#253247',
+    minimapFloor: '#111a2b',
+    torchR: 251, torchG: 191, torchB: 36,
+    badgeColor: '#fbbf24'
+  },
+  crystalline_caverns: {
+    id: 'crystalline_caverns',
+    name: 'Crystalline Caverns',
+    subtitle: 'Bioluminescent Indigo & Quartz Deeps',
+    wallFill: '#1e1b4b',
+    wallCap: '#3730a3',
+    wallBase: '#0f0c29',
+    wallAccent: '#38bdf8',
+    floor1: '#0c1226',
+    floor2: '#101730',
+    floorBorder: '#1e2942',
+    minimapWall: '#312e81',
+    minimapFloor: '#0f172a',
+    torchR: 56, torchG: 189, torchB: 248,
+    badgeColor: '#38bdf8'
+  },
+  molten_forgeworks: {
+    id: 'molten_forgeworks',
+    name: 'Molten Forgeworks',
+    subtitle: 'Basalt Foundry & Slag Seams',
+    wallFill: '#2a1612',
+    wallCap: '#451a03',
+    wallBase: '#150906',
+    wallAccent: '#f97316',
+    floor1: '#160c0a',
+    floor2: '#1d100d',
+    floorBorder: '#2d1814',
+    minimapWall: '#7c2d12',
+    minimapFloor: '#1c1917',
+    torchR: 249, torchG: 115, torchB: 22,
+    badgeColor: '#f97316'
+  },
+  vespera_crater: {
+    id: 'vespera_crater',
+    name: 'The Vespera Crater',
+    subtitle: 'Cosmic Abyssal Void Glass',
+    wallFill: '#1e1033',
+    wallCap: '#4c1d95',
+    wallBase: '#0d0617',
+    wallAccent: '#c084fc',
+    floor1: '#0d0818',
+    floor2: '#130c24',
+    floorBorder: '#261545',
+    minimapWall: '#581c87',
+    minimapFloor: '#180d2c',
+    torchR: 192, torchG: 132, torchB: 252,
+    badgeColor: '#c084fc'
+  }
+};
+
+export function resolveFloorBiome(cfgOrDungeon, depth = 1) {
+  const cfg = (cfgOrDungeon && cfgOrDungeon.config) ? cfgOrDungeon.config : (cfgOrDungeon || {});
+  if (cfg.biomeId && BIOME_PALETTES[cfg.biomeId]) {
+    return cfg.biomeId;
+  }
+  const prof = cfg.profileId || '';
+  if (prof === 'sunken_quarry') return 'dwarven_catacombs';
+  if (prof === 'mycelium_labyrinth') return 'crystalline_caverns';
+  if (prof === 'molten_crucible') return 'molten_forgeworks';
+  if (prof === 'citadel_ruins') return 'vespera_crater';
+
+  const d = Math.max(1, Number(depth) || 1);
+  if (d <= 5) return 'dwarven_catacombs';
+  if (d <= 10) return 'crystalline_caverns';
+  if (d <= 15) return 'molten_forgeworks';
+  return 'vespera_crater';
+}
+
 export const CURATED_DUNGEON_PROFILES = {
   starfall_vaults: {
     profileId: 'starfall_vaults',
@@ -131,7 +216,9 @@ export const CURATED_DUNGEON_PROFILES = {
     allowedTraps: ['spike', 'flame'],
     bossSchedule: {
       5: 'boss_colossus',
-      10: 'boss_weaver'
+      10: 'boss_weaver',
+      15: 'boss_ignis',
+      20: 'boss_vespera'
     }
   },
   sunken_quarry: {
@@ -226,6 +313,38 @@ export const CURATED_DUNGEON_PROFILES = {
     bossSchedule: {
       2: 'boss_weaver'
     }
+  },
+  molten_crucible: {
+    profileId: 'molten_crucible',
+    name: 'The Molten Forgeworks',
+    subtitle: 'Blazing Slag Vents & Ancient Foundries • Magma Golems',
+    themeColor: '#f97316',
+    seedPrefix: 'FORG',
+    reqCartography: 2,
+    width: 96,
+    height: 72,
+    sizeTier: 'standard',
+    maxDepth: 6,
+    baseDangerDepth: 2,
+    respectsCartographyPermit: false,
+    layoutStyle: 'excavation_quarry',
+    loopRatio: 0.38,
+    vaultRoomCount: 2,
+    monsterFamily: 'dwarven_forge',
+    monsterDensityMult: 1.1,
+    eliteChance: 0.28,
+    oreFocus: 'mithril_geode',
+    veinDensityMult: 1.35,
+    motherlodeChance: 0.65,
+    chestDensityMult: 1.2,
+    lootRarityBonus: 0.12,
+    shrineDensityMult: 1.25,
+    trapDensityMult: 1.2,
+    allowedTraps: ['flame'],
+    biomeId: 'molten_forgeworks',
+    bossSchedule: {
+      6: 'boss_ignis'
+    }
   }
 };
 
@@ -250,6 +369,7 @@ export function normalizeDungeonConfig(rawCfg) {
 
   return {
     profileId: src.profileId || 'custom_charter',
+    biomeId: src.biomeId || null,
     name: src.name || base.name,
     subtitle: src.subtitle || `${width}x${height} • Max Depth ${maxDepth}`,
     themeColor: src.themeColor || '#60a5fa',

@@ -1,8 +1,8 @@
 # Technical Architecture & Schema Contracts
 
 - **Entrypoint**: `index.html` + `src/main.js` (with `dist/bundle.js` fallback for `file://` & headless CLI verification)
-- **Current Schema Version**: `v0.4.5-atlas`
-- **LocalStorage Key**: `aethelgard_save_v5` (with automatic migration from `aethelgard_save`, `aethelgard_save_v2`, `aethelgard_save_v3`, and `aethelgard_save_v4`)
+- **Current Schema Version**: `v0.5.0-inc5`
+- **LocalStorage Key**: `aethelgard_save_v6` (with automatic migration from `aethelgard_save`, `aethelgard_save_v2`, `aethelgard_save_v3`, `aethelgard_save_v4`, and `aethelgard_save_v5`)
 - **Architecture Decision Records**: See `docs/adr/README.md` (`ADR-0001` through `ADR-0006`)
 
 ---
@@ -11,7 +11,7 @@
 
 The codebase is organized into 24 ES6 modules under `src/` with zero external npm dependencies:
 
-- **`src/constants.js`**: `SCHEMA_VERSION`, `STORAGE_KEY`, viewport constants (`VIEWPORT_W = 21`, `VIEWPORT_H = 15`, `TILE_SIZE = 32`), default map dimensions (`DEFAULT_MAP_W = 84`, `DEFAULT_MAP_H = 60`), Tile IDs, and Rarity multipliers.
+- **`src/constants.js`**: `SCHEMA_VERSION`, `STORAGE_KEY`, viewport constants (`VIEWPORT_WIDTH = 21`, `VIEWPORT_HEIGHT = 15`, `TILE_SIZE = 32`), default map dimensions (`DEFAULT_MAP_W = 80`, `DEFAULT_MAP_H = 60`), Tile IDs, Rarity multipliers, `CODEX_MASTERY_KILLS = 5`, and `CODEX_MASTERY_DMG_MULT = 1.08`.
 - **`src/data/`** *(Pure static registries — zero imports from `engine/` or `ui/`)*:
   - `classes.js`: 5 playable classes (`fighter`, `thief`, `mage`, `ranger`, `paladin`).
   - `talents.js`: 15 class talent nodes (`TALENT_TREES`).
@@ -20,24 +20,24 @@ The codebase is organized into 24 ES6 modules under `src/` with zero external np
   - `gems.js`: 5 Astral Gems (`GEM_CATALOG`), 3 Shrines (`SHRINE_CATALOG`), and 2 Runic Traps (`TRAP_CATALOG`).
   - `bounties.js`: Procedural Notice Board bounty generator (`buildProceduralBountySet`).
   - `research.js`: 6 dual-cost Guild Research trees (`RESEARCH_PROJECTS`).
-  - `monsters.js`: 12 regular monster archetypes + 4 milestone bosses (`MONSTER_ARCHETYPES`, `BOSS_ARCHETYPES`).
-  - `dungeons.js`: 4 Regional Dungeon Profiles (`DUNGEON_PROFILES`), Map Size Tiers (`small` `64x44` to `colossal` `168x120`), Layout Styles, and `buildCharteredDungeonInstance`.
+  - `monsters.js`: 12 regular monster archetypes + 6 milestone bosses (`MONSTER_ARCHETYPES`, `BOSS_ARCHETYPES` including `boss_ignis` and `boss_vespera`).
+  - `dungeons.js`: 5 Regional Dungeon Profiles (`CURATED_DUNGEON_PROFILES` including `molten_crucible`), Map Size Tiers (`small` to `colossal`), Layout Styles, 4 Visual Biomes (`BIOME_PALETTES`), and `resolveFloorBiome`.
 - **`src/engine/`** *(Pure game state, procedural generation, combat, and domain events — zero imports from `ui/`)*:
   - `rng.js`: Deterministic `mulberry32` PRNG, `hashSeedString`, and `weightedPick`.
-  - `compression.js`: RLE row compression (`packGrid2D` / `unpackGrid2D`) and `compactFloorForStorage` / `hydrateFloorFromStorage` (`ADR-0003`).
+  - `compression.js`: RLE row compression (`packFloorForStorage` / `hydrateFloorFromStorage`) (`ADR-0003`).
   - `events.js`: Synchronous Domain Event Bus (`ENGINE_EVENTS`, `onEngineEvent`, `offEngineEvent`, `emitEngineEvent`) (`ADR-0006`).
-  - `state.js`: `gameState`, `createDefaultGameState`, `migrateSaveData`, `recomputeHeroDerivedStats`, `saveGame`, `loadGame`, and active dungeon hydration helpers.
-  - `procedural.js`: Macro-Sector & Cellular Automata floor generator, `Int32Array` BFS validator (`verifyPureFloorBFS`), `carveDirectFloorPath`, and procedural equipment/socket generator (`ADR-0004`).
-  - `combat.js`: Turn loop (`handlePlayerAction`, `processTurn`), wall-blocking Bresenham LOS, monster AI archetypes (`ranged_kite`, `caster_debuff`, `skirmisher`, `tank`), and class skills.
+  - `state.js`: `gameState`, `createDefaultGameState`, `migrateSaveData`, `recomputeHeroDerivedStats`, `saveGame`, `loadGame`, `ensureCodexState`, `getCodexMasteryMultiplier`, and `recordRelicUnlock`.
+  - `procedural.js`: Macro-Sector & Cellular Automata floor generator with biome stamping, `Int32Array` BFS validator (`verifyPureFloorBFS`), and procedural equipment/socket generator (`ADR-0004`).
+  - `combat.js`: Turn loop (`handlePlayerAction`, `processTurn`), wall-blocking Bresenham LOS, monster AI archetypes, boss relic drops, Hunter's Mastery damage scaling, and class skills.
   - `actions.js`: Interactive mining, Lapidary gem socketing, Notice Board bounties, Multi-Dungeon Atlas switching/chartering, shrines/traps, extraction, and non-permanent defeat recovery.
   - `audio.js`: Procedural Web Audio API synthesizer (`playSound`, `toggleAudio`).
 - **`src/ui/`** *(Canvas 2D & DOM presentation)*:
-  - `renderer.js`: `21x15` scrolling camera frustum, FOV shadowcasting (`updateFOV`), full-map Exploration Overview (`[M]`), and floating combat text (`ADR-0005`).
-  - `domSync.js`: Guild Hub tabs (Quartermaster, Assay, Lapidary, Research, Notice Board, Expedition Atlas) and Dungeon HUD synchronizer.
+  - `renderer.js`: `21x15` scrolling camera frustum, dynamic biome palettes (wall fills, caps, accents, torchlight tints), FOV shadowcasting (`updateFOV`), full-map Exploration Overview (`[M]`), and floating combat text (`ADR-0005`).
+  - `domSync.js`: Guild Hub tabs (Quartermaster, Assay, Lapidary, Research, Notice Board, Expedition Atlas, and Codex & Records) and Dungeon HUD biome badge synchronizer.
   - `modals.js`: Custom backdrop modals (`#classSelectModal`, `#itemInspectModal`, `#diagnosticsModal`, `#saveSyncModal`, `#outcomeModal`).
-  - `input.js`: Keyboard shortcuts (`WASD`/Arrows, `Q`, `H`, `R`, `E`, `M`, `Space`), hover scanner, and safe A* click-to-autowalk (`ADR-0005`).
+  - `input.js`: Keyboard shortcuts (`WASD`/Arrows, `Q`, `H`, `R`, `E`, `M`, `Space`), hover scanner, and safe BFS click-to-autowalk (`ADR-0005`).
 - **`src/test/`**:
-  - `selfTest.js`: 17 cumulative sandboxed self-tests (`runSelfTests`).
+  - `selfTest.js`: 20 cumulative sandboxed self-tests (`runSelfTests`).
   - `cliRunner.js`: Headless verification harness executed by `scripts/test.ps1` via Windows `chakra.dll` (`ES2017`).
 
 ---

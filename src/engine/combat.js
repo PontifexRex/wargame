@@ -23,7 +23,10 @@ import {
   gameState,
   saveGame,
   ensureDungeonFloorHydrated,
-  recomputeHeroDerivedStats
+  recomputeHeroDerivedStats,
+  ensureCodexState,
+  getCodexMasteryMultiplier,
+  recordRelicUnlock
 } from './state.js';
 import { generateFloor, generateProceduralEquipment } from './procedural.js';
 import { playSound } from './audio.js';
@@ -371,6 +374,15 @@ export function killMonster(monster, state = gameState) {
   if (!floor) return;
   floor.monsters = floor.monsters.filter(m => m !== monster);
 
+  // Update Guild Bestiary Codex & Lifetime Records
+  const codex = ensureCodexState(state);
+  codex.totalMonstersSlain = (codex.totalMonstersSlain || 0) + 1;
+  if (monster.isBoss) codex.totalBossesSlain = (codex.totalBossesSlain || 0) + 1;
+  if (monster.isElite) codex.totalElitesSlain = (codex.totalElitesSlain || 0) + 1;
+  const count = (codex.monsterKills[monster.id] || 0) + 1;
+  codex.monsterKills[monster.id] = count;
+  if (codex.killsByArchetype) codex.killsByArchetype[monster.id] = count;
+
   const h = state.hero;
   // Thief Shadow Dance MP restore on kill
   if (h.classId === 'thief' && ((h.talentsAllocated && h.talentsAllocated.t_b3) || 0) > 0) {
@@ -389,10 +401,24 @@ export function killMonster(monster, state = gameState) {
   const rarityBonus = (state.dungeon && state.dungeon.config && state.dungeon.config.lootRarityBonus) || 0;
 
   if (monster.isBoss) {
-    const bossRarity = monster.dropRarity || (monster.id === 'boss_weaver' ? 'relic' : 'epic');
+    const isRelicBoss = monster.dropRarity === 'relic' || monster.id === 'boss_weaver' || monster.id === 'boss_ignis' || monster.id === 'boss_vespera';
+    const bossRarity = monster.dropRarity || (isRelicBoss ? 'relic' : 'epic');
     const bossGear = generateProceduralEquipment(floor.depth, bossRarity, null, rarityBonus);
+    if (monster.id === 'boss_vespera') {
+      bossGear.maxSockets = 2;
+    }
     h.expeditionGear.push(bossGear);
-    addExpeditionTradeItem('starcrystal', 'Star-Crystal', 90, 2, 'Ore', state);
+    recordRelicUnlock(bossGear, floor.depth, (state.dungeon && state.dungeon.name), state);
+
+    if (monster.id === 'boss_vespera') {
+      addExpeditionTradeItem('astralite', 'Void Astralite', 150, 3, 'Ore', state);
+      addExpeditionTradeItem('gem_void_diamond', 'Void Diamond', 300, 1, 'Gem', state);
+    } else if (monster.id === 'boss_ignis') {
+      addExpeditionTradeItem('astralite', 'Void Astralite', 150, 2, 'Ore', state);
+      addExpeditionTradeItem('gem_ruby', 'Crimson Ruby', 120, 1, 'Gem', state);
+    } else {
+      addExpeditionTradeItem('starcrystal', 'Star-Crystal', 90, 2, 'Ore', state);
+    }
 
     const maxDepth = (state.dungeon && state.dungeon.config && state.dungeon.config.maxDepth) || 999;
     if (floor.depth >= maxDepth) {
@@ -402,7 +428,7 @@ export function killMonster(monster, state = gameState) {
     if (state === gameState) {
       playSound('lvl');
       ui.floatingText(monster.x, monster.y, '👑 BOSS VANQUISHED!', '#fbbf24');
-      ui.log(`👑 Vanquished ${monster.name}! Looted ${bossGear.name} (${RARITY[bossRarity].name}) & 2x Star-Crystal!`, 'gold');
+      ui.log(`👑 Vanquished ${monster.name}! Looted ${bossGear.name} (${RARITY[bossRarity].name})!`, 'gold');
     }
   } else {
     const goldVal = 8 + floor.depth * 5 + (monster.isElite ? 18 : 0);
@@ -415,6 +441,9 @@ export function killMonster(monster, state = gameState) {
         rarityBonus
       );
       h.expeditionGear.push(dropGear);
+      if (dropGear && dropGear.rarity === 'relic') {
+        recordRelicUnlock(dropGear, floor.depth, (state.dungeon && state.dungeon.name), state);
+      }
       if (state === gameState) {
         ui.log(`${monster.name} dropped ${dropGear.name}!`, 'good');
       }
@@ -443,8 +472,9 @@ export function attackMonster(monster, state = gameState) {
   const weakMult = (h.statuses || []).some(s => s.id === 'weakened') ? 0.80 : 1.0;
   const pierceRank = (h.talentsAllocated && h.talentsAllocated.r_d2) || 0;
   const effDef = Math.round(monster.def * (1 - Math.min(0.8, pierceRank * 0.30)));
+  const masteryMult = getCodexMasteryMultiplier(monster.id, state);
 
-  const dmg = Math.max(2, Math.round(h.atk * weakMult * critMult) - effDef);
+  const dmg = Math.max(2, Math.round(h.atk * weakMult * critMult * masteryMult) - effDef);
   monster.hp -= dmg;
 
   if (state === gameState) {
@@ -703,7 +733,8 @@ export function executeClassSkill(state = gameState) {
       ui.floatingText(h.x, h.y, 'WHIRLWIND!', '#f87171');
     }
     adjTargets.slice().forEach(m => {
-      const dmg = Math.max(2, Math.round(h.atk * 1.5) - m.def);
+      const masteryMult = getCodexMasteryMultiplier(m.id, state);
+      const dmg = Math.max(2, Math.round(h.atk * 1.5 * masteryMult) - m.def);
       m.hp -= dmg;
       applyStatusEffect(m, 'stun', 1);
       if (state === gameState) ui.floatingText(m.x, m.y, `-${dmg} STUN`, '#f87171');
@@ -759,7 +790,8 @@ export function executeClassSkill(state = gameState) {
     h.mp -= cls.skillCost;
     h.x = destTile.x;
     h.y = destTile.y;
-    const dmg = Math.max(4, Math.round(h.atk * 2.2) - Math.floor(chosenTarget.def * 0.5));
+    const masteryMult = getCodexMasteryMultiplier(chosenTarget.id, state);
+    const dmg = Math.max(4, Math.round(h.atk * 2.2 * masteryMult) - Math.floor(chosenTarget.def * 0.5));
     chosenTarget.hp -= dmg;
 
     if (state === gameState) {
@@ -796,7 +828,8 @@ export function executeClassSkill(state = gameState) {
     }
 
     targets.slice().forEach(m => {
-      let dmg = Math.max(4, Math.round(h.atk * spellMult) - Math.floor(m.def * 0.4));
+      const masteryMult = getCodexMasteryMultiplier(m.id, state);
+      let dmg = Math.max(4, Math.round(h.atk * spellMult * masteryMult) - Math.floor(m.def * 0.4));
       if (hasEcho) dmg += Math.round(dmg * 0.5);
       m.hp -= dmg;
       applyStatusEffect(m, 'burn', 3);
@@ -837,7 +870,8 @@ export function executeClassSkill(state = gameState) {
 
     targets.forEach(m => {
       const effDef = Math.round(m.def * (1 - defIgnore));
-      const dmg = Math.max(3, Math.round(h.atk * 1.8) - effDef);
+      const masteryMult = getCodexMasteryMultiplier(m.id, state);
+      const dmg = Math.max(3, Math.round(h.atk * 1.8 * masteryMult) - effDef);
       m.hp -= dmg;
       if (state === gameState) ui.floatingText(m.x, m.y, `-${dmg} VOLLEY`, '#34d399');
       if (m.hp <= 0) killMonster(m, state);
@@ -859,7 +893,8 @@ export function executeClassSkill(state = gameState) {
     }
 
     h.mp -= cls.skillCost;
-    const dmg = Math.max(5, Math.round(h.atk * 2.4) - Math.floor(target.def * 0.5));
+    const masteryMult = getCodexMasteryMultiplier(target.id, state);
+    const dmg = Math.max(5, Math.round(h.atk * 2.4 * masteryMult) - Math.floor(target.def * 0.5));
     const healAmt = Math.round(h.maxHp * 0.15);
     target.hp -= dmg;
     h.hp = Math.min(h.maxHp, h.hp + healAmt);
@@ -910,6 +945,8 @@ export function handlePlayerAction(dx, dy, state = gameState) {
   // 3. Gilded Chest Opening
   if (targetTile === TILE_CHEST) {
     floor.tiles[ny][nx] = TILE_CHEST_OPEN;
+    const codex = ensureCodexState(state);
+    codex.totalChestsOpened = (codex.totalChestsOpened || 0) + 1;
     const depth = state.dungeon.currentFloor;
     const cfg = state.dungeon.config || {};
     const effDepth = depth + (cfg.baseDangerDepth || 0);
@@ -921,6 +958,9 @@ export function handlePlayerAction(dx, dy, state = gameState) {
     const forcedRarity = effDepth >= 4 ? 'rare' : 'uncommon';
     const chestGear = generateProceduralEquipment(effDepth, forcedRarity, cfg.lootSlotBias || null, rarityBonus);
     state.hero.expeditionGear.push(chestGear);
+    if (chestGear && chestGear.rarity === 'relic') {
+      recordRelicUnlock(chestGear, depth, (state.dungeon && state.dungeon.name), state);
+    }
 
     emitEngineEvent(ENGINE_EVENTS.CHEST_OPENED, {
       goldVal,
@@ -1017,6 +1057,17 @@ export function useStairsAtPlayer(state = gameState) {
     const nextDepth = state.dungeon.currentFloor + 1;
     state.dungeon.currentFloor = nextDepth;
     state.dungeon.deepestFloor = Math.max(state.dungeon.deepestFloor || 1, nextDepth);
+    const codex = ensureCodexState(state);
+    const dId = state.activeDungeonId || state.dungeon.id;
+    if (!codex.deepestFloorByDungeon[dId]) {
+      codex.deepestFloorByDungeon[dId] = {
+        name: state.dungeon.name,
+        deepestFloor: nextDepth,
+        maxDepth: cfg.maxDepth || 999
+      };
+    } else {
+      codex.deepestFloorByDungeon[dId].deepestFloor = Math.max(codex.deepestFloorByDungeon[dId].deepestFloor || 1, nextDepth);
+    }
     if (!state.dungeon.floors[nextDepth]) {
       state.dungeon.floors[nextDepth] = generateFloor(
         nextDepth,

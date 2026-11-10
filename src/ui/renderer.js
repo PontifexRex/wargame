@@ -19,6 +19,7 @@ import {
 import { CLASSES } from '../data/classes.js';
 import { ORE_CATALOG } from '../data/ores.js';
 import { SHRINE_CATALOG, TRAP_CATALOG } from '../data/gems.js';
+import { BIOME_PALETTES, resolveFloorBiome } from '../data/dungeons.js';
 import { gameState, ensureDungeonFloorHydrated } from '../engine/state.js';
 import { detectNearbyTraps } from '../engine/actions.js';
 import { hasLineOfSight, getAutoWalkPath } from '../engine/combat.js';
@@ -185,6 +186,9 @@ export function renderMinimapCanvas(targetCanvasId = 'minimapCanvas') {
   const floor = ensureDungeonFloorHydrated(gameState.dungeon, gameState.dungeon.currentFloor);
   if (!floor || !floor.tiles) return;
 
+  const biomeId = floor.biomeId || resolveFloorBiome(gameState.dungeon, floor.depth);
+  const biome = BIOME_PALETTES[biomeId] || BIOME_PALETTES.dwarven_catacombs;
+
   const fw = floor.width || (floor.tiles[0] ? floor.tiles[0].length : DEFAULT_MAP_W);
   const fh = floor.height || floor.tiles.length || DEFAULT_MAP_H;
   const scale = Math.min(canvas.width / fw, canvas.height / fh);
@@ -208,13 +212,13 @@ export function renderMinimapCanvas(targetCanvasId = 'minimapCanvas') {
       const ry = Math.floor(offY + y * scale);
 
       if (t === TILE_WALL) {
-        ctx.fillStyle = '#253247';
+        ctx.fillStyle = biome.minimapWall;
         ctx.fillRect(rx, ry, drawSize, drawSize);
       } else if (ORE_CATALOG[t]) {
         ctx.fillStyle = ORE_CATALOG[t].color;
         ctx.fillRect(rx, ry, Math.max(2, drawSize), Math.max(2, drawSize));
       } else {
-        ctx.fillStyle = '#111a2b';
+        ctx.fillStyle = biome.minimapFloor;
         ctx.fillRect(rx, ry, drawSize, drawSize);
         if (t === TILE_STAIRS_UP) {
           poiMarkers.push({ x: rx, y: ry, color: '#10b981', size: Math.max(3, drawSize + 1) });
@@ -279,6 +283,9 @@ export function renderDungeonCanvas() {
   const floor = ensureDungeonFloorHydrated(gameState.dungeon, gameState.dungeon.currentFloor);
   if (!floor || !floor.tiles) return;
 
+  const biomeId = floor.biomeId || resolveFloorBiome(gameState.dungeon, floor.depth);
+  const biome = BIOME_PALETTES[biomeId] || BIOME_PALETTES.dwarven_catacombs;
+
   const hx = gameState.hero.x;
   const hy = gameState.hero.y;
   const vision = gameState.hero.visionRadius || 5;
@@ -308,12 +315,18 @@ export function renderDungeonCanvas() {
 
       // Draw Wall or Ore Vein Wall
       if (tile === TILE_WALL || ORE_CATALOG[tile]) {
-        ctx.fillStyle = '#1b2434';
+        ctx.fillStyle = biome.wallFill;
         ctx.fillRect(px, py, TILE_SIZE, TILE_SIZE);
-        ctx.fillStyle = '#293548';
+        ctx.fillStyle = biome.wallCap;
         ctx.fillRect(px, py, TILE_SIZE, 4);
-        ctx.fillStyle = '#0d131d';
+        ctx.fillStyle = biome.wallBase;
         ctx.fillRect(px, py + TILE_SIZE - 5, TILE_SIZE, 5);
+
+        // Biome wall visual accent (e.g. quartz glint or magma/void ember)
+        if (biome.wallAccent && !ORE_CATALOG[tile] && ((x * 13 + y * 7) % 6 === 0)) {
+          ctx.fillStyle = biome.wallAccent;
+          ctx.fillRect(px + 14, py + 12, 3, 3);
+        }
 
         if (ORE_CATALOG[tile]) {
           const ore = ORE_CATALOG[tile];
@@ -327,9 +340,9 @@ export function renderDungeonCanvas() {
         }
       } else {
         // Walkable Floor Tile (including concealed traps)
-        ctx.fillStyle = (x + y) % 2 === 0 ? '#0e1420' : '#111826';
+        ctx.fillStyle = (x + y) % 2 === 0 ? biome.floor1 : biome.floor2;
         ctx.fillRect(px, py, TILE_SIZE, TILE_SIZE);
-        ctx.strokeStyle = '#192234';
+        ctx.strokeStyle = biome.floorBorder;
         ctx.strokeRect(px + 0.5, py + 0.5, TILE_SIZE - 1, TILE_SIZE - 1);
 
         if (tile === TILE_STAIRS_UP) {
@@ -404,7 +417,7 @@ export function renderDungeonCanvas() {
       } else {
         const glow = Math.max(0, 0.13 - dist * 0.022);
         if (glow > 0) {
-          ctx.fillStyle = `rgba(251, 191, 36, ${glow})`;
+          ctx.fillStyle = `rgba(${biome.torchR}, ${biome.torchG}, ${biome.torchB}, ${glow})`;
           ctx.fillRect(px, py, TILE_SIZE, TILE_SIZE);
         }
       }

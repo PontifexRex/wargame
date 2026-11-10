@@ -5,8 +5,8 @@
   // --- Module: src/constants.js ---
 // Core constants, viewport dimensions, map scale presets, tile IDs, and rarity definitions
 
-const SCHEMA_VERSION = 'v0.4.5-atlas';
-const STORAGE_KEY = 'aethelgard_save_v5';
+const SCHEMA_VERSION = 'v0.5.0-inc5';
+const STORAGE_KEY = 'aethelgard_save_v6';
 
 const TILE_SIZE = 32;
 const VIEWPORT_WIDTH = 21;
@@ -20,6 +20,10 @@ const DEFAULT_MAP_H = 60;
 
 // Soft configurable cap on simultaneously chartered custom expeditions (not a structural limit; can be raised to 500+)
 const DEFAULT_MAX_CHARTERED_DUNGEONS = 12;
+
+// Bestiary & Codex Mastery Constants
+const CODEX_MASTERY_KILLS = 5;
+const CODEX_MASTERY_DMG_MULT = 1.08;
 
 const MAP_SIZE_PRESETS = {
   small:     { id: 'small',     name: 'Small Outpost',        width: 48,  height: 36,  desc: '48x36 (~5.5x classic) • 14–18 chambers' },
@@ -524,6 +528,91 @@ const ORE_FOCUS_TABLES = {
   ]
 };
 
+const BIOME_PALETTES = {
+  dwarven_catacombs: {
+    id: 'dwarven_catacombs',
+    name: 'Dwarven Catacombs',
+    subtitle: 'Ancient Masonry Strata',
+    wallFill: '#1b2434',
+    wallCap: '#293548',
+    wallBase: '#0d131d',
+    wallAccent: null,
+    floor1: '#0e1420',
+    floor2: '#111826',
+    floorBorder: '#192234',
+    minimapWall: '#253247',
+    minimapFloor: '#111a2b',
+    torchR: 251, torchG: 191, torchB: 36,
+    badgeColor: '#fbbf24'
+  },
+  crystalline_caverns: {
+    id: 'crystalline_caverns',
+    name: 'Crystalline Caverns',
+    subtitle: 'Bioluminescent Indigo & Quartz Deeps',
+    wallFill: '#1e1b4b',
+    wallCap: '#3730a3',
+    wallBase: '#0f0c29',
+    wallAccent: '#38bdf8',
+    floor1: '#0c1226',
+    floor2: '#101730',
+    floorBorder: '#1e2942',
+    minimapWall: '#312e81',
+    minimapFloor: '#0f172a',
+    torchR: 56, torchG: 189, torchB: 248,
+    badgeColor: '#38bdf8'
+  },
+  molten_forgeworks: {
+    id: 'molten_forgeworks',
+    name: 'Molten Forgeworks',
+    subtitle: 'Basalt Foundry & Slag Seams',
+    wallFill: '#2a1612',
+    wallCap: '#451a03',
+    wallBase: '#150906',
+    wallAccent: '#f97316',
+    floor1: '#160c0a',
+    floor2: '#1d100d',
+    floorBorder: '#2d1814',
+    minimapWall: '#7c2d12',
+    minimapFloor: '#1c1917',
+    torchR: 249, torchG: 115, torchB: 22,
+    badgeColor: '#f97316'
+  },
+  vespera_crater: {
+    id: 'vespera_crater',
+    name: 'The Vespera Crater',
+    subtitle: 'Cosmic Abyssal Void Glass',
+    wallFill: '#1e1033',
+    wallCap: '#4c1d95',
+    wallBase: '#0d0617',
+    wallAccent: '#c084fc',
+    floor1: '#0d0818',
+    floor2: '#130c24',
+    floorBorder: '#261545',
+    minimapWall: '#581c87',
+    minimapFloor: '#180d2c',
+    torchR: 192, torchG: 132, torchB: 252,
+    badgeColor: '#c084fc'
+  }
+};
+
+function resolveFloorBiome(cfgOrDungeon, depth = 1) {
+  const cfg = (cfgOrDungeon && cfgOrDungeon.config) ? cfgOrDungeon.config : (cfgOrDungeon || {});
+  if (cfg.biomeId && BIOME_PALETTES[cfg.biomeId]) {
+    return cfg.biomeId;
+  }
+  const prof = cfg.profileId || '';
+  if (prof === 'sunken_quarry') return 'dwarven_catacombs';
+  if (prof === 'mycelium_labyrinth') return 'crystalline_caverns';
+  if (prof === 'molten_crucible') return 'molten_forgeworks';
+  if (prof === 'citadel_ruins') return 'vespera_crater';
+
+  const d = Math.max(1, Number(depth) || 1);
+  if (d <= 5) return 'dwarven_catacombs';
+  if (d <= 10) return 'crystalline_caverns';
+  if (d <= 15) return 'molten_forgeworks';
+  return 'vespera_crater';
+}
+
 const CURATED_DUNGEON_PROFILES = {
   starfall_vaults: {
     profileId: 'starfall_vaults',
@@ -554,7 +643,9 @@ const CURATED_DUNGEON_PROFILES = {
     allowedTraps: ['spike', 'flame'],
     bossSchedule: {
       5: 'boss_colossus',
-      10: 'boss_weaver'
+      10: 'boss_weaver',
+      15: 'boss_ignis',
+      20: 'boss_vespera'
     }
   },
   sunken_quarry: {
@@ -649,6 +740,38 @@ const CURATED_DUNGEON_PROFILES = {
     bossSchedule: {
       2: 'boss_weaver'
     }
+  },
+  molten_crucible: {
+    profileId: 'molten_crucible',
+    name: 'The Molten Forgeworks',
+    subtitle: 'Blazing Slag Vents & Ancient Foundries • Magma Golems',
+    themeColor: '#f97316',
+    seedPrefix: 'FORG',
+    reqCartography: 2,
+    width: 96,
+    height: 72,
+    sizeTier: 'standard',
+    maxDepth: 6,
+    baseDangerDepth: 2,
+    respectsCartographyPermit: false,
+    layoutStyle: 'excavation_quarry',
+    loopRatio: 0.38,
+    vaultRoomCount: 2,
+    monsterFamily: 'dwarven_forge',
+    monsterDensityMult: 1.1,
+    eliteChance: 0.28,
+    oreFocus: 'mithril_geode',
+    veinDensityMult: 1.35,
+    motherlodeChance: 0.65,
+    chestDensityMult: 1.2,
+    lootRarityBonus: 0.12,
+    shrineDensityMult: 1.25,
+    trapDensityMult: 1.2,
+    allowedTraps: ['flame'],
+    biomeId: 'molten_forgeworks',
+    bossSchedule: {
+      6: 'boss_ignis'
+    }
   }
 };
 
@@ -673,6 +796,7 @@ function normalizeDungeonConfig(rawCfg) {
 
   return {
     profileId: src.profileId || 'custom_charter',
+    biomeId: src.biomeId || null,
     name: src.name || base.name,
     subtitle: src.subtitle || `${width}x${height} • Max Depth ${maxDepth}`,
     themeColor: src.themeColor || '#60a5fa',
@@ -954,7 +1078,7 @@ function hydrateFloorFromStorage(rawFloor) {
 }
 
   // --- Module: src/engine/state.js ---
-// Game State Schema (Multi-Dungeon Atlas v5), Save Migration, RLE Persistence & Derived Hero Stats
+// Game State Schema (Multi-Dungeon Atlas v5/v6), Save Migration, RLE Persistence & Derived Hero Stats
 
 
 
@@ -987,12 +1111,92 @@ function normalizeEquipmentSockets(item) {
   return item;
 }
 
+function createDefaultCodexState() {
+  const kills = {};
+  return {
+    totalMonstersSlain: 0,
+    totalBossesSlain: 0,
+    totalElitesSlain: 0,
+    totalOresMined: 0,
+    totalGemsUnearthed: 0,
+    totalChestsOpened: 0,
+    totalShrinesActivated: 0,
+    totalExtractions: 0,
+    totalDefeats: 0,
+    deepestFloorByDungeon: {},
+    monsterKills: kills,
+    killsByArchetype: kills,
+    oreMinedById: {},
+    relicsUnlocked: []
+  };
+}
+
+function ensureCodexState(state) {
+  if (!state) return createDefaultCodexState();
+  if (!state.codex || typeof state.codex !== 'object') {
+    state.codex = createDefaultCodexState();
+  } else {
+    const c = state.codex;
+    c.totalMonstersSlain = c.totalMonstersSlain || 0;
+    c.totalBossesSlain = c.totalBossesSlain || 0;
+    c.totalElitesSlain = c.totalElitesSlain || 0;
+    c.totalOresMined = c.totalOresMined || 0;
+    c.totalGemsUnearthed = c.totalGemsUnearthed || 0;
+    c.totalChestsOpened = c.totalChestsOpened || 0;
+    c.totalShrinesActivated = c.totalShrinesActivated || 0;
+    c.totalExtractions = c.totalExtractions || 0;
+    c.totalDefeats = c.totalDefeats || 0;
+    if (!c.deepestFloorByDungeon || typeof c.deepestFloorByDungeon !== 'object') c.deepestFloorByDungeon = {};
+    if (!c.monsterKills || typeof c.monsterKills !== 'object') {
+      c.monsterKills = c.killsByArchetype || {};
+    }
+    if (!c.killsByArchetype || typeof c.killsByArchetype !== 'object') {
+      c.killsByArchetype = c.monsterKills;
+    }
+    if (!c.oreMinedById || typeof c.oreMinedById !== 'object') c.oreMinedById = {};
+    if (!Array.isArray(c.relicsUnlocked)) c.relicsUnlocked = [];
+  }
+  return state.codex;
+}
+
+function getCodexMasteryMultiplier(monsterId, state) {
+  const targetState = state || gameState;
+  if (!targetState || !targetState.codex) return 1.0;
+  const killsMap = targetState.codex.monsterKills || targetState.codex.killsByArchetype;
+  if (!killsMap) return 1.0;
+  const kills = killsMap[monsterId] || 0;
+  const isBoss = typeof monsterId === 'string' && monsterId.indexOf('boss_') === 0;
+  const req = isBoss ? 1 : CODEX_MASTERY_KILLS;
+  return kills >= req ? CODEX_MASTERY_DMG_MULT : 1.0;
+}
+
+function recordRelicUnlock(item, floorDepth = 1, dungeonName = 'The Starfall Vaults', state) {
+  const targetState = state || gameState;
+  if (!item || item.rarity !== 'relic' || !targetState) return;
+  const codex = ensureCodexState(targetState);
+  const exists = codex.relicsUnlocked.some(r => r.name === item.name);
+  if (!exists) {
+    codex.relicsUnlocked.push({
+      name: item.name,
+      slot: item.slot,
+      atk: item.atk || 0,
+      def: item.def || 0,
+      floor: floorDepth || 1,
+      dungeonName: dungeonName || (targetState.dungeon && targetState.dungeon.name) || 'Subterranean Delve'
+    });
+    if (codex.relicsUnlocked.length > 50) {
+      codex.relicsUnlocked.shift();
+    }
+  }
+}
+
 function createDefaultDungeonsRegistry() {
   return {
     dng_starfall: createDungeonInstance('starfall_vaults', { id: 'dng_starfall', originType: 'curated' }),
     dng_quarry:   createDungeonInstance('sunken_quarry',   { id: 'dng_quarry',   originType: 'curated' }),
     dng_mycelium: createDungeonInstance('mycelium_labyrinth', { id: 'dng_mycelium', originType: 'curated' }),
-    dng_citadel:  createDungeonInstance('citadel_ruins',   { id: 'dng_citadel',  originType: 'curated' })
+    dng_citadel:  createDungeonInstance('citadel_ruins',   { id: 'dng_citadel',  originType: 'curated' }),
+    dng_molten:   createDungeonInstance('molten_crucible', { id: 'dng_molten',   originType: 'curated' })
   };
 }
 
@@ -1069,7 +1273,8 @@ function createDefaultGameState() {
       quartermaster: 0,
       vanguard: 0
     },
-    guildBounties: buildProceduralBountySet(0, 0)
+    guildBounties: buildProceduralBountySet(0, 0),
+    codex: createDefaultCodexState()
   };
 }
 
@@ -1248,6 +1453,14 @@ function migrateSaveData(raw) {
   }
 
   syncActiveDungeonAlias(migrated);
+
+  // Migrate Codex & Hall of Records
+  migrated.codex = createDefaultCodexState();
+  if (data.codex && typeof data.codex === 'object') {
+    Object.assign(migrated.codex, data.codex);
+    ensureCodexState(migrated);
+  }
+
   migrated.version = SCHEMA_VERSION;
   return migrated;
 }
@@ -1407,7 +1620,8 @@ function serializeStateForStorage(state = gameState) {
     hero: state.hero,
     guildVault: state.guildVault,
     guildResearch: state.guildResearch,
-    guildBounties: state.guildBounties
+    guildBounties: state.guildBounties,
+    codex: state.codex ? JSON.parse(JSON.stringify(state.codex)) : createDefaultCodexState()
   };
 }
 
@@ -1427,6 +1641,7 @@ function loadGame() {
     if (typeof localStorage !== 'undefined') {
       const raw =
         localStorage.getItem(STORAGE_KEY) ||
+        localStorage.getItem('aethelgard_save_v5') ||
         localStorage.getItem('aethelgard_save_v4') ||
         localStorage.getItem('aethelgard_save_v3') ||
         localStorage.getItem('aethelgard_save_v2') ||
@@ -1963,6 +2178,34 @@ const BOSS_ARCHETYPES = {
     onHitStatus: 'poison',
     color: '#34d399',
     desc: 'Matriarch of the Whispering Labyrinth (3 tiles).'
+  },
+  boss_ignis: {
+    id: 'boss_ignis',
+    name: 'Ignis, The Forge Tyrant',
+    isRanged: true,
+    range: 3,
+    hp: 680,
+    atk: 38,
+    def: 20,
+    xp: 850,
+    dropRarity: 'relic',
+    onHitStatus: 'burn',
+    color: '#f97316',
+    desc: 'Ancient molten behemoth wielding the white-hot wrath of the subterranean deeps (3 tiles).'
+  },
+  boss_vespera: {
+    id: 'boss_vespera',
+    name: "Vespera's Avatar, Heart of the Fallen Star",
+    isRanged: true,
+    range: 4,
+    hp: 1050,
+    atk: 48,
+    def: 26,
+    xp: 1500,
+    dropRarity: 'relic',
+    onHitStatus: 'weakened',
+    color: '#c084fc',
+    desc: 'Cosmic astral divinity descending through the abyssal rift to claim the shattered star (4 tiles).'
   }
 };
 
@@ -2551,6 +2794,7 @@ function generateFloor(depth, dungeonConfig = null, dungeonSeed = null) {
   const floorObj = {
     packed: false,
     depth,
+    biomeId: resolveFloorBiome(cfg, depth),
     width: w,
     height: h,
     roomCount: rooms.length,
@@ -3060,12 +3304,17 @@ function mineTile(x, y, state = gameState) {
   floor.tiles[y][x] = TILE_FLOOR;
   floor.oresMined = (floor.oresMined || 0) + 1;
 
+  const codex = ensureCodexState(state);
+  codex.totalOresMined = (codex.totalOresMined || 0) + 1;
+  codex.oreMinedById[ore.id] = (codex.oreMinedById[ore.id] || 0) + 1;
+
   addExpeditionTradeItem(ore.id, ore.name, ore.baseValue, 1, 'Ore', state);
   recordBountyProgress('mine', [ore.id], 1, state);
 
   // High-tier vein uncut Astral Gem drop check
   const droppedGemId = rollUncutGemForOreTile(tile);
   if (droppedGemId && GEM_CATALOG[droppedGemId]) {
+    codex.totalGemsUnearthed = (codex.totalGemsUnearthed || 0) + 1;
     const gemDef = GEM_CATALOG[droppedGemId];
     addExpeditionTradeItem(gemDef.id, gemDef.name, gemDef.baseValue, 1, 'Gem', state);
     if (state === gameState) {
@@ -3287,6 +3536,9 @@ function activateAstralShrine(x, y, state = gameState) {
     }
   }
 
+  const codex = ensureCodexState(state);
+  codex.totalShrinesActivated = (codex.totalShrinesActivated || 0) + 1;
+
   detectNearbyTraps(floor, state);
   emitEngineEvent(ENGINE_EVENTS.SHRINE_ACTIVATED, {
     shrineType: sDef.id,
@@ -3383,10 +3635,34 @@ function useHealingTonic(state = gameState) {
   return true;
 }
 
+function recordDungeonDepthInCodex(state) {
+  if (!state || !state.dungeon) return;
+  const codex = ensureCodexState(state);
+  const dId = state.activeDungeonId || state.dungeon.id;
+  const curFl = state.dungeon.currentFloor || 1;
+  const cfg = state.dungeon.config || {};
+  if (!codex.deepestFloorByDungeon[dId]) {
+    codex.deepestFloorByDungeon[dId] = {
+      name: state.dungeon.name,
+      deepestFloor: curFl,
+      maxDepth: cfg.maxDepth || 999
+    };
+  } else {
+    const entry = codex.deepestFloorByDungeon[dId];
+    entry.name = state.dungeon.name;
+    entry.deepestFloor = Math.max(entry.deepestFloor || 1, curFl);
+    entry.maxDepth = cfg.maxDepth || 999;
+  }
+}
+
 function extractToGuild(method = 'Floor 1 Ascending Stairs (<)', state = gameState) {
   const h = state.hero;
   const assayRank = state.guildResearch.assay || 0;
   const mult = 1 + assayRank * 0.35;
+
+  const codex = ensureCodexState(state);
+  codex.totalExtractions = (codex.totalExtractions || 0) + 1;
+  recordDungeonDepthInCodex(state);
 
   if (!state.guildVault.gems) {
     state.guildVault.gems = { ruby: 0, emerald: 0, sapphire: 0, topaz: 0, void_diamond: 0 };
@@ -3478,6 +3754,10 @@ function handleHeroDefeat(killerName = 'Abyssal Guardian', state = gameState) {
   const h = state.hero;
   const vRank = state.guildResearch.vanguard || 0;
   const recoveryPct = vRank * 0.20;
+
+  const codex = ensureCodexState(state);
+  codex.totalDefeats = (codex.totalDefeats || 0) + 1;
+  recordDungeonDepthInCodex(state);
 
   let packValue = 0;
   h.expeditionPack.forEach(i => { packValue += i.val * i.qty; });
@@ -4054,6 +4334,15 @@ function killMonster(monster, state = gameState) {
   if (!floor) return;
   floor.monsters = floor.monsters.filter(m => m !== monster);
 
+  // Update Guild Bestiary Codex & Lifetime Records
+  const codex = ensureCodexState(state);
+  codex.totalMonstersSlain = (codex.totalMonstersSlain || 0) + 1;
+  if (monster.isBoss) codex.totalBossesSlain = (codex.totalBossesSlain || 0) + 1;
+  if (monster.isElite) codex.totalElitesSlain = (codex.totalElitesSlain || 0) + 1;
+  const count = (codex.monsterKills[monster.id] || 0) + 1;
+  codex.monsterKills[monster.id] = count;
+  if (codex.killsByArchetype) codex.killsByArchetype[monster.id] = count;
+
   const h = state.hero;
   // Thief Shadow Dance MP restore on kill
   if (h.classId === 'thief' && ((h.talentsAllocated && h.talentsAllocated.t_b3) || 0) > 0) {
@@ -4072,10 +4361,24 @@ function killMonster(monster, state = gameState) {
   const rarityBonus = (state.dungeon && state.dungeon.config && state.dungeon.config.lootRarityBonus) || 0;
 
   if (monster.isBoss) {
-    const bossRarity = monster.dropRarity || (monster.id === 'boss_weaver' ? 'relic' : 'epic');
+    const isRelicBoss = monster.dropRarity === 'relic' || monster.id === 'boss_weaver' || monster.id === 'boss_ignis' || monster.id === 'boss_vespera';
+    const bossRarity = monster.dropRarity || (isRelicBoss ? 'relic' : 'epic');
     const bossGear = generateProceduralEquipment(floor.depth, bossRarity, null, rarityBonus);
+    if (monster.id === 'boss_vespera') {
+      bossGear.maxSockets = 2;
+    }
     h.expeditionGear.push(bossGear);
-    addExpeditionTradeItem('starcrystal', 'Star-Crystal', 90, 2, 'Ore', state);
+    recordRelicUnlock(bossGear, floor.depth, (state.dungeon && state.dungeon.name), state);
+
+    if (monster.id === 'boss_vespera') {
+      addExpeditionTradeItem('astralite', 'Void Astralite', 150, 3, 'Ore', state);
+      addExpeditionTradeItem('gem_void_diamond', 'Void Diamond', 300, 1, 'Gem', state);
+    } else if (monster.id === 'boss_ignis') {
+      addExpeditionTradeItem('astralite', 'Void Astralite', 150, 2, 'Ore', state);
+      addExpeditionTradeItem('gem_ruby', 'Crimson Ruby', 120, 1, 'Gem', state);
+    } else {
+      addExpeditionTradeItem('starcrystal', 'Star-Crystal', 90, 2, 'Ore', state);
+    }
 
     const maxDepth = (state.dungeon && state.dungeon.config && state.dungeon.config.maxDepth) || 999;
     if (floor.depth >= maxDepth) {
@@ -4085,7 +4388,7 @@ function killMonster(monster, state = gameState) {
     if (state === gameState) {
       playSound('lvl');
       ui.floatingText(monster.x, monster.y, '👑 BOSS VANQUISHED!', '#fbbf24');
-      ui.log(`👑 Vanquished ${monster.name}! Looted ${bossGear.name} (${RARITY[bossRarity].name}) & 2x Star-Crystal!`, 'gold');
+      ui.log(`👑 Vanquished ${monster.name}! Looted ${bossGear.name} (${RARITY[bossRarity].name})!`, 'gold');
     }
   } else {
     const goldVal = 8 + floor.depth * 5 + (monster.isElite ? 18 : 0);
@@ -4098,6 +4401,9 @@ function killMonster(monster, state = gameState) {
         rarityBonus
       );
       h.expeditionGear.push(dropGear);
+      if (dropGear && dropGear.rarity === 'relic') {
+        recordRelicUnlock(dropGear, floor.depth, (state.dungeon && state.dungeon.name), state);
+      }
       if (state === gameState) {
         ui.log(`${monster.name} dropped ${dropGear.name}!`, 'good');
       }
@@ -4126,8 +4432,9 @@ function attackMonster(monster, state = gameState) {
   const weakMult = (h.statuses || []).some(s => s.id === 'weakened') ? 0.80 : 1.0;
   const pierceRank = (h.talentsAllocated && h.talentsAllocated.r_d2) || 0;
   const effDef = Math.round(monster.def * (1 - Math.min(0.8, pierceRank * 0.30)));
+  const masteryMult = getCodexMasteryMultiplier(monster.id, state);
 
-  const dmg = Math.max(2, Math.round(h.atk * weakMult * critMult) - effDef);
+  const dmg = Math.max(2, Math.round(h.atk * weakMult * critMult * masteryMult) - effDef);
   monster.hp -= dmg;
 
   if (state === gameState) {
@@ -4386,7 +4693,8 @@ function executeClassSkill(state = gameState) {
       ui.floatingText(h.x, h.y, 'WHIRLWIND!', '#f87171');
     }
     adjTargets.slice().forEach(m => {
-      const dmg = Math.max(2, Math.round(h.atk * 1.5) - m.def);
+      const masteryMult = getCodexMasteryMultiplier(m.id, state);
+      const dmg = Math.max(2, Math.round(h.atk * 1.5 * masteryMult) - m.def);
       m.hp -= dmg;
       applyStatusEffect(m, 'stun', 1);
       if (state === gameState) ui.floatingText(m.x, m.y, `-${dmg} STUN`, '#f87171');
@@ -4442,7 +4750,8 @@ function executeClassSkill(state = gameState) {
     h.mp -= cls.skillCost;
     h.x = destTile.x;
     h.y = destTile.y;
-    const dmg = Math.max(4, Math.round(h.atk * 2.2) - Math.floor(chosenTarget.def * 0.5));
+    const masteryMult = getCodexMasteryMultiplier(chosenTarget.id, state);
+    const dmg = Math.max(4, Math.round(h.atk * 2.2 * masteryMult) - Math.floor(chosenTarget.def * 0.5));
     chosenTarget.hp -= dmg;
 
     if (state === gameState) {
@@ -4479,7 +4788,8 @@ function executeClassSkill(state = gameState) {
     }
 
     targets.slice().forEach(m => {
-      let dmg = Math.max(4, Math.round(h.atk * spellMult) - Math.floor(m.def * 0.4));
+      const masteryMult = getCodexMasteryMultiplier(m.id, state);
+      let dmg = Math.max(4, Math.round(h.atk * spellMult * masteryMult) - Math.floor(m.def * 0.4));
       if (hasEcho) dmg += Math.round(dmg * 0.5);
       m.hp -= dmg;
       applyStatusEffect(m, 'burn', 3);
@@ -4520,7 +4830,8 @@ function executeClassSkill(state = gameState) {
 
     targets.forEach(m => {
       const effDef = Math.round(m.def * (1 - defIgnore));
-      const dmg = Math.max(3, Math.round(h.atk * 1.8) - effDef);
+      const masteryMult = getCodexMasteryMultiplier(m.id, state);
+      const dmg = Math.max(3, Math.round(h.atk * 1.8 * masteryMult) - effDef);
       m.hp -= dmg;
       if (state === gameState) ui.floatingText(m.x, m.y, `-${dmg} VOLLEY`, '#34d399');
       if (m.hp <= 0) killMonster(m, state);
@@ -4542,7 +4853,8 @@ function executeClassSkill(state = gameState) {
     }
 
     h.mp -= cls.skillCost;
-    const dmg = Math.max(5, Math.round(h.atk * 2.4) - Math.floor(target.def * 0.5));
+    const masteryMult = getCodexMasteryMultiplier(target.id, state);
+    const dmg = Math.max(5, Math.round(h.atk * 2.4 * masteryMult) - Math.floor(target.def * 0.5));
     const healAmt = Math.round(h.maxHp * 0.15);
     target.hp -= dmg;
     h.hp = Math.min(h.maxHp, h.hp + healAmt);
@@ -4593,6 +4905,8 @@ function handlePlayerAction(dx, dy, state = gameState) {
   // 3. Gilded Chest Opening
   if (targetTile === TILE_CHEST) {
     floor.tiles[ny][nx] = TILE_CHEST_OPEN;
+    const codex = ensureCodexState(state);
+    codex.totalChestsOpened = (codex.totalChestsOpened || 0) + 1;
     const depth = state.dungeon.currentFloor;
     const cfg = state.dungeon.config || {};
     const effDepth = depth + (cfg.baseDangerDepth || 0);
@@ -4604,6 +4918,9 @@ function handlePlayerAction(dx, dy, state = gameState) {
     const forcedRarity = effDepth >= 4 ? 'rare' : 'uncommon';
     const chestGear = generateProceduralEquipment(effDepth, forcedRarity, cfg.lootSlotBias || null, rarityBonus);
     state.hero.expeditionGear.push(chestGear);
+    if (chestGear && chestGear.rarity === 'relic') {
+      recordRelicUnlock(chestGear, depth, (state.dungeon && state.dungeon.name), state);
+    }
 
     emitEngineEvent(ENGINE_EVENTS.CHEST_OPENED, {
       goldVal,
@@ -4700,6 +5017,17 @@ function useStairsAtPlayer(state = gameState) {
     const nextDepth = state.dungeon.currentFloor + 1;
     state.dungeon.currentFloor = nextDepth;
     state.dungeon.deepestFloor = Math.max(state.dungeon.deepestFloor || 1, nextDepth);
+    const codex = ensureCodexState(state);
+    const dId = state.activeDungeonId || state.dungeon.id;
+    if (!codex.deepestFloorByDungeon[dId]) {
+      codex.deepestFloorByDungeon[dId] = {
+        name: state.dungeon.name,
+        deepestFloor: nextDepth,
+        maxDepth: cfg.maxDepth || 999
+      };
+    } else {
+      codex.deepestFloorByDungeon[dId].deepestFloor = Math.max(codex.deepestFloorByDungeon[dId].deepestFloor || 1, nextDepth);
+    }
     if (!state.dungeon.floors[nextDepth]) {
       state.dungeon.floors[nextDepth] = generateFloor(
         nextDepth,
@@ -4896,6 +5224,9 @@ function renderMinimapCanvas(targetCanvasId = 'minimapCanvas') {
   const floor = ensureDungeonFloorHydrated(gameState.dungeon, gameState.dungeon.currentFloor);
   if (!floor || !floor.tiles) return;
 
+  const biomeId = floor.biomeId || resolveFloorBiome(gameState.dungeon, floor.depth);
+  const biome = BIOME_PALETTES[biomeId] || BIOME_PALETTES.dwarven_catacombs;
+
   const fw = floor.width || (floor.tiles[0] ? floor.tiles[0].length : DEFAULT_MAP_W);
   const fh = floor.height || floor.tiles.length || DEFAULT_MAP_H;
   const scale = Math.min(canvas.width / fw, canvas.height / fh);
@@ -4919,13 +5250,13 @@ function renderMinimapCanvas(targetCanvasId = 'minimapCanvas') {
       const ry = Math.floor(offY + y * scale);
 
       if (t === TILE_WALL) {
-        ctx.fillStyle = '#253247';
+        ctx.fillStyle = biome.minimapWall;
         ctx.fillRect(rx, ry, drawSize, drawSize);
       } else if (ORE_CATALOG[t]) {
         ctx.fillStyle = ORE_CATALOG[t].color;
         ctx.fillRect(rx, ry, Math.max(2, drawSize), Math.max(2, drawSize));
       } else {
-        ctx.fillStyle = '#111a2b';
+        ctx.fillStyle = biome.minimapFloor;
         ctx.fillRect(rx, ry, drawSize, drawSize);
         if (t === TILE_STAIRS_UP) {
           poiMarkers.push({ x: rx, y: ry, color: '#10b981', size: Math.max(3, drawSize + 1) });
@@ -4990,6 +5321,9 @@ function renderDungeonCanvas() {
   const floor = ensureDungeonFloorHydrated(gameState.dungeon, gameState.dungeon.currentFloor);
   if (!floor || !floor.tiles) return;
 
+  const biomeId = floor.biomeId || resolveFloorBiome(gameState.dungeon, floor.depth);
+  const biome = BIOME_PALETTES[biomeId] || BIOME_PALETTES.dwarven_catacombs;
+
   const hx = gameState.hero.x;
   const hy = gameState.hero.y;
   const vision = gameState.hero.visionRadius || 5;
@@ -5019,12 +5353,18 @@ function renderDungeonCanvas() {
 
       // Draw Wall or Ore Vein Wall
       if (tile === TILE_WALL || ORE_CATALOG[tile]) {
-        ctx.fillStyle = '#1b2434';
+        ctx.fillStyle = biome.wallFill;
         ctx.fillRect(px, py, TILE_SIZE, TILE_SIZE);
-        ctx.fillStyle = '#293548';
+        ctx.fillStyle = biome.wallCap;
         ctx.fillRect(px, py, TILE_SIZE, 4);
-        ctx.fillStyle = '#0d131d';
+        ctx.fillStyle = biome.wallBase;
         ctx.fillRect(px, py + TILE_SIZE - 5, TILE_SIZE, 5);
+
+        // Biome wall visual accent (e.g. quartz glint or magma/void ember)
+        if (biome.wallAccent && !ORE_CATALOG[tile] && ((x * 13 + y * 7) % 6 === 0)) {
+          ctx.fillStyle = biome.wallAccent;
+          ctx.fillRect(px + 14, py + 12, 3, 3);
+        }
 
         if (ORE_CATALOG[tile]) {
           const ore = ORE_CATALOG[tile];
@@ -5038,9 +5378,9 @@ function renderDungeonCanvas() {
         }
       } else {
         // Walkable Floor Tile (including concealed traps)
-        ctx.fillStyle = (x + y) % 2 === 0 ? '#0e1420' : '#111826';
+        ctx.fillStyle = (x + y) % 2 === 0 ? biome.floor1 : biome.floor2;
         ctx.fillRect(px, py, TILE_SIZE, TILE_SIZE);
-        ctx.strokeStyle = '#192234';
+        ctx.strokeStyle = biome.floorBorder;
         ctx.strokeRect(px + 0.5, py + 0.5, TILE_SIZE - 1, TILE_SIZE - 1);
 
         if (tile === TILE_STAIRS_UP) {
@@ -5115,7 +5455,7 @@ function renderDungeonCanvas() {
       } else {
         const glow = Math.max(0, 0.13 - dist * 0.022);
         if (glow > 0) {
-          ctx.fillStyle = `rgba(251, 191, 36, ${glow})`;
+          ctx.fillStyle = `rgba(${biome.torchR}, ${biome.torchG}, ${biome.torchB}, ${glow})`;
           ctx.fillRect(px, py, TILE_SIZE, TILE_SIZE);
         }
       }
@@ -5242,6 +5582,8 @@ const TALENT_TREES = {
 
   // --- Module: src/ui/domSync.js ---
 // DOM Synchronization, Guild Hub Views (including Notice Board & Lapidary), Dungeon HUD & Chronicle Log
+
+
 
 
 
@@ -5604,6 +5946,124 @@ function renderGuildHub() {
       </div>
     `;
   }).join('');
+
+  renderCodexTab();
+}
+
+function renderCodexTab() {
+  if (typeof document === 'undefined') return;
+  const codex = ensureCodexState(gameState);
+
+  const setTxt = (id, val) => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = val;
+  };
+
+  setTxt('uiCodexMonstersSlain', codex.totalMonstersSlain || 0);
+  setTxt('uiCodexBossesSlain', codex.totalBossesSlain || 0);
+  setTxt('uiCodexOresMined', codex.totalOresMined || 0);
+  setTxt('uiCodexGemsUnearthed', codex.totalGemsUnearthed || 0);
+  setTxt('uiCodexExtractions', codex.totalExtractions || 0);
+
+  const allMonsters = Object.values(MONSTER_ARCHETYPES).concat(Object.values(BOSS_ARCHETYPES));
+  let masteredCount = 0;
+
+  for (let i = 0; i < allMonsters.length; i++) {
+    const m = allMonsters[i];
+    const kills = (codex.killsByArchetype && codex.killsByArchetype[m.id]) || 0;
+    const req = m.isBoss ? 1 : CODEX_MASTERY_KILLS;
+    if (kills >= req) {
+      masteredCount++;
+    }
+  }
+
+  setTxt('uiCodexMasteredCount', masteredCount);
+  setTxt('uiCodexMasteryBadge', masteredCount);
+
+  // Deepest Floor Grid
+  const deepestGrid = document.getElementById('uiCodexDeepestGrid');
+  if (deepestGrid) {
+    const depths = codex.deepestFloorByDungeon || {};
+    const dngKeys = Object.keys(depths);
+    if (dngKeys.length === 0) {
+      deepestGrid.innerHTML = '<div class="col-span-full text-xs text-[#8b949e] italic py-2 text-center">No expeditions recorded yet. Descend the stairs to chart records!</div>';
+    } else {
+      deepestGrid.innerHTML = dngKeys.map(dKey => {
+        const dProf = CURATED_DUNGEON_PROFILES[dKey];
+        const dName = (dProf && dProf.name) || dKey;
+        const maxF = depths[dKey] || 0;
+        return `
+          <div class="bg-[#111722] p-2.5 rounded border border-[#283347] flex items-center justify-between">
+            <span class="text-xs text-[#e6edf3] font-bold truncate">${dName}</span>
+            <span class="text-xs font-mono-num text-[#34d399] font-bold ml-2">Fl ${maxF}</span>
+          </div>
+        `;
+      }).join('');
+    }
+  }
+
+  // Star-Forged Relics Grid
+  const relicsGrid = document.getElementById('uiCodexRelicsGrid');
+  if (relicsGrid) {
+    const relics = Array.isArray(codex.relicsUnlocked) ? codex.relicsUnlocked : [];
+    if (relics.length === 0) {
+      relicsGrid.innerHTML = '<div class="col-span-full text-xs text-[#8b949e] italic py-2 text-center">No relics unearthed yet. Challenge deep Vault bosses (Floors 10, 15, 20) or rare chests!</div>';
+    } else {
+      relicsGrid.innerHTML = relics.map(r => {
+        const rar = RARITY[r.rarity] || RARITY.relic;
+        return `
+          <div class="bg-[#111722] p-2.5 rounded border border-[#fbbf24]/40 flex items-center justify-between">
+            <div>
+              <div class="text-xs font-bold" style="color:${rar.color}">★ ${r.name}</div>
+              <div class="text-[10px] text-[#8b949e] uppercase">${r.slot} • Fl ${r.floorDepth || 1}</div>
+            </div>
+            <span class="text-[10px] font-mono-num text-[#fbbf24] px-1.5 py-0.5 rounded bg-[#080b11]">Relic</span>
+          </div>
+        `;
+      }).join('');
+    }
+  }
+
+  // Bestiary & Hunter Mastery Grid
+  const bestiaryGrid = document.getElementById('uiBestiaryGrid');
+  if (bestiaryGrid) {
+    bestiaryGrid.innerHTML = allMonsters.map(m => {
+      const kills = (codex.killsByArchetype && codex.killsByArchetype[m.id]) || 0;
+      const req = m.isBoss ? 1 : CODEX_MASTERY_KILLS;
+      const isMastered = kills >= req;
+      const borderCol = isMastered ? 'border-[#fbbf24]/50' : 'border-[#283347]';
+      const bgCol = isMastered ? 'bg-[#181308]' : 'bg-[#111722]';
+      const sym = m.isBoss ? '👑' : (m.isRanged ? '🏹' : '⚔️');
+      const badgeText = m.isBoss ? 'BOSS' : (m.bountyTag ? m.bountyTag.toUpperCase() : 'FOE');
+      const statLine = m.isBoss ? `HP: ${m.hp} | ATK: ${m.atk} | DEF: ${m.def}` : (m.desc || '');
+      const statRight = m.isBoss ? `+${m.xp} XP` : (m.family ? m.family.replace('_', ' ').toUpperCase() : '');
+
+      return `
+        <div class="${bgCol} p-2.5 rounded border ${borderCol} flex flex-col justify-between gap-1.5">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-1.5 truncate">
+              <span class="text-sm font-bold font-mono" style="color:${m.color}">${sym}</span>
+              <span class="text-xs font-bold truncate ${m.isBoss ? 'text-[#f87171]' : 'text-[#e6edf3]'}">${m.name}</span>
+            </div>
+            <span class="text-[10px] font-mono-num px-1 rounded bg-[#080b11] ${m.isBoss ? 'text-[#f87171]' : 'text-[#8b949e]'}">
+              ${badgeText}
+            </span>
+          </div>
+          <div class="text-[10px] font-mono-num text-[#8b949e] flex justify-between gap-1">
+            <span class="truncate">${statLine}</span>
+            <span class="shrink-0 text-[#60a5fa]">${statRight}</span>
+          </div>
+          <div class="flex items-center justify-between pt-1 border-t border-[#283347]/50 text-[11px] font-mono-num">
+            <span class="text-[#8b949e]">Kills: <strong class="${kills > 0 ? 'text-[#e6edf3]' : 'text-[#8b949e]'}">${kills}</strong>/${req}</span>
+            ${isMastered
+              ? '<span class="text-[#fbbf24] font-bold">★ +8% DMG</span>'
+              : `<span class="text-[#64748b]">${req - kills} more</span>`
+            }
+          </div>
+        </div>
+      `;
+    }).join('');
+  }
 }
 
 function renderDungeonHud() {
@@ -5620,6 +6080,14 @@ function renderDungeonHud() {
   const fh = floor ? floor.height : (cfg.height || 60);
 
   document.getElementById('uiFloorBadge').textContent = `FLOOR ${depth} / ${capLabel >= 999 ? '∞' : capLabel}`;
+  const biomeId = resolveFloorBiome(cfg, depth);
+  const biome = BIOME_PALETTES[biomeId] || BIOME_PALETTES.dwarven_catacombs;
+  const biomeBadge = document.getElementById('uiFloorBiomeBadge');
+  if (biomeBadge && biome) {
+    biomeBadge.textContent = biome.name;
+    biomeBadge.style.color = biome.badgeColor || '#38bdf8';
+    biomeBadge.style.borderColor = (biome.badgeColor || '#38bdf8') + '55';
+  }
   const zoneLabelEl = document.getElementById('uiZoneDangerLabel');
   if (zoneLabelEl) {
     zoneLabelEl.textContent = `${dng.name} • ${fw}x${fh}`;
@@ -5829,7 +6297,7 @@ function updateAllUI() {
 
 function switchGuildTab(tabId) {
   if (typeof document === 'undefined') return;
-  ['tavern', 'bounties', 'lapidary', 'shop', 'armory', 'talents', 'research'].forEach(t => {
+  ['tavern', 'bounties', 'lapidary', 'shop', 'armory', 'talents', 'research', 'codex'].forEach(t => {
     const panel = document.getElementById(`guildTab_${t}`);
     if (panel) panel.classList.toggle('hidden', t !== tabId);
     const btn = document.getElementById(`tabBtn_${t}`);
@@ -6877,7 +7345,8 @@ function setupInputs() {
 }
 
   // --- Module: src/test/selfTest.js ---
-// 17/17 Comprehensive Automated Self-Test Suite (Sandboxed & Non-Destructive)
+// 20/20 Comprehensive Automated Self-Test Suite (Sandboxed & Non-Destructive)
+
 
 
 
@@ -6893,7 +7362,7 @@ function setupInputs() {
 function evaluateSelfTests() {
   const results = [];
 
-  // 1. Schema v5 Migration preserves v1/v2/v3/v4 saves & backfills Multi-Dungeon Atlas + gems + bounties
+  // 1. Schema v6 Migration preserves v1–v5 saves & backfills Multi-Dungeon Atlas, gems, bounties & codex
   const legacySave = {
     version: 'v0.1.0-inc1',
     hero: { classId: 'ranger', level: 4, xp: 20 },
@@ -6913,12 +7382,15 @@ function evaluateSelfTests() {
     mig.dungeons.dng_starfall &&
     mig.dungeon === mig.dungeons[mig.activeDungeonId] &&
     Array.isArray(mig.guildBounties) &&
-    mig.guildBounties.length === 3
+    mig.guildBounties.length === 3 &&
+    mig.codex &&
+    mig.codex.killsByArchetype &&
+    mig.codex.deepestFloorByDungeon
   );
   results.push({
-    name: '1. Schema v5 Save Migration (v1–v4 & Multi-Dungeon Compatibility)',
+    name: '1. Schema v6 Save Migration (v1–v5 & Multi-Dungeon + Codex Compatibility)',
     pass: t1Pass,
-    detail: `Migrated Lv4 Ranger, 120g, 5 Copper, ${Object.keys(mig.dungeons).length} Regional Dungeons & 3 Bounties`
+    detail: `Migrated Lv4 Ranger, 120g, 5 Copper, ${Object.keys(mig.dungeons).length} Regional Dungeons, 3 Bounties & Codex`
   });
 
   // 2. All 5 Classes Registered with Complete Declarations
@@ -7384,6 +7856,110 @@ function evaluateSelfTests() {
     detail: `128x96 RLE 100% lossless (${packedRle.tilesRle.length} chars); LOS wall occlusion & hostile halt verified`
   });
 
+  // 18. Visual Biomes by Depth & Curated Dungeon Profile (4 Palettes & Floor Stamping)
+  const sfCfg = CURATED_DUNGEON_PROFILES.starfall_vaults;
+  const b1 = resolveFloorBiome(sfCfg, 1);
+  const b7 = resolveFloorBiome(sfCfg, 7);
+  const b12 = resolveFloorBiome(sfCfg, 12);
+  const b18 = resolveFloorBiome(sfCfg, 18);
+  const bMolten = resolveFloorBiome(CURATED_DUNGEON_PROFILES.molten_crucible, 1);
+  const bCitadel = resolveFloorBiome(CURATED_DUNGEON_PROFILES.citadel_ruins, 1);
+
+  const flMolten = generateFloor(1, CURATED_DUNGEON_PROFILES.molten_crucible, 88123);
+  const palettesValid = ['dwarven_catacombs', 'crystalline_caverns', 'molten_forgeworks', 'vespera_crater'].every(
+    k => BIOME_PALETTES[k] && BIOME_PALETTES[k].wallFill && BIOME_PALETTES[k].floor1 && BIOME_PALETTES[k].name
+  );
+
+  const t18Pass = !!(
+    palettesValid &&
+    b1 === 'dwarven_catacombs' &&
+    b7 === 'crystalline_caverns' &&
+    b12 === 'molten_forgeworks' &&
+    b18 === 'vespera_crater' &&
+    bMolten === 'molten_forgeworks' &&
+    bCitadel === 'vespera_crater' &&
+    flMolten.biomeId === 'molten_forgeworks'
+  );
+  results.push({
+    name: '18. Visual Biome Palettes by Depth & Profile (4 Biomes & Floor Stamping)',
+    pass: t18Pass,
+    detail: `Floors 1, 7, 12, 18 resolve distinct palettes; Molten Crucible stamped with molten_forgeworks`
+  });
+
+  // 19. Floor 15 & 20 Boss Spawns (Ignis & Vespera) & Guaranteed Relic Drops
+  const fl15 = generateFloor(15, CURATED_DUNGEON_PROFILES.starfall_vaults, 15001);
+  const fl20 = generateFloor(20, CURATED_DUNGEON_PROFILES.starfall_vaults, 20002);
+  const ignis = fl15.monsters.find(m => m.id === 'boss_ignis');
+  const vespera = fl20.monsters.find(m => m.id === 'boss_vespera');
+
+  // Kill boss in isolated sandbox and verify relic drop
+  const sandbox19 = createDefaultGameState();
+  selectAdventurerClass('paladin', sandbox19);
+  sandbox19.inGuild = false;
+  ensureDungeonFloorHydrated(sandbox19.dungeon, 15);
+  const dummyIgnis = Object.assign({}, ignis || { id: 'boss_ignis', name: 'Ignis', hp: 1, isBoss: true, dropRarity: 'relic', xp: 850 });
+  dummyIgnis.hp = 0;
+  killMonster(dummyIgnis, sandbox19);
+
+  const lootedRelic = sandbox19.hero.expeditionGear.find(g => g.rarity === 'relic');
+  const hasAstralite = (sandbox19.hero.expeditionPack || []).some(it => it.id === 'astralite');
+  const hasRuby = (sandbox19.hero.expeditionPack || []).some(it => it.id === 'gem_ruby');
+  const relicRecorded = (sandbox19.codex.relicsUnlocked || []).length > 0;
+
+  const t19Pass = !!(
+    ignis &&
+    ignis.isBoss &&
+    ignis.hp === 680 &&
+    ignis.atk === 38 &&
+    vespera &&
+    vespera.isBoss &&
+    vespera.hp === 1050 &&
+    vespera.atk === 48 &&
+    lootedRelic &&
+    hasAstralite &&
+    hasRuby &&
+    relicRecorded
+  );
+  results.push({
+    name: '19. Floors 15 & 20 Boss Encounters (Ignis & Vespera) & Relic Rewards',
+    pass: t19Pass,
+    detail: `Ignis (680 HP) & Vespera (1050 HP) verified; guaranteed Relic + Astralite + Gem drop recorded`
+  });
+
+  // 20. Guild Bestiary Codex, Hall of Records & Hunter Mastery (+8% Damage)
+  const sandbox20 = createDefaultGameState();
+  selectAdventurerClass('fighter', sandbox20);
+  ensureCodexState(sandbox20);
+
+  const initialMult = getCodexMasteryMultiplier('vault_crawler', sandbox20);
+
+  // Slay 5 crawlers
+  const testCrawler = { id: 'vault_crawler', name: 'Vault Crawler', hp: 0, maxHp: 20, atk: 5, def: 1, xp: 15, isBoss: false };
+  for (let k = 0; k < CODEX_MASTERY_KILLS; k++) {
+    killMonster(testCrawler, sandbox20);
+  }
+  const crawlerMult = getCodexMasteryMultiplier('vault_crawler', sandbox20);
+
+  // Slay 1 boss
+  const testBoss = { id: 'boss_colossus', name: 'Starfall Colossus', hp: 0, maxHp: 240, atk: 22, def: 8, xp: 250, isBoss: true };
+  killMonster(testBoss, sandbox20);
+  const bossMult = getCodexMasteryMultiplier('boss_colossus', sandbox20);
+
+  const t20Pass = !!(
+    initialMult === 1.0 &&
+    sandbox20.codex.killsByArchetype.vault_crawler === CODEX_MASTERY_KILLS &&
+    crawlerMult === CODEX_MASTERY_DMG_MULT &&
+    sandbox20.codex.killsByArchetype.boss_colossus === 1 &&
+    bossMult === CODEX_MASTERY_DMG_MULT &&
+    sandbox20.codex.totalMonstersSlain === (CODEX_MASTERY_KILLS + 1) &&
+    sandbox20.codex.totalBossesSlain === 1
+  );
+  results.push({
+    name: '20. Guild Bestiary Codex, Hall of Records & Hunter Mastery (+8% Damage)',
+    pass: t20Pass,
+    detail: `Crawler 5 kills -> 1.08x Mastery; Boss 1 kill -> 1.08x Mastery; Codex kill tracking verified`
+  });
+
   return results;
 }
 
@@ -7394,7 +7970,7 @@ function runSelfTests(renderModal = false) {
   if (typeof document !== 'undefined') {
     const btnText = document.getElementById('verifyBtnText');
     if (btnText) {
-      btnText.textContent = `Verify Atlas (${passCount}/${results.length} PASS)`;
+      btnText.textContent = `Verify Inc-5 (${passCount}/${results.length} PASS)`;
     }
 
     if (renderModal) {
@@ -7532,7 +8108,11 @@ const AethelgardAPI = {
   emitEngineEvent,
   TALENT_TREES,
   GEM_CATALOG,
-  CURATED_DUNGEON_PROFILES
+  CURATED_DUNGEON_PROFILES,
+  BIOME_PALETTES,
+  resolveFloorBiome,
+  getCodexMasteryMultiplier,
+  renderCodexTab
 };
 
 function bootstrapApp() {

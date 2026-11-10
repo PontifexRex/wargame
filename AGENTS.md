@@ -6,9 +6,9 @@ This document defines the working standards, safety protocols, and operational g
 
 ## 1. Operating Mindset: Zero Regressions
 
-Aethelgard has reached milestone `v0.4.5-atlas` with 17 automated self-tests ensuring rock-solid game stability. 
+Aethelgard has reached milestone `v0.5.0-inc5` with 20 automated self-tests ensuring rock-solid game stability. 
 When executing changes:
-1. **Never break existing mechanics**: If a change breaks any of the 17 baseline self-tests, the change is considered invalid and must be corrected immediately.
+1. **Never break existing mechanics**: If a change breaks any of the 20 baseline self-tests, the change is considered invalid and must be corrected immediately.
 2. **Never leave partial or placeholder code**: Avoid `// TODO: rest of implementation`. Every extracted module must be fully functional and syntactically valid.
 3. **Preserve save compatibility**: Any schema additions must have default values in `createDefaultGameState()` and automatic back-filling in `migrateSaveData(raw)`.
 

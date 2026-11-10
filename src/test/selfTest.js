@@ -1,4 +1,4 @@
-// 17/17 Comprehensive Automated Self-Test Suite (Sandboxed & Non-Destructive)
+// 20/20 Comprehensive Automated Self-Test Suite (Sandboxed & Non-Destructive)
 
 import {
   SCHEMA_VERSION,
@@ -14,17 +14,23 @@ import {
   TILE_SHRINE_USED,
   TILE_TRAP_HIDDEN,
   TILE_TRAP_VISIBLE,
-  TILE_TRAP_DISARMED
+  TILE_TRAP_DISARMED,
+  CODEX_MASTERY_KILLS,
+  CODEX_MASTERY_DMG_MULT
 } from '../constants.js';
 import { CLASSES } from '../data/classes.js';
 import { ORE_CATALOG } from '../data/ores.js';
-import { CURATED_DUNGEON_PROFILES } from '../data/dungeons.js';
+import { CURATED_DUNGEON_PROFILES, BIOME_PALETTES, resolveFloorBiome } from '../data/dungeons.js';
+import { MONSTER_ARCHETYPES, BOSS_ARCHETYPES } from '../data/monsters.js';
 import { packFloorForStorage, hydrateFloorFromStorage } from '../engine/compression.js';
 import { ENGINE_EVENTS, onEngineEvent } from '../engine/events.js';
 import {
   createDefaultGameState,
   migrateSaveData,
-  ensureDungeonFloorHydrated
+  ensureDungeonFloorHydrated,
+  ensureCodexState,
+  getCodexMasteryMultiplier,
+  recordRelicUnlock
 } from '../engine/state.js';
 import {
   generateFloor,
@@ -54,13 +60,14 @@ import {
   computeSafeExploredPath,
   setAutoWalkPath,
   stepAutoWalkOnce,
-  cancelAutoWalk
+  cancelAutoWalk,
+  killMonster
 } from '../engine/combat.js';
 
 export function evaluateSelfTests() {
   const results = [];
 
-  // 1. Schema v5 Migration preserves v1/v2/v3/v4 saves & backfills Multi-Dungeon Atlas + gems + bounties
+  // 1. Schema v6 Migration preserves v1–v5 saves & backfills Multi-Dungeon Atlas, gems, bounties & codex
   const legacySave = {
     version: 'v0.1.0-inc1',
     hero: { classId: 'ranger', level: 4, xp: 20 },
@@ -80,12 +87,15 @@ export function evaluateSelfTests() {
     mig.dungeons.dng_starfall &&
     mig.dungeon === mig.dungeons[mig.activeDungeonId] &&
     Array.isArray(mig.guildBounties) &&
-    mig.guildBounties.length === 3
+    mig.guildBounties.length === 3 &&
+    mig.codex &&
+    mig.codex.killsByArchetype &&
+    mig.codex.deepestFloorByDungeon
   );
   results.push({
-    name: '1. Schema v5 Save Migration (v1–v4 & Multi-Dungeon Compatibility)',
+    name: '1. Schema v6 Save Migration (v1–v5 & Multi-Dungeon + Codex Compatibility)',
     pass: t1Pass,
-    detail: `Migrated Lv4 Ranger, 120g, 5 Copper, ${Object.keys(mig.dungeons).length} Regional Dungeons & 3 Bounties`
+    detail: `Migrated Lv4 Ranger, 120g, 5 Copper, ${Object.keys(mig.dungeons).length} Regional Dungeons, 3 Bounties & Codex`
   });
 
   // 2. All 5 Classes Registered with Complete Declarations
@@ -551,6 +561,110 @@ export function evaluateSelfTests() {
     detail: `128x96 RLE 100% lossless (${packedRle.tilesRle.length} chars); LOS wall occlusion & hostile halt verified`
   });
 
+  // 18. Visual Biomes by Depth & Curated Dungeon Profile (4 Palettes & Floor Stamping)
+  const sfCfg = CURATED_DUNGEON_PROFILES.starfall_vaults;
+  const b1 = resolveFloorBiome(sfCfg, 1);
+  const b7 = resolveFloorBiome(sfCfg, 7);
+  const b12 = resolveFloorBiome(sfCfg, 12);
+  const b18 = resolveFloorBiome(sfCfg, 18);
+  const bMolten = resolveFloorBiome(CURATED_DUNGEON_PROFILES.molten_crucible, 1);
+  const bCitadel = resolveFloorBiome(CURATED_DUNGEON_PROFILES.citadel_ruins, 1);
+
+  const flMolten = generateFloor(1, CURATED_DUNGEON_PROFILES.molten_crucible, 88123);
+  const palettesValid = ['dwarven_catacombs', 'crystalline_caverns', 'molten_forgeworks', 'vespera_crater'].every(
+    k => BIOME_PALETTES[k] && BIOME_PALETTES[k].wallFill && BIOME_PALETTES[k].floor1 && BIOME_PALETTES[k].name
+  );
+
+  const t18Pass = !!(
+    palettesValid &&
+    b1 === 'dwarven_catacombs' &&
+    b7 === 'crystalline_caverns' &&
+    b12 === 'molten_forgeworks' &&
+    b18 === 'vespera_crater' &&
+    bMolten === 'molten_forgeworks' &&
+    bCitadel === 'vespera_crater' &&
+    flMolten.biomeId === 'molten_forgeworks'
+  );
+  results.push({
+    name: '18. Visual Biome Palettes by Depth & Profile (4 Biomes & Floor Stamping)',
+    pass: t18Pass,
+    detail: `Floors 1, 7, 12, 18 resolve distinct palettes; Molten Crucible stamped with molten_forgeworks`
+  });
+
+  // 19. Floor 15 & 20 Boss Spawns (Ignis & Vespera) & Guaranteed Relic Drops
+  const fl15 = generateFloor(15, CURATED_DUNGEON_PROFILES.starfall_vaults, 15001);
+  const fl20 = generateFloor(20, CURATED_DUNGEON_PROFILES.starfall_vaults, 20002);
+  const ignis = fl15.monsters.find(m => m.id === 'boss_ignis');
+  const vespera = fl20.monsters.find(m => m.id === 'boss_vespera');
+
+  // Kill boss in isolated sandbox and verify relic drop
+  const sandbox19 = createDefaultGameState();
+  selectAdventurerClass('paladin', sandbox19);
+  sandbox19.inGuild = false;
+  ensureDungeonFloorHydrated(sandbox19.dungeon, 15);
+  const dummyIgnis = Object.assign({}, ignis || { id: 'boss_ignis', name: 'Ignis', hp: 1, isBoss: true, dropRarity: 'relic', xp: 850 });
+  dummyIgnis.hp = 0;
+  killMonster(dummyIgnis, sandbox19);
+
+  const lootedRelic = sandbox19.hero.expeditionGear.find(g => g.rarity === 'relic');
+  const hasAstralite = (sandbox19.hero.expeditionPack || []).some(it => it.id === 'astralite');
+  const hasRuby = (sandbox19.hero.expeditionPack || []).some(it => it.id === 'gem_ruby');
+  const relicRecorded = (sandbox19.codex.relicsUnlocked || []).length > 0;
+
+  const t19Pass = !!(
+    ignis &&
+    ignis.isBoss &&
+    ignis.hp === 680 &&
+    ignis.atk === 38 &&
+    vespera &&
+    vespera.isBoss &&
+    vespera.hp === 1050 &&
+    vespera.atk === 48 &&
+    lootedRelic &&
+    hasAstralite &&
+    hasRuby &&
+    relicRecorded
+  );
+  results.push({
+    name: '19. Floors 15 & 20 Boss Encounters (Ignis & Vespera) & Relic Rewards',
+    pass: t19Pass,
+    detail: `Ignis (680 HP) & Vespera (1050 HP) verified; guaranteed Relic + Astralite + Gem drop recorded`
+  });
+
+  // 20. Guild Bestiary Codex, Hall of Records & Hunter Mastery (+8% Damage)
+  const sandbox20 = createDefaultGameState();
+  selectAdventurerClass('fighter', sandbox20);
+  ensureCodexState(sandbox20);
+
+  const initialMult = getCodexMasteryMultiplier('vault_crawler', sandbox20);
+
+  // Slay 5 crawlers
+  const testCrawler = { id: 'vault_crawler', name: 'Vault Crawler', hp: 0, maxHp: 20, atk: 5, def: 1, xp: 15, isBoss: false };
+  for (let k = 0; k < CODEX_MASTERY_KILLS; k++) {
+    killMonster(testCrawler, sandbox20);
+  }
+  const crawlerMult = getCodexMasteryMultiplier('vault_crawler', sandbox20);
+
+  // Slay 1 boss
+  const testBoss = { id: 'boss_colossus', name: 'Starfall Colossus', hp: 0, maxHp: 240, atk: 22, def: 8, xp: 250, isBoss: true };
+  killMonster(testBoss, sandbox20);
+  const bossMult = getCodexMasteryMultiplier('boss_colossus', sandbox20);
+
+  const t20Pass = !!(
+    initialMult === 1.0 &&
+    sandbox20.codex.killsByArchetype.vault_crawler === CODEX_MASTERY_KILLS &&
+    crawlerMult === CODEX_MASTERY_DMG_MULT &&
+    sandbox20.codex.killsByArchetype.boss_colossus === 1 &&
+    bossMult === CODEX_MASTERY_DMG_MULT &&
+    sandbox20.codex.totalMonstersSlain === (CODEX_MASTERY_KILLS + 1) &&
+    sandbox20.codex.totalBossesSlain === 1
+  );
+  results.push({
+    name: '20. Guild Bestiary Codex, Hall of Records & Hunter Mastery (+8% Damage)',
+    pass: t20Pass,
+    detail: `Crawler 5 kills -> 1.08x Mastery; Boss 1 kill -> 1.08x Mastery; Codex kill tracking verified`
+  });
+
   return results;
 }
 
@@ -561,7 +675,7 @@ export function runSelfTests(renderModal = false) {
   if (typeof document !== 'undefined') {
     const btnText = document.getElementById('verifyBtnText');
     if (btnText) {
-      btnText.textContent = `Verify Atlas (${passCount}/${results.length} PASS)`;
+      btnText.textContent = `Verify Inc-5 (${passCount}/${results.length} PASS)`;
     }
 
     if (renderModal) {
