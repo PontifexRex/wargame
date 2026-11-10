@@ -36,7 +36,7 @@ Follow this procedure when developing a new milestone increment from `roadmap.md
    - Ensure every `getElementById('...')` in `src/` has a matching `id="..."` in `index.html`.
    - Ensure every `window.Aethelgard.<fn>` in `index.html` is exported on `AethelgardAPI` in `src/main.js`.
 5. **Append Cumulative Self-Tests (`src/test/selfTest.js`)**:
-   - Never delete or weaken existing tests (`Tests 1..17`).
+   - Never delete or weaken existing tests (`Tests 1..20`).
    - Append new sandboxed unit tests verifying the new increment's mechanics.
 
 ---

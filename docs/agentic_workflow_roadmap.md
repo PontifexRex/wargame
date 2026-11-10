@@ -34,16 +34,16 @@ flowchart LR
 
 ### Stage W1 — Immediate Foundation: Static Contracts, Headless UI Smoke & Skill Sync *(Completed)*
 **Status**: **Implemented & Active in `scripts/test.ps1` and `.agents/skills/`**
-**Goal**: Eliminate every class of error we previously had to catch manually or with one-off scratch scripts, and bring `.agents/skills/` up to `v0.4.6-arch`.
+**Goal**: Eliminate every class of error we previously had to catch manually or with one-off scratch scripts, and bring `.agents/skills/` up to `v0.5.0-inc5`.
 
 1. **Expand `scripts/test.ps1` Static Contract Gates**:
    - **`window.Aethelgard` HTML Handler Contract**: Parse every `window.Aethelgard.<fnName>(` in `index.html` and `src/ui/` and verify `<fnName>` is exported on `AethelgardAPI` in `src/main.js`.
    - **Golden Rule Static Assertions**: Scan `src/` to block `window.alert(`, `window.confirm(`, `window.prompt(`, and flag ES2020+ tokens (`?.` optional chaining, `{ ...` object spread) with exact file and line numbers before `chakra.dll` even runs.
-2. **Built-in Headless UI & Guild Tab Smoke Runner (`src/test/cliRunner.js`)**:
-   - Promote our scratch DOM smoke check into `src/test/cliRunner.js` as a standard verification phase after `runSelfTests()`:
-     - Bootstraps `updateAllUI()`, iterates through all 6 Guild tabs (`shop`, `assay`, `lapidary`, `research`, `bounties`, `atlas`), enters a dungeon (`descendIntoDungeon()`), executes a turn (`handlePlayerAction(1, 0)`), toggles Map Overview (`toggleMapOverview()`), and opens/closes modals—asserting zero uncaught exceptions.
+2. **Built-in Headless UI & Guild Tab Smoke Runner (`scripts/test.ps1`)**:
+   - Promote our scratch DOM smoke check into `scripts/test.ps1` as a standard verification phase after `runSelfTests()`:
+     - Bootstraps `updateAllUI()`, iterates through all 7 Guild tabs (`tavern`, `shop`, `assay`, `lapidary`, `research`, `bounties`, `talents`, `codex`), enters a dungeon (`descendIntoDungeon()`), executes a turn (`handlePlayerAction(1, 0)`), toggles Map Overview (`openFullMapModal()`), and opens/closes modals—asserting zero uncaught exceptions.
 3. **Modernize `.agents/skills/`**:
-   - Update `.agents/skills/increment-delivery/SKILL.md`, `verification-runner/SKILL.md`, and `modular-refactor/SKILL.md` to match `v0.4.6-arch` (`17/17` tests, ADR updates, DOM contracts, and `docs/agentic_workflow.md` maintenance).
+   - Updated `.agents/skills/increment-delivery/SKILL.md`, `verification-runner/SKILL.md`, and `modular-refactor/SKILL.md` to match `v0.5.0-inc5` (`20/20` tests, ADR updates, DOM contracts, pre-commit hook runbooks, and `docs/agentic_workflow.md` maintenance).
 
 ---
 
@@ -51,13 +51,15 @@ flowchart LR
 **When to Execute**: When transitioning to longer, more autonomous sessions.
 **Goal**: Make quality self-enforcing so an agent *cannot* stop on a broken build or commit untested code.
 
-1. **Antigravity `Stop` Hook (`.agents/hooks.json` + `scripts/hook-verify-on-stop.ps1`)**:
+1. **Git Pre-Commit Hook (`scripts/pre-commit.ps1` + `scripts/install-git-hooks.ps1`) *(Completed)*:
+   - Configures `core.hooksPath` to `.githooks` with fallback to `.git/hooks/pre-commit`.
+   - Runs full verification pipeline before finalizing any commit.
+   - Automatically stages freshly compiled `dist/bundle.js` if `src/` or `index.html` is staged.
+2. **Antigravity `Stop` Hook (`.agents/hooks.json` + `scripts/hook-verify-on-stop.ps1`)**:
    - Configures a lightweight `Stop` hook in `.agents/hooks.json`:
      - When the agent finishes a turn (`terminationReason == "NO_TOOL_CALL"`), the script checks if any file in `src/` or `index.html` is newer than `dist/bundle.js` or if `scripts/test.ps1` fails.
      - If out-of-sync or failing, it returns `{"decision": "continue", "reason": "src/ was modified without passing ./scripts/test.ps1. Run verification and fix any failures before finishing."}`.
      - If clean (or no code changed), it returns `{"decision": "allow"}` in `<100ms`.
-2. **Git Pre-Commit Hook (`scripts/install-git-hooks.ps1`)**:
-   - Installs `.git/hooks/pre-commit` that runs `./scripts/test.ps1` automatically before any commit is recorded.
 3. **Deterministic Chaos / Seed Fuzzer (`scripts/fuzz.ps1`)**:
    - Generates 25 random dungeon configurations across all 4 size tiers (`small` through `colossal`) and all 4 layout styles, simulating 100 random valid player actions (move, mine, attack, skill, shrine, trap, recall, RLE pack/unpack) per seed to guarantee zero runtime crashes across thousands of edge cases.
 

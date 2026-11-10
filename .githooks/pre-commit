@@ -1,0 +1,6 @@
+#!/bin/sh
+# Aethelgard Git Pre-Commit Hook
+# Automatically executes scripts/pre-commit.ps1 before any commit
+
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "./scripts/pre-commit.ps1"
+exit $?
