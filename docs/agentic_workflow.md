@@ -181,9 +181,9 @@ flowchart TB
 
 | Layer | Files | Purpose in Workflow |
 | :--- | :--- | :--- |
-| **Root Playbooks** | [`GEMINI.md`](../GEMINI.md), [`AGENTS.md`](../AGENTS.md), [`Agent_Playbook.md`](../Agent_Playbook.md) | Always-on operational rules, 8 Golden Rules, and zero-regression mandate. |
+| **Root Playbooks** | [`GEMINI.md`](../GEMINI.md), [`AGENTS.md`](../AGENTS.md) | Always-on operational rules, 8 Golden Rules, and zero-regression mandate. |
 | **Domain Rules** | [`.agents/rules/architecture.md`](../.agents/rules/architecture.md), [`engine.md`](../.agents/rules/engine.md), [`testing.md`](../.agents/rules/testing.md), [`ui.md`](../.agents/rules/ui.md) | Contextual constraints automatically injected when editing files. |
 | **Agent Skills** | [`.agents/skills/increment-delivery/SKILL.md`](../.agents/skills/increment-delivery/SKILL.md), [`verification-runner/SKILL.md`](../.agents/skills/verification-runner/SKILL.md), [`modular-refactor/SKILL.md`](../.agents/skills/modular-refactor/SKILL.md) | Progressive-disclosure runbooks activated on demand for specific workflows. |
-| **Architecture Memory** | [`docs/adr/README.md`](./adr/README.md) (`ADR-0001`–`ADR-0006`), [`architecture.md`](../architecture.md), [`game_design_spec.md`](../game_design_spec.md) | Historical context, schema contracts, and design formulas. |
-| **Automation Scripts** | [`scripts/build.ps1`](../scripts/build.ps1), [`scripts/test.ps1`](../scripts/test.ps1) | Zero-dependency ES6 bundler, static contract checker, and headless Chakra test runner. |
+| **Architecture Memory** | [`docs/adr/README.md`](./adr/README.md) (`ADR-0001`–`ADR-0006`), [`docs/architecture.md`](./architecture.md), [`docs/game_design_spec.md`](./game_design_spec.md), [`docs/roadmap.md`](./roadmap.md) | Historical context, schema contracts, design formulas, and milestone roadmap. |
+| **Automation Scripts** | [`scripts/build.ps1`](../scripts/build.ps1), [`scripts/test.ps1`](../scripts/test.ps1), [`scripts/pre-commit.ps1`](../scripts/pre-commit.ps1), [`scripts/install-git-hooks.ps1`](../scripts/install-git-hooks.ps1) | Zero-dependency ES6 bundler, contract checker, pre-commit hook, and Chakra test runner. |
 | **Future Evolution** | [`docs/agentic_workflow_roadmap.md`](./agentic_workflow_roadmap.md) | Staged roadmap (`W1`–`W4`) for static contract expansion, headless UI smoke tests, lifecycle hooks, and subagent QA auditing. |

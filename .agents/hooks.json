@@ -1,0 +1,12 @@
+{
+  "verify-on-stop": {
+    "enabled": true,
+    "Stop": [
+      {
+        "type": "command",
+        "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/hook-verify-on-stop.ps1",
+        "timeout": 30
+      }
+    ]
+  }
+}

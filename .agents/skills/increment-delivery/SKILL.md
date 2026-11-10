@@ -4,17 +4,17 @@ description: >-
   Use this skill when implementing a new milestone increment from roadmap.md (such as Increment 5 or 6). Outlines planning, ADR evaluation, topological implementation, unit testing expansion, and release tagging workflow.
 ---
 
-# Increment Delivery Workflow (`v0.4.6-arch`)
+# Increment Delivery Workflow (`v0.5.0-inc5`)
 
-Follow this procedure when developing a new milestone increment from `roadmap.md`.
+Follow this procedure when developing a new milestone increment from `docs/roadmap.md`.
 
 ---
 
 ## 1. Specification & Architectural Review
 
-1. Open `roadmap.md` and read the detailed feature specification for the target increment.
-2. Cross-reference formulas and values with `game_design_spec.md`.
-3. Check `architecture.md` and `docs/adr/README.md` (`ADR-0001` through `ADR-0006`) for state schema, event bus, or persistence contracts.
+1. Open `docs/roadmap.md` and read the detailed feature specification for the target increment.
+2. Cross-reference formulas and values with `docs/game_design_spec.md`.
+3. Check `docs/architecture.md` and `docs/adr/README.md` (`ADR-0001` through `ADR-0006`) for state schema, event bus, or persistence contracts.
 4. If the increment introduces a new architectural pattern or persistence change, plan a new `docs/adr/ADR-000X-*.md` record.
 
 ---
@@ -52,7 +52,7 @@ Follow this procedure when developing a new milestone increment from `roadmap.md
    - `Validated HTML DOM contract (... element IDs verified, 0 missing references)`
    - `Validated window.Aethelgard API contract (... exports) & Golden Rule/ES2017 static gates`
    - `Result: X/X Self-Tests + UI Smoke Suite Passed. Build is healthy!`
-2. Update living documentation (`architecture.md`, `game_design_spec.md`, `docs/adr/`, `docs/agentic_workflow.md`, `roadmap.md`).
+2. Update living documentation (`docs/architecture.md`, `docs/game_design_spec.md`, `docs/adr/`, `docs/agentic_workflow.md`, `docs/roadmap.md`).
 3. Create a conventional commit and annotated Git tag:
    ```powershell
    git add -A

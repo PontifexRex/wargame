@@ -79,7 +79,8 @@ import {
   evaluateSelfTests,
   runSelfTests,
   openDiagnosticsModal,
-  closeDiagnosticsModal
+  closeDiagnosticsModal,
+  runChaosFuzzer
 } from './test/selfTest.js';
 import { TALENT_TREES } from './data/talents.js';
 import { GEM_CATALOG } from './data/gems.js';
@@ -174,7 +175,8 @@ export const AethelgardAPI = {
   BIOME_PALETTES,
   resolveFloorBiome,
   getCodexMasteryMultiplier,
-  renderCodexTab
+  renderCodexTab,
+  runChaosFuzzer
 };
 
 function bootstrapApp() {

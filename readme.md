@@ -1,6 +1,6 @@
 Aethelgard: The Starfall Vaults
 
-Current Build: v0.4.5-atlas (Multi-Dungeon Expedition Atlas Verified)
+Current Build: v0.5.0-inc5 (Deep Abyssal Biomes, Floors 15/20 Bosses & Bestiary Codex)
 
 Architecture: Modular ES6 architecture (src/) + compiled file:// bundle (dist/bundle.js) / HTML5 Canvas 2D / Tailwind CSS
 
@@ -44,19 +44,15 @@ Dual-Cost Guild Research, Lapidary & Bounties: Upgrading Guild capabilities requ
 
 4. Repository Documentation Map
 
-To support multi-agent development and seamless context handoffs across chat sessions, this repository uses a modular specification suite:
+To support multi-agent development and seamless context handoffs across chat sessions, this repository uses a modular specification suite under `docs/`:
 
-README.md (This file): Project overview, core loop, controls, and Git workflow.
-
-GEMINI.md & AGENTS.md: Antigravity workspace architecture map, 8 Golden Rules, and operational guardrails.
-
-ARCHITECTURE.md: Master gameState JSON schema, save migration contract, sandboxed state injection pattern, and procedural generation invariants.
-
-GAME_DESIGN_SPEC.md: Exact mathematical formulas, 5 class definitions, 6-slot equipment & affix tables, 6 mineral veins, 6 dual-cost research trees, and boss mechanics.
-
-AGENT_PLAYBOOK.md: Mandatory guardrails for AI coding agents, anti-regression rules, and instructions for extending the runSelfTests() verification suite.
-
-ROADMAP.md: Cumulative changelog (Increments 1–4 + Multi-Dungeon Atlas) and detailed specifications for Increment 5.
+- `README.md` (This file): Project overview, core loop, controls, and Git workflow.
+- `GEMINI.md` & `AGENTS.md`: Antigravity workspace architecture map, 8 Golden Rules, and operational guardrails.
+- `docs/architecture.md`: Master gameState JSON schema, save migration contract, sandboxed state injection pattern, and procedural generation invariants.
+- `docs/game_design_spec.md`: Exact mathematical formulas, 5 class definitions, 6-slot equipment & affix tables, 6 mineral veins, 6 dual-cost research trees, and boss mechanics.
+- `docs/agentic_workflow.md` & `docs/agentic_workflow_roadmap.md`: Living architecture diagrams and staged maturity roadmap for agentic development.
+- `docs/roadmap.md`: Cumulative changelog (Increments 1–5) and upcoming milestone backlogs.
+- `docs/adr/`: Architecture Decision Records (`ADR-0001` through `ADR-0006`).
 
 5. Local Verification & Release Tagging Workflow
 

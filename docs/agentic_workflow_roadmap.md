@@ -47,21 +47,21 @@ flowchart LR
 
 ---
 
-### Stage W2 — Closed-Loop Guardrails: Lifecycle Hooks & Chaos Seed Fuzzer
-**When to Execute**: When transitioning to longer, more autonomous sessions.
+### Stage W2 — Closed-Loop Guardrails: Lifecycle Hooks & Chaos Seed Fuzzer *(Completed)*
+**Status**: **Implemented & Active in `.agents/hooks.json`, `.githooks/`, and `scripts/`**
 **Goal**: Make quality self-enforcing so an agent *cannot* stop on a broken build or commit untested code.
 
-1. **Git Pre-Commit Hook (`scripts/pre-commit.ps1` + `scripts/install-git-hooks.ps1`) *(Completed)*:
+1. **Git Pre-Commit Hook (`scripts/pre-commit.ps1` + `scripts/install-git-hooks.ps1`)**:
    - Configures `core.hooksPath` to `.githooks` with fallback to `.git/hooks/pre-commit`.
    - Runs full verification pipeline before finalizing any commit.
    - Automatically stages freshly compiled `dist/bundle.js` if `src/` or `index.html` is staged.
 2. **Antigravity `Stop` Hook (`.agents/hooks.json` + `scripts/hook-verify-on-stop.ps1`)**:
-   - Configures a lightweight `Stop` hook in `.agents/hooks.json`:
-     - When the agent finishes a turn (`terminationReason == "NO_TOOL_CALL"`), the script checks if any file in `src/` or `index.html` is newer than `dist/bundle.js` or if `scripts/test.ps1` fails.
-     - If out-of-sync or failing, it returns `{"decision": "continue", "reason": "src/ was modified without passing ./scripts/test.ps1. Run verification and fix any failures before finishing."}`.
-     - If clean (or no code changed), it returns `{"decision": "allow"}` in `<100ms`.
-3. **Deterministic Chaos / Seed Fuzzer (`scripts/fuzz.ps1`)**:
-   - Generates 25 random dungeon configurations across all 4 size tiers (`small` through `colossal`) and all 4 layout styles, simulating 100 random valid player actions (move, mine, attack, skill, shrine, trap, recall, RLE pack/unpack) per seed to guarantee zero runtime crashes across thousands of edge cases.
+   - Registered in `.agents/hooks.json` for the `Stop` lifecycle event.
+   - Non-intrusively allows completion in `<50ms` when no code is touched.
+   - If `src/` or `index.html` is modified, automatically runs `scripts/test.ps1`. If tests fail, it forces continuation (`"decision": "continue"`) and instructs the agent to fix the regressions before finishing its turn.
+3. **Deterministic Chaos / Seed Fuzzer (`scripts/fuzz.ps1` & `runChaosFuzzer()`)**:
+   - Simulates 25 random dungeon configurations across all 4 size tiers (`compact` through `colossal`) and all 4 layout styles (`masonry_vaults`, `excavation_quarry`, `crystalline_caverns`, `grand_ruins`).
+   - Simulates 100 random valid turns per seed (2,500 total turns) covering class skills, tonics, navigation, RLE compression roundtrips, and pure-floor BFS invariants with zero runtime crashes.
 
 ---
 

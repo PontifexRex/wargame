@@ -8007,6 +8007,93 @@ function closeDiagnosticsModal() {
   if (modal) modal.classList.add('hidden');
 }
 
+function runChaosFuzzer(seedCount = 25) {
+  const classes = ['fighter', 'thief', 'mage', 'ranger', 'paladin'];
+  const sizePresets = [
+    { w: 48,  h: 36,  name: 'compact' },
+    { w: 80,  h: 60,  name: 'standard' },
+    { w: 128, h: 96,  name: 'sprawling' },
+    { w: 192, h: 144, name: 'colossal' }
+  ];
+  const layoutStyles = ['masonry_vaults', 'excavation_quarry', 'crystalline_caverns', 'grand_ruins'];
+  const totalSeeds = Math.max(1, seedCount);
+  const errors = [];
+  let totalTurns = 0;
+
+  for (let s = 0; s < totalSeeds; s++) {
+    try {
+      const sb = createDefaultGameState();
+      const cls = classes[s % classes.length];
+      selectAdventurerClass(cls, sb);
+      sb.inGuild = false;
+
+      const preset = sizePresets[s % sizePresets.length];
+      const layout = layoutStyles[s % layoutStyles.length];
+      const seedVal = (s + 1) * 31337 + 101;
+
+      const dCfg = {
+        id: 'fuzz_dng_' + s,
+        name: 'Fuzz Dungeon ' + s,
+        width: preset.w,
+        height: preset.h,
+        maxDepth: 5,
+        layoutStyle: layout,
+        originType: 'custom'
+      };
+
+      const fl1 = generateFloor(1, dCfg, seedVal);
+      const fl2 = generateFloor(2, dCfg, seedVal + 1);
+
+      const bfs1 = verifyPureFloorBFS(fl1);
+      const bfs2 = verifyPureFloorBFS(fl2);
+      if (!bfs1 || !bfs2) {
+        errors.push('Seed ' + s + ' (' + preset.name + ' ' + layout + '): BFS reachability failed.');
+        continue;
+      }
+
+      const packed = packFloorForStorage(fl1);
+      const hydrated = hydrateFloorFromStorage(packed);
+      if (!hydrated || hydrated.width !== fl1.width || hydrated.height !== fl1.height) {
+        errors.push('Seed ' + s + ': RLE compression roundtrip mismatch.');
+        continue;
+      }
+
+      sb.dungeon.floors[1] = fl1;
+      sb.dungeon.currentFloor = 1;
+      sb.hero.x = fl1.upPos.x;
+      sb.hero.y = fl1.upPos.y;
+
+      const dirs = [{ x: 0, y: -1 }, { x: 0, y: 1 }, { x: -1, y: 0 }, { x: 1, y: 0 }];
+
+      for (let t = 0; t < 100; t++) {
+        totalTurns++;
+        const dir = dirs[(s * 100 + t) % 4];
+
+        if (t % 15 === 0) {
+          executeClassSkill(sb);
+        } else if (t % 25 === 0) {
+          useHealingTonic(sb);
+        } else {
+          handlePlayerAction(dir.x, dir.y, sb);
+        }
+
+        if (sb.inGuild) {
+          break;
+        }
+      }
+    } catch (e) {
+      errors.push('Seed ' + s + ' Exception: ' + (e && e.message ? e.message : String(e)));
+    }
+  }
+
+  return {
+    totalSeeds: totalSeeds,
+    totalTurns: totalTurns,
+    errorCount: errors.length,
+    errors: errors
+  };
+}
+
   // --- Module: src/main.js ---
 // Application Bootstrap, Event Wiring, and window.Aethelgard Global Export Bridge
 
@@ -8112,7 +8199,8 @@ const AethelgardAPI = {
   BIOME_PALETTES,
   resolveFloorBiome,
   getCodexMasteryMultiplier,
-  renderCodexTab
+  renderCodexTab,
+  runChaosFuzzer
 };
 
 function bootstrapApp() {
