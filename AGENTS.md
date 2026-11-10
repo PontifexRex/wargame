@@ -42,3 +42,13 @@ During the ongoing migration from monolithic `index.html` to modular `src/`:
   - `feat(inc4): implement tier 1 talent tree allocations`
 - Tag official increment releases:
   - `git tag -a v0.4.0-inc4 -m "Verified 13/13 self-tests passing"`
+
+---
+
+## 5. Autonomous Git Operations (Standing Authorization)
+
+The agent has permanent standing authorization to execute the following Git actions without asking for user permission or confirmation:
+1. **Staging & Committing**: Autonomously stage verified files and generate conventional commit messages whenever `./scripts/test.ps1` passes.
+2. **Commit Messages & Notes**: Compose clear, descriptive commit messages adhering to repository conventions without prior review.
+3. **Milestone Release Tags**: Autonomously create annotated Git release tags (e.g. `v0.X.Y-incZ`) upon completing verified increment deliverables.
+4. **Pushing to Remote**: Autonomously push verified commits and tags to `origin/main`.
