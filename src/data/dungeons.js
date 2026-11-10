@@ -177,7 +177,7 @@ export function resolveFloorBiome(cfgOrDungeon, depth = 1) {
   if (prof === 'sunken_quarry') return 'dwarven_catacombs';
   if (prof === 'mycelium_labyrinth') return 'crystalline_caverns';
   if (prof === 'molten_crucible') return 'molten_forgeworks';
-  if (prof === 'citadel_ruins') return 'vespera_crater';
+  if (prof === 'citadel_ruins' || prof === 'abyssal_rift') return 'vespera_crater';
 
   const d = Math.max(1, Number(depth) || 1);
   if (d <= 5) return 'dwarven_catacombs';
@@ -344,6 +344,45 @@ export const CURATED_DUNGEON_PROFILES = {
     biomeId: 'molten_forgeworks',
     bossSchedule: {
       6: 'boss_ignis'
+    }
+  },
+  abyssal_rift: {
+    profileId: 'abyssal_rift',
+    name: 'The Abyssal Rift',
+    subtitle: 'Endless Void Fracture • Infinite Strata & Scaling Hazards',
+    themeColor: '#c084fc',
+    seedPrefix: 'ABYS',
+    reqCartography: 1,
+    width: 80,
+    height: 60,
+    sizeTier: 'standard',
+    maxDepth: 999,
+    baseDangerDepth: 3,
+    respectsCartographyPermit: false,
+    layoutStyle: 'grand_ruins',
+    loopRatio: 0.40,
+    vaultRoomCount: 2,
+    monsterFamily: 'astral_cult',
+    monsterDensityMult: 1.2,
+    eliteChance: 0.35,
+    oreFocus: 'astral_crystal',
+    veinDensityMult: 1.35,
+    motherlodeChance: 0.55,
+    chestDensityMult: 1.25,
+    lootRarityBonus: 0.15,
+    shrineDensityMult: 1.1,
+    trapDensityMult: 1.25,
+    allowedTraps: ['spike', 'flame'],
+    biomeId: 'vespera_crater',
+    bossSchedule: {
+      5: 'boss_colossus',
+      10: 'boss_weaver',
+      15: 'boss_ignis',
+      20: 'boss_vespera',
+      25: 'boss_weaver',
+      30: 'boss_ignis',
+      35: 'boss_colossus',
+      40: 'boss_vespera'
     }
   }
 };

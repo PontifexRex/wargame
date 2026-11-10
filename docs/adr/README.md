@@ -13,6 +13,7 @@ This directory records the foundational architectural decisions, runtime constra
 | [ADR-0005](./ADR-0005-camera-frustum-wall-los-and-safe-autowalk.md) | Frustum-Culled `21x15` Camera, Bresenham Wall LOS & Safe Auto-Walk | **Accepted** | `v0.4.5-atlas` |
 | [ADR-0006](./ADR-0006-domain-event-bus-and-telemetry.md) | Synchronous Domain Event Bus & Gameplay Telemetry Hooks | **Accepted** | `v0.4.6-arch` |
 | [ADR-0007](./ADR-0007-inventory-intelligence-and-lock-protocols.md) | Inventory Intelligence, Power Score Heuristics & Lock Protocols | **Accepted** | `v0.5.0-inc5` |
+| [ADR-0008](./ADR-0008-abyssal-modifiers-and-endless-delve.md) | Abyssal Elite Affixes, Combat Reactive Modifiers & Endless Strata Delve | **Accepted** | `v0.6.0-inc6` |
 
 ## When to Add or Supersede an ADR
 

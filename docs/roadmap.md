@@ -102,12 +102,25 @@ Implemented comprehensive inventory management and vault intelligence systems:
 
 Expanded automated verification suite to 21/21 PASS + Headless UI Smoke Suite.
 
+v0.6.0-inc6 - Increment 6: Abyssal Elite Affixes, Reactive Combat & Endless Strata Delve
+
+Implemented advanced elite monster traits, deep equipment affixes, and infinite-descent delve mechanics:
+- 4 New Abyssal Elite Affixes:
+  - `Reflective`: Reflects 25% thorns damage directly back to the hero on melee/skill attack.
+  - `Chilling`: Inflicts `chilled` status on hit (-15% Dodge, +2 Skill MP costs for 3 turns).
+  - `Temporal Warp`: 40% chance on taking damage to phase-shift/teleport to an adjacent floor tile to break melee engagement.
+  - `Volatile`: On-death detonation dealing 150% ATK damage in a 1-tile Chebyshev radius to hero and adjacent monsters.
+- Abyssal Equipment Affixes: Added `thorns` (of Retaliation), `leech` (of the Blood Drinker), and `ward` (of Astral Warding) to procedural loot affix tables.
+- 6th Curated Dungeon Profile (`abyssal_rift`, `dng_abyss`): Infinite 80x60 strata delve featuring cosmic void glass palette (`vespera_crater`), exponential depth scaling (`effDepth`), and recurring bosses every 5 floors beyond Floor 20.
+- Deepest Delve Tracking: Codex Hall of Records displays deepest floor reached per dungeon, celebrating endless delve milestones.
+
+Expanded automated verification suite to 22/22 PASS + Headless UI Smoke Suite.
+
 2. Upcoming Increment Backlog
 
-Increment 6 (v0.6.0-inc6) - Guild Forge Runecrafting, Deep Affix Synthesis & Abyss Expeditions
+Increment 7 (v0.7.0-inc7) - Guild Star-Forge Runecrafting, Deep Affix Synthesis & Gem Infusion
 
 Scope & Deliverables:
-- Star-Forge Runecrafting & Affix Synthesis: Guild facility to re-roll item affixes or upgrade item rarity using star-ores and lapidary gems.
-- Abyssal Affixes & Elite Modifiers: New monster modifier affixes (Reflective, Chilled, Temporal Warp) and enhanced procedural loot affixes.
-- Endless Strata Delve Mode: Infinitely descending dungeon profile beyond Floor 20 with scaling monster danger and celestial vault rewards.
+- Star-Forge Runecrafting Facility: Guild workshop tab to re-roll prefixes/suffixes, enhance stat tiers, or add sockets to gear by spending mined ores (`Copper`, `Iron`, `Mithril`, `Astralite`) and lapidary gems.
+- Dual-Affix Runestones: Socketable runic keystones crafting hybrid passive perks.
 - Verification Gate: Bump to 23/23 PASS in runSelfTests().

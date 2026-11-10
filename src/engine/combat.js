@@ -450,6 +450,36 @@ export function killMonster(monster, state = gameState) {
     }
   }
 
+  // Volatile Elite Affix: On-death detonation in 1-tile Chebyshev radius
+  if (monster.affix && monster.affix.id === 'volatile') {
+    if (state === gameState) {
+      playSound('hit');
+      ui.floatingText(monster.x, monster.y, '💥 VOLATILE BURST!', '#ef4444');
+      ui.log(`💥 ${monster.name} detonated in a violent volatile burst!`, 'bad');
+    }
+    const blastDmg = Math.max(3, Math.round(monster.atk * 1.5) - Math.floor(h.def * 0.5));
+    if (Math.abs(h.x - monster.x) <= 1 && Math.abs(h.y - monster.y) <= 1) {
+      h.hp -= blastDmg;
+      if (state === gameState) {
+        ui.floatingText(h.x, h.y, `-${blastDmg} BLAST!`, '#ef4444');
+      }
+    }
+    if (floor && Array.isArray(floor.monsters)) {
+      floor.monsters.forEach(m2 => {
+        if (m2 !== monster && m2.hp > 0 && Math.abs(m2.x - monster.x) <= 1 && Math.abs(m2.y - monster.y) <= 1) {
+          const mDmg = Math.max(2, Math.round(monster.atk * 1.5) - m2.def);
+          m2.hp -= mDmg;
+          if (state === gameState) {
+            ui.floatingText(m2.x, m2.y, `-${mDmg}`, '#ef4444');
+          }
+        }
+      });
+    }
+    if (h.hp <= 0) {
+      checkHeroFatalDamage(monster.name, state);
+    }
+  }
+
   if (state === gameState) {
     gainExperience(monster.xp, state);
   }
@@ -481,6 +511,64 @@ export function attackMonster(monster, state = gameState) {
     playSound('hit');
     ui.floatingText(monster.x, monster.y, `${isCrit ? 'CRIT! ' : ''}-${dmg}`, isCrit ? '#fbbf24' : '#f87171');
     ui.log(`You strike ${monster.name} for ${dmg} damage${isCrit ? ' (CRITICAL!)' : ''}.`, isCrit ? 'gold' : 'info');
+  }
+
+  // Hero Leech Affix: restores HP on hit
+  if ((h.leech || 0) > 0) {
+    const leechHeal = Math.min(h.maxHp - h.hp, Math.round(h.leech));
+    if (leechHeal > 0) {
+      h.hp += leechHeal;
+      if (state === gameState) {
+        ui.floatingText(h.x, h.y, `+${leechHeal} LEECH`, '#34d399');
+      }
+    }
+  }
+
+  // Reflective Elite Affix: returns 25% thorns damage back to hero
+  if (monster.affix && monster.affix.id === 'reflective') {
+    const reflDmg = Math.max(1, Math.round(dmg * 0.25));
+    h.hp -= reflDmg;
+    if (state === gameState) {
+      ui.floatingText(h.x, h.y, `-${reflDmg} REFLECT!`, '#ec4899');
+      ui.log(`⚠ ${monster.name}'s reflective carapace returned ${reflDmg} thorns damage!`, 'bad');
+    }
+    if (h.hp <= 0) {
+      checkHeroFatalDamage(monster.name, state);
+      return;
+    }
+  }
+
+  // Temporal Warp Elite Affix: 40% chance on taking damage to phase-shift away if surviving
+  if (monster.hp > 0 && monster.affix && monster.affix.id === 'temporal' && Math.random() < 0.40) {
+    const floor = ensureDungeonFloorHydrated(state.dungeon, state.dungeon.currentFloor);
+    if (floor) {
+      const candidates = [];
+      const fw = floor.width || (floor.tiles[0] ? floor.tiles[0].length : DEFAULT_MAP_W);
+      const fh = floor.height || floor.tiles.length || DEFAULT_MAP_H;
+      for (let dy = -2; dy <= 2; dy++) {
+        for (let dx = -2; dx <= 2; dx++) {
+          if (dx === 0 && dy === 0) continue;
+          const nx = monster.x + dx;
+          const ny = monster.y + dy;
+          if (nx >= 0 && nx < fw && ny >= 0 && ny < fh) {
+            const isWalkable = floor.tiles[ny][nx] === TILE_FLOOR;
+            const isOccupied = (h.x === nx && h.y === ny) || (floor.monsters || []).some(m2 => m2 !== monster && m2.x === nx && m2.y === ny);
+            if (isWalkable && !isOccupied) {
+              candidates.push({ x: nx, y: ny });
+            }
+          }
+        }
+      }
+      if (candidates.length > 0) {
+        const pick = candidates[Math.floor(Math.random() * candidates.length)];
+        monster.x = pick.x;
+        monster.y = pick.y;
+        if (state === gameState) {
+          ui.floatingText(monster.x, monster.y, '✦ PHASE WARP!', '#a855f7');
+          ui.log(`✦ ${monster.name} phase-shifted through the void to (${pick.x}, ${pick.y})!`, 'info');
+        }
+      }
+    }
   }
 
   if (monster.hp <= 0) {
@@ -519,6 +607,12 @@ export function monsterAttackHero(m, isRanged, state = gameState) {
 
   let raw = isRanged ? Math.round(m.atk * 0.85) : m.atk;
   if (h.classId === 'fighter') raw = Math.round(raw * 0.85);
+
+  // Hero Astral Ward Affix (flat damage reduction)
+  if ((h.ward || 0) > 0) {
+    raw = Math.max(1, raw - h.ward);
+  }
+
   const dmg = Math.max(1, raw - Math.floor(h.def * 0.6));
   h.hp -= dmg;
 
@@ -538,6 +632,27 @@ export function monsterAttackHero(m, isRanged, state = gameState) {
     applyStatusEffect(h, 'burn', 3);
   } else if (m.affix && m.affix.id === 'venomous') {
     applyStatusEffect(h, 'poison', 3);
+  } else if (m.affix && m.affix.id === 'chilling') {
+    applyStatusEffect(h, 'chilled', 3);
+    recomputeHeroDerivedStats(false, state);
+    if (state === gameState) {
+      ui.floatingText(h.x, h.y, '❄ CHILLED!', '#38bdf8');
+      ui.log(`❄ ${m.name}'s freezing aura chilled you (-15% Dodge, +2 Skill MP)!`, 'bad');
+    }
+  }
+
+  // Hero Retaliation / Thorns Affix (returns thorns damage on melee)
+  if (!isRanged && (h.thorns || 0) > 0) {
+    const thDmg = Math.round(h.thorns);
+    m.hp -= thDmg;
+    if (state === gameState) {
+      ui.floatingText(m.x, m.y, `-${thDmg} THORNS`, '#ec4899');
+      ui.log(`Your spiked gear reflected ${thDmg} thorns damage back at ${m.name}!`, 'info');
+    }
+    if (m.hp <= 0) {
+      killMonster(m, state);
+      return;
+    }
   }
 
   // Fighter Titan Resurgence Counter-Attack
@@ -587,7 +702,7 @@ export function processTurn(state = gameState) {
       }
       st.duration -= 1;
       if (st.duration <= 0) {
-        if (st.isBuff) buffExpired = true;
+        if (st.isBuff || st.id === 'chilled') buffExpired = true;
         h.statuses.splice(i, 1);
       }
     }
@@ -709,10 +824,14 @@ export function executeClassSkill(state = gameState) {
   const fw = floor.width || (floor.tiles[0] ? floor.tiles[0].length : DEFAULT_MAP_W);
   const fh = floor.height || floor.tiles.length || DEFAULT_MAP_H;
 
-  if (h.mp < cls.skillCost) {
+  const isChilled = (h.statuses || []).some(s => s.id === 'chilled');
+  const effectiveCost = cls.skillCost + (isChilled ? 2 : 0);
+
+  if (h.mp < effectiveCost) {
     if (state === gameState) {
       ui.floatingText(h.x, h.y, 'Low MP!', '#60a5fa');
-      ui.log(`Not enough MP for ${cls.skillName} (${cls.skillCost} MP required).`, 'bad');
+      const chilledNote = isChilled ? ' (Chilled penalty: +2 MP)' : '';
+      ui.log(`Not enough MP for ${cls.skillName} (${effectiveCost} MP required${chilledNote}).`, 'bad');
     }
     return { ok: false, reason: 'no_mp' };
   }
@@ -727,7 +846,7 @@ export function executeClassSkill(state = gameState) {
       }
       return { ok: false, reason: 'no_target' };
     }
-    h.mp -= cls.skillCost;
+    h.mp -= effectiveCost;
     if (state === gameState) {
       playSound('spell');
       ui.floatingText(h.x, h.y, 'WHIRLWIND!', '#f87171');
@@ -787,7 +906,7 @@ export function executeClassSkill(state = gameState) {
       return { ok: false, reason: 'no_valid_shadowstep' };
     }
 
-    h.mp -= cls.skillCost;
+    h.mp -= effectiveCost;
     h.x = destTile.x;
     h.y = destTile.y;
     const masteryMult = getCodexMasteryMultiplier(chosenTarget.id, state);
@@ -817,7 +936,7 @@ export function executeClassSkill(state = gameState) {
       return { ok: false, reason: 'no_target' };
     }
 
-    h.mp -= cls.skillCost;
+    h.mp -= effectiveCost;
     const ampRank = (h.talentsAllocated && h.talentsAllocated.m_c2) || 0;
     const hasEcho = ((h.talentsAllocated && h.talentsAllocated.m_c3) || 0) > 0;
     const spellMult = 2.0 * (1 + ampRank * 0.15);
@@ -862,7 +981,7 @@ export function executeClassSkill(state = gameState) {
       return { ok: false, reason: 'no_target' };
     }
 
-    h.mp -= cls.skillCost;
+    h.mp -= effectiveCost;
     if (state === gameState) {
       playSound('spell');
       ui.floatingText(h.x, h.y, 'STARFALL VOLLEY!', '#34d399');
@@ -892,7 +1011,7 @@ export function executeClassSkill(state = gameState) {
       return { ok: false, reason: 'no_adjacent_target' };
     }
 
-    h.mp -= cls.skillCost;
+    h.mp -= effectiveCost;
     const masteryMult = getCodexMasteryMultiplier(target.id, state);
     const dmg = Math.max(5, Math.round(h.atk * 2.4 * masteryMult) - Math.floor(target.def * 0.5));
     const healAmt = Math.round(h.maxHp * 0.15);

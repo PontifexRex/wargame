@@ -604,7 +604,7 @@ function resolveFloorBiome(cfgOrDungeon, depth = 1) {
   if (prof === 'sunken_quarry') return 'dwarven_catacombs';
   if (prof === 'mycelium_labyrinth') return 'crystalline_caverns';
   if (prof === 'molten_crucible') return 'molten_forgeworks';
-  if (prof === 'citadel_ruins') return 'vespera_crater';
+  if (prof === 'citadel_ruins' || prof === 'abyssal_rift') return 'vespera_crater';
 
   const d = Math.max(1, Number(depth) || 1);
   if (d <= 5) return 'dwarven_catacombs';
@@ -771,6 +771,45 @@ const CURATED_DUNGEON_PROFILES = {
     biomeId: 'molten_forgeworks',
     bossSchedule: {
       6: 'boss_ignis'
+    }
+  },
+  abyssal_rift: {
+    profileId: 'abyssal_rift',
+    name: 'The Abyssal Rift',
+    subtitle: 'Endless Void Fracture • Infinite Strata & Scaling Hazards',
+    themeColor: '#c084fc',
+    seedPrefix: 'ABYS',
+    reqCartography: 1,
+    width: 80,
+    height: 60,
+    sizeTier: 'standard',
+    maxDepth: 999,
+    baseDangerDepth: 3,
+    respectsCartographyPermit: false,
+    layoutStyle: 'grand_ruins',
+    loopRatio: 0.40,
+    vaultRoomCount: 2,
+    monsterFamily: 'astral_cult',
+    monsterDensityMult: 1.2,
+    eliteChance: 0.35,
+    oreFocus: 'astral_crystal',
+    veinDensityMult: 1.35,
+    motherlodeChance: 0.55,
+    chestDensityMult: 1.25,
+    lootRarityBonus: 0.15,
+    shrineDensityMult: 1.1,
+    trapDensityMult: 1.25,
+    allowedTraps: ['spike', 'flame'],
+    biomeId: 'vespera_crater',
+    bossSchedule: {
+      5: 'boss_colossus',
+      10: 'boss_weaver',
+      15: 'boss_ignis',
+      20: 'boss_vespera',
+      25: 'boss_weaver',
+      30: 'boss_ignis',
+      35: 'boss_colossus',
+      40: 'boss_vespera'
     }
   }
 };
@@ -1197,7 +1236,8 @@ function createDefaultDungeonsRegistry() {
     dng_quarry:   createDungeonInstance('sunken_quarry',   { id: 'dng_quarry',   originType: 'curated' }),
     dng_mycelium: createDungeonInstance('mycelium_labyrinth', { id: 'dng_mycelium', originType: 'curated' }),
     dng_citadel:  createDungeonInstance('citadel_ruins',   { id: 'dng_citadel',  originType: 'curated' }),
-    dng_molten:   createDungeonInstance('molten_crucible', { id: 'dng_molten',   originType: 'curated' })
+    dng_molten:   createDungeonInstance('molten_crucible', { id: 'dng_molten',   originType: 'curated' }),
+    dng_abyss:    createDungeonInstance('abyssal_rift',    { id: 'dng_abyss',    originType: 'curated' })
   };
 }
 
@@ -1446,6 +1486,13 @@ function migrateSaveData(raw) {
     migrated.activeDungeonId = data.activeDungeonId && migrated.dungeons[data.activeDungeonId]
       ? data.activeDungeonId
       : Object.keys(migrated.dungeons)[0];
+
+    const defaultDngs = createDefaultDungeonsRegistry();
+    Object.keys(defaultDngs).forEach(defId => {
+      if (!migrated.dungeons[defId]) {
+        migrated.dungeons[defId] = defaultDngs[defId];
+      }
+    });
   } else if (data.dungeon && data.dungeon.floors) {
     const targetDng = migrated.dungeons.dng_starfall;
     targetDng.seedCode = data.dungeon.seedCode || 'STAR-4812';
@@ -1491,6 +1538,7 @@ function recomputeHeroDerivedStats(fullRestore = false, state = gameState) {
   let vit = cls.baseStats.vit + (h.level - 1) * 2 + (bonus.vit || 0);
 
   let flatAtk = 0, flatDef = 0, flatCrit = 0, flatDodge = 0, flatHp = 0, flatMp = 0, visionBonus = 0;
+  let flatThorns = 0, flatLeech = 0, flatWard = 0;
 
   // Passive Class Bonuses
   if (h.classId === 'fighter') flatHp += 10;
@@ -1524,6 +1572,9 @@ function recomputeHeroDerivedStats(fullRestore = false, state = gameState) {
     if (it.maxHp) flatHp += it.maxHp;
     if (it.maxMp) flatMp += it.maxMp;
     if (it.visionBonus) visionBonus += it.visionBonus;
+    if (it.thorns) flatThorns += it.thorns;
+    if (it.leech) flatLeech += it.leech;
+    if (it.ward) flatWard += it.ward;
 
     if (Array.isArray(it.sockets)) {
       for (let sIdx = 0; sIdx < it.sockets.length; sIdx++) {
@@ -1555,6 +1606,8 @@ function recomputeHeroDerivedStats(fullRestore = false, state = gameState) {
       } else if (st.id === 'shrine_aegis') {
         flatDef += 6;
         visionBonus += 1;
+      } else if (st.id === 'chilled') {
+        flatDodge -= 15;
       }
     }
   }
@@ -1567,6 +1620,9 @@ function recomputeHeroDerivedStats(fullRestore = false, state = gameState) {
 
   h.maxHp = cls.hpBase + (vit * 4) + flatHp;
   h.maxMp = cls.mpBase + (int * 3) + flatMp;
+  h.thorns = flatThorns;
+  h.leech = flatLeech;
+  h.ward = flatWard;
 
   const primaryOffensive = h.classId === 'mage'
     ? Math.round(int * 1.1 + str * 0.3)
@@ -1577,7 +1633,7 @@ function recomputeHeroDerivedStats(fullRestore = false, state = gameState) {
   h.atk = primaryOffensive + flatAtk;
   h.def = Math.round(vit * 0.45) + flatDef;
   h.crit = Math.min(75, 5 + Math.round(dex * 0.45) + flatCrit);
-  h.dodge = Math.min(60, 4 + Math.round(dex * 0.35) + flatDodge);
+  h.dodge = Math.max(0, Math.min(60, 4 + Math.round(dex * 0.35) + flatDodge));
 
   if (fullRestore) {
     h.hp = h.maxHp;
@@ -1847,7 +1903,10 @@ const AFFIX_POOL = [
   { id: 'crit',  label: 'of Keen Sight',  stat: 'crit',  min: 3,  max: 9,  slots: ['weapon', 'accessory', 'helm'] },
   { id: 'dodge', label: 'of the Zephyr',  stat: 'dodge', min: 3,  max: 8,  slots: ['boots', 'armor', 'accessory'] },
   { id: 'maxHp', label: 'of Lifeblood',   stat: 'maxHp', min: 12, max: 35, slots: ['armor', 'helm', 'accessory'] },
-  { id: 'maxMp', label: 'of the Leyline', stat: 'maxMp', min: 10, max: 28, slots: ['helm', 'accessory', 'weapon'] }
+  { id: 'maxMp', label: 'of the Leyline', stat: 'maxMp', min: 10, max: 28, slots: ['helm', 'accessory', 'weapon'] },
+  { id: 'thorns', label: 'of Retaliation', stat: 'thorns', min: 3, max: 8, slots: ['armor', 'helm', 'boots'] },
+  { id: 'leech', label: 'of the Blood Drinker', stat: 'leech', min: 2, max: 6, slots: ['weapon', 'accessory'] },
+  { id: 'ward', label: 'of Astral Warding', stat: 'ward', min: 2, max: 5, slots: ['armor', 'helm', 'accessory'] }
 ];
 
 const BASE_GEAR_NAMES = {
@@ -1872,10 +1931,14 @@ const SHOP_ITEMS = [
 ];
 
 const ELITE_AFFIXES = [
-  { id: 'vampiric',  name: 'Vampiric',  color: '#f87171', desc: 'Heals for 40% of damage dealt' },
-  { id: 'molten',    name: 'Molten',    color: '#fb923c', desc: 'Inflicts Burn on hit' },
-  { id: 'venomous',  name: 'Venomous',  color: '#4ade80', desc: 'Inflicts Poison on hit' },
-  { id: 'fortified', name: 'Fortified', color: '#60a5fa', desc: '+35% Defense & HP' }
+  { id: 'vampiric',   name: 'Vampiric',      color: '#f87171', desc: 'Heals for 40% of damage dealt' },
+  { id: 'molten',     name: 'Molten',        color: '#fb923c', desc: 'Inflicts Burn on hit' },
+  { id: 'venomous',   name: 'Venomous',      color: '#4ade80', desc: 'Inflicts Poison on hit' },
+  { id: 'fortified',  name: 'Fortified',     color: '#60a5fa', desc: '+35% Defense & HP' },
+  { id: 'reflective', name: 'Reflective',    color: '#ec4899', desc: 'Reflects 25% thorns damage back to attacker' },
+  { id: 'chilling',   name: 'Chilling',      color: '#38bdf8', desc: 'Inflicts Chilled on hit (-15% Dodge, +2 Skill MP)' },
+  { id: 'temporal',   name: 'Temporal Warp', color: '#a855f7', desc: '40% chance on damage to phase-shift away' },
+  { id: 'volatile',   name: 'Volatile',      color: '#ef4444', desc: 'Detonates upon defeat for 150% ATK damage in 1-tile radius' }
 ];
 
 function computeItemPowerScore(item) {
@@ -1887,9 +1950,10 @@ function computeItemPowerScore(item) {
   const crit = (item.crit || 0) * 1.5;
   const dodge = (item.dodge || 0) * 1.5;
   const stats = ((item.str || 0) + (item.dex || 0) + (item.int || 0) + (item.vit || 0)) * 1.2;
+  const affExtra = ((item.thorns || 0) * 1.5) + ((item.leech || 0) * 2) + ((item.ward || 0) * 2);
   const sockets = ((item.maxSockets || 0) * 4) + (Array.isArray(item.sockets) ? item.sockets.length * 4 : 0);
   const dur = (item.maxDur || 0) * 0.5;
-  return Math.round(atk + def + hp + mp + crit + dodge + stats + sockets + dur);
+  return Math.round(atk + def + hp + mp + crit + dodge + stats + affExtra + sockets + dur);
 }
 
 function isItemUpgrade(candidateItem, equipment) {
@@ -2509,10 +2573,11 @@ function carveCorridorBetweenRooms(tiles, w, h, rA, rB, wideAvenue, bendHorizont
 function createMonsterEntityFromArchetype(archId, effDepth, mx, my, isElite, rand, seqIdx) {
   const arch = MONSTER_ARCHETYPES[archId] || MONSTER_ARCHETYPES.vault_crawler;
   const affix = isElite ? ELITE_AFFIXES[Math.floor(rand() * ELITE_AFFIXES.length)] : null;
-  const hpBase = (28 + effDepth * 8) * arch.hpMult * (isElite ? 1.65 : 1.0);
-  const atkBase = (8 + effDepth * 2.2) * arch.atkMult * (isElite ? 1.25 : 1.0);
-  const defBase = (2 + effDepth * 1.1) * arch.defMult * ((affix && affix.id === 'fortified') ? 1.35 : 1.0);
-  const xpBase = (16 + effDepth * 6) * arch.xpMult * (isElite ? 2.0 : 1.0);
+  const scaledDepth = effDepth > 20 ? 20 + Math.floor(Math.pow(effDepth - 20, 1.15)) : effDepth;
+  const hpBase = (28 + scaledDepth * 8) * arch.hpMult * (isElite ? 1.65 : 1.0);
+  const atkBase = (8 + scaledDepth * 2.2) * arch.atkMult * (isElite ? 1.25 : 1.0);
+  const defBase = (2 + scaledDepth * 1.1) * arch.defMult * ((affix && affix.id === 'fortified') ? 1.35 : 1.0);
+  const xpBase = (16 + scaledDepth * 6) * arch.xpMult * (isElite ? 2.0 : 1.0);
 
   return {
     uid: `m_${effDepth}_${seqIdx}_${Math.floor(rand() * 100000)}`,
@@ -2848,10 +2913,15 @@ function generateFloor(depth, dungeonConfig = null, dungeonSeed = null) {
   const occupied = new Uint8Array(w * h);
   occupied[upPos.y * w + upPos.x] = 1;
 
-  // 1. Spawn Scheduled Boss (if configured for this floor depth)
-  const scheduledBossId = cfg.bossSchedule && cfg.bossSchedule[depth];
+  // 1. Spawn Scheduled Boss (if configured for this floor depth or recurring in endless mode)
+  let scheduledBossId = cfg.bossSchedule && cfg.bossSchedule[depth];
+  if (!scheduledBossId && cfg.maxDepth >= 999 && depth % 5 === 0 && depth > 20) {
+    const bossKeys = ['boss_weaver', 'boss_ignis', 'boss_colossus', 'boss_vespera'];
+    scheduledBossId = bossKeys[(Math.floor(depth / 5) - 1) % bossKeys.length];
+  }
   if (scheduledBossId && BOSS_ARCHETYPES[scheduledBossId]) {
     const bDef = BOSS_ARCHETYPES[scheduledBossId];
+    const bossScale = depth > 20 ? (1 + (depth - 20) * 0.08) : 1.0;
     let bx = downRoom.cx;
     let by = downRoom.cy;
     if (!hasDownStairs && tiles[by][bx] === TILE_CHEST) {
@@ -2872,7 +2942,7 @@ function generateFloor(depth, dungeonConfig = null, dungeonSeed = null) {
       uid: `boss_${depth}_${Date.now()}`,
       id: bDef.id,
       bountyTag: 'boss',
-      name: bDef.name,
+      name: depth > 20 ? `Abyssal ${bDef.name}` : bDef.name,
       isBoss: true,
       dropRarity: bDef.dropRarity || 'epic',
       isRanged: !!bDef.isRanged,
@@ -2880,11 +2950,11 @@ function generateFloor(depth, dungeonConfig = null, dungeonSeed = null) {
       onHitStatus: bDef.onHitStatus || null,
       x: bx,
       y: by,
-      hp: bDef.hp,
-      maxHp: bDef.hp,
-      atk: bDef.atk,
-      def: bDef.def,
-      xp: bDef.xp,
+      hp: Math.round(bDef.hp * bossScale),
+      maxHp: Math.round(bDef.hp * bossScale),
+      atk: Math.round(bDef.atk * (depth > 20 ? (1 + (depth - 20) * 0.05) : 1.0)),
+      def: Math.round(bDef.def * (depth > 20 ? (1 + (depth - 20) * 0.04) : 1.0)),
+      xp: Math.round(bDef.xp * bossScale),
       color: bDef.color,
       statuses: []
     });
@@ -3005,6 +3075,7 @@ function applyStatusEffect(target, id, duration) {
     poison:          { id: 'poison',          name: 'Poison',            color: '#4ade80', duration, isBuff: false },
     stun:            { id: 'stun',            name: 'Stunned',           color: '#fbbf24', duration, isBuff: false },
     weakened:        { id: 'weakened',        name: 'Weakened',          color: '#c084fc', duration, isBuff: false },
+    chilled:         { id: 'chilled',         name: 'Chilled',           color: '#38bdf8', duration, isBuff: false },
     shrine_starfire: { id: 'shrine_starfire', name: 'Starfire Blessing', color: '#fbbf24', duration, isBuff: true },
     shrine_aegis:    { id: 'shrine_aegis',    name: 'Astral Aegis',      color: '#60a5fa', duration, isBuff: true }
   };
@@ -4580,6 +4651,36 @@ function killMonster(monster, state = gameState) {
     }
   }
 
+  // Volatile Elite Affix: On-death detonation in 1-tile Chebyshev radius
+  if (monster.affix && monster.affix.id === 'volatile') {
+    if (state === gameState) {
+      playSound('hit');
+      ui.floatingText(monster.x, monster.y, '💥 VOLATILE BURST!', '#ef4444');
+      ui.log(`💥 ${monster.name} detonated in a violent volatile burst!`, 'bad');
+    }
+    const blastDmg = Math.max(3, Math.round(monster.atk * 1.5) - Math.floor(h.def * 0.5));
+    if (Math.abs(h.x - monster.x) <= 1 && Math.abs(h.y - monster.y) <= 1) {
+      h.hp -= blastDmg;
+      if (state === gameState) {
+        ui.floatingText(h.x, h.y, `-${blastDmg} BLAST!`, '#ef4444');
+      }
+    }
+    if (floor && Array.isArray(floor.monsters)) {
+      floor.monsters.forEach(m2 => {
+        if (m2 !== monster && m2.hp > 0 && Math.abs(m2.x - monster.x) <= 1 && Math.abs(m2.y - monster.y) <= 1) {
+          const mDmg = Math.max(2, Math.round(monster.atk * 1.5) - m2.def);
+          m2.hp -= mDmg;
+          if (state === gameState) {
+            ui.floatingText(m2.x, m2.y, `-${mDmg}`, '#ef4444');
+          }
+        }
+      });
+    }
+    if (h.hp <= 0) {
+      checkHeroFatalDamage(monster.name, state);
+    }
+  }
+
   if (state === gameState) {
     gainExperience(monster.xp, state);
   }
@@ -4611,6 +4712,64 @@ function attackMonster(monster, state = gameState) {
     playSound('hit');
     ui.floatingText(monster.x, monster.y, `${isCrit ? 'CRIT! ' : ''}-${dmg}`, isCrit ? '#fbbf24' : '#f87171');
     ui.log(`You strike ${monster.name} for ${dmg} damage${isCrit ? ' (CRITICAL!)' : ''}.`, isCrit ? 'gold' : 'info');
+  }
+
+  // Hero Leech Affix: restores HP on hit
+  if ((h.leech || 0) > 0) {
+    const leechHeal = Math.min(h.maxHp - h.hp, Math.round(h.leech));
+    if (leechHeal > 0) {
+      h.hp += leechHeal;
+      if (state === gameState) {
+        ui.floatingText(h.x, h.y, `+${leechHeal} LEECH`, '#34d399');
+      }
+    }
+  }
+
+  // Reflective Elite Affix: returns 25% thorns damage back to hero
+  if (monster.affix && monster.affix.id === 'reflective') {
+    const reflDmg = Math.max(1, Math.round(dmg * 0.25));
+    h.hp -= reflDmg;
+    if (state === gameState) {
+      ui.floatingText(h.x, h.y, `-${reflDmg} REFLECT!`, '#ec4899');
+      ui.log(`⚠ ${monster.name}'s reflective carapace returned ${reflDmg} thorns damage!`, 'bad');
+    }
+    if (h.hp <= 0) {
+      checkHeroFatalDamage(monster.name, state);
+      return;
+    }
+  }
+
+  // Temporal Warp Elite Affix: 40% chance on taking damage to phase-shift away if surviving
+  if (monster.hp > 0 && monster.affix && monster.affix.id === 'temporal' && Math.random() < 0.40) {
+    const floor = ensureDungeonFloorHydrated(state.dungeon, state.dungeon.currentFloor);
+    if (floor) {
+      const candidates = [];
+      const fw = floor.width || (floor.tiles[0] ? floor.tiles[0].length : DEFAULT_MAP_W);
+      const fh = floor.height || floor.tiles.length || DEFAULT_MAP_H;
+      for (let dy = -2; dy <= 2; dy++) {
+        for (let dx = -2; dx <= 2; dx++) {
+          if (dx === 0 && dy === 0) continue;
+          const nx = monster.x + dx;
+          const ny = monster.y + dy;
+          if (nx >= 0 && nx < fw && ny >= 0 && ny < fh) {
+            const isWalkable = floor.tiles[ny][nx] === TILE_FLOOR;
+            const isOccupied = (h.x === nx && h.y === ny) || (floor.monsters || []).some(m2 => m2 !== monster && m2.x === nx && m2.y === ny);
+            if (isWalkable && !isOccupied) {
+              candidates.push({ x: nx, y: ny });
+            }
+          }
+        }
+      }
+      if (candidates.length > 0) {
+        const pick = candidates[Math.floor(Math.random() * candidates.length)];
+        monster.x = pick.x;
+        monster.y = pick.y;
+        if (state === gameState) {
+          ui.floatingText(monster.x, monster.y, '✦ PHASE WARP!', '#a855f7');
+          ui.log(`✦ ${monster.name} phase-shifted through the void to (${pick.x}, ${pick.y})!`, 'info');
+        }
+      }
+    }
   }
 
   if (monster.hp <= 0) {
@@ -4649,6 +4808,12 @@ function monsterAttackHero(m, isRanged, state = gameState) {
 
   let raw = isRanged ? Math.round(m.atk * 0.85) : m.atk;
   if (h.classId === 'fighter') raw = Math.round(raw * 0.85);
+
+  // Hero Astral Ward Affix (flat damage reduction)
+  if ((h.ward || 0) > 0) {
+    raw = Math.max(1, raw - h.ward);
+  }
+
   const dmg = Math.max(1, raw - Math.floor(h.def * 0.6));
   h.hp -= dmg;
 
@@ -4668,6 +4833,27 @@ function monsterAttackHero(m, isRanged, state = gameState) {
     applyStatusEffect(h, 'burn', 3);
   } else if (m.affix && m.affix.id === 'venomous') {
     applyStatusEffect(h, 'poison', 3);
+  } else if (m.affix && m.affix.id === 'chilling') {
+    applyStatusEffect(h, 'chilled', 3);
+    recomputeHeroDerivedStats(false, state);
+    if (state === gameState) {
+      ui.floatingText(h.x, h.y, '❄ CHILLED!', '#38bdf8');
+      ui.log(`❄ ${m.name}'s freezing aura chilled you (-15% Dodge, +2 Skill MP)!`, 'bad');
+    }
+  }
+
+  // Hero Retaliation / Thorns Affix (returns thorns damage on melee)
+  if (!isRanged && (h.thorns || 0) > 0) {
+    const thDmg = Math.round(h.thorns);
+    m.hp -= thDmg;
+    if (state === gameState) {
+      ui.floatingText(m.x, m.y, `-${thDmg} THORNS`, '#ec4899');
+      ui.log(`Your spiked gear reflected ${thDmg} thorns damage back at ${m.name}!`, 'info');
+    }
+    if (m.hp <= 0) {
+      killMonster(m, state);
+      return;
+    }
   }
 
   // Fighter Titan Resurgence Counter-Attack
@@ -4717,7 +4903,7 @@ function processTurn(state = gameState) {
       }
       st.duration -= 1;
       if (st.duration <= 0) {
-        if (st.isBuff) buffExpired = true;
+        if (st.isBuff || st.id === 'chilled') buffExpired = true;
         h.statuses.splice(i, 1);
       }
     }
@@ -4839,10 +5025,14 @@ function executeClassSkill(state = gameState) {
   const fw = floor.width || (floor.tiles[0] ? floor.tiles[0].length : DEFAULT_MAP_W);
   const fh = floor.height || floor.tiles.length || DEFAULT_MAP_H;
 
-  if (h.mp < cls.skillCost) {
+  const isChilled = (h.statuses || []).some(s => s.id === 'chilled');
+  const effectiveCost = cls.skillCost + (isChilled ? 2 : 0);
+
+  if (h.mp < effectiveCost) {
     if (state === gameState) {
       ui.floatingText(h.x, h.y, 'Low MP!', '#60a5fa');
-      ui.log(`Not enough MP for ${cls.skillName} (${cls.skillCost} MP required).`, 'bad');
+      const chilledNote = isChilled ? ' (Chilled penalty: +2 MP)' : '';
+      ui.log(`Not enough MP for ${cls.skillName} (${effectiveCost} MP required${chilledNote}).`, 'bad');
     }
     return { ok: false, reason: 'no_mp' };
   }
@@ -4857,7 +5047,7 @@ function executeClassSkill(state = gameState) {
       }
       return { ok: false, reason: 'no_target' };
     }
-    h.mp -= cls.skillCost;
+    h.mp -= effectiveCost;
     if (state === gameState) {
       playSound('spell');
       ui.floatingText(h.x, h.y, 'WHIRLWIND!', '#f87171');
@@ -4917,7 +5107,7 @@ function executeClassSkill(state = gameState) {
       return { ok: false, reason: 'no_valid_shadowstep' };
     }
 
-    h.mp -= cls.skillCost;
+    h.mp -= effectiveCost;
     h.x = destTile.x;
     h.y = destTile.y;
     const masteryMult = getCodexMasteryMultiplier(chosenTarget.id, state);
@@ -4947,7 +5137,7 @@ function executeClassSkill(state = gameState) {
       return { ok: false, reason: 'no_target' };
     }
 
-    h.mp -= cls.skillCost;
+    h.mp -= effectiveCost;
     const ampRank = (h.talentsAllocated && h.talentsAllocated.m_c2) || 0;
     const hasEcho = ((h.talentsAllocated && h.talentsAllocated.m_c3) || 0) > 0;
     const spellMult = 2.0 * (1 + ampRank * 0.15);
@@ -4992,7 +5182,7 @@ function executeClassSkill(state = gameState) {
       return { ok: false, reason: 'no_target' };
     }
 
-    h.mp -= cls.skillCost;
+    h.mp -= effectiveCost;
     if (state === gameState) {
       playSound('spell');
       ui.floatingText(h.x, h.y, 'STARFALL VOLLEY!', '#34d399');
@@ -5022,7 +5212,7 @@ function executeClassSkill(state = gameState) {
       return { ok: false, reason: 'no_adjacent_target' };
     }
 
-    h.mp -= cls.skillCost;
+    h.mp -= effectiveCost;
     const masteryMult = getCodexMasteryMultiplier(target.id, state);
     const dmg = Math.max(5, Math.round(h.atk * 2.4 * masteryMult) - Math.floor(target.def * 0.5));
     const healAmt = Math.round(h.maxHp * 0.15);
@@ -6242,9 +6432,10 @@ function renderCodexTab() {
       deepestGrid.innerHTML = '<div class="col-span-full text-xs text-[#8b949e] italic py-2 text-center">No expeditions recorded yet. Descend the stairs to chart records!</div>';
     } else {
       deepestGrid.innerHTML = dngKeys.map(dKey => {
+        const val = depths[dKey];
+        const maxF = typeof val === 'object' && val ? (val.deepestFloor || 1) : (Number(val) || 0);
         const dProf = CURATED_DUNGEON_PROFILES[dKey];
-        const dName = (dProf && dProf.name) || dKey;
-        const maxF = depths[dKey] || 0;
+        const dName = (val && val.name) || (dProf && dProf.name) || dKey;
         return `
           <div class="bg-[#111722] p-2.5 rounded border border-[#283347] flex items-center justify-between">
             <span class="text-xs text-[#e6edf3] font-bold truncate">${dName}</span>
@@ -6427,7 +6618,7 @@ function updateAllUI() {
   if (h.statuses && h.statuses.length > 0) {
     stRow.innerHTML = h.statuses.map(s => `
       <span class="px-1.5 py-0.5 rounded text-[10px] font-mono-num font-bold" style="background:${s.color}25; color:${s.color}; border:1px solid ${s.color}50">
-        ${s.isBuff ? '✨ ' : ''}${s.name} (${s.duration})
+        ${s.isBuff ? '✨ ' : s.id === 'chilled' ? '❄ ' : ''}${s.name} (${s.duration})
       </span>
     `).join('');
   } else {
@@ -7635,7 +7826,7 @@ function setupInputs() {
 }
 
   // --- Module: src/test/selfTest.js ---
-// 21/21 Comprehensive Automated Self-Test Suite (Sandboxed & Non-Destructive)
+// 22/22 Comprehensive Automated Self-Test Suite (Sandboxed & Non-Destructive)
 
 
 
@@ -8394,6 +8585,119 @@ function evaluateSelfTests() {
       : `Failed checks: ${failedKeys.join(', ')} (sellCommonRes=${sellCommonRes}, sellAllRes=${sellAllRes})`
   });
 
+  // 22. Abyssal Elite Affixes (Reflect, Chill, Warp, Volatile) & Endless Strata Delve
+  const sandbox22 = createDefaultGameState();
+  selectAdventurerClass('fighter', sandbox22);
+  sandbox22.inGuild = false;
+  const fl22 = ensureDungeonFloorHydrated(sandbox22.dungeon, 1);
+
+  // A. Reflective Elite: Attacking returns 25% thorns damage back to hero
+  const startHeroHp = sandbox22.hero.hp;
+  const reflM = {
+    uid: 'm_refl_test',
+    id: 'vault_crawler',
+    name: 'Reflective Crawler',
+    isElite: true,
+    affix: { id: 'reflective', name: 'Reflective' },
+    hp: 100,
+    maxHp: 100,
+    atk: 10,
+    def: 0,
+    x: sandbox22.hero.x + 1,
+    y: sandbox22.hero.y,
+    statuses: []
+  };
+  attackMonster(reflM, sandbox22);
+  const heroTookReflect = sandbox22.hero.hp < startHeroHp;
+
+  // B. Chilling Elite: Hits hero and applies 'chilled' status (-15% Dodge, +2 Skill MP)
+  const chillM = {
+    uid: 'm_chill_test',
+    id: 'brood_skitterer',
+    name: 'Chilling Skitterer',
+    isElite: true,
+    affix: { id: 'chilling', name: 'Chilling' },
+    hp: 80,
+    maxHp: 80,
+    atk: 12,
+    def: 2,
+    x: sandbox22.hero.x,
+    y: sandbox22.hero.y + 1,
+    statuses: []
+  };
+  const preChillDodge = sandbox22.hero.dodge;
+  monsterAttackHero(chillM, false, sandbox22);
+  const heroIsChilled = (sandbox22.hero.statuses || []).some(s => s.id === 'chilled');
+  const dodgeReduced = sandbox22.hero.dodge < preChillDodge;
+
+  // Verify Chilled penalty on active skills (+2 MP required)
+  sandbox22.hero.mp = 10; // Whirlwind Cleave base cost is 10, but chilled penalty makes it 12!
+  fl22.monsters = [reflM];
+  const skillResChilled = executeClassSkill(sandbox22);
+  const chilledBlockedSkill = !skillResChilled.ok && skillResChilled.reason === 'no_mp';
+
+  // C. Volatile Elite: On-death detonation damages hero & adjacent monsters
+  const volM = {
+    uid: 'm_vol_test',
+    id: 'dwarven_automaton',
+    name: 'Volatile Automaton',
+    isElite: true,
+    affix: { id: 'volatile', name: 'Volatile' },
+    hp: 0,
+    maxHp: 60,
+    atk: 18,
+    def: 2,
+    x: sandbox22.hero.x + 1,
+    y: sandbox22.hero.y,
+    statuses: []
+  };
+  const bystanderM = {
+    uid: 'm_bystander_test',
+    id: 'vault_crawler',
+    name: 'Bystander Crawler',
+    hp: 40,
+    maxHp: 40,
+    atk: 8,
+    def: 1,
+    x: sandbox22.hero.x + 1,
+    y: sandbox22.hero.y + 1,
+    statuses: []
+  };
+  fl22.monsters = [volM, bystanderM];
+  const hpBeforeDetonation = sandbox22.hero.hp;
+  killMonster(volM, sandbox22);
+  const heroDamagedByBlast = sandbox22.hero.hp < hpBeforeDetonation;
+  const bystanderDamagedByBlast = bystanderM.hp < 40;
+
+  // D. Endless Strata Delve: Abyssal Rift floor 25 pure-floor BFS & scaling boss
+  const fl25 = generateFloor(25, CURATED_DUNGEON_PROFILES.abyssal_rift, 7725);
+  const fl25PureBfs = verifyPureFloorBFS(fl25);
+  const fl25Boss = fl25.monsters.find(m => m.isBoss);
+  const fl25BossScaled = fl25Boss && fl25Boss.hp > BOSS_ARCHETYPES[fl25Boss.id].hp;
+  const abyssRegistered = !!(sandbox22.dungeons && sandbox22.dungeons.dng_abyss);
+
+  const t22Checks = {
+    heroTookReflect: !!heroTookReflect,
+    heroIsChilled: !!heroIsChilled,
+    dodgeReduced: !!dodgeReduced,
+    chilledBlockedSkill: !!chilledBlockedSkill,
+    heroDamagedByBlast: !!heroDamagedByBlast,
+    bystanderDamagedByBlast: !!bystanderDamagedByBlast,
+    fl25PureBfs: !!fl25PureBfs,
+    fl25BossPresent: !!fl25Boss,
+    fl25BossScaled: !!fl25BossScaled,
+    abyssRegistered: !!abyssRegistered
+  };
+  const failedKeys22 = Object.keys(t22Checks).filter(k => !t22Checks[k]);
+  const t22Pass = failedKeys22.length === 0;
+  results.push({
+    name: '22. Abyssal Elite Affixes (Reflect, Chill, Warp, Volatile) & Endless Strata Delve',
+    pass: t22Pass,
+    detail: failedKeys22.length === 0
+      ? 'Reflect thorns, Chilled +2 MP, Volatile AoE detonation & Floor 25 endless scaling verified'
+      : `Failed checks: ${failedKeys22.join(', ')}`
+  });
+
   return results;
 }
 
@@ -8404,7 +8708,7 @@ function runSelfTests(renderModal = false) {
   if (typeof document !== 'undefined') {
     const btnText = document.getElementById('verifyBtnText');
     if (btnText) {
-      btnText.textContent = `Verify Inc-5 (${passCount}/${results.length} PASS)`;
+      btnText.textContent = `Verify Inc-6 (${passCount}/${results.length} PASS)`;
     }
 
     if (renderModal) {

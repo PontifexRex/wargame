@@ -503,9 +503,10 @@ export function renderCodexTab() {
       deepestGrid.innerHTML = '<div class="col-span-full text-xs text-[#8b949e] italic py-2 text-center">No expeditions recorded yet. Descend the stairs to chart records!</div>';
     } else {
       deepestGrid.innerHTML = dngKeys.map(dKey => {
+        const val = depths[dKey];
+        const maxF = typeof val === 'object' && val ? (val.deepestFloor || 1) : (Number(val) || 0);
         const dProf = CURATED_DUNGEON_PROFILES[dKey];
-        const dName = (dProf && dProf.name) || dKey;
-        const maxF = depths[dKey] || 0;
+        const dName = (val && val.name) || (dProf && dProf.name) || dKey;
         return `
           <div class="bg-[#111722] p-2.5 rounded border border-[#283347] flex items-center justify-between">
             <span class="text-xs text-[#e6edf3] font-bold truncate">${dName}</span>
@@ -688,7 +689,7 @@ export function updateAllUI() {
   if (h.statuses && h.statuses.length > 0) {
     stRow.innerHTML = h.statuses.map(s => `
       <span class="px-1.5 py-0.5 rounded text-[10px] font-mono-num font-bold" style="background:${s.color}25; color:${s.color}; border:1px solid ${s.color}50">
-        ${s.isBuff ? '✨ ' : ''}${s.name} (${s.duration})
+        ${s.isBuff ? '✨ ' : s.id === 'chilled' ? '❄ ' : ''}${s.name} (${s.duration})
       </span>
     `).join('');
   } else {

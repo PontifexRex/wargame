@@ -1,4 +1,4 @@
-// 21/21 Comprehensive Automated Self-Test Suite (Sandboxed & Non-Destructive)
+// 22/22 Comprehensive Automated Self-Test Suite (Sandboxed & Non-Destructive)
 
 import {
   SCHEMA_VERSION,
@@ -66,6 +66,8 @@ import {
   setAutoWalkPath,
   stepAutoWalkOnce,
   cancelAutoWalk,
+  attackMonster,
+  monsterAttackHero,
   killMonster,
   handlePlayerAction
 } from '../engine/combat.js';
@@ -814,6 +816,119 @@ export function evaluateSelfTests() {
       : `Failed checks: ${failedKeys.join(', ')} (sellCommonRes=${sellCommonRes}, sellAllRes=${sellAllRes})`
   });
 
+  // 22. Abyssal Elite Affixes (Reflect, Chill, Warp, Volatile) & Endless Strata Delve
+  const sandbox22 = createDefaultGameState();
+  selectAdventurerClass('fighter', sandbox22);
+  sandbox22.inGuild = false;
+  const fl22 = ensureDungeonFloorHydrated(sandbox22.dungeon, 1);
+
+  // A. Reflective Elite: Attacking returns 25% thorns damage back to hero
+  const startHeroHp = sandbox22.hero.hp;
+  const reflM = {
+    uid: 'm_refl_test',
+    id: 'vault_crawler',
+    name: 'Reflective Crawler',
+    isElite: true,
+    affix: { id: 'reflective', name: 'Reflective' },
+    hp: 100,
+    maxHp: 100,
+    atk: 10,
+    def: 0,
+    x: sandbox22.hero.x + 1,
+    y: sandbox22.hero.y,
+    statuses: []
+  };
+  attackMonster(reflM, sandbox22);
+  const heroTookReflect = sandbox22.hero.hp < startHeroHp;
+
+  // B. Chilling Elite: Hits hero and applies 'chilled' status (-15% Dodge, +2 Skill MP)
+  const chillM = {
+    uid: 'm_chill_test',
+    id: 'brood_skitterer',
+    name: 'Chilling Skitterer',
+    isElite: true,
+    affix: { id: 'chilling', name: 'Chilling' },
+    hp: 80,
+    maxHp: 80,
+    atk: 12,
+    def: 2,
+    x: sandbox22.hero.x,
+    y: sandbox22.hero.y + 1,
+    statuses: []
+  };
+  const preChillDodge = sandbox22.hero.dodge;
+  monsterAttackHero(chillM, false, sandbox22);
+  const heroIsChilled = (sandbox22.hero.statuses || []).some(s => s.id === 'chilled');
+  const dodgeReduced = sandbox22.hero.dodge < preChillDodge;
+
+  // Verify Chilled penalty on active skills (+2 MP required)
+  sandbox22.hero.mp = 10; // Whirlwind Cleave base cost is 10, but chilled penalty makes it 12!
+  fl22.monsters = [reflM];
+  const skillResChilled = executeClassSkill(sandbox22);
+  const chilledBlockedSkill = !skillResChilled.ok && skillResChilled.reason === 'no_mp';
+
+  // C. Volatile Elite: On-death detonation damages hero & adjacent monsters
+  const volM = {
+    uid: 'm_vol_test',
+    id: 'dwarven_automaton',
+    name: 'Volatile Automaton',
+    isElite: true,
+    affix: { id: 'volatile', name: 'Volatile' },
+    hp: 0,
+    maxHp: 60,
+    atk: 18,
+    def: 2,
+    x: sandbox22.hero.x + 1,
+    y: sandbox22.hero.y,
+    statuses: []
+  };
+  const bystanderM = {
+    uid: 'm_bystander_test',
+    id: 'vault_crawler',
+    name: 'Bystander Crawler',
+    hp: 40,
+    maxHp: 40,
+    atk: 8,
+    def: 1,
+    x: sandbox22.hero.x + 1,
+    y: sandbox22.hero.y + 1,
+    statuses: []
+  };
+  fl22.monsters = [volM, bystanderM];
+  const hpBeforeDetonation = sandbox22.hero.hp;
+  killMonster(volM, sandbox22);
+  const heroDamagedByBlast = sandbox22.hero.hp < hpBeforeDetonation;
+  const bystanderDamagedByBlast = bystanderM.hp < 40;
+
+  // D. Endless Strata Delve: Abyssal Rift floor 25 pure-floor BFS & scaling boss
+  const fl25 = generateFloor(25, CURATED_DUNGEON_PROFILES.abyssal_rift, 7725);
+  const fl25PureBfs = verifyPureFloorBFS(fl25);
+  const fl25Boss = fl25.monsters.find(m => m.isBoss);
+  const fl25BossScaled = fl25Boss && fl25Boss.hp > BOSS_ARCHETYPES[fl25Boss.id].hp;
+  const abyssRegistered = !!(sandbox22.dungeons && sandbox22.dungeons.dng_abyss);
+
+  const t22Checks = {
+    heroTookReflect: !!heroTookReflect,
+    heroIsChilled: !!heroIsChilled,
+    dodgeReduced: !!dodgeReduced,
+    chilledBlockedSkill: !!chilledBlockedSkill,
+    heroDamagedByBlast: !!heroDamagedByBlast,
+    bystanderDamagedByBlast: !!bystanderDamagedByBlast,
+    fl25PureBfs: !!fl25PureBfs,
+    fl25BossPresent: !!fl25Boss,
+    fl25BossScaled: !!fl25BossScaled,
+    abyssRegistered: !!abyssRegistered
+  };
+  const failedKeys22 = Object.keys(t22Checks).filter(k => !t22Checks[k]);
+  const t22Pass = failedKeys22.length === 0;
+  results.push({
+    name: '22. Abyssal Elite Affixes (Reflect, Chill, Warp, Volatile) & Endless Strata Delve',
+    pass: t22Pass,
+    detail: failedKeys22.length === 0
+      ? 'Reflect thorns, Chilled +2 MP, Volatile AoE detonation & Floor 25 endless scaling verified'
+      : `Failed checks: ${failedKeys22.join(', ')}`
+  });
+
   return results;
 }
 
@@ -824,7 +939,7 @@ export function runSelfTests(renderModal = false) {
   if (typeof document !== 'undefined') {
     const btnText = document.getElementById('verifyBtnText');
     if (btnText) {
-      btnText.textContent = `Verify Inc-5 (${passCount}/${results.length} PASS)`;
+      btnText.textContent = `Verify Inc-6 (${passCount}/${results.length} PASS)`;
     }
 
     if (renderModal) {

@@ -92,6 +92,7 @@ export function applyStatusEffect(target, id, duration) {
     poison:          { id: 'poison',          name: 'Poison',            color: '#4ade80', duration, isBuff: false },
     stun:            { id: 'stun',            name: 'Stunned',           color: '#fbbf24', duration, isBuff: false },
     weakened:        { id: 'weakened',        name: 'Weakened',          color: '#c084fc', duration, isBuff: false },
+    chilled:         { id: 'chilled',         name: 'Chilled',           color: '#38bdf8', duration, isBuff: false },
     shrine_starfire: { id: 'shrine_starfire', name: 'Starfire Blessing', color: '#fbbf24', duration, isBuff: true },
     shrine_aegis:    { id: 'shrine_aegis',    name: 'Astral Aegis',      color: '#60a5fa', duration, isBuff: true }
   };

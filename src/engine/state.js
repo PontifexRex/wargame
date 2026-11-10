@@ -128,7 +128,8 @@ export function createDefaultDungeonsRegistry() {
     dng_quarry:   createDungeonInstance('sunken_quarry',   { id: 'dng_quarry',   originType: 'curated' }),
     dng_mycelium: createDungeonInstance('mycelium_labyrinth', { id: 'dng_mycelium', originType: 'curated' }),
     dng_citadel:  createDungeonInstance('citadel_ruins',   { id: 'dng_citadel',  originType: 'curated' }),
-    dng_molten:   createDungeonInstance('molten_crucible', { id: 'dng_molten',   originType: 'curated' })
+    dng_molten:   createDungeonInstance('molten_crucible', { id: 'dng_molten',   originType: 'curated' }),
+    dng_abyss:    createDungeonInstance('abyssal_rift',    { id: 'dng_abyss',    originType: 'curated' })
   };
 }
 
@@ -377,6 +378,13 @@ export function migrateSaveData(raw) {
     migrated.activeDungeonId = data.activeDungeonId && migrated.dungeons[data.activeDungeonId]
       ? data.activeDungeonId
       : Object.keys(migrated.dungeons)[0];
+
+    const defaultDngs = createDefaultDungeonsRegistry();
+    Object.keys(defaultDngs).forEach(defId => {
+      if (!migrated.dungeons[defId]) {
+        migrated.dungeons[defId] = defaultDngs[defId];
+      }
+    });
   } else if (data.dungeon && data.dungeon.floors) {
     const targetDng = migrated.dungeons.dng_starfall;
     targetDng.seedCode = data.dungeon.seedCode || 'STAR-4812';
@@ -422,6 +430,7 @@ export function recomputeHeroDerivedStats(fullRestore = false, state = gameState
   let vit = cls.baseStats.vit + (h.level - 1) * 2 + (bonus.vit || 0);
 
   let flatAtk = 0, flatDef = 0, flatCrit = 0, flatDodge = 0, flatHp = 0, flatMp = 0, visionBonus = 0;
+  let flatThorns = 0, flatLeech = 0, flatWard = 0;
 
   // Passive Class Bonuses
   if (h.classId === 'fighter') flatHp += 10;
@@ -455,6 +464,9 @@ export function recomputeHeroDerivedStats(fullRestore = false, state = gameState
     if (it.maxHp) flatHp += it.maxHp;
     if (it.maxMp) flatMp += it.maxMp;
     if (it.visionBonus) visionBonus += it.visionBonus;
+    if (it.thorns) flatThorns += it.thorns;
+    if (it.leech) flatLeech += it.leech;
+    if (it.ward) flatWard += it.ward;
 
     if (Array.isArray(it.sockets)) {
       for (let sIdx = 0; sIdx < it.sockets.length; sIdx++) {
@@ -486,6 +498,8 @@ export function recomputeHeroDerivedStats(fullRestore = false, state = gameState
       } else if (st.id === 'shrine_aegis') {
         flatDef += 6;
         visionBonus += 1;
+      } else if (st.id === 'chilled') {
+        flatDodge -= 15;
       }
     }
   }
@@ -498,6 +512,9 @@ export function recomputeHeroDerivedStats(fullRestore = false, state = gameState
 
   h.maxHp = cls.hpBase + (vit * 4) + flatHp;
   h.maxMp = cls.mpBase + (int * 3) + flatMp;
+  h.thorns = flatThorns;
+  h.leech = flatLeech;
+  h.ward = flatWard;
 
   const primaryOffensive = h.classId === 'mage'
     ? Math.round(int * 1.1 + str * 0.3)
@@ -508,7 +525,7 @@ export function recomputeHeroDerivedStats(fullRestore = false, state = gameState
   h.atk = primaryOffensive + flatAtk;
   h.def = Math.round(vit * 0.45) + flatDef;
   h.crit = Math.min(75, 5 + Math.round(dex * 0.45) + flatCrit);
-  h.dodge = Math.min(60, 4 + Math.round(dex * 0.35) + flatDodge);
+  h.dodge = Math.max(0, Math.min(60, 4 + Math.round(dex * 0.35) + flatDodge));
 
   if (fullRestore) {
     h.hp = h.maxHp;

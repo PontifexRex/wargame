@@ -14,7 +14,10 @@ export const AFFIX_POOL = [
   { id: 'crit',  label: 'of Keen Sight',  stat: 'crit',  min: 3,  max: 9,  slots: ['weapon', 'accessory', 'helm'] },
   { id: 'dodge', label: 'of the Zephyr',  stat: 'dodge', min: 3,  max: 8,  slots: ['boots', 'armor', 'accessory'] },
   { id: 'maxHp', label: 'of Lifeblood',   stat: 'maxHp', min: 12, max: 35, slots: ['armor', 'helm', 'accessory'] },
-  { id: 'maxMp', label: 'of the Leyline', stat: 'maxMp', min: 10, max: 28, slots: ['helm', 'accessory', 'weapon'] }
+  { id: 'maxMp', label: 'of the Leyline', stat: 'maxMp', min: 10, max: 28, slots: ['helm', 'accessory', 'weapon'] },
+  { id: 'thorns', label: 'of Retaliation', stat: 'thorns', min: 3, max: 8, slots: ['armor', 'helm', 'boots'] },
+  { id: 'leech', label: 'of the Blood Drinker', stat: 'leech', min: 2, max: 6, slots: ['weapon', 'accessory'] },
+  { id: 'ward', label: 'of Astral Warding', stat: 'ward', min: 2, max: 5, slots: ['armor', 'helm', 'accessory'] }
 ];
 
 export const BASE_GEAR_NAMES = {
@@ -39,10 +42,14 @@ export const SHOP_ITEMS = [
 ];
 
 export const ELITE_AFFIXES = [
-  { id: 'vampiric',  name: 'Vampiric',  color: '#f87171', desc: 'Heals for 40% of damage dealt' },
-  { id: 'molten',    name: 'Molten',    color: '#fb923c', desc: 'Inflicts Burn on hit' },
-  { id: 'venomous',  name: 'Venomous',  color: '#4ade80', desc: 'Inflicts Poison on hit' },
-  { id: 'fortified', name: 'Fortified', color: '#60a5fa', desc: '+35% Defense & HP' }
+  { id: 'vampiric',   name: 'Vampiric',      color: '#f87171', desc: 'Heals for 40% of damage dealt' },
+  { id: 'molten',     name: 'Molten',        color: '#fb923c', desc: 'Inflicts Burn on hit' },
+  { id: 'venomous',   name: 'Venomous',      color: '#4ade80', desc: 'Inflicts Poison on hit' },
+  { id: 'fortified',  name: 'Fortified',     color: '#60a5fa', desc: '+35% Defense & HP' },
+  { id: 'reflective', name: 'Reflective',    color: '#ec4899', desc: 'Reflects 25% thorns damage back to attacker' },
+  { id: 'chilling',   name: 'Chilling',      color: '#38bdf8', desc: 'Inflicts Chilled on hit (-15% Dodge, +2 Skill MP)' },
+  { id: 'temporal',   name: 'Temporal Warp', color: '#a855f7', desc: '40% chance on damage to phase-shift away' },
+  { id: 'volatile',   name: 'Volatile',      color: '#ef4444', desc: 'Detonates upon defeat for 150% ATK damage in 1-tile radius' }
 ];
 
 export function computeItemPowerScore(item) {
@@ -54,9 +61,10 @@ export function computeItemPowerScore(item) {
   const crit = (item.crit || 0) * 1.5;
   const dodge = (item.dodge || 0) * 1.5;
   const stats = ((item.str || 0) + (item.dex || 0) + (item.int || 0) + (item.vit || 0)) * 1.2;
+  const affExtra = ((item.thorns || 0) * 1.5) + ((item.leech || 0) * 2) + ((item.ward || 0) * 2);
   const sockets = ((item.maxSockets || 0) * 4) + (Array.isArray(item.sockets) ? item.sockets.length * 4 : 0);
   const dur = (item.maxDur || 0) * 0.5;
-  return Math.round(atk + def + hp + mp + crit + dodge + stats + sockets + dur);
+  return Math.round(atk + def + hp + mp + crit + dodge + stats + affExtra + sockets + dur);
 }
 
 export function isItemUpgrade(candidateItem, equipment) {

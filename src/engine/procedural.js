@@ -284,10 +284,11 @@ function carveCorridorBetweenRooms(tiles, w, h, rA, rB, wideAvenue, bendHorizont
 export function createMonsterEntityFromArchetype(archId, effDepth, mx, my, isElite, rand, seqIdx) {
   const arch = MONSTER_ARCHETYPES[archId] || MONSTER_ARCHETYPES.vault_crawler;
   const affix = isElite ? ELITE_AFFIXES[Math.floor(rand() * ELITE_AFFIXES.length)] : null;
-  const hpBase = (28 + effDepth * 8) * arch.hpMult * (isElite ? 1.65 : 1.0);
-  const atkBase = (8 + effDepth * 2.2) * arch.atkMult * (isElite ? 1.25 : 1.0);
-  const defBase = (2 + effDepth * 1.1) * arch.defMult * ((affix && affix.id === 'fortified') ? 1.35 : 1.0);
-  const xpBase = (16 + effDepth * 6) * arch.xpMult * (isElite ? 2.0 : 1.0);
+  const scaledDepth = effDepth > 20 ? 20 + Math.floor(Math.pow(effDepth - 20, 1.15)) : effDepth;
+  const hpBase = (28 + scaledDepth * 8) * arch.hpMult * (isElite ? 1.65 : 1.0);
+  const atkBase = (8 + scaledDepth * 2.2) * arch.atkMult * (isElite ? 1.25 : 1.0);
+  const defBase = (2 + scaledDepth * 1.1) * arch.defMult * ((affix && affix.id === 'fortified') ? 1.35 : 1.0);
+  const xpBase = (16 + scaledDepth * 6) * arch.xpMult * (isElite ? 2.0 : 1.0);
 
   return {
     uid: `m_${effDepth}_${seqIdx}_${Math.floor(rand() * 100000)}`,
@@ -623,10 +624,15 @@ export function generateFloor(depth, dungeonConfig = null, dungeonSeed = null) {
   const occupied = new Uint8Array(w * h);
   occupied[upPos.y * w + upPos.x] = 1;
 
-  // 1. Spawn Scheduled Boss (if configured for this floor depth)
-  const scheduledBossId = cfg.bossSchedule && cfg.bossSchedule[depth];
+  // 1. Spawn Scheduled Boss (if configured for this floor depth or recurring in endless mode)
+  let scheduledBossId = cfg.bossSchedule && cfg.bossSchedule[depth];
+  if (!scheduledBossId && cfg.maxDepth >= 999 && depth % 5 === 0 && depth > 20) {
+    const bossKeys = ['boss_weaver', 'boss_ignis', 'boss_colossus', 'boss_vespera'];
+    scheduledBossId = bossKeys[(Math.floor(depth / 5) - 1) % bossKeys.length];
+  }
   if (scheduledBossId && BOSS_ARCHETYPES[scheduledBossId]) {
     const bDef = BOSS_ARCHETYPES[scheduledBossId];
+    const bossScale = depth > 20 ? (1 + (depth - 20) * 0.08) : 1.0;
     let bx = downRoom.cx;
     let by = downRoom.cy;
     if (!hasDownStairs && tiles[by][bx] === TILE_CHEST) {
@@ -647,7 +653,7 @@ export function generateFloor(depth, dungeonConfig = null, dungeonSeed = null) {
       uid: `boss_${depth}_${Date.now()}`,
       id: bDef.id,
       bountyTag: 'boss',
-      name: bDef.name,
+      name: depth > 20 ? `Abyssal ${bDef.name}` : bDef.name,
       isBoss: true,
       dropRarity: bDef.dropRarity || 'epic',
       isRanged: !!bDef.isRanged,
@@ -655,11 +661,11 @@ export function generateFloor(depth, dungeonConfig = null, dungeonSeed = null) {
       onHitStatus: bDef.onHitStatus || null,
       x: bx,
       y: by,
-      hp: bDef.hp,
-      maxHp: bDef.hp,
-      atk: bDef.atk,
-      def: bDef.def,
-      xp: bDef.xp,
+      hp: Math.round(bDef.hp * bossScale),
+      maxHp: Math.round(bDef.hp * bossScale),
+      atk: Math.round(bDef.atk * (depth > 20 ? (1 + (depth - 20) * 0.05) : 1.0)),
+      def: Math.round(bDef.def * (depth > 20 ? (1 + (depth - 20) * 0.04) : 1.0)),
+      xp: Math.round(bDef.xp * bossScale),
       color: bDef.color,
       statuses: []
     });
