@@ -11,7 +11,7 @@ import { ORE_CATALOG, MINERAL_DISPLAY } from '../data/ores.js';
 import { GEM_IDS, GEM_CATALOG, GEM_DISPLAY } from '../data/gems.js';
 import { TALENT_TREES } from '../data/talents.js';
 import { RESEARCH_PROJECTS } from '../data/research.js';
-import { SHOP_ITEMS } from '../data/items.js';
+import { SHOP_ITEMS, computeItemPowerScore, isItemUpgrade } from '../data/items.js';
 import { MONSTER_ARCHETYPES, BOSS_ARCHETYPES } from '../data/monsters.js';
 import { BIOME_PALETTES, resolveFloorBiome, CURATED_DUNGEON_PROFILES } from '../data/dungeons.js';
 import {
@@ -277,15 +277,18 @@ export function renderGuildHub() {
   gameState.guildVault.armory.forEach(g => {
     const r = RARITY[g.rarity] || RARITY.common;
     const salePrice = Math.round((g.value || 15) * mult);
+    const isLocked = Boolean(g.locked);
+    const sellBtnHtml = isLocked
+      ? `<span class="px-2 py-0.5 rounded bg-[#1a2232] text-[#fbbf24] text-[10px] border border-[#fbbf24]/30">🔒 Locked</span>`
+      : `<button onclick="window.Aethelgard.sellArmoryItem('${g.uid}')" class="px-2.5 py-0.5 rounded bg-[#fbbf24]/15 hover:bg-[#fbbf24]/25 text-[#fbbf24] border border-[#fbbf24]/40 font-bold">Sell (+${salePrice}g)</button>`;
+
     sellRows.push(`
       <div class="p-2 rounded bg-[#111722] border border-[#283347] flex items-center justify-between">
         <div onclick="window.Aethelgard.openItemInspectModal('${g.uid}', false, false)" class="cursor-pointer hover:underline">
           <span class="font-bold" style="color:${r.color}">${g.name}</span>${formatSocketPipsHtml(g)}
           <span class="text-[10px] text-[#8b949e] uppercase ml-1">[${g.slot}]</span>
         </div>
-        <button onclick="window.Aethelgard.sellArmoryItem('${g.uid}')" class="px-2.5 py-0.5 rounded bg-[#fbbf24]/15 hover:bg-[#fbbf24]/25 text-[#fbbf24] border border-[#fbbf24]/40 font-bold">
-          Sell (+${salePrice}g)
-        </button>
+        ${sellBtnHtml}
       </div>
     `);
   });
@@ -295,19 +298,99 @@ export function renderGuildHub() {
     : `<div class="text-[#8b949e] italic py-4 text-center">No banked minerals, gems, or spare equipment to appraise. Mine veins & extract from the dungeon!</div>`;
 
   // Vault Armory Tab
+  const sortBy = (gameState.uiSettings && gameState.uiSettings.armorySortBy) || 'slot';
+  ['slot', 'rarity', 'power', 'value', 'name'].forEach(k => {
+    const btn = document.getElementById(`btnSort_${k}`);
+    if (btn) {
+      if (k === sortBy) {
+        btn.className = 'px-2 py-0.5 rounded text-[11px] font-bold bg-[#1a2232] text-[#fbbf24] border border-[#fbbf24]/50';
+      } else {
+        btn.className = 'px-2 py-0.5 rounded text-[11px] font-bold bg-[#111722] text-[#8b949e] border border-[#283347] hover:text-[#e6edf3]';
+      }
+    }
+  });
+
+  const slotWeights = { weapon: 1, armor: 2, helm: 3, boots: 4, accessory: 5, pickaxe: 6 };
+  const rarityWeights = { relic: 5, epic: 4, rare: 3, uncommon: 2, common: 1 };
+
+  const rawArmory = gameState.guildVault.armory || [];
+  const displayArmory = rawArmory.slice();
+
+  displayArmory.sort((a, b) => {
+    if (sortBy === 'slot') {
+      const swA = slotWeights[a.slot] || 99;
+      const swB = slotWeights[b.slot] || 99;
+      if (swA !== swB) return swA - swB;
+      return computeItemPowerScore(b) - computeItemPowerScore(a);
+    } else if (sortBy === 'rarity') {
+      const rwA = rarityWeights[a.rarity] || 0;
+      const rwB = rarityWeights[b.rarity] || 0;
+      if (rwA !== rwB) return rwB - rwA;
+      return (b.value || 0) - (a.value || 0);
+    } else if (sortBy === 'power') {
+      return computeItemPowerScore(b) - computeItemPowerScore(a);
+    } else if (sortBy === 'value') {
+      return (b.value || 0) - (a.value || 0);
+    } else if (sortBy === 'name') {
+      return (a.name || '').localeCompare(b.name || '');
+    }
+    return 0;
+  });
+
+  let upgradeCount = 0;
+  rawArmory.forEach(g => {
+    if (isItemUpgrade(g, h.equipment)) upgradeCount++;
+  });
+
+  const upgradeBadgeEl = document.getElementById('uiArmoryUpgradeCountBadge');
+  if (upgradeBadgeEl) {
+    if (upgradeCount > 0) {
+      upgradeBadgeEl.textContent = `▲ ${upgradeCount} Upgrade${upgradeCount > 1 ? 's' : ''}`;
+      upgradeBadgeEl.classList.remove('hidden');
+    } else {
+      upgradeBadgeEl.classList.add('hidden');
+    }
+  }
+
   const armoryGrid = document.getElementById('uiArmoryGrid');
-  if (gameState.guildVault.armory.length === 0) {
+  if (displayArmory.length === 0) {
     armoryGrid.innerHTML = `<div class="col-span-2 text-xs text-[#8b949e] italic py-4 text-center">Your Vault Armory is empty. Defeat monsters, open chests, or buy gear from the Quartermaster.</div>`;
   } else {
-    armoryGrid.innerHTML = gameState.guildVault.armory.map(g => {
+    armoryGrid.innerHTML = displayArmory.map(g => {
       const r = RARITY[g.rarity] || RARITY.common;
+      const isUpgrade = isItemUpgrade(g, h.equipment);
+      const pwr = computeItemPowerScore(g);
+      const isLocked = Boolean(g.locked);
+      const borderClass = isUpgrade
+        ? 'border-[#34d399]/60 bg-[#07130f]'
+        : (isLocked ? 'border-[#fbbf24]/40 bg-[#080b11]' : 'border-[#283347] bg-[#080b11]');
+
+      const upgradeBadgeHtml = isUpgrade
+        ? `<span class="px-1.5 py-0.2 rounded bg-[#34d399]/20 text-[#34d399] border border-[#34d399]/40 text-[9px] font-bold">▲ UPGRADE</span>`
+        : '';
+
+      const lockBtnHtml = `
+        <button onclick="event.stopPropagation(); window.Aethelgard.toggleItemLock('${g.uid}')" class="px-1 py-0.5 rounded text-[11px] ${isLocked ? 'text-[#fbbf24]' : 'text-[#64748b] hover:text-[#e6edf3]'}" title="${isLocked ? 'Locked (Protected from sale)' : 'Unlocked (Click to Lock)'}">
+          ${isLocked ? '🔒' : '🔓'}
+        </button>
+      `;
+
       return `
-        <div onclick="window.Aethelgard.openItemInspectModal('${g.uid}', false, false)" class="p-2.5 rounded bg-[#080b11] border border-[#283347] hover:border-[#60a5fa] cursor-pointer flex items-center justify-between">
-          <div>
-            <div class="text-xs font-bold" style="color:${r.color}">${g.name}${formatSocketPipsHtml(g)}</div>
-            <div class="text-[10px] text-[#8b949e] uppercase">${r.name} • ${g.slot}</div>
+        <div onclick="window.Aethelgard.openItemInspectModal('${g.uid}', false, false)" class="p-2.5 rounded ${borderClass} hover:border-[#60a5fa] cursor-pointer flex items-center justify-between gap-2">
+          <div class="truncate">
+            <div class="flex items-center gap-1.5 truncate">
+              <span class="text-xs font-bold truncate" style="color:${r.color}">${g.name}${formatSocketPipsHtml(g)}</span>
+              ${upgradeBadgeHtml}
+            </div>
+            <div class="text-[10px] text-[#8b949e] uppercase mt-0.5">
+              <span>${r.name} • ${g.slot}</span>
+              <span class="text-[#60a5fa] font-mono-num ml-1">PWR ${pwr}</span>
+            </div>
           </div>
-          <span class="text-xs font-mono-num text-[#fbbf24]">${g.value}g</span>
+          <div class="flex items-center gap-1.5 shrink-0">
+            <span class="text-xs font-mono-num text-[#fbbf24]">${g.value}g</span>
+            ${lockBtnHtml}
+          </div>
         </div>
       `;
     }).join('');
@@ -740,6 +823,14 @@ export function switchGuildTab(tabId) {
       }
     }
   });
+}
+
+export function setArmorySortBy(sortKey) {
+  if (!gameState.uiSettings) {
+    gameState.uiSettings = {};
+  }
+  gameState.uiSettings.armorySortBy = sortKey;
+  updateAllUI();
 }
 
 export function logChronicle(msg, tone = 'info') {

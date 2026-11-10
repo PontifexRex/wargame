@@ -13,6 +13,8 @@ import {
   sellAllOresAtAssay,
   sellArmoryItem,
   sellAllSpareGear,
+  autoEquipBestGear,
+  toggleItemLock,
   purchaseResearchRank,
   socketGemIntoItem,
   unsocketGemFromItem,
@@ -37,13 +39,14 @@ import {
   updateFOV,
   spawnFloatingText
 } from './ui/renderer.js';
-import { updateAllUI, switchGuildTab, logChronicle, clearChronicle, renderCodexTab } from './ui/domSync.js';
+import { updateAllUI, switchGuildTab, setArmorySortBy, logChronicle, clearChronicle, renderCodexTab } from './ui/domSync.js';
 import {
   openClassSelectModal,
   closeClassSelectModal,
   selectAdventurerClass,
   openItemInspectModal,
   closeItemInspectModal,
+  toggleLockFromInspect,
   socketFromInspect,
   unsocketFromInspect,
   showOutcomeModal,
@@ -116,6 +119,7 @@ export const AethelgardAPI = {
   selectAdventurerClass,
   openItemInspectModal,
   closeItemInspectModal,
+  toggleLockFromInspect,
   socketFromInspect,
   unsocketFromInspect,
   showOutcomeModal,
@@ -139,6 +143,7 @@ export const AethelgardAPI = {
   chartCustomExpedition,
   resetOrAbandonDungeon,
   switchGuildTab,
+  setArmorySortBy,
   restAtGuild,
   repairPickaxeAtGuild,
   spendStatPoint,
@@ -150,6 +155,8 @@ export const AethelgardAPI = {
   sellAllOresAtAssay,
   sellArmoryItem,
   sellAllSpareGear,
+  autoEquipBestGear,
+  toggleItemLock,
   purchaseResearchRank,
   socketGemIntoItem,
   unsocketGemFromItem,

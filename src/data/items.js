@@ -44,3 +44,25 @@ export const ELITE_AFFIXES = [
   { id: 'venomous',  name: 'Venomous',  color: '#4ade80', desc: 'Inflicts Poison on hit' },
   { id: 'fortified', name: 'Fortified', color: '#60a5fa', desc: '+35% Defense & HP' }
 ];
+
+export function computeItemPowerScore(item) {
+  if (!item) return 0;
+  const atk = (item.atk || 0) * 2;
+  const def = (item.def || 0) * 2;
+  const hp = (item.maxHp || 0) * 0.25;
+  const mp = (item.maxMp || 0) * 0.25;
+  const crit = (item.crit || 0) * 1.5;
+  const dodge = (item.dodge || 0) * 1.5;
+  const stats = ((item.str || 0) + (item.dex || 0) + (item.int || 0) + (item.vit || 0)) * 1.2;
+  const sockets = ((item.maxSockets || 0) * 4) + (Array.isArray(item.sockets) ? item.sockets.length * 4 : 0);
+  const dur = (item.maxDur || 0) * 0.5;
+  return Math.round(atk + def + hp + mp + crit + dodge + stats + sockets + dur);
+}
+
+export function isItemUpgrade(candidateItem, equipment) {
+  if (!candidateItem || !candidateItem.slot) return false;
+  if (!equipment) return true;
+  const curEq = equipment[candidateItem.slot];
+  if (!curEq) return true;
+  return computeItemPowerScore(candidateItem) > computeItemPowerScore(curEq);
+}

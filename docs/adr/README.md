@@ -12,6 +12,7 @@ This directory records the foundational architectural decisions, runtime constra
 | [ADR-0004](./ADR-0004-macro-sector-generation-and-typed-array-bfs.md) | Macro-Sector Procedural Generation, Wall-Only Veins & Typed-Array BFS | **Accepted** | `v0.4.5-atlas` |
 | [ADR-0005](./ADR-0005-camera-frustum-wall-los-and-safe-autowalk.md) | Frustum-Culled `21x15` Camera, Bresenham Wall LOS & Safe Auto-Walk | **Accepted** | `v0.4.5-atlas` |
 | [ADR-0006](./ADR-0006-domain-event-bus-and-telemetry.md) | Synchronous Domain Event Bus & Gameplay Telemetry Hooks | **Accepted** | `v0.4.6-arch` |
+| [ADR-0007](./ADR-0007-inventory-intelligence-and-lock-protocols.md) | Inventory Intelligence, Power Score Heuristics & Lock Protocols | **Accepted** | `v0.5.0-inc5` |
 
 ## When to Add or Supersede an ADR
 

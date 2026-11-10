@@ -1,4 +1,4 @@
-// 20/20 Comprehensive Automated Self-Test Suite (Sandboxed & Non-Destructive)
+// 21/21 Comprehensive Automated Self-Test Suite (Sandboxed & Non-Destructive)
 
 import {
   SCHEMA_VERSION,
@@ -20,6 +20,7 @@ import {
 } from '../constants.js';
 import { CLASSES } from '../data/classes.js';
 import { ORE_CATALOG } from '../data/ores.js';
+import { computeItemPowerScore, isItemUpgrade } from '../data/items.js';
 import { CURATED_DUNGEON_PROFILES, BIOME_PALETTES, resolveFloorBiome } from '../data/dungeons.js';
 import { MONSTER_ARCHETYPES, BOSS_ARCHETYPES } from '../data/monsters.js';
 import { packFloorForStorage, hydrateFloorFromStorage } from '../engine/compression.js';
@@ -53,7 +54,10 @@ import {
   resolveTrapInteraction,
   selectActiveDungeon,
   chartCustomExpedition,
-  useHealingTonic
+  useHealingTonic,
+  autoEquipBestGear,
+  toggleItemLock,
+  sellAllSpareGear
 } from '../engine/actions.js';
 import {
   executeClassSkill,
@@ -665,6 +669,149 @@ export function evaluateSelfTests() {
     name: '20. Guild Bestiary Codex, Hall of Records & Hunter Mastery (+8% Damage)',
     pass: t20Pass,
     detail: `Crawler 5 kills -> 1.08x Mastery; Boss 1 kill -> 1.08x Mastery; Codex kill tracking verified`
+  });
+
+  // 21. Inventory Sorting, Upgrade Detection, Auto-Equip, Keep Lock & Rarity Bulk Selling
+  const sandbox21 = createDefaultGameState();
+  selectAdventurerClass('fighter', sandbox21);
+  sandbox21.inGuild = true;
+
+  const initialWeapon = sandbox21.hero.equipment.weapon;
+  const initialWeaponScore = computeItemPowerScore(initialWeapon);
+
+  const itemCommonSword = {
+    uid: 'test_c_sword',
+    slot: 'weapon',
+    name: 'Bronze Broadsword',
+    rarity: 'common',
+    value: 20,
+    atk: 14,
+    str: 4,
+    maxDur: 100,
+    durability: 100,
+    sockets: [],
+    maxSockets: 0,
+    locked: false
+  };
+  const itemRareArmor = {
+    uid: 'test_r_armor',
+    slot: 'armor',
+    name: 'Obsidian Plate',
+    rarity: 'rare',
+    value: 150,
+    def: 12,
+    maxHp: 40,
+    maxDur: 120,
+    durability: 120,
+    sockets: [],
+    maxSockets: 2,
+    locked: false
+  };
+  const itemSpareUnlockedBoots = {
+    uid: 'test_u_boots',
+    slot: 'boots',
+    name: 'Worn Leather Boots',
+    rarity: 'uncommon',
+    value: 45,
+    def: 1, // worse than starter boots def: 2
+    maxDur: 0,
+    durability: 0,
+    sockets: [],
+    maxSockets: 0,
+    locked: false
+  };
+  const itemSpareLockedHelm = {
+    uid: 'test_c_helm',
+    slot: 'helm',
+    name: 'Cracked Rusty Helm',
+    rarity: 'common',
+    value: 25,
+    def: 1, // worse than starter helm def: 2
+    maxDur: 0,
+    durability: 0,
+    sockets: [],
+    maxSockets: 0,
+    locked: true // Protected with Keep Lock!
+  };
+  const itemSpareUnlockedCommon = {
+    uid: 'test_c_ring',
+    slot: 'accessory',
+    name: 'Tarnished Band',
+    rarity: 'common',
+    value: 15,
+    atk: 0,
+    def: 0,
+    maxDur: 0,
+    durability: 0,
+    sockets: [],
+    maxSockets: 0,
+    locked: false
+  };
+
+  sandbox21.guildVault.armory = [
+    itemCommonSword,
+    itemRareArmor,
+    itemSpareUnlockedBoots,
+    itemSpareLockedHelm,
+    itemSpareUnlockedCommon
+  ];
+
+  // 1. Upgrade detection & Power Score
+  const swordIsUpgrade = isItemUpgrade(itemCommonSword, sandbox21.hero.equipment);
+  const swordPower = computeItemPowerScore(itemCommonSword);
+  const armorIsUpgrade = isItemUpgrade(itemRareArmor, sandbox21.hero.equipment);
+  const lockedHelmIsUpgrade = isItemUpgrade(itemSpareLockedHelm, sandbox21.hero.equipment); // should be false
+
+  // 2. Lock / Keep Toggle
+  const lockToggleRes = toggleItemLock(itemRareArmor.uid, sandbox21);
+  const armorIsLocked = itemRareArmor.locked === true;
+
+  // 3. Auto-Equip Best
+  const autoEquipRes = autoEquipBestGear(sandbox21);
+  const weaponNowEquipped = sandbox21.hero.equipment.weapon.uid === 'test_c_sword';
+  const armorNowEquipped = sandbox21.hero.equipment.armor.uid === 'test_r_armor';
+  const oldWeaponMovedToArmory = sandbox21.guildVault.armory.some(g => g.uid === (initialWeapon && initialWeapon.uid));
+
+  // 4. Bulk Sell by Rarity (Commons) with Keep Lock Protection
+  const startGold = sandbox21.guildVault.gold;
+  const sellCommonRes = sellAllSpareGear('common', sandbox21);
+  const commonHelmStillInArmory = sandbox21.guildVault.armory.some(g => g.uid === 'test_c_helm');
+  const goldIncreasedFromCommons = sandbox21.guildVault.gold > startGold;
+
+  // 5. Bulk Sell All Unlocked Spare Gear (Preserves locked common helm)
+  const sellAllRes = sellAllSpareGear(null, sandbox21);
+  const bootsSold = !sandbox21.guildVault.armory.some(g => g.uid === 'test_u_boots');
+  const lockedHelmStillIntact = sandbox21.guildVault.armory.some(g => g.uid === 'test_c_helm');
+  const armoryOnlyHasLockedItem = sandbox21.guildVault.armory.length === 1 && sandbox21.guildVault.armory[0].uid === 'test_c_helm';
+
+  const t21Checks = {
+    swordIsUpgrade: !!swordIsUpgrade,
+    swordPower: swordPower > initialWeaponScore,
+    armorIsUpgrade: !!armorIsUpgrade,
+    lockedHelmNotUpgrade: !lockedHelmIsUpgrade,
+    lockToggleOk: !!lockToggleRes.ok,
+    armorIsLocked: !!armorIsLocked,
+    autoEquipOk: !!autoEquipRes.ok,
+    autoEquipCount: autoEquipRes.equippedCount >= 2,
+    weaponNowEquipped: !!weaponNowEquipped,
+    armorNowEquipped: !!armorNowEquipped,
+    oldWeaponMovedToArmory: !!oldWeaponMovedToArmory,
+    sellCommonRes: sellCommonRes > 0,
+    commonHelmStillInArmory: !!commonHelmStillInArmory,
+    goldIncreasedFromCommons: !!goldIncreasedFromCommons,
+    sellAllRes: sellAllRes > 0,
+    bootsSold: !!bootsSold,
+    lockedHelmStillIntact: !!lockedHelmStillIntact,
+    armoryOnlyHasLockedItem: !!armoryOnlyHasLockedItem
+  };
+  const failedKeys = Object.keys(t21Checks).filter(k => !t21Checks[k]);
+  const t21Pass = failedKeys.length === 0;
+  results.push({
+    name: '21. Inventory Sorting, Upgrade Detection, Auto-Equip, Keep Lock & Rarity Bulk Selling',
+    pass: t21Pass,
+    detail: failedKeys.length === 0
+      ? `Power score upgrade detection verified; auto-equip equipped superior gear; locked helm survived bulk sell`
+      : `Failed checks: ${failedKeys.join(', ')} (sellCommonRes=${sellCommonRes}, sellAllRes=${sellAllRes})`
   });
 
   return results;

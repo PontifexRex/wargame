@@ -20,7 +20,7 @@ import {
 import { ORE_CATALOG, MINERAL_IDS } from '../data/ores.js';
 import { GEM_IDS, GEM_CATALOG, SHRINE_CATALOG, TRAP_CATALOG } from '../data/gems.js';
 import { buildProceduralBountySet } from '../data/bounties.js';
-import { SHOP_ITEMS } from '../data/items.js';
+import { SHOP_ITEMS, computeItemPowerScore, isItemUpgrade } from '../data/items.js';
 import { RESEARCH_PROJECTS } from '../data/research.js';
 import { buildCharteredDungeonInstance } from '../data/dungeons.js';
 import { hashSeedString, randomSeedCode } from './rng.js';
@@ -1024,6 +1024,10 @@ export function sellAllOresAtAssay(state = gameState) {
 export function sellArmoryItem(uid, state = gameState) {
   const idx = state.guildVault.armory.findIndex(g => g.uid === uid);
   if (idx === -1) return 0;
+  if (state.guildVault.armory[idx].locked) {
+    if (state === gameState) actionCallbacks.log(`${state.guildVault.armory[idx].name} is locked/kept. Unlock it before selling.`, 'bad');
+    return 0;
+  }
   const item = state.guildVault.armory.splice(idx, 1)[0];
 
   // Return any socketed gems safely to Guild Vault before selling the frame
@@ -1049,32 +1053,169 @@ export function sellArmoryItem(uid, state = gameState) {
   return payout;
 }
 
-export function sellAllSpareGear(state = gameState) {
-  if (state.guildVault.armory.length === 0) {
-    if (state === gameState) actionCallbacks.log('No spare equipment in Vault Armory to sell.', 'info');
+export function toggleItemLock(uid, state = gameState) {
+  if (!uid || !state) return { ok: false, reason: 'invalid_args' };
+
+  let targetItem = null;
+
+  // Check Armory
+  if (state.guildVault && Array.isArray(state.guildVault.armory)) {
+    targetItem = state.guildVault.armory.find(g => g.uid === uid);
+  }
+
+  // Check Expedition Gear
+  if (!targetItem && state.hero && Array.isArray(state.hero.expeditionGear)) {
+    targetItem = state.hero.expeditionGear.find(g => g.uid === uid);
+  }
+
+  // Check Equipped Slots
+  if (!targetItem && state.hero && state.hero.equipment) {
+    const slots = ['weapon', 'armor', 'helm', 'boots', 'accessory', 'pickaxe'];
+    for (let i = 0; i < slots.length; i++) {
+      const eq = state.hero.equipment[slots[i]];
+      if (eq && eq.uid === uid) {
+        targetItem = eq;
+        break;
+      }
+    }
+  }
+
+  if (!targetItem) {
+    return { ok: false, reason: 'item_not_found' };
+  }
+
+  targetItem.locked = !targetItem.locked;
+
+  if (state === gameState) {
+    playSound('click');
+    const msg = targetItem.locked
+      ? `🔒 Marked ${targetItem.name} as Kept/Locked (protected from bulk sale).`
+      : `🔓 Unlocked ${targetItem.name} (eligible for bulk sale).`;
+    actionCallbacks.log(msg, 'info');
+    saveGame();
+    actionCallbacks.updateUI();
+  }
+
+  return { ok: true, locked: targetItem.locked, item: targetItem };
+}
+
+export function autoEquipBestGear(state = gameState) {
+  if (!state || !state.hero || !state.guildVault) {
+    return { ok: false, reason: 'invalid_state', equippedCount: 0 };
+  }
+
+  const h = state.hero;
+  if (!h.equipment) {
+    h.equipment = { weapon: null, armor: null, helm: null, boots: null, accessory: null, pickaxe: null };
+  }
+
+  const armory = state.guildVault.armory || [];
+  const slots = ['weapon', 'armor', 'helm', 'boots', 'accessory', 'pickaxe'];
+  let equippedCount = 0;
+  const equippedNames = [];
+
+  for (let sIdx = 0; sIdx < slots.length; sIdx++) {
+    const slot = slots[sIdx];
+    const candidates = armory.filter(g => g && g.slot === slot);
+    if (candidates.length === 0) continue;
+
+    candidates.sort((a, b) => computeItemPowerScore(b) - computeItemPowerScore(a));
+    const bestCandidate = candidates[0];
+    const bestScore = computeItemPowerScore(bestCandidate);
+
+    const curEq = h.equipment[slot];
+    const curScore = curEq ? computeItemPowerScore(curEq) : -1;
+
+    if (bestScore > curScore) {
+      const armoryIdx = armory.indexOf(bestCandidate);
+      if (armoryIdx !== -1) {
+        armory.splice(armoryIdx, 1);
+      }
+      h.equipment[slot] = bestCandidate;
+      if (curEq) {
+        armory.push(curEq);
+      }
+      equippedCount++;
+      equippedNames.push(bestCandidate.name);
+    }
+  }
+
+  if (equippedCount > 0) {
+    recomputeHeroDerivedStats(false, state);
+    if (state === gameState) {
+      playSound('lvl');
+      actionCallbacks.log(`⚡ Auto-equipped ${equippedCount} upgrade(s): ${equippedNames.join(', ')}!`, 'gold');
+      saveGame();
+      actionCallbacks.updateUI();
+    }
+  } else {
+    if (state === gameState) {
+      actionCallbacks.log('⚡ You already have your highest-power gear equipped in all slots.', 'info');
+    }
+  }
+
+  return { ok: true, equippedCount, equippedNames };
+}
+
+export function sellAllSpareGear(rarityFilter = null, state = gameState) {
+  let rFilter = rarityFilter;
+  let targetState = state;
+  if (rarityFilter && typeof rarityFilter === 'object' && rarityFilter.guildVault) {
+    targetState = rarityFilter;
+    rFilter = null;
+  }
+  if (!targetState || !targetState.guildVault) return 0;
+
+  const armory = targetState.guildVault.armory || [];
+  if (armory.length === 0) {
+    if (targetState === gameState) actionCallbacks.log('No spare equipment in Vault Armory to sell.', 'info');
     return 0;
   }
-  const assayRank = state.guildResearch.assay || 0;
+
+  const itemsToSell = [];
+  const itemsToKeep = [];
+
+  for (let i = 0; i < armory.length; i++) {
+    const g = armory[i];
+    const matchesRarity = !rFilter || rFilter === 'all' || g.rarity === rFilter;
+    if (matchesRarity && !g.locked) {
+      itemsToSell.push(g);
+    } else {
+      itemsToKeep.push(g);
+    }
+  }
+
+  if (itemsToSell.length === 0) {
+    if (targetState === gameState) {
+      const lockNote = armory.some(g => g.locked) ? ' (all matching items are locked)' : '';
+      actionCallbacks.log(`No eligible ${rFilter ? rFilter + ' ' : ''}spare gear to sell${lockNote}.`, 'info');
+    }
+    return 0;
+  }
+
+  const assayRank = targetState.guildResearch.assay || 0;
   const mult = 1 + assayRank * 0.35;
   let total = 0;
-  const count = state.guildVault.armory.length;
-  if (!state.guildVault.gems) {
-    state.guildVault.gems = { ruby: 0, emerald: 0, sapphire: 0, topaz: 0, void_diamond: 0 };
+  if (!targetState.guildVault.gems) {
+    targetState.guildVault.gems = { ruby: 0, emerald: 0, sapphire: 0, topaz: 0, void_diamond: 0 };
   }
-  state.guildVault.armory.forEach(g => {
+
+  itemsToSell.forEach(g => {
     if (Array.isArray(g.sockets)) {
       g.sockets.forEach(gId => {
-        state.guildVault.gems[gId] = (state.guildVault.gems[gId] || 0) + 1;
+        targetState.guildVault.gems[gId] = (targetState.guildVault.gems[gId] || 0) + 1;
       });
     }
     total += Math.round((g.value || 15) * mult);
   });
-  state.guildVault.armory = [];
-  state.guildVault.gold += total;
 
-  if (state === gameState) {
+  targetState.guildVault.armory = itemsToKeep;
+  targetState.guildVault.gold += total;
+
+  if (targetState === gameState) {
     playSound('gold');
-    actionCallbacks.log(`Sold ${count} spare armory items with Assay bonus for +${total}g!`, 'gold');
+    const label = rFilter ? `${rFilter.toUpperCase()}` : 'spare';
+    actionCallbacks.log(`Sold ${itemsToSell.length} ${label} armory items with Assay bonus for +${total}g!`, 'gold');
     saveGame();
     actionCallbacks.updateUI();
   }

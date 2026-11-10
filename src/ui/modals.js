@@ -26,6 +26,7 @@ import { generateFloor } from '../engine/procedural.js';
 import { playSound } from '../engine/audio.js';
 import {
   sellArmoryItem,
+  toggleItemLock,
   socketGemIntoItem,
   unsocketGemFromItem,
   ensureGuildBounties,
@@ -599,6 +600,17 @@ export function openItemInspectModal(refId, isEquippedSlot = false, fromExpediti
 
   const btnEquip = document.getElementById('btnInspectEquip');
   const btnSell = document.getElementById('btnInspectSell');
+  const btnLock = document.getElementById('btnInspectLock');
+
+  if (btnLock) {
+    if (item.locked) {
+      btnLock.textContent = '🔒 Locked (Keep)';
+      btnLock.className = 'px-3 py-1.5 rounded bg-[#fbbf24]/20 hover:bg-[#fbbf24]/30 text-[#fbbf24] border border-[#fbbf24]/50 text-xs font-mono-num font-bold btn-tactical';
+    } else {
+      btnLock.textContent = '🔓 Unlocked (Sellable)';
+      btnLock.className = 'px-3 py-1.5 rounded bg-[#1a2232] hover:bg-[#283347] text-[#8b949e] hover:text-[#e6edf3] border border-[#283347] text-xs font-mono-num btn-tactical';
+    }
+  }
 
   if (isEquippedSlot) {
     btnEquip.textContent = 'Unequip';
@@ -637,20 +649,38 @@ export function openItemInspectModal(refId, isEquippedSlot = false, fromExpediti
     const assayMult = 1 + (gameState.guildResearch.assay || 0) * 0.35;
     const saleVal = Math.round((item.value || 15) * assayMult);
     btnSell.textContent = `Sell (+${saleVal}g)`;
-    btnSell.onclick = () => {
-      if (fromExpedition) {
-        h.expeditionGear = h.expeditionGear.filter(g => g.uid !== item.uid);
-        gameState.guildVault.gold += saleVal;
-      } else {
-        sellArmoryItem(item.uid);
-      }
-      saveGame();
-      updateAllUI();
-      closeItemInspectModal();
-    };
+
+    if (item.locked) {
+      btnSell.disabled = true;
+      btnSell.className = 'px-3 py-1.5 rounded bg-[#1a2232] text-[#8b949e] border border-[#283347] text-xs font-mono-num opacity-50 cursor-not-allowed';
+      btnSell.title = 'Item is locked. Unlock it first to sell.';
+      btnSell.onclick = null;
+    } else {
+      btnSell.disabled = false;
+      btnSell.className = 'px-3 py-1.5 rounded bg-[#fbbf24]/15 hover:bg-[#fbbf24]/25 text-[#fbbf24] border border-[#fbbf24]/40 text-xs font-mono-num font-bold btn-tactical';
+      btnSell.title = '';
+      btnSell.onclick = () => {
+        if (fromExpedition) {
+          h.expeditionGear = h.expeditionGear.filter(g => g.uid !== item.uid);
+          gameState.guildVault.gold += saleVal;
+        } else {
+          sellArmoryItem(item.uid);
+        }
+        saveGame();
+        updateAllUI();
+        closeItemInspectModal();
+      };
+    }
   }
 
   document.getElementById('itemInspectModal').classList.remove('hidden');
+}
+
+export function toggleLockFromInspect() {
+  if (!inspectedItemContext || !inspectedItemContext.item) return;
+  toggleItemLock(inspectedItemContext.item.uid);
+  openItemInspectModal(inspectedItemContext.refId, inspectedItemContext.isEquippedSlot, inspectedItemContext.fromExpedition);
+  updateAllUI();
 }
 
 export function socketFromInspect(targetRef, gemId, isEquippedSlot) {

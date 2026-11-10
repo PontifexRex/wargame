@@ -26,6 +26,7 @@ export function nextItemUid(prefix = 'gear') {
 
 export function normalizeEquipmentSockets(item) {
   if (!item) return null;
+  item.locked = Boolean(item.locked);
   if (item.slot === 'pickaxe') {
     item.maxSockets = 0;
     item.sockets = [];
@@ -205,7 +206,10 @@ export function createDefaultGameState() {
       vanguard: 0
     },
     guildBounties: buildProceduralBountySet(0, 0),
-    codex: createDefaultCodexState()
+    codex: createDefaultCodexState(),
+    uiSettings: {
+      armorySortBy: 'slot'
+    }
   };
 }
 
@@ -232,6 +236,9 @@ export function migrateSaveData(raw) {
   migrated.maxCharteredDungeons = typeof data.maxCharteredDungeons === 'number'
     ? data.maxCharteredDungeons
     : DEFAULT_MAX_CHARTERED_DUNGEONS;
+
+  migrated.uiSettings = data.uiSettings || { armorySortBy: 'slot' };
+  if (!migrated.uiSettings.armorySortBy) migrated.uiSettings.armorySortBy = 'slot';
 
   // Migrate Vault & Bank
   const srcVault = data.guildVault || data.bank || {};

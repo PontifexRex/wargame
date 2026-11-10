@@ -91,6 +91,17 @@ Implemented Guild Bestiary Codex & Hall of Records (gameState.codex):
 
 Expanded automated verification suite to 20/20 PASS + Headless UI Smoke Suite.
 
+v0.5.1-inv - Inventory Intelligence, Upgrade Detection & Keep Locks
+
+Implemented comprehensive inventory management and vault intelligence systems:
+- Multi-Criteria Armory Sorting: Sort Vault Armory by Slot/Type, Rarity, Power Score, Gold Value, or Name with persistent UI setting (`gameState.uiSettings.armorySortBy`).
+- Power Score Engine & Visual Upgrade Indicators: Computed power metric weighting attack, defense, health, mana, crit, dodge, core attributes, sockets, and durability. Renders visual `▲ UPGRADE` badge on superior gear.
+- One-Click `Auto-Equip Best`: Evaluates highest-performing equipment across all 6 slots and automatically equips superior items while safely cycling old gear back to the Vault Armory.
+- Keep / Lock Protection (`item.locked` / `🔒`): Granular toggle protecting favored equipment from accidental bulk liquidation in armory cards and inspect modals.
+- Granular Bulk Auto-Sell: Fast liquidation by rarity tier (`Common`, `Uncommon`, `Rare`) or all unlocked gear with automatic gem socket extraction and Antiquarian Assay bonuses.
+
+Expanded automated verification suite to 21/21 PASS + Headless UI Smoke Suite.
+
 2. Upcoming Increment Backlog
 
 Increment 6 (v0.6.0-inc6) - Guild Forge Runecrafting, Deep Affix Synthesis & Abyss Expeditions

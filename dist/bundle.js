@@ -1095,6 +1095,7 @@ function nextItemUid(prefix = 'gear') {
 
 function normalizeEquipmentSockets(item) {
   if (!item) return null;
+  item.locked = Boolean(item.locked);
   if (item.slot === 'pickaxe') {
     item.maxSockets = 0;
     item.sockets = [];
@@ -1274,7 +1275,10 @@ function createDefaultGameState() {
       vanguard: 0
     },
     guildBounties: buildProceduralBountySet(0, 0),
-    codex: createDefaultCodexState()
+    codex: createDefaultCodexState(),
+    uiSettings: {
+      armorySortBy: 'slot'
+    }
   };
 }
 
@@ -1301,6 +1305,9 @@ function migrateSaveData(raw) {
   migrated.maxCharteredDungeons = typeof data.maxCharteredDungeons === 'number'
     ? data.maxCharteredDungeons
     : DEFAULT_MAX_CHARTERED_DUNGEONS;
+
+  migrated.uiSettings = data.uiSettings || { armorySortBy: 'slot' };
+  if (!migrated.uiSettings.armorySortBy) migrated.uiSettings.armorySortBy = 'slot';
 
   // Migrate Vault & Bank
   const srcVault = data.guildVault || data.bank || {};
@@ -1870,6 +1877,28 @@ const ELITE_AFFIXES = [
   { id: 'venomous',  name: 'Venomous',  color: '#4ade80', desc: 'Inflicts Poison on hit' },
   { id: 'fortified', name: 'Fortified', color: '#60a5fa', desc: '+35% Defense & HP' }
 ];
+
+function computeItemPowerScore(item) {
+  if (!item) return 0;
+  const atk = (item.atk || 0) * 2;
+  const def = (item.def || 0) * 2;
+  const hp = (item.maxHp || 0) * 0.25;
+  const mp = (item.maxMp || 0) * 0.25;
+  const crit = (item.crit || 0) * 1.5;
+  const dodge = (item.dodge || 0) * 1.5;
+  const stats = ((item.str || 0) + (item.dex || 0) + (item.int || 0) + (item.vit || 0)) * 1.2;
+  const sockets = ((item.maxSockets || 0) * 4) + (Array.isArray(item.sockets) ? item.sockets.length * 4 : 0);
+  const dur = (item.maxDur || 0) * 0.5;
+  return Math.round(atk + def + hp + mp + crit + dodge + stats + sockets + dur);
+}
+
+function isItemUpgrade(candidateItem, equipment) {
+  if (!candidateItem || !candidateItem.slot) return false;
+  if (!equipment) return true;
+  const curEq = equipment[candidateItem.slot];
+  if (!curEq) return true;
+  return computeItemPowerScore(candidateItem) > computeItemPowerScore(curEq);
+}
 
   // --- Module: src/data/research.js ---
 // 6 Dual-Cost Guild Research Tech Trees
@@ -3908,6 +3937,10 @@ function sellAllOresAtAssay(state = gameState) {
 function sellArmoryItem(uid, state = gameState) {
   const idx = state.guildVault.armory.findIndex(g => g.uid === uid);
   if (idx === -1) return 0;
+  if (state.guildVault.armory[idx].locked) {
+    if (state === gameState) actionCallbacks.log(`${state.guildVault.armory[idx].name} is locked/kept. Unlock it before selling.`, 'bad');
+    return 0;
+  }
   const item = state.guildVault.armory.splice(idx, 1)[0];
 
   // Return any socketed gems safely to Guild Vault before selling the frame
@@ -3933,32 +3966,169 @@ function sellArmoryItem(uid, state = gameState) {
   return payout;
 }
 
-function sellAllSpareGear(state = gameState) {
-  if (state.guildVault.armory.length === 0) {
-    if (state === gameState) actionCallbacks.log('No spare equipment in Vault Armory to sell.', 'info');
+function toggleItemLock(uid, state = gameState) {
+  if (!uid || !state) return { ok: false, reason: 'invalid_args' };
+
+  let targetItem = null;
+
+  // Check Armory
+  if (state.guildVault && Array.isArray(state.guildVault.armory)) {
+    targetItem = state.guildVault.armory.find(g => g.uid === uid);
+  }
+
+  // Check Expedition Gear
+  if (!targetItem && state.hero && Array.isArray(state.hero.expeditionGear)) {
+    targetItem = state.hero.expeditionGear.find(g => g.uid === uid);
+  }
+
+  // Check Equipped Slots
+  if (!targetItem && state.hero && state.hero.equipment) {
+    const slots = ['weapon', 'armor', 'helm', 'boots', 'accessory', 'pickaxe'];
+    for (let i = 0; i < slots.length; i++) {
+      const eq = state.hero.equipment[slots[i]];
+      if (eq && eq.uid === uid) {
+        targetItem = eq;
+        break;
+      }
+    }
+  }
+
+  if (!targetItem) {
+    return { ok: false, reason: 'item_not_found' };
+  }
+
+  targetItem.locked = !targetItem.locked;
+
+  if (state === gameState) {
+    playSound('click');
+    const msg = targetItem.locked
+      ? `🔒 Marked ${targetItem.name} as Kept/Locked (protected from bulk sale).`
+      : `🔓 Unlocked ${targetItem.name} (eligible for bulk sale).`;
+    actionCallbacks.log(msg, 'info');
+    saveGame();
+    actionCallbacks.updateUI();
+  }
+
+  return { ok: true, locked: targetItem.locked, item: targetItem };
+}
+
+function autoEquipBestGear(state = gameState) {
+  if (!state || !state.hero || !state.guildVault) {
+    return { ok: false, reason: 'invalid_state', equippedCount: 0 };
+  }
+
+  const h = state.hero;
+  if (!h.equipment) {
+    h.equipment = { weapon: null, armor: null, helm: null, boots: null, accessory: null, pickaxe: null };
+  }
+
+  const armory = state.guildVault.armory || [];
+  const slots = ['weapon', 'armor', 'helm', 'boots', 'accessory', 'pickaxe'];
+  let equippedCount = 0;
+  const equippedNames = [];
+
+  for (let sIdx = 0; sIdx < slots.length; sIdx++) {
+    const slot = slots[sIdx];
+    const candidates = armory.filter(g => g && g.slot === slot);
+    if (candidates.length === 0) continue;
+
+    candidates.sort((a, b) => computeItemPowerScore(b) - computeItemPowerScore(a));
+    const bestCandidate = candidates[0];
+    const bestScore = computeItemPowerScore(bestCandidate);
+
+    const curEq = h.equipment[slot];
+    const curScore = curEq ? computeItemPowerScore(curEq) : -1;
+
+    if (bestScore > curScore) {
+      const armoryIdx = armory.indexOf(bestCandidate);
+      if (armoryIdx !== -1) {
+        armory.splice(armoryIdx, 1);
+      }
+      h.equipment[slot] = bestCandidate;
+      if (curEq) {
+        armory.push(curEq);
+      }
+      equippedCount++;
+      equippedNames.push(bestCandidate.name);
+    }
+  }
+
+  if (equippedCount > 0) {
+    recomputeHeroDerivedStats(false, state);
+    if (state === gameState) {
+      playSound('lvl');
+      actionCallbacks.log(`⚡ Auto-equipped ${equippedCount} upgrade(s): ${equippedNames.join(', ')}!`, 'gold');
+      saveGame();
+      actionCallbacks.updateUI();
+    }
+  } else {
+    if (state === gameState) {
+      actionCallbacks.log('⚡ You already have your highest-power gear equipped in all slots.', 'info');
+    }
+  }
+
+  return { ok: true, equippedCount, equippedNames };
+}
+
+function sellAllSpareGear(rarityFilter = null, state = gameState) {
+  let rFilter = rarityFilter;
+  let targetState = state;
+  if (rarityFilter && typeof rarityFilter === 'object' && rarityFilter.guildVault) {
+    targetState = rarityFilter;
+    rFilter = null;
+  }
+  if (!targetState || !targetState.guildVault) return 0;
+
+  const armory = targetState.guildVault.armory || [];
+  if (armory.length === 0) {
+    if (targetState === gameState) actionCallbacks.log('No spare equipment in Vault Armory to sell.', 'info');
     return 0;
   }
-  const assayRank = state.guildResearch.assay || 0;
+
+  const itemsToSell = [];
+  const itemsToKeep = [];
+
+  for (let i = 0; i < armory.length; i++) {
+    const g = armory[i];
+    const matchesRarity = !rFilter || rFilter === 'all' || g.rarity === rFilter;
+    if (matchesRarity && !g.locked) {
+      itemsToSell.push(g);
+    } else {
+      itemsToKeep.push(g);
+    }
+  }
+
+  if (itemsToSell.length === 0) {
+    if (targetState === gameState) {
+      const lockNote = armory.some(g => g.locked) ? ' (all matching items are locked)' : '';
+      actionCallbacks.log(`No eligible ${rFilter ? rFilter + ' ' : ''}spare gear to sell${lockNote}.`, 'info');
+    }
+    return 0;
+  }
+
+  const assayRank = targetState.guildResearch.assay || 0;
   const mult = 1 + assayRank * 0.35;
   let total = 0;
-  const count = state.guildVault.armory.length;
-  if (!state.guildVault.gems) {
-    state.guildVault.gems = { ruby: 0, emerald: 0, sapphire: 0, topaz: 0, void_diamond: 0 };
+  if (!targetState.guildVault.gems) {
+    targetState.guildVault.gems = { ruby: 0, emerald: 0, sapphire: 0, topaz: 0, void_diamond: 0 };
   }
-  state.guildVault.armory.forEach(g => {
+
+  itemsToSell.forEach(g => {
     if (Array.isArray(g.sockets)) {
       g.sockets.forEach(gId => {
-        state.guildVault.gems[gId] = (state.guildVault.gems[gId] || 0) + 1;
+        targetState.guildVault.gems[gId] = (targetState.guildVault.gems[gId] || 0) + 1;
       });
     }
     total += Math.round((g.value || 15) * mult);
   });
-  state.guildVault.armory = [];
-  state.guildVault.gold += total;
 
-  if (state === gameState) {
+  targetState.guildVault.armory = itemsToKeep;
+  targetState.guildVault.gold += total;
+
+  if (targetState === gameState) {
     playSound('gold');
-    actionCallbacks.log(`Sold ${count} spare armory items with Assay bonus for +${total}g!`, 'gold');
+    const label = rFilter ? `${rFilter.toUpperCase()}` : 'spare';
+    actionCallbacks.log(`Sold ${itemsToSell.length} ${label} armory items with Assay bonus for +${total}g!`, 'gold');
     saveGame();
     actionCallbacks.updateUI();
   }
@@ -5846,15 +6016,18 @@ function renderGuildHub() {
   gameState.guildVault.armory.forEach(g => {
     const r = RARITY[g.rarity] || RARITY.common;
     const salePrice = Math.round((g.value || 15) * mult);
+    const isLocked = Boolean(g.locked);
+    const sellBtnHtml = isLocked
+      ? `<span class="px-2 py-0.5 rounded bg-[#1a2232] text-[#fbbf24] text-[10px] border border-[#fbbf24]/30">🔒 Locked</span>`
+      : `<button onclick="window.Aethelgard.sellArmoryItem('${g.uid}')" class="px-2.5 py-0.5 rounded bg-[#fbbf24]/15 hover:bg-[#fbbf24]/25 text-[#fbbf24] border border-[#fbbf24]/40 font-bold">Sell (+${salePrice}g)</button>`;
+
     sellRows.push(`
       <div class="p-2 rounded bg-[#111722] border border-[#283347] flex items-center justify-between">
         <div onclick="window.Aethelgard.openItemInspectModal('${g.uid}', false, false)" class="cursor-pointer hover:underline">
           <span class="font-bold" style="color:${r.color}">${g.name}</span>${formatSocketPipsHtml(g)}
           <span class="text-[10px] text-[#8b949e] uppercase ml-1">[${g.slot}]</span>
         </div>
-        <button onclick="window.Aethelgard.sellArmoryItem('${g.uid}')" class="px-2.5 py-0.5 rounded bg-[#fbbf24]/15 hover:bg-[#fbbf24]/25 text-[#fbbf24] border border-[#fbbf24]/40 font-bold">
-          Sell (+${salePrice}g)
-        </button>
+        ${sellBtnHtml}
       </div>
     `);
   });
@@ -5864,19 +6037,99 @@ function renderGuildHub() {
     : `<div class="text-[#8b949e] italic py-4 text-center">No banked minerals, gems, or spare equipment to appraise. Mine veins & extract from the dungeon!</div>`;
 
   // Vault Armory Tab
+  const sortBy = (gameState.uiSettings && gameState.uiSettings.armorySortBy) || 'slot';
+  ['slot', 'rarity', 'power', 'value', 'name'].forEach(k => {
+    const btn = document.getElementById(`btnSort_${k}`);
+    if (btn) {
+      if (k === sortBy) {
+        btn.className = 'px-2 py-0.5 rounded text-[11px] font-bold bg-[#1a2232] text-[#fbbf24] border border-[#fbbf24]/50';
+      } else {
+        btn.className = 'px-2 py-0.5 rounded text-[11px] font-bold bg-[#111722] text-[#8b949e] border border-[#283347] hover:text-[#e6edf3]';
+      }
+    }
+  });
+
+  const slotWeights = { weapon: 1, armor: 2, helm: 3, boots: 4, accessory: 5, pickaxe: 6 };
+  const rarityWeights = { relic: 5, epic: 4, rare: 3, uncommon: 2, common: 1 };
+
+  const rawArmory = gameState.guildVault.armory || [];
+  const displayArmory = rawArmory.slice();
+
+  displayArmory.sort((a, b) => {
+    if (sortBy === 'slot') {
+      const swA = slotWeights[a.slot] || 99;
+      const swB = slotWeights[b.slot] || 99;
+      if (swA !== swB) return swA - swB;
+      return computeItemPowerScore(b) - computeItemPowerScore(a);
+    } else if (sortBy === 'rarity') {
+      const rwA = rarityWeights[a.rarity] || 0;
+      const rwB = rarityWeights[b.rarity] || 0;
+      if (rwA !== rwB) return rwB - rwA;
+      return (b.value || 0) - (a.value || 0);
+    } else if (sortBy === 'power') {
+      return computeItemPowerScore(b) - computeItemPowerScore(a);
+    } else if (sortBy === 'value') {
+      return (b.value || 0) - (a.value || 0);
+    } else if (sortBy === 'name') {
+      return (a.name || '').localeCompare(b.name || '');
+    }
+    return 0;
+  });
+
+  let upgradeCount = 0;
+  rawArmory.forEach(g => {
+    if (isItemUpgrade(g, h.equipment)) upgradeCount++;
+  });
+
+  const upgradeBadgeEl = document.getElementById('uiArmoryUpgradeCountBadge');
+  if (upgradeBadgeEl) {
+    if (upgradeCount > 0) {
+      upgradeBadgeEl.textContent = `▲ ${upgradeCount} Upgrade${upgradeCount > 1 ? 's' : ''}`;
+      upgradeBadgeEl.classList.remove('hidden');
+    } else {
+      upgradeBadgeEl.classList.add('hidden');
+    }
+  }
+
   const armoryGrid = document.getElementById('uiArmoryGrid');
-  if (gameState.guildVault.armory.length === 0) {
+  if (displayArmory.length === 0) {
     armoryGrid.innerHTML = `<div class="col-span-2 text-xs text-[#8b949e] italic py-4 text-center">Your Vault Armory is empty. Defeat monsters, open chests, or buy gear from the Quartermaster.</div>`;
   } else {
-    armoryGrid.innerHTML = gameState.guildVault.armory.map(g => {
+    armoryGrid.innerHTML = displayArmory.map(g => {
       const r = RARITY[g.rarity] || RARITY.common;
+      const isUpgrade = isItemUpgrade(g, h.equipment);
+      const pwr = computeItemPowerScore(g);
+      const isLocked = Boolean(g.locked);
+      const borderClass = isUpgrade
+        ? 'border-[#34d399]/60 bg-[#07130f]'
+        : (isLocked ? 'border-[#fbbf24]/40 bg-[#080b11]' : 'border-[#283347] bg-[#080b11]');
+
+      const upgradeBadgeHtml = isUpgrade
+        ? `<span class="px-1.5 py-0.2 rounded bg-[#34d399]/20 text-[#34d399] border border-[#34d399]/40 text-[9px] font-bold">▲ UPGRADE</span>`
+        : '';
+
+      const lockBtnHtml = `
+        <button onclick="event.stopPropagation(); window.Aethelgard.toggleItemLock('${g.uid}')" class="px-1 py-0.5 rounded text-[11px] ${isLocked ? 'text-[#fbbf24]' : 'text-[#64748b] hover:text-[#e6edf3]'}" title="${isLocked ? 'Locked (Protected from sale)' : 'Unlocked (Click to Lock)'}">
+          ${isLocked ? '🔒' : '🔓'}
+        </button>
+      `;
+
       return `
-        <div onclick="window.Aethelgard.openItemInspectModal('${g.uid}', false, false)" class="p-2.5 rounded bg-[#080b11] border border-[#283347] hover:border-[#60a5fa] cursor-pointer flex items-center justify-between">
-          <div>
-            <div class="text-xs font-bold" style="color:${r.color}">${g.name}${formatSocketPipsHtml(g)}</div>
-            <div class="text-[10px] text-[#8b949e] uppercase">${r.name} • ${g.slot}</div>
+        <div onclick="window.Aethelgard.openItemInspectModal('${g.uid}', false, false)" class="p-2.5 rounded ${borderClass} hover:border-[#60a5fa] cursor-pointer flex items-center justify-between gap-2">
+          <div class="truncate">
+            <div class="flex items-center gap-1.5 truncate">
+              <span class="text-xs font-bold truncate" style="color:${r.color}">${g.name}${formatSocketPipsHtml(g)}</span>
+              ${upgradeBadgeHtml}
+            </div>
+            <div class="text-[10px] text-[#8b949e] uppercase mt-0.5">
+              <span>${r.name} • ${g.slot}</span>
+              <span class="text-[#60a5fa] font-mono-num ml-1">PWR ${pwr}</span>
+            </div>
           </div>
-          <span class="text-xs font-mono-num text-[#fbbf24]">${g.value}g</span>
+          <div class="flex items-center gap-1.5 shrink-0">
+            <span class="text-xs font-mono-num text-[#fbbf24]">${g.value}g</span>
+            ${lockBtnHtml}
+          </div>
         </div>
       `;
     }).join('');
@@ -6309,6 +6562,14 @@ function switchGuildTab(tabId) {
       }
     }
   });
+}
+
+function setArmorySortBy(sortKey) {
+  if (!gameState.uiSettings) {
+    gameState.uiSettings = {};
+  }
+  gameState.uiSettings.armorySortBy = sortKey;
+  updateAllUI();
 }
 
 function logChronicle(msg, tone = 'info') {
@@ -6914,6 +7175,17 @@ function openItemInspectModal(refId, isEquippedSlot = false, fromExpedition = fa
 
   const btnEquip = document.getElementById('btnInspectEquip');
   const btnSell = document.getElementById('btnInspectSell');
+  const btnLock = document.getElementById('btnInspectLock');
+
+  if (btnLock) {
+    if (item.locked) {
+      btnLock.textContent = '🔒 Locked (Keep)';
+      btnLock.className = 'px-3 py-1.5 rounded bg-[#fbbf24]/20 hover:bg-[#fbbf24]/30 text-[#fbbf24] border border-[#fbbf24]/50 text-xs font-mono-num font-bold btn-tactical';
+    } else {
+      btnLock.textContent = '🔓 Unlocked (Sellable)';
+      btnLock.className = 'px-3 py-1.5 rounded bg-[#1a2232] hover:bg-[#283347] text-[#8b949e] hover:text-[#e6edf3] border border-[#283347] text-xs font-mono-num btn-tactical';
+    }
+  }
 
   if (isEquippedSlot) {
     btnEquip.textContent = 'Unequip';
@@ -6952,20 +7224,38 @@ function openItemInspectModal(refId, isEquippedSlot = false, fromExpedition = fa
     const assayMult = 1 + (gameState.guildResearch.assay || 0) * 0.35;
     const saleVal = Math.round((item.value || 15) * assayMult);
     btnSell.textContent = `Sell (+${saleVal}g)`;
-    btnSell.onclick = () => {
-      if (fromExpedition) {
-        h.expeditionGear = h.expeditionGear.filter(g => g.uid !== item.uid);
-        gameState.guildVault.gold += saleVal;
-      } else {
-        sellArmoryItem(item.uid);
-      }
-      saveGame();
-      updateAllUI();
-      closeItemInspectModal();
-    };
+
+    if (item.locked) {
+      btnSell.disabled = true;
+      btnSell.className = 'px-3 py-1.5 rounded bg-[#1a2232] text-[#8b949e] border border-[#283347] text-xs font-mono-num opacity-50 cursor-not-allowed';
+      btnSell.title = 'Item is locked. Unlock it first to sell.';
+      btnSell.onclick = null;
+    } else {
+      btnSell.disabled = false;
+      btnSell.className = 'px-3 py-1.5 rounded bg-[#fbbf24]/15 hover:bg-[#fbbf24]/25 text-[#fbbf24] border border-[#fbbf24]/40 text-xs font-mono-num font-bold btn-tactical';
+      btnSell.title = '';
+      btnSell.onclick = () => {
+        if (fromExpedition) {
+          h.expeditionGear = h.expeditionGear.filter(g => g.uid !== item.uid);
+          gameState.guildVault.gold += saleVal;
+        } else {
+          sellArmoryItem(item.uid);
+        }
+        saveGame();
+        updateAllUI();
+        closeItemInspectModal();
+      };
+    }
   }
 
   document.getElementById('itemInspectModal').classList.remove('hidden');
+}
+
+function toggleLockFromInspect() {
+  if (!inspectedItemContext || !inspectedItemContext.item) return;
+  toggleItemLock(inspectedItemContext.item.uid);
+  openItemInspectModal(inspectedItemContext.refId, inspectedItemContext.isEquippedSlot, inspectedItemContext.fromExpedition);
+  updateAllUI();
 }
 
 function socketFromInspect(targetRef, gemId, isEquippedSlot) {
@@ -7345,7 +7635,8 @@ function setupInputs() {
 }
 
   // --- Module: src/test/selfTest.js ---
-// 20/20 Comprehensive Automated Self-Test Suite (Sandboxed & Non-Destructive)
+// 21/21 Comprehensive Automated Self-Test Suite (Sandboxed & Non-Destructive)
+
 
 
 
@@ -7960,6 +8251,149 @@ function evaluateSelfTests() {
     detail: `Crawler 5 kills -> 1.08x Mastery; Boss 1 kill -> 1.08x Mastery; Codex kill tracking verified`
   });
 
+  // 21. Inventory Sorting, Upgrade Detection, Auto-Equip, Keep Lock & Rarity Bulk Selling
+  const sandbox21 = createDefaultGameState();
+  selectAdventurerClass('fighter', sandbox21);
+  sandbox21.inGuild = true;
+
+  const initialWeapon = sandbox21.hero.equipment.weapon;
+  const initialWeaponScore = computeItemPowerScore(initialWeapon);
+
+  const itemCommonSword = {
+    uid: 'test_c_sword',
+    slot: 'weapon',
+    name: 'Bronze Broadsword',
+    rarity: 'common',
+    value: 20,
+    atk: 14,
+    str: 4,
+    maxDur: 100,
+    durability: 100,
+    sockets: [],
+    maxSockets: 0,
+    locked: false
+  };
+  const itemRareArmor = {
+    uid: 'test_r_armor',
+    slot: 'armor',
+    name: 'Obsidian Plate',
+    rarity: 'rare',
+    value: 150,
+    def: 12,
+    maxHp: 40,
+    maxDur: 120,
+    durability: 120,
+    sockets: [],
+    maxSockets: 2,
+    locked: false
+  };
+  const itemSpareUnlockedBoots = {
+    uid: 'test_u_boots',
+    slot: 'boots',
+    name: 'Worn Leather Boots',
+    rarity: 'uncommon',
+    value: 45,
+    def: 1, // worse than starter boots def: 2
+    maxDur: 0,
+    durability: 0,
+    sockets: [],
+    maxSockets: 0,
+    locked: false
+  };
+  const itemSpareLockedHelm = {
+    uid: 'test_c_helm',
+    slot: 'helm',
+    name: 'Cracked Rusty Helm',
+    rarity: 'common',
+    value: 25,
+    def: 1, // worse than starter helm def: 2
+    maxDur: 0,
+    durability: 0,
+    sockets: [],
+    maxSockets: 0,
+    locked: true // Protected with Keep Lock!
+  };
+  const itemSpareUnlockedCommon = {
+    uid: 'test_c_ring',
+    slot: 'accessory',
+    name: 'Tarnished Band',
+    rarity: 'common',
+    value: 15,
+    atk: 0,
+    def: 0,
+    maxDur: 0,
+    durability: 0,
+    sockets: [],
+    maxSockets: 0,
+    locked: false
+  };
+
+  sandbox21.guildVault.armory = [
+    itemCommonSword,
+    itemRareArmor,
+    itemSpareUnlockedBoots,
+    itemSpareLockedHelm,
+    itemSpareUnlockedCommon
+  ];
+
+  // 1. Upgrade detection & Power Score
+  const swordIsUpgrade = isItemUpgrade(itemCommonSword, sandbox21.hero.equipment);
+  const swordPower = computeItemPowerScore(itemCommonSword);
+  const armorIsUpgrade = isItemUpgrade(itemRareArmor, sandbox21.hero.equipment);
+  const lockedHelmIsUpgrade = isItemUpgrade(itemSpareLockedHelm, sandbox21.hero.equipment); // should be false
+
+  // 2. Lock / Keep Toggle
+  const lockToggleRes = toggleItemLock(itemRareArmor.uid, sandbox21);
+  const armorIsLocked = itemRareArmor.locked === true;
+
+  // 3. Auto-Equip Best
+  const autoEquipRes = autoEquipBestGear(sandbox21);
+  const weaponNowEquipped = sandbox21.hero.equipment.weapon.uid === 'test_c_sword';
+  const armorNowEquipped = sandbox21.hero.equipment.armor.uid === 'test_r_armor';
+  const oldWeaponMovedToArmory = sandbox21.guildVault.armory.some(g => g.uid === (initialWeapon && initialWeapon.uid));
+
+  // 4. Bulk Sell by Rarity (Commons) with Keep Lock Protection
+  const startGold = sandbox21.guildVault.gold;
+  const sellCommonRes = sellAllSpareGear('common', sandbox21);
+  const commonHelmStillInArmory = sandbox21.guildVault.armory.some(g => g.uid === 'test_c_helm');
+  const goldIncreasedFromCommons = sandbox21.guildVault.gold > startGold;
+
+  // 5. Bulk Sell All Unlocked Spare Gear (Preserves locked common helm)
+  const sellAllRes = sellAllSpareGear(null, sandbox21);
+  const bootsSold = !sandbox21.guildVault.armory.some(g => g.uid === 'test_u_boots');
+  const lockedHelmStillIntact = sandbox21.guildVault.armory.some(g => g.uid === 'test_c_helm');
+  const armoryOnlyHasLockedItem = sandbox21.guildVault.armory.length === 1 && sandbox21.guildVault.armory[0].uid === 'test_c_helm';
+
+  const t21Checks = {
+    swordIsUpgrade: !!swordIsUpgrade,
+    swordPower: swordPower > initialWeaponScore,
+    armorIsUpgrade: !!armorIsUpgrade,
+    lockedHelmNotUpgrade: !lockedHelmIsUpgrade,
+    lockToggleOk: !!lockToggleRes.ok,
+    armorIsLocked: !!armorIsLocked,
+    autoEquipOk: !!autoEquipRes.ok,
+    autoEquipCount: autoEquipRes.equippedCount >= 2,
+    weaponNowEquipped: !!weaponNowEquipped,
+    armorNowEquipped: !!armorNowEquipped,
+    oldWeaponMovedToArmory: !!oldWeaponMovedToArmory,
+    sellCommonRes: sellCommonRes > 0,
+    commonHelmStillInArmory: !!commonHelmStillInArmory,
+    goldIncreasedFromCommons: !!goldIncreasedFromCommons,
+    sellAllRes: sellAllRes > 0,
+    bootsSold: !!bootsSold,
+    lockedHelmStillIntact: !!lockedHelmStillIntact,
+    armoryOnlyHasLockedItem: !!armoryOnlyHasLockedItem
+  };
+  const failedKeys = Object.keys(t21Checks).filter(k => !t21Checks[k]);
+  const t21Pass = failedKeys.length === 0;
+  results.push({
+    name: '21. Inventory Sorting, Upgrade Detection, Auto-Equip, Keep Lock & Rarity Bulk Selling',
+    pass: t21Pass,
+    detail: failedKeys.length === 0
+      ? `Power score upgrade detection verified; auto-equip equipped superior gear; locked helm survived bulk sell`
+      : `Failed checks: ${failedKeys.join(', ')} (sellCommonRes=${sellCommonRes}, sellAllRes=${sellAllRes})`
+  });
+
   return results;
 }
 
@@ -8140,6 +8574,7 @@ const AethelgardAPI = {
   selectAdventurerClass,
   openItemInspectModal,
   closeItemInspectModal,
+  toggleLockFromInspect,
   socketFromInspect,
   unsocketFromInspect,
   showOutcomeModal,
@@ -8163,6 +8598,7 @@ const AethelgardAPI = {
   chartCustomExpedition,
   resetOrAbandonDungeon,
   switchGuildTab,
+  setArmorySortBy,
   restAtGuild,
   repairPickaxeAtGuild,
   spendStatPoint,
@@ -8174,6 +8610,8 @@ const AethelgardAPI = {
   sellAllOresAtAssay,
   sellArmoryItem,
   sellAllSpareGear,
+  autoEquipBestGear,
+  toggleItemLock,
   purchaseResearchRank,
   socketGemIntoItem,
   unsocketGemFromItem,

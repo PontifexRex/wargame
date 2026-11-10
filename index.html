@@ -57,7 +57,7 @@
       </button>
       <button id="btnVerifySuite" onclick="window.Aethelgard.openDiagnosticsModal()" class="px-3 py-1.5 rounded-md bg-[#34d399]/15 hover:bg-[#34d399]/25 border border-[#34d399]/50 text-xs font-mono-num font-bold text-[#34d399] flex items-center gap-1.5 btn-tactical">
         <span class="w-2 h-2 rounded-full bg-[#34d399]"></span>
-        <span id="verifyBtnText">Verify Inc-5 (20/20 PASS)</span>
+        <span id="verifyBtnText">Verify Inc-5 (21/21 PASS)</span>
       </button>
     </div>
   </header>
@@ -394,16 +394,44 @@
 
         <!-- TAB 3: VAULT ARMORY (STORED EQUIPMENT) -->
         <div id="guildTab_armory" class="hidden space-y-3">
-          <div class="p-3 rounded-lg bg-[#080b11] border border-[#283347] flex items-center justify-between">
+          <!-- TOP ARMORY CONTROL BAR -->
+          <div class="p-3 rounded-lg bg-[#080b11] border border-[#283347] flex flex-wrap items-center justify-between gap-2.5">
             <div>
-              <h3 class="text-xs font-bold uppercase tracking-wider text-[#e6edf3]">Banked Armory & Spare Equipment</h3>
-              <p class="text-[11px] text-[#8b949e]">Click any item to compare stats against your equipped gear, equip it, or sell it.</p>
+              <div class="flex items-center gap-2">
+                <h3 class="text-xs font-bold uppercase tracking-wider text-[#e6edf3]">Banked Armory & Equipment Vault</h3>
+                <span id="uiArmoryUpgradeCountBadge" class="hidden px-1.5 py-0.5 rounded bg-[#34d399]/20 text-[#34d399] border border-[#34d399]/40 text-[10px] font-mono-num font-bold">0 Upgrades</span>
+              </div>
+              <p class="text-[11px] text-[#8b949e]">Equip gear, mark keepers (🔒), or auto-liquidate unwanted items with Antiquarian Assay bonus.</p>
             </div>
-            <button onclick="window.Aethelgard.sellAllSpareGear()" class="px-3 py-1.5 rounded bg-[#fbbf24]/15 hover:bg-[#fbbf24]/25 text-[#fbbf24] border border-[#fbbf24]/40 text-xs font-mono-num font-bold btn-tactical">
-              Sell All Spare Gear
-            </button>
+            <div class="flex flex-wrap items-center gap-2">
+              <button onclick="window.Aethelgard.autoEquipBestGear()" class="px-3 py-1.5 rounded-lg bg-[#2563eb] hover:bg-[#3b82f6] text-white text-xs font-mono-num font-bold btn-tactical shadow-md">
+                ⚡ Auto-Equip Best
+              </button>
+              <button onclick="window.Aethelgard.sellAllSpareGear()" class="px-3 py-1.5 rounded-lg bg-[#fbbf24]/15 hover:bg-[#fbbf24]/25 text-[#fbbf24] border border-[#fbbf24]/40 text-xs font-mono-num font-bold btn-tactical">
+                Sell All Unlocked
+              </button>
+            </div>
           </div>
-          <div id="uiArmoryGrid" class="grid grid-cols-1 sm:grid-cols-2 gap-2.5 max-h-[320px] overflow-y-auto pr-1">
+
+          <!-- SECONDARY SORT & FILTER CONTROLS BAR -->
+          <div class="p-2.5 rounded-lg bg-[#080b11] border border-[#283347] flex flex-wrap items-center justify-between gap-2 text-xs font-mono-num">
+            <div class="flex flex-wrap items-center gap-1.5">
+              <span class="text-[#8b949e] text-[11px]">Sort By:</span>
+              <button onclick="window.Aethelgard.setArmorySortBy('slot')" id="btnSort_slot" class="px-2 py-0.5 rounded text-[11px] font-bold bg-[#1a2232] text-[#fbbf24] border border-[#283347]">Slot</button>
+              <button onclick="window.Aethelgard.setArmorySortBy('rarity')" id="btnSort_rarity" class="px-2 py-0.5 rounded text-[11px] font-bold bg-[#111722] text-[#8b949e] border border-[#283347]">Rarity</button>
+              <button onclick="window.Aethelgard.setArmorySortBy('power')" id="btnSort_power" class="px-2 py-0.5 rounded text-[11px] font-bold bg-[#111722] text-[#8b949e] border border-[#283347]">Power</button>
+              <button onclick="window.Aethelgard.setArmorySortBy('value')" id="btnSort_value" class="px-2 py-0.5 rounded text-[11px] font-bold bg-[#111722] text-[#8b949e] border border-[#283347]">Value</button>
+              <button onclick="window.Aethelgard.setArmorySortBy('name')" id="btnSort_name" class="px-2 py-0.5 rounded text-[11px] font-bold bg-[#111722] text-[#8b949e] border border-[#283347]">Name</button>
+            </div>
+            <div class="flex flex-wrap items-center gap-1.5">
+              <span class="text-[#8b949e] text-[11px]">Quick Sell:</span>
+              <button onclick="window.Aethelgard.sellAllSpareGear('common')" class="px-2 py-0.5 rounded text-[10px] bg-[#94a3b8]/15 hover:bg-[#94a3b8]/25 text-[#94a3b8] border border-[#94a3b8]/30 font-bold">Commons</button>
+              <button onclick="window.Aethelgard.sellAllSpareGear('uncommon')" class="px-2 py-0.5 rounded text-[10px] bg-[#34d399]/15 hover:bg-[#34d399]/25 text-[#34d399] border border-[#34d399]/30 font-bold">Uncommons</button>
+              <button onclick="window.Aethelgard.sellAllSpareGear('rare')" class="px-2 py-0.5 rounded text-[10px] bg-[#60a5fa]/15 hover:bg-[#60a5fa]/25 text-[#60a5fa] border border-[#60a5fa]/30 font-bold">Rares</button>
+            </div>
+          </div>
+
+          <div id="uiArmoryGrid" class="grid grid-cols-1 sm:grid-cols-2 gap-2.5 max-h-[360px] overflow-y-auto pr-1">
             <!-- Populated dynamically -->
           </div>
         </div>
@@ -740,6 +768,9 @@
       <div id="inspectComparisonBody" class="space-y-1.5 text-xs font-mono-num bg-[#080b11] p-3 rounded border border-[#283347] mb-3"></div>
       <div id="inspectAffixesBody" class="space-y-1 text-xs font-mono-num mb-4"></div>
       <div class="flex items-center justify-end gap-2 pt-2 border-t border-[#283347]">
+        <button id="btnInspectLock" onclick="window.Aethelgard.toggleLockFromInspect()" class="px-3 py-1.5 rounded bg-[#1a2232] hover:bg-[#283347] text-xs font-mono-num font-bold text-[#fbbf24] border border-[#283347] btn-tactical">
+          🔒 Lock (Keep)
+        </button>
         <button id="btnInspectSell" class="px-3 py-1.5 rounded bg-[#fbbf24]/15 hover:bg-[#fbbf24]/25 text-[#fbbf24] border border-[#fbbf24]/40 text-xs font-mono-num font-bold btn-tactical">
           Sell
         </button>
@@ -761,14 +792,14 @@
       <div class="flex items-center justify-between border-b border-[#283347] pb-3 mb-3">
         <div>
           <span class="text-[10px] font-mono-num uppercase px-2 py-0.5 rounded bg-[#34d399]/15 text-[#34d399] font-bold">Automated Self-Test Engine</span>
-          <h3 class="font-display text-lg font-bold text-[#e6edf3] mt-1">Multi-Dungeon Atlas Verification Suite (17/17 Checks)</h3>
+          <h3 class="font-display text-lg font-bold text-[#e6edf3] mt-1">Multi-Dungeon Atlas Verification Suite (21/21 Checks)</h3>
         </div>
         <button onclick="window.Aethelgard.closeDiagnosticsModal()" class="text-[#8b949e] hover:text-[#e6edf3]">✕</button>
       </div>
       <div id="diagnosticsList" class="space-y-2 overflow-y-auto pr-1 text-xs font-mono-num flex-1 mb-4"></div>
       <div class="flex items-center justify-between pt-3 border-t border-[#283347]">
         <button onclick="window.Aethelgard.runSelfTests(true)" class="px-3.5 py-1.5 rounded bg-[#1a2232] hover:bg-[#283347] border border-[#283347] text-xs font-mono-num text-[#60a5fa]">
-          ↻ Re-Run All 17 Tests
+          ↻ Re-Run All 21 Tests
         </button>
         <button onclick="window.Aethelgard.closeDiagnosticsModal()" class="px-4 py-1.5 rounded bg-[#34d399] text-[#080b11] font-bold text-xs">
           Done
