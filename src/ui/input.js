@@ -23,7 +23,8 @@ import {
   waitTurn,
   startAutoWalkTo,
   cancelAutoWalk,
-  isAutoWalking
+  isAutoWalking,
+  runCorridor
 } from '../engine/combat.js';
 import {
   setHoverTile,
@@ -35,7 +36,10 @@ import {
   toggleFullMapModal,
   closeFullMapModal,
   closeExpeditionAtlasModal,
-  closeItemInspectModal
+  closeItemInspectModal,
+  toggleInventoryModal,
+  closeInventoryModal,
+  isInventoryModalOpen
 } from './modals.js';
 import {
   toggleDevConsole,
@@ -124,6 +128,10 @@ export function setupInputs() {
         closeDevConsole();
         return;
       }
+      if (isInventoryModalOpen()) {
+        closeInventoryModal();
+        return;
+      }
       closeFullMapModal();
       closeExpeditionAtlasModal();
       closeItemInspectModal();
@@ -144,13 +152,22 @@ export function setupInputs() {
       return;
     }
 
+    // Toggle Character & Inventory Modal [I] or [C]
+    if (e.code === 'KeyI' || e.code === 'KeyC') {
+      e.preventDefault();
+      toggleInventoryModal();
+      return;
+    }
+
     const classModal = document.getElementById('classSelectModal');
     const saveModal = document.getElementById('saveSyncModal');
     const atlasModal = document.getElementById('expeditionAtlasModal');
     const fullMapModal = document.getElementById('fullMapModal');
+    const invModal = document.getElementById('inventoryModal');
     if (classModal && !classModal.classList.contains('hidden')) return;
     if (saveModal && !saveModal.classList.contains('hidden')) return;
     if (atlasModal && !atlasModal.classList.contains('hidden')) return;
+    if (invModal && !invModal.classList.contains('hidden')) return;
 
     if (e.code === 'KeyM') {
       e.preventDefault();
@@ -161,15 +178,51 @@ export function setupInputs() {
     if (fullMapModal && !fullMapModal.classList.contains('hidden')) return;
     if (gameState.inGuild) return;
 
-    if (['ArrowUp', 'KeyW'].includes(e.code)) { e.preventDefault(); handlePlayerAction(0, -1); }
-    else if (['ArrowDown', 'KeyS'].includes(e.code)) { e.preventDefault(); handlePlayerAction(0, 1); }
-    else if (['ArrowLeft', 'KeyA'].includes(e.code)) { e.preventDefault(); handlePlayerAction(-1, 0); }
-    else if (['ArrowRight', 'KeyD'].includes(e.code)) { e.preventDefault(); handlePlayerAction(1, 0); }
-    else if (e.code === 'KeyQ') { e.preventDefault(); executeClassSkill(); }
-    else if (e.code === 'KeyH') { e.preventDefault(); useHealingTonic(); }
-    else if (e.code === 'KeyR') { e.preventDefault(); useRecallScroll(); }
-    else if (e.code === 'KeyE') { e.preventDefault(); useStairsAtPlayer(); }
-    else if (e.code === 'Space') { e.preventDefault(); waitTurn(); }
+    const isShift = !!e.shiftKey;
+    if (['ArrowUp', 'KeyW', 'Numpad8'].includes(e.code)) {
+      e.preventDefault();
+      if (isShift) runCorridor(0, -1);
+      else handlePlayerAction(0, -1);
+    } else if (['ArrowDown', 'KeyS', 'Numpad2'].includes(e.code)) {
+      e.preventDefault();
+      if (isShift) runCorridor(0, 1);
+      else handlePlayerAction(0, 1);
+    } else if (['ArrowLeft', 'KeyA', 'Numpad4'].includes(e.code)) {
+      e.preventDefault();
+      if (isShift) runCorridor(-1, 0);
+      else handlePlayerAction(-1, 0);
+    } else if (['ArrowRight', 'KeyD', 'Numpad6'].includes(e.code)) {
+      e.preventDefault();
+      if (isShift) runCorridor(1, 0);
+      else handlePlayerAction(1, 0);
+    } else if (e.code === 'Numpad7') {
+      e.preventDefault();
+      handlePlayerAction(-1, -1);
+    } else if (e.code === 'Numpad9') {
+      e.preventDefault();
+      handlePlayerAction(1, -1);
+    } else if (e.code === 'Numpad1') {
+      e.preventDefault();
+      handlePlayerAction(-1, 1);
+    } else if (e.code === 'Numpad3') {
+      e.preventDefault();
+      handlePlayerAction(1, 1);
+    } else if (['Numpad5', 'Space'].includes(e.code)) {
+      e.preventDefault();
+      waitTurn();
+    } else if (e.code === 'KeyQ') {
+      e.preventDefault();
+      executeClassSkill();
+    } else if (e.code === 'KeyH') {
+      e.preventDefault();
+      useHealingTonic();
+    } else if (e.code === 'KeyR') {
+      e.preventDefault();
+      useRecallScroll();
+    } else if (e.code === 'KeyE') {
+      e.preventDefault();
+      useStairsAtPlayer();
+    }
   });
 
   const canvas = document.getElementById('dungeonCanvas');

@@ -141,23 +141,50 @@ Implemented an extensible, developer-only control interface and programmatic API
   - Sandboxed **Test 23** in `src/test/selfTest.js` verifying warp, level scaling, cheats, and REPL.
   - Expanded automated verification suite to **23/23 PASS** + UI Smoke Suite + 25-seed fuzzer pass.
 
+v0.7.0-ux1 - Increment 7.0: Character Paper-Doll Inventory Screen, Floating Stat Comparison Tooltips & Corridor Fast-Run
+
+Delivered comprehensive character sheet and inventory ergonomics:
+- **Full Character & Inventory Management Modal (`[I]` / `[C]` / `#inventoryModal`)**:
+  - Two-column modal accessible from keyboard hotkeys `[I]` / `[C]`, the top header bar, or tactical action bar.
+  - Left Column: Visual hero portrait, identity, vitals (HP, MP, Pickaxe Durability), core attributes (STR, DEX, INT, VIT, ATK, DEF, CRIT, DODGE), and full 6-slot Paper-Doll loadout (`Helm`, `Weapon`, `Armor`, `Accessory`, `Boots`, `Pickaxe`).
+  - Right Column: Filterable Bag Gear (`All`, `Weapons`, `Armor`, `Accessories`) and Consumables/Minerals list.
+  - Equip / Swap: Instant field equipping of weapons and armor from the pack or armory with automatic stat delta recomputation and returning replaced items to the bag.
+  - Unequip: Unequip any worn piece to the bag/armory (pickaxes protected from direct unequip to safeguard mining capability).
+  - Drop / Discard: Drop unwanted items from the pack to clear clutter.
+  - Strict Economy Boundary: Selling/liquidating items for gold is strictly prohibited while inside the dungeon (`!gameState.inGuild`).
+- **Floating Hover Comparison Tooltip (`#floatingItemTooltip`)**:
+  - Glassmorphic floating tooltip triggered on hovering over items in the inventory bag, armory, or paper-doll.
+  - Renders item rarity, power score, primary stats with side-by-side green `▲ +X` and red `▼ -Y` deltas comparing directly against the equipped item in that slot, plus socketed gems and rolled affixes.
+- **Corridor Fast-Run (`Shift + Direction` / `runCorridor`) & Numpad Movement**:
+  - Holding `Shift + WASD / Arrow` (or Numpad keys) triggers smooth corridor fast-running up to 50 steps.
+  - Automatically halts on: hostile sighted in FOV, trap spotted, damage taken, reaching a landmark (Stairs, Chest, Shrine), adjacent unmined ore vein, or reaching a corridor intersection/room.
+  - Full Numpad 8-direction movement + `Numpad5` wait.
+- **Verification Gate**:
+  - Added Sandboxed **Test 24** in `src/test/selfTest.js` verifying field equip/swap, unequip, drop, in-dungeon selling prohibition, and corridor run.
+  - Expanded automated verification suite to **24/24 PASS** + Headless UI Smoke Suite + 10-seed fuzzer pass.
+
 2. Upcoming Increment Backlog
 
-### Increment 6.5 (v0.6.5-dev) — Developer & Tester Console (Phases 2 & 3 Backlog)
+### Iteration 2 (v0.7.1-art) — 5 Distinct Class Sprites & Upgraded Dungeon Wall/Floor Environments
 
-- **Phase 2: Entity & Item Spawner**:
-  - `spawn <monsterId> [count] [eliteAffix]`: Spawns any regular monster or boss at cursor or adjacent to hero.
-  - `give <itemId|gear> [rarity] [sockets]`: Spawns custom gear or consumables directly into inventory/pack.
-  - `giveGold <amount>` / `giveOres <amount>` / `giveGems <amount>`: Instant resource injection.
-- **Phase 3: Omnipotent Testing Cheats & State Inspector**:
-  - `killall`: Instantly slays all active hostiles on the current floor.
-  - Interactive Live State Inspector & JSON Property Editor.
+Scope & Deliverables:
+- 5 Distinct Class Sprites & Artwork: Custom, recognizable visual illustrations for Fighter, Thief, Mage, Ranger, and Paladin on the 2D canvas, HUD portrait, Class Select, and Inventory Paper-Doll.
+- 2.5D Dungeon Walls & Environments: Beveled stone mortar joints, drop-shadows onto floor tiles, and distinct biome masonry (Dwarven Catacombs, Crystalline Caverns, Molten Forgeworks, Vespera Crater).
+- Enhanced Landmark Props: Richer 3D staircases (`<` / `>`), banded gilded chests, and faceted sparkling ore veins.
 
 ---
 
-### Increment 7 (v0.7.0-inc7) — Guild Star-Forge Runecrafting, Deep Affix Synthesis & Gem Infusion
+### Iteration 3 (v0.7.2-tactical) — Tactical Combat Overlays & Chronicle Polish
 
 Scope & Deliverables:
-- Star-Forge Runecrafting Facility: Guild workshop tab to re-roll prefixes/suffixes, enhance stat tiers, or add sockets to gear by spending mined ores (`Copper`, `Iron`, `Mithril`, `Astralite`) and lapidary gems.
-- Dual-Affix Runestones: Socketable runic keystones crafting hybrid passive perks.
-- Verification Gate: Bump to 24/24 PASS in runSelfTests().
+- Skill Range & Target Preview Reticle: Visual overlay on 2D canvas showing skill reach and targeted monsters before spending MP.
+- Threat & Status Telegraphs: Status icons (`🔥`, `🩸`, `❄️`, `💫`) and ranged indicators on monster tiles with smooth visual lunge animations.
+- Filterable Expedition Chronicle: Quick filter tabs (`All` | `Combat` | `Loot`) and message grouping.
+
+---
+
+### Future Backlog: Monster/Object Refactor, Dev Spawner (6.5) & Star-Forge Runecrafting (Inc 8)
+
+- **Monster & Object Schema Refactor**: Unified entity component architecture.
+- **Developer Spawner (v0.6.5 Phase 2)**: Entity and item spawner matching the refactored schema.
+- **Guild Star-Forge Runecrafting**: Dual-affix runestones, socket punching, and affix re-rolling.

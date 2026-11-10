@@ -553,7 +553,11 @@ export function unsocketGemFromItem(targetRef, socketIndex = 0, isEquipped = tru
 }
 
 export function sellGemUnit(gemId, sellAll = false, state = gameState) {
-  if (!state.guildVault.gems) return 0;
+  if (!state || !state.guildVault || !state.guildVault.gems) return 0;
+  if (!state.inGuild) {
+    if (state === gameState) actionCallbacks.log('Gem trading is only permitted in the Oakhaven Guild Bastion.', 'bad');
+    return 0;
+  }
   const count = state.guildVault.gems[gemId] || 0;
   if (count <= 0) return 0;
 
@@ -986,6 +990,11 @@ export function buyShopItem(itemId, state = gameState) {
 }
 
 export function sellMineralUnit(mineralId, sellAll = false, state = gameState) {
+  if (!state || !state.guildVault) return 0;
+  if (!state.inGuild) {
+    if (state === gameState) actionCallbacks.log('Mineral smelting and sales are only permitted in the Oakhaven Guild Bastion.', 'bad');
+    return 0;
+  }
   const count = state.guildVault[mineralId] || 0;
   if (count <= 0) return 0;
 
@@ -1010,6 +1019,10 @@ export function sellMineralUnit(mineralId, sellAll = false, state = gameState) {
 }
 
 export function sellAllOresAtAssay(state = gameState) {
+  if (!state || !state.inGuild) {
+    if (state === gameState) actionCallbacks.log('Assay smelting is only permitted in the Oakhaven Guild Bastion.', 'bad');
+    return 0;
+  }
   let totalPayout = 0;
   for (const mId of MINERAL_IDS) {
     if ((state.guildVault[mId] || 0) > 0) {
@@ -1023,6 +1036,11 @@ export function sellAllOresAtAssay(state = gameState) {
 }
 
 export function sellArmoryItem(uid, state = gameState) {
+  if (!state || !state.guildVault || !state.guildVault.armory) return 0;
+  if (!state.inGuild) {
+    if (state === gameState) actionCallbacks.log('Equipment liquidation is only permitted in the Oakhaven Guild Bastion.', 'bad');
+    return 0;
+  }
   const idx = state.guildVault.armory.findIndex(g => g.uid === uid);
   if (idx === -1) return 0;
   if (state.guildVault.armory[idx].locked) {
@@ -1166,6 +1184,10 @@ export function sellAllSpareGear(rarityFilter = null, state = gameState) {
     rFilter = null;
   }
   if (!targetState || !targetState.guildVault) return 0;
+  if (!targetState.inGuild) {
+    if (targetState === gameState) actionCallbacks.log('Equipment liquidation is only permitted in the Oakhaven Guild Bastion.', 'bad');
+    return 0;
+  }
 
   const armory = targetState.guildVault.armory || [];
   if (armory.length === 0) {
@@ -1260,4 +1282,144 @@ export function purchaseResearchRank(projId, state = gameState) {
     actionCallbacks.updateUI();
   }
   return { ok: true, newRank: curRank + 1 };
+}
+
+export function equipItem(itemUid, state = gameState) {
+  if (!itemUid || !state || !state.hero) {
+    return { ok: false, reason: 'invalid_args' };
+  }
+  const h = state.hero;
+  if (!h.equipment) {
+    h.equipment = { weapon: null, armor: null, helm: null, boots: null, accessory: null, pickaxe: null };
+  }
+
+  let sourceArray = null;
+  let sourceIndex = -1;
+  let item = null;
+
+  if (Array.isArray(h.expeditionGear)) {
+    sourceIndex = h.expeditionGear.findIndex(g => g && g.uid === itemUid);
+    if (sourceIndex !== -1) {
+      sourceArray = h.expeditionGear;
+      item = h.expeditionGear[sourceIndex];
+    }
+  }
+
+  if (!item && state.guildVault && Array.isArray(state.guildVault.armory)) {
+    sourceIndex = state.guildVault.armory.findIndex(g => g && g.uid === itemUid);
+    if (sourceIndex !== -1) {
+      sourceArray = state.guildVault.armory;
+      item = state.guildVault.armory[sourceIndex];
+    }
+  }
+
+  if (!item || !item.slot) {
+    return { ok: false, reason: 'item_not_found' };
+  }
+
+  const slot = item.slot;
+  const prev = h.equipment[slot] || null;
+
+  sourceArray.splice(sourceIndex, 1);
+  h.equipment[slot] = item;
+  if (prev) {
+    sourceArray.push(prev);
+  }
+
+  recomputeHeroDerivedStats(false, state);
+
+  if (state === gameState) {
+    playSound('lvl');
+    actionCallbacks.log(`Equipped ${item.name} to ${slot.toUpperCase()}${prev ? ` (swapped with ${prev.name})` : ''}.`, 'gold');
+    saveGame();
+    actionCallbacks.updateUI();
+  }
+
+  return { ok: true, slot, equipped: item, unequipped: prev };
+}
+
+export function unequipItem(slot, state = gameState) {
+  if (!slot || !state || !state.hero || !state.hero.equipment) {
+    return { ok: false, reason: 'invalid_args' };
+  }
+
+  if (slot === 'pickaxe') {
+    if (state === gameState) {
+      actionCallbacks.log('Pickaxe cannot be unequipped directly; equip an alternate pickaxe to replace it.', 'bad');
+    }
+    return { ok: false, reason: 'cannot_unequip_pickaxe' };
+  }
+
+  const item = state.hero.equipment[slot];
+  if (!item) {
+    return { ok: false, reason: 'slot_empty' };
+  }
+
+  state.hero.equipment[slot] = null;
+
+  if (!state.inGuild) {
+    if (!state.hero.expeditionGear) state.hero.expeditionGear = [];
+    state.hero.expeditionGear.push(item);
+  } else {
+    if (!state.guildVault) state.guildVault = {};
+    if (!state.guildVault.armory) state.guildVault.armory = [];
+    state.guildVault.armory.push(item);
+  }
+
+  recomputeHeroDerivedStats(false, state);
+
+  if (state === gameState) {
+    playSound('click');
+    actionCallbacks.log(`Unequipped ${item.name} from ${slot.toUpperCase()}.`, 'info');
+    saveGame();
+    actionCallbacks.updateUI();
+  }
+
+  return { ok: true, slot, unequipped: item };
+}
+
+export function dropItem(uidOrId, isGear = true, state = gameState) {
+  if (!uidOrId || !state || !state.hero) {
+    return { ok: false, reason: 'invalid_args' };
+  }
+
+  const h = state.hero;
+  let droppedName = '';
+
+  if (isGear) {
+    if (Array.isArray(h.expeditionGear)) {
+      const idx = h.expeditionGear.findIndex(g => g && g.uid === uidOrId);
+      if (idx !== -1) {
+        droppedName = h.expeditionGear[idx].name;
+        h.expeditionGear.splice(idx, 1);
+      }
+    }
+    if (!droppedName && state.guildVault && Array.isArray(state.guildVault.armory)) {
+      const aIdx = state.guildVault.armory.findIndex(g => g && g.uid === uidOrId);
+      if (aIdx !== -1) {
+        droppedName = state.guildVault.armory[aIdx].name;
+        state.guildVault.armory.splice(aIdx, 1);
+      }
+    }
+    if (!droppedName) return { ok: false, reason: 'item_not_found' };
+  } else {
+    if (!Array.isArray(h.expeditionPack)) return { ok: false, reason: 'no_expedition_pack' };
+    const idx = h.expeditionPack.findIndex(p => p && p.id === uidOrId);
+    if (idx === -1) return { ok: false, reason: 'item_not_found' };
+    droppedName = h.expeditionPack[idx].name;
+    if (h.expeditionPack[idx].qty > 1) {
+      h.expeditionPack[idx].qty -= 1;
+    } else {
+      h.expeditionPack.splice(idx, 1);
+    }
+  }
+
+  if (state === gameState) {
+    playSound('click');
+    actionCallbacks.log(`Dropped ${droppedName} from inventory.`, 'info');
+    saveGame();
+    actionCallbacks.updateUI();
+  }
+
+  return { ok: true, dropped: droppedName };
 }

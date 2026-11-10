@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Aethelgard: The Starfall Vaults — v0.4.5 (Multi-Dungeon Atlas)</title>
+  <title>Aethelgard: The Starfall Vaults — v0.7.0 (Character Sheet &amp; Navigation UX)</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -24,7 +24,7 @@
         <div class="flex items-center gap-2">
           <h1 class="font-display text-base md:text-lg font-bold tracking-wider text-[#e6edf3]">AETHELGARD</h1>
           <span class="text-[11px] font-mono-num uppercase px-2 py-0.5 rounded bg-[#fbbf24]/15 text-[#fbbf24] border border-[#fbbf24]/40 font-semibold">
-            v0.4.5 • Atlas
+            v0.7.0 • Bag &amp; UX
           </span>
         </div>
         <p class="text-[11px] text-[#8b949e] hidden sm:block">The Starfall Vaults • Procedural Tactical Roguelike</p>
@@ -49,6 +49,9 @@
 
     <!-- RIGHT UTILITY BUTTONS -->
     <div class="flex items-center gap-2">
+      <button id="btnOpenInventory" onclick="window.Aethelgard.toggleInventoryModal()" class="px-2.5 py-1.5 rounded-md bg-[#1a2232] hover:bg-[#283347] border border-[#fbbf24]/50 text-xs font-medium text-[#fbbf24] flex items-center gap-1 btn-tactical" title="Character Sheet &amp; Inventory [I / C]">
+        <span>🎒 Bag [I]</span>
+      </button>
       <button id="btnAudioToggle" onclick="window.Aethelgard.toggleAudio()" class="px-2.5 py-1.5 rounded-md bg-[#1a2232] hover:bg-[#283347] border border-[#283347] text-xs font-medium text-[#e6edf3] btn-tactical">
         🔊 Audio: ON
       </button>
@@ -60,7 +63,7 @@
       </button>
       <button id="btnVerifySuite" onclick="window.Aethelgard.openDiagnosticsModal()" class="px-3 py-1.5 rounded-md bg-[#34d399]/15 hover:bg-[#34d399]/25 border border-[#34d399]/50 text-xs font-mono-num font-bold text-[#34d399] flex items-center gap-1.5 btn-tactical">
         <span class="w-2 h-2 rounded-full bg-[#34d399]"></span>
-        <span id="verifyBtnText">Verify Inc-6.5 (23/23 PASS)</span>
+        <span id="verifyBtnText">Verify Inc-7.0 (24/24 PASS)</span>
       </button>
     </div>
   </header>
@@ -595,7 +598,7 @@
 
         <!-- TACTICAL ACTION BAR & D-PAD -->
         <div class="grid grid-cols-1 md:grid-cols-12 gap-2.5 items-center">
-          <div class="md:col-span-8 grid grid-cols-4 gap-1.5">
+          <div class="md:col-span-8 grid grid-cols-5 gap-1.5">
             <!-- Skill (Q) -->
             <button onclick="window.Aethelgard.executeClassSkill()" class="p-2 rounded-lg bg-[#2563eb]/20 hover:bg-[#2563eb]/30 border border-[#60a5fa]/50 text-left flex flex-col justify-between btn-tactical">
               <div class="flex items-center justify-between w-full">
@@ -630,6 +633,15 @@
                 <span class="text-[10px] font-mono-num px-1 rounded bg-[#080b11] text-[#8b949e]">E</span>
               </div>
               <div id="btnStairsHint" class="text-[10px] font-mono-num text-[#8b949e] mt-1">On &lt; or &gt;</div>
+            </button>
+
+            <!-- Bag / Inventory (I) -->
+            <button id="btnOpenInventoryHud" onclick="window.Aethelgard.toggleInventoryModal()" class="p-2 rounded-lg bg-[#1a2232] hover:bg-[#283347] border border-[#fbbf24]/40 text-left flex flex-col justify-between btn-tactical">
+              <div class="flex items-center justify-between w-full">
+                <span class="text-[11px] font-bold text-[#fbbf24]">Bag</span>
+                <span class="text-[10px] font-mono-num px-1 rounded bg-[#080b11] text-[#fbbf24]">I</span>
+              </div>
+              <div class="text-[10px] font-mono-num text-[#8b949e] mt-1">Gear / Drop</div>
             </button>
           </div>
 
@@ -1000,6 +1012,180 @@
       </div>
     </div>
   </div>
+
+  <!-- ===================================================================== -->
+  <!-- MODAL: CHARACTER SHEET & PAPER-DOLL INVENTORY MANAGEMENT [I / C]       -->
+  <!-- ===================================================================== -->
+  <div id="inventoryModal" class="hidden fixed inset-0 z-50 bg-black/85 backdrop-blur-sm flex items-center justify-center p-3 md:p-5">
+    <div class="card-surface max-w-5xl w-full p-4 md:p-5 border border-[#fbbf24]/50 shadow-2xl flex flex-col gap-4 max-h-[92vh] overflow-hidden">
+      <!-- Header -->
+      <div class="flex items-center justify-between border-b border-[#283347] pb-3">
+        <div class="flex items-center gap-2.5">
+          <div class="w-8 h-8 rounded-lg bg-[#1a2232] border border-[#fbbf24]/50 flex items-center justify-center text-sm">
+            🎒
+          </div>
+          <div>
+            <div class="flex items-center gap-2">
+              <h3 class="font-display text-base md:text-lg font-bold text-[#e6edf3]">Character Sheet &amp; Inventory</h3>
+              <span id="inventoryLocationBadge" class="px-2 py-0.5 rounded text-[10px] font-mono-num font-bold bg-[#34d399]/15 text-[#34d399] border border-[#34d399]/40">
+                Safe at Guild
+              </span>
+            </div>
+            <p class="text-xs text-[#8b949e]">Equip gear, unequip to bag, or drop clutter. Selling items is only permitted in the surface Guild Bastion.</p>
+          </div>
+        </div>
+        <button id="btnCloseInventoryModal" onclick="window.Aethelgard.closeInventoryModal()" class="px-2.5 py-1 rounded bg-[#1a2232] hover:bg-[#283347] text-xs font-mono-num text-[#8b949e] hover:text-[#e6edf3] btn-tactical">
+          ✕ Close [Esc]
+        </button>
+      </div>
+
+      <!-- Main 2-Column Split: Paper-Doll (Left) & Bag Inventory (Right) -->
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-4 flex-1 overflow-y-auto pr-1">
+        <!-- LEFT: Character Vitals, Stats & 6-Slot Paper-Doll (5 COLS) -->
+        <div class="lg:col-span-5 flex flex-col gap-3">
+          <!-- Identity & Vitals Bar -->
+          <div class="p-3 rounded-lg bg-[#080b11] border border-[#283347] space-y-2.5">
+            <div class="flex items-center gap-3">
+              <canvas id="inventoryHeroPortraitCanvas" width="48" height="48" class="rounded-lg bg-[#111722] border border-[#283347] shadow-inner"></canvas>
+              <div>
+                <div class="flex items-center gap-1.5">
+                  <h4 id="inventoryHeroName" class="font-display font-bold text-sm text-[#e6edf3]">Fighter</h4>
+                  <span id="inventoryHeroTitleBadge" class="text-[10px] font-mono-num px-1.5 py-0.5 rounded bg-[#1a2232] text-[#fbbf24] border border-[#283347]">Iron Vanguard</span>
+                </div>
+                <div class="text-xs text-[#8b949e] font-mono-num mt-0.5">
+                  Level <span id="inventoryHeroLevel" class="text-[#e6edf3] font-bold">1</span> • XP <span id="inventoryHeroXp">0 / 60</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="space-y-1.5 font-mono-num text-xs">
+              <div>
+                <div class="flex justify-between text-[11px] mb-0.5">
+                  <span class="text-[#8b949e]">Health (HP)</span>
+                  <span id="inventoryHpText" class="text-[#34d399] font-bold">120 / 120</span>
+                </div>
+                <div class="w-full h-2 bg-[#111722] rounded-full overflow-hidden border border-[#283347]">
+                  <div id="inventoryHpBar" class="h-full bg-gradient-to-r from-[#059669] to-[#34d399]" style="width:100%"></div>
+                </div>
+              </div>
+
+              <div>
+                <div class="flex justify-between text-[11px] mb-0.5">
+                  <span class="text-[#8b949e]">Mana (MP)</span>
+                  <span id="inventoryMpText" class="text-[#60a5fa] font-bold">35 / 35</span>
+                </div>
+                <div class="w-full h-1.5 bg-[#111722] rounded-full overflow-hidden border border-[#283347]">
+                  <div id="inventoryMpBar" class="h-full bg-gradient-to-r from-[#2563eb] to-[#60a5fa]" style="width:100%"></div>
+                </div>
+              </div>
+
+              <div>
+                <div class="flex justify-between text-[11px] mb-0.5">
+                  <span class="text-[#8b949e]">Pickaxe Durability</span>
+                  <span id="inventoryPickaxeText" class="text-[#fbbf24] font-bold">30 / 30</span>
+                </div>
+                <div class="w-full h-1.5 bg-[#111722] rounded-full overflow-hidden border border-[#283347]">
+                  <div id="inventoryPickaxeBar" class="h-full bg-gradient-to-r from-[#d97706] to-[#fbbf24]" style="width:100%"></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Stats Grid -->
+            <div class="grid grid-cols-4 gap-1.5 text-center font-mono-num text-xs pt-1 border-t border-[#283347]/50">
+              <div class="bg-[#111722] p-1.5 rounded border border-[#283347]">
+                <div class="text-[9px] text-[#8b949e]">STR</div>
+                <div id="inventoryStatStr" class="font-bold text-[#e6edf3]">15</div>
+              </div>
+              <div class="bg-[#111722] p-1.5 rounded border border-[#283347]">
+                <div class="text-[9px] text-[#8b949e]">DEX</div>
+                <div id="inventoryStatDex" class="font-bold text-[#e6edf3]">10</div>
+              </div>
+              <div class="bg-[#111722] p-1.5 rounded border border-[#283347]">
+                <div class="text-[9px] text-[#8b949e]">INT</div>
+                <div id="inventoryStatInt" class="font-bold text-[#e6edf3]">8</div>
+              </div>
+              <div class="bg-[#111722] p-1.5 rounded border border-[#283347]">
+                <div class="text-[9px] text-[#8b949e]">VIT</div>
+                <div id="inventoryStatVit" class="font-bold text-[#e6edf3]">14</div>
+              </div>
+              <div class="bg-[#111722] p-1.5 rounded border border-[#283347]">
+                <div class="text-[9px] text-[#8b949e]">ATK</div>
+                <div id="inventoryStatAtk" class="font-bold text-[#f87171]">18</div>
+              </div>
+              <div class="bg-[#111722] p-1.5 rounded border border-[#283347]">
+                <div class="text-[9px] text-[#8b949e]">DEF</div>
+                <div id="inventoryStatDef" class="font-bold text-[#60a5fa]">12</div>
+              </div>
+              <div class="bg-[#111722] p-1.5 rounded border border-[#283347]">
+                <div class="text-[9px] text-[#8b949e]">CRIT</div>
+                <div id="inventoryStatCrit" class="font-bold text-[#fbbf24]">10%</div>
+              </div>
+              <div class="bg-[#111722] p-1.5 rounded border border-[#283347]">
+                <div class="text-[9px] text-[#8b949e]">DODGE</div>
+                <div id="inventoryStatDodge" class="font-bold text-[#34d399]">9%</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 6-Slot Paper-Doll Grid -->
+          <div class="p-3 rounded-lg bg-[#080b11] border border-[#283347]">
+            <div class="flex items-center justify-between border-b border-[#283347] pb-1.5 mb-2">
+              <h4 class="text-xs font-bold uppercase tracking-wider text-[#fbbf24]">Equipped Loadout (6 Slots)</h4>
+              <span class="text-[10px] text-[#8b949e]">Hover for comparison</span>
+            </div>
+            <div id="inventoryPaperDollGrid" class="grid grid-cols-2 gap-2 text-xs font-mono-num">
+              <!-- Dynamically populated -->
+            </div>
+          </div>
+        </div>
+
+        <!-- RIGHT: Bag Inventory, Filters & Minerals (7 COLS) -->
+        <div class="lg:col-span-7 flex flex-col gap-3">
+          <!-- Filter & Action Bar -->
+          <div class="p-2.5 rounded-lg bg-[#080b11] border border-[#283347] flex flex-wrap items-center justify-between gap-2 text-xs font-mono-num">
+            <div class="flex items-center gap-1.5">
+              <span class="text-[#8b949e] text-[11px]">Filter:</span>
+              <button id="inventoryFilter_all" onclick="window.Aethelgard.setInventoryFilter('all')" class="px-2.5 py-1 rounded text-xs font-bold bg-[#fbbf24] text-[#080b11] border border-[#fbbf24]">All</button>
+              <button id="inventoryFilter_weapon" onclick="window.Aethelgard.setInventoryFilter('weapon')" class="px-2.5 py-1 rounded text-xs font-bold bg-[#111722] text-[#8b949e] border border-[#283347] hover:text-[#e6edf3]">Weapons</button>
+              <button id="inventoryFilter_armor" onclick="window.Aethelgard.setInventoryFilter('armor')" class="px-2.5 py-1 rounded text-xs font-bold bg-[#111722] text-[#8b949e] border border-[#283347] hover:text-[#e6edf3]">Armor</button>
+              <button id="inventoryFilter_other" onclick="window.Aethelgard.setInventoryFilter('other')" class="px-2.5 py-1 rounded text-xs font-bold bg-[#111722] text-[#8b949e] border border-[#283347] hover:text-[#e6edf3]">Accessories</button>
+            </div>
+            <div class="flex items-center gap-2">
+              <span id="inventoryPackValue" class="text-[11px] font-bold text-[#fbbf24]">0g Total Value</span>
+              <button onclick="window.Aethelgard.autoEquipBestGear(); window.Aethelgard.renderInventoryModal();" class="px-2.5 py-1 rounded bg-[#2563eb] hover:bg-[#3b82f6] text-white text-xs font-bold btn-tactical">
+                ⚡ Auto-Equip Best
+              </button>
+            </div>
+          </div>
+
+          <!-- Bag Gear Items Scrollable Area -->
+          <div class="p-3 rounded-lg bg-[#080b11] border border-[#283347] flex-1 flex flex-col gap-2">
+            <div class="flex items-center justify-between border-b border-[#283347] pb-1.5">
+              <h4 class="text-xs font-bold uppercase tracking-wider text-[#e6edf3]">Equipment in Bag</h4>
+              <span class="text-[10px] text-[#8b949e]">Click Equip to wear • Hover for Stat Delta</span>
+            </div>
+            <div id="inventoryBagList" class="space-y-2 max-h-[280px] overflow-y-auto pr-1">
+              <!-- Dynamically populated -->
+            </div>
+          </div>
+
+          <!-- Consumables & Ore Reserves in Pack -->
+          <div class="p-3 rounded-lg bg-[#080b11] border border-[#283347]">
+            <div class="flex items-center justify-between border-b border-[#283347] pb-1.5 mb-2">
+              <h4 class="text-xs font-bold uppercase tracking-wider text-[#38bdf8]">Minerals, Gems &amp; Consumables</h4>
+              <span class="text-[10px] text-[#8b949e]">Discards permanently on drop</span>
+            </div>
+            <div id="inventoryPackConsumablesList" class="space-y-1.5 max-h-[140px] overflow-y-auto pr-1">
+              <!-- Dynamically populated -->
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Global Floating Item Comparison Tooltip (follows cursor on hover) -->
+  <div id="floatingItemTooltip" class="hidden fixed z-[100] pointer-events-none p-3 rounded-lg bg-[#080b11]/95 backdrop-blur-md border border-[#283347] shadow-2xl max-w-xs text-xs font-mono-num space-y-1.5 transition-opacity"></div>
 
   <!-- ===================================================================== -->
   <!-- MODAL 8: DEVELOPER & TESTER CONSOLE (PHASE 1: WARP & LEVEL SCALING)    -->

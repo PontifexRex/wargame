@@ -22,7 +22,10 @@ import {
   claimBountyAtGuild,
   selectActiveDungeon,
   chartCustomExpedition,
-  resetOrAbandonDungeon
+  resetOrAbandonDungeon,
+  equipItem,
+  unequipItem,
+  dropItem
 } from './engine/actions.js';
 import {
   registerCombatFOVCallback,
@@ -31,7 +34,8 @@ import {
   useStairsAtPlayer,
   waitTurn,
   startAutoWalkTo,
-  cancelAutoWalk
+  cancelAutoWalk,
+  runCorridor
 } from './engine/combat.js';
 import {
   renderDungeonCanvas,
@@ -75,7 +79,19 @@ import {
   repairPickaxeAtGuild,
   spendStatPoint,
   allocateTalent,
-  respecTalents
+  respecTalents,
+  openInventoryModal,
+  closeInventoryModal,
+  toggleInventoryModal,
+  isInventoryModalOpen,
+  setInventoryFilter,
+  handleInventoryEquip,
+  handleInventoryUnequip,
+  handleInventoryDrop,
+  toggleLockFromInventory,
+  showFloatingItemTooltip,
+  hideFloatingItemTooltip,
+  renderInventoryModal
 } from './ui/modals.js';
 import { setupInputs } from './ui/input.js';
 import {
@@ -175,6 +191,9 @@ export const AethelgardAPI = {
   sellAllOresAtAssay,
   sellArmoryItem,
   sellAllSpareGear,
+  equipItem,
+  unequipItem,
+  dropItem,
   autoEquipBestGear,
   toggleItemLock,
   purchaseResearchRank,
@@ -182,11 +201,24 @@ export const AethelgardAPI = {
   unsocketGemFromItem,
   rerollGuildBounties,
   claimBountyAtGuild,
+  openInventoryModal,
+  closeInventoryModal,
+  toggleInventoryModal,
+  isInventoryModalOpen,
+  setInventoryFilter,
+  handleInventoryEquip,
+  handleInventoryUnequip,
+  handleInventoryDrop,
+  toggleLockFromInventory,
+  showFloatingItemTooltip,
+  hideFloatingItemTooltip,
+  renderInventoryModal,
   executeClassSkill,
   useHealingTonic,
   useRecallScroll,
   useStairsAtPlayer,
   handlePlayerAction,
+  runCorridor,
   startAutoWalkTo,
   cancelAutoWalk,
   renderMinimapCanvas,

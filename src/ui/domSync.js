@@ -26,7 +26,7 @@ import {
 import { ensureGuildBounties } from '../engine/actions.js';
 import { drawHeroSprite, renderMinimapCanvas } from './renderer.js';
 
-function formatSocketPipsHtml(item) {
+export function formatSocketPipsHtml(item) {
   if (!item || !item.maxSockets || item.maxSockets <= 0) return '';
   const sockets = Array.isArray(item.sockets) ? item.sockets : [];
   const pips = [];

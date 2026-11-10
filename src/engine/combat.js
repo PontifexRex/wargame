@@ -1229,3 +1229,135 @@ export function waitTurn(state = gameState) {
   }
   processTurn(state);
 }
+
+export function runCorridor(dx, dy, state = gameState) {
+  if (!state || state.inGuild || !state.hero) {
+    return { ok: false, reason: 'invalid_state', stepsTaken: 0 };
+  }
+  const floor = ensureDungeonFloorHydrated(state.dungeon, state.dungeon.currentFloor);
+  if (!floor || !floor.tiles) {
+    return { ok: false, reason: 'no_floor', stepsTaken: 0 };
+  }
+
+  cancelAutoWalk();
+  const maxSteps = 50;
+  let stepsTaken = 0;
+  let curDx = dx;
+  let curDy = dy;
+  let stopReason = 'max_steps';
+
+  const fw = floor.width || (floor.tiles[0] ? floor.tiles[0].length : DEFAULT_MAP_W);
+  const fh = floor.height || floor.tiles.length || DEFAULT_MAP_H;
+
+  const cardinalDirs = [
+    { x: 0, y: -1 },
+    { x: 0, y: 1 },
+    { x: -1, y: 0 },
+    { x: 1, y: 0 }
+  ];
+
+  function isWalkable(x, y) {
+    if (x < 0 || x >= fw || y < 0 || y >= fh) return false;
+    const t = floor.tiles[y][x];
+    if (t === TILE_WALL || ORE_CATALOG[t] || t === TILE_TRAP_VISIBLE) return false;
+    return true;
+  }
+
+  for (let s = 0; s < maxSteps; s++) {
+    if (areHostilesInSight(floor, state)) {
+      stopReason = 'hostile_in_sight';
+      break;
+    }
+
+    const nx = state.hero.x + curDx;
+    const ny = state.hero.y + curDy;
+
+    if (!isWalkable(nx, ny)) {
+      stopReason = 'blocked';
+      break;
+    }
+
+    if (floor.monsters.some(m => m.hp > 0 && m.x === nx && m.y === ny)) {
+      stopReason = 'hostile_ahead';
+      break;
+    }
+
+    const destTile = floor.tiles[ny][nx];
+    const isInteractive = (
+      destTile === TILE_STAIRS_UP ||
+      destTile === TILE_STAIRS_DOWN ||
+      destTile === TILE_CHEST ||
+      destTile === TILE_SHRINE
+    );
+
+    const hpBefore = state.hero.hp;
+    handlePlayerAction(curDx, curDy, state);
+    stepsTaken++;
+
+    if (state.inGuild) {
+      stopReason = 'left_dungeon';
+      break;
+    }
+
+    if (state.hero.hp < hpBefore) {
+      stopReason = 'took_damage';
+      break;
+    }
+
+    if (isInteractive) {
+      stopReason = 'reached_landmark';
+      break;
+    }
+
+    if (areHostilesInSight(floor, state)) {
+      stopReason = 'hostile_in_sight';
+      break;
+    }
+
+    const curTile = floor.tiles[state.hero.y][state.hero.x];
+    if (curTile === TILE_STAIRS_UP || curTile === TILE_STAIRS_DOWN || curTile === TILE_SHRINE) {
+      stopReason = 'reached_landmark';
+      break;
+    }
+
+    let adjacentLandmark = false;
+    for (let i = 0; i < cardinalDirs.length; i++) {
+      const ax = state.hero.x + cardinalDirs[i].x;
+      const ay = state.hero.y + cardinalDirs[i].y;
+      if (ax >= 0 && ax < fw && ay >= 0 && ay < fh) {
+        const at = floor.tiles[ay][ax];
+        if (ORE_CATALOG[at] || at === TILE_CHEST) {
+          adjacentLandmark = true;
+          break;
+        }
+      }
+    }
+    if (adjacentLandmark) {
+      stopReason = 'adjacent_landmark';
+      break;
+    }
+
+    const backX = state.hero.x - curDx;
+    const backY = state.hero.y - curDy;
+
+    const forwardOptions = [];
+    for (let i = 0; i < cardinalDirs.length; i++) {
+      const candX = state.hero.x + cardinalDirs[i].x;
+      const candY = state.hero.y + cardinalDirs[i].y;
+      if (candX === backX && candY === backY) continue;
+      if (isWalkable(candX, candY)) {
+        forwardOptions.push(cardinalDirs[i]);
+      }
+    }
+
+    if (forwardOptions.length === 1) {
+      curDx = forwardOptions[0].x;
+      curDy = forwardOptions[0].y;
+    } else {
+      stopReason = forwardOptions.length === 0 ? 'dead_end' : 'intersection';
+      break;
+    }
+  }
+
+  return { ok: true, stepsTaken, stopReason };
+}

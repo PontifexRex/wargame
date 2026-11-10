@@ -32,11 +32,15 @@ import {
   ensureGuildBounties,
   selectActiveDungeon,
   chartCustomExpedition,
-  resetOrAbandonDungeon
+  resetOrAbandonDungeon,
+  equipItem,
+  unequipItem,
+  dropItem
 } from '../engine/actions.js';
 import { cancelAutoWalk } from '../engine/combat.js';
-import { updateFOV, renderMinimapCanvas } from './renderer.js';
-import { updateAllUI, logChronicle } from './domSync.js';
+import { updateFOV, renderMinimapCanvas, drawHeroSprite } from './renderer.js';
+import { updateAllUI, logChronicle, formatSocketPipsHtml } from './domSync.js';
+import { computeItemPowerScore, isItemUpgrade } from '../data/items.js';
 
 let inspectedItemContext = null;
 let pendingAtlasResetId = null;
@@ -645,31 +649,36 @@ export function openItemInspectModal(refId, isEquippedSlot = false, fromExpediti
       updateAllUI();
       closeItemInspectModal();
     };
-    btnSell.classList.remove('hidden');
-    const assayMult = 1 + (gameState.guildResearch.assay || 0) * 0.35;
-    const saleVal = Math.round((item.value || 15) * assayMult);
-    btnSell.textContent = `Sell (+${saleVal}g)`;
-
-    if (item.locked) {
-      btnSell.disabled = true;
-      btnSell.className = 'px-3 py-1.5 rounded bg-[#1a2232] text-[#8b949e] border border-[#283347] text-xs font-mono-num opacity-50 cursor-not-allowed';
-      btnSell.title = 'Item is locked. Unlock it first to sell.';
+    if (!gameState.inGuild) {
+      btnSell.classList.add('hidden');
       btnSell.onclick = null;
     } else {
-      btnSell.disabled = false;
-      btnSell.className = 'px-3 py-1.5 rounded bg-[#fbbf24]/15 hover:bg-[#fbbf24]/25 text-[#fbbf24] border border-[#fbbf24]/40 text-xs font-mono-num font-bold btn-tactical';
-      btnSell.title = '';
-      btnSell.onclick = () => {
-        if (fromExpedition) {
-          h.expeditionGear = h.expeditionGear.filter(g => g.uid !== item.uid);
-          gameState.guildVault.gold += saleVal;
-        } else {
-          sellArmoryItem(item.uid);
-        }
-        saveGame();
-        updateAllUI();
-        closeItemInspectModal();
-      };
+      btnSell.classList.remove('hidden');
+      const assayMult = 1 + (gameState.guildResearch.assay || 0) * 0.35;
+      const saleVal = Math.round((item.value || 15) * assayMult);
+      btnSell.textContent = `Sell (+${saleVal}g)`;
+
+      if (item.locked) {
+        btnSell.disabled = true;
+        btnSell.className = 'px-3 py-1.5 rounded bg-[#1a2232] text-[#8b949e] border border-[#283347] text-xs font-mono-num opacity-50 cursor-not-allowed';
+        btnSell.title = 'Item is locked. Unlock it first to sell.';
+        btnSell.onclick = null;
+      } else {
+        btnSell.disabled = false;
+        btnSell.className = 'px-3 py-1.5 rounded bg-[#fbbf24]/15 hover:bg-[#fbbf24]/25 text-[#fbbf24] border border-[#fbbf24]/40 text-xs font-mono-num font-bold btn-tactical';
+        btnSell.title = '';
+        btnSell.onclick = () => {
+          if (fromExpedition) {
+            h.expeditionGear = h.expeditionGear.filter(g => g.uid !== item.uid);
+            gameState.guildVault.gold += saleVal;
+          } else {
+            sellArmoryItem(item.uid);
+          }
+          saveGame();
+          updateAllUI();
+          closeItemInspectModal();
+        };
+      }
     }
   }
 
@@ -828,4 +837,446 @@ export function importSaveJson() {
   } catch (e) {
     document.getElementById('saveSyncStatusMsg').textContent = '✕ Invalid JSON format.';
   }
+}
+
+// ============================================================================
+// CHARACTER & INVENTORY MANAGEMENT MODAL & FLOATING COMPARISON TOOLTIP
+// ============================================================================
+
+let currentInventoryFilter = 'all';
+
+export function isInventoryModalOpen() {
+  if (typeof document === 'undefined') return false;
+  const modal = document.getElementById('inventoryModal');
+  return !!(modal && !modal.classList.contains('hidden'));
+}
+
+export function openInventoryModal() {
+  if (typeof document === 'undefined') return;
+  renderInventoryModal();
+  const modal = document.getElementById('inventoryModal');
+  if (modal) modal.classList.remove('hidden');
+}
+
+export function closeInventoryModal() {
+  if (typeof document === 'undefined') return;
+  hideFloatingItemTooltip();
+  const modal = document.getElementById('inventoryModal');
+  if (modal) modal.classList.add('hidden');
+}
+
+export function toggleInventoryModal() {
+  if (isInventoryModalOpen()) {
+    closeInventoryModal();
+  } else {
+    openInventoryModal();
+  }
+}
+
+export function setInventoryFilter(filterCategory) {
+  currentInventoryFilter = filterCategory || 'all';
+  if (typeof document !== 'undefined') {
+    const filters = ['all', 'weapon', 'armor', 'other'];
+    for (let i = 0; i < filters.length; i++) {
+      const f = filters[i];
+      const btn = document.getElementById('inventoryFilter_' + f);
+      if (btn) {
+        if (f === currentInventoryFilter) {
+          btn.className = 'px-2.5 py-1 rounded text-xs font-bold bg-[#fbbf24] text-[#080b11] border border-[#fbbf24]';
+        } else {
+          btn.className = 'px-2.5 py-1 rounded text-xs font-bold bg-[#111722] text-[#8b949e] border border-[#283347] hover:text-[#e6edf3]';
+        }
+      }
+    }
+  }
+  renderInventoryModal();
+}
+
+export function handleInventoryEquip(uid) {
+  equipItem(uid, gameState);
+  renderInventoryModal();
+  updateAllUI();
+}
+
+export function handleInventoryUnequip(slot) {
+  unequipItem(slot, gameState);
+  renderInventoryModal();
+  updateAllUI();
+}
+
+export function handleInventoryDrop(uidOrId, isGear = true) {
+  dropItem(uidOrId, isGear, gameState);
+  renderInventoryModal();
+  updateAllUI();
+}
+
+export function toggleLockFromInventory(uid) {
+  toggleItemLock(uid, gameState);
+  renderInventoryModal();
+  updateAllUI();
+}
+
+export function renderInventoryModal() {
+  if (typeof document === 'undefined') return;
+  const h = gameState.hero;
+  if (!h) return;
+  const cls = CLASSES[h.classId] || CLASSES.fighter;
+
+  // Portrait Canvas
+  const pCanvas = document.getElementById('inventoryHeroPortraitCanvas');
+  if (pCanvas) {
+    const pCtx = pCanvas.getContext('2d');
+    pCtx.clearRect(0, 0, 48, 48);
+    drawHeroSprite(pCtx, 4, 4, h.classId, 40);
+  }
+
+  // Hero identity
+  const nameEl = document.getElementById('inventoryHeroName');
+  if (nameEl) nameEl.textContent = h.name;
+  const titleEl = document.getElementById('inventoryHeroTitleBadge');
+  if (titleEl) titleEl.textContent = cls.title;
+  const lvlEl = document.getElementById('inventoryHeroLevel');
+  if (lvlEl) lvlEl.textContent = h.level;
+  const xpEl = document.getElementById('inventoryHeroXp');
+  if (xpEl) xpEl.textContent = `${h.xp} / ${h.maxXp}`;
+
+  // Vitals
+  const hpText = document.getElementById('inventoryHpText');
+  if (hpText) hpText.textContent = `${h.hp} / ${h.maxHp}`;
+  const hpBar = document.getElementById('inventoryHpBar');
+  if (hpBar) hpBar.style.width = `${Math.max(0, Math.min(100, (h.hp / h.maxHp) * 100))}%`;
+
+  const mpText = document.getElementById('inventoryMpText');
+  if (mpText) mpText.textContent = `${h.mp} / ${h.maxMp}`;
+  const mpBar = document.getElementById('inventoryMpBar');
+  if (mpBar) mpBar.style.width = `${Math.max(0, Math.min(100, (h.mp / h.maxMp) * 100))}%`;
+
+  const pick = h.equipment ? h.equipment.pickaxe : null;
+  const maxDur = getPickaxeMaxDurability();
+  const curDur = pick ? pick.curDur : 0;
+  const pickText = document.getElementById('inventoryPickaxeText');
+  if (pickText) pickText.textContent = `${curDur} / ${maxDur}`;
+  const pickBar = document.getElementById('inventoryPickaxeBar');
+  if (pickBar) pickBar.style.width = `${Math.max(0, Math.min(100, (curDur / maxDur) * 100))}%`;
+
+  // Stats
+  const statIds = [
+    ['inventoryStatStr', h.computedStr],
+    ['inventoryStatDex', h.computedDex],
+    ['inventoryStatInt', h.computedInt],
+    ['inventoryStatVit', h.computedVit],
+    ['inventoryStatAtk', h.atk],
+    ['inventoryStatDef', h.def],
+    ['inventoryStatCrit', `${h.crit}%`],
+    ['inventoryStatDodge', `${h.dodge}%`]
+  ];
+  for (let i = 0; i < statIds.length; i++) {
+    const el = document.getElementById(statIds[i][0]);
+    if (el) el.textContent = statIds[i][1];
+  }
+
+  // Paper-Doll 6 Slots
+  const dollGrid = document.getElementById('inventoryPaperDollGrid');
+  if (dollGrid) {
+    const slots = ['helm', 'weapon', 'armor', 'accessory', 'boots', 'pickaxe'];
+    dollGrid.innerHTML = slots.map(slot => {
+      const it = h.equipment ? h.equipment[slot] : null;
+      const r = it ? (RARITY[it.rarity] || RARITY.common) : RARITY.common;
+      const pwr = it ? computeItemPowerScore(it) : 0;
+      let statSummary = '—';
+      if (it) {
+        if (slot === 'weapon') statSummary = `+${it.atk || 0} ATK`;
+        else if (slot === 'armor') statSummary = `+${it.def || 0} DEF`;
+        else if (slot === 'helm') statSummary = `+${it.def || 0} DEF`;
+        else if (slot === 'boots') statSummary = `+${it.dodge || 0}% Dodge`;
+        else if (slot === 'accessory') statSummary = `+${it.crit || 0}% Crit`;
+        else if (slot === 'pickaxe') statSummary = `${it.curDur || 0}/${maxDur} Dur`;
+      }
+
+      const unequipBtn = (it && slot !== 'pickaxe')
+        ? `<button onclick="window.Aethelgard.handleInventoryUnequip('${slot}')" class="px-2 py-0.5 rounded bg-[#1a2232] hover:bg-[#283347] text-[#f87171] border border-[#f87171]/40 text-[10px] font-bold btn-tactical">Unequip</button>`
+        : '';
+      const inspectBtn = it
+        ? `<button onclick="window.Aethelgard.openItemInspectModal('${slot}', true)" class="px-2 py-0.5 rounded bg-[#1a2232] hover:bg-[#283347] text-[#60a5fa] border border-[#60a5fa]/40 text-[10px] font-bold btn-tactical">Inspect</button>`
+        : '';
+
+      const hoverAttr = it
+        ? `onmouseenter="window.Aethelgard.showFloatingItemTooltip(event, '${slot}', true)" onmouseleave="window.Aethelgard.hideFloatingItemTooltip()"`
+        : '';
+
+      return `
+        <div ${hoverAttr} class="p-2.5 rounded-lg bg-[#080b11] border ${it ? 'border-[#283347] hover:border-[#60a5fa]/60' : 'border-[#283347]/50 border-dashed'} flex flex-col justify-between gap-1.5 transition-colors">
+          <div class="flex items-center justify-between">
+            <span class="text-[10px] font-bold uppercase tracking-wider text-[#8b949e]">${slot}</span>
+            <div class="flex items-center gap-1">
+              ${it ? `<span class="text-[10px] text-[#60a5fa] font-mono-num font-bold">Pwr ${pwr}</span>` : ''}
+              ${formatSocketPipsHtml(it)}
+            </div>
+          </div>
+          <div class="font-bold text-xs truncate" style="color:${it ? r.color : '#64748b'}">
+            ${it ? it.name : '(Empty Slot)'}
+          </div>
+          <div class="text-[11px] text-[#8b949e]">${statSummary}</div>
+          <div class="flex items-center justify-end gap-1.5 pt-1 border-t border-[#283347]/40">
+            ${unequipBtn}
+            ${inspectBtn}
+          </div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  // Location Badge & Pack Value
+  const locEl = document.getElementById('inventoryLocationBadge');
+  if (locEl) {
+    if (gameState.inGuild) {
+      locEl.textContent = 'Safe at Oakhaven Guild Bastion';
+      locEl.className = 'px-2 py-0.5 rounded text-[10px] font-mono-num font-bold bg-[#34d399]/15 text-[#34d399] border border-[#34d399]/40';
+    } else {
+      locEl.textContent = `At Risk • Floor ${gameState.dungeon.currentFloor} (Selling Disabled)`;
+      locEl.className = 'px-2 py-0.5 rounded text-[10px] font-mono-num font-bold bg-[#fbbf24]/15 text-[#fbbf24] border border-[#fbbf24]/40';
+    }
+  }
+
+  let totalPackGold = 0;
+  (h.expeditionPack || []).forEach(p => { totalPackGold += (p.val || 0) * (p.qty || 1); });
+  (h.expeditionGear || []).forEach(g => { totalPackGold += (g.value || 20); });
+  const packValEl = document.getElementById('inventoryPackValue');
+  if (packValEl) {
+    packValEl.textContent = `${totalPackGold}g Total Value`;
+  }
+
+  // Bag Gear Items List
+  const bagListEl = document.getElementById('inventoryBagList');
+  if (bagListEl) {
+    let items = [];
+    if (Array.isArray(h.expeditionGear)) {
+      items = items.concat(h.expeditionGear.map(g => ({ item: g, source: 'pack' })));
+    }
+    if (gameState.inGuild && gameState.guildVault && Array.isArray(gameState.guildVault.armory)) {
+      items = items.concat(gameState.guildVault.armory.map(g => ({ item: g, source: 'armory' })));
+    }
+
+    if (currentInventoryFilter === 'weapon') {
+      items = items.filter(e => e.item.slot === 'weapon' || e.item.slot === 'pickaxe');
+    } else if (currentInventoryFilter === 'armor') {
+      items = items.filter(e => e.item.slot === 'armor' || e.item.slot === 'helm' || e.item.slot === 'boots');
+    } else if (currentInventoryFilter === 'other') {
+      items = items.filter(e => e.item.slot === 'accessory');
+    }
+
+    if (items.length === 0) {
+      bagListEl.innerHTML = `<div class="text-xs text-[#8b949e] italic py-6 text-center">No gear matching filter in your pack.</div>`;
+    } else {
+      const assayMult = 1 + (gameState.guildResearch.assay || 0) * 0.35;
+      bagListEl.innerHTML = items.map(entry => {
+        const it = entry.item;
+        const r = RARITY[it.rarity] || RARITY.common;
+        const pwr = computeItemPowerScore(it);
+        const isUp = isItemUpgrade(it, h.equipment);
+        const lockIcon = it.locked ? '🔒' : '🔓';
+        const lockTitle = it.locked ? 'Locked (Protected from sale)' : 'Unlocked';
+
+        const sellBtn = (gameState.inGuild && !it.locked)
+          ? `<button onclick="window.Aethelgard.sellArmoryItem('${it.uid}')" class="px-2 py-0.5 rounded bg-[#fbbf24]/15 hover:bg-[#fbbf24]/25 text-[#fbbf24] border border-[#fbbf24]/40 text-[10px] font-mono-num font-bold btn-tactical">Sell (${Math.round((it.value || 15) * assayMult)}g)</button>`
+          : '';
+
+        let statDetail = '';
+        if (it.atk) statDetail += `+${it.atk} ATK `;
+        if (it.def) statDetail += `+${it.def} DEF `;
+        if (it.dodge) statDetail += `+${it.dodge}% Dodge `;
+        if (it.crit) statDetail += `+${it.crit}% Crit `;
+
+        return `
+          <div onmouseenter="window.Aethelgard.showFloatingItemTooltip(event, '${it.uid}', false)" onmouseleave="window.Aethelgard.hideFloatingItemTooltip()" class="p-2.5 rounded-lg bg-[#080b11] border ${isUp ? 'border-[#34d399]/60 bg-[#06140d]/40' : 'border-[#283347]'} hover:border-[#60a5fa] flex items-center justify-between gap-2.5 transition-colors">
+            <div class="flex-1 min-w-0">
+              <div class="flex items-center gap-1.5">
+                <span class="font-bold text-xs truncate" style="color:${r.color}">${it.name}</span>
+                ${formatSocketPipsHtml(it)}
+                ${isUp ? '<span class="px-1.5 py-0.2 rounded text-[9px] font-bold bg-[#34d399]/20 text-[#34d399] border border-[#34d399]/40">▲ UPGRADE</span>' : ''}
+                <span class="text-[9px] font-mono-num uppercase px-1 py-0.2 rounded bg-[#111722] text-[#8b949e] border border-[#283347]">${it.slot}</span>
+              </div>
+              <div class="text-[11px] text-[#8b949e] truncate mt-0.5">
+                <span class="text-[#e6edf3] font-semibold">${statDetail || 'Standard frame'}</span>
+                • <span class="text-[#60a5fa]">Power ${pwr}</span>
+                ${entry.source === 'armory' ? '• <span class="text-[#fbbf24]">Vault Stored</span>' : ''}
+              </div>
+            </div>
+            <div class="flex items-center gap-1 shrink-0">
+              <button onclick="window.Aethelgard.toggleLockFromInventory('${it.uid}')" class="p-1 rounded bg-[#111722] hover:bg-[#1a2232] border border-[#283347] text-xs" title="${lockTitle}">${lockIcon}</button>
+              <button onclick="window.Aethelgard.handleInventoryEquip('${it.uid}')" class="px-2.5 py-1 rounded bg-[#2563eb] hover:bg-[#3b82f6] text-white text-xs font-mono-num font-bold btn-tactical">Equip</button>
+              <button onclick="window.Aethelgard.handleInventoryDrop('${it.uid}', true)" class="px-2 py-1 rounded bg-[#1a2232] hover:bg-[#283347] text-[#8b949e] hover:text-[#f87171] border border-[#283347] text-xs font-mono-num btn-tactical" title="Drop / Discard">Drop</button>
+              ${sellBtn}
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+  }
+
+  // Pack Consumables & Minerals List
+  const conListEl = document.getElementById('inventoryPackConsumablesList');
+  if (conListEl) {
+    const pack = h.expeditionPack || [];
+    if (pack.length === 0) {
+      conListEl.innerHTML = `<div class="text-xs text-[#8b949e] italic py-2 text-center">No minerals or gems in pack.</div>`;
+    } else {
+      conListEl.innerHTML = pack.map(item => {
+        const isGem = item.type === 'Gem' && GEM_CATALOG[item.id];
+        const col = isGem ? GEM_CATALOG[item.id].color : '#e6edf3';
+        const prefix = isGem ? '◆ ' : '';
+        const totalVal = (item.val || 0) * (item.qty || 1);
+        return `
+          <div class="p-2 rounded bg-[#080b11] border border-[#283347] flex items-center justify-between text-xs font-mono-num">
+            <div>
+              <span class="font-bold" style="color:${col}">${prefix}${item.name}</span>
+              <span class="text-[#8b949e] ml-1">x${item.qty} (${item.val}g each)</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <span class="text-[#fbbf24] font-bold">${totalVal}g</span>
+              <button onclick="window.Aethelgard.handleInventoryDrop('${item.id}', false)" class="px-1.5 py-0.5 rounded bg-[#1a2232] hover:bg-[#283347] text-[#8b949e] hover:text-[#f87171] border border-[#283347] text-[10px]" title="Drop 1">Drop 1</button>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+  }
+}
+
+export function showFloatingItemTooltip(event, refKey, isEquipped = false) {
+  if (typeof document === 'undefined') return;
+  const tip = document.getElementById('floatingItemTooltip');
+  if (!tip) return;
+
+  const h = gameState.hero;
+  if (!h) return;
+
+  let item = null;
+  if (isEquipped) {
+    item = h.equipment ? h.equipment[refKey] : null;
+  } else {
+    if (Array.isArray(h.expeditionGear)) {
+      item = h.expeditionGear.find(g => g && g.uid === refKey);
+    }
+    if (!item && gameState.guildVault && Array.isArray(gameState.guildVault.armory)) {
+      item = gameState.guildVault.armory.find(g => g && g.uid === refKey);
+    }
+  }
+
+  if (!item) {
+    tip.classList.add('hidden');
+    return;
+  }
+
+  const r = RARITY[item.rarity] || RARITY.common;
+  const curEq = (isEquipped || !item.slot) ? null : (h.equipment ? h.equipment[item.slot] : null);
+  const power = computeItemPowerScore(item);
+  const curPower = curEq ? computeItemPowerScore(curEq) : 0;
+  const powerDiff = power - curPower;
+
+  const statKeys = [
+    { k: 'atk', label: 'Attack' },
+    { k: 'def', label: 'Defense' },
+    { k: 'crit', label: 'Crit %' },
+    { k: 'dodge', label: 'Dodge %' },
+    { k: 'str', label: 'Strength' },
+    { k: 'dex', label: 'Dexterity' },
+    { k: 'int', label: 'Intelligence' },
+    { k: 'vit', label: 'Vitality' },
+    { k: 'maxHp', label: 'Max HP' },
+    { k: 'maxMp', label: 'Max MP' }
+  ];
+
+  const statLines = [];
+  for (let i = 0; i < statKeys.length; i++) {
+    const k = statKeys[i].k;
+    const label = statKeys[i].label;
+    const val = item[k] || 0;
+    const oldVal = curEq ? (curEq[k] || 0) : 0;
+    if (val > 0 || oldVal > 0) {
+      if (!isEquipped && curEq) {
+        const diff = val - oldVal;
+        const diffText = diff > 0
+          ? `<span class="text-[#34d399] font-bold">▲ +${diff}</span>`
+          : diff < 0
+            ? `<span class="text-[#f87171] font-bold">▼ ${diff}</span>`
+            : `<span class="text-[#8b949e]">=</span>`;
+        statLines.push(`<div class="flex justify-between gap-2"><span>${label}:</span><span>${val} (${diffText})</span></div>`);
+      } else {
+        statLines.push(`<div class="flex justify-between gap-2"><span>${label}:</span><span class="text-[#e6edf3] font-bold">+${val}</span></div>`);
+      }
+    }
+  }
+
+  const affLines = [];
+  if (Array.isArray(item.affixes) && item.affixes.length > 0) {
+    for (let i = 0; i < item.affixes.length; i++) {
+      const a = item.affixes[i];
+      affLines.push(`<div class="text-[#fbbf24] text-[10px]">★ +${a.val} ${String(a.stat).toUpperCase()} (${a.label})</div>`);
+    }
+  }
+
+  const socketLines = [];
+  if ((item.maxSockets || 0) > 0) {
+    const sockets = Array.isArray(item.sockets) ? item.sockets : [];
+    for (let i = 0; i < item.maxSockets; i++) {
+      const gId = sockets[i];
+      if (gId && GEM_CATALOG[gId]) {
+        const gd = GEM_CATALOG[gId];
+        socketLines.push(`<div class="text-[10px]" style="color:${gd.color}">◆ ${gd.name} (${gd.desc})</div>`);
+      } else {
+        socketLines.push(`<div class="text-[10px] text-[#64748b]">◇ Empty Socket</div>`);
+      }
+    }
+  }
+
+  let powerDiffBadge = '';
+  if (!isEquipped && curEq) {
+    if (powerDiff > 0) {
+      powerDiffBadge = `<span class="px-1.5 py-0.5 rounded bg-[#34d399]/20 text-[#34d399] font-bold text-[10px]">▲ UPGRADE (+${powerDiff} Pwr)</span>`;
+    } else if (powerDiff < 0) {
+      powerDiffBadge = `<span class="px-1.5 py-0.5 rounded bg-[#f87171]/20 text-[#f87171] font-bold text-[10px]">▼ ${powerDiff} Pwr</span>`;
+    }
+  }
+
+  tip.innerHTML = `
+    <div class="flex items-center justify-between border-b border-[#283347] pb-1 mb-1">
+      <div>
+        <div class="font-bold text-xs" style="color:${r.color}">${item.name}</div>
+        <div class="text-[10px] text-[#8b949e] uppercase">${r.name} • ${item.slot || 'Item'}</div>
+      </div>
+      <div class="text-right">
+        <div class="text-[#60a5fa] font-bold text-xs">Pwr ${power}</div>
+        ${powerDiffBadge}
+      </div>
+    </div>
+    <div class="space-y-0.5 text-[11px]">${statLines.join('') || '<div class="text-[#8b949e]">Basic gear piece</div>'}</div>
+    ${affLines.length > 0 ? `<div class="pt-1 border-t border-[#283347]/60 space-y-0.5">${affLines.join('')}</div>` : ''}
+    ${socketLines.length > 0 ? `<div class="pt-1 border-t border-[#283347]/60 space-y-0.5">${socketLines.join('')}</div>` : ''}
+  `;
+
+  tip.classList.remove('hidden');
+
+  const tipWidth = 260;
+  const tipHeight = 180;
+  let left = (event.clientX || 0) + 16;
+  let top = (event.clientY || 0) + 16;
+
+  if (typeof window !== 'undefined') {
+    if (left + tipWidth > window.innerWidth - 10) {
+      left = Math.max(10, (event.clientX || 0) - tipWidth - 16);
+    }
+    if (top + tipHeight > window.innerHeight - 10) {
+      top = Math.max(10, window.innerHeight - tipHeight - 10);
+    }
+  }
+
+  tip.style.left = `${left}px`;
+  tip.style.top = `${top}px`;
+}
+
+export function hideFloatingItemTooltip() {
+  if (typeof document === 'undefined') return;
+  const tip = document.getElementById('floatingItemTooltip');
+  if (tip) tip.classList.add('hidden');
 }

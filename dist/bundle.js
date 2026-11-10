@@ -3536,7 +3536,11 @@ function unsocketGemFromItem(targetRef, socketIndex = 0, isEquipped = true, stat
 }
 
 function sellGemUnit(gemId, sellAll = false, state = gameState) {
-  if (!state.guildVault.gems) return 0;
+  if (!state || !state.guildVault || !state.guildVault.gems) return 0;
+  if (!state.inGuild) {
+    if (state === gameState) actionCallbacks.log('Gem trading is only permitted in the Oakhaven Guild Bastion.', 'bad');
+    return 0;
+  }
   const count = state.guildVault.gems[gemId] || 0;
   if (count <= 0) return 0;
 
@@ -3969,6 +3973,11 @@ function buyShopItem(itemId, state = gameState) {
 }
 
 function sellMineralUnit(mineralId, sellAll = false, state = gameState) {
+  if (!state || !state.guildVault) return 0;
+  if (!state.inGuild) {
+    if (state === gameState) actionCallbacks.log('Mineral smelting and sales are only permitted in the Oakhaven Guild Bastion.', 'bad');
+    return 0;
+  }
   const count = state.guildVault[mineralId] || 0;
   if (count <= 0) return 0;
 
@@ -3993,6 +4002,10 @@ function sellMineralUnit(mineralId, sellAll = false, state = gameState) {
 }
 
 function sellAllOresAtAssay(state = gameState) {
+  if (!state || !state.inGuild) {
+    if (state === gameState) actionCallbacks.log('Assay smelting is only permitted in the Oakhaven Guild Bastion.', 'bad');
+    return 0;
+  }
   let totalPayout = 0;
   for (const mId of MINERAL_IDS) {
     if ((state.guildVault[mId] || 0) > 0) {
@@ -4006,6 +4019,11 @@ function sellAllOresAtAssay(state = gameState) {
 }
 
 function sellArmoryItem(uid, state = gameState) {
+  if (!state || !state.guildVault || !state.guildVault.armory) return 0;
+  if (!state.inGuild) {
+    if (state === gameState) actionCallbacks.log('Equipment liquidation is only permitted in the Oakhaven Guild Bastion.', 'bad');
+    return 0;
+  }
   const idx = state.guildVault.armory.findIndex(g => g.uid === uid);
   if (idx === -1) return 0;
   if (state.guildVault.armory[idx].locked) {
@@ -4149,6 +4167,10 @@ function sellAllSpareGear(rarityFilter = null, state = gameState) {
     rFilter = null;
   }
   if (!targetState || !targetState.guildVault) return 0;
+  if (!targetState.inGuild) {
+    if (targetState === gameState) actionCallbacks.log('Equipment liquidation is only permitted in the Oakhaven Guild Bastion.', 'bad');
+    return 0;
+  }
 
   const armory = targetState.guildVault.armory || [];
   if (armory.length === 0) {
@@ -4243,6 +4265,146 @@ function purchaseResearchRank(projId, state = gameState) {
     actionCallbacks.updateUI();
   }
   return { ok: true, newRank: curRank + 1 };
+}
+
+function equipItem(itemUid, state = gameState) {
+  if (!itemUid || !state || !state.hero) {
+    return { ok: false, reason: 'invalid_args' };
+  }
+  const h = state.hero;
+  if (!h.equipment) {
+    h.equipment = { weapon: null, armor: null, helm: null, boots: null, accessory: null, pickaxe: null };
+  }
+
+  let sourceArray = null;
+  let sourceIndex = -1;
+  let item = null;
+
+  if (Array.isArray(h.expeditionGear)) {
+    sourceIndex = h.expeditionGear.findIndex(g => g && g.uid === itemUid);
+    if (sourceIndex !== -1) {
+      sourceArray = h.expeditionGear;
+      item = h.expeditionGear[sourceIndex];
+    }
+  }
+
+  if (!item && state.guildVault && Array.isArray(state.guildVault.armory)) {
+    sourceIndex = state.guildVault.armory.findIndex(g => g && g.uid === itemUid);
+    if (sourceIndex !== -1) {
+      sourceArray = state.guildVault.armory;
+      item = state.guildVault.armory[sourceIndex];
+    }
+  }
+
+  if (!item || !item.slot) {
+    return { ok: false, reason: 'item_not_found' };
+  }
+
+  const slot = item.slot;
+  const prev = h.equipment[slot] || null;
+
+  sourceArray.splice(sourceIndex, 1);
+  h.equipment[slot] = item;
+  if (prev) {
+    sourceArray.push(prev);
+  }
+
+  recomputeHeroDerivedStats(false, state);
+
+  if (state === gameState) {
+    playSound('lvl');
+    actionCallbacks.log(`Equipped ${item.name} to ${slot.toUpperCase()}${prev ? ` (swapped with ${prev.name})` : ''}.`, 'gold');
+    saveGame();
+    actionCallbacks.updateUI();
+  }
+
+  return { ok: true, slot, equipped: item, unequipped: prev };
+}
+
+function unequipItem(slot, state = gameState) {
+  if (!slot || !state || !state.hero || !state.hero.equipment) {
+    return { ok: false, reason: 'invalid_args' };
+  }
+
+  if (slot === 'pickaxe') {
+    if (state === gameState) {
+      actionCallbacks.log('Pickaxe cannot be unequipped directly; equip an alternate pickaxe to replace it.', 'bad');
+    }
+    return { ok: false, reason: 'cannot_unequip_pickaxe' };
+  }
+
+  const item = state.hero.equipment[slot];
+  if (!item) {
+    return { ok: false, reason: 'slot_empty' };
+  }
+
+  state.hero.equipment[slot] = null;
+
+  if (!state.inGuild) {
+    if (!state.hero.expeditionGear) state.hero.expeditionGear = [];
+    state.hero.expeditionGear.push(item);
+  } else {
+    if (!state.guildVault) state.guildVault = {};
+    if (!state.guildVault.armory) state.guildVault.armory = [];
+    state.guildVault.armory.push(item);
+  }
+
+  recomputeHeroDerivedStats(false, state);
+
+  if (state === gameState) {
+    playSound('click');
+    actionCallbacks.log(`Unequipped ${item.name} from ${slot.toUpperCase()}.`, 'info');
+    saveGame();
+    actionCallbacks.updateUI();
+  }
+
+  return { ok: true, slot, unequipped: item };
+}
+
+function dropItem(uidOrId, isGear = true, state = gameState) {
+  if (!uidOrId || !state || !state.hero) {
+    return { ok: false, reason: 'invalid_args' };
+  }
+
+  const h = state.hero;
+  let droppedName = '';
+
+  if (isGear) {
+    if (Array.isArray(h.expeditionGear)) {
+      const idx = h.expeditionGear.findIndex(g => g && g.uid === uidOrId);
+      if (idx !== -1) {
+        droppedName = h.expeditionGear[idx].name;
+        h.expeditionGear.splice(idx, 1);
+      }
+    }
+    if (!droppedName && state.guildVault && Array.isArray(state.guildVault.armory)) {
+      const aIdx = state.guildVault.armory.findIndex(g => g && g.uid === uidOrId);
+      if (aIdx !== -1) {
+        droppedName = state.guildVault.armory[aIdx].name;
+        state.guildVault.armory.splice(aIdx, 1);
+      }
+    }
+    if (!droppedName) return { ok: false, reason: 'item_not_found' };
+  } else {
+    if (!Array.isArray(h.expeditionPack)) return { ok: false, reason: 'no_expedition_pack' };
+    const idx = h.expeditionPack.findIndex(p => p && p.id === uidOrId);
+    if (idx === -1) return { ok: false, reason: 'item_not_found' };
+    droppedName = h.expeditionPack[idx].name;
+    if (h.expeditionPack[idx].qty > 1) {
+      h.expeditionPack[idx].qty -= 1;
+    } else {
+      h.expeditionPack.splice(idx, 1);
+    }
+  }
+
+  if (state === gameState) {
+    playSound('click');
+    actionCallbacks.log(`Dropped ${droppedName} from inventory.`, 'info');
+    saveGame();
+    actionCallbacks.updateUI();
+  }
+
+  return { ok: true, dropped: droppedName };
 }
 
   // --- Module: src/engine/combat.js ---
@@ -5429,6 +5591,138 @@ function waitTurn(state = gameState) {
     ui.log('You hold your ground and scan the shadows.', 'info');
   }
   processTurn(state);
+}
+
+function runCorridor(dx, dy, state = gameState) {
+  if (!state || state.inGuild || !state.hero) {
+    return { ok: false, reason: 'invalid_state', stepsTaken: 0 };
+  }
+  const floor = ensureDungeonFloorHydrated(state.dungeon, state.dungeon.currentFloor);
+  if (!floor || !floor.tiles) {
+    return { ok: false, reason: 'no_floor', stepsTaken: 0 };
+  }
+
+  cancelAutoWalk();
+  const maxSteps = 50;
+  let stepsTaken = 0;
+  let curDx = dx;
+  let curDy = dy;
+  let stopReason = 'max_steps';
+
+  const fw = floor.width || (floor.tiles[0] ? floor.tiles[0].length : DEFAULT_MAP_W);
+  const fh = floor.height || floor.tiles.length || DEFAULT_MAP_H;
+
+  const cardinalDirs = [
+    { x: 0, y: -1 },
+    { x: 0, y: 1 },
+    { x: -1, y: 0 },
+    { x: 1, y: 0 }
+  ];
+
+  function isWalkable(x, y) {
+    if (x < 0 || x >= fw || y < 0 || y >= fh) return false;
+    const t = floor.tiles[y][x];
+    if (t === TILE_WALL || ORE_CATALOG[t] || t === TILE_TRAP_VISIBLE) return false;
+    return true;
+  }
+
+  for (let s = 0; s < maxSteps; s++) {
+    if (areHostilesInSight(floor, state)) {
+      stopReason = 'hostile_in_sight';
+      break;
+    }
+
+    const nx = state.hero.x + curDx;
+    const ny = state.hero.y + curDy;
+
+    if (!isWalkable(nx, ny)) {
+      stopReason = 'blocked';
+      break;
+    }
+
+    if (floor.monsters.some(m => m.hp > 0 && m.x === nx && m.y === ny)) {
+      stopReason = 'hostile_ahead';
+      break;
+    }
+
+    const destTile = floor.tiles[ny][nx];
+    const isInteractive = (
+      destTile === TILE_STAIRS_UP ||
+      destTile === TILE_STAIRS_DOWN ||
+      destTile === TILE_CHEST ||
+      destTile === TILE_SHRINE
+    );
+
+    const hpBefore = state.hero.hp;
+    handlePlayerAction(curDx, curDy, state);
+    stepsTaken++;
+
+    if (state.inGuild) {
+      stopReason = 'left_dungeon';
+      break;
+    }
+
+    if (state.hero.hp < hpBefore) {
+      stopReason = 'took_damage';
+      break;
+    }
+
+    if (isInteractive) {
+      stopReason = 'reached_landmark';
+      break;
+    }
+
+    if (areHostilesInSight(floor, state)) {
+      stopReason = 'hostile_in_sight';
+      break;
+    }
+
+    const curTile = floor.tiles[state.hero.y][state.hero.x];
+    if (curTile === TILE_STAIRS_UP || curTile === TILE_STAIRS_DOWN || curTile === TILE_SHRINE) {
+      stopReason = 'reached_landmark';
+      break;
+    }
+
+    let adjacentLandmark = false;
+    for (let i = 0; i < cardinalDirs.length; i++) {
+      const ax = state.hero.x + cardinalDirs[i].x;
+      const ay = state.hero.y + cardinalDirs[i].y;
+      if (ax >= 0 && ax < fw && ay >= 0 && ay < fh) {
+        const at = floor.tiles[ay][ax];
+        if (ORE_CATALOG[at] || at === TILE_CHEST) {
+          adjacentLandmark = true;
+          break;
+        }
+      }
+    }
+    if (adjacentLandmark) {
+      stopReason = 'adjacent_landmark';
+      break;
+    }
+
+    const backX = state.hero.x - curDx;
+    const backY = state.hero.y - curDy;
+
+    const forwardOptions = [];
+    for (let i = 0; i < cardinalDirs.length; i++) {
+      const candX = state.hero.x + cardinalDirs[i].x;
+      const candY = state.hero.y + cardinalDirs[i].y;
+      if (candX === backX && candY === backY) continue;
+      if (isWalkable(candX, candY)) {
+        forwardOptions.push(cardinalDirs[i]);
+      }
+    }
+
+    if (forwardOptions.length === 1) {
+      curDx = forwardOptions[0].x;
+      curDy = forwardOptions[0].y;
+    } else {
+      stopReason = forwardOptions.length === 0 ? 'dead_end' : 'intersection';
+      break;
+    }
+  }
+
+  return { ok: true, stepsTaken, stopReason };
 }
 
   // --- Module: src/ui/renderer.js ---
@@ -6815,6 +7109,7 @@ function clearChronicle() {
 
 
 
+
 let inspectedItemContext = null;
 let pendingAtlasResetId = null;
 
@@ -7422,31 +7717,36 @@ function openItemInspectModal(refId, isEquippedSlot = false, fromExpedition = fa
       updateAllUI();
       closeItemInspectModal();
     };
-    btnSell.classList.remove('hidden');
-    const assayMult = 1 + (gameState.guildResearch.assay || 0) * 0.35;
-    const saleVal = Math.round((item.value || 15) * assayMult);
-    btnSell.textContent = `Sell (+${saleVal}g)`;
-
-    if (item.locked) {
-      btnSell.disabled = true;
-      btnSell.className = 'px-3 py-1.5 rounded bg-[#1a2232] text-[#8b949e] border border-[#283347] text-xs font-mono-num opacity-50 cursor-not-allowed';
-      btnSell.title = 'Item is locked. Unlock it first to sell.';
+    if (!gameState.inGuild) {
+      btnSell.classList.add('hidden');
       btnSell.onclick = null;
     } else {
-      btnSell.disabled = false;
-      btnSell.className = 'px-3 py-1.5 rounded bg-[#fbbf24]/15 hover:bg-[#fbbf24]/25 text-[#fbbf24] border border-[#fbbf24]/40 text-xs font-mono-num font-bold btn-tactical';
-      btnSell.title = '';
-      btnSell.onclick = () => {
-        if (fromExpedition) {
-          h.expeditionGear = h.expeditionGear.filter(g => g.uid !== item.uid);
-          gameState.guildVault.gold += saleVal;
-        } else {
-          sellArmoryItem(item.uid);
-        }
-        saveGame();
-        updateAllUI();
-        closeItemInspectModal();
-      };
+      btnSell.classList.remove('hidden');
+      const assayMult = 1 + (gameState.guildResearch.assay || 0) * 0.35;
+      const saleVal = Math.round((item.value || 15) * assayMult);
+      btnSell.textContent = `Sell (+${saleVal}g)`;
+
+      if (item.locked) {
+        btnSell.disabled = true;
+        btnSell.className = 'px-3 py-1.5 rounded bg-[#1a2232] text-[#8b949e] border border-[#283347] text-xs font-mono-num opacity-50 cursor-not-allowed';
+        btnSell.title = 'Item is locked. Unlock it first to sell.';
+        btnSell.onclick = null;
+      } else {
+        btnSell.disabled = false;
+        btnSell.className = 'px-3 py-1.5 rounded bg-[#fbbf24]/15 hover:bg-[#fbbf24]/25 text-[#fbbf24] border border-[#fbbf24]/40 text-xs font-mono-num font-bold btn-tactical';
+        btnSell.title = '';
+        btnSell.onclick = () => {
+          if (fromExpedition) {
+            h.expeditionGear = h.expeditionGear.filter(g => g.uid !== item.uid);
+            gameState.guildVault.gold += saleVal;
+          } else {
+            sellArmoryItem(item.uid);
+          }
+          saveGame();
+          updateAllUI();
+          closeItemInspectModal();
+        };
+      }
     }
   }
 
@@ -7605,6 +7905,448 @@ function importSaveJson() {
   } catch (e) {
     document.getElementById('saveSyncStatusMsg').textContent = '✕ Invalid JSON format.';
   }
+}
+
+// ============================================================================
+// CHARACTER & INVENTORY MANAGEMENT MODAL & FLOATING COMPARISON TOOLTIP
+// ============================================================================
+
+let currentInventoryFilter = 'all';
+
+function isInventoryModalOpen() {
+  if (typeof document === 'undefined') return false;
+  const modal = document.getElementById('inventoryModal');
+  return !!(modal && !modal.classList.contains('hidden'));
+}
+
+function openInventoryModal() {
+  if (typeof document === 'undefined') return;
+  renderInventoryModal();
+  const modal = document.getElementById('inventoryModal');
+  if (modal) modal.classList.remove('hidden');
+}
+
+function closeInventoryModal() {
+  if (typeof document === 'undefined') return;
+  hideFloatingItemTooltip();
+  const modal = document.getElementById('inventoryModal');
+  if (modal) modal.classList.add('hidden');
+}
+
+function toggleInventoryModal() {
+  if (isInventoryModalOpen()) {
+    closeInventoryModal();
+  } else {
+    openInventoryModal();
+  }
+}
+
+function setInventoryFilter(filterCategory) {
+  currentInventoryFilter = filterCategory || 'all';
+  if (typeof document !== 'undefined') {
+    const filters = ['all', 'weapon', 'armor', 'other'];
+    for (let i = 0; i < filters.length; i++) {
+      const f = filters[i];
+      const btn = document.getElementById('inventoryFilter_' + f);
+      if (btn) {
+        if (f === currentInventoryFilter) {
+          btn.className = 'px-2.5 py-1 rounded text-xs font-bold bg-[#fbbf24] text-[#080b11] border border-[#fbbf24]';
+        } else {
+          btn.className = 'px-2.5 py-1 rounded text-xs font-bold bg-[#111722] text-[#8b949e] border border-[#283347] hover:text-[#e6edf3]';
+        }
+      }
+    }
+  }
+  renderInventoryModal();
+}
+
+function handleInventoryEquip(uid) {
+  equipItem(uid, gameState);
+  renderInventoryModal();
+  updateAllUI();
+}
+
+function handleInventoryUnequip(slot) {
+  unequipItem(slot, gameState);
+  renderInventoryModal();
+  updateAllUI();
+}
+
+function handleInventoryDrop(uidOrId, isGear = true) {
+  dropItem(uidOrId, isGear, gameState);
+  renderInventoryModal();
+  updateAllUI();
+}
+
+function toggleLockFromInventory(uid) {
+  toggleItemLock(uid, gameState);
+  renderInventoryModal();
+  updateAllUI();
+}
+
+function renderInventoryModal() {
+  if (typeof document === 'undefined') return;
+  const h = gameState.hero;
+  if (!h) return;
+  const cls = CLASSES[h.classId] || CLASSES.fighter;
+
+  // Portrait Canvas
+  const pCanvas = document.getElementById('inventoryHeroPortraitCanvas');
+  if (pCanvas) {
+    const pCtx = pCanvas.getContext('2d');
+    pCtx.clearRect(0, 0, 48, 48);
+    drawHeroSprite(pCtx, 4, 4, h.classId, 40);
+  }
+
+  // Hero identity
+  const nameEl = document.getElementById('inventoryHeroName');
+  if (nameEl) nameEl.textContent = h.name;
+  const titleEl = document.getElementById('inventoryHeroTitleBadge');
+  if (titleEl) titleEl.textContent = cls.title;
+  const lvlEl = document.getElementById('inventoryHeroLevel');
+  if (lvlEl) lvlEl.textContent = h.level;
+  const xpEl = document.getElementById('inventoryHeroXp');
+  if (xpEl) xpEl.textContent = `${h.xp} / ${h.maxXp}`;
+
+  // Vitals
+  const hpText = document.getElementById('inventoryHpText');
+  if (hpText) hpText.textContent = `${h.hp} / ${h.maxHp}`;
+  const hpBar = document.getElementById('inventoryHpBar');
+  if (hpBar) hpBar.style.width = `${Math.max(0, Math.min(100, (h.hp / h.maxHp) * 100))}%`;
+
+  const mpText = document.getElementById('inventoryMpText');
+  if (mpText) mpText.textContent = `${h.mp} / ${h.maxMp}`;
+  const mpBar = document.getElementById('inventoryMpBar');
+  if (mpBar) mpBar.style.width = `${Math.max(0, Math.min(100, (h.mp / h.maxMp) * 100))}%`;
+
+  const pick = h.equipment ? h.equipment.pickaxe : null;
+  const maxDur = getPickaxeMaxDurability();
+  const curDur = pick ? pick.curDur : 0;
+  const pickText = document.getElementById('inventoryPickaxeText');
+  if (pickText) pickText.textContent = `${curDur} / ${maxDur}`;
+  const pickBar = document.getElementById('inventoryPickaxeBar');
+  if (pickBar) pickBar.style.width = `${Math.max(0, Math.min(100, (curDur / maxDur) * 100))}%`;
+
+  // Stats
+  const statIds = [
+    ['inventoryStatStr', h.computedStr],
+    ['inventoryStatDex', h.computedDex],
+    ['inventoryStatInt', h.computedInt],
+    ['inventoryStatVit', h.computedVit],
+    ['inventoryStatAtk', h.atk],
+    ['inventoryStatDef', h.def],
+    ['inventoryStatCrit', `${h.crit}%`],
+    ['inventoryStatDodge', `${h.dodge}%`]
+  ];
+  for (let i = 0; i < statIds.length; i++) {
+    const el = document.getElementById(statIds[i][0]);
+    if (el) el.textContent = statIds[i][1];
+  }
+
+  // Paper-Doll 6 Slots
+  const dollGrid = document.getElementById('inventoryPaperDollGrid');
+  if (dollGrid) {
+    const slots = ['helm', 'weapon', 'armor', 'accessory', 'boots', 'pickaxe'];
+    dollGrid.innerHTML = slots.map(slot => {
+      const it = h.equipment ? h.equipment[slot] : null;
+      const r = it ? (RARITY[it.rarity] || RARITY.common) : RARITY.common;
+      const pwr = it ? computeItemPowerScore(it) : 0;
+      let statSummary = '—';
+      if (it) {
+        if (slot === 'weapon') statSummary = `+${it.atk || 0} ATK`;
+        else if (slot === 'armor') statSummary = `+${it.def || 0} DEF`;
+        else if (slot === 'helm') statSummary = `+${it.def || 0} DEF`;
+        else if (slot === 'boots') statSummary = `+${it.dodge || 0}% Dodge`;
+        else if (slot === 'accessory') statSummary = `+${it.crit || 0}% Crit`;
+        else if (slot === 'pickaxe') statSummary = `${it.curDur || 0}/${maxDur} Dur`;
+      }
+
+      const unequipBtn = (it && slot !== 'pickaxe')
+        ? `<button onclick="window.Aethelgard.handleInventoryUnequip('${slot}')" class="px-2 py-0.5 rounded bg-[#1a2232] hover:bg-[#283347] text-[#f87171] border border-[#f87171]/40 text-[10px] font-bold btn-tactical">Unequip</button>`
+        : '';
+      const inspectBtn = it
+        ? `<button onclick="window.Aethelgard.openItemInspectModal('${slot}', true)" class="px-2 py-0.5 rounded bg-[#1a2232] hover:bg-[#283347] text-[#60a5fa] border border-[#60a5fa]/40 text-[10px] font-bold btn-tactical">Inspect</button>`
+        : '';
+
+      const hoverAttr = it
+        ? `onmouseenter="window.Aethelgard.showFloatingItemTooltip(event, '${slot}', true)" onmouseleave="window.Aethelgard.hideFloatingItemTooltip()"`
+        : '';
+
+      return `
+        <div ${hoverAttr} class="p-2.5 rounded-lg bg-[#080b11] border ${it ? 'border-[#283347] hover:border-[#60a5fa]/60' : 'border-[#283347]/50 border-dashed'} flex flex-col justify-between gap-1.5 transition-colors">
+          <div class="flex items-center justify-between">
+            <span class="text-[10px] font-bold uppercase tracking-wider text-[#8b949e]">${slot}</span>
+            <div class="flex items-center gap-1">
+              ${it ? `<span class="text-[10px] text-[#60a5fa] font-mono-num font-bold">Pwr ${pwr}</span>` : ''}
+              ${formatSocketPipsHtml(it)}
+            </div>
+          </div>
+          <div class="font-bold text-xs truncate" style="color:${it ? r.color : '#64748b'}">
+            ${it ? it.name : '(Empty Slot)'}
+          </div>
+          <div class="text-[11px] text-[#8b949e]">${statSummary}</div>
+          <div class="flex items-center justify-end gap-1.5 pt-1 border-t border-[#283347]/40">
+            ${unequipBtn}
+            ${inspectBtn}
+          </div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  // Location Badge & Pack Value
+  const locEl = document.getElementById('inventoryLocationBadge');
+  if (locEl) {
+    if (gameState.inGuild) {
+      locEl.textContent = 'Safe at Oakhaven Guild Bastion';
+      locEl.className = 'px-2 py-0.5 rounded text-[10px] font-mono-num font-bold bg-[#34d399]/15 text-[#34d399] border border-[#34d399]/40';
+    } else {
+      locEl.textContent = `At Risk • Floor ${gameState.dungeon.currentFloor} (Selling Disabled)`;
+      locEl.className = 'px-2 py-0.5 rounded text-[10px] font-mono-num font-bold bg-[#fbbf24]/15 text-[#fbbf24] border border-[#fbbf24]/40';
+    }
+  }
+
+  let totalPackGold = 0;
+  (h.expeditionPack || []).forEach(p => { totalPackGold += (p.val || 0) * (p.qty || 1); });
+  (h.expeditionGear || []).forEach(g => { totalPackGold += (g.value || 20); });
+  const packValEl = document.getElementById('inventoryPackValue');
+  if (packValEl) {
+    packValEl.textContent = `${totalPackGold}g Total Value`;
+  }
+
+  // Bag Gear Items List
+  const bagListEl = document.getElementById('inventoryBagList');
+  if (bagListEl) {
+    let items = [];
+    if (Array.isArray(h.expeditionGear)) {
+      items = items.concat(h.expeditionGear.map(g => ({ item: g, source: 'pack' })));
+    }
+    if (gameState.inGuild && gameState.guildVault && Array.isArray(gameState.guildVault.armory)) {
+      items = items.concat(gameState.guildVault.armory.map(g => ({ item: g, source: 'armory' })));
+    }
+
+    if (currentInventoryFilter === 'weapon') {
+      items = items.filter(e => e.item.slot === 'weapon' || e.item.slot === 'pickaxe');
+    } else if (currentInventoryFilter === 'armor') {
+      items = items.filter(e => e.item.slot === 'armor' || e.item.slot === 'helm' || e.item.slot === 'boots');
+    } else if (currentInventoryFilter === 'other') {
+      items = items.filter(e => e.item.slot === 'accessory');
+    }
+
+    if (items.length === 0) {
+      bagListEl.innerHTML = `<div class="text-xs text-[#8b949e] italic py-6 text-center">No gear matching filter in your pack.</div>`;
+    } else {
+      const assayMult = 1 + (gameState.guildResearch.assay || 0) * 0.35;
+      bagListEl.innerHTML = items.map(entry => {
+        const it = entry.item;
+        const r = RARITY[it.rarity] || RARITY.common;
+        const pwr = computeItemPowerScore(it);
+        const isUp = isItemUpgrade(it, h.equipment);
+        const lockIcon = it.locked ? '🔒' : '🔓';
+        const lockTitle = it.locked ? 'Locked (Protected from sale)' : 'Unlocked';
+
+        const sellBtn = (gameState.inGuild && !it.locked)
+          ? `<button onclick="window.Aethelgard.sellArmoryItem('${it.uid}')" class="px-2 py-0.5 rounded bg-[#fbbf24]/15 hover:bg-[#fbbf24]/25 text-[#fbbf24] border border-[#fbbf24]/40 text-[10px] font-mono-num font-bold btn-tactical">Sell (${Math.round((it.value || 15) * assayMult)}g)</button>`
+          : '';
+
+        let statDetail = '';
+        if (it.atk) statDetail += `+${it.atk} ATK `;
+        if (it.def) statDetail += `+${it.def} DEF `;
+        if (it.dodge) statDetail += `+${it.dodge}% Dodge `;
+        if (it.crit) statDetail += `+${it.crit}% Crit `;
+
+        return `
+          <div onmouseenter="window.Aethelgard.showFloatingItemTooltip(event, '${it.uid}', false)" onmouseleave="window.Aethelgard.hideFloatingItemTooltip()" class="p-2.5 rounded-lg bg-[#080b11] border ${isUp ? 'border-[#34d399]/60 bg-[#06140d]/40' : 'border-[#283347]'} hover:border-[#60a5fa] flex items-center justify-between gap-2.5 transition-colors">
+            <div class="flex-1 min-w-0">
+              <div class="flex items-center gap-1.5">
+                <span class="font-bold text-xs truncate" style="color:${r.color}">${it.name}</span>
+                ${formatSocketPipsHtml(it)}
+                ${isUp ? '<span class="px-1.5 py-0.2 rounded text-[9px] font-bold bg-[#34d399]/20 text-[#34d399] border border-[#34d399]/40">▲ UPGRADE</span>' : ''}
+                <span class="text-[9px] font-mono-num uppercase px-1 py-0.2 rounded bg-[#111722] text-[#8b949e] border border-[#283347]">${it.slot}</span>
+              </div>
+              <div class="text-[11px] text-[#8b949e] truncate mt-0.5">
+                <span class="text-[#e6edf3] font-semibold">${statDetail || 'Standard frame'}</span>
+                • <span class="text-[#60a5fa]">Power ${pwr}</span>
+                ${entry.source === 'armory' ? '• <span class="text-[#fbbf24]">Vault Stored</span>' : ''}
+              </div>
+            </div>
+            <div class="flex items-center gap-1 shrink-0">
+              <button onclick="window.Aethelgard.toggleLockFromInventory('${it.uid}')" class="p-1 rounded bg-[#111722] hover:bg-[#1a2232] border border-[#283347] text-xs" title="${lockTitle}">${lockIcon}</button>
+              <button onclick="window.Aethelgard.handleInventoryEquip('${it.uid}')" class="px-2.5 py-1 rounded bg-[#2563eb] hover:bg-[#3b82f6] text-white text-xs font-mono-num font-bold btn-tactical">Equip</button>
+              <button onclick="window.Aethelgard.handleInventoryDrop('${it.uid}', true)" class="px-2 py-1 rounded bg-[#1a2232] hover:bg-[#283347] text-[#8b949e] hover:text-[#f87171] border border-[#283347] text-xs font-mono-num btn-tactical" title="Drop / Discard">Drop</button>
+              ${sellBtn}
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+  }
+
+  // Pack Consumables & Minerals List
+  const conListEl = document.getElementById('inventoryPackConsumablesList');
+  if (conListEl) {
+    const pack = h.expeditionPack || [];
+    if (pack.length === 0) {
+      conListEl.innerHTML = `<div class="text-xs text-[#8b949e] italic py-2 text-center">No minerals or gems in pack.</div>`;
+    } else {
+      conListEl.innerHTML = pack.map(item => {
+        const isGem = item.type === 'Gem' && GEM_CATALOG[item.id];
+        const col = isGem ? GEM_CATALOG[item.id].color : '#e6edf3';
+        const prefix = isGem ? '◆ ' : '';
+        const totalVal = (item.val || 0) * (item.qty || 1);
+        return `
+          <div class="p-2 rounded bg-[#080b11] border border-[#283347] flex items-center justify-between text-xs font-mono-num">
+            <div>
+              <span class="font-bold" style="color:${col}">${prefix}${item.name}</span>
+              <span class="text-[#8b949e] ml-1">x${item.qty} (${item.val}g each)</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <span class="text-[#fbbf24] font-bold">${totalVal}g</span>
+              <button onclick="window.Aethelgard.handleInventoryDrop('${item.id}', false)" class="px-1.5 py-0.5 rounded bg-[#1a2232] hover:bg-[#283347] text-[#8b949e] hover:text-[#f87171] border border-[#283347] text-[10px]" title="Drop 1">Drop 1</button>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+  }
+}
+
+function showFloatingItemTooltip(event, refKey, isEquipped = false) {
+  if (typeof document === 'undefined') return;
+  const tip = document.getElementById('floatingItemTooltip');
+  if (!tip) return;
+
+  const h = gameState.hero;
+  if (!h) return;
+
+  let item = null;
+  if (isEquipped) {
+    item = h.equipment ? h.equipment[refKey] : null;
+  } else {
+    if (Array.isArray(h.expeditionGear)) {
+      item = h.expeditionGear.find(g => g && g.uid === refKey);
+    }
+    if (!item && gameState.guildVault && Array.isArray(gameState.guildVault.armory)) {
+      item = gameState.guildVault.armory.find(g => g && g.uid === refKey);
+    }
+  }
+
+  if (!item) {
+    tip.classList.add('hidden');
+    return;
+  }
+
+  const r = RARITY[item.rarity] || RARITY.common;
+  const curEq = (isEquipped || !item.slot) ? null : (h.equipment ? h.equipment[item.slot] : null);
+  const power = computeItemPowerScore(item);
+  const curPower = curEq ? computeItemPowerScore(curEq) : 0;
+  const powerDiff = power - curPower;
+
+  const statKeys = [
+    { k: 'atk', label: 'Attack' },
+    { k: 'def', label: 'Defense' },
+    { k: 'crit', label: 'Crit %' },
+    { k: 'dodge', label: 'Dodge %' },
+    { k: 'str', label: 'Strength' },
+    { k: 'dex', label: 'Dexterity' },
+    { k: 'int', label: 'Intelligence' },
+    { k: 'vit', label: 'Vitality' },
+    { k: 'maxHp', label: 'Max HP' },
+    { k: 'maxMp', label: 'Max MP' }
+  ];
+
+  const statLines = [];
+  for (let i = 0; i < statKeys.length; i++) {
+    const k = statKeys[i].k;
+    const label = statKeys[i].label;
+    const val = item[k] || 0;
+    const oldVal = curEq ? (curEq[k] || 0) : 0;
+    if (val > 0 || oldVal > 0) {
+      if (!isEquipped && curEq) {
+        const diff = val - oldVal;
+        const diffText = diff > 0
+          ? `<span class="text-[#34d399] font-bold">▲ +${diff}</span>`
+          : diff < 0
+            ? `<span class="text-[#f87171] font-bold">▼ ${diff}</span>`
+            : `<span class="text-[#8b949e]">=</span>`;
+        statLines.push(`<div class="flex justify-between gap-2"><span>${label}:</span><span>${val} (${diffText})</span></div>`);
+      } else {
+        statLines.push(`<div class="flex justify-between gap-2"><span>${label}:</span><span class="text-[#e6edf3] font-bold">+${val}</span></div>`);
+      }
+    }
+  }
+
+  const affLines = [];
+  if (Array.isArray(item.affixes) && item.affixes.length > 0) {
+    for (let i = 0; i < item.affixes.length; i++) {
+      const a = item.affixes[i];
+      affLines.push(`<div class="text-[#fbbf24] text-[10px]">★ +${a.val} ${String(a.stat).toUpperCase()} (${a.label})</div>`);
+    }
+  }
+
+  const socketLines = [];
+  if ((item.maxSockets || 0) > 0) {
+    const sockets = Array.isArray(item.sockets) ? item.sockets : [];
+    for (let i = 0; i < item.maxSockets; i++) {
+      const gId = sockets[i];
+      if (gId && GEM_CATALOG[gId]) {
+        const gd = GEM_CATALOG[gId];
+        socketLines.push(`<div class="text-[10px]" style="color:${gd.color}">◆ ${gd.name} (${gd.desc})</div>`);
+      } else {
+        socketLines.push(`<div class="text-[10px] text-[#64748b]">◇ Empty Socket</div>`);
+      }
+    }
+  }
+
+  let powerDiffBadge = '';
+  if (!isEquipped && curEq) {
+    if (powerDiff > 0) {
+      powerDiffBadge = `<span class="px-1.5 py-0.5 rounded bg-[#34d399]/20 text-[#34d399] font-bold text-[10px]">▲ UPGRADE (+${powerDiff} Pwr)</span>`;
+    } else if (powerDiff < 0) {
+      powerDiffBadge = `<span class="px-1.5 py-0.5 rounded bg-[#f87171]/20 text-[#f87171] font-bold text-[10px]">▼ ${powerDiff} Pwr</span>`;
+    }
+  }
+
+  tip.innerHTML = `
+    <div class="flex items-center justify-between border-b border-[#283347] pb-1 mb-1">
+      <div>
+        <div class="font-bold text-xs" style="color:${r.color}">${item.name}</div>
+        <div class="text-[10px] text-[#8b949e] uppercase">${r.name} • ${item.slot || 'Item'}</div>
+      </div>
+      <div class="text-right">
+        <div class="text-[#60a5fa] font-bold text-xs">Pwr ${power}</div>
+        ${powerDiffBadge}
+      </div>
+    </div>
+    <div class="space-y-0.5 text-[11px]">${statLines.join('') || '<div class="text-[#8b949e]">Basic gear piece</div>'}</div>
+    ${affLines.length > 0 ? `<div class="pt-1 border-t border-[#283347]/60 space-y-0.5">${affLines.join('')}</div>` : ''}
+    ${socketLines.length > 0 ? `<div class="pt-1 border-t border-[#283347]/60 space-y-0.5">${socketLines.join('')}</div>` : ''}
+  `;
+
+  tip.classList.remove('hidden');
+
+  const tipWidth = 260;
+  const tipHeight = 180;
+  let left = (event.clientX || 0) + 16;
+  let top = (event.clientY || 0) + 16;
+
+  if (typeof window !== 'undefined') {
+    if (left + tipWidth > window.innerWidth - 10) {
+      left = Math.max(10, (event.clientX || 0) - tipWidth - 16);
+    }
+    if (top + tipHeight > window.innerHeight - 10) {
+      top = Math.max(10, window.innerHeight - tipHeight - 10);
+    }
+  }
+
+  tip.style.left = `${left}px`;
+  tip.style.top = `${top}px`;
+}
+
+function hideFloatingItemTooltip() {
+  if (typeof document === 'undefined') return;
+  const tip = document.getElementById('floatingItemTooltip');
+  if (tip) tip.classList.add('hidden');
 }
 
   // --- Module: src/engine/dev.js ---
@@ -8152,6 +8894,10 @@ function setupInputs() {
         closeDevConsole();
         return;
       }
+      if (isInventoryModalOpen()) {
+        closeInventoryModal();
+        return;
+      }
       closeFullMapModal();
       closeExpeditionAtlasModal();
       closeItemInspectModal();
@@ -8172,13 +8918,22 @@ function setupInputs() {
       return;
     }
 
+    // Toggle Character & Inventory Modal [I] or [C]
+    if (e.code === 'KeyI' || e.code === 'KeyC') {
+      e.preventDefault();
+      toggleInventoryModal();
+      return;
+    }
+
     const classModal = document.getElementById('classSelectModal');
     const saveModal = document.getElementById('saveSyncModal');
     const atlasModal = document.getElementById('expeditionAtlasModal');
     const fullMapModal = document.getElementById('fullMapModal');
+    const invModal = document.getElementById('inventoryModal');
     if (classModal && !classModal.classList.contains('hidden')) return;
     if (saveModal && !saveModal.classList.contains('hidden')) return;
     if (atlasModal && !atlasModal.classList.contains('hidden')) return;
+    if (invModal && !invModal.classList.contains('hidden')) return;
 
     if (e.code === 'KeyM') {
       e.preventDefault();
@@ -8189,15 +8944,51 @@ function setupInputs() {
     if (fullMapModal && !fullMapModal.classList.contains('hidden')) return;
     if (gameState.inGuild) return;
 
-    if (['ArrowUp', 'KeyW'].includes(e.code)) { e.preventDefault(); handlePlayerAction(0, -1); }
-    else if (['ArrowDown', 'KeyS'].includes(e.code)) { e.preventDefault(); handlePlayerAction(0, 1); }
-    else if (['ArrowLeft', 'KeyA'].includes(e.code)) { e.preventDefault(); handlePlayerAction(-1, 0); }
-    else if (['ArrowRight', 'KeyD'].includes(e.code)) { e.preventDefault(); handlePlayerAction(1, 0); }
-    else if (e.code === 'KeyQ') { e.preventDefault(); executeClassSkill(); }
-    else if (e.code === 'KeyH') { e.preventDefault(); useHealingTonic(); }
-    else if (e.code === 'KeyR') { e.preventDefault(); useRecallScroll(); }
-    else if (e.code === 'KeyE') { e.preventDefault(); useStairsAtPlayer(); }
-    else if (e.code === 'Space') { e.preventDefault(); waitTurn(); }
+    const isShift = !!e.shiftKey;
+    if (['ArrowUp', 'KeyW', 'Numpad8'].includes(e.code)) {
+      e.preventDefault();
+      if (isShift) runCorridor(0, -1);
+      else handlePlayerAction(0, -1);
+    } else if (['ArrowDown', 'KeyS', 'Numpad2'].includes(e.code)) {
+      e.preventDefault();
+      if (isShift) runCorridor(0, 1);
+      else handlePlayerAction(0, 1);
+    } else if (['ArrowLeft', 'KeyA', 'Numpad4'].includes(e.code)) {
+      e.preventDefault();
+      if (isShift) runCorridor(-1, 0);
+      else handlePlayerAction(-1, 0);
+    } else if (['ArrowRight', 'KeyD', 'Numpad6'].includes(e.code)) {
+      e.preventDefault();
+      if (isShift) runCorridor(1, 0);
+      else handlePlayerAction(1, 0);
+    } else if (e.code === 'Numpad7') {
+      e.preventDefault();
+      handlePlayerAction(-1, -1);
+    } else if (e.code === 'Numpad9') {
+      e.preventDefault();
+      handlePlayerAction(1, -1);
+    } else if (e.code === 'Numpad1') {
+      e.preventDefault();
+      handlePlayerAction(-1, 1);
+    } else if (e.code === 'Numpad3') {
+      e.preventDefault();
+      handlePlayerAction(1, 1);
+    } else if (['Numpad5', 'Space'].includes(e.code)) {
+      e.preventDefault();
+      waitTurn();
+    } else if (e.code === 'KeyQ') {
+      e.preventDefault();
+      executeClassSkill();
+    } else if (e.code === 'KeyH') {
+      e.preventDefault();
+      useHealingTonic();
+    } else if (e.code === 'KeyR') {
+      e.preventDefault();
+      useRecallScroll();
+    } else if (e.code === 'KeyE') {
+      e.preventDefault();
+      useStairsAtPlayer();
+    }
   });
 
   const canvas = document.getElementById('dungeonCanvas');
@@ -9109,7 +9900,13 @@ function evaluateSelfTests() {
     statuses: []
   };
   const preChillDodge = sandbox22.hero.dodge;
-  monsterAttackHero(chillM, false, sandbox22);
+  const origRandom22 = Math.random;
+  Math.random = function () { return 0.99; };
+  try {
+    monsterAttackHero(chillM, false, sandbox22);
+  } finally {
+    Math.random = origRandom22;
+  }
   const heroIsChilled = (sandbox22.hero.statuses || []).some(s => s.id === 'chilled');
   const dodgeReduced = sandbox22.hero.dodge < preChillDodge;
 
@@ -9274,6 +10071,89 @@ function evaluateSelfTests() {
       : `Failed checks: ${failedKeys23.join(', ')}`
   });
 
+  // 24. Character Paper-Doll Inventory Engine, In-Dungeon Equipment Management & Corridor Run
+  const sandbox24 = createDefaultGameState();
+  selectAdventurerClass('fighter', sandbox24);
+  sandbox24.inGuild = true;
+
+  // 1. Equip item from pack / armory and swap with previously equipped item
+  const testEpicSword = {
+    uid: 'test_epic_sword',
+    name: 'Astral Vorpal Blade',
+    slot: 'weapon',
+    rarity: 'epic',
+    atk: 32,
+    crit: 12,
+    value: 140,
+    sockets: [],
+    maxSockets: 2,
+    affixes: []
+  };
+  sandbox24.hero.expeditionGear.push(testEpicSword);
+  const prevWep = sandbox24.hero.equipment.weapon;
+  const prevAtk = sandbox24.hero.atk;
+
+  const equipRes = equipItem('test_epic_sword', sandbox24);
+  const equipSuccess = equipRes.ok &&
+    sandbox24.hero.equipment.weapon.uid === 'test_epic_sword' &&
+    sandbox24.hero.atk > prevAtk &&
+    sandbox24.hero.expeditionGear.some(g => g.uid === prevWep.uid);
+
+  // 2. Unequip item to bag & verify stat reduction
+  const prevHelm = sandbox24.hero.equipment.helm;
+  const prevDef = sandbox24.hero.def;
+  const unequipRes = unequipItem('helm', sandbox24);
+  const unequipSuccess = unequipRes.ok &&
+    sandbox24.hero.equipment.helm === null &&
+    sandbox24.hero.def < prevDef &&
+    sandbox24.guildVault.armory.some(g => g.uid === prevHelm.uid);
+
+  // Verify pickaxe unequip prohibition
+  const unequipPickRes = unequipItem('pickaxe', sandbox24);
+  const pickaxeProtected = !unequipPickRes.ok && unequipPickRes.reason === 'cannot_unequip_pickaxe';
+
+  // 3. Drop item from gear and pack
+  const dropGearRes = dropItem(prevHelm.uid, true, sandbox24);
+  const gearDropped = dropGearRes.ok && !sandbox24.guildVault.armory.some(g => g.uid === prevHelm.uid);
+
+  sandbox24.hero.expeditionPack.push({ id: 'copper_ore', name: 'Copper Ore', qty: 2, val: 10 });
+  const dropPackRes = dropItem('copper_ore', false, sandbox24);
+  const packItem = sandbox24.hero.expeditionPack.find(p => p.id === 'copper_ore');
+  const packDropped = dropPackRes.ok && packItem && packItem.qty === 1;
+
+  // 4. Strict prohibition against selling while in dungeon
+  sandbox24.inGuild = false;
+  const dungeonMinSell = sellMineralUnit('copper', true, sandbox24);
+  const dungeonGearSell = sellAllSpareGear(null, sandbox24);
+  const dungeonArmorySell = sellArmoryItem('test_epic_sword', sandbox24);
+  const sellingBlockedInDungeon = (dungeonMinSell === 0) && (dungeonGearSell === 0) && (dungeonArmorySell === 0);
+
+  // 5. Corridor Fast-Run (runCorridor) safe execution & obstacle / junction stop
+  const f24 = ensureDungeonFloorHydrated(sandbox24.dungeon, 1);
+  sandbox24.hero.x = f24.upPos.x;
+  sandbox24.hero.y = f24.upPos.y;
+  const runRes = runCorridor(1, 0, sandbox24);
+  const corridorRunValid = runRes.ok && typeof runRes.stepsTaken === 'number' && typeof runRes.stopReason === 'string';
+
+  const t24Checks = {
+    equipSuccess: !!equipSuccess,
+    unequipSuccess: !!unequipSuccess,
+    pickaxeProtected: !!pickaxeProtected,
+    gearDropped: !!gearDropped,
+    packDropped: !!packDropped,
+    sellingBlockedInDungeon: !!sellingBlockedInDungeon,
+    corridorRunValid: !!corridorRunValid
+  };
+  const failedKeys24 = Object.keys(t24Checks).filter(k => !t24Checks[k]);
+  const t24Pass = failedKeys24.length === 0;
+  results.push({
+    name: '24. Character Paper-Doll Inventory Engine, In-Dungeon Equipment Management & Corridor Run',
+    pass: t24Pass,
+    detail: failedKeys24.length === 0
+      ? 'Field equip/swap/unequip verified, pickaxe protected, in-dungeon selling strictly prohibited, corridor fast-run verified'
+      : `Failed checks: ${failedKeys24.join(', ')}`
+  });
+
   return results;
 }
 
@@ -9284,7 +10164,7 @@ function runSelfTests(renderModal = false) {
   if (typeof document !== 'undefined') {
     const btnText = document.getElementById('verifyBtnText');
     if (btnText) {
-      btnText.textContent = `Verify Inc-6.5 (${passCount}/${results.length} PASS)`;
+      btnText.textContent = `Verify Inc-7.0 (${passCount}/${results.length} PASS)`;
     }
 
     if (renderModal) {
@@ -9492,6 +10372,9 @@ const AethelgardAPI = {
   sellAllOresAtAssay,
   sellArmoryItem,
   sellAllSpareGear,
+  equipItem,
+  unequipItem,
+  dropItem,
   autoEquipBestGear,
   toggleItemLock,
   purchaseResearchRank,
@@ -9499,11 +10382,24 @@ const AethelgardAPI = {
   unsocketGemFromItem,
   rerollGuildBounties,
   claimBountyAtGuild,
+  openInventoryModal,
+  closeInventoryModal,
+  toggleInventoryModal,
+  isInventoryModalOpen,
+  setInventoryFilter,
+  handleInventoryEquip,
+  handleInventoryUnequip,
+  handleInventoryDrop,
+  toggleLockFromInventory,
+  showFloatingItemTooltip,
+  hideFloatingItemTooltip,
+  renderInventoryModal,
   executeClassSkill,
   useHealingTonic,
   useRecallScroll,
   useStairsAtPlayer,
   handlePlayerAction,
+  runCorridor,
   startAutoWalkTo,
   cancelAutoWalk,
   renderMinimapCanvas,

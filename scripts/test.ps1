@@ -248,6 +248,7 @@ $bundleCode
 (function () {
   var results = window.Aethelgard.evaluateSelfTests();
   var allPass = window.Aethelgard.runSelfTests(false);
+  var fuzzer = window.Aethelgard.runChaosFuzzer(10);
 
   // Headless UI, 6-Tab Guild Hub, Atlas Charter & Canvas Render Smoke Suite
   var api = window.Aethelgard;
@@ -266,12 +267,16 @@ $bundleCode
   api.closeSaveSyncModal();
   api.openDiagnosticsModal();
   api.closeDiagnosticsModal();
+  api.openInventoryModal();
+  api.setInventoryFilter('weapon');
+  api.closeInventoryModal();
 
-  var uiSmokeOk = (__missingRuntimeIds.length === 0) && (Object.keys(api.gameState.dungeons).length >= 5);
+  var uiSmokeOk = (__missingRuntimeIds.length === 0) && (Object.keys(api.gameState.dungeons).length >= 5) && (fuzzer.errorCount === 0);
   return JSON.stringify({
     allPass: allPass && uiSmokeOk,
     results: results,
     uiSmokeOk: uiSmokeOk,
+    fuzzer: fuzzer,
     missingRuntimeIds: __missingRuntimeIds
   });
 })();

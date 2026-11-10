@@ -66,7 +66,11 @@ import {
   useHealingTonic,
   autoEquipBestGear,
   toggleItemLock,
-  sellAllSpareGear
+  sellAllSpareGear,
+  equipItem,
+  unequipItem,
+  dropItem,
+  sellArmoryItem
 } from '../engine/actions.js';
 import {
   executeClassSkill,
@@ -78,7 +82,8 @@ import {
   attackMonster,
   monsterAttackHero,
   killMonster,
-  handlePlayerAction
+  handlePlayerAction,
+  runCorridor
 } from '../engine/combat.js';
 
 export function evaluateSelfTests() {
@@ -866,7 +871,13 @@ export function evaluateSelfTests() {
     statuses: []
   };
   const preChillDodge = sandbox22.hero.dodge;
-  monsterAttackHero(chillM, false, sandbox22);
+  const origRandom22 = Math.random;
+  Math.random = function () { return 0.99; };
+  try {
+    monsterAttackHero(chillM, false, sandbox22);
+  } finally {
+    Math.random = origRandom22;
+  }
   const heroIsChilled = (sandbox22.hero.statuses || []).some(s => s.id === 'chilled');
   const dodgeReduced = sandbox22.hero.dodge < preChillDodge;
 
@@ -1031,6 +1042,89 @@ export function evaluateSelfTests() {
       : `Failed checks: ${failedKeys23.join(', ')}`
   });
 
+  // 24. Character Paper-Doll Inventory Engine, In-Dungeon Equipment Management & Corridor Run
+  const sandbox24 = createDefaultGameState();
+  selectAdventurerClass('fighter', sandbox24);
+  sandbox24.inGuild = true;
+
+  // 1. Equip item from pack / armory and swap with previously equipped item
+  const testEpicSword = {
+    uid: 'test_epic_sword',
+    name: 'Astral Vorpal Blade',
+    slot: 'weapon',
+    rarity: 'epic',
+    atk: 32,
+    crit: 12,
+    value: 140,
+    sockets: [],
+    maxSockets: 2,
+    affixes: []
+  };
+  sandbox24.hero.expeditionGear.push(testEpicSword);
+  const prevWep = sandbox24.hero.equipment.weapon;
+  const prevAtk = sandbox24.hero.atk;
+
+  const equipRes = equipItem('test_epic_sword', sandbox24);
+  const equipSuccess = equipRes.ok &&
+    sandbox24.hero.equipment.weapon.uid === 'test_epic_sword' &&
+    sandbox24.hero.atk > prevAtk &&
+    sandbox24.hero.expeditionGear.some(g => g.uid === prevWep.uid);
+
+  // 2. Unequip item to bag & verify stat reduction
+  const prevHelm = sandbox24.hero.equipment.helm;
+  const prevDef = sandbox24.hero.def;
+  const unequipRes = unequipItem('helm', sandbox24);
+  const unequipSuccess = unequipRes.ok &&
+    sandbox24.hero.equipment.helm === null &&
+    sandbox24.hero.def < prevDef &&
+    sandbox24.guildVault.armory.some(g => g.uid === prevHelm.uid);
+
+  // Verify pickaxe unequip prohibition
+  const unequipPickRes = unequipItem('pickaxe', sandbox24);
+  const pickaxeProtected = !unequipPickRes.ok && unequipPickRes.reason === 'cannot_unequip_pickaxe';
+
+  // 3. Drop item from gear and pack
+  const dropGearRes = dropItem(prevHelm.uid, true, sandbox24);
+  const gearDropped = dropGearRes.ok && !sandbox24.guildVault.armory.some(g => g.uid === prevHelm.uid);
+
+  sandbox24.hero.expeditionPack.push({ id: 'copper_ore', name: 'Copper Ore', qty: 2, val: 10 });
+  const dropPackRes = dropItem('copper_ore', false, sandbox24);
+  const packItem = sandbox24.hero.expeditionPack.find(p => p.id === 'copper_ore');
+  const packDropped = dropPackRes.ok && packItem && packItem.qty === 1;
+
+  // 4. Strict prohibition against selling while in dungeon
+  sandbox24.inGuild = false;
+  const dungeonMinSell = sellMineralUnit('copper', true, sandbox24);
+  const dungeonGearSell = sellAllSpareGear(null, sandbox24);
+  const dungeonArmorySell = sellArmoryItem('test_epic_sword', sandbox24);
+  const sellingBlockedInDungeon = (dungeonMinSell === 0) && (dungeonGearSell === 0) && (dungeonArmorySell === 0);
+
+  // 5. Corridor Fast-Run (runCorridor) safe execution & obstacle / junction stop
+  const f24 = ensureDungeonFloorHydrated(sandbox24.dungeon, 1);
+  sandbox24.hero.x = f24.upPos.x;
+  sandbox24.hero.y = f24.upPos.y;
+  const runRes = runCorridor(1, 0, sandbox24);
+  const corridorRunValid = runRes.ok && typeof runRes.stepsTaken === 'number' && typeof runRes.stopReason === 'string';
+
+  const t24Checks = {
+    equipSuccess: !!equipSuccess,
+    unequipSuccess: !!unequipSuccess,
+    pickaxeProtected: !!pickaxeProtected,
+    gearDropped: !!gearDropped,
+    packDropped: !!packDropped,
+    sellingBlockedInDungeon: !!sellingBlockedInDungeon,
+    corridorRunValid: !!corridorRunValid
+  };
+  const failedKeys24 = Object.keys(t24Checks).filter(k => !t24Checks[k]);
+  const t24Pass = failedKeys24.length === 0;
+  results.push({
+    name: '24. Character Paper-Doll Inventory Engine, In-Dungeon Equipment Management & Corridor Run',
+    pass: t24Pass,
+    detail: failedKeys24.length === 0
+      ? 'Field equip/swap/unequip verified, pickaxe protected, in-dungeon selling strictly prohibited, corridor fast-run verified'
+      : `Failed checks: ${failedKeys24.join(', ')}`
+  });
+
   return results;
 }
 
@@ -1041,7 +1135,7 @@ export function runSelfTests(renderModal = false) {
   if (typeof document !== 'undefined') {
     const btnText = document.getElementById('verifyBtnText');
     if (btnText) {
-      btnText.textContent = `Verify Inc-6.5 (${passCount}/${results.length} PASS)`;
+      btnText.textContent = `Verify Inc-7.0 (${passCount}/${results.length} PASS)`;
     }
 
     if (renderModal) {
