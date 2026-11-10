@@ -14,6 +14,7 @@ This directory records the foundational architectural decisions, runtime constra
 | [ADR-0006](./ADR-0006-domain-event-bus-and-telemetry.md) | Synchronous Domain Event Bus & Gameplay Telemetry Hooks | **Accepted** | `v0.4.6-arch` |
 | [ADR-0007](./ADR-0007-inventory-intelligence-and-lock-protocols.md) | Inventory Intelligence, Power Score Heuristics & Lock Protocols | **Accepted** | `v0.5.0-inc5` |
 | [ADR-0008](./ADR-0008-abyssal-modifiers-and-endless-delve.md) | Abyssal Elite Affixes, Combat Reactive Modifiers & Endless Strata Delve | **Accepted** | `v0.6.0-inc6` |
+| [ADR-0009](./ADR-0009-developer-and-tester-console.md) | Developer & Tester Console Architecture & Isolation Protocols | **Accepted** | `v0.6.5-dev` |
 
 ## When to Add or Supersede an ADR
 

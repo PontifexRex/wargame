@@ -118,9 +118,49 @@ Expanded automated verification suite to 22/22 PASS + Headless UI Smoke Suite.
 
 2. Upcoming Increment Backlog
 
-Increment 7 (v0.7.0-inc7) - Guild Star-Forge Runecrafting, Deep Affix Synthesis & Gem Infusion
+### Increment 6.5 (v0.6.5-dev) — Developer & Tester Console (Phase 1: Floor Teleport & Level Scaling)
+
+**Goal**: Provide an extensible, developer-only control interface and programmatic API (`window.Aethelgard.dev`) to rapidly test, stress, and balance any game system without grind or manual traversal. Gated behind developer shortcuts (backtick `` ` ``, `Ctrl+Shift+D`, or `?dev=true` query param) and excluded from production player builds.
+
+#### Phase 1 Deliverables (Immediate Focus):
+1. **Developer Console UI Overlay (`#devConsoleModal`)**:
+   - Toggled via backtick (`` ` ``) key or header Dev badge.
+   - Dual interface: Quick-Action Command Bar + Interactive Terminal REPL.
+   - Command history navigation (Up/Down arrow keys).
+2. **Instant Dungeon Floor Teleport (`goto <depth> [dungeonId]`)**:
+   - Instantly transports hero to any depth (1–999) in the current or targeted dungeon (`dng_starfall`, `dng_quarry`, `dng_mycelium`, `dng_citadel`, `dng_molten`, `dng_abyss`).
+   - Automatically hydrates or procedurally generates the destination floor.
+   - Safely positions the hero on the ascending staircase (`<`) or nearest walkable floor tile.
+   - Refreshes camera viewport, dynamic biome palette, FOV shadowcasting, and minimap.
+3. **Character Level & Stat Manipulation (`level <targetLevel>`)**:
+   - Instantly sets hero level (1–50+).
+   - Automatically recalculates experience thresholds (`maxXp`), awards stat points (+2 per level), and grants talent points (+1 per level).
+   - Recalculates all derived stats (`recomputeHeroDerivedStats`) and fully refills HP and MP.
+4. **Developer Global API Bridge (`window.Aethelgard.dev`)**:
+   - `dev.gotoFloor(depth, dungeonId)`
+   - `dev.setLevel(level)`
+   - `dev.fullHeal()`
+   - `dev.toggleConsole()`
+5. **Verification Gate**:
+   - Sandboxed **Test 23** in `src/test/selfTest.js` verifying teleportation to arbitrary depths, safe player placement, level adjustments, and talent point calculation.
+   - Expand automated test suite to **23/23 PASS**.
+
+#### Subsequent Console Backlog (Phases 2 & 3):
+- **Phase 2: Entity & Item Spawner**:
+  - `spawn <monsterId> [count] [eliteAffix]`: Spawns any regular monster or boss at cursor or adjacent to hero.
+  - `give <itemId|gear> [rarity] [sockets]`: Spawns custom gear or consumables directly into inventory/pack.
+  - `giveGold <amount>` / `giveOres <amount>` / `giveGems <amount>`: Instant resource injection.
+- **Phase 3: Omnipotent Testing Cheats & State Inspector**:
+  - `god`: Toggle God Mode (invulnerability, infinite MP, 1-shot kills, unbreakable pickaxes).
+  - `reveal`: Full floor map fog-of-war removal.
+  - `killall`: Instantly slays all active hostiles on the current floor.
+  - Interactive Live State Inspector & JSON Property Editor.
+
+---
+
+### Increment 7 (v0.7.0-inc7) — Guild Star-Forge Runecrafting, Deep Affix Synthesis & Gem Infusion
 
 Scope & Deliverables:
 - Star-Forge Runecrafting Facility: Guild workshop tab to re-roll prefixes/suffixes, enhance stat tiers, or add sockets to gear by spending mined ores (`Copper`, `Iron`, `Mithril`, `Astralite`) and lapidary gems.
 - Dual-Affix Runestones: Socketable runic keystones crafting hybrid passive perks.
-- Verification Gate: Bump to 23/23 PASS in runSelfTests().
+- Verification Gate: Bump to 24/24 PASS in runSelfTests().
