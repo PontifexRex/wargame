@@ -579,6 +579,10 @@ export function attackMonster(monster, state = gameState) {
 export function checkHeroFatalDamage(killerName, state = gameState) {
   const ui = getActionCallbacks();
   const h = state.hero;
+  if (h.godMode) {
+    h.hp = h.maxHp;
+    return;
+  }
   // Paladin Divine Intervention Keystone
   if (h.classId === 'paladin' && ((h.talentsAllocated && h.talentsAllocated.p_e3) || 0) > 0 && !h.usedDivineIntervention) {
     h.usedDivineIntervention = true;
@@ -597,6 +601,13 @@ export function checkHeroFatalDamage(killerName, state = gameState) {
 export function monsterAttackHero(m, isRanged, state = gameState) {
   const ui = getActionCallbacks();
   const h = state.hero;
+  if (h.godMode) {
+    if (state === gameState) {
+      ui.floatingText(h.x, h.y, 'IMMUNE!', '#fbbf24');
+      ui.log(`${m.name}'s attack bounces off your invulnerable shield!`, 'info');
+    }
+    return;
+  }
   if (Math.random() * 100 < h.dodge) {
     if (state === gameState) {
       ui.floatingText(h.x, h.y, 'DODGE!', '#34d399');

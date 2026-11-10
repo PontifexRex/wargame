@@ -1,9 +1,10 @@
-// 22/22 Comprehensive Automated Self-Test Suite (Sandboxed & Non-Destructive)
+// 23/23 Comprehensive Automated Self-Test Suite (Sandboxed & Non-Destructive)
 
 import {
   SCHEMA_VERSION,
   TILE_WALL,
   TILE_FLOOR,
+  TILE_STAIRS_UP,
   TILE_ORE_COPPER,
   TILE_ORE_IRON,
   TILE_ORE_MITHRIL,
@@ -25,6 +26,14 @@ import { CURATED_DUNGEON_PROFILES, BIOME_PALETTES, resolveFloorBiome } from '../
 import { MONSTER_ARCHETYPES, BOSS_ARCHETYPES } from '../data/monsters.js';
 import { packFloorForStorage, hydrateFloorFromStorage } from '../engine/compression.js';
 import { ENGINE_EVENTS, onEngineEvent } from '../engine/events.js';
+import {
+  gotoFloor,
+  setHeroLevel,
+  fullHeal,
+  revealMap,
+  toggleGodMode,
+  executeDevCommand
+} from '../engine/dev.js';
 import {
   createDefaultGameState,
   migrateSaveData,
@@ -929,6 +938,99 @@ export function evaluateSelfTests() {
       : `Failed checks: ${failedKeys22.join(', ')}`
   });
 
+  // 23. Developer Console Engine (Floor Warp, Hero Level Scaling, Cheats & REPL)
+  const sandbox23 = createDefaultGameState();
+  selectAdventurerClass('fighter', sandbox23);
+
+  // A. gotoFloor (Warp to deep floor 15 in Starfall Citadel)
+  const warpRes = gotoFloor(15, 'dng_starfall', sandbox23);
+  const devFl15 = sandbox23.dungeon.floors[15];
+  const warpValid = warpRes.ok &&
+    sandbox23.dungeon.currentFloor === 15 &&
+    devFl15 &&
+    sandbox23.hero.x >= 0 &&
+    sandbox23.hero.y >= 0 &&
+    (devFl15.tiles[sandbox23.hero.y][sandbox23.hero.x] === TILE_FLOOR || devFl15.tiles[sandbox23.hero.y][sandbox23.hero.x] === TILE_STAIRS_UP) &&
+    !sandbox23.inGuild;
+
+  // B. setHeroLevel (Scale hero from level 1 to level 10)
+  const lvlRes = setHeroLevel(10, sandbox23);
+  const lvlValid = lvlRes.ok &&
+    sandbox23.hero.level === 10 &&
+    sandbox23.hero.talentPoints === 9 &&
+    sandbox23.hero.statPoints === 18 &&
+    sandbox23.hero.hp === sandbox23.hero.maxHp &&
+    sandbox23.hero.mp === sandbox23.hero.maxMp &&
+    sandbox23.hero.maxHp > 80;
+
+  // C. fullHeal (Cleanses debuffs, restores HP & MP)
+  sandbox23.hero.hp = 10;
+  sandbox23.hero.mp = 0;
+  sandbox23.hero.statuses = [
+    { id: 'poisoned', name: 'Poisoned', duration: 3, isBuff: false },
+    { id: 'shield_buff', name: 'Iron Skin', duration: 2, isBuff: true }
+  ];
+  const healRes = fullHeal(sandbox23);
+  const healValid = healRes.ok &&
+    sandbox23.hero.hp === sandbox23.hero.maxHp &&
+    sandbox23.hero.mp === sandbox23.hero.maxMp &&
+    !sandbox23.hero.statuses.some(s => s.id === 'poisoned') &&
+    sandbox23.hero.statuses.some(s => s.id === 'shield_buff');
+
+  // D. revealMap (Explores all tiles on current floor)
+  const revealRes = revealMap(sandbox23);
+  let allExplored = true;
+  const fw15 = devFl15.width;
+  const fh15 = devFl15.height;
+  for (let y = 0; y < fh15; y++) {
+    for (let x = 0; x < fw15; x++) {
+      if (devFl15.explored[y][x] !== 1) {
+        allExplored = false;
+        break;
+      }
+    }
+    if (!allExplored) break;
+  }
+  const revealValid = revealRes.ok && allExplored;
+
+  // E. toggleGodMode (Immunity toggle & combat integration)
+  const god1 = toggleGodMode(sandbox23);
+  const godActive = god1.ok && sandbox23.hero.godMode === true;
+  const dummyMonster = { id: 'star_cultist', name: 'Cultist', atk: 50, def: 0 };
+  const hpBeforeHit = sandbox23.hero.hp;
+  monsterAttackHero(dummyMonster, false, sandbox23);
+  const immuneWorked = sandbox23.hero.hp === hpBeforeHit;
+  const god2 = toggleGodMode(sandbox23);
+  const godToggledOff = god2.ok && sandbox23.hero.godMode === false;
+
+  // F. executeDevCommand REPL (Warp command & Help)
+  const replWarp = executeDevCommand('goto 5', sandbox23);
+  const replHelp = executeDevCommand('help', sandbox23);
+  const replValid = replWarp.ok &&
+    sandbox23.dungeon.currentFloor === 5 &&
+    replHelp.ok &&
+    replHelp.output.indexOf('goto') !== -1;
+
+  const t23Checks = {
+    warpValid: !!warpValid,
+    lvlValid: !!lvlValid,
+    healValid: !!healValid,
+    revealValid: !!revealValid,
+    godActive: !!godActive,
+    immuneWorked: !!immuneWorked,
+    godToggledOff: !!godToggledOff,
+    replValid: !!replValid
+  };
+  const failedKeys23 = Object.keys(t23Checks).filter(k => !t23Checks[k]);
+  const t23Pass = failedKeys23.length === 0;
+  results.push({
+    name: '23. Developer Console Engine (Floor Warp, Hero Level Scaling, Cheats & REPL)',
+    pass: t23Pass,
+    detail: failedKeys23.length === 0
+      ? 'Arbitrary floor warp, level 10 talent/stat scaling, full heal, map reveal, godmode & REPL verified'
+      : `Failed checks: ${failedKeys23.join(', ')}`
+  });
+
   return results;
 }
 
@@ -939,7 +1041,7 @@ export function runSelfTests(renderModal = false) {
   if (typeof document !== 'undefined') {
     const btnText = document.getElementById('verifyBtnText');
     if (btnText) {
-      btnText.textContent = `Verify Inc-6 (${passCount}/${results.length} PASS)`;
+      btnText.textContent = `Verify Inc-6.5 (${passCount}/${results.length} PASS)`;
     }
 
     if (renderModal) {

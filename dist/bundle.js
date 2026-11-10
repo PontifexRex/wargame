@@ -4780,6 +4780,10 @@ function attackMonster(monster, state = gameState) {
 function checkHeroFatalDamage(killerName, state = gameState) {
   const ui = getActionCallbacks();
   const h = state.hero;
+  if (h.godMode) {
+    h.hp = h.maxHp;
+    return;
+  }
   // Paladin Divine Intervention Keystone
   if (h.classId === 'paladin' && ((h.talentsAllocated && h.talentsAllocated.p_e3) || 0) > 0 && !h.usedDivineIntervention) {
     h.usedDivineIntervention = true;
@@ -4798,6 +4802,13 @@ function checkHeroFatalDamage(killerName, state = gameState) {
 function monsterAttackHero(m, isRanged, state = gameState) {
   const ui = getActionCallbacks();
   const h = state.hero;
+  if (h.godMode) {
+    if (state === gameState) {
+      ui.floatingText(h.x, h.y, 'IMMUNE!', '#fbbf24');
+      ui.log(`${m.name}'s attack bounces off your invulnerable shield!`, 'info');
+    }
+    return;
+  }
   if (Math.random() * 100 < h.dodge) {
     if (state === gameState) {
       ui.floatingText(h.x, h.y, 'DODGE!', '#34d399');
@@ -7596,8 +7607,461 @@ function importSaveJson() {
   }
 }
 
+  // --- Module: src/engine/dev.js ---
+// Developer & Tester Console Engine Actions (Teleport, Level Scaling, Cheats & REPL)
+
+
+
+
+
+
+function gotoFloor(depth, dungeonId = null, state = gameState) {
+  if (!state || !state.hero) {
+    return { ok: false, reason: 'no_hero' };
+  }
+
+  // Switch active dungeon if specified
+  if (dungeonId && state.dungeons && state.dungeons[dungeonId]) {
+    state.activeDungeonId = dungeonId;
+    syncActiveDungeonAlias(state);
+  }
+
+  if (!state.dungeon) {
+    syncActiveDungeonAlias(state);
+  }
+  if (!state.dungeon) {
+    return { ok: false, reason: 'no_dungeon' };
+  }
+
+  const dng = state.dungeon;
+  const targetDepth = Math.max(1, Math.min(999, Math.round(Number(depth) || 1)));
+
+  // Generate floor if not already generated or stored
+  if (!dng.floors) dng.floors = {};
+  if (!dng.floors[targetDepth]) {
+    const seed = dng.numericSeed || hashSeedString(dng.seedCode || 'STAR-0001', 0);
+    dng.floors[targetDepth] = generateFloor(targetDepth, dng.config, seed);
+  }
+
+  const floor = ensureDungeonFloorHydrated(dng, targetDepth);
+  if (!floor) {
+    return { ok: false, reason: 'floor_generation_failed' };
+  }
+
+  dng.currentFloor = targetDepth;
+  dng.deepestFloor = Math.max(dng.deepestFloor || 1, targetDepth);
+  state.inGuild = false;
+
+  // Position hero on stairs up or safe floor tile
+  const fw = floor.width || (floor.tiles[0] ? floor.tiles[0].length : DEFAULT_MAP_W);
+  const fh = floor.height || floor.tiles.length || DEFAULT_MAP_H;
+  let placed = false;
+
+  if (floor.upPos && floor.upPos.x >= 0 && floor.upPos.y >= 0) {
+    const t = floor.tiles[floor.upPos.y][floor.upPos.x];
+    if (t === TILE_FLOOR || t === TILE_STAIRS_UP) {
+      state.hero.x = floor.upPos.x;
+      state.hero.y = floor.upPos.y;
+      placed = true;
+    }
+  }
+
+  if (!placed) {
+    for (let y = 1; y < fh - 1; y++) {
+      for (let x = 1; x < fw - 1; x++) {
+        if (floor.tiles[y][x] === TILE_FLOOR) {
+          state.hero.x = x;
+          state.hero.y = y;
+          placed = true;
+          break;
+        }
+      }
+      if (placed) break;
+    }
+  }
+
+  // Ensure hero starting tile is explored
+  if (floor.explored && floor.explored[state.hero.y]) {
+    floor.explored[state.hero.y][state.hero.x] = 1;
+  }
+
+  if (state === gameState) {
+    emitEngineEvent(ENGINE_EVENTS.FOV_SYNC, {}, state);
+    emitEngineEvent(ENGINE_EVENTS.UI_SYNC, {}, state);
+    emitEngineEvent(ENGINE_EVENTS.LOG, {
+      msg: `[DEV] Warped to ${dng.name} Floor ${targetDepth} at (${state.hero.x}, ${state.hero.y}).`,
+      tone: 'gold'
+    }, state);
+    saveGame();
+  }
+
+  return {
+    ok: true,
+    depth: targetDepth,
+    dungeonId: dng.id,
+    dungeonName: dng.name,
+    x: state.hero.x,
+    y: state.hero.y
+  };
+}
+
+function setHeroLevel(targetLevel, state = gameState) {
+  if (!state || !state.hero) {
+    return { ok: false, reason: 'no_hero' };
+  }
+
+  const h = state.hero;
+  const newLvl = Math.max(1, Math.min(100, Math.round(Number(targetLevel) || 1)));
+
+  // Calculate cumulative maxXp curve
+  let newMaxXp = 40;
+  for (let lvl = 2; lvl <= newLvl; lvl++) {
+    newMaxXp = Math.round(newMaxXp * 1.4);
+  }
+
+  h.level = newLvl;
+  h.xp = 0;
+  h.maxXp = newMaxXp;
+
+  // Stat points: +2 per level above 1 minus points already spent in bonusStats
+  const totalEarnedStatPoints = (newLvl - 1) * 2;
+  const b = h.bonusStats || { str: 0, dex: 0, int: 0, vit: 0 };
+  const spentStats = (b.str || 0) + (b.dex || 0) + (b.int || 0) + (b.vit || 0);
+  h.statPoints = Math.max(0, totalEarnedStatPoints - spentStats);
+
+  // Talent points: +1 per level above 1 minus talents already allocated
+  const totalEarnedTalents = Math.max(0, newLvl - 1);
+  let allocatedTalents = 0;
+  if (h.talentsAllocated) {
+    const keys = Object.keys(h.talentsAllocated);
+    for (let i = 0; i < keys.length; i++) {
+      allocatedTalents += (h.talentsAllocated[keys[i]] || 0);
+    }
+  }
+  h.talentPoints = Math.max(0, totalEarnedTalents - allocatedTalents);
+
+  recomputeHeroDerivedStats(true, state);
+  h.hp = h.maxHp;
+  h.mp = h.maxMp;
+
+  if (state === gameState) {
+    emitEngineEvent(ENGINE_EVENTS.UI_SYNC, {}, state);
+    emitEngineEvent(ENGINE_EVENTS.LOG, {
+      msg: `[DEV] Set hero to Level ${newLvl} (Max HP ${h.maxHp}, Max MP ${h.maxMp}, ${h.talentPoints} Talent Pts).`,
+      tone: 'gold'
+    }, state);
+    saveGame();
+  }
+
+  return {
+    ok: true,
+    level: newLvl,
+    maxHp: h.maxHp,
+    maxMp: h.maxMp,
+    talentPoints: h.talentPoints,
+    statPoints: h.statPoints
+  };
+}
+
+function fullHeal(state = gameState) {
+  if (!state || !state.hero) return { ok: false };
+  const h = state.hero;
+  h.hp = h.maxHp;
+  h.mp = h.maxMp;
+  h.statuses = (h.statuses || []).filter(s => Boolean(s.isBuff));
+  recomputeHeroDerivedStats(false, state);
+
+  if (state === gameState) {
+    emitEngineEvent(ENGINE_EVENTS.UI_SYNC, {}, state);
+    emitEngineEvent(ENGINE_EVENTS.LOG, {
+      msg: '[DEV] Restored full HP & MP and cleansed negative statuses.',
+      tone: 'good'
+    }, state);
+  }
+
+  return { ok: true, hp: h.hp, mp: h.mp };
+}
+
+function revealMap(state = gameState) {
+  if (!state || !state.dungeon) return { ok: false };
+  const floor = ensureDungeonFloorHydrated(state.dungeon, state.dungeon.currentFloor);
+  if (!floor) return { ok: false };
+
+  const fw = floor.width || (floor.tiles[0] ? floor.tiles[0].length : DEFAULT_MAP_W);
+  const fh = floor.height || floor.tiles.length || DEFAULT_MAP_H;
+
+  for (let y = 0; y < fh; y++) {
+    for (let x = 0; x < fw; x++) {
+      floor.explored[y][x] = 1;
+    }
+  }
+
+  if (state === gameState) {
+    emitEngineEvent(ENGINE_EVENTS.FOV_SYNC, {}, state);
+    emitEngineEvent(ENGINE_EVENTS.LOG, {
+      msg: `[DEV] Revealed entire chart for Floor ${floor.depth}.`,
+      tone: 'gold'
+    }, state);
+  }
+
+  return { ok: true, depth: floor.depth };
+}
+
+function toggleGodMode(state = gameState) {
+  if (!state || !state.hero) return { ok: false };
+  state.hero.godMode = !state.hero.godMode;
+
+  if (state === gameState) {
+    emitEngineEvent(ENGINE_EVENTS.UI_SYNC, {}, state);
+    emitEngineEvent(ENGINE_EVENTS.LOG, {
+      msg: `[DEV] God Mode ${state.hero.godMode ? 'ACTIVATED' : 'DEACTIVATED'}.`,
+      tone: state.hero.godMode ? 'gold' : 'info'
+    }, state);
+  }
+
+  return { ok: true, godMode: state.hero.godMode };
+}
+
+function executeDevCommand(cmdStr, state = gameState) {
+  if (!cmdStr || typeof cmdStr !== 'string') {
+    return { ok: false, output: 'Empty command.' };
+  }
+
+  const raw = cmdStr.trim();
+  const parts = raw.split(/\s+/);
+  const verb = parts[0].toLowerCase();
+  const arg1 = parts[1];
+  const arg2 = parts[2];
+
+  if (verb === 'goto' || verb === 'warp' || verb === 'floor') {
+    const depth = Number(arg1);
+    if (!depth || depth < 1) {
+      return { ok: false, output: 'Usage: goto <depth> [dungeonId]' };
+    }
+    const res = gotoFloor(depth, arg2 || null, state);
+    return {
+      ok: res.ok,
+      output: res.ok ? `Warped to ${res.dungeonName} Floor ${res.depth} at (${res.x}, ${res.y})` : `Failed to warp: ${res.reason}`
+    };
+  }
+
+  if (verb === 'level' || verb === 'lvl') {
+    const lvl = Number(arg1);
+    if (!lvl || lvl < 1) {
+      return { ok: false, output: 'Usage: level <1-100>' };
+    }
+    const res = setHeroLevel(lvl, state);
+    return {
+      ok: res.ok,
+      output: res.ok ? `Set Hero Level to ${res.level} (${res.talentPoints} Talent Pts, ${res.statPoints} Stat Pts)` : `Failed: ${res.reason}`
+    };
+  }
+
+  if (verb === 'heal') {
+    const res = fullHeal(state);
+    return { ok: res.ok, output: 'Restored full HP/MP & cleansed negative statuses.' };
+  }
+
+  if (verb === 'reveal' || verb === 'map') {
+    const res = revealMap(state);
+    return { ok: res.ok, output: 'Revealed full floor chart.' };
+  }
+
+  if (verb === 'god') {
+    const res = toggleGodMode(state);
+    return { ok: res.ok, output: `God Mode is now ${res.godMode ? 'ON' : 'OFF'}` };
+  }
+
+  if (verb === 'help') {
+    return {
+      ok: true,
+      output: 'Commands: goto <depth> [dungeonId], level <lvl>, heal, reveal, god, help'
+    };
+  }
+
+  return { ok: false, output: `Unknown command "${verb}". Type "help" for a list of commands.` };
+}
+
+  // --- Module: src/ui/devConsole.js ---
+// Developer & Tester Console UI Component (Overlay, Command REPL & Quick Toolbar)
+
+
+
+let commandHistory = [];
+let historyIndex = -1;
+
+function isDevConsoleOpen() {
+  if (typeof document === 'undefined') return false;
+  const modal = document.getElementById('devConsoleModal');
+  return modal && !modal.classList.contains('hidden');
+}
+
+function openDevConsole() {
+  if (typeof document === 'undefined') return;
+  const modal = document.getElementById('devConsoleModal');
+  if (!modal) return;
+
+  // Populate dungeon select options if empty
+  const dngSelect = document.getElementById('devDungeonSelect');
+  if (dngSelect && dngSelect.children.length === 0 && gameState.dungeons) {
+    const dKeys = Object.keys(gameState.dungeons);
+    dngSelect.innerHTML = dKeys.map(k => {
+      const d = gameState.dungeons[k];
+      const isCur = k === gameState.activeDungeonId;
+      return `<option value="${k}" ${isCur ? 'selected' : ''}>${d.name || k}</option>`;
+    }).join('');
+  }
+
+  // Pre-fill current floor depth & level
+  const depthInput = document.getElementById('devFloorDepthInput');
+  if (depthInput && gameState.dungeon) {
+    depthInput.value = gameState.dungeon.currentFloor || 1;
+  }
+  const levelInput = document.getElementById('devHeroLevelInput');
+  if (levelInput && gameState.hero) {
+    levelInput.value = gameState.hero.level || 1;
+  }
+
+  modal.classList.remove('hidden');
+
+  const inputEl = document.getElementById('devConsoleInput');
+  if (inputEl) {
+    inputEl.focus();
+  }
+}
+
+function closeDevConsole() {
+  if (typeof document === 'undefined') return;
+  const modal = document.getElementById('devConsoleModal');
+  if (modal) modal.classList.add('hidden');
+}
+
+function toggleDevConsole() {
+  if (isDevConsoleOpen()) {
+    closeDevConsole();
+  } else {
+    openDevConsole();
+  }
+}
+
+function logDevConsole(text, tone = 'info') {
+  if (typeof document === 'undefined') return;
+  const outBox = document.getElementById('devConsoleOutput');
+  if (!outBox) return;
+
+  const colors = {
+    gold: '#fbbf24',
+    good: '#34d399',
+    bad:  '#f87171',
+    info: '#94a3b8'
+  };
+
+  const line = document.createElement('div');
+  line.style.color = colors[tone] || colors.info;
+  line.textContent = `> ${text}`;
+  outBox.appendChild(line);
+
+  while (outBox.children.length > 80) {
+    outBox.removeChild(outBox.firstChild);
+  }
+  outBox.scrollTop = outBox.scrollHeight;
+}
+
+function handleDevWarpClick() {
+  if (typeof document === 'undefined') return;
+  const dngSelect = document.getElementById('devDungeonSelect');
+  const depthInput = document.getElementById('devFloorDepthInput');
+  const dId = dngSelect ? dngSelect.value : null;
+  const depth = depthInput ? Number(depthInput.value) : 1;
+
+  const res = gotoFloor(depth, dId);
+  if (res.ok) {
+    logDevConsole(`Warped to ${res.dungeonName} Floor ${res.depth} at (${res.x}, ${res.y})`, 'gold');
+  } else {
+    logDevConsole(`Failed to warp: ${res.reason}`, 'bad');
+  }
+}
+
+function handleDevSetLevelClick() {
+  if (typeof document === 'undefined') return;
+  const levelInput = document.getElementById('devHeroLevelInput');
+  const targetLevel = levelInput ? Number(levelInput.value) : 1;
+
+  const res = setHeroLevel(targetLevel);
+  if (res.ok) {
+    logDevConsole(`Hero level set to ${res.level} (${res.talentPoints} Talents, ${res.statPoints} Stat Pts)`, 'gold');
+  } else {
+    logDevConsole(`Failed to set level: ${res.reason}`, 'bad');
+  }
+}
+
+function handleDevFullHealClick() {
+  const res = fullHeal();
+  if (res.ok) {
+    logDevConsole(`Restored full HP (${res.hp}) & MP (${res.mp})`, 'good');
+  }
+}
+
+function handleDevRevealMapClick() {
+  const res = revealMap();
+  if (res.ok) {
+    logDevConsole(`Revealed full chart for Floor ${res.depth}`, 'gold');
+  }
+}
+
+function handleDevGodModeClick() {
+  const res = toggleGodMode();
+  if (res.ok) {
+    logDevConsole(`God Mode is now ${res.godMode ? 'ACTIVE' : 'OFF'}`, res.godMode ? 'gold' : 'info');
+  }
+}
+
+function handleDevTerminalSubmit() {
+  if (typeof document === 'undefined') return;
+  const inputEl = document.getElementById('devConsoleInput');
+  if (!inputEl) return;
+
+  const cmd = inputEl.value.trim();
+  if (!cmd) return;
+
+  commandHistory.push(cmd);
+  historyIndex = commandHistory.length;
+  inputEl.value = '';
+
+  logDevConsole(`$ ${cmd}`, 'info');
+
+  const res = executeDevCommand(cmd);
+  logDevConsole(res.output, res.ok ? 'good' : 'bad');
+}
+
+function handleDevTerminalKeyDown(e) {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    handleDevTerminalSubmit();
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    if (commandHistory.length === 0) return;
+    if (historyIndex > 0) historyIndex--;
+    const inputEl = document.getElementById('devConsoleInput');
+    if (inputEl) inputEl.value = commandHistory[historyIndex] || '';
+  } else if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    if (commandHistory.length === 0) return;
+    if (historyIndex < commandHistory.length - 1) {
+      historyIndex++;
+      const inputEl = document.getElementById('devConsoleInput');
+      if (inputEl) inputEl.value = commandHistory[historyIndex] || '';
+    } else {
+      historyIndex = commandHistory.length;
+      const inputEl = document.getElementById('devConsoleInput');
+      if (inputEl) inputEl.value = '';
+    }
+  }
+}
+
   // --- Module: src/ui/input.js ---
 // Unified Keyboard, Camera-Translated Mouse, Minimap / Full-Map Click-to-Travel & Tactical Scanner Listeners
+
 
 
 
@@ -7684,9 +8148,27 @@ function setupInputs() {
     }
 
     if (e.code === 'Escape') {
+      if (isDevConsoleOpen()) {
+        closeDevConsole();
+        return;
+      }
       closeFullMapModal();
       closeExpeditionAtlasModal();
       closeItemInspectModal();
+      return;
+    }
+
+    if (isDevConsoleOpen()) {
+      if (e.key === '`' || e.code === 'Backquote') {
+        e.preventDefault();
+        closeDevConsole();
+      }
+      return;
+    }
+
+    if (e.key === '`' || e.code === 'Backquote' || (e.ctrlKey && e.shiftKey && e.code === 'KeyD')) {
+      e.preventDefault();
+      toggleDevConsole();
       return;
     }
 
@@ -7826,7 +8308,8 @@ function setupInputs() {
 }
 
   // --- Module: src/test/selfTest.js ---
-// 22/22 Comprehensive Automated Self-Test Suite (Sandboxed & Non-Destructive)
+// 23/23 Comprehensive Automated Self-Test Suite (Sandboxed & Non-Destructive)
+
 
 
 
@@ -8698,6 +9181,99 @@ function evaluateSelfTests() {
       : `Failed checks: ${failedKeys22.join(', ')}`
   });
 
+  // 23. Developer Console Engine (Floor Warp, Hero Level Scaling, Cheats & REPL)
+  const sandbox23 = createDefaultGameState();
+  selectAdventurerClass('fighter', sandbox23);
+
+  // A. gotoFloor (Warp to deep floor 15 in Starfall Citadel)
+  const warpRes = gotoFloor(15, 'dng_starfall', sandbox23);
+  const devFl15 = sandbox23.dungeon.floors[15];
+  const warpValid = warpRes.ok &&
+    sandbox23.dungeon.currentFloor === 15 &&
+    devFl15 &&
+    sandbox23.hero.x >= 0 &&
+    sandbox23.hero.y >= 0 &&
+    (devFl15.tiles[sandbox23.hero.y][sandbox23.hero.x] === TILE_FLOOR || devFl15.tiles[sandbox23.hero.y][sandbox23.hero.x] === TILE_STAIRS_UP) &&
+    !sandbox23.inGuild;
+
+  // B. setHeroLevel (Scale hero from level 1 to level 10)
+  const lvlRes = setHeroLevel(10, sandbox23);
+  const lvlValid = lvlRes.ok &&
+    sandbox23.hero.level === 10 &&
+    sandbox23.hero.talentPoints === 9 &&
+    sandbox23.hero.statPoints === 18 &&
+    sandbox23.hero.hp === sandbox23.hero.maxHp &&
+    sandbox23.hero.mp === sandbox23.hero.maxMp &&
+    sandbox23.hero.maxHp > 80;
+
+  // C. fullHeal (Cleanses debuffs, restores HP & MP)
+  sandbox23.hero.hp = 10;
+  sandbox23.hero.mp = 0;
+  sandbox23.hero.statuses = [
+    { id: 'poisoned', name: 'Poisoned', duration: 3, isBuff: false },
+    { id: 'shield_buff', name: 'Iron Skin', duration: 2, isBuff: true }
+  ];
+  const healRes = fullHeal(sandbox23);
+  const healValid = healRes.ok &&
+    sandbox23.hero.hp === sandbox23.hero.maxHp &&
+    sandbox23.hero.mp === sandbox23.hero.maxMp &&
+    !sandbox23.hero.statuses.some(s => s.id === 'poisoned') &&
+    sandbox23.hero.statuses.some(s => s.id === 'shield_buff');
+
+  // D. revealMap (Explores all tiles on current floor)
+  const revealRes = revealMap(sandbox23);
+  let allExplored = true;
+  const fw15 = devFl15.width;
+  const fh15 = devFl15.height;
+  for (let y = 0; y < fh15; y++) {
+    for (let x = 0; x < fw15; x++) {
+      if (devFl15.explored[y][x] !== 1) {
+        allExplored = false;
+        break;
+      }
+    }
+    if (!allExplored) break;
+  }
+  const revealValid = revealRes.ok && allExplored;
+
+  // E. toggleGodMode (Immunity toggle & combat integration)
+  const god1 = toggleGodMode(sandbox23);
+  const godActive = god1.ok && sandbox23.hero.godMode === true;
+  const dummyMonster = { id: 'star_cultist', name: 'Cultist', atk: 50, def: 0 };
+  const hpBeforeHit = sandbox23.hero.hp;
+  monsterAttackHero(dummyMonster, false, sandbox23);
+  const immuneWorked = sandbox23.hero.hp === hpBeforeHit;
+  const god2 = toggleGodMode(sandbox23);
+  const godToggledOff = god2.ok && sandbox23.hero.godMode === false;
+
+  // F. executeDevCommand REPL (Warp command & Help)
+  const replWarp = executeDevCommand('goto 5', sandbox23);
+  const replHelp = executeDevCommand('help', sandbox23);
+  const replValid = replWarp.ok &&
+    sandbox23.dungeon.currentFloor === 5 &&
+    replHelp.ok &&
+    replHelp.output.indexOf('goto') !== -1;
+
+  const t23Checks = {
+    warpValid: !!warpValid,
+    lvlValid: !!lvlValid,
+    healValid: !!healValid,
+    revealValid: !!revealValid,
+    godActive: !!godActive,
+    immuneWorked: !!immuneWorked,
+    godToggledOff: !!godToggledOff,
+    replValid: !!replValid
+  };
+  const failedKeys23 = Object.keys(t23Checks).filter(k => !t23Checks[k]);
+  const t23Pass = failedKeys23.length === 0;
+  results.push({
+    name: '23. Developer Console Engine (Floor Warp, Hero Level Scaling, Cheats & REPL)',
+    pass: t23Pass,
+    detail: failedKeys23.length === 0
+      ? 'Arbitrary floor warp, level 10 talent/stat scaling, full heal, map reveal, godmode & REPL verified'
+      : `Failed checks: ${failedKeys23.join(', ')}`
+  });
+
   return results;
 }
 
@@ -8708,7 +9284,7 @@ function runSelfTests(renderModal = false) {
   if (typeof document !== 'undefined') {
     const btnText = document.getElementById('verifyBtnText');
     if (btnText) {
-      btnText.textContent = `Verify Inc-6 (${passCount}/${results.length} PASS)`;
+      btnText.textContent = `Verify Inc-6.5 (${passCount}/${results.length} PASS)`;
     }
 
     if (renderModal) {
@@ -8848,6 +9424,8 @@ function runChaosFuzzer(seedCount = 25) {
 
 
 
+
+
 // Bind UI callbacks into engine actions & combat
 registerActionCallbacks({
   log: logChronicle,
@@ -8942,7 +9520,30 @@ const AethelgardAPI = {
   resolveFloorBiome,
   getCodexMasteryMultiplier,
   renderCodexTab,
-  runChaosFuzzer
+  runChaosFuzzer,
+  dev: {
+    gotoFloor: gotoFloor,
+    setLevel: setHeroLevel,
+    fullHeal: fullHeal,
+    revealMap: revealMap,
+    toggleGodMode: toggleGodMode,
+    executeCommand: executeDevCommand,
+    toggleConsole: toggleDevConsole,
+    openConsole: openDevConsole,
+    closeConsole: closeDevConsole
+  },
+  gotoFloor,
+  setHeroLevel,
+  openDevConsole,
+  closeDevConsole,
+  toggleDevConsole,
+  handleDevWarpClick,
+  handleDevSetLevelClick,
+  handleDevFullHealClick,
+  handleDevRevealMapClick,
+  handleDevGodModeClick,
+  handleDevTerminalSubmit,
+  handleDevTerminalKeyDown
 };
 
 function bootstrapApp() {

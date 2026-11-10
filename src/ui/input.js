@@ -37,6 +37,11 @@ import {
   closeExpeditionAtlasModal,
   closeItemInspectModal
 } from './modals.js';
+import {
+  toggleDevConsole,
+  closeDevConsole,
+  isDevConsoleOpen
+} from './devConsole.js';
 
 export function updateScannerOnHover(gx, gy) {
   if (typeof document === 'undefined') return;
@@ -115,9 +120,27 @@ export function setupInputs() {
     }
 
     if (e.code === 'Escape') {
+      if (isDevConsoleOpen()) {
+        closeDevConsole();
+        return;
+      }
       closeFullMapModal();
       closeExpeditionAtlasModal();
       closeItemInspectModal();
+      return;
+    }
+
+    if (isDevConsoleOpen()) {
+      if (e.key === '`' || e.code === 'Backquote') {
+        e.preventDefault();
+        closeDevConsole();
+      }
+      return;
+    }
+
+    if (e.key === '`' || e.code === 'Backquote' || (e.ctrlKey && e.shiftKey && e.code === 'KeyD')) {
+      e.preventDefault();
+      toggleDevConsole();
       return;
     }
 

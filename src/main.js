@@ -88,6 +88,26 @@ import {
 import { TALENT_TREES } from './data/talents.js';
 import { GEM_CATALOG } from './data/gems.js';
 import { CURATED_DUNGEON_PROFILES, BIOME_PALETTES, resolveFloorBiome } from './data/dungeons.js';
+import {
+  gotoFloor,
+  setHeroLevel,
+  fullHeal,
+  revealMap,
+  toggleGodMode,
+  executeDevCommand
+} from './engine/dev.js';
+import {
+  openDevConsole,
+  closeDevConsole,
+  toggleDevConsole,
+  handleDevWarpClick,
+  handleDevSetLevelClick,
+  handleDevFullHealClick,
+  handleDevRevealMapClick,
+  handleDevGodModeClick,
+  handleDevTerminalSubmit,
+  handleDevTerminalKeyDown
+} from './ui/devConsole.js';
 
 // Bind UI callbacks into engine actions & combat
 registerActionCallbacks({
@@ -183,7 +203,30 @@ export const AethelgardAPI = {
   resolveFloorBiome,
   getCodexMasteryMultiplier,
   renderCodexTab,
-  runChaosFuzzer
+  runChaosFuzzer,
+  dev: {
+    gotoFloor: gotoFloor,
+    setLevel: setHeroLevel,
+    fullHeal: fullHeal,
+    revealMap: revealMap,
+    toggleGodMode: toggleGodMode,
+    executeCommand: executeDevCommand,
+    toggleConsole: toggleDevConsole,
+    openConsole: openDevConsole,
+    closeConsole: closeDevConsole
+  },
+  gotoFloor,
+  setHeroLevel,
+  openDevConsole,
+  closeDevConsole,
+  toggleDevConsole,
+  handleDevWarpClick,
+  handleDevSetLevelClick,
+  handleDevFullHealClick,
+  handleDevRevealMapClick,
+  handleDevGodModeClick,
+  handleDevTerminalSubmit,
+  handleDevTerminalKeyDown
 };
 
 function bootstrapApp() {
