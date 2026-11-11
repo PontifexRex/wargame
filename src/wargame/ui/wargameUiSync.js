@@ -13,7 +13,8 @@ import {
   CITY_BUILDINGS_CATALOG,
   CITY_PLOT_SLOTS,
   computeBuildingUpgradeCost,
-  computeBuildingDurationMs
+  computeBuildingDurationMs,
+  isBuildingPrerequisiteMet
 } from '../data/buildings.js';
 import {
   getPrimaryCity,
@@ -79,7 +80,7 @@ export function updateHeaderFastTick(simHost) {
 
   if (popEl && city) {
     const pop = computeCityPopulation(city, world);
-    const popStr = pop.current + '/' + pop.max;
+    const popStr = pop.starving ? (pop.current + '/' + pop.max + ' ⚠️') : (pop.current + '/' + pop.max);
     if (popEl.textContent != popStr) popEl.textContent = popStr;
   }
 }
@@ -574,10 +575,10 @@ export function renderCityBuilderPanel(simHost) {
       borderClass = 'border border-amber-400 bg-amber-950/30 animate-pulse';
       icon = '🔨';
       label = `<span class="text-[7px] font-mono text-amber-400 font-bold leading-none">BUILD</span>`;
-    } else if (bId === 'town_hall') {
+    } else if (bId === 'town_hall' || bId === 'meeting_hall') {
       borderClass = 'border-2 border-amber-400 bg-amber-950/20 shadow';
-      icon = bDef ? bDef.icon : '🏰';
-      label = `<span class="text-[7px] font-mono text-amber-400 font-bold leading-none">Keep ${plot.level}</span>`;
+      icon = bDef ? bDef.icon : '🏛️';
+      label = `<span class="text-[7px] font-mono text-amber-400 font-bold leading-none">Hall ${plot.level}</span>`;
     } else if (bDef) {
       borderClass = 'border border-emerald-500/50 bg-[#111722] hover:border-emerald-400';
       icon = bDef.icon;
@@ -767,7 +768,7 @@ export function renderCityBuilderPanel(simHost) {
               </button>
             ` : `
               <div class="py-1.5 px-2 rounded bg-slate-900 text-slate-600 border border-slate-800 text-[10px] font-mono text-center flex items-center justify-center">
-                Locked Citadel
+                Meeting Hall (Seat)
               </div>
             `}
           </div>
@@ -814,67 +815,43 @@ export function renderCityBuilderPanel(simHost) {
         }
       }
 
-      // Hide town_hall / meeting_hall from empty plot catalog (central citadel only) and redundant aliases
+      // Hide meeting hall (founded at center plot) and legacy aliases
+      // Only show buildings whose prerequisites are currently satisfied!
       const constructibleKeys = Object.keys(CITY_BUILDINGS_CATALOG).filter(function(k) {
-        return k !== 'town_hall' && k !== 'meeting_hall' && k !== 'farmstead' && k !== 'sawmill';
+        if (k === 'town_hall' || k === 'meeting_hall' || k === 'farmstead' || k === 'sawmill' || k === 'lumber_hut') return false;
+        return isBuildingPrerequisiteMet(city, k);
       });
 
-      const catalogCards = constructibleKeys.map(function(bId) {
-        const bDef = CITY_BUILDINGS_CATALOG[bId];
-        const cost = computeBuildingUpgradeCost(bId, 1);
-        const durMs = computeBuildingDurationMs(bId, 1);
+      const catalogCards = constructibleKeys.length > 0
+        ? constructibleKeys.map(function(bId) {
+            const bDef = CITY_BUILDINGS_CATALOG[bId];
+            const cost = computeBuildingUpgradeCost(bId, 1);
+            const durMs = computeBuildingDurationMs(bId, 1);
 
-        // Check prerequisites
-        let reqMet = true;
-        let reqLabel = '';
-        if (bDef.requires) {
-          const rKeys = Object.keys(bDef.requires);
-          for (let r = 0; r < rKeys.length; r++) {
-            const reqB = rKeys[r];
-            const reqLvl = bDef.requires[reqB];
-            let curReqLvl = 0;
-            if (reqB === 'meeting_hall' || reqB === 'town_hall') {
-              curReqLvl = Math.max((city.buildings && city.buildings.meeting_hall) || 0, (city.buildings && city.buildings.town_hall) || 0);
-            } else if (reqB === 'garden' || reqB === 'farmstead') {
-              curReqLvl = Math.max((city.buildings && city.buildings.garden) || 0, (city.buildings && city.buildings.farmstead) || 0);
-            } else if (reqB === 'lumber_hut' || reqB === 'sawmill') {
-              curReqLvl = Math.max((city.buildings && city.buildings.lumber_hut) || 0, (city.buildings && city.buildings.sawmill) || 0);
-            } else {
-              curReqLvl = (city.buildings && city.buildings[reqB]) || 0;
-            }
-            if (curReqLvl < reqLvl) {
-              reqMet = false;
-              const reqDef = CITY_BUILDINGS_CATALOG[reqB];
-              reqLabel = 'Requires ' + (reqDef ? reqDef.name : reqB) + ' Lv ' + reqLvl;
-              break;
-            }
-          }
-        }
+            const canAfford = (city.stockpile.wood  || 0) >= (cost.wood  || 0) &&
+                              (city.stockpile.stone || 0) >= (cost.stone || 0) &&
+                              (city.stockpile.gold  || 0) >= (cost.gold  || 0) &&
+                              (city.stockpile.water || 0) >= (cost.water || 0) &&
+                              (city.stockpile.ore   || 0) >= (cost.ore   || 0);
 
-        const canAfford = (city.stockpile.wood  || 0) >= (cost.wood  || 0) &&
-                          (city.stockpile.stone || 0) >= (cost.stone || 0) &&
-                          (city.stockpile.gold  || 0) >= (cost.gold  || 0) &&
-                          (city.stockpile.water || 0) >= (cost.water || 0) &&
-                          (city.stockpile.ore   || 0) >= (cost.ore   || 0);
-
-        return `
-          <div class="p-2.5 rounded bg-[#080b11] border ${reqMet ? 'border-[#283347]' : 'border-slate-800 opacity-60'} flex items-center justify-between gap-2">
-            <div class="flex items-center gap-2.5 min-w-0">
-              <span class="text-xl">${bDef.icon}</span>
-              <div class="min-w-0">
-                <div class="text-xs font-bold text-[#e6edf3] truncate">${bDef.name}</div>
-                <div class="text-[10px] font-mono text-[#8b949e]">
-                  ${cost.wood}W • ${cost.stone}S${cost.gold ? (' • ' + cost.gold + 'G') : ''}${cost.water ? (' • ' + cost.water + '💧') : ''}${cost.ore ? (' • ' + cost.ore + '⛏️') : ''} • ⏱ ${formatSimDuration(durMs)}
+            return `
+              <div class="p-2.5 rounded bg-[#080b11] border border-[#283347] flex items-center justify-between gap-2">
+                <div class="flex items-center gap-2.5 min-w-0">
+                  <span class="text-xl">${bDef.icon}</span>
+                  <div class="min-w-0">
+                    <div class="text-xs font-bold text-[#e6edf3] truncate">${bDef.name}</div>
+                    <div class="text-[10px] font-mono text-[#8b949e]">
+                      ${cost.wood}W • ${cost.stone}S${cost.gold ? (' • ' + cost.gold + 'G') : ''}${cost.water ? (' • ' + cost.water + '💧') : ''}${cost.ore ? (' • ' + cost.ore + '⛏️') : ''} • ⏱ ${formatSimDuration(durMs)}
+                    </div>
+                  </div>
                 </div>
-                ${!reqMet ? `<div class="text-[9px] font-mono text-red-400 font-semibold">${reqLabel}</div>` : ''}
+                <button data-action="queue-building" data-plot-index="${selPlot.plotIndex}" data-building-id="${bId}" onclick="window.WargameApp.handleQueueBuilding(${selPlot.plotIndex}, '${bId}')" ${!canAfford ? 'disabled' : ''} class="px-3 py-1.5 rounded font-bold text-[11px] uppercase whitespace-nowrap cursor-pointer ${canAfford ? 'bg-amber-400 hover:bg-amber-500 text-slate-900' : 'bg-slate-800 text-slate-500 cursor-not-allowed'}">
+                  🔨 Build
+                </button>
               </div>
-            </div>
-            <button data-action="queue-building" data-plot-index="${selPlot.plotIndex}" data-building-id="${bId}" onclick="window.WargameApp.handleQueueBuilding(${selPlot.plotIndex}, '${bId}')" ${(!reqMet || !canAfford) ? 'disabled' : ''} class="px-3 py-1.5 rounded font-bold text-[11px] uppercase whitespace-nowrap cursor-pointer ${reqMet && canAfford ? 'bg-amber-400 hover:bg-amber-500 text-slate-900' : 'bg-slate-800 text-slate-500 cursor-not-allowed'}">
-              🔨 Build
-            </button>
-          </div>
-        `;
-      }).join('');
+            `;
+          }).join('')
+        : `<div class="p-3.5 rounded bg-[#080b11] border border-[#283347] text-center text-xs text-[#8b949e] italic">No new buildings currently available. Grow your population or fulfill current tasks to unlock new structures!</div>`;
 
       inspectorHtml += `
         <div class="space-y-2">

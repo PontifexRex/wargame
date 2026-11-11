@@ -24,7 +24,9 @@ import {
 import {
   CITY_BUILDINGS_CATALOG,
   computeBuildingUpgradeCost,
-  computeBuildingDurationMs
+  computeBuildingDurationMs,
+  isBuildingPrerequisiteMet,
+  getBuildingPrerequisiteMissingReason
 } from '../data/buildings.js';
 import { CAMPAIGN_TASKS_DAG } from '../data/tasks.js';
 import {
@@ -274,6 +276,13 @@ export function dispatchWargameCommand(commandEnvelope, state, scheduler, eventS
         town_hall: 1,
         meeting_hall: 1
       },
+      population: {
+        current: 5,
+        max: 10,
+        growthProgress: 0,
+        starving: false,
+        starveTicks: 0
+      },
       plots: createDefaultCityPlots(),
       selectedPlotIndex: CITY_CENTER_PLOT_INDEX !== undefined ? CITY_CENTER_PLOT_INDEX : 27,
       buildQueue: [],
@@ -391,44 +400,26 @@ export function dispatchWargameCommand(commandEnvelope, state, scheduler, eventS
       return reject('That plot already has an active order');
     }
 
-    if (plot.buildingId && plot.buildingId !== buildingId) {
+    const isSameBuilding = (plot.buildingId === buildingId) ||
+      (plot.buildingId === 'town_hall' && buildingId === 'meeting_hall') ||
+      (plot.buildingId === 'meeting_hall' && buildingId === 'town_hall') ||
+      (plot.buildingId === 'farmstead' && buildingId === 'garden') ||
+      (plot.buildingId === 'garden' && buildingId === 'farmstead') ||
+      (plot.buildingId === 'sawmill' && (buildingId === 'lumber_camp' || buildingId === 'lumber_hut')) ||
+      (plot.buildingId === 'lumber_hut' && (buildingId === 'lumber_camp' || buildingId === 'sawmill')) ||
+      (plot.buildingId === 'lumber_camp' && (buildingId === 'sawmill' || buildingId === 'lumber_hut'));
+
+    if (plot.buildingId && !isSameBuilding) {
       return reject('Plot is already occupied by ' + plot.buildingId);
     }
 
-    // Check building prerequisites
-    if (bDef.requires) {
-      const reqKeys = Object.keys(bDef.requires);
-      for (let i = 0; i < reqKeys.length; i++) {
-        const reqB = reqKeys[i];
-        const reqLvl = bDef.requires[reqB];
-        let curReqLvl = 0;
-        if (reqB === 'meeting_hall' || reqB === 'town_hall') {
-          curReqLvl = Math.max(
-            (city.buildings && city.buildings.meeting_hall) || 0,
-            (city.buildings && city.buildings.town_hall) || 0
-          );
-        } else if (reqB === 'garden' || reqB === 'farmstead') {
-          curReqLvl = Math.max(
-            (city.buildings && city.buildings.garden) || 0,
-            (city.buildings && city.buildings.farmstead) || 0
-          );
-        } else if (reqB === 'lumber_hut' || reqB === 'sawmill') {
-          curReqLvl = Math.max(
-            (city.buildings && city.buildings.lumber_hut) || 0,
-            (city.buildings && city.buildings.sawmill) || 0
-          );
-        } else {
-          curReqLvl = (city.buildings && city.buildings[reqB]) || 0;
-        }
-
-        if (curReqLvl < reqLvl) {
-          const reqDef = CITY_BUILDINGS_CATALOG[reqB];
-          return reject('Requires ' + (reqDef ? reqDef.name : reqB) + ' Level ' + reqLvl);
-        }
-      }
+    // Check building prerequisites & population requirements
+    if (!isBuildingPrerequisiteMet(city, buildingId)) {
+      const reason = getBuildingPrerequisiteMissingReason(city, buildingId);
+      return reject(reason || 'Prerequisites not met');
     }
 
-    const currentLevel = plot.buildingId === buildingId ? (plot.level || 0) : 0;
+    const currentLevel = isSameBuilding ? (plot.level || 0) : 0;
     const targetLevel = currentLevel + 1;
     if (targetLevel > (bDef.maxLevel || 5)) {
       return reject(bDef.name + ' has reached maximum level');

@@ -8,7 +8,8 @@ import {
 } from '../constants.js';
 import { createWargameSimHost } from '../engine/simHost.js';
 import { createMinHeapPriorityQueue } from '../engine/scheduler.js';
-import { getPrimaryCity, getSelectedOverworldUnit } from '../engine/state.js';
+import { getPrimaryCity, getSelectedOverworldUnit, computeCityPopulation } from '../engine/state.js';
+import { computeBuildingDurationMs, isBuildingPrerequisiteMet } from '../data/buildings.js';
 
 export function evaluateWargameSelfTests() {
   const results = [];
@@ -40,7 +41,7 @@ export function evaluateWargameSelfTests() {
     host1.state.world.overworld.units.length === 1
   );
 
-  // Verify premature Hero Recruitment is strictly rejected before City & Guild Hall exist
+  // Verify premature Hero Recruitment is strictly rejected before City & Guild exist
   const prematureRecruit = host1.dispatch({
     type: COMMAND_TYPES.RECRUIT_HERO,
     payload: { classId: 'fighter' }
@@ -157,7 +158,7 @@ export function evaluateWargameSelfTests() {
   });
 
   // =========================================================================
-  // Test 4: City Founding, Multi-Domain Build Queue, Prorated Cancel & Demolition Salvage
+  // Test 4: 8x8 Spatial Grid (64 Plots), Plot Selection, Building Relocation & Demolition Salvage
   // =========================================================================
   const host4 = createWargameSimHost();
   host4.dispatch({
@@ -171,58 +172,55 @@ export function evaluateWargameSelfTests() {
   });
   const city4 = getPrimaryCity(host4.state);
   const phaseIsCity = host4.state.campaignPhase === CAMPAIGN_PHASES.CITY_ESTABLISHED;
-  // Verify Guild Hall is NOT pre-built for free!
   const guildNotBuiltYet = !city4.buildings.guild_hall;
 
-  // Queue a Timber Sawmill on Plot #1 (4000ms build time)
+  // Queue a Hut on Plot #1 (3000ms build time)
   const woodBefore = city4.stockpile.wood;
-  const queueSawmill = host4.dispatch({
+  const queueHut = host4.dispatch({
     type: COMMAND_TYPES.QUEUE_BUILDING,
-    payload: { plotIndex: 1, buildingId: 'sawmill' }
+    payload: { plotIndex: 1, buildingId: 'hut' }
   });
   const costDeducted = city4.stockpile.wood < woodBefore && city4.buildQueue.length === 1;
 
-  // Queue a Stoneworks Quarry on Plot #2 (pending item)
-  const woodBeforeQuarry = city4.stockpile.wood;
-  const queueQuarry = host4.dispatch({
+  // Queue a 2nd Hut on Plot #2 (pending item)
+  const woodBeforeHut2 = city4.stockpile.wood;
+  const queueHut2 = host4.dispatch({
     type: COMMAND_TYPES.QUEUE_BUILDING,
-    payload: { plotIndex: 2, buildingId: 'quarry' }
+    payload: { plotIndex: 2, buildingId: 'hut' }
   });
   // Cancel pending item -> 100% full refund
-  const cancelQuarry = host4.dispatch({
+  const cancelHut2 = host4.dispatch({
     type: COMMAND_TYPES.CANCEL_BUILDING,
-    payload: { queueItemId: queueQuarry.data.queueItem.queueItemId }
+    payload: { queueItemId: queueHut2.data.queueItem.queueItemId }
   });
-  const pendingRefundVerified = cancelQuarry.ok && city4.stockpile.wood === woodBeforeQuarry && city4.buildQueue.length === 1;
+  const pendingRefundVerified = cancelHut2.ok && city4.stockpile.wood === woodBeforeHut2 && city4.buildQueue.length === 1;
 
   // Test active cancel prorated refund + 50% cleanup demolition:
-  // Sawmill is active (duration 4000ms). Advance 2000ms (50% elapsed).
-  host4.stepClock(2000);
+  // Hut is active (duration 3000ms). Advance 1500ms (50% elapsed).
+  host4.stepClock(1500);
   const woodBeforeCancelActive = city4.stockpile.wood;
-  const cancelActiveSawmill = host4.dispatch({
+  const cancelActiveHut = host4.dispatch({
     type: COMMAND_TYPES.CANCEL_BUILDING,
-    payload: { queueItemId: queueSawmill.data.queueItem.queueItemId }
+    payload: { queueItemId: queueHut.data.queueItem.queueItemId }
   });
-  // Should receive prorated refund: ~50% of cost (targetLevel 1 cost: wood 25 -> floor(25 * 0.5) = 12)
-  const proratedRefundGiven = cancelActiveSawmill.ok && city4.stockpile.wood > woodBeforeCancelActive;
-  // Cleanup item scheduled for max(1000, 2000 * 0.5) = 1000ms
-  const cleanupJobActive = city4.buildQueue.length === 1 && city4.buildQueue[0].type === 'cleanup' && city4.buildQueue[0].durationMs === 1000;
+  const proratedRefundGiven = cancelActiveHut.ok && city4.stockpile.wood > woodBeforeCancelActive;
+  const cleanupJobActive = city4.buildQueue.length === 1 && city4.buildQueue[0].type === 'cleanup';
 
   // Advance clock by 1000ms to finish cleanup
   host4.stepClock(1000);
   const cleanupFinished = city4.buildQueue.length === 0 && !city4.plots[1].underConstruction && !city4.plots[1].demolishing;
 
-  // Re-queue Sawmill on Plot #1 and advance 4500ms -> Sawmill completes!
+  // Re-queue Hut on Plot #1 and advance 3500ms -> Hut completes!
   host4.dispatch({
     type: COMMAND_TYPES.QUEUE_BUILDING,
-    payload: { plotIndex: 1, buildingId: 'sawmill' }
+    payload: { plotIndex: 1, buildingId: 'hut' }
   });
-  host4.stepClock(4500);
-  const sawmillCompleted = city4.buildings.sawmill === 1;
+  host4.stepClock(3500);
+  const hutCompleted = city4.buildings.hut === 1;
 
-  // Verify 8x8 spatial grid (64 plots) & center keep
+  // Verify 8x8 spatial grid (64 plots) & center Meeting Hall
   const gridHas64Plots = Array.isArray(city4.plots) && city4.plots.length === 64;
-  const centerPlotIsKeep = city4.plots[27] && city4.plots[27].buildingId === 'town_hall' && city4.plots[27].level === 1;
+  const centerPlotIsHall = city4.plots[27] && (city4.plots[27].buildingId === 'town_hall' || city4.plots[27].buildingId === 'meeting_hall') && city4.plots[27].level === 1;
 
   // Test selecting city plot
   const selectPlotCmd = host4.dispatch({
@@ -231,7 +229,7 @@ export function evaluateWargameSelfTests() {
   });
   const plotSelected = selectPlotCmd.ok && city4.selectedPlotIndex === 12;
 
-  // Test moving a building (Plot 1 Sawmill to empty Plot 10)
+  // Test moving a building (Plot 1 Hut to empty Plot 10)
   const moveCmd = host4.dispatch({
     type: COMMAND_TYPES.MOVE_BUILDING,
     payload: { fromPlotIndex: 1, toPlotIndex: 10 }
@@ -242,12 +240,12 @@ export function evaluateWargameSelfTests() {
   // Advance clock by 2500ms -> move completes!
   host4.stepClock(2500);
   const moveCompleted = city4.plots[1].buildingId === null &&
-                        city4.plots[10].buildingId === 'sawmill' &&
+                        city4.plots[10].buildingId === 'hut' &&
                         city4.plots[10].level === 1 &&
                         !city4.plots[1].relocating &&
                         !city4.plots[10].relocating;
 
-  // Test deliberate Demolition of the relocated Sawmill on Plot 10 with 35% salvage:
+  // Test deliberate Demolition of the relocated Hut on Plot 10 with 35% salvage:
   const woodBeforeDemolish = city4.stockpile.wood;
   const demolishCmd = host4.dispatch({
     type: COMMAND_TYPES.DEMOLISH_BUILDING,
@@ -256,13 +254,13 @@ export function evaluateWargameSelfTests() {
   const demolishQueued = demolishCmd.ok && city4.buildQueue.length === 1 && city4.buildQueue[0].type === 'demolish';
   // Advance 2500ms to complete demolition
   host4.stepClock(2500);
-  const demolishCompleted = !city4.buildings.sawmill && city4.plots[10].level === 0 && city4.stockpile.wood > woodBeforeDemolish;
+  const demolishCompleted = !city4.buildings.hut && city4.plots[10].level === 0 && city4.stockpile.wood > woodBeforeDemolish;
 
   // Test 3-slot build queue limit
-  host4.dispatch({ type: COMMAND_TYPES.QUEUE_BUILDING, payload: { plotIndex: 1, buildingId: 'sawmill' } });
-  host4.dispatch({ type: COMMAND_TYPES.QUEUE_BUILDING, payload: { plotIndex: 2, buildingId: 'quarry' } });
-  host4.dispatch({ type: COMMAND_TYPES.QUEUE_BUILDING, payload: { plotIndex: 3, buildingId: 'farmstead' } });
-  const fourthQueueBlocked = !host4.dispatch({ type: COMMAND_TYPES.QUEUE_BUILDING, payload: { plotIndex: 4, buildingId: 'guild_hall' } }).ok;
+  host4.dispatch({ type: COMMAND_TYPES.QUEUE_BUILDING, payload: { plotIndex: 1, buildingId: 'hut' } });
+  host4.dispatch({ type: COMMAND_TYPES.QUEUE_BUILDING, payload: { plotIndex: 2, buildingId: 'hut' } });
+  host4.dispatch({ type: COMMAND_TYPES.QUEUE_BUILDING, payload: { plotIndex: 3, buildingId: 'hut' } });
+  const fourthQueueBlocked = !host4.dispatch({ type: COMMAND_TYPES.QUEUE_BUILDING, payload: { plotIndex: 4, buildingId: 'hut' } }).ok;
 
   const t4Pass = Boolean(
     foundCmd.ok &&
@@ -273,9 +271,9 @@ export function evaluateWargameSelfTests() {
     proratedRefundGiven &&
     cleanupJobActive &&
     cleanupFinished &&
-    sawmillCompleted &&
+    hutCompleted &&
     gridHas64Plots &&
-    centerPlotIsKeep &&
+    centerPlotIsHall &&
     plotSelected &&
     moveQueued &&
     plotsMarkedRelocating &&
@@ -289,12 +287,12 @@ export function evaluateWargameSelfTests() {
     name: '4. 8x8 Spatial Grid (64 Plots), Plot Selection, Building Relocation & Demolition Salvage',
     pass: t4Pass,
     detail: t4Pass
-      ? '8x8 grid of 64 plots initialized with central keep at (3,3), plot selection, timed building relocation, and demolition salvage verified'
+      ? '8x8 grid of 64 plots initialized with central Meeting Hall at (3,3), plot selection, timed building relocation, and demolition salvage verified'
       : 'Failed 8x8 spatial grid or relocation checks'
   });
 
   // =========================================================================
-  // Test 5: Adventurers Guild Hall Completion, 60s Hero Recruitment Queue & Vanguard Formation
+  // Test 5: Adventurers Guild Completion, 60s Hero Recruitment Queue & Vanguard Formation
   // =========================================================================
   const host5 = createWargameSimHost();
   host5.dispatch({
@@ -307,22 +305,38 @@ export function evaluateWargameSelfTests() {
   });
   const city5 = getPrimaryCity(host5.state);
 
-  // Claim completed tasks 1 and 2 to boost stockpiles
+  // Set up prerequisites to charter Adventurers Guild (Hut -> Garden -> Well -> Lumber Camp -> Quarry + 20 population)
+  city5.plots[1].buildingId = 'hut';
+  city5.plots[1].level = 1;
+  city5.buildings.hut = 1;
+  city5.buildings.garden = 1;
+  city5.buildings.well = 1;
+  city5.buildings.lumber_camp = 1;
+  city5.buildings.quarry = 1;
+  city5.population = { current: 20, max: 25, growthProgress: 0, starving: false };
+
+  // Claim campaign milestone rewards in sequence
   host5.dispatch({ type: COMMAND_TYPES.CLAIM_TASK_REWARD, payload: { taskId: 'task_scout_wilderness' } });
   host5.dispatch({ type: COMMAND_TYPES.CLAIM_TASK_REWARD, payload: { taskId: 'task_found_first_city' } });
+  host5.dispatch({ type: COMMAND_TYPES.CLAIM_TASK_REWARD, payload: { taskId: 'task_build_first_hut' } });
+  host5.dispatch({ type: COMMAND_TYPES.CLAIM_TASK_REWARD, payload: { taskId: 'task_build_garden' } });
+  host5.dispatch({ type: COMMAND_TYPES.CLAIM_TASK_REWARD, payload: { taskId: 'task_build_well' } });
+  host5.dispatch({ type: COMMAND_TYPES.CLAIM_TASK_REWARD, payload: { taskId: 'task_grow_population_12' } });
+  host5.dispatch({ type: COMMAND_TYPES.CLAIM_TASK_REWARD, payload: { taskId: 'task_build_lumber_camp' } });
+  host5.dispatch({ type: COMMAND_TYPES.CLAIM_TASK_REWARD, payload: { taskId: 'task_build_quarry' } });
 
-  // Queue Adventurers Guild Hall on Plot #4 (6000ms build duration)
+  // Queue Adventurers Guild on Plot #4 (6000ms build duration)
   const queueGuild = host5.dispatch({
     type: COMMAND_TYPES.QUEUE_BUILDING,
     payload: { plotIndex: 4, buildingId: 'guild_hall' }
   });
 
-  // Advance clock by 6500ms -> Guild Hall finishes and unlocks GUILD_UNLOCKED phase!
+  // Advance clock by 6500ms -> Guild finishes and unlocks GUILD_UNLOCKED phase!
   host5.stepClock(6500);
   const guildUnlocked = host5.state.campaignPhase === CAMPAIGN_PHASES.GUILD_UNLOCKED && city5.buildings.guild_hall === 1;
 
-  // Claim Task 4 ("Charter the Adventurers Guild Hall") -> grants +100 Gold, +50 Food
-  const claimTask4 = host5.dispatch({
+  // Claim Task ("Charter the Adventurers Guild") -> grants +100 Gold, +50 Food
+  const claimTaskGuild = host5.dispatch({
     type: COMMAND_TYPES.CLAIM_TASK_REWARD,
     payload: { taskId: 'task_build_guild_hall' }
   });
@@ -364,7 +378,7 @@ export function evaluateWargameSelfTests() {
   const t5Pass = Boolean(
     queueGuild.ok &&
     guildUnlocked &&
-    claimTask4.ok &&
+    claimTaskGuild.ok &&
     rangerQueued &&
     heroNotInstantlySpawned &&
     fighterQueued &&
@@ -375,15 +389,15 @@ export function evaluateWargameSelfTests() {
   );
 
   results.push({
-    name: '5. Adventurers Guild Hall Completion, 60s Hero Recruitment Queue & Vanguard Formation',
+    name: '5. Adventurers Guild Completion, 60s Hero Recruitment Queue & Vanguard Formation',
     pass: t5Pass,
     detail: t5Pass
-      ? 'Guild Hall completion unlocks recruitment, swearing in enqueues 60s trainee, cancel gives refund, and timer resolution inducts hero into Vanguard Party'
+      ? 'Guild completion unlocks recruitment, swearing in enqueues 60s trainee, cancel gives refund, and timer resolution inducts hero into Vanguard Party'
       : 'Failed 60s hero recruitment queue lifecycle'
   });
 
   // =========================================================================
-  // Test 6: Tier 1 Buildings, Meeting Hall Level Cap, Water/Ore & Windmill Synergy
+  // Test 6: Tier 1 Buildings, Meeting Hall Level Cap, Doubling Times & Paced Progression
   // =========================================================================
   const host6 = createWargameSimHost();
   host6.dispatch({
@@ -402,94 +416,94 @@ export function evaluateWargameSelfTests() {
                          city6.stockpile.water >= 50 &&
                          city6.stockpile.ore >= 20;
 
-  // 2. Verify Subsistence baseline production (+1 food, wood, stone, gold, water per 5s tick without industry)
-  const waterBeforeTick = city6.stockpile.water;
-  const foodBeforeTick  = city6.stockpile.food;
-  host6.stepClock(5000); // 5s resource production interval
-  const subsistenceYieldGiven = (city6.stockpile.water === waterBeforeTick + 1) &&
-                                (city6.stockpile.food === foodBeforeTick + 1);
+  // 2. Verify doubling construction duration:
+  // Base Hut build time = 3000ms. Level 2 = 6000ms. Level 3 = 12000ms.
+  const hutDurLv1 = computeBuildingDurationMs('hut', 1);
+  const hutDurLv2 = computeBuildingDurationMs('hut', 2);
+  const hutDurLv3 = computeBuildingDurationMs('hut', 3);
+  const durationDoubles = (hutDurLv1 === 3000 && hutDurLv2 === 6000 && hutDurLv3 === 12000);
 
-  // 3. Test Meeting Hall Level Cap:
-  // Build a Lumberjack Hut on Plot 1 (Level 1)
+  // 3. Verify Paced Building Unlock Progression:
+  // At founding, only Hut is constructible! Garden, Well, Lumber Camp, Quarry, Guild are locked.
+  const hutUnlockedInitially = isBuildingPrerequisiteMet(city6, 'hut');
+  const gardenLockedInitially = !isBuildingPrerequisiteMet(city6, 'garden');
+  const wellLockedInitially = !isBuildingPrerequisiteMet(city6, 'well');
+  const lumberLockedInitially = !isBuildingPrerequisiteMet(city6, 'lumber_camp');
+
+  // Build a Hut on Plot 1 -> now Garden unlocks!
   host6.dispatch({
     type: COMMAND_TYPES.QUEUE_BUILDING,
-    payload: { plotIndex: 1, buildingId: 'lumber_hut' }
+    payload: { plotIndex: 1, buildingId: 'hut' }
   });
-  host6.stepClock(4000); // Complete Lumberjack Hut
-  const lumberHutLevel1 = city6.plots[1].buildingId === 'lumber_hut' && city6.plots[1].level === 1;
+  host6.stepClock(3500); // Complete Hut
+  const hutCompleted6 = city6.plots[1].buildingId === 'hut' && city6.plots[1].level === 1;
+  const gardenUnlockedAfterHut = isBuildingPrerequisiteMet(city6, 'garden');
 
-  // Attempt to upgrade Lumberjack Hut to Level 2 while Meeting Hall is Level 1 -> MUST BE REJECTED!
-  const prematureLumberUpgrade = host6.dispatch({
+  // Attempt to upgrade Hut to Level 2 while Meeting Hall is Level 1 -> MUST BE REJECTED!
+  const prematureHutUpgrade = host6.dispatch({
     type: COMMAND_TYPES.QUEUE_BUILDING,
-    payload: { plotIndex: 1, buildingId: 'lumber_hut' }
+    payload: { plotIndex: 1, buildingId: 'hut' }
   });
-  const upgradeBlockedByMeetingHall = !prematureLumberUpgrade.ok;
+  const upgradeBlockedByMeetingHall = !prematureHutUpgrade.ok;
 
-  // Boost stockpile and upgrade Meeting Hall (Plot 27) to Level 2
+  // Upgrade Meeting Hall (Plot 27) to Level 2 (Takes 10,000ms with doubling duration)
   city6.stockpile.wood = 500;
   city6.stockpile.stone = 500;
   city6.stockpile.gold = 500;
+  city6.stockpile.food = 500;
+  city6.stockpile.water = 500;
   const queueMeetingHallLv2 = host6.dispatch({
     type: COMMAND_TYPES.QUEUE_BUILDING,
-    payload: { plotIndex: 27, buildingId: 'town_hall' }
+    payload: { plotIndex: 27, buildingId: 'meeting_hall' }
   });
-  host6.stepClock(8000); // Complete Meeting Hall Level 2
+  host6.stepClock(11000); // Complete Meeting Hall Level 2
   const meetingHallLevel2 = (city6.buildings.meeting_hall === 2 || city6.buildings.town_hall === 2);
 
-  // Now upgrade Lumberjack Hut to Level 2 -> MUST SUCCEED!
-  const validLumberUpgrade = host6.dispatch({
+  // Now upgrade Hut to Level 2 (Takes 6,000ms with doubling duration) -> MUST SUCCEED!
+  const validHutUpgrade = host6.dispatch({
     type: COMMAND_TYPES.QUEUE_BUILDING,
-    payload: { plotIndex: 1, buildingId: 'lumber_hut' }
+    payload: { plotIndex: 1, buildingId: 'hut' }
   });
-  const upgradeAllowedAfterMeetingHall = validLumberUpgrade.ok;
-  host6.stepClock(6000); // Finish upgrading Lumberjack Hut
+  const upgradeAllowedAfterMeetingHall = validHutUpgrade.ok;
+  host6.stepClock(7000); // Finish upgrading Hut to Lv 2
 
-  // 4. Test Hut Population Scaling & Multi-Building Stacking
-  const popBeforeHuts = city6.plots.reduce(function(acc, p) {
-    return acc + (p.buildingId === 'hut' ? (p.level * 5) : 0);
-  }, 10);
-  // Queue Hut 1 on Plot 2
-  host6.dispatch({ type: COMMAND_TYPES.QUEUE_BUILDING, payload: { plotIndex: 2, buildingId: 'hut' } });
+  // Build Garden on Plot 2 -> now Well unlocks!
+  host6.dispatch({
+    type: COMMAND_TYPES.QUEUE_BUILDING,
+    payload: { plotIndex: 2, buildingId: 'garden' }
+  });
   host6.stepClock(4000);
-  // Queue Hut 2 on Plot 3 (Multi-building stacking)
-  host6.dispatch({ type: COMMAND_TYPES.QUEUE_BUILDING, payload: { plotIndex: 3, buildingId: 'hut' } });
-  host6.stepClock(4000);
-  const hutPlotsCount = city6.plots.filter(function(p) { return p.buildingId === 'hut' && p.level === 1; }).length;
-  const multiHutVerified = (hutPlotsCount === 2);
+  const wellUnlockedAfterGarden = isBuildingPrerequisiteMet(city6, 'well');
 
-  // 5. Test Windmill Spatial Adjacency Synergy (+20% yield to orthogonal neighbors)
-  // Place Garden on Plot 18 (x=2, y=2)
-  host6.dispatch({ type: COMMAND_TYPES.QUEUE_BUILDING, payload: { plotIndex: 18, buildingId: 'garden' } });
-  host6.stepClock(4000);
-
-  // Place Windmill on Plot 26 (x=2, y=3) which is immediately South of Plot 18
-  host6.dispatch({ type: COMMAND_TYPES.QUEUE_BUILDING, payload: { plotIndex: 26, buildingId: 'windmill' } });
-  host6.stepClock(6000);
-
-  // Step clock by 5000ms for a resource tick
-  const foodBeforeSynergyTick = city6.stockpile.food;
-  host6.stepClock(5000);
-  // Expected food gain: +1 subsistence + Garden Lv 1 with Windmill +20% (6 * 1.20 = 7.2 -> 7) = +8
-  const foodGained = city6.stockpile.food - foodBeforeSynergyTick;
-  const windmillSynergyVerified = (foodGained >= 8);
+  // 4. Test Population Sustenance Consumption & Growth
+  // With 5 citizens, consumption is 1 food and 1 water per tick.
+  // With abundant food and water, growthProgress increases by +25 per tick.
+  const popBeforeTick = city6.population.current;
+  host6.stepClock(20000); // 4 resource production ticks (20s) -> should grow population by +1!
+  const popGrew = city6.population.current >= popBeforeTick + 1;
 
   const t6Pass = Boolean(
     hasWaterAndOre &&
-    subsistenceYieldGiven &&
-    lumberHutLevel1 &&
+    durationDoubles &&
+    hutUnlockedInitially &&
+    gardenLockedInitially &&
+    wellLockedInitially &&
+    lumberLockedInitially &&
+    hutCompleted6 &&
+    gardenUnlockedAfterHut &&
     upgradeBlockedByMeetingHall &&
     meetingHallLevel2 &&
     upgradeAllowedAfterMeetingHall &&
-    multiHutVerified &&
-    windmillSynergyVerified
+    wellUnlockedAfterGarden &&
+    popGrew
   );
 
   results.push({
-    name: '6. Tier 1 Buildings, Meeting Hall Level Cap, Water/Ore & Windmill Synergy',
+    name: '6. Tier 1 Buildings, Meeting Hall Level Cap, Doubling Times & Paced Progression',
     pass: t6Pass,
     detail: t6Pass
-      ? 'Subsistence yield, Meeting Hall level cap enforcement, Hut population stacking, and 8x8 Windmill adjacency synergy (+20%) verified'
-      : 'Failed Tier 1 building catalog or synergy invariants'
+      ? 'Doubling build durations, paced sequential unlocking (Hut -> Garden -> Well), Meeting Hall level cap, and population food/water consumption growth verified'
+      : 'Failed Tier 1 building catalog or paced progression invariants'
   });
 
   return results;

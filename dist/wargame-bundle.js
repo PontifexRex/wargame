@@ -977,7 +977,7 @@ const CAMPAIGN_TASKS_DAG = [
     category: 'exploration',
     prerequisites: [],
     triggerTopics: [STREAM_TOPICS.UNIT_MARCH_STEP, STREAM_TOPICS.UNIT_MARCH_COMPLETED, STREAM_TOPICS.CITY_FOUNDED],
-    desc: 'March your Pioneer Settler across the Overworld to survey nearby timber and stone deposits (move at least 2 tiles).',
+    desc: 'March your Pioneer Settler across the Overworld to survey the surrounding frontier (move at least 2 tiles).',
     rewardLabel: '+40 Wood, +30 Food',
     reward: { wood: 40, food: 30 },
     evaluate: function(state) {
@@ -990,11 +990,11 @@ const CAMPAIGN_TASKS_DAG = [
   },
   {
     id: 'task_found_first_city',
-    title: '2. Found Your Primary Bastion',
+    title: '2. Found Your Settlement',
     category: 'settlement',
     prerequisites: [],
     triggerTopics: [STREAM_TOPICS.CITY_FOUNDED],
-    desc: 'Position your Pioneer Settler on fertile grasslands or a river vale and issue the Found City command.',
+    desc: 'Position your Pioneer Settler on a fertile site and establish your initial settlement with its Meeting Hall.',
     rewardLabel: '+60 Wood, +60 Stone, +50 Gold',
     reward: { wood: 60, stone: 60, gold: 50 },
     evaluate: function(state) {
@@ -1004,20 +1004,125 @@ const CAMPAIGN_TASKS_DAG = [
     }
   },
   {
-    id: 'task_establish_production',
-    title: '3. Industrial Foundations',
-    category: 'economy',
+    id: 'task_build_first_hut',
+    title: '3. Expand the Settlement',
+    category: 'civic',
     prerequisites: ['task_found_first_city'],
     triggerTopics: [STREAM_TOPICS.BUILDING_COMPLETED],
-    desc: 'Construct a Timber Sawmill or Masonry Stoneworks in your city\'s real-time build queue.',
-    rewardLabel: '+50 Wood, +50 Stone, +40 Food',
-    reward: { wood: 50, stone: 50, food: 40 },
+    desc: 'Now that you founded your first city, you have to grow it. Build a Hut to attract more people.',
+    rewardLabel: '+40 Wood, +30 Food',
+    reward: { wood: 40, food: 30 },
+    evaluate: function(state) {
+      if (!state || !state.world || !state.world.cities) return { completed: false, progress: 0, target: 1 };
+      const cities = Object.values(state.world.cities);
+      for (let i = 0; i < cities.length; i++) {
+        const c = cities[i];
+        const hasHut = (c.plots || []).some(function(p) { return p.buildingId === 'hut' && (p.level || 0) >= 1; }) ||
+                       ((c.buildings && c.buildings.hut) || 0) >= 1;
+        if (hasHut) return { completed: true, progress: 1, target: 1 };
+      }
+      return { completed: false, progress: 0, target: 1 };
+    }
+  },
+  {
+    id: 'task_build_garden',
+    title: '4. Cultivate Food',
+    category: 'economy',
+    prerequisites: ['task_build_first_hut'],
+    triggerTopics: [STREAM_TOPICS.BUILDING_COMPLETED],
+    desc: 'As population grows, demands on food increase. Construct a Garden to produce food and prevent starvation.',
+    rewardLabel: '+40 Wood, +30 Stone',
+    reward: { wood: 40, stone: 30 },
     evaluate: function(state) {
       if (!state || !state.world || !state.world.cities) return { completed: false, progress: 0, target: 1 };
       const cities = Object.values(state.world.cities);
       for (let i = 0; i < cities.length; i++) {
         const b = cities[i].buildings || {};
-        if ((b.sawmill && b.sawmill >= 1) || (b.quarry && b.quarry >= 1)) {
+        if ((b.garden && b.garden >= 1) || (b.farmstead && b.farmstead >= 1)) {
+          return { completed: true, progress: 1, target: 1 };
+        }
+      }
+      return { completed: false, progress: 0, target: 1 };
+    }
+  },
+  {
+    id: 'task_build_well',
+    title: '5. Fresh Water Supply',
+    category: 'civic',
+    prerequisites: ['task_build_garden'],
+    triggerTopics: [STREAM_TOPICS.BUILDING_COMPLETED],
+    desc: 'Dig a Well to supply clean drinking water for your citizens and support growth.',
+    rewardLabel: '+30 Wood, +40 Stone, +20 Gold',
+    reward: { wood: 30, stone: 40, gold: 20 },
+    evaluate: function(state) {
+      if (!state || !state.world || !state.world.cities) return { completed: false, progress: 0, target: 1 };
+      const cities = Object.values(state.world.cities);
+      for (let i = 0; i < cities.length; i++) {
+        const b = cities[i].buildings || {};
+        if (b.well && b.well >= 1) {
+          return { completed: true, progress: 1, target: 1 };
+        }
+      }
+      return { completed: false, progress: 0, target: 1 };
+    }
+  },
+  {
+    id: 'task_grow_population_12',
+    title: '6. Frontier Growth',
+    category: 'civic',
+    prerequisites: ['task_build_well'],
+    triggerTopics: [STREAM_TOPICS.RESOURCE_TICK, STREAM_TOPICS.BUILDING_COMPLETED],
+    desc: 'Build additional Huts and keep food and water stocked to grow your population to 12 citizens.',
+    rewardLabel: '+50 Wood, +50 Stone',
+    reward: { wood: 50, stone: 50 },
+    evaluate: function(state) {
+      if (!state || !state.world || !state.world.cities) return { completed: false, progress: 0, target: 12 };
+      const cities = Object.values(state.world.cities);
+      let maxCurrent = 5;
+      for (let i = 0; i < cities.length; i++) {
+        const pop = cities[i].population ? cities[i].population.current : 5;
+        if (pop > maxCurrent) maxCurrent = pop;
+      }
+      const prog = Math.min(12, maxCurrent);
+      return { completed: prog >= 12, progress: prog, target: 12 };
+    }
+  },
+  {
+    id: 'task_build_lumber_camp',
+    title: '7. Timber Industry',
+    category: 'economy',
+    prerequisites: ['task_grow_population_12'],
+    triggerTopics: [STREAM_TOPICS.BUILDING_COMPLETED],
+    desc: 'With 12 citizens in town, construct a Lumber Camp to supply sturdy construction timber.',
+    rewardLabel: '+60 Wood, +40 Stone',
+    reward: { wood: 60, stone: 40 },
+    evaluate: function(state) {
+      if (!state || !state.world || !state.world.cities) return { completed: false, progress: 0, target: 1 };
+      const cities = Object.values(state.world.cities);
+      for (let i = 0; i < cities.length; i++) {
+        const b = cities[i].buildings || {};
+        if ((b.lumber_camp && b.lumber_camp >= 1) || (b.lumber_hut && b.lumber_hut >= 1) || (b.sawmill && b.sawmill >= 1)) {
+          return { completed: true, progress: 1, target: 1 };
+        }
+      }
+      return { completed: false, progress: 0, target: 1 };
+    }
+  },
+  {
+    id: 'task_build_quarry',
+    title: '8. Stone Quarrying',
+    category: 'economy',
+    prerequisites: ['task_build_lumber_camp'],
+    triggerTopics: [STREAM_TOPICS.BUILDING_COMPLETED],
+    desc: 'Grow population to 15 and construct a Quarry to cut heavy granite stone blocks.',
+    rewardLabel: '+50 Wood, +60 Stone, +40 Gold',
+    reward: { wood: 50, stone: 60, gold: 40 },
+    evaluate: function(state) {
+      if (!state || !state.world || !state.world.cities) return { completed: false, progress: 0, target: 1 };
+      const cities = Object.values(state.world.cities);
+      for (let i = 0; i < cities.length; i++) {
+        const b = cities[i].buildings || {};
+        if (b.quarry && b.quarry >= 1) {
           return { completed: true, progress: 1, target: 1 };
         }
       }
@@ -1026,11 +1131,11 @@ const CAMPAIGN_TASKS_DAG = [
   },
   {
     id: 'task_build_guild_hall',
-    title: '4. Charter the Adventurers Guild Hall',
+    title: '9. Charter the Adventurers Guild',
     category: 'military',
-    prerequisites: ['task_found_first_city'],
+    prerequisites: ['task_build_quarry'],
     triggerTopics: [STREAM_TOPICS.BUILDING_COMPLETED],
-    desc: 'Construct the Adventurers Guild Hall (50 Wood, 50 Stone, 25 Gold) to unlock Hero class recruitment.',
+    desc: 'Grow population to 20 and construct the Adventurers Guild to unlock Hero recruitment.',
     rewardLabel: '+100 Gold, +50 Food (Unlocks Heroes)',
     reward: { gold: 100, food: 50 },
     evaluate: function(state) {
@@ -1047,11 +1152,11 @@ const CAMPAIGN_TASKS_DAG = [
   },
   {
     id: 'task_recruit_first_hero',
-    title: '5. Swear In Your First Vanguard Hero',
+    title: '10. Swear In Your First Hero',
     category: 'military',
     prerequisites: ['task_build_guild_hall'],
     triggerTopics: [STREAM_TOPICS.HERO_RECRUITED, STREAM_TOPICS.PARTY_FORMED],
-    desc: 'Open the Adventurers Guild Hall and recruit your first Hero (Fighter, Ranger, Mage, Thief, or Paladin) to lead a delving party on the Overworld.',
+    desc: 'Recruit your first Hero at the Adventurers Guild to lead expeditionary parties.',
     rewardLabel: '+75 Gold, +40 Wood, +40 Stone',
     reward: { gold: 75, wood: 40, stone: 40 },
     evaluate: function(state) {
@@ -1064,7 +1169,7 @@ const CAMPAIGN_TASKS_DAG = [
   },
   {
     id: 'task_march_to_dungeon',
-    title: '6. March to the Starfall Vaults',
+    title: '11. March to the Starfall Vaults',
     category: 'delve',
     prerequisites: ['task_recruit_first_hero'],
     triggerTopics: [STREAM_TOPICS.UNIT_MARCH_STEP, STREAM_TOPICS.UNIT_MARCH_COMPLETED, STREAM_TOPICS.DUNGEON_ENTERED],
@@ -1261,7 +1366,7 @@ function getFormattedTasksList(state) {
 }
 
   // --- Module: src/wargame/data/buildings.js ---
-// City Building Definitions, Tier 1 Building Catalog, Spatial Plot Grid Layout, Costs & Production Rates
+// City Building Definitions, Paced Tier 1 Catalog, Construction Costs & Doubling Build Durations
 
 const CITY_BUILDINGS_CATALOG = {
   // ---------------------------------------------------------------------------
@@ -1270,30 +1375,30 @@ const CITY_BUILDINGS_CATALOG = {
   meeting_hall: {
     id: 'meeting_hall',
     name: 'Meeting Hall',
-    icon: '🏰',
+    icon: '🏛️',
     category: 'civic',
     color: '#fbbf24',
     maxLevel: 5,
     baseBuildTimeMs: 5000,
     baseCost: { wood: 40, stone: 40, gold: 20 },
     productionPerTick: { food: 1, wood: 1, stone: 1, gold: 1, water: 1 },
-    desc: 'The central governance keep of your realm. Sets the maximum level cap for all structures in the settlement.'
+    desc: 'The central administration hall of your settlement. Governs town decisions and sets the maximum level cap for all structures.'
   },
   town_hall: {
     id: 'town_hall',
-    name: 'Meeting Hall / Keep',
-    icon: '🏰',
+    name: 'Meeting Hall',
+    icon: '🏛️',
     category: 'civic',
     color: '#fbbf24',
     maxLevel: 5,
     baseBuildTimeMs: 5000,
     baseCost: { wood: 40, stone: 40, gold: 20 },
     productionPerTick: { food: 1, wood: 1, stone: 1, gold: 1, water: 1 },
-    desc: 'The central governance keep of your realm. Sets the maximum level cap for all structures in the settlement.'
+    desc: 'The central administration hall of your settlement. Governs town decisions and sets the maximum level cap for all structures.'
   },
   hut: {
     id: 'hut',
-    name: 'Settler Hut',
+    name: 'Hut',
     icon: '🛖',
     category: 'civic',
     color: '#e2e8f0',
@@ -1301,11 +1406,12 @@ const CITY_BUILDINGS_CATALOG = {
     baseBuildTimeMs: 3000,
     baseCost: { wood: 15, stone: 10, gold: 0 },
     providesPopulation: 5,
-    desc: 'Provides shelter for pioneers and citizens. Each level expands the town\'s maximum population by +5.'
+    requires: { meeting_hall: 1 },
+    desc: 'Provides shelter for citizens. Each Hut expands the town\'s maximum population by +5.'
   },
   well: {
     id: 'well',
-    name: 'Town Well',
+    name: 'Well',
     icon: '🪣',
     category: 'civic',
     color: '#38bdf8',
@@ -1313,7 +1419,8 @@ const CITY_BUILDINGS_CATALOG = {
     baseBuildTimeMs: 3500,
     baseCost: { wood: 10, stone: 20, gold: 0 },
     productionPerTick: { water: 5 },
-    desc: 'Taps clean groundwater aquifers to supply essential water provisions for the settlement.'
+    requires: { meeting_hall: 1, garden: 1 },
+    desc: 'Draws fresh drinking water to sustain your citizens and prevent dehydration.'
   },
 
   // ---------------------------------------------------------------------------
@@ -1321,7 +1428,7 @@ const CITY_BUILDINGS_CATALOG = {
   // ---------------------------------------------------------------------------
   garden: {
     id: 'garden',
-    name: 'Cultivated Garden',
+    name: 'Garden',
     icon: '🌱',
     category: 'economy',
     color: '#f97316',
@@ -1329,64 +1436,80 @@ const CITY_BUILDINGS_CATALOG = {
     baseBuildTimeMs: 3500,
     baseCost: { wood: 20, stone: 5, gold: 0 },
     productionPerTick: { food: 6 },
-    requires: { meeting_hall: 1 },
-    desc: 'Grows staple grains and hearty produce. Evolves toward an irrigated farm as techniques advance.'
+    requires: { meeting_hall: 1, hut: 1 },
+    desc: 'Grows vegetables and staple crops to feed your population and prevent starvation.'
   },
   farmstead: {
     id: 'farmstead',
-    name: 'Irrigated Granary',
-    icon: '🌾',
+    name: 'Garden',
+    icon: '🌱',
     category: 'economy',
     color: '#f97316',
     maxLevel: 5,
     baseBuildTimeMs: 3500,
     baseCost: { wood: 20, stone: 5, gold: 0 },
     productionPerTick: { food: 6 },
-    requires: { town_hall: 1 },
-    desc: 'Cultivates grain and provisions required to sustain marching expeditions and recruit heroes.'
+    requires: { meeting_hall: 1, hut: 1 },
+    desc: 'Grows vegetables and staple crops to feed your population and prevent starvation.'
   },
-  lumber_hut: {
-    id: 'lumber_hut',
-    name: 'Lumberjack Hut',
+  lumber_camp: {
+    id: 'lumber_camp',
+    name: 'Lumber Camp',
     icon: '🪓',
     category: 'economy',
     color: '#4ade80',
     maxLevel: 5,
-    baseBuildTimeMs: 3500,
+    baseBuildTimeMs: 4000,
     baseCost: { wood: 15, stone: 10, gold: 0 },
     productionPerTick: { wood: 6 },
-    requires: { meeting_hall: 1 },
-    desc: 'Harvests and seasons sturdy timber from surrounding woodlands to supply construction projects.'
+    requires: { meeting_hall: 1, well: 1 },
+    requiredPopulation: 12,
+    desc: 'Fells and cuts seasoned timber to supply construction materials for the town.'
   },
-  sawmill: {
-    id: 'sawmill',
-    name: 'Timber Sawmill',
-    icon: '🪚',
+  lumber_hut: {
+    id: 'lumber_hut',
+    name: 'Lumber Camp',
+    icon: '🪓',
     category: 'economy',
     color: '#4ade80',
     maxLevel: 5,
     baseBuildTimeMs: 4000,
-    baseCost: { wood: 20, stone: 10, gold: 0 },
-    productionPerTick: { wood: 8 },
-    requires: { town_hall: 1 },
-    desc: 'Fells and mills seasoned lumber from surrounding groves to fuel city construction.'
+    baseCost: { wood: 15, stone: 10, gold: 0 },
+    productionPerTick: { wood: 6 },
+    requires: { meeting_hall: 1, well: 1 },
+    requiredPopulation: 12,
+    desc: 'Fells and cuts seasoned timber to supply construction materials for the town.'
+  },
+  sawmill: {
+    id: 'sawmill',
+    name: 'Lumber Camp',
+    icon: '🪓',
+    category: 'economy',
+    color: '#4ade80',
+    maxLevel: 5,
+    baseBuildTimeMs: 4000,
+    baseCost: { wood: 15, stone: 10, gold: 0 },
+    productionPerTick: { wood: 6 },
+    requires: { meeting_hall: 1 },
+    desc: 'Fells and cuts seasoned timber to supply construction materials for the town.'
   },
   quarry: {
     id: 'quarry',
-    name: 'Stone Quarry',
+    name: 'Quarry',
     icon: '⛏️',
     category: 'economy',
     color: '#cbd5e1',
     maxLevel: 5,
-    baseBuildTimeMs: 4000,
+    baseBuildTimeMs: 4500,
     baseCost: { wood: 20, stone: 15, gold: 0 },
     productionPerTick: { stone: 6 },
-    requires: { meeting_hall: 1 },
-    desc: 'Excavates and dresses heavy granite blocks for fortifications, foundations, and storage facilities.'
+    requires: { meeting_hall: 1, lumber_camp: 1 },
+    requiredPopulation: 15,
+    desc: 'Extracts granite and stone blocks for sturdy construction and guild halls.'
   },
   mine: {
     id: 'mine',
-    name: 'Excavation Mine',
+    name: 'Mine',
     icon: '🪨',
     category: 'economy',
     color: '#a78bfa',
@@ -1394,8 +1517,8 @@ const CITY_BUILDINGS_CATALOG = {
     baseBuildTimeMs: 4500,
     baseCost: { wood: 25, stone: 20, gold: 5 },
     productionPerTick: { ore: 4 },
-    requires: { meeting_hall: 1 },
-    desc: 'Extracts crude ore and veins of star-metal for smelting, tool forging, and armaments.'
+    requires: { meeting_hall: 1, quarry: 1 },
+    desc: 'Extracts iron and veins of star-metal for tool crafting and forging.'
   },
 
   // ---------------------------------------------------------------------------
@@ -1403,7 +1526,7 @@ const CITY_BUILDINGS_CATALOG = {
   // ---------------------------------------------------------------------------
   silo: {
     id: 'silo',
-    name: 'Grain Silo',
+    name: 'Silo',
     icon: '🏺',
     category: 'storage',
     color: '#fdba74',
@@ -1411,12 +1534,12 @@ const CITY_BUILDINGS_CATALOG = {
     baseBuildTimeMs: 4000,
     baseCost: { wood: 25, stone: 25, gold: 0 },
     storageBonus: { food: 200 },
-    requires: { meeting_hall: 1 },
-    desc: 'Sealed masonry tower that protects grain harvests. Increases food storage capacity by +200 per level.'
+    requires: { meeting_hall: 1, garden: 1 },
+    desc: 'Sealed storage tower that increases food storage capacity by +200 per level.'
   },
   warehouse: {
     id: 'warehouse',
-    name: 'Supply Warehouse',
+    name: 'Warehouse',
     icon: '📦',
     category: 'storage',
     color: '#94a3b8',
@@ -1424,8 +1547,8 @@ const CITY_BUILDINGS_CATALOG = {
     baseBuildTimeMs: 4500,
     baseCost: { wood: 30, stone: 30, gold: 0 },
     storageBonus: { wood: 200, stone: 200, ore: 200 },
-    requires: { meeting_hall: 1 },
-    desc: 'Reinforced dry depot that expands wood, stone, and ore storage limits by +200 each per level.'
+    requires: { meeting_hall: 1, lumber_camp: 1, quarry: 1 },
+    desc: 'Dry storage depot that expands wood, stone, and ore storage limits by +200 each per level.'
   },
 
   // ---------------------------------------------------------------------------
@@ -1433,16 +1556,16 @@ const CITY_BUILDINGS_CATALOG = {
   // ---------------------------------------------------------------------------
   windmill: {
     id: 'windmill',
-    name: 'Grain Windmill',
+    name: 'Windmill',
     icon: '💨',
     category: 'synergy',
     color: '#e879f9',
     maxLevel: 3,
     baseBuildTimeMs: 5000,
     baseCost: { wood: 35, stone: 25, gold: 10 },
-    adjacencyBonus: { ratio: 0.20, targets: ['garden', 'farmstead', 'mine', 'lumber_hut', 'sawmill', 'quarry'] },
-    requires: { meeting_hall: 1 },
-    desc: 'Harnesses frontier breezes to mechanize milling and hauling. Boosts productivity of adjacent Gardens, Mines, and Lumber Huts by +20%.'
+    adjacencyBonus: { ratio: 0.20, targets: ['garden', 'farmstead', 'mine', 'lumber_camp', 'lumber_hut', 'sawmill', 'quarry'] },
+    requires: { meeting_hall: 1, garden: 1, lumber_camp: 1 },
+    desc: 'Harnesses wind energy to boost productivity of adjacent Gardens, Mines, and Lumber Camps by +20%.'
   },
 
   // ---------------------------------------------------------------------------
@@ -1450,7 +1573,7 @@ const CITY_BUILDINGS_CATALOG = {
   // ---------------------------------------------------------------------------
   barracks: {
     id: 'barracks',
-    name: 'Troop Barracks',
+    name: 'Barracks',
     icon: '🛡️',
     category: 'military',
     color: '#f87171',
@@ -1458,12 +1581,12 @@ const CITY_BUILDINGS_CATALOG = {
     baseBuildTimeMs: 5000,
     baseCost: { wood: 35, stone: 30, gold: 15 },
     troopCapacityBonus: 10,
-    requires: { meeting_hall: 1 },
-    desc: 'Quarters for standing garrisons and expeditionary units. Increases maximum troop limit by +10 per level.'
+    requires: { meeting_hall: 1, guild_hall: 1 },
+    desc: 'Quarters for standing garrisons. Increases maximum troop limit by +10 per level.'
   },
   fighter_camp: {
     id: 'fighter_camp',
-    name: 'Fighter Training Camp',
+    name: 'Fighter Camp',
     icon: '🎯',
     category: 'military',
     color: '#f43f5e',
@@ -1471,8 +1594,8 @@ const CITY_BUILDINGS_CATALOG = {
     baseBuildTimeMs: 4500,
     baseCost: { wood: 25, stone: 20, gold: 10 },
     trainingSpeedBonus: 0.25,
-    requires: { meeting_hall: 1 },
-    desc: 'Drills combat recruits in swordcraft and discipline. Accelerates troop recruitment and martial training.'
+    requires: { meeting_hall: 1, barracks: 1 },
+    desc: 'Drills combat recruits to accelerate troop recruitment and training speed.'
   },
 
   // ---------------------------------------------------------------------------
@@ -1480,7 +1603,7 @@ const CITY_BUILDINGS_CATALOG = {
   // ---------------------------------------------------------------------------
   guild_hall: {
     id: 'guild_hall',
-    name: 'Adventurers Guild Hall',
+    name: 'Adventurers Guild',
     icon: '⚔️',
     category: 'military',
     color: '#60a5fa',
@@ -1488,35 +1611,36 @@ const CITY_BUILDINGS_CATALOG = {
     baseBuildTimeMs: 6000,
     baseCost: { wood: 40, stone: 40, gold: 25 },
     productionPerTick: { gold: 2 },
-    requires: { meeting_hall: 1 },
+    requires: { meeting_hall: 1, quarry: 1 },
+    requiredPopulation: 20,
     recruits: ['fighter', 'ranger', 'thief'],
-    desc: 'Recruits martial heroes (Fighters, Rangers, Rogues) and organizes expeditionary parties into the vaults.'
+    desc: 'Charters an adventuring guild where Heroes are recruited to explore and delve subterranean vaults.'
   },
   shrine: {
     id: 'shrine',
-    name: 'Holy Shrine',
+    name: 'Shrine',
     icon: '🕊️',
     category: 'arcane',
     color: '#fef08a',
     maxLevel: 3,
     baseBuildTimeMs: 5500,
     baseCost: { wood: 35, stone: 40, gold: 25 },
-    requires: { meeting_hall: 1 },
+    requires: { meeting_hall: 1, guild_hall: 1 },
     recruits: ['paladin', 'cleric'],
-    desc: 'Consecrated sanctuary for divine communion. Prepares holy champions (Paladins, Clerics) to shield your troops.'
+    desc: 'Sanctuary for divine communion. Prepares holy champions (Paladins, Clerics) to shield your troops.'
   },
   mage_guild: {
     id: 'mage_guild',
-    name: 'Mage Arcane Guild',
+    name: 'Mage Guild',
     icon: '🔮',
     category: 'arcane',
     color: '#c084fc',
     maxLevel: 3,
     baseBuildTimeMs: 6500,
     baseCost: { wood: 40, stone: 45, gold: 35 },
-    requires: { meeting_hall: 2 },
+    requires: { meeting_hall: 2, guild_hall: 1 },
     recruits: ['mage', 'elementalist'],
-    desc: 'Academy of the astral elements. Enrolls Mages and elementalists wielding raw arcane forces.'
+    desc: 'Academy of the astral elements. Enrolls Mages and Elementalists wielding arcane forces.'
   },
   star_forge: {
     id: 'star_forge',
@@ -1547,15 +1671,96 @@ const CITY_BUILDINGS_CATALOG = {
 };
 
 const CITY_PLOT_SLOTS = [
-  { plotIndex: 0, label: 'Central Citadel Plot', defaultBuilding: 'town_hall', lockedTo: 'town_hall' },
-  { plotIndex: 1, label: 'North Timber Yard',    recommended: 'lumber_hut' },
-  { plotIndex: 2, label: 'East Masonry Plot',    recommended: 'quarry' },
-  { plotIndex: 3, label: 'South Fertile Terrace',recommended: 'garden' },
-  { plotIndex: 4, label: 'Grand Charter Plaza',  recommended: 'guild_hall' },
-  { plotIndex: 5, label: 'Western Garrison',     recommended: 'barracks' },
-  { plotIndex: 6, label: 'Crucible Terrace',     recommended: 'star_forge' },
-  { plotIndex: 7, label: 'High Acropolis',       recommended: 'temple_of_war' }
+  { plotIndex: 0, label: 'Meeting Hall Plot', defaultBuilding: 'town_hall', lockedTo: 'town_hall' },
+  { plotIndex: 1, label: 'Plot 1', recommended: 'hut' },
+  { plotIndex: 2, label: 'Plot 2', recommended: 'garden' },
+  { plotIndex: 3, label: 'Plot 3', recommended: 'well' },
+  { plotIndex: 4, label: 'Plot 4', recommended: 'lumber_camp' },
+  { plotIndex: 5, label: 'Plot 5', recommended: 'quarry' },
+  { plotIndex: 6, label: 'Plot 6', recommended: 'guild_hall' },
+  { plotIndex: 7, label: 'Plot 7', recommended: 'barracks' }
 ];
+
+function isBuildingPrerequisiteMet(city, buildingId) {
+  if (!city) return false;
+  const bDef = CITY_BUILDINGS_CATALOG[buildingId];
+  if (!bDef) return false;
+
+  // 1. Check required population
+  if (bDef.requiredPopulation) {
+    const curPop = (city.population && typeof city.population.current === 'number')
+      ? city.population.current
+      : 5;
+    if (curPop < bDef.requiredPopulation) {
+      return false;
+    }
+  }
+
+  // 2. Check required building prerequisites
+  if (bDef.requires) {
+    const bldgs = city.buildings || {};
+    const reqKeys = Object.keys(bDef.requires);
+    for (let i = 0; i < reqKeys.length; i++) {
+      const reqB = reqKeys[i];
+      const reqLvl = bDef.requires[reqB];
+      let curLvl = 0;
+      if (reqB === 'meeting_hall' || reqB === 'town_hall') {
+        curLvl = Math.max(bldgs.meeting_hall || 0, bldgs.town_hall || 0);
+      } else if (reqB === 'garden' || reqB === 'farmstead') {
+        curLvl = Math.max(bldgs.garden || 0, bldgs.farmstead || 0);
+      } else if (reqB === 'lumber_camp' || reqB === 'lumber_hut' || reqB === 'sawmill') {
+        curLvl = Math.max(bldgs.lumber_camp || 0, bldgs.lumber_hut || 0, bldgs.sawmill || 0);
+      } else {
+        curLvl = bldgs[reqB] || 0;
+      }
+      if (curLvl < reqLvl) {
+        return false;
+      }
+    }
+  }
+
+  return true;
+}
+
+function getBuildingPrerequisiteMissingReason(city, buildingId) {
+  if (!city) return 'No city established';
+  const bDef = CITY_BUILDINGS_CATALOG[buildingId];
+  if (!bDef) return 'Unknown building';
+
+  if (bDef.requiredPopulation) {
+    const curPop = (city.population && typeof city.population.current === 'number')
+      ? city.population.current
+      : 5;
+    if (curPop < bDef.requiredPopulation) {
+      return 'Requires Population ' + bDef.requiredPopulation + ' (Current: ' + curPop + ')';
+    }
+  }
+
+  if (bDef.requires) {
+    const bldgs = city.buildings || {};
+    const reqKeys = Object.keys(bDef.requires);
+    for (let i = 0; i < reqKeys.length; i++) {
+      const reqB = reqKeys[i];
+      const reqLvl = bDef.requires[reqB];
+      let curLvl = 0;
+      if (reqB === 'meeting_hall' || reqB === 'town_hall') {
+        curLvl = Math.max(bldgs.meeting_hall || 0, bldgs.town_hall || 0);
+      } else if (reqB === 'garden' || reqB === 'farmstead') {
+        curLvl = Math.max(bldgs.garden || 0, bldgs.farmstead || 0);
+      } else if (reqB === 'lumber_camp' || reqB === 'lumber_hut' || reqB === 'sawmill') {
+        curLvl = Math.max(bldgs.lumber_camp || 0, bldgs.lumber_hut || 0, bldgs.sawmill || 0);
+      } else {
+        curLvl = bldgs[reqB] || 0;
+      }
+      if (curLvl < reqLvl) {
+        const reqDef = CITY_BUILDINGS_CATALOG[reqB];
+        return 'Requires ' + (reqDef ? reqDef.name : reqB) + ' Level ' + reqLvl;
+      }
+    }
+  }
+
+  return '';
+}
 
 function computeBuildingUpgradeCost(buildingId, targetLevel) {
   const def = CITY_BUILDINGS_CATALOG[buildingId];
@@ -1576,10 +1781,11 @@ function computeBuildingUpgradeCost(buildingId, targetLevel) {
   return cost;
 }
 
+// Doubling duration for each upgrade level (e.g. 1x, 2x, 4x, 8x, 16x)
 function computeBuildingDurationMs(buildingId, targetLevel) {
   const def = CITY_BUILDINGS_CATALOG[buildingId];
   if (!def) return 5000;
-  const mult = Math.pow(1.3, Math.max(0, targetLevel - 1));
+  const mult = Math.pow(2.0, Math.max(0, targetLevel - 1));
   return Math.round(def.baseBuildTimeMs * mult);
 }
 
@@ -1682,7 +1888,7 @@ function createDefaultCityPlots() {
       plotIndex: i,
       x: px,
       y: py,
-      label: isCenter ? 'Central Citadel Plot' : ('Plot (' + px + ', ' + py + ')'),
+      label: isCenter ? 'Meeting Hall Plot' : ('Plot (' + px + ', ' + py + ')'),
       buildingId: isCenter ? 'town_hall' : null,
       level: isCenter ? 1 : 0,
       underConstruction: false,
@@ -1759,6 +1965,17 @@ function computeCityPopulation(city, world = null) {
       }
     }
   }
+
+  if (city && city.population && typeof city.population.current === 'number') {
+    city.population.max = maxPop;
+    return {
+      current: city.population.current,
+      max: maxPop,
+      starving: Boolean(city.population.starving),
+      growthProgress: city.population.growthProgress || 0
+    };
+  }
+
   let currentPop = 5;
   if (city && city.level) {
     currentPop += (city.level - 1) * 2;
@@ -1767,7 +1984,7 @@ function computeCityPopulation(city, world = null) {
     currentPop += world.heroes.length;
   }
   currentPop = Math.min(currentPop, maxPop);
-  return { current: currentPop, max: maxPop };
+  return { current: currentPop, max: maxPop, starving: false, growthProgress: 0 };
 }
 
 function hasSavedWargameCampaign() {
@@ -2096,7 +2313,8 @@ function resolveBuildingCompleteJob(job, state, scheduler, eventStream) {
   } else if (bId === 'garden' || bId === 'farmstead') {
     city.buildings.garden = Math.max(city.buildings.garden || 0, targetLvl);
     city.buildings.farmstead = Math.max(city.buildings.farmstead || 0, targetLvl);
-  } else if (bId === 'lumber_hut' || bId === 'sawmill') {
+  } else if (bId === 'lumber_camp' || bId === 'lumber_hut' || bId === 'sawmill') {
+    city.buildings.lumber_camp = Math.max(city.buildings.lumber_camp || 0, targetLvl);
     city.buildings.lumber_hut = Math.max(city.buildings.lumber_hut || 0, targetLvl);
     city.buildings.sawmill = Math.max(city.buildings.sawmill || 0, targetLvl);
   }
@@ -2433,7 +2651,25 @@ function processResourceProductionTick(state, eventStream) {
     const city = state.world.cities[cityIds[i]];
     if (!city || !city.stockpile) continue;
 
-    // Subsistence token production: Every city produces +1 food, wood, stone, gold, water baseline per tick
+    // 1. Recompute population capacity from Meeting Hall and active Huts
+    if (!city.population) {
+      city.population = { current: 5, max: 10, growthProgress: 0, starving: false, starveTicks: 0 };
+    }
+    let maxPop = 10;
+    if (Array.isArray(city.plots)) {
+      for (let p = 0; p < city.plots.length; p++) {
+        const pl = city.plots[p];
+        if (pl.buildingId === 'hut' && (pl.level || 0) > 0 && !pl.demolishing) {
+          maxPop += (pl.level || 1) * 5;
+        }
+      }
+    }
+    city.population.max = maxPop;
+    if (typeof city.population.current !== 'number') {
+      city.population.current = 5;
+    }
+
+    // 2. Subsistence token production: Every city produces +1 food, wood, stone, gold, water baseline per tick
     const gains = { wood: 1, stone: 1, food: 1, gold: 1, water: 1, ore: 0 };
 
     if (Array.isArray(city.plots) && city.plots.length > 0) {
@@ -2499,13 +2735,55 @@ function processResourceProductionTick(state, eventStream) {
       }
     }
 
+    // Add production gains before consumption
+    city.stockpile.wood  = (city.stockpile.wood  || 0) + gains.wood;
+    city.stockpile.stone = (city.stockpile.stone || 0) + gains.stone;
+    city.stockpile.food  = (city.stockpile.food  || 0) + gains.food;
+    city.stockpile.gold  = (city.stockpile.gold  || 0) + gains.gold;
+    city.stockpile.water = (city.stockpile.water || 0) + gains.water;
+    city.stockpile.ore   = (city.stockpile.ore   || 0) + gains.ore;
+
+    // 3. Population Sustenance Consumption & Starvation Dynamics
+    // Demand scales with population: 1 food and 1 water per 5 citizens
+    const foodDemand = Math.max(1, Math.ceil(city.population.current / 5));
+    const waterDemand = Math.max(1, Math.ceil(city.population.current / 5));
+
+    if ((city.stockpile.food || 0) >= foodDemand && (city.stockpile.water || 0) >= waterDemand) {
+      city.stockpile.food  -= foodDemand;
+      city.stockpile.water -= waterDemand;
+      city.population.starving = false;
+      city.population.starveTicks = 0;
+
+      // Natural Population Growth: advances when food & water are satisfied
+      if (city.population.current < city.population.max) {
+        city.population.growthProgress = (city.population.growthProgress || 0) + 25;
+        if (city.population.growthProgress >= 100) {
+          city.population.current += 1;
+          city.population.growthProgress = 0;
+        }
+      }
+    } else {
+      // Starvation: insufficient food or water!
+      city.stockpile.food  = Math.max(0, (city.stockpile.food || 0) - foodDemand);
+      city.stockpile.water = Math.max(0, (city.stockpile.water || 0) - waterDemand);
+      city.population.starving = true;
+      city.population.growthProgress = 0;
+      city.population.starveTicks = (city.population.starveTicks || 0) + 1;
+
+      // After 2 consecutive starved ticks, a citizen is lost to famine
+      if (city.population.starveTicks >= 2 && city.population.current > 3) {
+        city.population.current -= 1;
+        city.population.starveTicks = 0;
+      }
+    }
+
     const caps = computeCityStorageCaps(city);
-    city.stockpile.wood  = Math.min(caps.wood  || 200, (city.stockpile.wood  || 0) + gains.wood);
-    city.stockpile.stone = Math.min(caps.stone || 200, (city.stockpile.stone || 0) + gains.stone);
-    city.stockpile.food  = Math.min(caps.food  || 200, (city.stockpile.food  || 0) + gains.food);
-    city.stockpile.gold  = Math.min(caps.gold  || 300, (city.stockpile.gold  || 0) + gains.gold);
-    city.stockpile.water = Math.min(caps.water || 200, (city.stockpile.water || 0) + gains.water);
-    city.stockpile.ore   = Math.min(caps.ore   || 100, (city.stockpile.ore   || 0) + gains.ore);
+    city.stockpile.wood  = Math.min(caps.wood  || 200, city.stockpile.wood);
+    city.stockpile.stone = Math.min(caps.stone || 200, city.stockpile.stone);
+    city.stockpile.food  = Math.min(caps.food  || 200, city.stockpile.food);
+    city.stockpile.gold  = Math.min(caps.gold  || 300, city.stockpile.gold);
+    city.stockpile.water = Math.min(caps.water || 200, city.stockpile.water);
+    city.stockpile.ore   = Math.min(caps.ore   || 100, city.stockpile.ore);
 
     if (eventStream && (gains.wood > 0 || gains.stone > 0 || gains.food > 0 || gains.gold > 0 || gains.water > 0 || gains.ore > 0)) {
       eventStream.publish(STREAM_TOPICS.RESOURCE_TICK, {
@@ -2778,6 +3056,13 @@ function dispatchWargameCommand(commandEnvelope, state, scheduler, eventStream) 
         town_hall: 1,
         meeting_hall: 1
       },
+      population: {
+        current: 5,
+        max: 10,
+        growthProgress: 0,
+        starving: false,
+        starveTicks: 0
+      },
       plots: createDefaultCityPlots(),
       selectedPlotIndex: CITY_CENTER_PLOT_INDEX !== undefined ? CITY_CENTER_PLOT_INDEX : 27,
       buildQueue: [],
@@ -2895,44 +3180,26 @@ function dispatchWargameCommand(commandEnvelope, state, scheduler, eventStream) 
       return reject('That plot already has an active order');
     }
 
-    if (plot.buildingId && plot.buildingId !== buildingId) {
+    const isSameBuilding = (plot.buildingId === buildingId) ||
+      (plot.buildingId === 'town_hall' && buildingId === 'meeting_hall') ||
+      (plot.buildingId === 'meeting_hall' && buildingId === 'town_hall') ||
+      (plot.buildingId === 'farmstead' && buildingId === 'garden') ||
+      (plot.buildingId === 'garden' && buildingId === 'farmstead') ||
+      (plot.buildingId === 'sawmill' && (buildingId === 'lumber_camp' || buildingId === 'lumber_hut')) ||
+      (plot.buildingId === 'lumber_hut' && (buildingId === 'lumber_camp' || buildingId === 'sawmill')) ||
+      (plot.buildingId === 'lumber_camp' && (buildingId === 'sawmill' || buildingId === 'lumber_hut'));
+
+    if (plot.buildingId && !isSameBuilding) {
       return reject('Plot is already occupied by ' + plot.buildingId);
     }
 
-    // Check building prerequisites
-    if (bDef.requires) {
-      const reqKeys = Object.keys(bDef.requires);
-      for (let i = 0; i < reqKeys.length; i++) {
-        const reqB = reqKeys[i];
-        const reqLvl = bDef.requires[reqB];
-        let curReqLvl = 0;
-        if (reqB === 'meeting_hall' || reqB === 'town_hall') {
-          curReqLvl = Math.max(
-            (city.buildings && city.buildings.meeting_hall) || 0,
-            (city.buildings && city.buildings.town_hall) || 0
-          );
-        } else if (reqB === 'garden' || reqB === 'farmstead') {
-          curReqLvl = Math.max(
-            (city.buildings && city.buildings.garden) || 0,
-            (city.buildings && city.buildings.farmstead) || 0
-          );
-        } else if (reqB === 'lumber_hut' || reqB === 'sawmill') {
-          curReqLvl = Math.max(
-            (city.buildings && city.buildings.lumber_hut) || 0,
-            (city.buildings && city.buildings.sawmill) || 0
-          );
-        } else {
-          curReqLvl = (city.buildings && city.buildings[reqB]) || 0;
-        }
-
-        if (curReqLvl < reqLvl) {
-          const reqDef = CITY_BUILDINGS_CATALOG[reqB];
-          return reject('Requires ' + (reqDef ? reqDef.name : reqB) + ' Level ' + reqLvl);
-        }
-      }
+    // Check building prerequisites & population requirements
+    if (!isBuildingPrerequisiteMet(city, buildingId)) {
+      const reason = getBuildingPrerequisiteMissingReason(city, buildingId);
+      return reject(reason || 'Prerequisites not met');
     }
 
-    const currentLevel = plot.buildingId === buildingId ? (plot.level || 0) : 0;
+    const currentLevel = isSameBuilding ? (plot.level || 0) : 0;
     const targetLevel = currentLevel + 1;
     if (targetLevel > (bDef.maxLevel || 5)) {
       return reject(bDef.name + ' has reached maximum level');
@@ -3922,7 +4189,7 @@ function updateHeaderFastTick(simHost) {
 
   if (popEl && city) {
     const pop = computeCityPopulation(city, world);
-    const popStr = pop.current + '/' + pop.max;
+    const popStr = pop.starving ? (pop.current + '/' + pop.max + ' ⚠️') : (pop.current + '/' + pop.max);
     if (popEl.textContent != popStr) popEl.textContent = popStr;
   }
 }
@@ -4417,10 +4684,10 @@ function renderCityBuilderPanel(simHost) {
       borderClass = 'border border-amber-400 bg-amber-950/30 animate-pulse';
       icon = '🔨';
       label = `<span class="text-[7px] font-mono text-amber-400 font-bold leading-none">BUILD</span>`;
-    } else if (bId === 'town_hall') {
+    } else if (bId === 'town_hall' || bId === 'meeting_hall') {
       borderClass = 'border-2 border-amber-400 bg-amber-950/20 shadow';
-      icon = bDef ? bDef.icon : '🏰';
-      label = `<span class="text-[7px] font-mono text-amber-400 font-bold leading-none">Keep ${plot.level}</span>`;
+      icon = bDef ? bDef.icon : '🏛️';
+      label = `<span class="text-[7px] font-mono text-amber-400 font-bold leading-none">Hall ${plot.level}</span>`;
     } else if (bDef) {
       borderClass = 'border border-emerald-500/50 bg-[#111722] hover:border-emerald-400';
       icon = bDef.icon;
@@ -4610,7 +4877,7 @@ function renderCityBuilderPanel(simHost) {
               </button>
             ` : `
               <div class="py-1.5 px-2 rounded bg-slate-900 text-slate-600 border border-slate-800 text-[10px] font-mono text-center flex items-center justify-center">
-                Locked Citadel
+                Meeting Hall (Seat)
               </div>
             `}
           </div>
@@ -4657,67 +4924,43 @@ function renderCityBuilderPanel(simHost) {
         }
       }
 
-      // Hide town_hall / meeting_hall from empty plot catalog (central citadel only) and redundant aliases
+      // Hide meeting hall (founded at center plot) and legacy aliases
+      // Only show buildings whose prerequisites are currently satisfied!
       const constructibleKeys = Object.keys(CITY_BUILDINGS_CATALOG).filter(function(k) {
-        return k !== 'town_hall' && k !== 'meeting_hall' && k !== 'farmstead' && k !== 'sawmill';
+        if (k === 'town_hall' || k === 'meeting_hall' || k === 'farmstead' || k === 'sawmill' || k === 'lumber_hut') return false;
+        return isBuildingPrerequisiteMet(city, k);
       });
 
-      const catalogCards = constructibleKeys.map(function(bId) {
-        const bDef = CITY_BUILDINGS_CATALOG[bId];
-        const cost = computeBuildingUpgradeCost(bId, 1);
-        const durMs = computeBuildingDurationMs(bId, 1);
+      const catalogCards = constructibleKeys.length > 0
+        ? constructibleKeys.map(function(bId) {
+            const bDef = CITY_BUILDINGS_CATALOG[bId];
+            const cost = computeBuildingUpgradeCost(bId, 1);
+            const durMs = computeBuildingDurationMs(bId, 1);
 
-        // Check prerequisites
-        let reqMet = true;
-        let reqLabel = '';
-        if (bDef.requires) {
-          const rKeys = Object.keys(bDef.requires);
-          for (let r = 0; r < rKeys.length; r++) {
-            const reqB = rKeys[r];
-            const reqLvl = bDef.requires[reqB];
-            let curReqLvl = 0;
-            if (reqB === 'meeting_hall' || reqB === 'town_hall') {
-              curReqLvl = Math.max((city.buildings && city.buildings.meeting_hall) || 0, (city.buildings && city.buildings.town_hall) || 0);
-            } else if (reqB === 'garden' || reqB === 'farmstead') {
-              curReqLvl = Math.max((city.buildings && city.buildings.garden) || 0, (city.buildings && city.buildings.farmstead) || 0);
-            } else if (reqB === 'lumber_hut' || reqB === 'sawmill') {
-              curReqLvl = Math.max((city.buildings && city.buildings.lumber_hut) || 0, (city.buildings && city.buildings.sawmill) || 0);
-            } else {
-              curReqLvl = (city.buildings && city.buildings[reqB]) || 0;
-            }
-            if (curReqLvl < reqLvl) {
-              reqMet = false;
-              const reqDef = CITY_BUILDINGS_CATALOG[reqB];
-              reqLabel = 'Requires ' + (reqDef ? reqDef.name : reqB) + ' Lv ' + reqLvl;
-              break;
-            }
-          }
-        }
+            const canAfford = (city.stockpile.wood  || 0) >= (cost.wood  || 0) &&
+                              (city.stockpile.stone || 0) >= (cost.stone || 0) &&
+                              (city.stockpile.gold  || 0) >= (cost.gold  || 0) &&
+                              (city.stockpile.water || 0) >= (cost.water || 0) &&
+                              (city.stockpile.ore   || 0) >= (cost.ore   || 0);
 
-        const canAfford = (city.stockpile.wood  || 0) >= (cost.wood  || 0) &&
-                          (city.stockpile.stone || 0) >= (cost.stone || 0) &&
-                          (city.stockpile.gold  || 0) >= (cost.gold  || 0) &&
-                          (city.stockpile.water || 0) >= (cost.water || 0) &&
-                          (city.stockpile.ore   || 0) >= (cost.ore   || 0);
-
-        return `
-          <div class="p-2.5 rounded bg-[#080b11] border ${reqMet ? 'border-[#283347]' : 'border-slate-800 opacity-60'} flex items-center justify-between gap-2">
-            <div class="flex items-center gap-2.5 min-w-0">
-              <span class="text-xl">${bDef.icon}</span>
-              <div class="min-w-0">
-                <div class="text-xs font-bold text-[#e6edf3] truncate">${bDef.name}</div>
-                <div class="text-[10px] font-mono text-[#8b949e]">
-                  ${cost.wood}W • ${cost.stone}S${cost.gold ? (' • ' + cost.gold + 'G') : ''}${cost.water ? (' • ' + cost.water + '💧') : ''}${cost.ore ? (' • ' + cost.ore + '⛏️') : ''} • ⏱ ${formatSimDuration(durMs)}
+            return `
+              <div class="p-2.5 rounded bg-[#080b11] border border-[#283347] flex items-center justify-between gap-2">
+                <div class="flex items-center gap-2.5 min-w-0">
+                  <span class="text-xl">${bDef.icon}</span>
+                  <div class="min-w-0">
+                    <div class="text-xs font-bold text-[#e6edf3] truncate">${bDef.name}</div>
+                    <div class="text-[10px] font-mono text-[#8b949e]">
+                      ${cost.wood}W • ${cost.stone}S${cost.gold ? (' • ' + cost.gold + 'G') : ''}${cost.water ? (' • ' + cost.water + '💧') : ''}${cost.ore ? (' • ' + cost.ore + '⛏️') : ''} • ⏱ ${formatSimDuration(durMs)}
+                    </div>
+                  </div>
                 </div>
-                ${!reqMet ? `<div class="text-[9px] font-mono text-red-400 font-semibold">${reqLabel}</div>` : ''}
+                <button data-action="queue-building" data-plot-index="${selPlot.plotIndex}" data-building-id="${bId}" onclick="window.WargameApp.handleQueueBuilding(${selPlot.plotIndex}, '${bId}')" ${!canAfford ? 'disabled' : ''} class="px-3 py-1.5 rounded font-bold text-[11px] uppercase whitespace-nowrap cursor-pointer ${canAfford ? 'bg-amber-400 hover:bg-amber-500 text-slate-900' : 'bg-slate-800 text-slate-500 cursor-not-allowed'}">
+                  🔨 Build
+                </button>
               </div>
-            </div>
-            <button data-action="queue-building" data-plot-index="${selPlot.plotIndex}" data-building-id="${bId}" onclick="window.WargameApp.handleQueueBuilding(${selPlot.plotIndex}, '${bId}')" ${(!reqMet || !canAfford) ? 'disabled' : ''} class="px-3 py-1.5 rounded font-bold text-[11px] uppercase whitespace-nowrap cursor-pointer ${reqMet && canAfford ? 'bg-amber-400 hover:bg-amber-500 text-slate-900' : 'bg-slate-800 text-slate-500 cursor-not-allowed'}">
-              🔨 Build
-            </button>
-          </div>
-        `;
-      }).join('');
+            `;
+          }).join('')
+        : `<div class="p-3.5 rounded bg-[#080b11] border border-[#283347] text-center text-xs text-[#8b949e] italic">No new buildings currently available. Grow your population or fulfill current tasks to unlock new structures!</div>`;
 
       inspectorHtml += `
         <div class="space-y-2">
@@ -4883,6 +5126,7 @@ function formatEventSummary(ev) {
 
 
 
+
 function evaluateWargameSelfTests() {
   const results = [];
 
@@ -4913,7 +5157,7 @@ function evaluateWargameSelfTests() {
     host1.state.world.overworld.units.length === 1
   );
 
-  // Verify premature Hero Recruitment is strictly rejected before City & Guild Hall exist
+  // Verify premature Hero Recruitment is strictly rejected before City & Guild exist
   const prematureRecruit = host1.dispatch({
     type: COMMAND_TYPES.RECRUIT_HERO,
     payload: { classId: 'fighter' }
@@ -5030,7 +5274,7 @@ function evaluateWargameSelfTests() {
   });
 
   // =========================================================================
-  // Test 4: City Founding, Multi-Domain Build Queue, Prorated Cancel & Demolition Salvage
+  // Test 4: 8x8 Spatial Grid (64 Plots), Plot Selection, Building Relocation & Demolition Salvage
   // =========================================================================
   const host4 = createWargameSimHost();
   host4.dispatch({
@@ -5044,58 +5288,55 @@ function evaluateWargameSelfTests() {
   });
   const city4 = getPrimaryCity(host4.state);
   const phaseIsCity = host4.state.campaignPhase === CAMPAIGN_PHASES.CITY_ESTABLISHED;
-  // Verify Guild Hall is NOT pre-built for free!
   const guildNotBuiltYet = !city4.buildings.guild_hall;
 
-  // Queue a Timber Sawmill on Plot #1 (4000ms build time)
+  // Queue a Hut on Plot #1 (3000ms build time)
   const woodBefore = city4.stockpile.wood;
-  const queueSawmill = host4.dispatch({
+  const queueHut = host4.dispatch({
     type: COMMAND_TYPES.QUEUE_BUILDING,
-    payload: { plotIndex: 1, buildingId: 'sawmill' }
+    payload: { plotIndex: 1, buildingId: 'hut' }
   });
   const costDeducted = city4.stockpile.wood < woodBefore && city4.buildQueue.length === 1;
 
-  // Queue a Stoneworks Quarry on Plot #2 (pending item)
-  const woodBeforeQuarry = city4.stockpile.wood;
-  const queueQuarry = host4.dispatch({
+  // Queue a 2nd Hut on Plot #2 (pending item)
+  const woodBeforeHut2 = city4.stockpile.wood;
+  const queueHut2 = host4.dispatch({
     type: COMMAND_TYPES.QUEUE_BUILDING,
-    payload: { plotIndex: 2, buildingId: 'quarry' }
+    payload: { plotIndex: 2, buildingId: 'hut' }
   });
   // Cancel pending item -> 100% full refund
-  const cancelQuarry = host4.dispatch({
+  const cancelHut2 = host4.dispatch({
     type: COMMAND_TYPES.CANCEL_BUILDING,
-    payload: { queueItemId: queueQuarry.data.queueItem.queueItemId }
+    payload: { queueItemId: queueHut2.data.queueItem.queueItemId }
   });
-  const pendingRefundVerified = cancelQuarry.ok && city4.stockpile.wood === woodBeforeQuarry && city4.buildQueue.length === 1;
+  const pendingRefundVerified = cancelHut2.ok && city4.stockpile.wood === woodBeforeHut2 && city4.buildQueue.length === 1;
 
   // Test active cancel prorated refund + 50% cleanup demolition:
-  // Sawmill is active (duration 4000ms). Advance 2000ms (50% elapsed).
-  host4.stepClock(2000);
+  // Hut is active (duration 3000ms). Advance 1500ms (50% elapsed).
+  host4.stepClock(1500);
   const woodBeforeCancelActive = city4.stockpile.wood;
-  const cancelActiveSawmill = host4.dispatch({
+  const cancelActiveHut = host4.dispatch({
     type: COMMAND_TYPES.CANCEL_BUILDING,
-    payload: { queueItemId: queueSawmill.data.queueItem.queueItemId }
+    payload: { queueItemId: queueHut.data.queueItem.queueItemId }
   });
-  // Should receive prorated refund: ~50% of cost (targetLevel 1 cost: wood 25 -> floor(25 * 0.5) = 12)
-  const proratedRefundGiven = cancelActiveSawmill.ok && city4.stockpile.wood > woodBeforeCancelActive;
-  // Cleanup item scheduled for max(1000, 2000 * 0.5) = 1000ms
-  const cleanupJobActive = city4.buildQueue.length === 1 && city4.buildQueue[0].type === 'cleanup' && city4.buildQueue[0].durationMs === 1000;
+  const proratedRefundGiven = cancelActiveHut.ok && city4.stockpile.wood > woodBeforeCancelActive;
+  const cleanupJobActive = city4.buildQueue.length === 1 && city4.buildQueue[0].type === 'cleanup';
 
   // Advance clock by 1000ms to finish cleanup
   host4.stepClock(1000);
   const cleanupFinished = city4.buildQueue.length === 0 && !city4.plots[1].underConstruction && !city4.plots[1].demolishing;
 
-  // Re-queue Sawmill on Plot #1 and advance 4500ms -> Sawmill completes!
+  // Re-queue Hut on Plot #1 and advance 3500ms -> Hut completes!
   host4.dispatch({
     type: COMMAND_TYPES.QUEUE_BUILDING,
-    payload: { plotIndex: 1, buildingId: 'sawmill' }
+    payload: { plotIndex: 1, buildingId: 'hut' }
   });
-  host4.stepClock(4500);
-  const sawmillCompleted = city4.buildings.sawmill === 1;
+  host4.stepClock(3500);
+  const hutCompleted = city4.buildings.hut === 1;
 
-  // Verify 8x8 spatial grid (64 plots) & center keep
+  // Verify 8x8 spatial grid (64 plots) & center Meeting Hall
   const gridHas64Plots = Array.isArray(city4.plots) && city4.plots.length === 64;
-  const centerPlotIsKeep = city4.plots[27] && city4.plots[27].buildingId === 'town_hall' && city4.plots[27].level === 1;
+  const centerPlotIsHall = city4.plots[27] && (city4.plots[27].buildingId === 'town_hall' || city4.plots[27].buildingId === 'meeting_hall') && city4.plots[27].level === 1;
 
   // Test selecting city plot
   const selectPlotCmd = host4.dispatch({
@@ -5104,7 +5345,7 @@ function evaluateWargameSelfTests() {
   });
   const plotSelected = selectPlotCmd.ok && city4.selectedPlotIndex === 12;
 
-  // Test moving a building (Plot 1 Sawmill to empty Plot 10)
+  // Test moving a building (Plot 1 Hut to empty Plot 10)
   const moveCmd = host4.dispatch({
     type: COMMAND_TYPES.MOVE_BUILDING,
     payload: { fromPlotIndex: 1, toPlotIndex: 10 }
@@ -5115,12 +5356,12 @@ function evaluateWargameSelfTests() {
   // Advance clock by 2500ms -> move completes!
   host4.stepClock(2500);
   const moveCompleted = city4.plots[1].buildingId === null &&
-                        city4.plots[10].buildingId === 'sawmill' &&
+                        city4.plots[10].buildingId === 'hut' &&
                         city4.plots[10].level === 1 &&
                         !city4.plots[1].relocating &&
                         !city4.plots[10].relocating;
 
-  // Test deliberate Demolition of the relocated Sawmill on Plot 10 with 35% salvage:
+  // Test deliberate Demolition of the relocated Hut on Plot 10 with 35% salvage:
   const woodBeforeDemolish = city4.stockpile.wood;
   const demolishCmd = host4.dispatch({
     type: COMMAND_TYPES.DEMOLISH_BUILDING,
@@ -5129,13 +5370,13 @@ function evaluateWargameSelfTests() {
   const demolishQueued = demolishCmd.ok && city4.buildQueue.length === 1 && city4.buildQueue[0].type === 'demolish';
   // Advance 2500ms to complete demolition
   host4.stepClock(2500);
-  const demolishCompleted = !city4.buildings.sawmill && city4.plots[10].level === 0 && city4.stockpile.wood > woodBeforeDemolish;
+  const demolishCompleted = !city4.buildings.hut && city4.plots[10].level === 0 && city4.stockpile.wood > woodBeforeDemolish;
 
   // Test 3-slot build queue limit
-  host4.dispatch({ type: COMMAND_TYPES.QUEUE_BUILDING, payload: { plotIndex: 1, buildingId: 'sawmill' } });
-  host4.dispatch({ type: COMMAND_TYPES.QUEUE_BUILDING, payload: { plotIndex: 2, buildingId: 'quarry' } });
-  host4.dispatch({ type: COMMAND_TYPES.QUEUE_BUILDING, payload: { plotIndex: 3, buildingId: 'farmstead' } });
-  const fourthQueueBlocked = !host4.dispatch({ type: COMMAND_TYPES.QUEUE_BUILDING, payload: { plotIndex: 4, buildingId: 'guild_hall' } }).ok;
+  host4.dispatch({ type: COMMAND_TYPES.QUEUE_BUILDING, payload: { plotIndex: 1, buildingId: 'hut' } });
+  host4.dispatch({ type: COMMAND_TYPES.QUEUE_BUILDING, payload: { plotIndex: 2, buildingId: 'hut' } });
+  host4.dispatch({ type: COMMAND_TYPES.QUEUE_BUILDING, payload: { plotIndex: 3, buildingId: 'hut' } });
+  const fourthQueueBlocked = !host4.dispatch({ type: COMMAND_TYPES.QUEUE_BUILDING, payload: { plotIndex: 4, buildingId: 'hut' } }).ok;
 
   const t4Pass = Boolean(
     foundCmd.ok &&
@@ -5146,9 +5387,9 @@ function evaluateWargameSelfTests() {
     proratedRefundGiven &&
     cleanupJobActive &&
     cleanupFinished &&
-    sawmillCompleted &&
+    hutCompleted &&
     gridHas64Plots &&
-    centerPlotIsKeep &&
+    centerPlotIsHall &&
     plotSelected &&
     moveQueued &&
     plotsMarkedRelocating &&
@@ -5162,12 +5403,12 @@ function evaluateWargameSelfTests() {
     name: '4. 8x8 Spatial Grid (64 Plots), Plot Selection, Building Relocation & Demolition Salvage',
     pass: t4Pass,
     detail: t4Pass
-      ? '8x8 grid of 64 plots initialized with central keep at (3,3), plot selection, timed building relocation, and demolition salvage verified'
+      ? '8x8 grid of 64 plots initialized with central Meeting Hall at (3,3), plot selection, timed building relocation, and demolition salvage verified'
       : 'Failed 8x8 spatial grid or relocation checks'
   });
 
   // =========================================================================
-  // Test 5: Adventurers Guild Hall Completion, 60s Hero Recruitment Queue & Vanguard Formation
+  // Test 5: Adventurers Guild Completion, 60s Hero Recruitment Queue & Vanguard Formation
   // =========================================================================
   const host5 = createWargameSimHost();
   host5.dispatch({
@@ -5180,22 +5421,38 @@ function evaluateWargameSelfTests() {
   });
   const city5 = getPrimaryCity(host5.state);
 
-  // Claim completed tasks 1 and 2 to boost stockpiles
+  // Set up prerequisites to charter Adventurers Guild (Hut -> Garden -> Well -> Lumber Camp -> Quarry + 20 population)
+  city5.plots[1].buildingId = 'hut';
+  city5.plots[1].level = 1;
+  city5.buildings.hut = 1;
+  city5.buildings.garden = 1;
+  city5.buildings.well = 1;
+  city5.buildings.lumber_camp = 1;
+  city5.buildings.quarry = 1;
+  city5.population = { current: 20, max: 25, growthProgress: 0, starving: false };
+
+  // Claim campaign milestone rewards in sequence
   host5.dispatch({ type: COMMAND_TYPES.CLAIM_TASK_REWARD, payload: { taskId: 'task_scout_wilderness' } });
   host5.dispatch({ type: COMMAND_TYPES.CLAIM_TASK_REWARD, payload: { taskId: 'task_found_first_city' } });
+  host5.dispatch({ type: COMMAND_TYPES.CLAIM_TASK_REWARD, payload: { taskId: 'task_build_first_hut' } });
+  host5.dispatch({ type: COMMAND_TYPES.CLAIM_TASK_REWARD, payload: { taskId: 'task_build_garden' } });
+  host5.dispatch({ type: COMMAND_TYPES.CLAIM_TASK_REWARD, payload: { taskId: 'task_build_well' } });
+  host5.dispatch({ type: COMMAND_TYPES.CLAIM_TASK_REWARD, payload: { taskId: 'task_grow_population_12' } });
+  host5.dispatch({ type: COMMAND_TYPES.CLAIM_TASK_REWARD, payload: { taskId: 'task_build_lumber_camp' } });
+  host5.dispatch({ type: COMMAND_TYPES.CLAIM_TASK_REWARD, payload: { taskId: 'task_build_quarry' } });
 
-  // Queue Adventurers Guild Hall on Plot #4 (6000ms build duration)
+  // Queue Adventurers Guild on Plot #4 (6000ms build duration)
   const queueGuild = host5.dispatch({
     type: COMMAND_TYPES.QUEUE_BUILDING,
     payload: { plotIndex: 4, buildingId: 'guild_hall' }
   });
 
-  // Advance clock by 6500ms -> Guild Hall finishes and unlocks GUILD_UNLOCKED phase!
+  // Advance clock by 6500ms -> Guild finishes and unlocks GUILD_UNLOCKED phase!
   host5.stepClock(6500);
   const guildUnlocked = host5.state.campaignPhase === CAMPAIGN_PHASES.GUILD_UNLOCKED && city5.buildings.guild_hall === 1;
 
-  // Claim Task 4 ("Charter the Adventurers Guild Hall") -> grants +100 Gold, +50 Food
-  const claimTask4 = host5.dispatch({
+  // Claim Task ("Charter the Adventurers Guild") -> grants +100 Gold, +50 Food
+  const claimTaskGuild = host5.dispatch({
     type: COMMAND_TYPES.CLAIM_TASK_REWARD,
     payload: { taskId: 'task_build_guild_hall' }
   });
@@ -5237,7 +5494,7 @@ function evaluateWargameSelfTests() {
   const t5Pass = Boolean(
     queueGuild.ok &&
     guildUnlocked &&
-    claimTask4.ok &&
+    claimTaskGuild.ok &&
     rangerQueued &&
     heroNotInstantlySpawned &&
     fighterQueued &&
@@ -5248,15 +5505,15 @@ function evaluateWargameSelfTests() {
   );
 
   results.push({
-    name: '5. Adventurers Guild Hall Completion, 60s Hero Recruitment Queue & Vanguard Formation',
+    name: '5. Adventurers Guild Completion, 60s Hero Recruitment Queue & Vanguard Formation',
     pass: t5Pass,
     detail: t5Pass
-      ? 'Guild Hall completion unlocks recruitment, swearing in enqueues 60s trainee, cancel gives refund, and timer resolution inducts hero into Vanguard Party'
+      ? 'Guild completion unlocks recruitment, swearing in enqueues 60s trainee, cancel gives refund, and timer resolution inducts hero into Vanguard Party'
       : 'Failed 60s hero recruitment queue lifecycle'
   });
 
   // =========================================================================
-  // Test 6: Tier 1 Buildings, Meeting Hall Level Cap, Water/Ore & Windmill Synergy
+  // Test 6: Tier 1 Buildings, Meeting Hall Level Cap, Doubling Times & Paced Progression
   // =========================================================================
   const host6 = createWargameSimHost();
   host6.dispatch({
@@ -5275,94 +5532,94 @@ function evaluateWargameSelfTests() {
                          city6.stockpile.water >= 50 &&
                          city6.stockpile.ore >= 20;
 
-  // 2. Verify Subsistence baseline production (+1 food, wood, stone, gold, water per 5s tick without industry)
-  const waterBeforeTick = city6.stockpile.water;
-  const foodBeforeTick  = city6.stockpile.food;
-  host6.stepClock(5000); // 5s resource production interval
-  const subsistenceYieldGiven = (city6.stockpile.water === waterBeforeTick + 1) &&
-                                (city6.stockpile.food === foodBeforeTick + 1);
+  // 2. Verify doubling construction duration:
+  // Base Hut build time = 3000ms. Level 2 = 6000ms. Level 3 = 12000ms.
+  const hutDurLv1 = computeBuildingDurationMs('hut', 1);
+  const hutDurLv2 = computeBuildingDurationMs('hut', 2);
+  const hutDurLv3 = computeBuildingDurationMs('hut', 3);
+  const durationDoubles = (hutDurLv1 === 3000 && hutDurLv2 === 6000 && hutDurLv3 === 12000);
 
-  // 3. Test Meeting Hall Level Cap:
-  // Build a Lumberjack Hut on Plot 1 (Level 1)
+  // 3. Verify Paced Building Unlock Progression:
+  // At founding, only Hut is constructible! Garden, Well, Lumber Camp, Quarry, Guild are locked.
+  const hutUnlockedInitially = isBuildingPrerequisiteMet(city6, 'hut');
+  const gardenLockedInitially = !isBuildingPrerequisiteMet(city6, 'garden');
+  const wellLockedInitially = !isBuildingPrerequisiteMet(city6, 'well');
+  const lumberLockedInitially = !isBuildingPrerequisiteMet(city6, 'lumber_camp');
+
+  // Build a Hut on Plot 1 -> now Garden unlocks!
   host6.dispatch({
     type: COMMAND_TYPES.QUEUE_BUILDING,
-    payload: { plotIndex: 1, buildingId: 'lumber_hut' }
+    payload: { plotIndex: 1, buildingId: 'hut' }
   });
-  host6.stepClock(4000); // Complete Lumberjack Hut
-  const lumberHutLevel1 = city6.plots[1].buildingId === 'lumber_hut' && city6.plots[1].level === 1;
+  host6.stepClock(3500); // Complete Hut
+  const hutCompleted6 = city6.plots[1].buildingId === 'hut' && city6.plots[1].level === 1;
+  const gardenUnlockedAfterHut = isBuildingPrerequisiteMet(city6, 'garden');
 
-  // Attempt to upgrade Lumberjack Hut to Level 2 while Meeting Hall is Level 1 -> MUST BE REJECTED!
-  const prematureLumberUpgrade = host6.dispatch({
+  // Attempt to upgrade Hut to Level 2 while Meeting Hall is Level 1 -> MUST BE REJECTED!
+  const prematureHutUpgrade = host6.dispatch({
     type: COMMAND_TYPES.QUEUE_BUILDING,
-    payload: { plotIndex: 1, buildingId: 'lumber_hut' }
+    payload: { plotIndex: 1, buildingId: 'hut' }
   });
-  const upgradeBlockedByMeetingHall = !prematureLumberUpgrade.ok;
+  const upgradeBlockedByMeetingHall = !prematureHutUpgrade.ok;
 
-  // Boost stockpile and upgrade Meeting Hall (Plot 27) to Level 2
+  // Upgrade Meeting Hall (Plot 27) to Level 2 (Takes 10,000ms with doubling duration)
   city6.stockpile.wood = 500;
   city6.stockpile.stone = 500;
   city6.stockpile.gold = 500;
+  city6.stockpile.food = 500;
+  city6.stockpile.water = 500;
   const queueMeetingHallLv2 = host6.dispatch({
     type: COMMAND_TYPES.QUEUE_BUILDING,
-    payload: { plotIndex: 27, buildingId: 'town_hall' }
+    payload: { plotIndex: 27, buildingId: 'meeting_hall' }
   });
-  host6.stepClock(8000); // Complete Meeting Hall Level 2
+  host6.stepClock(11000); // Complete Meeting Hall Level 2
   const meetingHallLevel2 = (city6.buildings.meeting_hall === 2 || city6.buildings.town_hall === 2);
 
-  // Now upgrade Lumberjack Hut to Level 2 -> MUST SUCCEED!
-  const validLumberUpgrade = host6.dispatch({
+  // Now upgrade Hut to Level 2 (Takes 6,000ms with doubling duration) -> MUST SUCCEED!
+  const validHutUpgrade = host6.dispatch({
     type: COMMAND_TYPES.QUEUE_BUILDING,
-    payload: { plotIndex: 1, buildingId: 'lumber_hut' }
+    payload: { plotIndex: 1, buildingId: 'hut' }
   });
-  const upgradeAllowedAfterMeetingHall = validLumberUpgrade.ok;
-  host6.stepClock(6000); // Finish upgrading Lumberjack Hut
+  const upgradeAllowedAfterMeetingHall = validHutUpgrade.ok;
+  host6.stepClock(7000); // Finish upgrading Hut to Lv 2
 
-  // 4. Test Hut Population Scaling & Multi-Building Stacking
-  const popBeforeHuts = city6.plots.reduce(function(acc, p) {
-    return acc + (p.buildingId === 'hut' ? (p.level * 5) : 0);
-  }, 10);
-  // Queue Hut 1 on Plot 2
-  host6.dispatch({ type: COMMAND_TYPES.QUEUE_BUILDING, payload: { plotIndex: 2, buildingId: 'hut' } });
+  // Build Garden on Plot 2 -> now Well unlocks!
+  host6.dispatch({
+    type: COMMAND_TYPES.QUEUE_BUILDING,
+    payload: { plotIndex: 2, buildingId: 'garden' }
+  });
   host6.stepClock(4000);
-  // Queue Hut 2 on Plot 3 (Multi-building stacking)
-  host6.dispatch({ type: COMMAND_TYPES.QUEUE_BUILDING, payload: { plotIndex: 3, buildingId: 'hut' } });
-  host6.stepClock(4000);
-  const hutPlotsCount = city6.plots.filter(function(p) { return p.buildingId === 'hut' && p.level === 1; }).length;
-  const multiHutVerified = (hutPlotsCount === 2);
+  const wellUnlockedAfterGarden = isBuildingPrerequisiteMet(city6, 'well');
 
-  // 5. Test Windmill Spatial Adjacency Synergy (+20% yield to orthogonal neighbors)
-  // Place Garden on Plot 18 (x=2, y=2)
-  host6.dispatch({ type: COMMAND_TYPES.QUEUE_BUILDING, payload: { plotIndex: 18, buildingId: 'garden' } });
-  host6.stepClock(4000);
-
-  // Place Windmill on Plot 26 (x=2, y=3) which is immediately South of Plot 18
-  host6.dispatch({ type: COMMAND_TYPES.QUEUE_BUILDING, payload: { plotIndex: 26, buildingId: 'windmill' } });
-  host6.stepClock(6000);
-
-  // Step clock by 5000ms for a resource tick
-  const foodBeforeSynergyTick = city6.stockpile.food;
-  host6.stepClock(5000);
-  // Expected food gain: +1 subsistence + Garden Lv 1 with Windmill +20% (6 * 1.20 = 7.2 -> 7) = +8
-  const foodGained = city6.stockpile.food - foodBeforeSynergyTick;
-  const windmillSynergyVerified = (foodGained >= 8);
+  // 4. Test Population Sustenance Consumption & Growth
+  // With 5 citizens, consumption is 1 food and 1 water per tick.
+  // With abundant food and water, growthProgress increases by +25 per tick.
+  const popBeforeTick = city6.population.current;
+  host6.stepClock(20000); // 4 resource production ticks (20s) -> should grow population by +1!
+  const popGrew = city6.population.current >= popBeforeTick + 1;
 
   const t6Pass = Boolean(
     hasWaterAndOre &&
-    subsistenceYieldGiven &&
-    lumberHutLevel1 &&
+    durationDoubles &&
+    hutUnlockedInitially &&
+    gardenLockedInitially &&
+    wellLockedInitially &&
+    lumberLockedInitially &&
+    hutCompleted6 &&
+    gardenUnlockedAfterHut &&
     upgradeBlockedByMeetingHall &&
     meetingHallLevel2 &&
     upgradeAllowedAfterMeetingHall &&
-    multiHutVerified &&
-    windmillSynergyVerified
+    wellUnlockedAfterGarden &&
+    popGrew
   );
 
   results.push({
-    name: '6. Tier 1 Buildings, Meeting Hall Level Cap, Water/Ore & Windmill Synergy',
+    name: '6. Tier 1 Buildings, Meeting Hall Level Cap, Doubling Times & Paced Progression',
     pass: t6Pass,
     detail: t6Pass
-      ? 'Subsistence yield, Meeting Hall level cap enforcement, Hut population stacking, and 8x8 Windmill adjacency synergy (+20%) verified'
-      : 'Failed Tier 1 building catalog or synergy invariants'
+      ? 'Doubling build durations, paced sequential unlocking (Hut -> Garden -> Well), Meeting Hall level cap, and population food/water consumption growth verified'
+      : 'Failed Tier 1 building catalog or paced progression invariants'
   });
 
   return results;

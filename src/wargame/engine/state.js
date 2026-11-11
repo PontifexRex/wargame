@@ -112,7 +112,7 @@ export function createDefaultCityPlots() {
       plotIndex: i,
       x: px,
       y: py,
-      label: isCenter ? 'Central Citadel Plot' : ('Plot (' + px + ', ' + py + ')'),
+      label: isCenter ? 'Meeting Hall Plot' : ('Plot (' + px + ', ' + py + ')'),
       buildingId: isCenter ? 'town_hall' : null,
       level: isCenter ? 1 : 0,
       underConstruction: false,
@@ -189,6 +189,17 @@ export function computeCityPopulation(city, world = null) {
       }
     }
   }
+
+  if (city && city.population && typeof city.population.current === 'number') {
+    city.population.max = maxPop;
+    return {
+      current: city.population.current,
+      max: maxPop,
+      starving: Boolean(city.population.starving),
+      growthProgress: city.population.growthProgress || 0
+    };
+  }
+
   let currentPop = 5;
   if (city && city.level) {
     currentPop += (city.level - 1) * 2;
@@ -197,7 +208,7 @@ export function computeCityPopulation(city, world = null) {
     currentPop += world.heroes.length;
   }
   currentPop = Math.min(currentPop, maxPop);
-  return { current: currentPop, max: maxPop };
+  return { current: currentPop, max: maxPop, starving: false, growthProgress: 0 };
 }
 
 export function hasSavedWargameCampaign() {

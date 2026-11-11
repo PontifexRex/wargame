@@ -222,7 +222,8 @@ export function resolveBuildingCompleteJob(job, state, scheduler, eventStream) {
   } else if (bId === 'garden' || bId === 'farmstead') {
     city.buildings.garden = Math.max(city.buildings.garden || 0, targetLvl);
     city.buildings.farmstead = Math.max(city.buildings.farmstead || 0, targetLvl);
-  } else if (bId === 'lumber_hut' || bId === 'sawmill') {
+  } else if (bId === 'lumber_camp' || bId === 'lumber_hut' || bId === 'sawmill') {
+    city.buildings.lumber_camp = Math.max(city.buildings.lumber_camp || 0, targetLvl);
     city.buildings.lumber_hut = Math.max(city.buildings.lumber_hut || 0, targetLvl);
     city.buildings.sawmill = Math.max(city.buildings.sawmill || 0, targetLvl);
   }
@@ -559,7 +560,25 @@ export function processResourceProductionTick(state, eventStream) {
     const city = state.world.cities[cityIds[i]];
     if (!city || !city.stockpile) continue;
 
-    // Subsistence token production: Every city produces +1 food, wood, stone, gold, water baseline per tick
+    // 1. Recompute population capacity from Meeting Hall and active Huts
+    if (!city.population) {
+      city.population = { current: 5, max: 10, growthProgress: 0, starving: false, starveTicks: 0 };
+    }
+    let maxPop = 10;
+    if (Array.isArray(city.plots)) {
+      for (let p = 0; p < city.plots.length; p++) {
+        const pl = city.plots[p];
+        if (pl.buildingId === 'hut' && (pl.level || 0) > 0 && !pl.demolishing) {
+          maxPop += (pl.level || 1) * 5;
+        }
+      }
+    }
+    city.population.max = maxPop;
+    if (typeof city.population.current !== 'number') {
+      city.population.current = 5;
+    }
+
+    // 2. Subsistence token production: Every city produces +1 food, wood, stone, gold, water baseline per tick
     const gains = { wood: 1, stone: 1, food: 1, gold: 1, water: 1, ore: 0 };
 
     if (Array.isArray(city.plots) && city.plots.length > 0) {
@@ -625,13 +644,55 @@ export function processResourceProductionTick(state, eventStream) {
       }
     }
 
+    // Add production gains before consumption
+    city.stockpile.wood  = (city.stockpile.wood  || 0) + gains.wood;
+    city.stockpile.stone = (city.stockpile.stone || 0) + gains.stone;
+    city.stockpile.food  = (city.stockpile.food  || 0) + gains.food;
+    city.stockpile.gold  = (city.stockpile.gold  || 0) + gains.gold;
+    city.stockpile.water = (city.stockpile.water || 0) + gains.water;
+    city.stockpile.ore   = (city.stockpile.ore   || 0) + gains.ore;
+
+    // 3. Population Sustenance Consumption & Starvation Dynamics
+    // Demand scales with population: 1 food and 1 water per 5 citizens
+    const foodDemand = Math.max(1, Math.ceil(city.population.current / 5));
+    const waterDemand = Math.max(1, Math.ceil(city.population.current / 5));
+
+    if ((city.stockpile.food || 0) >= foodDemand && (city.stockpile.water || 0) >= waterDemand) {
+      city.stockpile.food  -= foodDemand;
+      city.stockpile.water -= waterDemand;
+      city.population.starving = false;
+      city.population.starveTicks = 0;
+
+      // Natural Population Growth: advances when food & water are satisfied
+      if (city.population.current < city.population.max) {
+        city.population.growthProgress = (city.population.growthProgress || 0) + 25;
+        if (city.population.growthProgress >= 100) {
+          city.population.current += 1;
+          city.population.growthProgress = 0;
+        }
+      }
+    } else {
+      // Starvation: insufficient food or water!
+      city.stockpile.food  = Math.max(0, (city.stockpile.food || 0) - foodDemand);
+      city.stockpile.water = Math.max(0, (city.stockpile.water || 0) - waterDemand);
+      city.population.starving = true;
+      city.population.growthProgress = 0;
+      city.population.starveTicks = (city.population.starveTicks || 0) + 1;
+
+      // After 2 consecutive starved ticks, a citizen is lost to famine
+      if (city.population.starveTicks >= 2 && city.population.current > 3) {
+        city.population.current -= 1;
+        city.population.starveTicks = 0;
+      }
+    }
+
     const caps = computeCityStorageCaps(city);
-    city.stockpile.wood  = Math.min(caps.wood  || 200, (city.stockpile.wood  || 0) + gains.wood);
-    city.stockpile.stone = Math.min(caps.stone || 200, (city.stockpile.stone || 0) + gains.stone);
-    city.stockpile.food  = Math.min(caps.food  || 200, (city.stockpile.food  || 0) + gains.food);
-    city.stockpile.gold  = Math.min(caps.gold  || 300, (city.stockpile.gold  || 0) + gains.gold);
-    city.stockpile.water = Math.min(caps.water || 200, (city.stockpile.water || 0) + gains.water);
-    city.stockpile.ore   = Math.min(caps.ore   || 100, (city.stockpile.ore   || 0) + gains.ore);
+    city.stockpile.wood  = Math.min(caps.wood  || 200, city.stockpile.wood);
+    city.stockpile.stone = Math.min(caps.stone || 200, city.stockpile.stone);
+    city.stockpile.food  = Math.min(caps.food  || 200, city.stockpile.food);
+    city.stockpile.gold  = Math.min(caps.gold  || 300, city.stockpile.gold);
+    city.stockpile.water = Math.min(caps.water || 200, city.stockpile.water);
+    city.stockpile.ore   = Math.min(caps.ore   || 100, city.stockpile.ore);
 
     if (eventStream && (gains.wood > 0 || gains.stone > 0 || gains.food > 0 || gains.gold > 0 || gains.water > 0 || gains.ore > 0)) {
       eventStream.publish(STREAM_TOPICS.RESOURCE_TICK, {
