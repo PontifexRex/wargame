@@ -225,10 +225,101 @@ Delivered responsive combat feedback, tactical skill previews, threat telegraphs
   - Added Sandboxed **Test 26** in `src/test/selfTest.js` verifying pure non-destructive skill targeting preview across classes, zero-MP validation block, status & threat telegraphs, chronicle category auto-inference, consecutive grouping, and filter switching.
   - Expanded automated verification suite to **26/26 PASS** + Headless UI Smoke Suite.
 
-2. Upcoming Increment Backlog
+---
 
-### Future Backlog: Monster/Object Refactor, Dev Spawner (6.5) & Star-Forge Runecrafting (Inc 8)
+## 2. Long-Term Game Vision & Strategic Pillars
 
-- **Monster & Object Schema Refactor**: Unified entity component architecture.
-- **Developer Spawner (v0.6.5 Phase 2)**: Entity and item spawner matching the refactored schema.
-- **Guild Star-Forge Runecrafting**: Dual-affix runestones, socket punching, and affix re-rolling.
+**Aethelgard** is designed as a hybrid **Grand Strategy Wargame, Real-Time City Builder, and Tactical Procedural Dungeon RPG**. While multiplayer and production server infrastructure are deferred until the core game is complete, the single-player/local architecture is structured around the full domain model ("Start-With-One, Scale-To-Many": `1 Universe -> 1 World -> 1 Player -> 1 City -> 1 Hero/Party` initially, scaling cleanly to `N`).
+
+### Core Design Principles
+1. **True Strategic Wargame with a Definitive Goal**:
+   - Worlds have a defined campaign victory condition (~1+ year duration) rather than running aimlessly forever.
+   - Winning requires strategy, planning, timed alliance coordination, and tactical combat skill—not just raw stat strength or passive resource hoarding.
+   - **Deception & Fog-of-War**: Long-range warfare is deliberate, with low troop intelligence enabling feints/fake attacks and rewarding skilled defenders.
+2. **Low-Penalty Honorable War & Divine Reimbursement**:
+   - To encourage active warfare rather than turtling, losing a battle carries strategic rather than catastrophic personal consequences.
+   - **Favor of the Gods**: Engaging in honorable war grants divine reimbursement and rapid rebuilding support.
+   - **Anti-Bullying Scaling**: Rewards scale significantly higher when fighting stronger opponents; attacking much weaker players yields minimal gains.
+3. **Playstyle-Aligned Guild Archetypes & Alliances**:
+   - **War Guilds**: High-activity, coordinated alliance warfare and territory control.
+   - **Adventurers Guilds**: Geared toward solo and small-party dungeon delving, relic discovery, and hero mastery.
+   - **Social / Low-Pressure Guilds**: Relaxed cooperative city growth and trade without punitive contribution quotas.
+   - Multiple guilds form **Alliances** to win the world; non-aligned specialist guilds can also earn shared victory credit by contributing critical endgame milestones (such as forging a required victory artifact).
+4. **Fair, Non-P2W Economy**:
+   - Reasonable subscription-first model supplemented by cosmetics, minor conveniences, and optional guild/alliance pool contributions—never dependent on whales.
+5. **Hybrid Gameplay Loops (Always Something Meaningful to Do)**:
+   - **Real-Time Overworld & Multi-City Management**: Settling cities, managing city building grids, real-time construction queues, harvesting/trading world resources (`Wood`, `Stone`, `Gold`, `Minerals`), and marching parties across the world map.
+   - **Turn-Based Procedural Dungeons**: Deep roguelike exploration with Hero-led multi-class parties to acquire rare equipment, artifacts, and experience.
+   - **Idle / Upgrade Sub-Systems**: Progressive automation and resource efficiency upgrades interwoven with active play.
+6. **Incremental Discovery, Guided Tutorial & Reward Tasks**:
+   - Systems unlock progressively so new players are never overwhelmed, guided by optional contextual tutorials and non-linear **Tasks/Missions** that grant early progression rewards.
+
+---
+
+## 3. Upcoming Increment Roadmap (`v0.8.x` – `v1.0.x+`)
+
+### Track A: Foundational Game Object, Item, Door & Portal Architecture (`v0.8.x` Series — `ADR-0010`)
+
+#### Increment 8.0 (`v0.8.0-objects`) — Foundational Object Model, Interaction Pipeline & Item/Pickup Unification (Phases 0–2)
+- **Object & Runtime Foundation (`src/engine/objects.js`, `src/data/definitions.js`)**:
+  - Strict separation between immutable `ObjectDefinition` (`ItemDefinition`, `WorldObjectDefinition`) and mutable `RuntimeObject` (`ItemInstance`, `WorldObjectInstance`, `WorldItemPickupInstance`).
+  - Component & Capability registry (`Interactable`, `Usable`, `Equippable`, `Traversable`, `Damageable`, `Destructible`, `Lockable`, `Container`, `TrapBearing`, `Discoverable`, `Permeable`).
+  - Spatial floor object layer (`floor.objects` with `getObjectsAt(floor, x, y)`) decoupling interactive entities from scalar terrain tiles (`floor.tiles[y][x]`).
+- **Unified Interaction Engine (`src/engine/interactions.js`)**:
+  - Standardized `InteractionRequest` -> boolean `Requirement` evaluator (`AND`/`OR` over item tags, stats, skills, class, state) -> separated `Cost` processor -> atomic `Effect` runner -> `InteractionResult` & domain events.
+- **Item Stacking, Keys & World Pickups**:
+  - `ItemStack` compatibility engine (stacking consumables, materials, and keys while keeping unique rolled equipment distinct).
+  - `KeyDefinition` & credential capability (`keyTag`, `securityLevel`, reusable vs. consumable keys).
+  - `WorldItemPickupInstance`: Dropping or spawning items in the dungeon creates physical ground pickups on the floor that can be inspected and picked up.
+  - Migrate existing Chests (`ContainerInstance`), Shrines (`DeviceInstance`), and Traps (`MechanismInstance`) onto the unified `WorldObjectInstance` layer while maintaining 100% backward save compatibility.
+
+#### Increment 8.1 (`v0.8.1-doors`) — Multi-State Door System, Permeability & Lock-and-Key Generation (Phases 3–4)
+- **Physical & Magical Door Types (`DoorDefinition` / `DoorInstance`)**:
+  - **Wooden Door** (hinged, low HP, bashable), **Reinforced Iron Door** (key/lockpick/high-STR bash), **Iron Portcullis** (lever/mechanism operated, blocks movement but allows line-of-sight and ranged attacks!), **Ancient Vault Door** (multi-lock), **Rune-Sealed Barrier** (magic/dispel), and **Concealed Secret Door** (`discovery: unknown -> revealed`, blends into 2.5D wall masonry until spotted/searched).
+- **Orthogonal State Axes & Environmental Permeability**:
+  - Independent `mechanical` (`closed`/`open`/`jammed`), `security` (`unlocked`/`locked`/`sealed`), `discovery` (`unknown`/`revealed`), and `structural` (`intact`/`damaged`/`breached`/`destroyed`) states.
+  - Dynamic permeability integration with `hasLineOfSight`, `updateFOV` torchlight raycasting, ranged combat projectiles, and monster AI pathfinding.
+- **Multi-Solution Door Interactions**:
+  - Context actions: `Open`, `Close`, `Inspect`, `Unlock (Key)`, `Pick Lock` (Thief/DEX), `Force / Bash` (STR/Weapon damage vs. door HP/Armor), `Disarm Trap`, and `Barricade`.
+- **Lock-and-Key Procedural Generation**:
+  - Places doors at room-corridor choke points, treasure vaults, and secret alcoves.
+  - Upgrades `verifyPureFloorBFS` into a **Progression Graph Validator** guaranteeing keys/levers spawn upstream of the locked doors they control (zero soft-locks).
+
+#### Increment 8.2 (`v0.8.2-portals`) — Portal System, Portal Networks & Expanded Monster/Object Spawner (Phases 5–6 + Dev 6.5 Phase 2)
+- **Portal & `PortalNetwork` System (`PortalDefinition` / `PortalInstance`)**:
+  - Shared `ITraversable` contract across Doors, Stairs, and Portals.
+  - **Dungeon Entrance/Exit Portal**, **Unstable Astral Rift** (charge-limited/stability-degrading shortcuts), and **Ancient Waypoint Network** (discoverable multi-endpoint fast travel within/across dungeons).
+- **Developer Console Phase 2 (Entity, Object, Door & Item Spawner)**:
+  - Interactive spawner built natively on top of the new `ObjectDefinition` and `MONSTER_ARCHETYPES` registries (`spawn monster`, `spawn door`, `spawn item`, `spawn key`, `spawn portal`).
+
+---
+
+### Track B: Overworld Map, Settler Onboarding, City Builder & Real-Time Loop (`v0.9.x` Series — `ADR-0011`)
+
+#### Increment 9.0 (`v0.9.0-overworld`) — Overworld Map, Settler Unit, City Founding & Guided Task System
+- **Macro State Hierarchy (`universe -> world -> overworld -> cities -> parties`)**:
+  - Overworld terrain grid with resource nodes (`Wood` forests, `Stone` outcrops, `Ore` hills), fog-of-war, and coordinates.
+- **First-15-Minutes Settler Onboarding**:
+  - Start on Overworld Map controlling a **Settler** at a valid unoccupied location (with safe respawn if killed before settling).
+  - **Guided Tutorial & Task System**:
+    - *Task 1 ("Settle Your First City")*: Founding City #1 on the Overworld map awards `50 Wood` and `50 Stone`.
+- **City Grid & Real-Time Build Queue**:
+  - City interior grid view with a real-time **Build Queue** (1 slot initially).
+  - *Task 2 ("Build the Adventurers Guild Hall")*: Costs `50 Wood, 50 Stone` (~30s real-time build timer).
+  - Completing the Adventurers Guild Hall unlocks the Hero and reveals the first **Dungeon Entrance** on the Overworld map.
+- **Real-Time Overworld March & Dungeon Transition**:
+  - Selecting a destination on the Overworld marches the party in real-time (~10s per grid tile).
+  - Exiting a dungeon via Floor 1 Stairs places the party at the Overworld Dungeon Entrance and automatically begins the march back to the City; dungeon defeat returns directly to the City's Adventurers Guild Hall.
+
+#### Increment 9.1 (`v0.9.1-city-economy`) — City Buildings, Resource Production & Guild Star-Forge
+- **Expanded City Buildings**:
+  - Resource producers (**Sawmill** for Wood, **Stoneworks** for Stone, **Smeltery** for Ores), **Warehouse**, **Barracks**, **Temple of War** (Divine War Reimbursement mechanics), and **Star-Forge**.
+- **Guild Star-Forge Runecrafting**:
+  - Craft equipment, punch sockets, and re-roll affixes using dungeon minerals and city resources.
+
+---
+
+### Track C: Multi-Hero Parties, Guild Playstyles & Tactical Warfare (`v1.0.x+` Series)
+- **Multi-Member Hero Parties**: Parties led by a Hero with multiple class members entering dungeons and tactical battles together.
+- **Guild Archetype Specializations**: Distinct configurations for **Adventurers Guilds**, **War Guilds**, and **Social Guilds**.
+- **Tactical Overworld Warfare, Alliances & World Victory Arc**: Timed marches, feints/fog-of-war intel, city defense, Divine War Reimbursement, and endgame Alliance victory objectives.
