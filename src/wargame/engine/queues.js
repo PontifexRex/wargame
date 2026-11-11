@@ -133,20 +133,37 @@ export function activateNextCityBuildQueueItem(city, state, scheduler) {
 
   // Check if the front item is already active
   const front = city.buildQueue[0];
-  if (front.status === 'building' || front.status === 'demolishing') return front;
+  if (front.status === 'building' || front.status === 'demolishing' || front.status === 'moving') return front;
 
   const simTimeMs = state.world.clock.simTimeMs;
   const dur = Math.max(500, front.durationMs || 4000);
+  const isMove = front.type === 'move';
   const isDemolishOrCleanup = front.type === 'demolish' || front.type === 'cleanup';
-  const jobType = isDemolishOrCleanup ? 'CITY_BUILDING_DEMOLISH_COMPLETE' : 'CITY_BUILDING_COMPLETE';
+
+  let jobType = 'CITY_BUILDING_COMPLETE';
+  let jobPrefix = 'build_';
+  if (isMove) {
+    jobType = 'CITY_BUILDING_MOVE_COMPLETE';
+    jobPrefix = 'move_';
+  } else if (isDemolishOrCleanup) {
+    jobType = 'CITY_BUILDING_DEMOLISH_COMPLETE';
+    jobPrefix = 'demolish_';
+  }
 
   const job = scheduler.scheduleJob({
-    jobId: (isDemolishOrCleanup ? 'demolish_' : 'build_') + city.id + '_plot_' + front.plotIndex + '_' + simTimeMs,
+    jobId: jobPrefix + city.id + '_plot_' + (isMove ? (front.fromPlotIndex + '_' + front.toPlotIndex) : front.plotIndex) + '_' + simTimeMs,
     jobType: jobType,
     ownerId: city.id,
     startSimTimeMs: simTimeMs,
     dueSimTimeMs: simTimeMs + dur,
-    payload: {
+    payload: isMove ? {
+      cityId: city.id,
+      queueItemId: front.queueItemId,
+      fromPlotIndex: front.fromPlotIndex,
+      toPlotIndex: front.toPlotIndex,
+      buildingId: front.buildingId,
+      level: front.level
+    } : {
       cityId: city.id,
       queueItemId: front.queueItemId,
       plotIndex: front.plotIndex,
@@ -158,21 +175,28 @@ export function activateNextCityBuildQueueItem(city, state, scheduler) {
     }
   });
 
-  front.status = isDemolishOrCleanup ? 'demolishing' : 'building';
+  front.status = isMove ? 'moving' : (isDemolishOrCleanup ? 'demolishing' : 'building');
   front.jobId = job.jobId;
   front.startSimTimeMs = simTimeMs;
   front.dueSimTimeMs = simTimeMs + dur;
 
-  const plot = (city.plots || []).find(function(p) { return p.plotIndex === front.plotIndex; });
-  if (plot) {
-    if (isDemolishOrCleanup) {
-      plot.demolishing = true;
-      plot.underConstruction = false;
-    } else {
-      plot.underConstruction = true;
-      plot.demolishing = false;
+  if (isMove) {
+    const fromPlot = (city.plots || []).find(function(p) { return p.plotIndex === front.fromPlotIndex; });
+    const toPlot   = (city.plots || []).find(function(p) { return p.plotIndex === front.toPlotIndex; });
+    if (fromPlot) { fromPlot.relocating = true; fromPlot.activeJobId = job.jobId; }
+    if (toPlot)   { toPlot.relocating = true; toPlot.activeJobId = job.jobId; }
+  } else {
+    const plot = (city.plots || []).find(function(p) { return p.plotIndex === front.plotIndex; });
+    if (plot) {
+      if (isDemolishOrCleanup) {
+        plot.demolishing = true;
+        plot.underConstruction = false;
+      } else {
+        plot.underConstruction = true;
+        plot.demolishing = false;
+      }
+      plot.activeJobId = job.jobId;
     }
-    plot.activeJobId = job.jobId;
   }
 
   return front;
@@ -293,6 +317,67 @@ export function resolveBuildingDemolishJob(job, state, scheduler, eventStream) {
       buildingId: bId,
       plotIndex: p.plotIndex,
       salvage: isDeliberate ? (p.salvage || null) : null
+    }, job.dueSimTimeMs);
+  }
+
+  activateNextCityBuildQueueItem(city, state, scheduler);
+
+  state._dirty = true;
+  saveWargameState(state, scheduler);
+  evaluateTaskDAG(state, eventStream);
+}
+
+export function resolveBuildingMoveJob(job, state, scheduler, eventStream) {
+  if (!state || !state.world || !state.world.cities) return;
+  const p = job.payload || {};
+  const city = state.world.cities[p.cityId];
+  if (!city) return;
+
+  const fromPlot = (city.plots || []).find(function(pl) { return pl.plotIndex === p.fromPlotIndex; });
+  const toPlot   = (city.plots || []).find(function(pl) { return pl.plotIndex === p.toPlotIndex; });
+
+  const bId = p.buildingId;
+  const lvl = p.level || 1;
+
+  if (fromPlot) {
+    fromPlot.buildingId = null;
+    fromPlot.level = 0;
+    fromPlot.relocating = false;
+    fromPlot.underConstruction = false;
+    fromPlot.demolishing = false;
+    fromPlot.activeJobId = null;
+  }
+
+  if (toPlot) {
+    toPlot.buildingId = bId;
+    toPlot.level = lvl;
+    toPlot.relocating = false;
+    toPlot.underConstruction = false;
+    toPlot.demolishing = false;
+    toPlot.activeJobId = null;
+  }
+
+  // Remove completed move from front of buildQueue
+  if (Array.isArray(city.buildQueue)) {
+    const idx = city.buildQueue.findIndex(function(q) { return q.queueItemId === p.queueItemId || q.jobId === job.jobId; });
+    if (idx !== -1) {
+      city.buildQueue.splice(idx, 1);
+    }
+  }
+
+  // Update selectedPlotIndex if user was inspecting the moved structure
+  if (city.selectedPlotIndex === p.fromPlotIndex) {
+    city.selectedPlotIndex = p.toPlotIndex;
+  }
+
+  if (eventStream) {
+    eventStream.publish(STREAM_TOPICS.BUILDING_MOVED, {
+      cityId: city.id,
+      cityName: city.name,
+      buildingId: bId,
+      fromPlotIndex: p.fromPlotIndex,
+      toPlotIndex: p.toPlotIndex,
+      level: lvl
     }, job.dueSimTimeMs);
   }
 

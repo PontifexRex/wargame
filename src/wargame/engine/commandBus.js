@@ -11,7 +11,10 @@ import {
   BASE_BUILD_QUEUE_LIMIT,
   BASE_RECRUIT_QUEUE_LIMIT,
   DEMOLISH_SALVAGE_RATIO,
-  CANCEL_CLEANUP_TIME_RATIO
+  CANCEL_CLEANUP_TIME_RATIO,
+  BASE_MOVE_BUILDING_DURATION_MS,
+  CITY_CENTER_PLOT_INDEX,
+  CITY_TOTAL_PLOTS
 } from '../constants.js';
 import {
   OVERWORLD_TERRAIN_DEFS,
@@ -35,6 +38,7 @@ import {
   activateNextCityBuildQueueItem,
   resolveBuildingCompleteJob,
   resolveBuildingDemolishJob,
+  resolveBuildingMoveJob,
   activateNextCityRecruitQueueItem,
   resolveRecruitHeroJob,
   processResourceProductionTick
@@ -268,6 +272,7 @@ export function dispatchWargameCommand(commandEnvelope, state, scheduler, eventS
         town_hall: 1
       },
       plots: createDefaultCityPlots(),
+      selectedPlotIndex: CITY_CENTER_PLOT_INDEX !== undefined ? CITY_CENTER_PLOT_INDEX : 27,
       buildQueue: [],
       maxBuildQueueSlots: BASE_BUILD_QUEUE_LIMIT || 3,
       recruitmentQueue: [],
@@ -347,6 +352,20 @@ export function dispatchWargameCommand(commandEnvelope, state, scheduler, eventS
   }
 
   // ---------------------------------------------------------------------------
+  // 6B. SELECT CITY PLOT (Focus Inspector on Specific 8x8 Grid Plot)
+  // ---------------------------------------------------------------------------
+  if (cmdType === COMMAND_TYPES.SELECT_CITY_PLOT) {
+    const city = (payload.cityId && world.cities[payload.cityId]) || getPrimaryCity(state);
+    if (!city) return reject('No city founded yet');
+    const plotIndex = typeof payload.plotIndex === 'number' ? payload.plotIndex : -1;
+    if (plotIndex < 0 || plotIndex >= (city.plots ? city.plots.length : (CITY_TOTAL_PLOTS || 64))) {
+      return reject('Invalid city plot coordinate: ' + plotIndex);
+    }
+    city.selectedPlotIndex = plotIndex;
+    return accept({ selectedPlotIndex: plotIndex });
+  }
+
+  // ---------------------------------------------------------------------------
   // 7. QUEUE BUILDING (Real-Time City Construction Queue)
   // ---------------------------------------------------------------------------
   if (cmdType === COMMAND_TYPES.QUEUE_BUILDING) {
@@ -365,8 +384,8 @@ export function dispatchWargameCommand(commandEnvelope, state, scheduler, eventS
       return reject('City construction queue is full');
     }
 
-    if (plot.underConstruction) {
-      return reject('That plot already has an active construction order');
+    if (plot.underConstruction || plot.demolishing || plot.relocating) {
+      return reject('That plot already has an active order');
     }
 
     if (plot.buildingId && plot.buildingId !== buildingId) {
@@ -423,6 +442,7 @@ export function dispatchWargameCommand(commandEnvelope, state, scheduler, eventS
     };
 
     plot.underConstruction = true;
+    city.selectedPlotIndex = plot.plotIndex;
     city.buildQueue.push(queueItem);
 
     // If this is the front of the queue, schedule the completion timer immediately
@@ -447,6 +467,69 @@ export function dispatchWargameCommand(commandEnvelope, state, scheduler, eventS
   }
 
   // ---------------------------------------------------------------------------
+  // 7B. MOVE BUILDING (Timed Relocation to an Empty 8x8 Grid Plot)
+  // ---------------------------------------------------------------------------
+  if (cmdType === COMMAND_TYPES.MOVE_BUILDING) {
+    const city = (payload.cityId && world.cities[payload.cityId]) || getPrimaryCity(state);
+    if (!city) return reject('No city founded yet');
+
+    const fromIdx = typeof payload.fromPlotIndex === 'number' ? payload.fromPlotIndex : -1;
+    const toIdx   = typeof payload.toPlotIndex === 'number' ? payload.toPlotIndex : -1;
+
+    const fromPlot = (city.plots || []).find(function(p) { return p.plotIndex === fromIdx; });
+    const toPlot   = (city.plots || []).find(function(p) { return p.plotIndex === toIdx; });
+
+    if (!fromPlot) return reject('Invalid source plot: ' + fromIdx);
+    if (!toPlot)   return reject('Invalid destination plot: ' + toIdx);
+    if (fromIdx === toIdx) return reject('Destination plot must be different from source');
+
+    if (!fromPlot.buildingId || (fromPlot.level || 0) <= 0) {
+      return reject('No building exists on source plot');
+    }
+
+    if (fromPlot.underConstruction || fromPlot.demolishing || fromPlot.relocating) {
+      return reject('Source plot is currently undergoing an active order');
+    }
+
+    if (toPlot.buildingId || toPlot.underConstruction || toPlot.demolishing || toPlot.relocating) {
+      return reject('Destination plot is already occupied or undergoing an order');
+    }
+
+    if (city.buildQueue.length >= (city.maxBuildQueueSlots || BASE_BUILD_QUEUE_LIMIT || 3)) {
+      return reject('City construction queue is full');
+    }
+
+    const bId = fromPlot.buildingId;
+    const bDef = CITY_BUILDINGS_CATALOG[bId];
+    const lvl = fromPlot.level || 1;
+    const durMs = BASE_MOVE_BUILDING_DURATION_MS || 2500;
+
+    const queueItem = {
+      queueItemId: 'move_' + city.id + '_p' + fromIdx + '_to_p' + toIdx + '_' + Date.now(),
+      cityId: city.id,
+      fromPlotIndex: fromIdx,
+      toPlotIndex: toIdx,
+      buildingId: bId,
+      buildingName: bDef ? bDef.name : bId,
+      level: lvl,
+      type: 'move',
+      durationMs: durMs,
+      status: 'queued',
+      jobId: null,
+      startSimTimeMs: null,
+      dueSimTimeMs: null
+    };
+
+    fromPlot.relocating = true;
+    toPlot.relocating = true;
+    city.selectedPlotIndex = toIdx;
+    city.buildQueue.push(queueItem);
+    activateNextCityBuildQueueItem(city, state, scheduler);
+
+    return accept({ queueItem: queueItem });
+  }
+
+  // ---------------------------------------------------------------------------
   // 8. CANCEL BUILDING IN QUEUE (Prorated Refund + 50% Time Spent Cleanup Job)
   // ---------------------------------------------------------------------------
   if (cmdType === COMMAND_TYPES.CANCEL_BUILDING) {
@@ -467,6 +550,19 @@ export function dispatchWargameCommand(commandEnvelope, state, scheduler, eventS
 
     if (targetItem.type === 'cleanup') {
       return reject('Site cleanup cannot be cancelled');
+    }
+
+    if (targetItem.type === 'move') {
+      city.buildQueue.splice(idx, 1);
+      if (targetItem.jobId && scheduler) {
+        scheduler.cancelJob(targetItem.jobId);
+      }
+      const fromPlot = (city.plots || []).find(function(p) { return p.plotIndex === targetItem.fromPlotIndex; });
+      const toPlot   = (city.plots || []).find(function(p) { return p.plotIndex === targetItem.toPlotIndex; });
+      if (fromPlot) { fromPlot.relocating = false; fromPlot.activeJobId = null; }
+      if (toPlot)   { toPlot.relocating = false; toPlot.activeJobId = null; }
+      activateNextCityBuildQueueItem(city, state, scheduler);
+      return accept({ cancelled: targetItem });
     }
 
     if (targetItem.status === 'queued') {
@@ -836,6 +932,8 @@ export function advanceSimulationClock(deltaRealMs, state, scheduler, eventStrea
         resolveMarchStepJob(job, state, scheduler, eventStream);
       } else if (job.jobType === 'CITY_BUILDING_COMPLETE') {
         resolveBuildingCompleteJob(job, state, scheduler, eventStream);
+      } else if (job.jobType === 'CITY_BUILDING_MOVE_COMPLETE') {
+        resolveBuildingMoveJob(job, state, scheduler, eventStream);
       } else if (job.jobType === 'CITY_BUILDING_DEMOLISH_COMPLETE') {
         resolveBuildingDemolishJob(job, state, scheduler, eventStream);
       } else if (job.jobType === 'HERO_RECRUIT_COMPLETE') {

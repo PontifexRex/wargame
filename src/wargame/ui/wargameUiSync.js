@@ -311,21 +311,24 @@ export function renderLeftCommandSidebar(simHost) {
         const buildItems = [];
         for (let q = 0; q < bq.length; q++) {
           const item = bq[q];
+          const isMove = item.type === 'move';
           const isDemolish = item.type === 'demolish';
           const isCleanup = item.type === 'cleanup';
-          if (item.status === 'building' || item.status === 'demolishing') {
+          if (item.status === 'building' || item.status === 'demolishing' || item.status === 'moving') {
             const dur = Math.max(1, (item.dueSimTimeMs || 0) - (item.startSimTimeMs || 0));
             const rem = Math.max(0, (item.dueSimTimeMs || 0) - simTimeMs);
             const pct = Math.min(100, Math.round(((dur - rem) / dur) * 100));
-            const label = isDemolish
-              ? ('🔥 Demolishing ' + item.buildingName)
-              : (isCleanup ? ('🧹 Cleaning Site ' + item.buildingName) : ('🔨 ' + item.buildingName + ' (Lv ' + item.targetLevel + ')'));
-            const barColor = isDemolish ? 'bg-[#f87171]' : (isCleanup ? 'bg-[#94a3b8]' : 'bg-[#fbbf24]');
+            const label = isMove
+              ? ('↔ Moving ' + item.buildingName)
+              : (isDemolish
+                  ? ('🔥 Demolishing ' + item.buildingName)
+                  : (isCleanup ? ('🧹 Cleaning Site ' + item.buildingName) : ('🔨 ' + item.buildingName + ' (Lv ' + item.targetLevel + ')')));
+            const barColor = isMove ? 'bg-[#38bdf8]' : (isDemolish ? 'bg-[#f87171]' : (isCleanup ? 'bg-[#94a3b8]' : 'bg-[#fbbf24]'));
 
             buildItems.push(`
-              <div class="p-2 rounded bg-[#080b11] border ${isDemolish ? 'border-[#f87171]/50' : 'border-[#fbbf24]/50'} space-y-1">
+              <div class="p-2 rounded bg-[#080b11] border ${isMove ? 'border-[#38bdf8]/50' : (isDemolish ? 'border-[#f87171]/50' : 'border-[#fbbf24]/50')} space-y-1">
                 <div class="flex justify-between items-center text-[11px] font-mono">
-                  <span class="${isDemolish ? 'text-[#f87171]' : 'text-[#fbbf24]'} font-bold">${label}</span>
+                  <span class="${isMove ? 'text-[#38bdf8]' : (isDemolish ? 'text-[#f87171]' : 'text-[#fbbf24]')} font-bold">${label}</span>
                   <div class="flex items-center gap-1.5">
                     <span class="text-[#34d399]">${formatSimDuration(rem)}</span>
                     ${!isCleanup ? `
@@ -339,9 +342,11 @@ export function renderLeftCommandSidebar(simHost) {
               </div>
             `);
           } else {
-            const qLabel = isDemolish
-              ? ('⏳ Queued Demolish: ' + item.buildingName)
-              : ('⏳ Queued: ' + item.buildingName + ' (Lv ' + item.targetLevel + ')');
+            const qLabel = isMove
+              ? ('⏳ Queued Move: ' + item.buildingName)
+              : (isDemolish
+                  ? ('⏳ Queued Demolish: ' + item.buildingName)
+                  : ('⏳ Queued: ' + item.buildingName + ' (Lv ' + item.targetLevel + ')'));
             buildItems.push(`
               <div class="p-2 rounded bg-[#080b11] border border-[#283347] flex justify-between items-center text-[11px] font-mono">
                 <span class="text-[#8b949e]">${qLabel}</span>
@@ -506,82 +511,284 @@ export function renderCityBuilderPanel(simHost) {
   const state = simHost.state;
   const city = getPrimaryCity(state);
   const gridEl = document.getElementById('wgCityPlotsGrid');
+  const inspectorEl = document.getElementById('wgCityPlotInspector');
   if (!city || !gridEl) return;
 
   const titleEl = document.getElementById('wgCityPanelTitle');
-  if (titleEl) titleEl.textContent = city.name + ' — Bastion Construction Grid';
+  if (titleEl) titleEl.textContent = city.name + ' — 8x8 Spatial Grid';
 
+  const moveBannerEl = document.getElementById('wgCityMoveModeBanner');
+  const moveSourceIdx = typeof state._moveSourcePlotIndex === 'number' ? state._moveSourcePlotIndex : null;
+  if (moveBannerEl) {
+    if (moveSourceIdx !== null) moveBannerEl.classList.remove('hidden');
+    else moveBannerEl.classList.add('hidden');
+  }
+
+  const selectedIdx = typeof city.selectedPlotIndex === 'number' ? city.selectedPlotIndex : 27;
   const plots = city.plots || [];
-  const newPlotsHtml = plots.map(function(plot) {
-    const slotMeta = CITY_PLOT_SLOTS[plot.plotIndex] || { label: 'City Plot' };
-    const bId = plot.buildingId || slotMeta.recommended;
-    const bDef = CITY_BUILDINGS_CATALOG[bId];
-    const curLevel = plot.buildingId ? (plot.level || 0) : 0;
-    const nextLevel = curLevel + 1;
-    const cost = computeBuildingUpgradeCost(bId, nextLevel);
-    const durMs = computeBuildingDurationMs(bId, nextLevel);
 
-    if (plot.demolishing) {
-      return `
-        <div class="p-3.5 rounded-lg bg-[#080b11] border border-[#f87171] flex flex-col justify-between gap-2">
-          <div>
-            <div class="text-[10px] font-mono uppercase text-[#f87171]">Plot #${plot.plotIndex + 1} • Demolition / Cleanup</div>
-            <div class="text-sm font-bold text-[#e6edf3] mt-0.5">${bDef ? bDef.icon : '🔥'} ${bDef ? bDef.name : bId}</div>
-            <p class="text-[11px] text-[#8b949e] mt-1">${bDef ? bDef.desc : ''}</p>
-          </div>
-          <div class="py-1.5 px-2.5 rounded bg-[#f87171]/15 text-[#f87171] text-xs font-mono font-bold text-center">
-            🔥 Clearing Site in Queue...
-          </div>
-        </div>
-      `;
+  // 1. Render 8x8 Spatial Grid Tiles (64 plots)
+  const tilesHtml = [];
+  for (let i = 0; i < plots.length; i++) {
+    const plot = plots[i];
+    const px = plot.x !== undefined ? plot.x : (plot.plotIndex % 8);
+    const py = plot.y !== undefined ? plot.y : Math.floor(plot.plotIndex / 8);
+    const bId = plot.buildingId;
+    const bDef = bId ? CITY_BUILDINGS_CATALOG[bId] : null;
+
+    const isSelected = (plot.plotIndex === selectedIdx);
+    const isMoveSource = (plot.plotIndex === moveSourceIdx);
+
+    let borderClass = 'border-slate-800 bg-[#080b11]/80 hover:bg-[#111722] hover:border-slate-600';
+    let icon = '<span class="opacity-20 text-[10px]">+</span>';
+    let label = `<span class="text-[7px] font-mono text-slate-500 leading-none">(${px},${py})</span>`;
+
+    if (isMoveSource) {
+      borderClass = 'border-2 border-sky-400 bg-sky-950/40 animate-pulse';
+      icon = '↔';
+      label = `<span class="text-[7px] font-mono text-sky-400 font-bold leading-none">MOVE</span>`;
+    } else if (plot.relocating) {
+      borderClass = 'border border-sky-500 bg-sky-950/30 animate-pulse';
+      icon = '↔';
+      label = `<span class="text-[7px] font-mono text-sky-400 font-bold leading-none">MOVE</span>`;
+    } else if (plot.demolishing) {
+      borderClass = 'border border-red-500 bg-red-950/30 animate-pulse';
+      icon = '🔥';
+      label = `<span class="text-[7px] font-mono text-red-400 font-bold leading-none">DEMO</span>`;
+    } else if (plot.underConstruction) {
+      borderClass = 'border border-amber-400 bg-amber-950/30 animate-pulse';
+      icon = '🔨';
+      label = `<span class="text-[7px] font-mono text-amber-400 font-bold leading-none">BUILD</span>`;
+    } else if (bId === 'town_hall') {
+      borderClass = 'border-2 border-amber-400 bg-amber-950/20 shadow';
+      icon = bDef ? bDef.icon : '🏰';
+      label = `<span class="text-[7px] font-mono text-amber-400 font-bold leading-none">Keep ${plot.level}</span>`;
+    } else if (bDef) {
+      borderClass = 'border border-emerald-500/50 bg-[#111722] hover:border-emerald-400';
+      icon = bDef.icon;
+      label = `<span class="text-[7px] font-mono font-bold leading-none" style="color:${bDef.color || '#4ade80'}">Lv ${plot.level}</span>`;
     }
 
-    if (plot.underConstruction) {
-      return `
-        <div class="p-3.5 rounded-lg bg-[#080b11] border border-[#fbbf24] flex flex-col justify-between gap-2">
-          <div>
-            <div class="text-[10px] font-mono uppercase text-[#fbbf24]">Plot #${plot.plotIndex + 1} • Under Construction</div>
-            <div class="text-sm font-bold text-[#e6edf3] mt-0.5">${bDef ? bDef.icon : '🔨'} ${bDef ? bDef.name : bId} (→ Lv ${nextLevel})</div>
-            <p class="text-[11px] text-[#8b949e] mt-1">${bDef ? bDef.desc : ''}</p>
-          </div>
-          <div class="py-1.5 px-2.5 rounded bg-[#fbbf24]/15 text-[#fbbf24] text-xs font-mono font-bold text-center">
-            🔨 Constructing in Queue...
-          </div>
-        </div>
-      `;
-    }
+    const ringClass = isSelected ? 'ring-2 ring-amber-400 shadow-md shadow-amber-400/20 z-10' : '';
 
-    return `
-      <div class="p-3.5 rounded-lg bg-[#080b11] border ${curLevel > 0 ? 'border-[#34d399]/50' : 'border-[#283347]'} flex flex-col justify-between gap-2.5">
-        <div>
-          <div class="flex items-center justify-between">
-            <span class="text-[10px] font-mono uppercase text-[#8b949e]">${slotMeta.label}</span>
-            <span class="text-[10px] font-mono px-1.5 py-0.5 rounded ${curLevel > 0 ? 'bg-[#34d399]/20 text-[#34d399]' : 'bg-[#1a2232] text-[#8b949e]'}">
-              ${curLevel > 0 ? ('Level ' + curLevel) : 'Unbuilt'}
-            </span>
-          </div>
-          <div class="text-sm font-bold text-[#e6edf3] mt-1">${bDef ? bDef.icon : '🏛️'} ${bDef ? bDef.name : bId}</div>
-          <p class="text-[11px] text-[#8b949e] mt-1">${bDef ? bDef.desc : ''}</p>
+    tilesHtml.push(`
+      <button data-action="select-plot" data-plot-index="${plot.plotIndex}" onclick="window.WargameApp.handleSelectCityPlot(${plot.plotIndex})" class="aspect-square rounded-md p-1 flex flex-col items-center justify-between transition-all cursor-pointer relative ${borderClass} ${ringClass}">
+        <div class="w-full flex justify-between items-center text-[7px] font-mono text-slate-500 leading-none">
+          <span>${plot.plotIndex}</span>
         </div>
-        <div class="space-y-1.5 pt-2 border-t border-[#1e293b]">
-          <div class="flex items-center justify-between text-[11px] font-mono text-[#cbd5e1]">
-            <span>Cost: ${cost.wood}W • ${cost.stone}S${cost.gold ? (' • ' + cost.gold + 'G') : ''}</span>
-            <span class="text-[#38bdf8]">⏱ ${formatSimDuration(durMs)}</span>
-          </div>
-          <button data-action="queue-building" data-plot-index="${plot.plotIndex}" data-building-id="${bId}" onclick="window.WargameApp.handleQueueBuilding(${plot.plotIndex}, '${bId}')" class="w-full py-1.5 rounded bg-[#fbbf24] hover:bg-[#f59e0b] text-[#080b11] font-bold text-xs uppercase btn-tactical cursor-pointer">
-            ${curLevel > 0 ? ('▲ Upgrade to Lv ' + nextLevel) : ('🔨 Construct ' + (bDef ? bDef.name : bId))}
+        <div class="text-sm select-none leading-none my-auto">${icon}</div>
+        ${label}
+      </button>
+    `);
+  }
+  setHtmlIfChanged(gridEl, tilesHtml.join(''));
+
+  // 2. Render Plot Inspector & Action Operations Hub
+  if (!inspectorEl) return;
+  const selPlot = plots.find(function(p) { return p.plotIndex === selectedIdx; }) || plots[27] || plots[0];
+  if (!selPlot) return;
+
+  const spX = selPlot.x !== undefined ? selPlot.x : (selPlot.plotIndex % 8);
+  const spY = selPlot.y !== undefined ? selPlot.y : Math.floor(selPlot.plotIndex / 8);
+  const curBId = selPlot.buildingId;
+  const curBDef = curBId ? CITY_BUILDINGS_CATALOG[curBId] : null;
+
+  let inspectorHtml = `
+    <div class="flex items-center justify-between border-b border-[#283347] pb-2.5">
+      <div>
+        <div class="text-xs font-bold text-[#e6edf3]">Plot #${selPlot.plotIndex} — Coordinates (${spX}, ${spY})</div>
+        <div class="text-[10px] font-mono text-[#8b949e]">Central Bastion Territory</div>
+      </div>
+      <div>
+        ${selPlot.underConstruction ? `
+          <span class="px-2 py-0.5 rounded bg-amber-400/20 text-amber-400 border border-amber-400/40 text-[10px] font-mono font-bold">🔨 Under Construction</span>
+        ` : selPlot.demolishing ? `
+          <span class="px-2 py-0.5 rounded bg-red-400/20 text-red-400 border border-red-400/40 text-[10px] font-mono font-bold">🔥 Demolishing</span>
+        ` : selPlot.relocating ? `
+          <span class="px-2 py-0.5 rounded bg-sky-400/20 text-sky-400 border border-sky-400/40 text-[10px] font-mono font-bold">↔ Relocating</span>
+        ` : curBDef ? `
+          <span class="px-2 py-0.5 rounded bg-emerald-400/20 text-emerald-400 border border-emerald-400/40 text-[10px] font-mono font-bold">Active Structure</span>
+        ` : `
+          <span class="px-2 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700 text-[10px] font-mono">Empty Plot</span>
+        `}
+      </div>
+    </div>
+  `;
+
+  // Case A: Plot has an active order (underConstruction, demolishing, relocating)
+  if (selPlot.underConstruction || selPlot.demolishing || selPlot.relocating) {
+    const activeItem = (city.buildQueue || []).find(function(q) {
+      return q.plotIndex === selPlot.plotIndex || q.fromPlotIndex === selPlot.plotIndex || q.toPlotIndex === selPlot.plotIndex;
+    });
+    const rem = activeItem && activeItem.dueSimTimeMs ? Math.max(0, activeItem.dueSimTimeMs - simHost.state.world.clock.simTimeMs) : 0;
+    const dur = activeItem && activeItem.durationMs ? activeItem.durationMs : 4000;
+    const pct = Math.min(100, Math.round(((dur - rem) / dur) * 100));
+
+    inspectorHtml += `
+      <div class="p-3.5 rounded-lg bg-[#080b11] border border-[#283347] space-y-2.5">
+        <div class="flex items-center justify-between text-xs font-mono">
+          <span class="text-amber-400 font-bold">${activeItem ? activeItem.buildingName : 'Active Order'}</span>
+          <span class="text-emerald-400 font-bold">${formatSimDuration(rem)}</span>
+        </div>
+        <div class="w-full h-2 bg-[#111722] rounded-full overflow-hidden">
+          <div class="h-full bg-amber-400" style="width:${pct}%"></div>
+        </div>
+        <div class="text-[11px] text-[#8b949e]">
+          ${selPlot.relocating ? 'Workers are preparing foundation stones and safely relocating structural timbers.' :
+            selPlot.demolishing ? 'Demolition crew is dismantling structure and reclaiming 35% salvage materials.' :
+            'Artisans and laborers are constructing facility in accordance with realm blueprints.'}
+        </div>
+        ${activeItem && activeItem.type !== 'cleanup' ? `
+          <button data-action="cancel-building" data-queue-item-id="${activeItem.queueItemId}" onclick="window.WargameApp.handleCancelBuilding('${activeItem.queueItemId}')" class="w-full py-1.5 rounded bg-[#1a2232] hover:bg-red-500/20 text-red-400 border border-red-500/40 text-xs font-mono font-bold cursor-pointer">
+            ✕ Cancel Order
           </button>
-          ${curLevel > 0 && bId !== 'town_hall' ? `
-            <button data-action="demolish-building" data-plot-index="${plot.plotIndex}" onclick="window.WargameApp.handleDemolishBuilding(${plot.plotIndex})" class="w-full py-1 rounded bg-[#1a2232] hover:bg-[#f87171]/20 text-[#f87171] border border-[#f87171]/40 text-[10px] font-mono font-bold cursor-pointer">
-              🔥 Demolish [35% Salvage]
+        ` : ''}
+      </div>
+    `;
+  }
+  // Case B: Plot has an existing structure
+  else if (curBDef) {
+    const curLevel = selPlot.level || 1;
+    const nextLevel = curLevel + 1;
+    const isMax = nextLevel > (curBDef.maxLevel || 5);
+    const upgradeCost = computeBuildingUpgradeCost(curBId, nextLevel);
+    const upgradeDurMs = computeBuildingDurationMs(curBId, nextLevel);
+    const canAfford = (city.stockpile.wood || 0) >= upgradeCost.wood &&
+                      (city.stockpile.stone || 0) >= upgradeCost.stone &&
+                      (city.stockpile.gold || 0) >= upgradeCost.gold;
+
+    const prodEntries = Object.entries(curBDef.productionPerTick || {});
+    const prodText = prodEntries.length > 0
+      ? prodEntries.map(function(e) { return '+' + (e[1] * curLevel) + ' ' + e[0]; }).join(', ') + ' / tick'
+      : 'Special Facility';
+
+    inspectorHtml += `
+      <div class="p-3.5 rounded-lg bg-[#080b11] border border-[#283347] space-y-3">
+        <div class="flex items-start gap-3">
+          <span class="text-3xl">${curBDef.icon}</span>
+          <div>
+            <div class="text-sm font-bold text-[#e6edf3]">${curBDef.name} <span class="text-xs font-mono text-emerald-400 font-semibold">(Level ${curLevel})</span></div>
+            <div class="text-[10px] font-mono uppercase text-[#8b949e]">${curBDef.category} • Yield: <span class="text-[#38bdf8]">${prodText}</span></div>
+            <p class="text-[11px] text-[#8b949e] mt-1">${curBDef.desc}</p>
+          </div>
+        </div>
+
+        <div class="space-y-2 pt-2 border-t border-[#1e293b]">
+          <!-- Upgrade Action -->
+          ${!isMax ? `
+            <div class="p-2.5 rounded bg-[#111722] border border-[#283347] space-y-1.5">
+              <div class="flex justify-between items-center text-[11px] font-mono">
+                <span class="text-[#e6edf3] font-bold">Upgrade to Level ${nextLevel}</span>
+                <span class="text-[#38bdf8]">⏱ ${formatSimDuration(upgradeDurMs)}</span>
+              </div>
+              <div class="text-[10px] font-mono text-[#8b949e]">
+                Cost: ${upgradeCost.wood} Wood • ${upgradeCost.stone} Stone • ${upgradeCost.gold} Gold
+              </div>
+              <button data-action="queue-building" data-plot-index="${selPlot.plotIndex}" data-building-id="${curBId}" onclick="window.WargameApp.handleQueueBuilding(${selPlot.plotIndex}, '${curBId}')" ${!canAfford ? 'disabled' : ''} class="w-full py-1.5 rounded font-bold text-xs uppercase cursor-pointer ${canAfford ? 'bg-amber-400 hover:bg-amber-500 text-slate-900' : 'bg-slate-800 text-slate-500 cursor-not-allowed'}">
+                ▲ Upgrade Structure
+              </button>
+            </div>
+          ` : `
+            <div class="p-2 rounded bg-[#111722] text-center text-xs font-mono text-amber-400">★ Maximum Level Reached</div>
+          `}
+
+          <!-- Move & Demolish Action Row -->
+          <div class="grid grid-cols-2 gap-2 pt-1">
+            <button data-action="start-move-mode" data-plot-index="${selPlot.plotIndex}" onclick="window.WargameApp.handleStartMoveMode(${selPlot.plotIndex})" class="py-1.5 px-2 rounded bg-[#1a2232] hover:bg-sky-500/20 text-sky-400 border border-sky-500/40 text-[11px] font-mono font-bold cursor-pointer text-center">
+              ↔ Relocate (2.5s)
             </button>
-          ` : ''}
+            ${curBId !== 'town_hall' ? `
+              <button data-action="demolish-building" data-plot-index="${selPlot.plotIndex}" onclick="window.WargameApp.handleDemolishBuilding(${selPlot.plotIndex})" class="py-1.5 px-2 rounded bg-[#1a2232] hover:bg-red-500/20 text-red-400 border border-red-500/40 text-[11px] font-mono font-bold cursor-pointer text-center">
+                🔥 Demolish (35%)
+              </button>
+            ` : `
+              <div class="py-1.5 px-2 rounded bg-slate-900 text-slate-600 border border-slate-800 text-[10px] font-mono text-center flex items-center justify-center">
+                Locked Citadel
+              </div>
+            `}
+          </div>
         </div>
       </div>
     `;
-  }).join('');
+  }
+  // Case C: Empty Plot — Construct Facility Catalog
+  else {
+    if (moveSourceIdx !== null) {
+      inspectorHtml += `
+        <div class="p-4 rounded-lg bg-sky-950/30 border border-sky-500/50 text-center space-y-3">
+          <div class="text-base">↔</div>
+          <div class="text-xs font-bold text-sky-300">Relocate to Plot (${spX}, ${spY})?</div>
+          <p class="text-[11px] text-[#8b949e]">Click below to confirm moving the structure from Plot #${moveSourceIdx} to this empty plot.</p>
+          <div class="flex gap-2 justify-center">
+            <button data-action="select-plot" data-plot-index="${selPlot.plotIndex}" onclick="window.WargameApp.handleSelectCityPlot(${selPlot.plotIndex})" class="py-1.5 px-4 rounded bg-sky-400 hover:bg-sky-300 text-slate-900 font-bold text-xs uppercase cursor-pointer">
+              ✓ Confirm Relocation
+            </button>
+            <button data-action="cancel-move-mode" onclick="window.WargameApp.handleCancelMoveMode()" class="py-1.5 px-3 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-mono cursor-pointer">
+              Cancel
+            </button>
+          </div>
+        </div>
+      `;
+    } else {
+      const constructibleKeys = Object.keys(CITY_BUILDINGS_CATALOG).filter(function(k) { return k !== 'town_hall'; });
+      const catalogCards = constructibleKeys.map(function(bId) {
+        const bDef = CITY_BUILDINGS_CATALOG[bId];
+        const cost = computeBuildingUpgradeCost(bId, 1);
+        const durMs = computeBuildingDurationMs(bId, 1);
 
-  setHtmlIfChanged(gridEl, newPlotsHtml);
+        // Check prerequisites
+        let reqMet = true;
+        let reqLabel = '';
+        if (bDef.requires) {
+          const rKeys = Object.keys(bDef.requires);
+          for (let r = 0; r < rKeys.length; r++) {
+            const reqB = rKeys[r];
+            const reqLvl = bDef.requires[reqB];
+            const curReqLvl = (city.buildings && city.buildings[reqB]) || 0;
+            if (curReqLvl < reqLvl) {
+              reqMet = false;
+              const reqDef = CITY_BUILDINGS_CATALOG[reqB];
+              reqLabel = 'Requires ' + (reqDef ? reqDef.name : reqB) + ' Lv ' + reqLvl;
+              break;
+            }
+          }
+        }
+
+        const canAfford = (city.stockpile.wood || 0) >= cost.wood &&
+                          (city.stockpile.stone || 0) >= cost.stone &&
+                          (city.stockpile.gold || 0) >= cost.gold;
+
+        return `
+          <div class="p-2.5 rounded bg-[#080b11] border ${reqMet ? 'border-[#283347]' : 'border-slate-800 opacity-60'} flex items-center justify-between gap-2">
+            <div class="flex items-center gap-2.5 min-w-0">
+              <span class="text-xl">${bDef.icon}</span>
+              <div class="min-w-0">
+                <div class="text-xs font-bold text-[#e6edf3] truncate">${bDef.name}</div>
+                <div class="text-[10px] font-mono text-[#8b949e]">
+                  ${cost.wood}W • ${cost.stone}S${cost.gold ? (' • ' + cost.gold + 'G') : ''} • ⏱ ${formatSimDuration(durMs)}
+                </div>
+                ${!reqMet ? `<div class="text-[9px] font-mono text-red-400 font-semibold">${reqLabel}</div>` : ''}
+              </div>
+            </div>
+            <button data-action="queue-building" data-plot-index="${selPlot.plotIndex}" data-building-id="${bId}" onclick="window.WargameApp.handleQueueBuilding(${selPlot.plotIndex}, '${bId}')" ${(!reqMet || !canAfford) ? 'disabled' : ''} class="px-3 py-1.5 rounded font-bold text-[11px] uppercase whitespace-nowrap cursor-pointer ${reqMet && canAfford ? 'bg-amber-400 hover:bg-amber-500 text-slate-900' : 'bg-slate-800 text-slate-500 cursor-not-allowed'}">
+              🔨 Build
+            </button>
+          </div>
+        `;
+      }).join('');
+
+      inspectorHtml += `
+        <div class="space-y-2">
+          <div class="text-xs font-bold text-[#fbbf24] uppercase tracking-wider">Construct New Facility</div>
+          <div class="space-y-1.5 max-h-[380px] overflow-y-auto pr-1">
+            ${catalogCards}
+          </div>
+        </div>
+      `;
+    }
+  }
+
+  setHtmlIfChanged(inspectorEl, inspectorHtml);
 }
 
 export function renderGuildRecruitmentPanel(simHost) {

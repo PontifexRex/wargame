@@ -7,7 +7,11 @@ import {
   WARGAME_VIEWS,
   OVERWORLD_MAP_W,
   OVERWORLD_MAP_H,
-  RESOURCE_PRODUCTION_INTERVAL_MS
+  RESOURCE_PRODUCTION_INTERVAL_MS,
+  CITY_GRID_COLS,
+  CITY_GRID_ROWS,
+  CITY_TOTAL_PLOTS,
+  CITY_CENTER_PLOT_INDEX
 } from '../constants.js';
 import { generateOverworldMap } from './pathfinding.js';
 import { createInitialTasksState } from './taskEngine.js';
@@ -90,15 +94,25 @@ export function createNewCampaignWorldState(options = {}) {
 
 export function createDefaultCityPlots() {
   const plots = [];
-  for (let i = 0; i < CITY_PLOT_SLOTS.length; i++) {
-    const slot = CITY_PLOT_SLOTS[i];
+  const total = CITY_TOTAL_PLOTS || 64;
+  const cols = CITY_GRID_COLS || 8;
+  const centerIdx = CITY_CENTER_PLOT_INDEX !== undefined ? CITY_CENTER_PLOT_INDEX : 27;
+
+  for (let i = 0; i < total; i++) {
+    const px = i % cols;
+    const py = Math.floor(i / cols);
+    const isCenter = i === centerIdx;
+
     plots.push({
-      plotIndex: slot.plotIndex,
-      label: slot.label,
-      buildingId: slot.defaultBuilding || null,
-      level: slot.defaultBuilding ? 1 : 0,
+      plotIndex: i,
+      x: px,
+      y: py,
+      label: isCenter ? 'Central Citadel Plot' : ('Plot (' + px + ', ' + py + ')'),
+      buildingId: isCenter ? 'town_hall' : null,
+      level: isCenter ? 1 : 0,
       underConstruction: false,
       demolishing: false,
+      relocating: false,
       activeJobId: null
     });
   }
@@ -200,6 +214,31 @@ export function loadWargameState(scheduler = null) {
         if (!c.maxBuildQueueSlots) c.maxBuildQueueSlots = 3;
         if (!Array.isArray(c.recruitmentQueue)) c.recruitmentQueue = [];
         if (!c.maxRecruitQueueSlots) c.maxRecruitQueueSlots = 3;
+        if (typeof c.selectedPlotIndex !== 'number') c.selectedPlotIndex = (CITY_CENTER_PLOT_INDEX !== undefined ? CITY_CENTER_PLOT_INDEX : 27);
+
+        // Migrate legacy 8-plot array to full 64-plot 8x8 grid if needed
+        if (!Array.isArray(c.plots) || c.plots.length < (CITY_TOTAL_PLOTS || 64)) {
+          const freshPlots = createDefaultCityPlots();
+          if (Array.isArray(c.plots)) {
+            for (let p = 0; p < c.plots.length; p++) {
+              const oldP = c.plots[p];
+              if (oldP && oldP.buildingId) {
+                const targetIdx = (oldP.plotIndex === 0 && oldP.buildingId === 'town_hall')
+                  ? (CITY_CENTER_PLOT_INDEX !== undefined ? CITY_CENTER_PLOT_INDEX : 27)
+                  : oldP.plotIndex;
+                if (freshPlots[targetIdx]) {
+                  freshPlots[targetIdx].buildingId = oldP.buildingId;
+                  freshPlots[targetIdx].level = oldP.level || 1;
+                  freshPlots[targetIdx].underConstruction = Boolean(oldP.underConstruction);
+                  freshPlots[targetIdx].demolishing = Boolean(oldP.demolishing);
+                  freshPlots[targetIdx].relocating = Boolean(oldP.relocating);
+                  freshPlots[targetIdx].activeJobId = oldP.activeJobId || null;
+                }
+              }
+            }
+          }
+          c.plots = freshPlots;
+        }
       });
     }
     if (scheduler && Array.isArray(parsed.world.scheduledJobs)) {

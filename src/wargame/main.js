@@ -136,6 +136,37 @@ export function handleCancelMarch() {
   syncWargameUI(simHost);
 }
 
+export function handleSelectCityPlot(plotIndex) {
+  simHost.dispatch({
+    type: COMMAND_TYPES.SELECT_CITY_PLOT,
+    payload: { plotIndex: plotIndex }
+  });
+  simHost.state._dirty = true;
+  syncWargameUI(simHost);
+}
+
+export function handleMoveBuilding(fromPlotIndex, toPlotIndex) {
+  simHost.dispatch({
+    type: COMMAND_TYPES.MOVE_BUILDING,
+    payload: { fromPlotIndex: fromPlotIndex, toPlotIndex: toPlotIndex }
+  });
+  simHost.state._dirty = true;
+  simHost.save();
+  syncWargameUI(simHost);
+}
+
+export function handleStartMoveMode(plotIndex) {
+  simHost.state._moveSourcePlotIndex = plotIndex;
+  simHost.state._dirty = true;
+  syncWargameUI(simHost);
+}
+
+export function handleCancelMoveMode() {
+  delete simHost.state._moveSourcePlotIndex;
+  simHost.state._dirty = true;
+  syncWargameUI(simHost);
+}
+
 export function handleQueueBuilding(plotIndex, buildingId) {
   simHost.dispatch({
     type: COMMAND_TYPES.QUEUE_BUILDING,
@@ -327,6 +358,23 @@ function setupWargameListeners() {
     } else if (action === 'select-party') {
       const hId = btn.dataset.heroId;
       if (hId) handleSelectPartyByHero(hId);
+    } else if (action === 'select-plot') {
+      const pIdx = parseInt(btn.dataset.plotIndex, 10);
+      if (!isNaN(pIdx)) {
+        if (typeof simHost.state._moveSourcePlotIndex === 'number') {
+          const srcIdx = simHost.state._moveSourcePlotIndex;
+          delete simHost.state._moveSourcePlotIndex;
+          if (srcIdx !== pIdx) handleMoveBuilding(srcIdx, pIdx);
+          else syncWargameUI(simHost);
+        } else {
+          handleSelectCityPlot(pIdx);
+        }
+      }
+    } else if (action === 'start-move-mode') {
+      const pIdx = parseInt(btn.dataset.plotIndex, 10);
+      if (!isNaN(pIdx)) handleStartMoveMode(pIdx);
+    } else if (action === 'cancel-move-mode') {
+      handleCancelMoveMode();
     } else if (action === 'continue-campaign') {
       handleContinueCampaignClick();
     } else if (action === 'reset-title') {
@@ -423,6 +471,10 @@ export const WargameApp = {
   handleFoundCity: handleFoundCity,
   handleRespawnSettler: handleRespawnSettler,
   handleCancelMarch: handleCancelMarch,
+  handleSelectCityPlot: handleSelectCityPlot,
+  handleMoveBuilding: handleMoveBuilding,
+  handleStartMoveMode: handleStartMoveMode,
+  handleCancelMoveMode: handleCancelMoveMode,
   handleQueueBuilding: handleQueueBuilding,
   handleCancelBuilding: handleCancelBuilding,
   handleDemolishBuilding: handleDemolishBuilding,

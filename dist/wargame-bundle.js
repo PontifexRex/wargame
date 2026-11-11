@@ -39,6 +39,13 @@ const BASE_RECRUIT_QUEUE_LIMIT = 3; // Maximum heroes in recruitment queue (1 ac
 const DEMOLISH_SALVAGE_RATIO = 0.35; // 35% salvage returned upon demolishing a building
 const CANCEL_CLEANUP_TIME_RATIO = 0.50; // Cancelling active construction requires 50% of elapsed time for site cleanup
 
+// Spatial 8x8 City Grid Layout
+const CITY_GRID_COLS = 8;
+const CITY_GRID_ROWS = 8;
+const CITY_TOTAL_PLOTS = 64;
+const CITY_CENTER_PLOT_INDEX = 27; // Center plot at (3, 3) where starter Bastion Keep / Hut is founded
+const BASE_MOVE_BUILDING_DURATION_MS = 2500; // 2.5s base duration to relocate a structure to an empty plot
+
 // Structured Streaming Event Topics
 const STREAM_TOPICS = {
   CAMPAIGN_STARTED:     'campaign.started',
@@ -57,6 +64,7 @@ const STREAM_TOPICS = {
   BUILDING_QUEUED:      'city.buildingQueued',
   BUILDING_CANCELLED:   'city.buildingCancelled',
   BUILDING_DEMOLISHED:  'city.buildingDemolished',
+  BUILDING_MOVED:       'city.buildingMoved',
   BUILDING_COMPLETED:   'city.buildingCompleted',
   RESOURCE_TICK:        'city.resourceTick',
   RESOURCE_HARVESTED:   'overworld.resourceHarvested',
@@ -80,7 +88,9 @@ const COMMAND_TYPES = {
   HARVEST_NODE:       'CMD_HARVEST_NODE',
   FOUND_CITY:         'CMD_FOUND_CITY',
   RESPAWN_SETTLER:    'CMD_RESPAWN_SETTLER',
+  SELECT_CITY_PLOT:   'CMD_SELECT_CITY_PLOT',
   QUEUE_BUILDING:     'CMD_QUEUE_BUILDING',
+  MOVE_BUILDING:      'CMD_MOVE_BUILDING',
   CANCEL_BUILDING:    'CMD_CANCEL_BUILDING',
   DEMOLISH_BUILDING:  'CMD_DEMOLISH_BUILDING',
   RECRUIT_HERO:       'CMD_RECRUIT_HERO',
@@ -1460,15 +1470,25 @@ function createNewCampaignWorldState(options = {}) {
 
 function createDefaultCityPlots() {
   const plots = [];
-  for (let i = 0; i < CITY_PLOT_SLOTS.length; i++) {
-    const slot = CITY_PLOT_SLOTS[i];
+  const total = CITY_TOTAL_PLOTS || 64;
+  const cols = CITY_GRID_COLS || 8;
+  const centerIdx = CITY_CENTER_PLOT_INDEX !== undefined ? CITY_CENTER_PLOT_INDEX : 27;
+
+  for (let i = 0; i < total; i++) {
+    const px = i % cols;
+    const py = Math.floor(i / cols);
+    const isCenter = i === centerIdx;
+
     plots.push({
-      plotIndex: slot.plotIndex,
-      label: slot.label,
-      buildingId: slot.defaultBuilding || null,
-      level: slot.defaultBuilding ? 1 : 0,
+      plotIndex: i,
+      x: px,
+      y: py,
+      label: isCenter ? 'Central Citadel Plot' : ('Plot (' + px + ', ' + py + ')'),
+      buildingId: isCenter ? 'town_hall' : null,
+      level: isCenter ? 1 : 0,
       underConstruction: false,
       demolishing: false,
+      relocating: false,
       activeJobId: null
     });
   }
@@ -1570,6 +1590,31 @@ function loadWargameState(scheduler = null) {
         if (!c.maxBuildQueueSlots) c.maxBuildQueueSlots = 3;
         if (!Array.isArray(c.recruitmentQueue)) c.recruitmentQueue = [];
         if (!c.maxRecruitQueueSlots) c.maxRecruitQueueSlots = 3;
+        if (typeof c.selectedPlotIndex !== 'number') c.selectedPlotIndex = (CITY_CENTER_PLOT_INDEX !== undefined ? CITY_CENTER_PLOT_INDEX : 27);
+
+        // Migrate legacy 8-plot array to full 64-plot 8x8 grid if needed
+        if (!Array.isArray(c.plots) || c.plots.length < (CITY_TOTAL_PLOTS || 64)) {
+          const freshPlots = createDefaultCityPlots();
+          if (Array.isArray(c.plots)) {
+            for (let p = 0; p < c.plots.length; p++) {
+              const oldP = c.plots[p];
+              if (oldP && oldP.buildingId) {
+                const targetIdx = (oldP.plotIndex === 0 && oldP.buildingId === 'town_hall')
+                  ? (CITY_CENTER_PLOT_INDEX !== undefined ? CITY_CENTER_PLOT_INDEX : 27)
+                  : oldP.plotIndex;
+                if (freshPlots[targetIdx]) {
+                  freshPlots[targetIdx].buildingId = oldP.buildingId;
+                  freshPlots[targetIdx].level = oldP.level || 1;
+                  freshPlots[targetIdx].underConstruction = Boolean(oldP.underConstruction);
+                  freshPlots[targetIdx].demolishing = Boolean(oldP.demolishing);
+                  freshPlots[targetIdx].relocating = Boolean(oldP.relocating);
+                  freshPlots[targetIdx].activeJobId = oldP.activeJobId || null;
+                }
+              }
+            }
+          }
+          c.plots = freshPlots;
+        }
       });
     }
     if (scheduler && Array.isArray(parsed.world.scheduledJobs)) {
@@ -1711,20 +1756,37 @@ function activateNextCityBuildQueueItem(city, state, scheduler) {
 
   // Check if the front item is already active
   const front = city.buildQueue[0];
-  if (front.status === 'building' || front.status === 'demolishing') return front;
+  if (front.status === 'building' || front.status === 'demolishing' || front.status === 'moving') return front;
 
   const simTimeMs = state.world.clock.simTimeMs;
   const dur = Math.max(500, front.durationMs || 4000);
+  const isMove = front.type === 'move';
   const isDemolishOrCleanup = front.type === 'demolish' || front.type === 'cleanup';
-  const jobType = isDemolishOrCleanup ? 'CITY_BUILDING_DEMOLISH_COMPLETE' : 'CITY_BUILDING_COMPLETE';
+
+  let jobType = 'CITY_BUILDING_COMPLETE';
+  let jobPrefix = 'build_';
+  if (isMove) {
+    jobType = 'CITY_BUILDING_MOVE_COMPLETE';
+    jobPrefix = 'move_';
+  } else if (isDemolishOrCleanup) {
+    jobType = 'CITY_BUILDING_DEMOLISH_COMPLETE';
+    jobPrefix = 'demolish_';
+  }
 
   const job = scheduler.scheduleJob({
-    jobId: (isDemolishOrCleanup ? 'demolish_' : 'build_') + city.id + '_plot_' + front.plotIndex + '_' + simTimeMs,
+    jobId: jobPrefix + city.id + '_plot_' + (isMove ? (front.fromPlotIndex + '_' + front.toPlotIndex) : front.plotIndex) + '_' + simTimeMs,
     jobType: jobType,
     ownerId: city.id,
     startSimTimeMs: simTimeMs,
     dueSimTimeMs: simTimeMs + dur,
-    payload: {
+    payload: isMove ? {
+      cityId: city.id,
+      queueItemId: front.queueItemId,
+      fromPlotIndex: front.fromPlotIndex,
+      toPlotIndex: front.toPlotIndex,
+      buildingId: front.buildingId,
+      level: front.level
+    } : {
       cityId: city.id,
       queueItemId: front.queueItemId,
       plotIndex: front.plotIndex,
@@ -1736,21 +1798,28 @@ function activateNextCityBuildQueueItem(city, state, scheduler) {
     }
   });
 
-  front.status = isDemolishOrCleanup ? 'demolishing' : 'building';
+  front.status = isMove ? 'moving' : (isDemolishOrCleanup ? 'demolishing' : 'building');
   front.jobId = job.jobId;
   front.startSimTimeMs = simTimeMs;
   front.dueSimTimeMs = simTimeMs + dur;
 
-  const plot = (city.plots || []).find(function(p) { return p.plotIndex === front.plotIndex; });
-  if (plot) {
-    if (isDemolishOrCleanup) {
-      plot.demolishing = true;
-      plot.underConstruction = false;
-    } else {
-      plot.underConstruction = true;
-      plot.demolishing = false;
+  if (isMove) {
+    const fromPlot = (city.plots || []).find(function(p) { return p.plotIndex === front.fromPlotIndex; });
+    const toPlot   = (city.plots || []).find(function(p) { return p.plotIndex === front.toPlotIndex; });
+    if (fromPlot) { fromPlot.relocating = true; fromPlot.activeJobId = job.jobId; }
+    if (toPlot)   { toPlot.relocating = true; toPlot.activeJobId = job.jobId; }
+  } else {
+    const plot = (city.plots || []).find(function(p) { return p.plotIndex === front.plotIndex; });
+    if (plot) {
+      if (isDemolishOrCleanup) {
+        plot.demolishing = true;
+        plot.underConstruction = false;
+      } else {
+        plot.underConstruction = true;
+        plot.demolishing = false;
+      }
+      plot.activeJobId = job.jobId;
     }
-    plot.activeJobId = job.jobId;
   }
 
   return front;
@@ -1871,6 +1940,67 @@ function resolveBuildingDemolishJob(job, state, scheduler, eventStream) {
       buildingId: bId,
       plotIndex: p.plotIndex,
       salvage: isDeliberate ? (p.salvage || null) : null
+    }, job.dueSimTimeMs);
+  }
+
+  activateNextCityBuildQueueItem(city, state, scheduler);
+
+  state._dirty = true;
+  saveWargameState(state, scheduler);
+  evaluateTaskDAG(state, eventStream);
+}
+
+function resolveBuildingMoveJob(job, state, scheduler, eventStream) {
+  if (!state || !state.world || !state.world.cities) return;
+  const p = job.payload || {};
+  const city = state.world.cities[p.cityId];
+  if (!city) return;
+
+  const fromPlot = (city.plots || []).find(function(pl) { return pl.plotIndex === p.fromPlotIndex; });
+  const toPlot   = (city.plots || []).find(function(pl) { return pl.plotIndex === p.toPlotIndex; });
+
+  const bId = p.buildingId;
+  const lvl = p.level || 1;
+
+  if (fromPlot) {
+    fromPlot.buildingId = null;
+    fromPlot.level = 0;
+    fromPlot.relocating = false;
+    fromPlot.underConstruction = false;
+    fromPlot.demolishing = false;
+    fromPlot.activeJobId = null;
+  }
+
+  if (toPlot) {
+    toPlot.buildingId = bId;
+    toPlot.level = lvl;
+    toPlot.relocating = false;
+    toPlot.underConstruction = false;
+    toPlot.demolishing = false;
+    toPlot.activeJobId = null;
+  }
+
+  // Remove completed move from front of buildQueue
+  if (Array.isArray(city.buildQueue)) {
+    const idx = city.buildQueue.findIndex(function(q) { return q.queueItemId === p.queueItemId || q.jobId === job.jobId; });
+    if (idx !== -1) {
+      city.buildQueue.splice(idx, 1);
+    }
+  }
+
+  // Update selectedPlotIndex if user was inspecting the moved structure
+  if (city.selectedPlotIndex === p.fromPlotIndex) {
+    city.selectedPlotIndex = p.toPlotIndex;
+  }
+
+  if (eventStream) {
+    eventStream.publish(STREAM_TOPICS.BUILDING_MOVED, {
+      cityId: city.id,
+      cityName: city.name,
+      buildingId: bId,
+      fromPlotIndex: p.fromPlotIndex,
+      toPlotIndex: p.toPlotIndex,
+      level: lvl
     }, job.dueSimTimeMs);
   }
 
@@ -2310,6 +2440,7 @@ function dispatchWargameCommand(commandEnvelope, state, scheduler, eventStream) 
         town_hall: 1
       },
       plots: createDefaultCityPlots(),
+      selectedPlotIndex: CITY_CENTER_PLOT_INDEX !== undefined ? CITY_CENTER_PLOT_INDEX : 27,
       buildQueue: [],
       maxBuildQueueSlots: BASE_BUILD_QUEUE_LIMIT || 3,
       recruitmentQueue: [],
@@ -2389,6 +2520,20 @@ function dispatchWargameCommand(commandEnvelope, state, scheduler, eventStream) 
   }
 
   // ---------------------------------------------------------------------------
+  // 6B. SELECT CITY PLOT (Focus Inspector on Specific 8x8 Grid Plot)
+  // ---------------------------------------------------------------------------
+  if (cmdType === COMMAND_TYPES.SELECT_CITY_PLOT) {
+    const city = (payload.cityId && world.cities[payload.cityId]) || getPrimaryCity(state);
+    if (!city) return reject('No city founded yet');
+    const plotIndex = typeof payload.plotIndex === 'number' ? payload.plotIndex : -1;
+    if (plotIndex < 0 || plotIndex >= (city.plots ? city.plots.length : (CITY_TOTAL_PLOTS || 64))) {
+      return reject('Invalid city plot coordinate: ' + plotIndex);
+    }
+    city.selectedPlotIndex = plotIndex;
+    return accept({ selectedPlotIndex: plotIndex });
+  }
+
+  // ---------------------------------------------------------------------------
   // 7. QUEUE BUILDING (Real-Time City Construction Queue)
   // ---------------------------------------------------------------------------
   if (cmdType === COMMAND_TYPES.QUEUE_BUILDING) {
@@ -2407,8 +2552,8 @@ function dispatchWargameCommand(commandEnvelope, state, scheduler, eventStream) 
       return reject('City construction queue is full');
     }
 
-    if (plot.underConstruction) {
-      return reject('That plot already has an active construction order');
+    if (plot.underConstruction || plot.demolishing || plot.relocating) {
+      return reject('That plot already has an active order');
     }
 
     if (plot.buildingId && plot.buildingId !== buildingId) {
@@ -2465,6 +2610,7 @@ function dispatchWargameCommand(commandEnvelope, state, scheduler, eventStream) 
     };
 
     plot.underConstruction = true;
+    city.selectedPlotIndex = plot.plotIndex;
     city.buildQueue.push(queueItem);
 
     // If this is the front of the queue, schedule the completion timer immediately
@@ -2489,6 +2635,69 @@ function dispatchWargameCommand(commandEnvelope, state, scheduler, eventStream) 
   }
 
   // ---------------------------------------------------------------------------
+  // 7B. MOVE BUILDING (Timed Relocation to an Empty 8x8 Grid Plot)
+  // ---------------------------------------------------------------------------
+  if (cmdType === COMMAND_TYPES.MOVE_BUILDING) {
+    const city = (payload.cityId && world.cities[payload.cityId]) || getPrimaryCity(state);
+    if (!city) return reject('No city founded yet');
+
+    const fromIdx = typeof payload.fromPlotIndex === 'number' ? payload.fromPlotIndex : -1;
+    const toIdx   = typeof payload.toPlotIndex === 'number' ? payload.toPlotIndex : -1;
+
+    const fromPlot = (city.plots || []).find(function(p) { return p.plotIndex === fromIdx; });
+    const toPlot   = (city.plots || []).find(function(p) { return p.plotIndex === toIdx; });
+
+    if (!fromPlot) return reject('Invalid source plot: ' + fromIdx);
+    if (!toPlot)   return reject('Invalid destination plot: ' + toIdx);
+    if (fromIdx === toIdx) return reject('Destination plot must be different from source');
+
+    if (!fromPlot.buildingId || (fromPlot.level || 0) <= 0) {
+      return reject('No building exists on source plot');
+    }
+
+    if (fromPlot.underConstruction || fromPlot.demolishing || fromPlot.relocating) {
+      return reject('Source plot is currently undergoing an active order');
+    }
+
+    if (toPlot.buildingId || toPlot.underConstruction || toPlot.demolishing || toPlot.relocating) {
+      return reject('Destination plot is already occupied or undergoing an order');
+    }
+
+    if (city.buildQueue.length >= (city.maxBuildQueueSlots || BASE_BUILD_QUEUE_LIMIT || 3)) {
+      return reject('City construction queue is full');
+    }
+
+    const bId = fromPlot.buildingId;
+    const bDef = CITY_BUILDINGS_CATALOG[bId];
+    const lvl = fromPlot.level || 1;
+    const durMs = BASE_MOVE_BUILDING_DURATION_MS || 2500;
+
+    const queueItem = {
+      queueItemId: 'move_' + city.id + '_p' + fromIdx + '_to_p' + toIdx + '_' + Date.now(),
+      cityId: city.id,
+      fromPlotIndex: fromIdx,
+      toPlotIndex: toIdx,
+      buildingId: bId,
+      buildingName: bDef ? bDef.name : bId,
+      level: lvl,
+      type: 'move',
+      durationMs: durMs,
+      status: 'queued',
+      jobId: null,
+      startSimTimeMs: null,
+      dueSimTimeMs: null
+    };
+
+    fromPlot.relocating = true;
+    toPlot.relocating = true;
+    city.selectedPlotIndex = toIdx;
+    city.buildQueue.push(queueItem);
+    activateNextCityBuildQueueItem(city, state, scheduler);
+
+    return accept({ queueItem: queueItem });
+  }
+
+  // ---------------------------------------------------------------------------
   // 8. CANCEL BUILDING IN QUEUE (Prorated Refund + 50% Time Spent Cleanup Job)
   // ---------------------------------------------------------------------------
   if (cmdType === COMMAND_TYPES.CANCEL_BUILDING) {
@@ -2509,6 +2718,19 @@ function dispatchWargameCommand(commandEnvelope, state, scheduler, eventStream) 
 
     if (targetItem.type === 'cleanup') {
       return reject('Site cleanup cannot be cancelled');
+    }
+
+    if (targetItem.type === 'move') {
+      city.buildQueue.splice(idx, 1);
+      if (targetItem.jobId && scheduler) {
+        scheduler.cancelJob(targetItem.jobId);
+      }
+      const fromPlot = (city.plots || []).find(function(p) { return p.plotIndex === targetItem.fromPlotIndex; });
+      const toPlot   = (city.plots || []).find(function(p) { return p.plotIndex === targetItem.toPlotIndex; });
+      if (fromPlot) { fromPlot.relocating = false; fromPlot.activeJobId = null; }
+      if (toPlot)   { toPlot.relocating = false; toPlot.activeJobId = null; }
+      activateNextCityBuildQueueItem(city, state, scheduler);
+      return accept({ cancelled: targetItem });
     }
 
     if (targetItem.status === 'queued') {
@@ -2878,6 +3100,8 @@ function advanceSimulationClock(deltaRealMs, state, scheduler, eventStream) {
         resolveMarchStepJob(job, state, scheduler, eventStream);
       } else if (job.jobType === 'CITY_BUILDING_COMPLETE') {
         resolveBuildingCompleteJob(job, state, scheduler, eventStream);
+      } else if (job.jobType === 'CITY_BUILDING_MOVE_COMPLETE') {
+        resolveBuildingMoveJob(job, state, scheduler, eventStream);
       } else if (job.jobType === 'CITY_BUILDING_DEMOLISH_COMPLETE') {
         resolveBuildingDemolishJob(job, state, scheduler, eventStream);
       } else if (job.jobType === 'HERO_RECRUIT_COMPLETE') {
@@ -3551,21 +3775,24 @@ function renderLeftCommandSidebar(simHost) {
         const buildItems = [];
         for (let q = 0; q < bq.length; q++) {
           const item = bq[q];
+          const isMove = item.type === 'move';
           const isDemolish = item.type === 'demolish';
           const isCleanup = item.type === 'cleanup';
-          if (item.status === 'building' || item.status === 'demolishing') {
+          if (item.status === 'building' || item.status === 'demolishing' || item.status === 'moving') {
             const dur = Math.max(1, (item.dueSimTimeMs || 0) - (item.startSimTimeMs || 0));
             const rem = Math.max(0, (item.dueSimTimeMs || 0) - simTimeMs);
             const pct = Math.min(100, Math.round(((dur - rem) / dur) * 100));
-            const label = isDemolish
-              ? ('🔥 Demolishing ' + item.buildingName)
-              : (isCleanup ? ('🧹 Cleaning Site ' + item.buildingName) : ('🔨 ' + item.buildingName + ' (Lv ' + item.targetLevel + ')'));
-            const barColor = isDemolish ? 'bg-[#f87171]' : (isCleanup ? 'bg-[#94a3b8]' : 'bg-[#fbbf24]');
+            const label = isMove
+              ? ('↔ Moving ' + item.buildingName)
+              : (isDemolish
+                  ? ('🔥 Demolishing ' + item.buildingName)
+                  : (isCleanup ? ('🧹 Cleaning Site ' + item.buildingName) : ('🔨 ' + item.buildingName + ' (Lv ' + item.targetLevel + ')')));
+            const barColor = isMove ? 'bg-[#38bdf8]' : (isDemolish ? 'bg-[#f87171]' : (isCleanup ? 'bg-[#94a3b8]' : 'bg-[#fbbf24]'));
 
             buildItems.push(`
-              <div class="p-2 rounded bg-[#080b11] border ${isDemolish ? 'border-[#f87171]/50' : 'border-[#fbbf24]/50'} space-y-1">
+              <div class="p-2 rounded bg-[#080b11] border ${isMove ? 'border-[#38bdf8]/50' : (isDemolish ? 'border-[#f87171]/50' : 'border-[#fbbf24]/50')} space-y-1">
                 <div class="flex justify-between items-center text-[11px] font-mono">
-                  <span class="${isDemolish ? 'text-[#f87171]' : 'text-[#fbbf24]'} font-bold">${label}</span>
+                  <span class="${isMove ? 'text-[#38bdf8]' : (isDemolish ? 'text-[#f87171]' : 'text-[#fbbf24]')} font-bold">${label}</span>
                   <div class="flex items-center gap-1.5">
                     <span class="text-[#34d399]">${formatSimDuration(rem)}</span>
                     ${!isCleanup ? `
@@ -3579,9 +3806,11 @@ function renderLeftCommandSidebar(simHost) {
               </div>
             `);
           } else {
-            const qLabel = isDemolish
-              ? ('⏳ Queued Demolish: ' + item.buildingName)
-              : ('⏳ Queued: ' + item.buildingName + ' (Lv ' + item.targetLevel + ')');
+            const qLabel = isMove
+              ? ('⏳ Queued Move: ' + item.buildingName)
+              : (isDemolish
+                  ? ('⏳ Queued Demolish: ' + item.buildingName)
+                  : ('⏳ Queued: ' + item.buildingName + ' (Lv ' + item.targetLevel + ')'));
             buildItems.push(`
               <div class="p-2 rounded bg-[#080b11] border border-[#283347] flex justify-between items-center text-[11px] font-mono">
                 <span class="text-[#8b949e]">${qLabel}</span>
@@ -3746,82 +3975,284 @@ function renderCityBuilderPanel(simHost) {
   const state = simHost.state;
   const city = getPrimaryCity(state);
   const gridEl = document.getElementById('wgCityPlotsGrid');
+  const inspectorEl = document.getElementById('wgCityPlotInspector');
   if (!city || !gridEl) return;
 
   const titleEl = document.getElementById('wgCityPanelTitle');
-  if (titleEl) titleEl.textContent = city.name + ' — Bastion Construction Grid';
+  if (titleEl) titleEl.textContent = city.name + ' — 8x8 Spatial Grid';
 
+  const moveBannerEl = document.getElementById('wgCityMoveModeBanner');
+  const moveSourceIdx = typeof state._moveSourcePlotIndex === 'number' ? state._moveSourcePlotIndex : null;
+  if (moveBannerEl) {
+    if (moveSourceIdx !== null) moveBannerEl.classList.remove('hidden');
+    else moveBannerEl.classList.add('hidden');
+  }
+
+  const selectedIdx = typeof city.selectedPlotIndex === 'number' ? city.selectedPlotIndex : 27;
   const plots = city.plots || [];
-  const newPlotsHtml = plots.map(function(plot) {
-    const slotMeta = CITY_PLOT_SLOTS[plot.plotIndex] || { label: 'City Plot' };
-    const bId = plot.buildingId || slotMeta.recommended;
-    const bDef = CITY_BUILDINGS_CATALOG[bId];
-    const curLevel = plot.buildingId ? (plot.level || 0) : 0;
-    const nextLevel = curLevel + 1;
-    const cost = computeBuildingUpgradeCost(bId, nextLevel);
-    const durMs = computeBuildingDurationMs(bId, nextLevel);
 
-    if (plot.demolishing) {
-      return `
-        <div class="p-3.5 rounded-lg bg-[#080b11] border border-[#f87171] flex flex-col justify-between gap-2">
-          <div>
-            <div class="text-[10px] font-mono uppercase text-[#f87171]">Plot #${plot.plotIndex + 1} • Demolition / Cleanup</div>
-            <div class="text-sm font-bold text-[#e6edf3] mt-0.5">${bDef ? bDef.icon : '🔥'} ${bDef ? bDef.name : bId}</div>
-            <p class="text-[11px] text-[#8b949e] mt-1">${bDef ? bDef.desc : ''}</p>
-          </div>
-          <div class="py-1.5 px-2.5 rounded bg-[#f87171]/15 text-[#f87171] text-xs font-mono font-bold text-center">
-            🔥 Clearing Site in Queue...
-          </div>
-        </div>
-      `;
+  // 1. Render 8x8 Spatial Grid Tiles (64 plots)
+  const tilesHtml = [];
+  for (let i = 0; i < plots.length; i++) {
+    const plot = plots[i];
+    const px = plot.x !== undefined ? plot.x : (plot.plotIndex % 8);
+    const py = plot.y !== undefined ? plot.y : Math.floor(plot.plotIndex / 8);
+    const bId = plot.buildingId;
+    const bDef = bId ? CITY_BUILDINGS_CATALOG[bId] : null;
+
+    const isSelected = (plot.plotIndex === selectedIdx);
+    const isMoveSource = (plot.plotIndex === moveSourceIdx);
+
+    let borderClass = 'border-slate-800 bg-[#080b11]/80 hover:bg-[#111722] hover:border-slate-600';
+    let icon = '<span class="opacity-20 text-[10px]">+</span>';
+    let label = `<span class="text-[7px] font-mono text-slate-500 leading-none">(${px},${py})</span>`;
+
+    if (isMoveSource) {
+      borderClass = 'border-2 border-sky-400 bg-sky-950/40 animate-pulse';
+      icon = '↔';
+      label = `<span class="text-[7px] font-mono text-sky-400 font-bold leading-none">MOVE</span>`;
+    } else if (plot.relocating) {
+      borderClass = 'border border-sky-500 bg-sky-950/30 animate-pulse';
+      icon = '↔';
+      label = `<span class="text-[7px] font-mono text-sky-400 font-bold leading-none">MOVE</span>`;
+    } else if (plot.demolishing) {
+      borderClass = 'border border-red-500 bg-red-950/30 animate-pulse';
+      icon = '🔥';
+      label = `<span class="text-[7px] font-mono text-red-400 font-bold leading-none">DEMO</span>`;
+    } else if (plot.underConstruction) {
+      borderClass = 'border border-amber-400 bg-amber-950/30 animate-pulse';
+      icon = '🔨';
+      label = `<span class="text-[7px] font-mono text-amber-400 font-bold leading-none">BUILD</span>`;
+    } else if (bId === 'town_hall') {
+      borderClass = 'border-2 border-amber-400 bg-amber-950/20 shadow';
+      icon = bDef ? bDef.icon : '🏰';
+      label = `<span class="text-[7px] font-mono text-amber-400 font-bold leading-none">Keep ${plot.level}</span>`;
+    } else if (bDef) {
+      borderClass = 'border border-emerald-500/50 bg-[#111722] hover:border-emerald-400';
+      icon = bDef.icon;
+      label = `<span class="text-[7px] font-mono font-bold leading-none" style="color:${bDef.color || '#4ade80'}">Lv ${plot.level}</span>`;
     }
 
-    if (plot.underConstruction) {
-      return `
-        <div class="p-3.5 rounded-lg bg-[#080b11] border border-[#fbbf24] flex flex-col justify-between gap-2">
-          <div>
-            <div class="text-[10px] font-mono uppercase text-[#fbbf24]">Plot #${plot.plotIndex + 1} • Under Construction</div>
-            <div class="text-sm font-bold text-[#e6edf3] mt-0.5">${bDef ? bDef.icon : '🔨'} ${bDef ? bDef.name : bId} (→ Lv ${nextLevel})</div>
-            <p class="text-[11px] text-[#8b949e] mt-1">${bDef ? bDef.desc : ''}</p>
-          </div>
-          <div class="py-1.5 px-2.5 rounded bg-[#fbbf24]/15 text-[#fbbf24] text-xs font-mono font-bold text-center">
-            🔨 Constructing in Queue...
-          </div>
-        </div>
-      `;
-    }
+    const ringClass = isSelected ? 'ring-2 ring-amber-400 shadow-md shadow-amber-400/20 z-10' : '';
 
-    return `
-      <div class="p-3.5 rounded-lg bg-[#080b11] border ${curLevel > 0 ? 'border-[#34d399]/50' : 'border-[#283347]'} flex flex-col justify-between gap-2.5">
-        <div>
-          <div class="flex items-center justify-between">
-            <span class="text-[10px] font-mono uppercase text-[#8b949e]">${slotMeta.label}</span>
-            <span class="text-[10px] font-mono px-1.5 py-0.5 rounded ${curLevel > 0 ? 'bg-[#34d399]/20 text-[#34d399]' : 'bg-[#1a2232] text-[#8b949e]'}">
-              ${curLevel > 0 ? ('Level ' + curLevel) : 'Unbuilt'}
-            </span>
-          </div>
-          <div class="text-sm font-bold text-[#e6edf3] mt-1">${bDef ? bDef.icon : '🏛️'} ${bDef ? bDef.name : bId}</div>
-          <p class="text-[11px] text-[#8b949e] mt-1">${bDef ? bDef.desc : ''}</p>
+    tilesHtml.push(`
+      <button data-action="select-plot" data-plot-index="${plot.plotIndex}" onclick="window.WargameApp.handleSelectCityPlot(${plot.plotIndex})" class="aspect-square rounded-md p-1 flex flex-col items-center justify-between transition-all cursor-pointer relative ${borderClass} ${ringClass}">
+        <div class="w-full flex justify-between items-center text-[7px] font-mono text-slate-500 leading-none">
+          <span>${plot.plotIndex}</span>
         </div>
-        <div class="space-y-1.5 pt-2 border-t border-[#1e293b]">
-          <div class="flex items-center justify-between text-[11px] font-mono text-[#cbd5e1]">
-            <span>Cost: ${cost.wood}W • ${cost.stone}S${cost.gold ? (' • ' + cost.gold + 'G') : ''}</span>
-            <span class="text-[#38bdf8]">⏱ ${formatSimDuration(durMs)}</span>
-          </div>
-          <button data-action="queue-building" data-plot-index="${plot.plotIndex}" data-building-id="${bId}" onclick="window.WargameApp.handleQueueBuilding(${plot.plotIndex}, '${bId}')" class="w-full py-1.5 rounded bg-[#fbbf24] hover:bg-[#f59e0b] text-[#080b11] font-bold text-xs uppercase btn-tactical cursor-pointer">
-            ${curLevel > 0 ? ('▲ Upgrade to Lv ' + nextLevel) : ('🔨 Construct ' + (bDef ? bDef.name : bId))}
+        <div class="text-sm select-none leading-none my-auto">${icon}</div>
+        ${label}
+      </button>
+    `);
+  }
+  setHtmlIfChanged(gridEl, tilesHtml.join(''));
+
+  // 2. Render Plot Inspector & Action Operations Hub
+  if (!inspectorEl) return;
+  const selPlot = plots.find(function(p) { return p.plotIndex === selectedIdx; }) || plots[27] || plots[0];
+  if (!selPlot) return;
+
+  const spX = selPlot.x !== undefined ? selPlot.x : (selPlot.plotIndex % 8);
+  const spY = selPlot.y !== undefined ? selPlot.y : Math.floor(selPlot.plotIndex / 8);
+  const curBId = selPlot.buildingId;
+  const curBDef = curBId ? CITY_BUILDINGS_CATALOG[curBId] : null;
+
+  let inspectorHtml = `
+    <div class="flex items-center justify-between border-b border-[#283347] pb-2.5">
+      <div>
+        <div class="text-xs font-bold text-[#e6edf3]">Plot #${selPlot.plotIndex} — Coordinates (${spX}, ${spY})</div>
+        <div class="text-[10px] font-mono text-[#8b949e]">Central Bastion Territory</div>
+      </div>
+      <div>
+        ${selPlot.underConstruction ? `
+          <span class="px-2 py-0.5 rounded bg-amber-400/20 text-amber-400 border border-amber-400/40 text-[10px] font-mono font-bold">🔨 Under Construction</span>
+        ` : selPlot.demolishing ? `
+          <span class="px-2 py-0.5 rounded bg-red-400/20 text-red-400 border border-red-400/40 text-[10px] font-mono font-bold">🔥 Demolishing</span>
+        ` : selPlot.relocating ? `
+          <span class="px-2 py-0.5 rounded bg-sky-400/20 text-sky-400 border border-sky-400/40 text-[10px] font-mono font-bold">↔ Relocating</span>
+        ` : curBDef ? `
+          <span class="px-2 py-0.5 rounded bg-emerald-400/20 text-emerald-400 border border-emerald-400/40 text-[10px] font-mono font-bold">Active Structure</span>
+        ` : `
+          <span class="px-2 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700 text-[10px] font-mono">Empty Plot</span>
+        `}
+      </div>
+    </div>
+  `;
+
+  // Case A: Plot has an active order (underConstruction, demolishing, relocating)
+  if (selPlot.underConstruction || selPlot.demolishing || selPlot.relocating) {
+    const activeItem = (city.buildQueue || []).find(function(q) {
+      return q.plotIndex === selPlot.plotIndex || q.fromPlotIndex === selPlot.plotIndex || q.toPlotIndex === selPlot.plotIndex;
+    });
+    const rem = activeItem && activeItem.dueSimTimeMs ? Math.max(0, activeItem.dueSimTimeMs - simHost.state.world.clock.simTimeMs) : 0;
+    const dur = activeItem && activeItem.durationMs ? activeItem.durationMs : 4000;
+    const pct = Math.min(100, Math.round(((dur - rem) / dur) * 100));
+
+    inspectorHtml += `
+      <div class="p-3.5 rounded-lg bg-[#080b11] border border-[#283347] space-y-2.5">
+        <div class="flex items-center justify-between text-xs font-mono">
+          <span class="text-amber-400 font-bold">${activeItem ? activeItem.buildingName : 'Active Order'}</span>
+          <span class="text-emerald-400 font-bold">${formatSimDuration(rem)}</span>
+        </div>
+        <div class="w-full h-2 bg-[#111722] rounded-full overflow-hidden">
+          <div class="h-full bg-amber-400" style="width:${pct}%"></div>
+        </div>
+        <div class="text-[11px] text-[#8b949e]">
+          ${selPlot.relocating ? 'Workers are preparing foundation stones and safely relocating structural timbers.' :
+            selPlot.demolishing ? 'Demolition crew is dismantling structure and reclaiming 35% salvage materials.' :
+            'Artisans and laborers are constructing facility in accordance with realm blueprints.'}
+        </div>
+        ${activeItem && activeItem.type !== 'cleanup' ? `
+          <button data-action="cancel-building" data-queue-item-id="${activeItem.queueItemId}" onclick="window.WargameApp.handleCancelBuilding('${activeItem.queueItemId}')" class="w-full py-1.5 rounded bg-[#1a2232] hover:bg-red-500/20 text-red-400 border border-red-500/40 text-xs font-mono font-bold cursor-pointer">
+            ✕ Cancel Order
           </button>
-          ${curLevel > 0 && bId !== 'town_hall' ? `
-            <button data-action="demolish-building" data-plot-index="${plot.plotIndex}" onclick="window.WargameApp.handleDemolishBuilding(${plot.plotIndex})" class="w-full py-1 rounded bg-[#1a2232] hover:bg-[#f87171]/20 text-[#f87171] border border-[#f87171]/40 text-[10px] font-mono font-bold cursor-pointer">
-              🔥 Demolish [35% Salvage]
+        ` : ''}
+      </div>
+    `;
+  }
+  // Case B: Plot has an existing structure
+  else if (curBDef) {
+    const curLevel = selPlot.level || 1;
+    const nextLevel = curLevel + 1;
+    const isMax = nextLevel > (curBDef.maxLevel || 5);
+    const upgradeCost = computeBuildingUpgradeCost(curBId, nextLevel);
+    const upgradeDurMs = computeBuildingDurationMs(curBId, nextLevel);
+    const canAfford = (city.stockpile.wood || 0) >= upgradeCost.wood &&
+                      (city.stockpile.stone || 0) >= upgradeCost.stone &&
+                      (city.stockpile.gold || 0) >= upgradeCost.gold;
+
+    const prodEntries = Object.entries(curBDef.productionPerTick || {});
+    const prodText = prodEntries.length > 0
+      ? prodEntries.map(function(e) { return '+' + (e[1] * curLevel) + ' ' + e[0]; }).join(', ') + ' / tick'
+      : 'Special Facility';
+
+    inspectorHtml += `
+      <div class="p-3.5 rounded-lg bg-[#080b11] border border-[#283347] space-y-3">
+        <div class="flex items-start gap-3">
+          <span class="text-3xl">${curBDef.icon}</span>
+          <div>
+            <div class="text-sm font-bold text-[#e6edf3]">${curBDef.name} <span class="text-xs font-mono text-emerald-400 font-semibold">(Level ${curLevel})</span></div>
+            <div class="text-[10px] font-mono uppercase text-[#8b949e]">${curBDef.category} • Yield: <span class="text-[#38bdf8]">${prodText}</span></div>
+            <p class="text-[11px] text-[#8b949e] mt-1">${curBDef.desc}</p>
+          </div>
+        </div>
+
+        <div class="space-y-2 pt-2 border-t border-[#1e293b]">
+          <!-- Upgrade Action -->
+          ${!isMax ? `
+            <div class="p-2.5 rounded bg-[#111722] border border-[#283347] space-y-1.5">
+              <div class="flex justify-between items-center text-[11px] font-mono">
+                <span class="text-[#e6edf3] font-bold">Upgrade to Level ${nextLevel}</span>
+                <span class="text-[#38bdf8]">⏱ ${formatSimDuration(upgradeDurMs)}</span>
+              </div>
+              <div class="text-[10px] font-mono text-[#8b949e]">
+                Cost: ${upgradeCost.wood} Wood • ${upgradeCost.stone} Stone • ${upgradeCost.gold} Gold
+              </div>
+              <button data-action="queue-building" data-plot-index="${selPlot.plotIndex}" data-building-id="${curBId}" onclick="window.WargameApp.handleQueueBuilding(${selPlot.plotIndex}, '${curBId}')" ${!canAfford ? 'disabled' : ''} class="w-full py-1.5 rounded font-bold text-xs uppercase cursor-pointer ${canAfford ? 'bg-amber-400 hover:bg-amber-500 text-slate-900' : 'bg-slate-800 text-slate-500 cursor-not-allowed'}">
+                ▲ Upgrade Structure
+              </button>
+            </div>
+          ` : `
+            <div class="p-2 rounded bg-[#111722] text-center text-xs font-mono text-amber-400">★ Maximum Level Reached</div>
+          `}
+
+          <!-- Move & Demolish Action Row -->
+          <div class="grid grid-cols-2 gap-2 pt-1">
+            <button data-action="start-move-mode" data-plot-index="${selPlot.plotIndex}" onclick="window.WargameApp.handleStartMoveMode(${selPlot.plotIndex})" class="py-1.5 px-2 rounded bg-[#1a2232] hover:bg-sky-500/20 text-sky-400 border border-sky-500/40 text-[11px] font-mono font-bold cursor-pointer text-center">
+              ↔ Relocate (2.5s)
             </button>
-          ` : ''}
+            ${curBId !== 'town_hall' ? `
+              <button data-action="demolish-building" data-plot-index="${selPlot.plotIndex}" onclick="window.WargameApp.handleDemolishBuilding(${selPlot.plotIndex})" class="py-1.5 px-2 rounded bg-[#1a2232] hover:bg-red-500/20 text-red-400 border border-red-500/40 text-[11px] font-mono font-bold cursor-pointer text-center">
+                🔥 Demolish (35%)
+              </button>
+            ` : `
+              <div class="py-1.5 px-2 rounded bg-slate-900 text-slate-600 border border-slate-800 text-[10px] font-mono text-center flex items-center justify-center">
+                Locked Citadel
+              </div>
+            `}
+          </div>
         </div>
       </div>
     `;
-  }).join('');
+  }
+  // Case C: Empty Plot — Construct Facility Catalog
+  else {
+    if (moveSourceIdx !== null) {
+      inspectorHtml += `
+        <div class="p-4 rounded-lg bg-sky-950/30 border border-sky-500/50 text-center space-y-3">
+          <div class="text-base">↔</div>
+          <div class="text-xs font-bold text-sky-300">Relocate to Plot (${spX}, ${spY})?</div>
+          <p class="text-[11px] text-[#8b949e]">Click below to confirm moving the structure from Plot #${moveSourceIdx} to this empty plot.</p>
+          <div class="flex gap-2 justify-center">
+            <button data-action="select-plot" data-plot-index="${selPlot.plotIndex}" onclick="window.WargameApp.handleSelectCityPlot(${selPlot.plotIndex})" class="py-1.5 px-4 rounded bg-sky-400 hover:bg-sky-300 text-slate-900 font-bold text-xs uppercase cursor-pointer">
+              ✓ Confirm Relocation
+            </button>
+            <button data-action="cancel-move-mode" onclick="window.WargameApp.handleCancelMoveMode()" class="py-1.5 px-3 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-mono cursor-pointer">
+              Cancel
+            </button>
+          </div>
+        </div>
+      `;
+    } else {
+      const constructibleKeys = Object.keys(CITY_BUILDINGS_CATALOG).filter(function(k) { return k !== 'town_hall'; });
+      const catalogCards = constructibleKeys.map(function(bId) {
+        const bDef = CITY_BUILDINGS_CATALOG[bId];
+        const cost = computeBuildingUpgradeCost(bId, 1);
+        const durMs = computeBuildingDurationMs(bId, 1);
 
-  setHtmlIfChanged(gridEl, newPlotsHtml);
+        // Check prerequisites
+        let reqMet = true;
+        let reqLabel = '';
+        if (bDef.requires) {
+          const rKeys = Object.keys(bDef.requires);
+          for (let r = 0; r < rKeys.length; r++) {
+            const reqB = rKeys[r];
+            const reqLvl = bDef.requires[reqB];
+            const curReqLvl = (city.buildings && city.buildings[reqB]) || 0;
+            if (curReqLvl < reqLvl) {
+              reqMet = false;
+              const reqDef = CITY_BUILDINGS_CATALOG[reqB];
+              reqLabel = 'Requires ' + (reqDef ? reqDef.name : reqB) + ' Lv ' + reqLvl;
+              break;
+            }
+          }
+        }
+
+        const canAfford = (city.stockpile.wood || 0) >= cost.wood &&
+                          (city.stockpile.stone || 0) >= cost.stone &&
+                          (city.stockpile.gold || 0) >= cost.gold;
+
+        return `
+          <div class="p-2.5 rounded bg-[#080b11] border ${reqMet ? 'border-[#283347]' : 'border-slate-800 opacity-60'} flex items-center justify-between gap-2">
+            <div class="flex items-center gap-2.5 min-w-0">
+              <span class="text-xl">${bDef.icon}</span>
+              <div class="min-w-0">
+                <div class="text-xs font-bold text-[#e6edf3] truncate">${bDef.name}</div>
+                <div class="text-[10px] font-mono text-[#8b949e]">
+                  ${cost.wood}W • ${cost.stone}S${cost.gold ? (' • ' + cost.gold + 'G') : ''} • ⏱ ${formatSimDuration(durMs)}
+                </div>
+                ${!reqMet ? `<div class="text-[9px] font-mono text-red-400 font-semibold">${reqLabel}</div>` : ''}
+              </div>
+            </div>
+            <button data-action="queue-building" data-plot-index="${selPlot.plotIndex}" data-building-id="${bId}" onclick="window.WargameApp.handleQueueBuilding(${selPlot.plotIndex}, '${bId}')" ${(!reqMet || !canAfford) ? 'disabled' : ''} class="px-3 py-1.5 rounded font-bold text-[11px] uppercase whitespace-nowrap cursor-pointer ${reqMet && canAfford ? 'bg-amber-400 hover:bg-amber-500 text-slate-900' : 'bg-slate-800 text-slate-500 cursor-not-allowed'}">
+              🔨 Build
+            </button>
+          </div>
+        `;
+      }).join('');
+
+      inspectorHtml += `
+        <div class="space-y-2">
+          <div class="text-xs font-bold text-[#fbbf24] uppercase tracking-wider">Construct New Facility</div>
+          <div class="space-y-1.5 max-h-[380px] overflow-y-auto pr-1">
+            ${catalogCards}
+          </div>
+        </div>
+      `;
+    }
+  }
+
+  setHtmlIfChanged(inspectorEl, inspectorHtml);
 }
 
 function renderGuildRecruitmentPanel(simHost) {
@@ -4181,16 +4612,43 @@ function evaluateWargameSelfTests() {
   host4.stepClock(4500);
   const sawmillCompleted = city4.buildings.sawmill === 1;
 
-  // Test deliberate Demolition with 35% salvage:
+  // Verify 8x8 spatial grid (64 plots) & center keep
+  const gridHas64Plots = Array.isArray(city4.plots) && city4.plots.length === 64;
+  const centerPlotIsKeep = city4.plots[27] && city4.plots[27].buildingId === 'town_hall' && city4.plots[27].level === 1;
+
+  // Test selecting city plot
+  const selectPlotCmd = host4.dispatch({
+    type: COMMAND_TYPES.SELECT_CITY_PLOT,
+    payload: { plotIndex: 12 }
+  });
+  const plotSelected = selectPlotCmd.ok && city4.selectedPlotIndex === 12;
+
+  // Test moving a building (Plot 1 Sawmill to empty Plot 10)
+  const moveCmd = host4.dispatch({
+    type: COMMAND_TYPES.MOVE_BUILDING,
+    payload: { fromPlotIndex: 1, toPlotIndex: 10 }
+  });
+  const moveQueued = moveCmd.ok && city4.buildQueue.length === 1 && city4.buildQueue[0].type === 'move';
+  const plotsMarkedRelocating = Boolean(city4.plots[1].relocating && city4.plots[10].relocating);
+
+  // Advance clock by 2500ms -> move completes!
+  host4.stepClock(2500);
+  const moveCompleted = city4.plots[1].buildingId === null &&
+                        city4.plots[10].buildingId === 'sawmill' &&
+                        city4.plots[10].level === 1 &&
+                        !city4.plots[1].relocating &&
+                        !city4.plots[10].relocating;
+
+  // Test deliberate Demolition of the relocated Sawmill on Plot 10 with 35% salvage:
   const woodBeforeDemolish = city4.stockpile.wood;
   const demolishCmd = host4.dispatch({
     type: COMMAND_TYPES.DEMOLISH_BUILDING,
-    payload: { plotIndex: 1 }
+    payload: { plotIndex: 10 }
   });
   const demolishQueued = demolishCmd.ok && city4.buildQueue.length === 1 && city4.buildQueue[0].type === 'demolish';
   // Advance 2500ms to complete demolition
   host4.stepClock(2500);
-  const demolishCompleted = !city4.buildings.sawmill && city4.plots[1].level === 0 && city4.stockpile.wood > woodBeforeDemolish;
+  const demolishCompleted = !city4.buildings.sawmill && city4.plots[10].level === 0 && city4.stockpile.wood > woodBeforeDemolish;
 
   // Test 3-slot build queue limit
   host4.dispatch({ type: COMMAND_TYPES.QUEUE_BUILDING, payload: { plotIndex: 1, buildingId: 'sawmill' } });
@@ -4208,17 +4666,23 @@ function evaluateWargameSelfTests() {
     cleanupJobActive &&
     cleanupFinished &&
     sawmillCompleted &&
+    gridHas64Plots &&
+    centerPlotIsKeep &&
+    plotSelected &&
+    moveQueued &&
+    plotsMarkedRelocating &&
+    moveCompleted &&
     demolishQueued &&
     demolishCompleted &&
     fourthQueueBlocked
   );
 
   results.push({
-    name: '4. City Founding, 3-Slot Queue Cap, Prorated Cancel + Cleanup & Demolition Salvage',
+    name: '4. 8x8 Spatial Grid (64 Plots), Plot Selection, Building Relocation & Demolition Salvage',
     pass: t4Pass,
     detail: t4Pass
-      ? 'Queue limits enforced, active cancel yields prorated refund with 50% cleanup job, and deliberate demolition grants 35% salvage'
-      : 'Failed multi-domain queue lifecycle checks'
+      ? '8x8 grid of 64 plots initialized with central keep at (3,3), plot selection, timed building relocation, and demolition salvage verified'
+      : 'Failed 8x8 spatial grid or relocation checks'
   });
 
   // =========================================================================
@@ -4440,6 +4904,37 @@ function handleCancelMarch() {
   syncWargameUI(simHost);
 }
 
+function handleSelectCityPlot(plotIndex) {
+  simHost.dispatch({
+    type: COMMAND_TYPES.SELECT_CITY_PLOT,
+    payload: { plotIndex: plotIndex }
+  });
+  simHost.state._dirty = true;
+  syncWargameUI(simHost);
+}
+
+function handleMoveBuilding(fromPlotIndex, toPlotIndex) {
+  simHost.dispatch({
+    type: COMMAND_TYPES.MOVE_BUILDING,
+    payload: { fromPlotIndex: fromPlotIndex, toPlotIndex: toPlotIndex }
+  });
+  simHost.state._dirty = true;
+  simHost.save();
+  syncWargameUI(simHost);
+}
+
+function handleStartMoveMode(plotIndex) {
+  simHost.state._moveSourcePlotIndex = plotIndex;
+  simHost.state._dirty = true;
+  syncWargameUI(simHost);
+}
+
+function handleCancelMoveMode() {
+  delete simHost.state._moveSourcePlotIndex;
+  simHost.state._dirty = true;
+  syncWargameUI(simHost);
+}
+
 function handleQueueBuilding(plotIndex, buildingId) {
   simHost.dispatch({
     type: COMMAND_TYPES.QUEUE_BUILDING,
@@ -4631,6 +5126,23 @@ function setupWargameListeners() {
     } else if (action === 'select-party') {
       const hId = btn.dataset.heroId;
       if (hId) handleSelectPartyByHero(hId);
+    } else if (action === 'select-plot') {
+      const pIdx = parseInt(btn.dataset.plotIndex, 10);
+      if (!isNaN(pIdx)) {
+        if (typeof simHost.state._moveSourcePlotIndex === 'number') {
+          const srcIdx = simHost.state._moveSourcePlotIndex;
+          delete simHost.state._moveSourcePlotIndex;
+          if (srcIdx !== pIdx) handleMoveBuilding(srcIdx, pIdx);
+          else syncWargameUI(simHost);
+        } else {
+          handleSelectCityPlot(pIdx);
+        }
+      }
+    } else if (action === 'start-move-mode') {
+      const pIdx = parseInt(btn.dataset.plotIndex, 10);
+      if (!isNaN(pIdx)) handleStartMoveMode(pIdx);
+    } else if (action === 'cancel-move-mode') {
+      handleCancelMoveMode();
     } else if (action === 'continue-campaign') {
       handleContinueCampaignClick();
     } else if (action === 'reset-title') {
@@ -4727,6 +5239,10 @@ const WargameApp = {
   handleFoundCity: handleFoundCity,
   handleRespawnSettler: handleRespawnSettler,
   handleCancelMarch: handleCancelMarch,
+  handleSelectCityPlot: handleSelectCityPlot,
+  handleMoveBuilding: handleMoveBuilding,
+  handleStartMoveMode: handleStartMoveMode,
+  handleCancelMoveMode: handleCancelMoveMode,
   handleQueueBuilding: handleQueueBuilding,
   handleCancelBuilding: handleCancelBuilding,
   handleDemolishBuilding: handleDemolishBuilding,

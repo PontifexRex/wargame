@@ -220,16 +220,43 @@ export function evaluateWargameSelfTests() {
   host4.stepClock(4500);
   const sawmillCompleted = city4.buildings.sawmill === 1;
 
-  // Test deliberate Demolition with 35% salvage:
+  // Verify 8x8 spatial grid (64 plots) & center keep
+  const gridHas64Plots = Array.isArray(city4.plots) && city4.plots.length === 64;
+  const centerPlotIsKeep = city4.plots[27] && city4.plots[27].buildingId === 'town_hall' && city4.plots[27].level === 1;
+
+  // Test selecting city plot
+  const selectPlotCmd = host4.dispatch({
+    type: COMMAND_TYPES.SELECT_CITY_PLOT,
+    payload: { plotIndex: 12 }
+  });
+  const plotSelected = selectPlotCmd.ok && city4.selectedPlotIndex === 12;
+
+  // Test moving a building (Plot 1 Sawmill to empty Plot 10)
+  const moveCmd = host4.dispatch({
+    type: COMMAND_TYPES.MOVE_BUILDING,
+    payload: { fromPlotIndex: 1, toPlotIndex: 10 }
+  });
+  const moveQueued = moveCmd.ok && city4.buildQueue.length === 1 && city4.buildQueue[0].type === 'move';
+  const plotsMarkedRelocating = Boolean(city4.plots[1].relocating && city4.plots[10].relocating);
+
+  // Advance clock by 2500ms -> move completes!
+  host4.stepClock(2500);
+  const moveCompleted = city4.plots[1].buildingId === null &&
+                        city4.plots[10].buildingId === 'sawmill' &&
+                        city4.plots[10].level === 1 &&
+                        !city4.plots[1].relocating &&
+                        !city4.plots[10].relocating;
+
+  // Test deliberate Demolition of the relocated Sawmill on Plot 10 with 35% salvage:
   const woodBeforeDemolish = city4.stockpile.wood;
   const demolishCmd = host4.dispatch({
     type: COMMAND_TYPES.DEMOLISH_BUILDING,
-    payload: { plotIndex: 1 }
+    payload: { plotIndex: 10 }
   });
   const demolishQueued = demolishCmd.ok && city4.buildQueue.length === 1 && city4.buildQueue[0].type === 'demolish';
   // Advance 2500ms to complete demolition
   host4.stepClock(2500);
-  const demolishCompleted = !city4.buildings.sawmill && city4.plots[1].level === 0 && city4.stockpile.wood > woodBeforeDemolish;
+  const demolishCompleted = !city4.buildings.sawmill && city4.plots[10].level === 0 && city4.stockpile.wood > woodBeforeDemolish;
 
   // Test 3-slot build queue limit
   host4.dispatch({ type: COMMAND_TYPES.QUEUE_BUILDING, payload: { plotIndex: 1, buildingId: 'sawmill' } });
@@ -247,17 +274,23 @@ export function evaluateWargameSelfTests() {
     cleanupJobActive &&
     cleanupFinished &&
     sawmillCompleted &&
+    gridHas64Plots &&
+    centerPlotIsKeep &&
+    plotSelected &&
+    moveQueued &&
+    plotsMarkedRelocating &&
+    moveCompleted &&
     demolishQueued &&
     demolishCompleted &&
     fourthQueueBlocked
   );
 
   results.push({
-    name: '4. City Founding, 3-Slot Queue Cap, Prorated Cancel + Cleanup & Demolition Salvage',
+    name: '4. 8x8 Spatial Grid (64 Plots), Plot Selection, Building Relocation & Demolition Salvage',
     pass: t4Pass,
     detail: t4Pass
-      ? 'Queue limits enforced, active cancel yields prorated refund with 50% cleanup job, and deliberate demolition grants 35% salvage'
-      : 'Failed multi-domain queue lifecycle checks'
+      ? '8x8 grid of 64 plots initialized with central keep at (3,3), plot selection, timed building relocation, and demolition salvage verified'
+      : 'Failed 8x8 spatial grid or relocation checks'
   });
 
   // =========================================================================

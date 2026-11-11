@@ -34,6 +34,13 @@ export const BASE_RECRUIT_QUEUE_LIMIT = 3; // Maximum heroes in recruitment queu
 export const DEMOLISH_SALVAGE_RATIO = 0.35; // 35% salvage returned upon demolishing a building
 export const CANCEL_CLEANUP_TIME_RATIO = 0.50; // Cancelling active construction requires 50% of elapsed time for site cleanup
 
+// Spatial 8x8 City Grid Layout
+export const CITY_GRID_COLS = 8;
+export const CITY_GRID_ROWS = 8;
+export const CITY_TOTAL_PLOTS = 64;
+export const CITY_CENTER_PLOT_INDEX = 27; // Center plot at (3, 3) where starter Bastion Keep / Hut is founded
+export const BASE_MOVE_BUILDING_DURATION_MS = 2500; // 2.5s base duration to relocate a structure to an empty plot
+
 // Structured Streaming Event Topics
 export const STREAM_TOPICS = {
   CAMPAIGN_STARTED:     'campaign.started',
@@ -52,6 +59,7 @@ export const STREAM_TOPICS = {
   BUILDING_QUEUED:      'city.buildingQueued',
   BUILDING_CANCELLED:   'city.buildingCancelled',
   BUILDING_DEMOLISHED:  'city.buildingDemolished',
+  BUILDING_MOVED:       'city.buildingMoved',
   BUILDING_COMPLETED:   'city.buildingCompleted',
   RESOURCE_TICK:        'city.resourceTick',
   RESOURCE_HARVESTED:   'overworld.resourceHarvested',
@@ -75,7 +83,9 @@ export const COMMAND_TYPES = {
   HARVEST_NODE:       'CMD_HARVEST_NODE',
   FOUND_CITY:         'CMD_FOUND_CITY',
   RESPAWN_SETTLER:    'CMD_RESPAWN_SETTLER',
+  SELECT_CITY_PLOT:   'CMD_SELECT_CITY_PLOT',
   QUEUE_BUILDING:     'CMD_QUEUE_BUILDING',
+  MOVE_BUILDING:      'CMD_MOVE_BUILDING',
   CANCEL_BUILDING:    'CMD_CANCEL_BUILDING',
   DEMOLISH_BUILDING:  'CMD_DEMOLISH_BUILDING',
   RECRUIT_HERO:       'CMD_RECRUIT_HERO',
