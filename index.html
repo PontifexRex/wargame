@@ -63,7 +63,7 @@
       </button>
       <button id="btnVerifySuite" onclick="window.Aethelgard.openDiagnosticsModal()" class="px-3 py-1.5 rounded-md bg-[#34d399]/15 hover:bg-[#34d399]/25 border border-[#34d399]/50 text-xs font-mono-num font-bold text-[#34d399] flex items-center gap-1.5 btn-tactical">
         <span class="w-2 h-2 rounded-full bg-[#34d399]"></span>
-        <span id="verifyBtnText">Verify Inc-7.1 (25/25 PASS)</span>
+        <span id="verifyBtnText">Verify Inc-7.2 (26/26 PASS)</span>
       </button>
     </div>
   </header>
@@ -600,7 +600,7 @@
         <div class="grid grid-cols-1 md:grid-cols-12 gap-2.5 items-center">
           <div class="md:col-span-8 grid grid-cols-5 gap-1.5">
             <!-- Skill (Q) -->
-            <button onclick="window.Aethelgard.executeClassSkill()" class="p-2 rounded-lg bg-[#2563eb]/20 hover:bg-[#2563eb]/30 border border-[#60a5fa]/50 text-left flex flex-col justify-between btn-tactical">
+            <button id="btnTacticalSkill" onmouseenter="window.Aethelgard.setSkillHover(true)" onmouseleave="window.Aethelgard.setSkillHover(false)" onclick="window.Aethelgard.executeClassSkill()" class="p-2 rounded-lg bg-[#2563eb]/20 hover:bg-[#2563eb]/30 border border-[#60a5fa]/50 text-left flex flex-col justify-between btn-tactical">
               <div class="flex items-center justify-between w-full">
                 <span id="btnSkillLabel" class="text-[11px] font-bold text-[#60a5fa] truncate">Skill</span>
                 <span class="text-[10px] font-mono-num px-1 rounded bg-[#080b11] text-[#60a5fa]">Q</span>
@@ -741,6 +741,12 @@
         <div class="flex items-center justify-between border-b border-[#283347] pb-1.5 mb-2">
           <h3 class="text-xs font-bold uppercase tracking-wider text-[#8b949e]">Expedition Chronicle</h3>
           <button onclick="window.Aethelgard.clearChronicle()" class="text-[10px] text-[#8b949e] hover:text-[#e6edf3]">Clear</button>
+        </div>
+        <div class="flex items-center gap-1 mb-1.5 border-b border-[#283347]/60 pb-1">
+          <button id="chronicleTab_all" onclick="window.Aethelgard.setChronicleFilter('all')" class="px-2 py-0.5 rounded text-[10px] font-mono-num font-bold bg-[#fbbf24] text-[#080b11]">All</button>
+          <button id="chronicleTab_combat" onclick="window.Aethelgard.setChronicleFilter('combat')" class="px-2 py-0.5 rounded text-[10px] font-mono-num font-bold bg-[#1a2232] text-[#8b949e] hover:text-[#e6edf3]">Combat</button>
+          <button id="chronicleTab_loot" onclick="window.Aethelgard.setChronicleFilter('loot')" class="px-2 py-0.5 rounded text-[10px] font-mono-num font-bold bg-[#1a2232] text-[#8b949e] hover:text-[#e6edf3]">Loot</button>
+          <button id="chronicleTab_system" onclick="window.Aethelgard.setChronicleFilter('system')" class="px-2 py-0.5 rounded text-[10px] font-mono-num font-bold bg-[#1a2232] text-[#8b949e] hover:text-[#e6edf3]">System</button>
         </div>
         <div id="chronicle-log" class="flex-1 overflow-y-auto space-y-1 text-xs font-mono-num max-h-[290px] pr-1"></div>
       </div>

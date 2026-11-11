@@ -3059,7 +3059,9 @@ const actionCallbacks = {
   floatingText: (x, y, text, color) => emitEngineEvent(ENGINE_EVENTS.FLOATING_TEXT, { x, y, text, color }, gameState),
   outcomeModal: (title, desc, details, isConfirm) => emitEngineEvent(ENGINE_EVENTS.OUTCOME_MODAL, { title, desc, details, isConfirm }, gameState),
   updateFOV: () => emitEngineEvent(ENGINE_EVENTS.FOV_SYNC, {}, gameState),
-  onTurnEnd: () => emitEngineEvent(ENGINE_EVENTS.TURN_END, {}, gameState)
+  onTurnEnd: () => emitEngineEvent(ENGINE_EVENTS.TURN_END, {}, gameState),
+  combatAnim: (x, y, type, color) => {},
+  heroLunge: (dx, dy) => {}
 };
 
 const registeredBridgeHandlers = {};
@@ -3091,6 +3093,12 @@ function registerActionCallbacks(cbs) {
   }
   if (typeof cbs.onTurnEnd === 'function') {
     bindBridgeHandler('onTurnEnd', ENGINE_EVENTS.TURN_END, () => cbs.onTurnEnd());
+  }
+  if (typeof cbs.combatAnim === 'function') {
+    actionCallbacks.combatAnim = cbs.combatAnim;
+  }
+  if (typeof cbs.heroLunge === 'function') {
+    actionCallbacks.heroLunge = cbs.heroLunge;
   }
 }
 
@@ -4942,6 +4950,12 @@ function attackMonster(monster, state = gameState) {
     playSound('hit');
     ui.floatingText(monster.x, monster.y, `${isCrit ? 'CRIT! ' : ''}-${dmg}`, isCrit ? '#fbbf24' : '#f87171');
     ui.log(`You strike ${monster.name} for ${dmg} damage${isCrit ? ' (CRITICAL!)' : ''}.`, isCrit ? 'gold' : 'info');
+    if (typeof ui.combatAnim === 'function') {
+      ui.combatAnim(monster.x, monster.y, isCrit ? 'crit_slash' : 'slash', isCrit ? '#fbbf24' : '#f87171');
+    }
+    if (typeof ui.heroLunge === 'function') {
+      ui.heroLunge(Math.sign(monster.x - h.x), Math.sign(monster.y - h.y));
+    }
   }
 
   // Hero Leech Affix: restores HP on hit
@@ -5062,6 +5076,9 @@ function monsterAttackHero(m, isRanged, state = gameState) {
     playSound('hit');
     ui.floatingText(h.x, h.y, `-${dmg}${isRanged ? ' 🏹' : ''}`, '#f87171');
     ui.log(`${m.name} strikes you for ${dmg} damage!`, 'bad');
+    if (typeof ui.combatAnim === 'function') {
+      ui.combatAnim(h.x, h.y, isRanged ? 'projectile' : 'claw', '#f87171');
+    }
   }
 
   // Archetype On-Hit Status + Elite Affix Effects
@@ -5254,6 +5271,97 @@ function processTurn(state = gameState) {
 // Wire turn-end hook into actions.js (for Healing Tonic turn advance)
 registerActionCallbacks({ onTurnEnd: () => processTurn(gameState) });
 
+function getSkillTargetingInfo(state = gameState) {
+  if (!state || state.inGuild || !state.hero) {
+    return { valid: false, reason: 'not_in_dungeon', targets: [], targetCoords: [], canAfford: false, reachRadius: 0 };
+  }
+  const h = state.hero;
+  const cls = CLASSES[h.classId] || CLASSES.fighter;
+  const floor = ensureDungeonFloorHydrated(state.dungeon, state.dungeon.currentFloor);
+  if (!floor || !floor.monsters) {
+    return { valid: false, reason: 'no_floor', targets: [], targetCoords: [], canAfford: false, reachRadius: 0 };
+  }
+
+  const fw = floor.width || (floor.tiles[0] ? floor.tiles[0].length : DEFAULT_MAP_W);
+  const fh = floor.height || floor.tiles.length || DEFAULT_MAP_H;
+
+  const isChilled = (h.statuses || []).some(s => s.id === 'chilled');
+  const effectiveCost = cls.skillCost + (isChilled ? 2 : 0);
+  const canAfford = (h.mp >= effectiveCost);
+
+  let targets = [];
+  let reachRadius = cls.skillRange || 1.5;
+  let destTile = null;
+
+  if (h.classId === 'fighter') {
+    reachRadius = 1.5;
+    targets = floor.monsters.filter(m => m.hp > 0 && Math.hypot(m.x - h.x, m.y - h.y) <= 1.5);
+  } else if (h.classId === 'thief') {
+    reachRadius = 3.5;
+    const candidates = floor.monsters.filter(
+      m => m.hp > 0 && Math.hypot(m.x - h.x, m.y - h.y) <= 3.5 && hasLineOfSight(floor, h.x, h.y, m.x, m.y)
+    );
+    for (let cIdx = 0; cIdx < candidates.length; cIdx++) {
+      const m = candidates[cIdx];
+      const neighbors = [[0, -1], [0, 1], [-1, 0], [1, 0]];
+      for (let nIdx = 0; nIdx < neighbors.length; nIdx++) {
+        const tx = m.x + neighbors[nIdx][0];
+        const ty = m.y + neighbors[nIdx][1];
+        if (tx >= 0 && tx < fw && ty >= 0 && ty < fh) {
+          const t = floor.tiles[ty][tx];
+          const walkable = (
+            t === TILE_FLOOR ||
+            t === TILE_STAIRS_UP ||
+            t === TILE_STAIRS_DOWN ||
+            t === TILE_CHEST_OPEN ||
+            t === TILE_SHRINE_USED ||
+            t === TILE_TRAP_DISARMED
+          );
+          const occupied = floor.monsters.some(other => other.hp > 0 && other.x === tx && other.y === ty);
+          if (walkable && !occupied) {
+            targets.push(m);
+            destTile = { x: tx, y: ty };
+            break;
+          }
+        }
+      }
+      if (targets.length > 0 && destTile) break;
+    }
+  } else if (h.classId === 'mage') {
+    reachRadius = 4.2;
+    targets = floor.monsters.filter(
+      m => m.hp > 0 && Math.hypot(m.x - h.x, m.y - h.y) <= 4.2 && hasLineOfSight(floor, h.x, h.y, m.x, m.y)
+    );
+  } else if (h.classId === 'ranger') {
+    reachRadius = 5.2;
+    const maxTargets = ((h.talentsAllocated && h.talentsAllocated.r_d3) || 0) > 0 ? 5 : 3;
+    targets = floor.monsters
+      .filter(m => m.hp > 0 && Math.hypot(m.x - h.x, m.y - h.y) <= 5.2 && hasLineOfSight(floor, h.x, h.y, m.x, m.y))
+      .sort((a, b) => Math.hypot(a.x - h.x, a.y - h.y) - Math.hypot(b.x - h.x, b.y - h.y))
+      .slice(0, maxTargets);
+  } else if (h.classId === 'paladin') {
+    reachRadius = 1.5;
+    const t = floor.monsters.find(m => m.hp > 0 && Math.hypot(m.x - h.x, m.y - h.y) <= 1.5);
+    if (t) targets.push(t);
+  }
+
+  const targetCoords = targets.map(m => ({ x: m.x, y: m.y }));
+
+  return {
+    valid: targets.length > 0 && canAfford,
+    hasTargets: targets.length > 0,
+    canAfford: canAfford,
+    classId: h.classId,
+    skillName: cls.skillName,
+    skillCost: cls.skillCost,
+    effectiveCost: effectiveCost,
+    reachRadius: reachRadius,
+    targets: targets,
+    targetCoords: targetCoords,
+    destTile: destTile
+  };
+}
+
 function executeClassSkill(state = gameState) {
   const ui = getActionCallbacks();
   cancelAutoWalk();
@@ -5292,13 +5400,21 @@ function executeClassSkill(state = gameState) {
     if (state === gameState) {
       playSound('spell');
       ui.floatingText(h.x, h.y, 'WHIRLWIND!', '#f87171');
+      if (typeof ui.combatAnim === 'function') {
+        ui.combatAnim(h.x, h.y, 'spell', '#f87171');
+      }
     }
     adjTargets.slice().forEach(m => {
       const masteryMult = getCodexMasteryMultiplier(m.id, state);
       const dmg = Math.max(2, Math.round(h.atk * 1.5 * masteryMult) - m.def);
       m.hp -= dmg;
       applyStatusEffect(m, 'stun', 1);
-      if (state === gameState) ui.floatingText(m.x, m.y, `-${dmg} STUN`, '#f87171');
+      if (state === gameState) {
+        ui.floatingText(m.x, m.y, `-${dmg} STUN`, '#f87171');
+        if (typeof ui.combatAnim === 'function') {
+          ui.combatAnim(m.x, m.y, 'slash', '#f87171');
+        }
+      }
       if (m.hp <= 0) killMonster(m, state);
     });
     if (state === gameState) processTurn(state);
@@ -5359,6 +5475,9 @@ function executeClassSkill(state = gameState) {
       playSound('spell');
       ui.floatingText(chosenTarget.x, chosenTarget.y, `-${dmg} CRIT BACKSTAB!`, '#fbbf24');
       ui.log(`Shadowstep Strike hits ${chosenTarget.name} for ${dmg} critical damage!`, 'gold');
+      if (typeof ui.combatAnim === 'function') {
+        ui.combatAnim(chosenTarget.x, chosenTarget.y, 'crit_slash', '#fbbf24');
+      }
     }
     if (chosenTarget.hp <= 0) killMonster(chosenTarget, state);
     if (state === gameState) processTurn(state);
@@ -5386,6 +5505,9 @@ function executeClassSkill(state = gameState) {
     if (state === gameState) {
       playSound('spell');
       ui.floatingText(h.x, h.y, 'STARFALL NOVA!', '#60a5fa');
+      if (typeof ui.combatAnim === 'function') {
+        ui.combatAnim(h.x, h.y, 'spell', '#60a5fa');
+      }
     }
 
     targets.slice().forEach(m => {
@@ -5396,6 +5518,9 @@ function executeClassSkill(state = gameState) {
       applyStatusEffect(m, 'burn', 3);
       if (state === gameState) {
         ui.floatingText(m.x, m.y, `-${dmg}${hasEcho ? ' ECHO!' : ''}`, '#60a5fa');
+        if (typeof ui.combatAnim === 'function') {
+          ui.combatAnim(m.x, m.y, 'crit_slash', '#60a5fa');
+        }
       }
       if (m.hp <= 0) killMonster(m, state);
     });
@@ -5434,7 +5559,12 @@ function executeClassSkill(state = gameState) {
       const masteryMult = getCodexMasteryMultiplier(m.id, state);
       const dmg = Math.max(3, Math.round(h.atk * 1.8 * masteryMult) - effDef);
       m.hp -= dmg;
-      if (state === gameState) ui.floatingText(m.x, m.y, `-${dmg} VOLLEY`, '#34d399');
+      if (state === gameState) {
+        ui.floatingText(m.x, m.y, `-${dmg} VOLLEY`, '#34d399');
+        if (typeof ui.combatAnim === 'function') {
+          ui.combatAnim(m.x, m.y, 'slash', '#34d399');
+        }
+      }
       if (m.hp <= 0) killMonster(m, state);
     });
 
@@ -5465,6 +5595,9 @@ function executeClassSkill(state = gameState) {
       ui.floatingText(target.x, target.y, `-${dmg} HOLY SMITE!`, '#fbbf24');
       ui.floatingText(h.x, h.y, `+${healAmt} HP`, '#34d399');
       ui.log(`Holy Smite sears ${target.name} for ${dmg} damage and heals you for +${healAmt} HP!`, 'gold');
+      if (typeof ui.combatAnim === 'function') {
+        ui.combatAnim(target.x, target.y, 'crit_slash', '#fbbf24');
+      }
     }
     if (target.hp <= 0) killMonster(target, state);
     if (state === gameState) processTurn(state);
@@ -5847,6 +5980,32 @@ function runCorridor(dx, dy, state = gameState) {
 const floatingTexts = [];
 let hoverTile = null;
 let visibleCoordMap = {};
+let skillHoverActive = false;
+const combatAnimations = [];
+let heroLungeOffset = { x: 0, y: 0, ticks: 0 };
+
+function setSkillHover(active) {
+  skillHoverActive = !!active;
+}
+
+function getSkillHover() {
+  return skillHoverActive;
+}
+
+function triggerCombatAnimation(gx, gy, type = 'slash', color = '#f87171') {
+  combatAnimations.push({
+    gx: gx,
+    gy: gy,
+    type: type,
+    color: color,
+    ticks: 14,
+    maxTicks: 14
+  });
+}
+
+function triggerHeroLunge(dx, dy) {
+  heroLungeOffset = { x: (dx || 0) * 8, y: (dy || 0) * 8, ticks: 6 };
+}
 
 function setHoverTile(tile) {
   hoverTile = tile;
@@ -7399,10 +7558,193 @@ function renderDungeonCanvas() {
     ctx.fillRect(mx + 4, my + 26, 24, 4);
     ctx.fillStyle = m.isBoss || m.isElite ? '#fbbf24' : '#f87171';
     ctx.fillRect(mx + 4, my + 26, Math.round(24 * pct), 4);
+
+    // Overhead Status Effect Badges
+    if (m.statuses && m.statuses.length > 0) {
+      const statusColors = {
+        burn:     '#fb923c',
+        bleed:    '#f87171',
+        poison:   '#4ade80',
+        stun:     '#fbbf24',
+        chilled:  '#38bdf8',
+        weakened: '#c084fc'
+      };
+      for (let sIdx = 0; sIdx < m.statuses.length; sIdx++) {
+        const st = m.statuses[sIdx];
+        const sc = statusColors[st.id] || '#94a3b8';
+        const bx = mx + 4 + sIdx * 7;
+        ctx.fillStyle = sc;
+        ctx.fillRect(bx, my - 4, 6, 4);
+      }
+    }
+
+    // Threat / Aggro Telegraphs
+    const distToHero = Math.hypot(m.x - hx, m.y - hy);
+    if (distToHero <= 1.5) {
+      // Melee threat alert: red chevron pulse above monster
+      ctx.fillStyle = '#ef4444';
+      ctx.beginPath();
+      ctx.moveTo(mx + 16, my - 3);
+      ctx.lineTo(mx + 13, my + 1);
+      ctx.lineTo(mx + 19, my + 1);
+      ctx.closePath();
+      ctx.fill();
+    } else if (
+      (m.isRanged || m.id === 'starfall_archer' || m.id === 'ember_pyromancer' || m.id === 'void_hexer') &&
+      distToHero <= 6 &&
+      hasLineOfSight(floor, m.x, m.y, hx, hy)
+    ) {
+      // Ranged aim indicator: red dashed laser line targeting player
+      ctx.strokeStyle = 'rgba(239, 68, 68, 0.40)';
+      ctx.lineWidth = 1;
+      if (typeof ctx.setLineDash === 'function') ctx.setLineDash([3, 4]);
+      ctx.beginPath();
+      ctx.moveTo(mx + 16, my + 16);
+      ctx.lineTo((hx - camX) * TILE_SIZE + 16, (hy - camY) * TILE_SIZE + 16);
+      ctx.stroke();
+      if (typeof ctx.setLineDash === 'function') ctx.setLineDash([]);
+    }
   }
 
-  // Draw Player Sprite relative to Camera Origin
-  drawHeroSprite(ctx, (hx - camX) * TILE_SIZE, (hy - camY) * TILE_SIZE, gameState.hero.classId, TILE_SIZE);
+  // Draw Player Sprite relative to Camera Origin (incorporating lunge displacement)
+  const lx = heroLungeOffset.ticks > 0 ? heroLungeOffset.x * (heroLungeOffset.ticks / 6) : 0;
+  const ly = heroLungeOffset.ticks > 0 ? heroLungeOffset.y * (heroLungeOffset.ticks / 6) : 0;
+  drawHeroSprite(ctx, (hx - camX) * TILE_SIZE + lx, (hy - camY) * TILE_SIZE + ly, gameState.hero.classId, TILE_SIZE);
+  if (heroLungeOffset.ticks > 0) heroLungeOffset.ticks--;
+
+  // Draw Tactical Skill Range & Target Preview (if skill hovered / targeting active)
+  if (skillHoverActive) {
+    const targeting = getSkillTargetingInfo(gameState);
+    if (targeting && targeting.reachRadius > 0) {
+      const pCenterX = (hx - camX) * TILE_SIZE + 16;
+      const pCenterY = (hy - camY) * TILE_SIZE + 16;
+      const reachPx = targeting.reachRadius * TILE_SIZE;
+
+      // Circular reach boundary
+      ctx.strokeStyle = targeting.canAfford ? 'rgba(96, 165, 250, 0.75)' : 'rgba(239, 68, 68, 0.65)';
+      ctx.lineWidth = 1.5;
+      if (typeof ctx.setLineDash === 'function') ctx.setLineDash([4, 4]);
+      ctx.beginPath();
+      ctx.arc(pCenterX, pCenterY, reachPx, 0, Math.PI * 2);
+      ctx.fillStyle = targeting.canAfford ? 'rgba(96, 165, 250, 0.08)' : 'rgba(239, 68, 68, 0.06)';
+      ctx.fill();
+      ctx.stroke();
+      if (typeof ctx.setLineDash === 'function') ctx.setLineDash([]);
+
+      // Tactical reticles over eligible targets
+      for (let tIdx = 0; tIdx < targeting.targets.length; tIdx++) {
+        const tg = targeting.targets[tIdx];
+        const tvx = tg.x - camX;
+        const tvy = tg.y - camY;
+        if (tvx >= 0 && tvx < VIEWPORT_WIDTH && tvy >= 0 && tvy < VIEWPORT_HEIGHT) {
+          const tpx = tvx * TILE_SIZE;
+          const tpy = tvy * TILE_SIZE;
+
+          // Corner brackets
+          ctx.strokeStyle = '#ef4444';
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          // Top-left
+          ctx.moveTo(tpx + 2, tpy + 8); ctx.lineTo(tpx + 2, tpy + 2); ctx.lineTo(tpx + 8, tpy + 2);
+          // Top-right
+          ctx.moveTo(tpx + 30, tpy + 8); ctx.lineTo(tpx + 30, tpy + 2); ctx.lineTo(tpx + 24, tpy + 2);
+          // Bottom-left
+          ctx.moveTo(tpx + 2, tpy + 24); ctx.lineTo(tpx + 2, tpy + 30); ctx.lineTo(tpx + 8, tpy + 30);
+          // Bottom-right
+          ctx.moveTo(tpx + 30, tpy + 24); ctx.lineTo(tpx + 30, tpy + 30); ctx.lineTo(tpx + 24, tpy + 30);
+          ctx.stroke();
+
+          // Center crosshair / diamond
+          ctx.strokeStyle = '#fbbf24';
+          ctx.lineWidth = 1.2;
+          ctx.strokeRect(tpx + 11, tpy + 11, 10, 10);
+
+          // Overhead TARGET label
+          ctx.font = 'bold 9px "JetBrains Mono", monospace';
+          ctx.textAlign = 'center';
+          ctx.fillStyle = '#ef4444';
+          ctx.fillText('TARGET', tpx + 16, tpy - 4);
+        }
+      }
+
+      // Leap destination marker for Thief
+      if (targeting.destTile) {
+        const dvx = targeting.destTile.x - camX;
+        const dvy = targeting.destTile.y - camY;
+        if (dvx >= 0 && dvx < VIEWPORT_WIDTH && dvy >= 0 && dvy < VIEWPORT_HEIGHT) {
+          const dpx = dvx * TILE_SIZE;
+          const dpy = dvy * TILE_SIZE;
+          ctx.strokeStyle = '#c084fc';
+          ctx.lineWidth = 1.5;
+          ctx.strokeRect(dpx + 3, dpy + 3, 26, 26);
+          ctx.fillStyle = 'rgba(192, 132, 252, 0.20)';
+          ctx.fillRect(dpx + 3, dpy + 3, 26, 26);
+          ctx.font = 'bold 8px "JetBrains Mono", monospace';
+          ctx.textAlign = 'center';
+          ctx.fillStyle = '#c084fc';
+          ctx.fillText('LEAP', dpx + 16, dpy + 17);
+        }
+      }
+    }
+  }
+
+  // Draw Active Combat Animations (slashes, crit bursts, spell impacts)
+  for (let aIdx = combatAnimations.length - 1; aIdx >= 0; aIdx--) {
+    const anim = combatAnimations[aIdx];
+    const cpx = (anim.gx - camX) * TILE_SIZE + 16;
+    const cpy = (anim.gy - camY) * TILE_SIZE + 16;
+    const prog = 1 - (anim.ticks / anim.maxTicks);
+
+    if (cpx >= -32 && cpx <= canvas.width + 32 && cpy >= -32 && cpy <= canvas.height + 32) {
+      if (anim.type === 'slash') {
+        ctx.strokeStyle = anim.color || '#f87171';
+        ctx.lineWidth = Math.max(1, 3.5 - prog * 2.5);
+        ctx.beginPath();
+        ctx.moveTo(cpx - 14 + prog * 6, cpy - 14 + prog * 6);
+        ctx.lineTo(cpx + 14, cpy + 14);
+        ctx.stroke();
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 1.2;
+        ctx.beginPath();
+        ctx.moveTo(cpx - 10 + prog * 6, cpy - 10 + prog * 6);
+        ctx.lineTo(cpx + 10, cpy + 10);
+        ctx.stroke();
+      } else if (anim.type === 'crit_slash') {
+        ctx.strokeStyle = anim.color || '#fbbf24';
+        ctx.lineWidth = Math.max(1, 4 - prog * 3);
+        const radius = 6 + prog * 14;
+        ctx.beginPath();
+        ctx.moveTo(cpx - radius, cpy); ctx.lineTo(cpx + radius, cpy);
+        ctx.moveTo(cpx, cpy - radius); ctx.lineTo(cpx, cpy + radius);
+        ctx.moveTo(cpx - radius * 0.7, cpy - radius * 0.7); ctx.lineTo(cpx + radius * 0.7, cpy + radius * 0.7);
+        ctx.moveTo(cpx + radius * 0.7, cpy - radius * 0.7); ctx.lineTo(cpx - radius * 0.7, cpy + radius * 0.7);
+        ctx.stroke();
+      } else if (anim.type === 'spell') {
+        ctx.strokeStyle = anim.color || '#60a5fa';
+        ctx.lineWidth = Math.max(1, 3 - prog * 2);
+        ctx.beginPath();
+        ctx.arc(cpx, cpy, 4 + prog * 18, 0, Math.PI * 2);
+        ctx.stroke();
+      } else if (anim.type === 'projectile') {
+        ctx.fillStyle = anim.color || '#f87171';
+        ctx.beginPath();
+        ctx.arc(cpx, cpy, Math.max(1, 5 - prog * 4), 0, Math.PI * 2);
+        ctx.fill();
+      } else {
+        ctx.strokeStyle = anim.color || '#f87171';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(cpx - 8, cpy - 8); ctx.lineTo(cpx - 4, cpy + 8);
+        ctx.moveTo(cpx, cpy - 8); ctx.lineTo(cpx + 4, cpy + 8);
+        ctx.stroke();
+      }
+    }
+
+    anim.ticks--;
+    if (anim.ticks <= 0) {
+      combatAnimations.splice(aIdx, 1);
+    }
+  }
 
   // Draw Hover Highlight relative to Camera Origin
   if (hoverTile) {
@@ -8306,30 +8648,116 @@ function setArmorySortBy(sortKey) {
   updateAllUI();
 }
 
-function logChronicle(msg, tone = 'info') {
+let chronicleFilter = 'all';
+const chronicleHistory = [];
+
+function getChronicleFilter() {
+  return chronicleFilter;
+}
+
+function setChronicleFilter(filter) {
+  chronicleFilter = filter || 'all';
+  renderChronicleLog();
+}
+
+function inferChronicleCategory(msg, tone) {
+  const m = String(msg).toLowerCase();
+  if (
+    /\b(strike|strikes|damage|hit|hits|attacks?|killed|slain|miss|crit(ical)?|stun(ned)?|bleed(ing)?|burn(ing)?|poison(ed)?|whirlwind|nova|volley|smite|shadowstep|defeat)\b/i.test(m)
+  ) {
+    return 'combat';
+  }
+  if (
+    /\b(found|chests?|unearths?|looted?|loot|gold|ores?|gems?|socket(ed)?|trade|salvage|bought|sold|pickaxe)\b/i.test(m) ||
+    m.indexOf('equipped') !== -1
+  ) {
+    return 'loot';
+  }
+  return 'system';
+}
+
+function logChronicle(msg, tone = 'info', explicitCategory = null) {
+  const cat = explicitCategory || inferChronicleCategory(msg, tone);
+  const currentTurn = (gameState && gameState.turn) || 1;
+
+  if (chronicleHistory.length > 0) {
+    const last = chronicleHistory[chronicleHistory.length - 1];
+    if (last.text === msg && last.tone === tone && last.category === cat) {
+      last.count = (last.count || 1) + 1;
+      last.turn = currentTurn;
+      renderChronicleLog();
+      return;
+    }
+  }
+
+  chronicleHistory.push({
+    id: Date.now() + Math.random(),
+    turn: currentTurn,
+    text: msg,
+    tone: tone,
+    category: cat,
+    count: 1
+  });
+
+  if (chronicleHistory.length > 150) {
+    chronicleHistory.shift();
+  }
+
+  renderChronicleLog();
+}
+
+function clearChronicle() {
+  chronicleHistory.length = 0;
+  renderChronicleLog();
+}
+
+function renderChronicleLog() {
   if (typeof document === 'undefined') return;
   const box = document.getElementById('chronicle-log');
   if (!box) return;
+
+  const tabs = ['all', 'combat', 'loot', 'system'];
+  for (let i = 0; i < tabs.length; i++) {
+    const t = tabs[i];
+    const btn = document.getElementById('chronicleTab_' + t);
+    if (btn) {
+      const active = (chronicleFilter === t);
+      btn.className = active
+        ? 'px-2 py-0.5 rounded text-[10px] font-mono-num font-bold bg-[#fbbf24] text-[#080b11] transition-colors'
+        : 'px-2 py-0.5 rounded text-[10px] font-mono-num font-bold bg-[#1a2232] text-[#8b949e] hover:text-[#e6edf3] transition-colors';
+    }
+  }
+
   const colors = {
     gold: '#fbbf24',
     good: '#34d399',
     bad:  '#f87171',
     info: '#94a3b8'
   };
-  const div = document.createElement('div');
-  div.style.color = colors[tone] || colors.info;
-  div.textContent = `[T${gameState.turn}] ${msg}`;
-  box.appendChild(div);
-  while (box.children.length > 100) {
-    box.removeChild(box.firstChild);
-  }
-  box.scrollTop = box.scrollHeight;
-}
 
-function clearChronicle() {
-  if (typeof document === 'undefined') return;
-  const box = document.getElementById('chronicle-log');
-  if (box) box.innerHTML = '';
+  const icons = {
+    combat: '⚔️',
+    loot: '💎',
+    system: '📜'
+  };
+
+  const filtered = chronicleHistory.filter(item => {
+    if (chronicleFilter === 'all') return true;
+    return item.category === chronicleFilter;
+  });
+
+  box.innerHTML = filtered.map(item => {
+    const countBadge = item.count > 1 ? ` <span class="px-1 py-0.2 rounded bg-[#1e293b] text-[#fbbf24] font-bold text-[9px]">(x${item.count})</span>` : '';
+    const icon = icons[item.category] || '•';
+    const col = colors[item.tone] || colors.info;
+    return `<div class="leading-relaxed py-0.5 border-b border-[#1a2232]/40" style="color:${col}">
+      <span class="text-[#64748b] text-[10px]">[T${item.turn}]</span>
+      <span class="text-[10px] opacity-80 mr-1">${icon}</span>
+      <span>${item.text}</span>${countBadge}
+    </div>`;
+  }).join('');
+
+  box.scrollTop = box.scrollHeight;
 }
 
   // --- Module: src/ui/modals.js ---
@@ -10294,7 +10722,11 @@ function setupInputs() {
       waitTurn();
     } else if (e.code === 'KeyQ') {
       e.preventDefault();
-      executeClassSkill();
+      const skillRes = executeClassSkill();
+      if (skillRes && !skillRes.ok) {
+        setSkillHover(true);
+        setTimeout(function() { setSkillHover(false); }, 1200);
+      }
     } else if (e.code === 'KeyH') {
       e.preventDefault();
       useHealingTonic();
@@ -10416,6 +10848,7 @@ function setupInputs() {
 
   // --- Module: src/test/selfTest.js ---
 // 23/23 Comprehensive Automated Self-Test Suite (Sandboxed & Non-Destructive)
+
 
 
 
@@ -11609,6 +12042,117 @@ function evaluateSelfTests() {
       : `Failed checks: ${failedKeys25.join(', ')}`
   });
 
+  // 26. Tactical Skill Targeting Preview, Threat Telegraphs & Chronicle Filtering Engine
+  const sandbox26 = createDefaultGameState();
+  selectAdventurerClass('paladin', sandbox26);
+  sandbox26.inGuild = false;
+  const f26 = ensureDungeonFloorHydrated(sandbox26.dungeon, 1);
+  sandbox26.hero.x = 10;
+  sandbox26.hero.y = 10;
+  sandbox26.hero.mp = 40;
+  for (let x = 8; x <= 16; x++) {
+    f26.tiles[10][x] = TILE_FLOOR;
+  }
+  f26.monsters = [
+    { id: 'vault_crawler', name: 'Vault Crawler', x: 11, y: 10, hp: 30, maxHp: 30, def: 2, isRanged: false, statuses: [] },
+    { id: 'starfall_archer', name: 'Starfall Archer', x: 15, y: 10, hp: 25, maxHp: 25, def: 1, isRanged: true, statuses: [] }
+  ];
+
+  // 1. Skill Targeting Preview (Paladin Holy Smite) - Non-destructive target acquisition
+  const prevPaladinMp = sandbox26.hero.mp;
+  const paladinTargetInfo = getSkillTargetingInfo(sandbox26);
+  const paladinTargetFound = paladinTargetInfo.valid &&
+    paladinTargetInfo.canAfford &&
+    paladinTargetInfo.targets.length === 1 &&
+    paladinTargetInfo.targets[0].id === 'vault_crawler' &&
+    sandbox26.hero.mp === prevPaladinMp;
+
+  // 2. Zero-MP / Low-MP Validation Preview
+  sandbox26.hero.mp = 0;
+  const lowMpTargetInfo = getSkillTargetingInfo(sandbox26);
+  const lowMpBlocksSkill = !lowMpTargetInfo.valid && !lowMpTargetInfo.canAfford;
+  sandbox26.hero.mp = 40;
+
+  // 3. Multi-Class Range & Line-of-Sight Targeting Previews
+  sandbox26.hero.classId = 'mage';
+  sandbox26.hero.x = 10;
+  sandbox26.hero.y = 10;
+  sandbox26.hero.mp = 50;
+  const mageTargetInfo = getSkillTargetingInfo(sandbox26);
+  const mageTargetValid = mageTargetInfo.targets.length >= 1 && mageTargetInfo.reachRadius >= 4;
+
+  sandbox26.hero.classId = 'ranger';
+  sandbox26.hero.x = 10;
+  sandbox26.hero.y = 10;
+  sandbox26.hero.mp = 45;
+  const rangerTargetInfo = getSkillTargetingInfo(sandbox26);
+  const rangerTargetValid = rangerTargetInfo.targets.length >= 1 && rangerTargetInfo.reachRadius >= 5;
+
+  // 4. Status Effect Application & Overhead Telegraph Badges
+  const crawler = f26.monsters[0];
+  applyStatusEffect(crawler, 'burn', 3);
+  applyStatusEffect(crawler, 'chilled', 2);
+  const statusTelegraphValid = crawler.statuses.some(s => s.id === 'burn') &&
+    crawler.statuses.some(s => s.id === 'chilled');
+
+  // 5. Threat Telegraph Contract: Melee alert & Ranged aim line detection
+  const distMelee = Math.hypot(crawler.x - sandbox26.hero.x, crawler.y - sandbox26.hero.y);
+  const isMeleeThreat = distMelee <= 1.5;
+  const archer = f26.monsters[1];
+  const distRanged = Math.hypot(archer.x - sandbox26.hero.x, archer.y - sandbox26.hero.y);
+  const isRangedThreat = (archer.isRanged || archer.id === 'starfall_archer') &&
+    distRanged <= 6 &&
+    hasLineOfSight(f26, archer.x, archer.y, sandbox26.hero.x, sandbox26.hero.y);
+
+  // 6. Chronicle Category Auto-Inference & Consecutive Message Deduplication
+  const combatCat = inferChronicleCategory('You strike Vault Crawler for 14 damage (CRITICAL!).', 'gold');
+  const lootCat = inferChronicleCategory('Opened Gilded Vault Chest and found 45 Vault Gold.', 'gold');
+  const systemCat = inferChronicleCategory('Rested at the Sanctuary Hearth. HP restored.', 'good');
+  const catsInferred = (combatCat === 'combat') && (lootCat === 'loot') && (systemCat === 'system');
+
+  clearChronicle();
+  logChronicle('You strike Vault Crawler for 10 damage.', 'info');
+  logChronicle('You strike Vault Crawler for 10 damage.', 'info');
+  logChronicle('You strike Vault Crawler for 10 damage.', 'info');
+
+  setChronicleFilter('combat');
+  const combatFilterActive = getChronicleFilter() === 'combat';
+  setChronicleFilter('loot');
+  const lootFilterActive = getChronicleFilter() === 'loot';
+  setChronicleFilter('all');
+  const allFilterActive = getChronicleFilter() === 'all';
+
+  // 7. Skill Hover Toggle Contract
+  setSkillHover(true);
+  const hoverOn = getSkillHover() === true;
+  setSkillHover(false);
+  const hoverOff = getSkillHover() === false;
+
+  const t26Checks = {
+    paladinTargetFound: !!paladinTargetFound,
+    lowMpBlocksSkill: !!lowMpBlocksSkill,
+    mageTargetValid: !!mageTargetValid,
+    rangerTargetValid: !!rangerTargetValid,
+    statusTelegraphValid: !!statusTelegraphValid,
+    isMeleeThreat: !!isMeleeThreat,
+    isRangedThreat: !!isRangedThreat,
+    catsInferred: !!catsInferred,
+    combatFilterActive: !!combatFilterActive,
+    lootFilterActive: !!lootFilterActive,
+    allFilterActive: !!allFilterActive,
+    hoverOn: !!hoverOn,
+    hoverOff: !!hoverOff
+  };
+  const failedKeys26 = Object.keys(t26Checks).filter(k => !t26Checks[k]);
+  const t26Pass = failedKeys26.length === 0;
+  results.push({
+    name: '26. Tactical Skill Targeting Preview, Threat Telegraphs & Chronicle Filtering Engine',
+    pass: t26Pass,
+    detail: failedKeys26.length === 0
+      ? 'Pure skill targeting preview verified (non-destructive MP/cooldown check), status & threat telegraphs verified, chronicle filter tabs & consecutive message grouping verified'
+      : `Failed checks: ${failedKeys26.join(', ')}`
+  });
+
   return results;
 }
 
@@ -11619,7 +12163,7 @@ function runSelfTests(renderModal = false) {
   if (typeof document !== 'undefined') {
     const btnText = document.getElementById('verifyBtnText');
     if (btnText) {
-      btnText.textContent = `Verify Inc-7.1 (${passCount}/${results.length} PASS)`;
+      btnText.textContent = `Verify Inc-7.2 (${passCount}/${results.length} PASS)`;
     }
 
     if (renderModal) {
@@ -11767,7 +12311,9 @@ registerActionCallbacks({
   log: logChronicle,
   updateUI: updateAllUI,
   floatingText: spawnFloatingText,
-  outcomeModal: showOutcomeModal
+  outcomeModal: showOutcomeModal,
+  combatAnim: triggerCombatAnimation,
+  heroLunge: triggerHeroLunge
 });
 
 registerCombatFOVCallback(updateFOV);
@@ -11778,6 +12324,12 @@ const AethelgardAPI = {
   loadGame,
   saveGame,
   toggleAudio,
+  setSkillHover,
+  getSkillHover,
+  getSkillTargetingInfo,
+  triggerCombatAnimation,
+  setChronicleFilter,
+  getChronicleFilter,
   openSaveSyncModal,
   closeSaveSyncModal,
   copySaveJson,

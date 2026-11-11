@@ -852,28 +852,114 @@ export function setArmorySortBy(sortKey) {
   updateAllUI();
 }
 
-export function logChronicle(msg, tone = 'info') {
+let chronicleFilter = 'all';
+const chronicleHistory = [];
+
+export function getChronicleFilter() {
+  return chronicleFilter;
+}
+
+export function setChronicleFilter(filter) {
+  chronicleFilter = filter || 'all';
+  renderChronicleLog();
+}
+
+export function inferChronicleCategory(msg, tone) {
+  const m = String(msg).toLowerCase();
+  if (
+    /\b(strike|strikes|damage|hit|hits|attacks?|killed|slain|miss|crit(ical)?|stun(ned)?|bleed(ing)?|burn(ing)?|poison(ed)?|whirlwind|nova|volley|smite|shadowstep|defeat)\b/i.test(m)
+  ) {
+    return 'combat';
+  }
+  if (
+    /\b(found|chests?|unearths?|looted?|loot|gold|ores?|gems?|socket(ed)?|trade|salvage|bought|sold|pickaxe)\b/i.test(m) ||
+    m.indexOf('equipped') !== -1
+  ) {
+    return 'loot';
+  }
+  return 'system';
+}
+
+export function logChronicle(msg, tone = 'info', explicitCategory = null) {
+  const cat = explicitCategory || inferChronicleCategory(msg, tone);
+  const currentTurn = (gameState && gameState.turn) || 1;
+
+  if (chronicleHistory.length > 0) {
+    const last = chronicleHistory[chronicleHistory.length - 1];
+    if (last.text === msg && last.tone === tone && last.category === cat) {
+      last.count = (last.count || 1) + 1;
+      last.turn = currentTurn;
+      renderChronicleLog();
+      return;
+    }
+  }
+
+  chronicleHistory.push({
+    id: Date.now() + Math.random(),
+    turn: currentTurn,
+    text: msg,
+    tone: tone,
+    category: cat,
+    count: 1
+  });
+
+  if (chronicleHistory.length > 150) {
+    chronicleHistory.shift();
+  }
+
+  renderChronicleLog();
+}
+
+export function clearChronicle() {
+  chronicleHistory.length = 0;
+  renderChronicleLog();
+}
+
+export function renderChronicleLog() {
   if (typeof document === 'undefined') return;
   const box = document.getElementById('chronicle-log');
   if (!box) return;
+
+  const tabs = ['all', 'combat', 'loot', 'system'];
+  for (let i = 0; i < tabs.length; i++) {
+    const t = tabs[i];
+    const btn = document.getElementById('chronicleTab_' + t);
+    if (btn) {
+      const active = (chronicleFilter === t);
+      btn.className = active
+        ? 'px-2 py-0.5 rounded text-[10px] font-mono-num font-bold bg-[#fbbf24] text-[#080b11] transition-colors'
+        : 'px-2 py-0.5 rounded text-[10px] font-mono-num font-bold bg-[#1a2232] text-[#8b949e] hover:text-[#e6edf3] transition-colors';
+    }
+  }
+
   const colors = {
     gold: '#fbbf24',
     good: '#34d399',
     bad:  '#f87171',
     info: '#94a3b8'
   };
-  const div = document.createElement('div');
-  div.style.color = colors[tone] || colors.info;
-  div.textContent = `[T${gameState.turn}] ${msg}`;
-  box.appendChild(div);
-  while (box.children.length > 100) {
-    box.removeChild(box.firstChild);
-  }
-  box.scrollTop = box.scrollHeight;
-}
 
-export function clearChronicle() {
-  if (typeof document === 'undefined') return;
-  const box = document.getElementById('chronicle-log');
-  if (box) box.innerHTML = '';
+  const icons = {
+    combat: '⚔️',
+    loot: '💎',
+    system: '📜'
+  };
+
+  const filtered = chronicleHistory.filter(item => {
+    if (chronicleFilter === 'all') return true;
+    return item.category === chronicleFilter;
+  });
+
+  box.innerHTML = filtered.map(item => {
+    const countBadge = item.count > 1 ? ` <span class="px-1 py-0.2 rounded bg-[#1e293b] text-[#fbbf24] font-bold text-[9px]">(x${item.count})</span>` : '';
+    const icon = icons[item.category] || '•';
+    const col = colors[item.tone] || colors.info;
+    return `<div class="leading-relaxed py-0.5 border-b border-[#1a2232]/40" style="color:${col}">
+      <span class="text-[#64748b] text-[10px]">[T${item.turn}]</span>
+      <span class="text-[10px] opacity-80 mr-1">${icon}</span>
+      <span>${item.text}</span>${countBadge}
+    </div>`;
+  }).join('');
+
+  box.scrollTop = box.scrollHeight;
 }

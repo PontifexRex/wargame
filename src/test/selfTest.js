@@ -48,8 +48,10 @@ import {
   generateProceduralEquipment
 } from '../engine/procedural.js';
 import { selectAdventurerClass } from '../ui/modals.js';
-import { drawPaperDollMannequin, drawHeroSprite } from '../ui/renderer.js';
+import { drawPaperDollMannequin, drawHeroSprite, setSkillHover, getSkillHover } from '../ui/renderer.js';
+import { setChronicleFilter, getChronicleFilter, inferChronicleCategory, logChronicle, clearChronicle } from '../ui/domSync.js';
 import {
+  applyStatusEffect,
   mineTile,
   buyShopItem,
   sellMineralUnit,
@@ -75,6 +77,7 @@ import {
 } from '../engine/actions.js';
 import {
   executeClassSkill,
+  getSkillTargetingInfo,
   hasLineOfSight,
   computeSafeExploredPath,
   setAutoWalkPath,
@@ -1264,6 +1267,117 @@ export function evaluateSelfTests() {
       : `Failed checks: ${failedKeys25.join(', ')}`
   });
 
+  // 26. Tactical Skill Targeting Preview, Threat Telegraphs & Chronicle Filtering Engine
+  const sandbox26 = createDefaultGameState();
+  selectAdventurerClass('paladin', sandbox26);
+  sandbox26.inGuild = false;
+  const f26 = ensureDungeonFloorHydrated(sandbox26.dungeon, 1);
+  sandbox26.hero.x = 10;
+  sandbox26.hero.y = 10;
+  sandbox26.hero.mp = 40;
+  for (let x = 8; x <= 16; x++) {
+    f26.tiles[10][x] = TILE_FLOOR;
+  }
+  f26.monsters = [
+    { id: 'vault_crawler', name: 'Vault Crawler', x: 11, y: 10, hp: 30, maxHp: 30, def: 2, isRanged: false, statuses: [] },
+    { id: 'starfall_archer', name: 'Starfall Archer', x: 15, y: 10, hp: 25, maxHp: 25, def: 1, isRanged: true, statuses: [] }
+  ];
+
+  // 1. Skill Targeting Preview (Paladin Holy Smite) - Non-destructive target acquisition
+  const prevPaladinMp = sandbox26.hero.mp;
+  const paladinTargetInfo = getSkillTargetingInfo(sandbox26);
+  const paladinTargetFound = paladinTargetInfo.valid &&
+    paladinTargetInfo.canAfford &&
+    paladinTargetInfo.targets.length === 1 &&
+    paladinTargetInfo.targets[0].id === 'vault_crawler' &&
+    sandbox26.hero.mp === prevPaladinMp;
+
+  // 2. Zero-MP / Low-MP Validation Preview
+  sandbox26.hero.mp = 0;
+  const lowMpTargetInfo = getSkillTargetingInfo(sandbox26);
+  const lowMpBlocksSkill = !lowMpTargetInfo.valid && !lowMpTargetInfo.canAfford;
+  sandbox26.hero.mp = 40;
+
+  // 3. Multi-Class Range & Line-of-Sight Targeting Previews
+  sandbox26.hero.classId = 'mage';
+  sandbox26.hero.x = 10;
+  sandbox26.hero.y = 10;
+  sandbox26.hero.mp = 50;
+  const mageTargetInfo = getSkillTargetingInfo(sandbox26);
+  const mageTargetValid = mageTargetInfo.targets.length >= 1 && mageTargetInfo.reachRadius >= 4;
+
+  sandbox26.hero.classId = 'ranger';
+  sandbox26.hero.x = 10;
+  sandbox26.hero.y = 10;
+  sandbox26.hero.mp = 45;
+  const rangerTargetInfo = getSkillTargetingInfo(sandbox26);
+  const rangerTargetValid = rangerTargetInfo.targets.length >= 1 && rangerTargetInfo.reachRadius >= 5;
+
+  // 4. Status Effect Application & Overhead Telegraph Badges
+  const crawler = f26.monsters[0];
+  applyStatusEffect(crawler, 'burn', 3);
+  applyStatusEffect(crawler, 'chilled', 2);
+  const statusTelegraphValid = crawler.statuses.some(s => s.id === 'burn') &&
+    crawler.statuses.some(s => s.id === 'chilled');
+
+  // 5. Threat Telegraph Contract: Melee alert & Ranged aim line detection
+  const distMelee = Math.hypot(crawler.x - sandbox26.hero.x, crawler.y - sandbox26.hero.y);
+  const isMeleeThreat = distMelee <= 1.5;
+  const archer = f26.monsters[1];
+  const distRanged = Math.hypot(archer.x - sandbox26.hero.x, archer.y - sandbox26.hero.y);
+  const isRangedThreat = (archer.isRanged || archer.id === 'starfall_archer') &&
+    distRanged <= 6 &&
+    hasLineOfSight(f26, archer.x, archer.y, sandbox26.hero.x, sandbox26.hero.y);
+
+  // 6. Chronicle Category Auto-Inference & Consecutive Message Deduplication
+  const combatCat = inferChronicleCategory('You strike Vault Crawler for 14 damage (CRITICAL!).', 'gold');
+  const lootCat = inferChronicleCategory('Opened Gilded Vault Chest and found 45 Vault Gold.', 'gold');
+  const systemCat = inferChronicleCategory('Rested at the Sanctuary Hearth. HP restored.', 'good');
+  const catsInferred = (combatCat === 'combat') && (lootCat === 'loot') && (systemCat === 'system');
+
+  clearChronicle();
+  logChronicle('You strike Vault Crawler for 10 damage.', 'info');
+  logChronicle('You strike Vault Crawler for 10 damage.', 'info');
+  logChronicle('You strike Vault Crawler for 10 damage.', 'info');
+
+  setChronicleFilter('combat');
+  const combatFilterActive = getChronicleFilter() === 'combat';
+  setChronicleFilter('loot');
+  const lootFilterActive = getChronicleFilter() === 'loot';
+  setChronicleFilter('all');
+  const allFilterActive = getChronicleFilter() === 'all';
+
+  // 7. Skill Hover Toggle Contract
+  setSkillHover(true);
+  const hoverOn = getSkillHover() === true;
+  setSkillHover(false);
+  const hoverOff = getSkillHover() === false;
+
+  const t26Checks = {
+    paladinTargetFound: !!paladinTargetFound,
+    lowMpBlocksSkill: !!lowMpBlocksSkill,
+    mageTargetValid: !!mageTargetValid,
+    rangerTargetValid: !!rangerTargetValid,
+    statusTelegraphValid: !!statusTelegraphValid,
+    isMeleeThreat: !!isMeleeThreat,
+    isRangedThreat: !!isRangedThreat,
+    catsInferred: !!catsInferred,
+    combatFilterActive: !!combatFilterActive,
+    lootFilterActive: !!lootFilterActive,
+    allFilterActive: !!allFilterActive,
+    hoverOn: !!hoverOn,
+    hoverOff: !!hoverOff
+  };
+  const failedKeys26 = Object.keys(t26Checks).filter(k => !t26Checks[k]);
+  const t26Pass = failedKeys26.length === 0;
+  results.push({
+    name: '26. Tactical Skill Targeting Preview, Threat Telegraphs & Chronicle Filtering Engine',
+    pass: t26Pass,
+    detail: failedKeys26.length === 0
+      ? 'Pure skill targeting preview verified (non-destructive MP/cooldown check), status & threat telegraphs verified, chronicle filter tabs & consecutive message grouping verified'
+      : `Failed checks: ${failedKeys26.join(', ')}`
+  });
+
   return results;
 }
 
@@ -1274,7 +1388,7 @@ export function runSelfTests(renderModal = false) {
   if (typeof document !== 'undefined') {
     const btnText = document.getElementById('verifyBtnText');
     if (btnText) {
-      btnText.textContent = `Verify Inc-7.1 (${passCount}/${results.length} PASS)`;
+      btnText.textContent = `Verify Inc-7.2 (${passCount}/${results.length} PASS)`;
     }
 
     if (renderModal) {

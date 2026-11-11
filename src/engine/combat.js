@@ -548,6 +548,12 @@ export function attackMonster(monster, state = gameState) {
     playSound('hit');
     ui.floatingText(monster.x, monster.y, `${isCrit ? 'CRIT! ' : ''}-${dmg}`, isCrit ? '#fbbf24' : '#f87171');
     ui.log(`You strike ${monster.name} for ${dmg} damage${isCrit ? ' (CRITICAL!)' : ''}.`, isCrit ? 'gold' : 'info');
+    if (typeof ui.combatAnim === 'function') {
+      ui.combatAnim(monster.x, monster.y, isCrit ? 'crit_slash' : 'slash', isCrit ? '#fbbf24' : '#f87171');
+    }
+    if (typeof ui.heroLunge === 'function') {
+      ui.heroLunge(Math.sign(monster.x - h.x), Math.sign(monster.y - h.y));
+    }
   }
 
   // Hero Leech Affix: restores HP on hit
@@ -668,6 +674,9 @@ export function monsterAttackHero(m, isRanged, state = gameState) {
     playSound('hit');
     ui.floatingText(h.x, h.y, `-${dmg}${isRanged ? ' 🏹' : ''}`, '#f87171');
     ui.log(`${m.name} strikes you for ${dmg} damage!`, 'bad');
+    if (typeof ui.combatAnim === 'function') {
+      ui.combatAnim(h.x, h.y, isRanged ? 'projectile' : 'claw', '#f87171');
+    }
   }
 
   // Archetype On-Hit Status + Elite Affix Effects
@@ -860,6 +869,97 @@ export function processTurn(state = gameState) {
 // Wire turn-end hook into actions.js (for Healing Tonic turn advance)
 registerActionCallbacks({ onTurnEnd: () => processTurn(gameState) });
 
+export function getSkillTargetingInfo(state = gameState) {
+  if (!state || state.inGuild || !state.hero) {
+    return { valid: false, reason: 'not_in_dungeon', targets: [], targetCoords: [], canAfford: false, reachRadius: 0 };
+  }
+  const h = state.hero;
+  const cls = CLASSES[h.classId] || CLASSES.fighter;
+  const floor = ensureDungeonFloorHydrated(state.dungeon, state.dungeon.currentFloor);
+  if (!floor || !floor.monsters) {
+    return { valid: false, reason: 'no_floor', targets: [], targetCoords: [], canAfford: false, reachRadius: 0 };
+  }
+
+  const fw = floor.width || (floor.tiles[0] ? floor.tiles[0].length : DEFAULT_MAP_W);
+  const fh = floor.height || floor.tiles.length || DEFAULT_MAP_H;
+
+  const isChilled = (h.statuses || []).some(s => s.id === 'chilled');
+  const effectiveCost = cls.skillCost + (isChilled ? 2 : 0);
+  const canAfford = (h.mp >= effectiveCost);
+
+  let targets = [];
+  let reachRadius = cls.skillRange || 1.5;
+  let destTile = null;
+
+  if (h.classId === 'fighter') {
+    reachRadius = 1.5;
+    targets = floor.monsters.filter(m => m.hp > 0 && Math.hypot(m.x - h.x, m.y - h.y) <= 1.5);
+  } else if (h.classId === 'thief') {
+    reachRadius = 3.5;
+    const candidates = floor.monsters.filter(
+      m => m.hp > 0 && Math.hypot(m.x - h.x, m.y - h.y) <= 3.5 && hasLineOfSight(floor, h.x, h.y, m.x, m.y)
+    );
+    for (let cIdx = 0; cIdx < candidates.length; cIdx++) {
+      const m = candidates[cIdx];
+      const neighbors = [[0, -1], [0, 1], [-1, 0], [1, 0]];
+      for (let nIdx = 0; nIdx < neighbors.length; nIdx++) {
+        const tx = m.x + neighbors[nIdx][0];
+        const ty = m.y + neighbors[nIdx][1];
+        if (tx >= 0 && tx < fw && ty >= 0 && ty < fh) {
+          const t = floor.tiles[ty][tx];
+          const walkable = (
+            t === TILE_FLOOR ||
+            t === TILE_STAIRS_UP ||
+            t === TILE_STAIRS_DOWN ||
+            t === TILE_CHEST_OPEN ||
+            t === TILE_SHRINE_USED ||
+            t === TILE_TRAP_DISARMED
+          );
+          const occupied = floor.monsters.some(other => other.hp > 0 && other.x === tx && other.y === ty);
+          if (walkable && !occupied) {
+            targets.push(m);
+            destTile = { x: tx, y: ty };
+            break;
+          }
+        }
+      }
+      if (targets.length > 0 && destTile) break;
+    }
+  } else if (h.classId === 'mage') {
+    reachRadius = 4.2;
+    targets = floor.monsters.filter(
+      m => m.hp > 0 && Math.hypot(m.x - h.x, m.y - h.y) <= 4.2 && hasLineOfSight(floor, h.x, h.y, m.x, m.y)
+    );
+  } else if (h.classId === 'ranger') {
+    reachRadius = 5.2;
+    const maxTargets = ((h.talentsAllocated && h.talentsAllocated.r_d3) || 0) > 0 ? 5 : 3;
+    targets = floor.monsters
+      .filter(m => m.hp > 0 && Math.hypot(m.x - h.x, m.y - h.y) <= 5.2 && hasLineOfSight(floor, h.x, h.y, m.x, m.y))
+      .sort((a, b) => Math.hypot(a.x - h.x, a.y - h.y) - Math.hypot(b.x - h.x, b.y - h.y))
+      .slice(0, maxTargets);
+  } else if (h.classId === 'paladin') {
+    reachRadius = 1.5;
+    const t = floor.monsters.find(m => m.hp > 0 && Math.hypot(m.x - h.x, m.y - h.y) <= 1.5);
+    if (t) targets.push(t);
+  }
+
+  const targetCoords = targets.map(m => ({ x: m.x, y: m.y }));
+
+  return {
+    valid: targets.length > 0 && canAfford,
+    hasTargets: targets.length > 0,
+    canAfford: canAfford,
+    classId: h.classId,
+    skillName: cls.skillName,
+    skillCost: cls.skillCost,
+    effectiveCost: effectiveCost,
+    reachRadius: reachRadius,
+    targets: targets,
+    targetCoords: targetCoords,
+    destTile: destTile
+  };
+}
+
 export function executeClassSkill(state = gameState) {
   const ui = getActionCallbacks();
   cancelAutoWalk();
@@ -898,13 +998,21 @@ export function executeClassSkill(state = gameState) {
     if (state === gameState) {
       playSound('spell');
       ui.floatingText(h.x, h.y, 'WHIRLWIND!', '#f87171');
+      if (typeof ui.combatAnim === 'function') {
+        ui.combatAnim(h.x, h.y, 'spell', '#f87171');
+      }
     }
     adjTargets.slice().forEach(m => {
       const masteryMult = getCodexMasteryMultiplier(m.id, state);
       const dmg = Math.max(2, Math.round(h.atk * 1.5 * masteryMult) - m.def);
       m.hp -= dmg;
       applyStatusEffect(m, 'stun', 1);
-      if (state === gameState) ui.floatingText(m.x, m.y, `-${dmg} STUN`, '#f87171');
+      if (state === gameState) {
+        ui.floatingText(m.x, m.y, `-${dmg} STUN`, '#f87171');
+        if (typeof ui.combatAnim === 'function') {
+          ui.combatAnim(m.x, m.y, 'slash', '#f87171');
+        }
+      }
       if (m.hp <= 0) killMonster(m, state);
     });
     if (state === gameState) processTurn(state);
@@ -965,6 +1073,9 @@ export function executeClassSkill(state = gameState) {
       playSound('spell');
       ui.floatingText(chosenTarget.x, chosenTarget.y, `-${dmg} CRIT BACKSTAB!`, '#fbbf24');
       ui.log(`Shadowstep Strike hits ${chosenTarget.name} for ${dmg} critical damage!`, 'gold');
+      if (typeof ui.combatAnim === 'function') {
+        ui.combatAnim(chosenTarget.x, chosenTarget.y, 'crit_slash', '#fbbf24');
+      }
     }
     if (chosenTarget.hp <= 0) killMonster(chosenTarget, state);
     if (state === gameState) processTurn(state);
@@ -992,6 +1103,9 @@ export function executeClassSkill(state = gameState) {
     if (state === gameState) {
       playSound('spell');
       ui.floatingText(h.x, h.y, 'STARFALL NOVA!', '#60a5fa');
+      if (typeof ui.combatAnim === 'function') {
+        ui.combatAnim(h.x, h.y, 'spell', '#60a5fa');
+      }
     }
 
     targets.slice().forEach(m => {
@@ -1002,6 +1116,9 @@ export function executeClassSkill(state = gameState) {
       applyStatusEffect(m, 'burn', 3);
       if (state === gameState) {
         ui.floatingText(m.x, m.y, `-${dmg}${hasEcho ? ' ECHO!' : ''}`, '#60a5fa');
+        if (typeof ui.combatAnim === 'function') {
+          ui.combatAnim(m.x, m.y, 'crit_slash', '#60a5fa');
+        }
       }
       if (m.hp <= 0) killMonster(m, state);
     });
@@ -1040,7 +1157,12 @@ export function executeClassSkill(state = gameState) {
       const masteryMult = getCodexMasteryMultiplier(m.id, state);
       const dmg = Math.max(3, Math.round(h.atk * 1.8 * masteryMult) - effDef);
       m.hp -= dmg;
-      if (state === gameState) ui.floatingText(m.x, m.y, `-${dmg} VOLLEY`, '#34d399');
+      if (state === gameState) {
+        ui.floatingText(m.x, m.y, `-${dmg} VOLLEY`, '#34d399');
+        if (typeof ui.combatAnim === 'function') {
+          ui.combatAnim(m.x, m.y, 'slash', '#34d399');
+        }
+      }
       if (m.hp <= 0) killMonster(m, state);
     });
 
@@ -1071,6 +1193,9 @@ export function executeClassSkill(state = gameState) {
       ui.floatingText(target.x, target.y, `-${dmg} HOLY SMITE!`, '#fbbf24');
       ui.floatingText(h.x, h.y, `+${healAmt} HP`, '#34d399');
       ui.log(`Holy Smite sears ${target.name} for ${dmg} damage and heals you for +${healAmt} HP!`, 'gold');
+      if (typeof ui.combatAnim === 'function') {
+        ui.combatAnim(target.x, target.y, 'crit_slash', '#fbbf24');
+      }
     }
     if (target.hp <= 0) killMonster(target, state);
     if (state === gameState) processTurn(state);

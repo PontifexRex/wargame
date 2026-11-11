@@ -179,7 +179,7 @@ function __makeMockCtx() {
     save: function(){}, restore: function(){}, translate: function(){}, scale: function(){},
     clearRect: function(){}, fillRect: function(){}, strokeRect: function(){},
     beginPath: function(){}, closePath: function(){}, moveTo: function(){}, lineTo: function(){},
-    quadraticCurveTo: function(){}, arc: function(){}, ellipse: function(){}, fill: function(){}, stroke: function(){}, fillText: function(){},
+    quadraticCurveTo: function(){}, arc: function(){}, ellipse: function(){}, fill: function(){}, stroke: function(){}, fillText: function(){}, setLineDash: function(){},
     createRadialGradient: function(){ return { addColorStop: function(){} }; }
   };
 }

@@ -22,13 +22,39 @@ import { SHRINE_CATALOG, TRAP_CATALOG } from '../data/gems.js';
 import { BIOME_PALETTES, resolveFloorBiome } from '../data/dungeons.js';
 import { gameState, ensureDungeonFloorHydrated } from '../engine/state.js';
 import { detectNearbyTraps } from '../engine/actions.js';
-import { hasLineOfSight, getAutoWalkPath } from '../engine/combat.js';
+import { hasLineOfSight, getAutoWalkPath, getSkillTargetingInfo } from '../engine/combat.js';
 
 export { hasLineOfSight };
 
 const floatingTexts = [];
 let hoverTile = null;
 let visibleCoordMap = {};
+let skillHoverActive = false;
+const combatAnimations = [];
+let heroLungeOffset = { x: 0, y: 0, ticks: 0 };
+
+export function setSkillHover(active) {
+  skillHoverActive = !!active;
+}
+
+export function getSkillHover() {
+  return skillHoverActive;
+}
+
+export function triggerCombatAnimation(gx, gy, type = 'slash', color = '#f87171') {
+  combatAnimations.push({
+    gx: gx,
+    gy: gy,
+    type: type,
+    color: color,
+    ticks: 14,
+    maxTicks: 14
+  });
+}
+
+export function triggerHeroLunge(dx, dy) {
+  heroLungeOffset = { x: (dx || 0) * 8, y: (dy || 0) * 8, ticks: 6 };
+}
 
 export function setHoverTile(tile) {
   hoverTile = tile;
@@ -1581,10 +1607,193 @@ export function renderDungeonCanvas() {
     ctx.fillRect(mx + 4, my + 26, 24, 4);
     ctx.fillStyle = m.isBoss || m.isElite ? '#fbbf24' : '#f87171';
     ctx.fillRect(mx + 4, my + 26, Math.round(24 * pct), 4);
+
+    // Overhead Status Effect Badges
+    if (m.statuses && m.statuses.length > 0) {
+      const statusColors = {
+        burn:     '#fb923c',
+        bleed:    '#f87171',
+        poison:   '#4ade80',
+        stun:     '#fbbf24',
+        chilled:  '#38bdf8',
+        weakened: '#c084fc'
+      };
+      for (let sIdx = 0; sIdx < m.statuses.length; sIdx++) {
+        const st = m.statuses[sIdx];
+        const sc = statusColors[st.id] || '#94a3b8';
+        const bx = mx + 4 + sIdx * 7;
+        ctx.fillStyle = sc;
+        ctx.fillRect(bx, my - 4, 6, 4);
+      }
+    }
+
+    // Threat / Aggro Telegraphs
+    const distToHero = Math.hypot(m.x - hx, m.y - hy);
+    if (distToHero <= 1.5) {
+      // Melee threat alert: red chevron pulse above monster
+      ctx.fillStyle = '#ef4444';
+      ctx.beginPath();
+      ctx.moveTo(mx + 16, my - 3);
+      ctx.lineTo(mx + 13, my + 1);
+      ctx.lineTo(mx + 19, my + 1);
+      ctx.closePath();
+      ctx.fill();
+    } else if (
+      (m.isRanged || m.id === 'starfall_archer' || m.id === 'ember_pyromancer' || m.id === 'void_hexer') &&
+      distToHero <= 6 &&
+      hasLineOfSight(floor, m.x, m.y, hx, hy)
+    ) {
+      // Ranged aim indicator: red dashed laser line targeting player
+      ctx.strokeStyle = 'rgba(239, 68, 68, 0.40)';
+      ctx.lineWidth = 1;
+      if (typeof ctx.setLineDash === 'function') ctx.setLineDash([3, 4]);
+      ctx.beginPath();
+      ctx.moveTo(mx + 16, my + 16);
+      ctx.lineTo((hx - camX) * TILE_SIZE + 16, (hy - camY) * TILE_SIZE + 16);
+      ctx.stroke();
+      if (typeof ctx.setLineDash === 'function') ctx.setLineDash([]);
+    }
   }
 
-  // Draw Player Sprite relative to Camera Origin
-  drawHeroSprite(ctx, (hx - camX) * TILE_SIZE, (hy - camY) * TILE_SIZE, gameState.hero.classId, TILE_SIZE);
+  // Draw Player Sprite relative to Camera Origin (incorporating lunge displacement)
+  const lx = heroLungeOffset.ticks > 0 ? heroLungeOffset.x * (heroLungeOffset.ticks / 6) : 0;
+  const ly = heroLungeOffset.ticks > 0 ? heroLungeOffset.y * (heroLungeOffset.ticks / 6) : 0;
+  drawHeroSprite(ctx, (hx - camX) * TILE_SIZE + lx, (hy - camY) * TILE_SIZE + ly, gameState.hero.classId, TILE_SIZE);
+  if (heroLungeOffset.ticks > 0) heroLungeOffset.ticks--;
+
+  // Draw Tactical Skill Range & Target Preview (if skill hovered / targeting active)
+  if (skillHoverActive) {
+    const targeting = getSkillTargetingInfo(gameState);
+    if (targeting && targeting.reachRadius > 0) {
+      const pCenterX = (hx - camX) * TILE_SIZE + 16;
+      const pCenterY = (hy - camY) * TILE_SIZE + 16;
+      const reachPx = targeting.reachRadius * TILE_SIZE;
+
+      // Circular reach boundary
+      ctx.strokeStyle = targeting.canAfford ? 'rgba(96, 165, 250, 0.75)' : 'rgba(239, 68, 68, 0.65)';
+      ctx.lineWidth = 1.5;
+      if (typeof ctx.setLineDash === 'function') ctx.setLineDash([4, 4]);
+      ctx.beginPath();
+      ctx.arc(pCenterX, pCenterY, reachPx, 0, Math.PI * 2);
+      ctx.fillStyle = targeting.canAfford ? 'rgba(96, 165, 250, 0.08)' : 'rgba(239, 68, 68, 0.06)';
+      ctx.fill();
+      ctx.stroke();
+      if (typeof ctx.setLineDash === 'function') ctx.setLineDash([]);
+
+      // Tactical reticles over eligible targets
+      for (let tIdx = 0; tIdx < targeting.targets.length; tIdx++) {
+        const tg = targeting.targets[tIdx];
+        const tvx = tg.x - camX;
+        const tvy = tg.y - camY;
+        if (tvx >= 0 && tvx < VIEWPORT_WIDTH && tvy >= 0 && tvy < VIEWPORT_HEIGHT) {
+          const tpx = tvx * TILE_SIZE;
+          const tpy = tvy * TILE_SIZE;
+
+          // Corner brackets
+          ctx.strokeStyle = '#ef4444';
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          // Top-left
+          ctx.moveTo(tpx + 2, tpy + 8); ctx.lineTo(tpx + 2, tpy + 2); ctx.lineTo(tpx + 8, tpy + 2);
+          // Top-right
+          ctx.moveTo(tpx + 30, tpy + 8); ctx.lineTo(tpx + 30, tpy + 2); ctx.lineTo(tpx + 24, tpy + 2);
+          // Bottom-left
+          ctx.moveTo(tpx + 2, tpy + 24); ctx.lineTo(tpx + 2, tpy + 30); ctx.lineTo(tpx + 8, tpy + 30);
+          // Bottom-right
+          ctx.moveTo(tpx + 30, tpy + 24); ctx.lineTo(tpx + 30, tpy + 30); ctx.lineTo(tpx + 24, tpy + 30);
+          ctx.stroke();
+
+          // Center crosshair / diamond
+          ctx.strokeStyle = '#fbbf24';
+          ctx.lineWidth = 1.2;
+          ctx.strokeRect(tpx + 11, tpy + 11, 10, 10);
+
+          // Overhead TARGET label
+          ctx.font = 'bold 9px "JetBrains Mono", monospace';
+          ctx.textAlign = 'center';
+          ctx.fillStyle = '#ef4444';
+          ctx.fillText('TARGET', tpx + 16, tpy - 4);
+        }
+      }
+
+      // Leap destination marker for Thief
+      if (targeting.destTile) {
+        const dvx = targeting.destTile.x - camX;
+        const dvy = targeting.destTile.y - camY;
+        if (dvx >= 0 && dvx < VIEWPORT_WIDTH && dvy >= 0 && dvy < VIEWPORT_HEIGHT) {
+          const dpx = dvx * TILE_SIZE;
+          const dpy = dvy * TILE_SIZE;
+          ctx.strokeStyle = '#c084fc';
+          ctx.lineWidth = 1.5;
+          ctx.strokeRect(dpx + 3, dpy + 3, 26, 26);
+          ctx.fillStyle = 'rgba(192, 132, 252, 0.20)';
+          ctx.fillRect(dpx + 3, dpy + 3, 26, 26);
+          ctx.font = 'bold 8px "JetBrains Mono", monospace';
+          ctx.textAlign = 'center';
+          ctx.fillStyle = '#c084fc';
+          ctx.fillText('LEAP', dpx + 16, dpy + 17);
+        }
+      }
+    }
+  }
+
+  // Draw Active Combat Animations (slashes, crit bursts, spell impacts)
+  for (let aIdx = combatAnimations.length - 1; aIdx >= 0; aIdx--) {
+    const anim = combatAnimations[aIdx];
+    const cpx = (anim.gx - camX) * TILE_SIZE + 16;
+    const cpy = (anim.gy - camY) * TILE_SIZE + 16;
+    const prog = 1 - (anim.ticks / anim.maxTicks);
+
+    if (cpx >= -32 && cpx <= canvas.width + 32 && cpy >= -32 && cpy <= canvas.height + 32) {
+      if (anim.type === 'slash') {
+        ctx.strokeStyle = anim.color || '#f87171';
+        ctx.lineWidth = Math.max(1, 3.5 - prog * 2.5);
+        ctx.beginPath();
+        ctx.moveTo(cpx - 14 + prog * 6, cpy - 14 + prog * 6);
+        ctx.lineTo(cpx + 14, cpy + 14);
+        ctx.stroke();
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 1.2;
+        ctx.beginPath();
+        ctx.moveTo(cpx - 10 + prog * 6, cpy - 10 + prog * 6);
+        ctx.lineTo(cpx + 10, cpy + 10);
+        ctx.stroke();
+      } else if (anim.type === 'crit_slash') {
+        ctx.strokeStyle = anim.color || '#fbbf24';
+        ctx.lineWidth = Math.max(1, 4 - prog * 3);
+        const radius = 6 + prog * 14;
+        ctx.beginPath();
+        ctx.moveTo(cpx - radius, cpy); ctx.lineTo(cpx + radius, cpy);
+        ctx.moveTo(cpx, cpy - radius); ctx.lineTo(cpx, cpy + radius);
+        ctx.moveTo(cpx - radius * 0.7, cpy - radius * 0.7); ctx.lineTo(cpx + radius * 0.7, cpy + radius * 0.7);
+        ctx.moveTo(cpx + radius * 0.7, cpy - radius * 0.7); ctx.lineTo(cpx - radius * 0.7, cpy + radius * 0.7);
+        ctx.stroke();
+      } else if (anim.type === 'spell') {
+        ctx.strokeStyle = anim.color || '#60a5fa';
+        ctx.lineWidth = Math.max(1, 3 - prog * 2);
+        ctx.beginPath();
+        ctx.arc(cpx, cpy, 4 + prog * 18, 0, Math.PI * 2);
+        ctx.stroke();
+      } else if (anim.type === 'projectile') {
+        ctx.fillStyle = anim.color || '#f87171';
+        ctx.beginPath();
+        ctx.arc(cpx, cpy, Math.max(1, 5 - prog * 4), 0, Math.PI * 2);
+        ctx.fill();
+      } else {
+        ctx.strokeStyle = anim.color || '#f87171';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(cpx - 8, cpy - 8); ctx.lineTo(cpx - 4, cpy + 8);
+        ctx.moveTo(cpx, cpy - 8); ctx.lineTo(cpx + 4, cpy + 8);
+        ctx.stroke();
+      }
+    }
+
+    anim.ticks--;
+    if (anim.ticks <= 0) {
+      combatAnimations.splice(aIdx, 1);
+    }
+  }
 
   // Draw Hover Highlight relative to Camera Origin
   if (hoverTile) {

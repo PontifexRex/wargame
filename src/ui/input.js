@@ -30,7 +30,8 @@ import {
   setHoverTile,
   getCameraOrigin,
   minimapPixelToGrid,
-  hasLineOfSight
+  hasLineOfSight,
+  setSkillHover
 } from './renderer.js';
 import {
   toggleFullMapModal,
@@ -221,7 +222,11 @@ export function setupInputs() {
       waitTurn();
     } else if (e.code === 'KeyQ') {
       e.preventDefault();
-      executeClassSkill();
+      const skillRes = executeClassSkill();
+      if (skillRes && !skillRes.ok) {
+        setSkillHover(true);
+        setTimeout(function() { setSkillHover(false); }, 1200);
+      }
     } else if (e.code === 'KeyH') {
       e.preventDefault();
       useHealingTonic();

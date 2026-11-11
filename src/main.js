@@ -31,6 +31,7 @@ import {
   registerCombatFOVCallback,
   handlePlayerAction,
   executeClassSkill,
+  getSkillTargetingInfo,
   useStairsAtPlayer,
   waitTurn,
   startAutoWalkTo,
@@ -42,10 +43,23 @@ import {
   renderMinimapCanvas,
   updateFOV,
   spawnFloatingText,
-  drawPaperDollMannequin
+  drawPaperDollMannequin,
+  triggerCombatAnimation,
+  triggerHeroLunge,
+  setSkillHover,
+  getSkillHover
 } from './ui/renderer.js';
 import { getItemTypeIcon, SLOT_METADATA } from './data/items.js';
-import { updateAllUI, switchGuildTab, setArmorySortBy, logChronicle, clearChronicle, renderCodexTab } from './ui/domSync.js';
+import {
+  updateAllUI,
+  switchGuildTab,
+  setArmorySortBy,
+  logChronicle,
+  clearChronicle,
+  setChronicleFilter,
+  getChronicleFilter,
+  renderCodexTab
+} from './ui/domSync.js';
 import {
   openClassSelectModal,
   closeClassSelectModal,
@@ -132,7 +146,9 @@ registerActionCallbacks({
   log: logChronicle,
   updateUI: updateAllUI,
   floatingText: spawnFloatingText,
-  outcomeModal: showOutcomeModal
+  outcomeModal: showOutcomeModal,
+  combatAnim: triggerCombatAnimation,
+  heroLunge: triggerHeroLunge
 });
 
 registerCombatFOVCallback(updateFOV);
@@ -143,6 +159,12 @@ export const AethelgardAPI = {
   loadGame,
   saveGame,
   toggleAudio,
+  setSkillHover,
+  getSkillHover,
+  getSkillTargetingInfo,
+  triggerCombatAnimation,
+  setChronicleFilter,
+  getChronicleFilter,
   openSaveSyncModal,
   closeSaveSyncModal,
   copySaveJson,

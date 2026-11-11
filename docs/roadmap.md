@@ -201,16 +201,31 @@ Delivered complete visual overhaul, artisanal character sprites, and 2.5D dungeo
   - Added Sandboxed **Test 25** in `src/test/selfTest.js` verifying 5-class sprite rendering, mock canvas drawing operations, 2.5D wall/shadow contracts across all 4 biomes, and class-defining paper-doll mannequins.
   - Expanded automated verification suite to **25/25 PASS** + Headless UI Smoke Suite + 10-seed fuzzer pass.
 
+v0.7.2-tactical - Increment 7.2: Tactical Combat Overlays & Chronicle Polish
+
+Delivered responsive combat feedback, tactical skill previews, threat telegraphs, and chronicle filtering:
+- **Tactical Skill Range & Target Preview Reticle (`getSkillTargetingInfo` / `setSkillHover`)**:
+  - Non-destructive targeting evaluation checking line-of-sight, Chebyshev/Euclidean distance, floor geometry, and MP affordance without consuming MP or turns.
+  - Hovering the tactical skill button (`#btnTacticalSkill`) or pressing `[Q]` when skill criteria are unmet renders a circular reach zone overlay on the 2D canvas with dashed targeting perimeter.
+  - Animated pulsing reticle (`TARGET` badge, diamond brackets, crosshairs, and impact splash indicator) locks onto targeted hostiles.
+  - Distinct class targeting behaviors: Paladin Holy Smite (adjacent melee focus), Fighter Whirlwind Cleave (360° adjacent reach circle), Mage Starfall Nova (4-tile radiant astral burst), Ranger Starfall Volley (5-tile pierced projectile salvo targeting closest foes), Thief Shadowstep Strike (3-tile line-of-sight leap with glowing `LEAP` destination tile highlight).
+- **Overhead Threat & Status Telegraph Badges**:
+  - Compact overhead badges displayed on active monsters: `burn` (🔥), `bleed` (🩸), `poison` (🧪), `stun` (💫), `chilled` (❄️), `weakened` (⚡).
+  - Adjacent Melee Threat Alert: Animated red warning chevron (`▲`) pulsing overhead on monsters threatening the hero's position.
+  - Ranged Aim Laser Lines: Animated crimson dashed targeting lines connecting ranged foes (`isRanged`) to the hero when line-of-sight is unobstructed.
+- **Micro-Combat Displacement & Impact Animations**:
+  - Smooth directional hero lunge animation displacing the hero sprite toward the target during basic melee attacks and active skills.
+  - Animated combat impact effects: dynamic white/amber slash arcs for melee strikes, golden bursting star novas for critical hits, radiant holy bursts for smites, and projectile tracers for ranged combat.
+- **Filterable Expedition Chronicle & Deduplication Engine**:
+  - 4 Category Filter Tabs on Chronicle card: `All` | `Combat` (⚔️) | `Loot` (💎) | `System` (📜).
+  - In-memory event ledger (`chronicleHistory`) storing turn, message, tone, category, and repeat count.
+  - Automatic category inference (`inferChronicleCategory`) with regex word-boundary matching.
+  - Consecutive identical message deduplication grouping repetitive attack, miss, and mining messages with visual `(xN)` badge to eliminate log clutter.
+- **Verification Gate**:
+  - Added Sandboxed **Test 26** in `src/test/selfTest.js` verifying pure non-destructive skill targeting preview across classes, zero-MP validation block, status & threat telegraphs, chronicle category auto-inference, consecutive grouping, and filter switching.
+  - Expanded automated verification suite to **26/26 PASS** + Headless UI Smoke Suite.
+
 2. Upcoming Increment Backlog
-
-### Iteration 3 (v0.7.2-tactical) — Tactical Combat Overlays & Chronicle Polish
-
-Scope & Deliverables:
-- Skill Range & Target Preview Reticle: Visual overlay on 2D canvas showing skill reach and targeted monsters before spending MP.
-- Threat & Status Telegraphs: Status icons (`🔥`, `🩸`, `❄️`, `💫`) and ranged indicators on monster tiles with smooth visual lunge animations.
-- Filterable Expedition Chronicle: Quick filter tabs (`All` | `Combat` | `Loot`) and message grouping.
-
----
 
 ### Future Backlog: Monster/Object Refactor, Dev Spawner (6.5) & Star-Forge Runecrafting (Inc 8)
 

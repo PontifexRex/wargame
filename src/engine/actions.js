@@ -45,7 +45,9 @@ const actionCallbacks = {
   floatingText: (x, y, text, color) => emitEngineEvent(ENGINE_EVENTS.FLOATING_TEXT, { x, y, text, color }, gameState),
   outcomeModal: (title, desc, details, isConfirm) => emitEngineEvent(ENGINE_EVENTS.OUTCOME_MODAL, { title, desc, details, isConfirm }, gameState),
   updateFOV: () => emitEngineEvent(ENGINE_EVENTS.FOV_SYNC, {}, gameState),
-  onTurnEnd: () => emitEngineEvent(ENGINE_EVENTS.TURN_END, {}, gameState)
+  onTurnEnd: () => emitEngineEvent(ENGINE_EVENTS.TURN_END, {}, gameState),
+  combatAnim: (x, y, type, color) => {},
+  heroLunge: (dx, dy) => {}
 };
 
 const registeredBridgeHandlers = {};
@@ -77,6 +79,12 @@ export function registerActionCallbacks(cbs) {
   }
   if (typeof cbs.onTurnEnd === 'function') {
     bindBridgeHandler('onTurnEnd', ENGINE_EVENTS.TURN_END, () => cbs.onTurnEnd());
+  }
+  if (typeof cbs.combatAnim === 'function') {
+    actionCallbacks.combatAnim = cbs.combatAnim;
+  }
+  if (typeof cbs.heroLunge === 'function') {
+    actionCallbacks.heroLunge = cbs.heroLunge;
   }
 }
 
