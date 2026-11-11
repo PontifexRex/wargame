@@ -18,8 +18,6 @@ import {
 import { hashSeedString } from './rng.js';
 import { packFloorForStorage, hydrateFloorFromStorage } from './compression.js';
 import { hydrateLegacyFloorObjects } from './objects.js';
-import { createDefaultOverworld } from './overworld.js';
-import { DEFAULT_OVERWORLD_W, DEFAULT_OVERWORLD_H } from '../constants.js';
 
 let itemSeq = 1000;
 
@@ -178,30 +176,11 @@ export function syncActiveDungeonAlias(state) {
 export function createDefaultGameState() {
   const dungeons = createDefaultDungeonsRegistry();
   const activeId = 'dng_starfall';
-  const ow = createDefaultOverworld(DEFAULT_OVERWORLD_W, DEFAULT_OVERWORLD_H, 1337);
   return {
     version: SCHEMA_VERSION,
     turn: 0,
     inGuild: true,
     audioEnabled: true,
-    activeView: 'overworld',
-    universe: {
-      id: 'universe_prime',
-      name: 'Aethelgard Universe'
-    },
-    world: {
-      id: 'world_prime',
-      name: 'Starfall Realm',
-      seed: 1337,
-      tick: 0
-    },
-    overworld: ow,
-    cities: {},
-    tasks: {
-      active: ['task_move_settler', 'task_found_first_city', 'task_build_guild_hall', 'task_delve_vault'],
-      completed: [],
-      claimed: []
-    },
     maxCharteredDungeons: DEFAULT_MAX_CHARTERED_DUNGEONS,
     hero: null,
     activeDungeonId: activeId,
@@ -433,36 +412,6 @@ export function migrateSaveData(raw) {
   if (data.codex && typeof data.codex === 'object') {
     Object.assign(migrated.codex, data.codex);
     ensureCodexState(migrated);
-  }
-
-  // Migrate Macro Wargame Hierarchy: Universe, World, Overworld, Cities, Tasks, ActiveView
-  migrated.universe = data.universe || {
-    id: 'universe_prime',
-    name: 'Aethelgard Universe'
-  };
-  migrated.world = data.world || {
-    id: 'world_prime',
-    name: 'Starfall Realm',
-    seed: 1337,
-    tick: 0
-  };
-  migrated.cities = data.cities || {};
-  migrated.tasks = data.tasks || {
-    active: ['task_move_settler', 'task_found_first_city', 'task_build_guild_hall', 'task_delve_vault'],
-    completed: [],
-    claimed: []
-  };
-  if (!Array.isArray(migrated.tasks.active)) {
-    migrated.tasks.active = ['task_move_settler', 'task_found_first_city', 'task_build_guild_hall', 'task_delve_vault'];
-  }
-  if (!Array.isArray(migrated.tasks.completed)) migrated.tasks.completed = [];
-  if (!Array.isArray(migrated.tasks.claimed)) migrated.tasks.claimed = [];
-
-  migrated.activeView = data.activeView || (migrated.inGuild ? 'guild' : 'dungeon');
-  if (data.overworld && Array.isArray(data.overworld.tiles)) {
-    migrated.overworld = data.overworld;
-  } else {
-    migrated.overworld = createDefaultOverworld(DEFAULT_OVERWORLD_W, DEFAULT_OVERWORLD_H, (migrated.world && migrated.world.seed) || 1337);
   }
 
   migrated.version = SCHEMA_VERSION;

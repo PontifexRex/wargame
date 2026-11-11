@@ -53,7 +53,6 @@ export function descendIntoDungeon() {
   cancelAutoWalk();
   syncActiveDungeonAlias(gameState);
   gameState.inGuild = false;
-  gameState.activeView = 'dungeon';
   gameState.dungeon.currentFloor = 1;
   if (!gameState.dungeon.floors[1]) {
     gameState.dungeon.floors[1] = generateFloor(

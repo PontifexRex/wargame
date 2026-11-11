@@ -97,18 +97,6 @@ import {
   renderCodexTab
 } from './ui/domSync.js';
 import {
-  createDefaultOverworld,
-  ensureOverworldHydrated,
-  getActiveOverworldParty,
-  moveOverworldParty,
-  foundCity,
-  respawnSettler,
-  evaluateGuidedTasks,
-  claimTaskReward,
-  switchActiveView
-} from './engine/overworld.js';
-import { renderOverworldCanvas } from './ui/overworldRenderer.js';
-import {
   openClassSelectModal,
   closeClassSelectModal,
   selectAdventurerClass,
@@ -206,50 +194,6 @@ registerActionCallbacks({
 });
 
 registerCombatFOVCallback(updateFOV);
-
-export function handleSwitchView(viewName) {
-  switchActiveView(viewName, gameState);
-  updateAllUI();
-}
-
-export function handleFoundCityClick() {
-  const party = getActiveOverworldParty(gameState);
-  if (!party || !party.alive) {
-    logChronicle('No active pioneer unit to found a city.', 'event');
-    return;
-  }
-  const res = foundCity(party.id, 'Oakhaven Bastion', gameState);
-  if (res.success) {
-    logChronicle(`🏰 ${res.city.name} has been founded on fertile plains!`, 'event');
-    updateAllUI();
-  } else {
-    logChronicle(`Cannot found city: ${res.reason}`, 'combat');
-  }
-}
-
-export function handleClaimTaskRewardClick() {
-  const btn = document.getElementById('btnClaimTaskReward');
-  const taskId = (btn && btn.dataset && btn.dataset.taskId) || 'task_move_settler';
-  const res = claimTaskReward(taskId, gameState);
-  if (res.success) {
-    logChronicle(`✓ Task Reward Claimed: ${res.rewardLabel}`, 'event');
-    updateAllUI();
-  } else {
-    logChronicle(`Cannot claim task: ${res.reason}`, 'combat');
-  }
-}
-
-export function handleEnterOverworldDungeonClick() {
-  descendIntoDungeon();
-}
-
-export function handleMoveOverworldClick(dx, dy) {
-  const party = getActiveOverworldParty(gameState);
-  if (party && party.alive) {
-    moveOverworldParty(party.id, dx, dy, gameState);
-    updateAllUI();
-  }
-}
 
 // Expose interactive controllers to window.Aethelgard (and top-level window aliases)
 export const AethelgardAPI = {
@@ -428,22 +372,7 @@ export const AethelgardAPI = {
   handleDevActivatePocketPortalClick,
   SPAWN_SUB_OPTIONS,
   handleDevTerminalSubmit,
-  handleDevTerminalKeyDown,
-  handleSwitchView,
-  handleFoundCityClick,
-  handleClaimTaskRewardClick,
-  handleEnterOverworldDungeonClick,
-  handleMoveOverworldClick,
-  switchActiveView,
-  foundCity,
-  moveOverworldParty,
-  respawnSettler,
-  evaluateGuidedTasks,
-  claimTaskReward,
-  createDefaultOverworld,
-  ensureOverworldHydrated,
-  getActiveOverworldParty,
-  renderOverworldCanvas
+  handleDevTerminalKeyDown
 };
 
 function bootstrapApp() {
@@ -459,11 +388,7 @@ function bootstrapApp() {
   runSelfTests(false);
 
   function gameLoop() {
-    if (gameState.activeView === 'overworld') {
-      renderOverworldCanvas();
-    } else {
-      renderDungeonCanvas();
-    }
+    renderDungeonCanvas();
     requestAnimationFrame(gameLoop);
   }
   requestAnimationFrame(gameLoop);

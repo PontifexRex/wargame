@@ -279,13 +279,6 @@ $bundleCode
   api.setInventoryFilter('weapon');
   api.closeInventoryModal();
 
-  // Overworld, Settler & Task Smoke Pass
-  api.handleSwitchView('overworld');
-  api.handleMoveOverworldClick(1, 0);
-  api.handleFoundCityClick();
-  api.handleClaimTaskRewardClick();
-  api.handleSwitchView('guild');
-
   var uiSmokeOk = (__missingRuntimeIds.length === 0) && (Object.keys(api.gameState.dungeons).length >= 5) && (fuzzer.errorCount === 0);
   return JSON.stringify({
     allPass: allPass && uiSmokeOk,

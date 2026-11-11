@@ -223,12 +223,4 @@ To support the long-term grand strategy wargame vision while remaining 100% play
    - **Settler**: Initial unit spawned on the Overworld map to explore and found a City.
    - **Hero-Led Parties**: Parties of 1..N class members that march in **real-time** on the Overworld map (~10s/tile) and transition into **turn-based** tactical mode inside Dungeons.
 5. **Progressive Discovery & Guided Task System**:
-   - Contextual tutorial tips and optional reward tasks (`Task 1: Pioneer Exploration` -> rewards `+30 Food, +20 Wood` -> `Task 2: Found Your First Bastion` -> rewards `+50 Wood, +50 Stone, +50 Gold` -> `Task 3: Establish Adventurers Guild Hall` -> rewards `+100 Gold` and unlocks vault delving -> `Task 4: First Subterranean Descent`).
-
-### 7.1 Phased Macro Wargame Architecture Rollout Sequence
-| Phase | Milestone | Scope | Core Deliverables | Status |
-| :--- | :--- | :--- | :--- | :--- |
-| **Phase 0** | `v0.9.0-overworld` | **Overworld & Settler Onboarding** | Macro state schema (`universe`, `world`, `overworld`, `cities`, `tasks`), 48x36 terrain grid (5 biomes), POIs, Settler movement, safe respawn contract, city founding, guided tasks & rewards, multi-view workspace | **Complete (30/30 Tests)** |
-| **Phase 1** | `v0.9.1-city-economy` | **City Economy & Production** | City interior grid, building queues, resource producers (Sawmill, Quarry, Smeltery), Guild Star-Forge runecrafting | Planned |
-| **Phase 2** | `v0.9.2-realtime-march` | **Timed March & Encounters** | Real-time overworld march (~10s/tile), roaming encounters, scouts, dynamic dungeon entrance discovery | Planned |
-| **Phase 3** | `v1.0.0-wargame` | **Tactical Grand Strategy** | Multi-hero parties, Guild archetypes (War/Adventurer/Social), Divine War Reimbursement, alliances, world victory conditions | Planned |
+   - Contextual tutorial tips and optional reward tasks (`Task 1: Settle Your First City` -> rewards `50 Wood, 50 Stone` -> `Task 2: Build Adventurers Guild Hall` [30s build timer] -> reveals first Overworld Dungeon Entrance -> real-time march to Dungeon).

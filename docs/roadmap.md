@@ -359,36 +359,20 @@ Delivered the unified traversal engine, multi-state portal system, ancient waypo
 
 ### Track B: Overworld Map, Settler Onboarding, City Builder & Real-Time Loop (`v0.9.x` Series — `ADR-0011`)
 
-#### Increment 9.0 (`v0.9.0-overworld`) — Overworld Map, Settler Unit, City Founding & Guided Task System [COMPLETE]
+#### Increment 9.0 (`v0.9.0-overworld`) — Overworld Map, Settler Unit, City Founding & Guided Task System
 - **Macro State Hierarchy (`universe -> world -> overworld -> cities -> parties`)**:
-  - `Universe` (`universe_prime`): Container of campaign worlds.
-  - `World` (`world_prime`): Campaign world with seed, tick clock, and victory conditions.
-  - `Overworld`: 48x36 exploration grid with 5 distinct procedural terrain biomes (`plains`, `forest`, `hills`, `mountains`, `water`), resource deposits (`wood_grove`, `stone_quarry`, `ore_deposit`), persistent POIs (`dungeon_entrance` to Starfall Vaults), and fog-of-war matrix.
-  - `Cities`: Persistent player settlements (`gameState.cities[cityId]`) with coordinates, city metadata, stockpiles (`wood`, `stone`, `gold`, `food`), and buildings.
-  - `Parties`: Mobile units (`parties[]`) including Settlers and Vanguard Delvers with coordinates, status, and movement capabilities.
-- **First-15-Minutes Settler Onboarding & Safe Respawn Contract**:
-  - Player starts controlling a **Settler unit** on the Overworld map at a safe fertile spawn location.
-  - Real-time/turn overworld movement across plains, forest, and hills with impassable terrain gating (mountains, water).
-  - Non-permanent loss contract: If the settler is destroyed prior to city founding, `respawnSettler(state)` safely revives the settler at the spawn point so the player is never soft-locked.
-- **City Founding Action (`foundCity`)**:
-  - Settler consumes themselves to found the player's primary City (e.g. "Oakhaven Bastion") on fertile plains.
-  - Initializes city grid, home base metadata, and resource stockpiles (`75 Wood`, `50 Stone`, `50 Gold`, `100 Food`).
-  - Automatically registers City Bastion icon (`🏰`) on the Overworld map.
-- **Guided Task & Mission Reward Engine (`GUIDED_TASKS`)**:
-  - Non-linear early progression missions guiding onboarding:
-    - *Task 1 ("Pioneer Exploration")*: March settler across overworld -> awards `+30 Food, +20 Wood`.
-    - *Task 2 ("Found Your First Bastion")*: Establish city -> awards `+50 Wood, +50 Stone, +50 Gold`.
-    - *Task 3 ("Establish Adventurers Guild Hall")*: Commission guild hall -> awards `+100 Gold` and unlocks vault delving.
-    - *Task 4 ("First Subterranean Descent")*: Mine ore or defeat a beast in the vaults -> awards `+2 Healing Tonics, +1 Recall Scroll`.
-  - Automated evaluation (`evaluateGuidedTasks`) and claim processing (`claimTaskReward`) with duplicate claim protection.
-- **Overworld 2D Canvas & Multi-View Workspace**:
-  - Dedicated Overworld Canvas Viewport (`#overworldViewPanel` with `#overworldCanvas` 672x480).
-  - Seamless header view navigation between `[🗺️ World Map]`, `[🏰 Bastion / Guild]`, and `[⚔️ Dungeon]`.
-  - Dynamic Overworld HUD showing coordinates, terrain classification, unit readiness, and city resource stockpiles.
-  - Guided Task HUD Widget with objective tracking and interactive "Claim Reward" button.
-- **Verification Gate**:
-  - Added Sandboxed **Test 30** in `src/test/selfTest.js` verifying macro state hierarchy, 48x36 overworld terrain and biomes, POIs, settler movement and boundary checks, settler safe respawn contract, city founding and stockpile initialization, guided task completion and reward claims, view switching, and legacy save migration.
-  - Expanded automated verification suite to **30/30 PASS** + Headless UI Smoke Suite.
+  - Overworld terrain grid with resource nodes (`Wood` forests, `Stone` outcrops, `Ore` hills), fog-of-war, and coordinates.
+- **First-15-Minutes Settler Onboarding**:
+  - Start on Overworld Map controlling a **Settler** at a valid unoccupied location (with safe respawn if killed before settling).
+  - **Guided Tutorial & Task System**:
+    - *Task 1 ("Settle Your First City")*: Founding City #1 on the Overworld map awards `50 Wood` and `50 Stone`.
+- **City Grid & Real-Time Build Queue**:
+  - City interior grid view with a real-time **Build Queue** (1 slot initially).
+  - *Task 2 ("Build the Adventurers Guild Hall")*: Costs `50 Wood, 50 Stone` (~30s real-time build timer).
+  - Completing the Adventurers Guild Hall unlocks the Hero and reveals the first **Dungeon Entrance** on the Overworld map.
+- **Real-Time Overworld March & Dungeon Transition**:
+  - Selecting a destination on the Overworld marches the party in real-time (~10s per grid tile).
+  - Exiting a dungeon via Floor 1 Stairs places the party at the Overworld Dungeon Entrance and automatically begins the march back to the City; dungeon defeat returns directly to the City's Adventurers Guild Hall.
 
 #### Increment 9.1 (`v0.9.1-city-economy`) — City Buildings, Resource Production & Guild Star-Forge
 - **Expanded City Buildings**:

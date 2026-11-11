@@ -110,27 +110,6 @@ import {
   getDiscoveredWaypoints
 } from '../engine/objects.js';
 import {
-  TERRAIN_PLAINS,
-  TERRAIN_FOREST,
-  TERRAIN_HILLS,
-  TERRAIN_MOUNTAINS,
-  TERRAIN_WATER,
-  OVERWORLD_TERRAIN,
-  OVERWORLD_POIS,
-  GUIDED_TASKS
-} from '../data/overworld.js';
-import {
-  createDefaultOverworld,
-  ensureOverworldHydrated,
-  getActiveOverworldParty,
-  moveOverworldParty,
-  foundCity,
-  respawnSettler,
-  evaluateGuidedTasks,
-  claimTaskReward,
-  switchActiveView
-} from '../engine/overworld.js';
-import {
   createInteractionRequest,
   executeInteraction,
   evaluateRequirement
@@ -1862,163 +1841,6 @@ export function evaluateSelfTests() {
       : 'Failed checks: ' + failedKeys29.join(', ')
   });
 
-  // ==========================================
-  // 30. Overworld Map, Settler Unit, City Founding & Guided Task System
-  // ==========================================
-  const sandbox30 = createDefaultGameState();
-  selectAdventurerClass('fighter', sandbox30);
-  ensureOverworldHydrated(sandbox30);
-
-  // 1. Verify Macro State Hierarchy & Overworld generation
-  const macroHierarchyValid = Boolean(
-    sandbox30.universe && sandbox30.universe.id === 'universe_prime' &&
-    sandbox30.world && sandbox30.world.id === 'world_prime' &&
-    sandbox30.overworld && sandbox30.overworld.tiles &&
-    sandbox30.cities && typeof sandbox30.cities === 'object' &&
-    sandbox30.tasks && Array.isArray(sandbox30.tasks.active)
-  );
-
-  const ow30 = sandbox30.overworld;
-  const owDimensionsValid = ow30.width === 48 && ow30.height === 36;
-
-  // Verify all 5 terrain types exist on generated overworld
-  let hasPlains = false, hasForest = false, hasHills = false, hasMountains = false, hasWater = false;
-  for (let y = 0; y < ow30.height; y++) {
-    for (let x = 0; x < ow30.width; x++) {
-      const t = ow30.tiles[y][x];
-      if (t === TERRAIN_PLAINS) hasPlains = true;
-      else if (t === TERRAIN_FOREST) hasForest = true;
-      else if (t === TERRAIN_HILLS) hasHills = true;
-      else if (t === TERRAIN_MOUNTAINS) hasMountains = true;
-      else if (t === TERRAIN_WATER) hasWater = true;
-    }
-  }
-  const allTerrainsPresent = hasPlains && hasForest && hasHills && hasMountains && hasWater;
-
-  // Verify POIs present
-  const hasDungeonEntrance = ow30.pois.some(function(p) { return p.type === 'dungeon_entrance' && p.dungeonId === 'dng_starfall'; });
-  const hasResourceNodes = ow30.pois.some(function(p) { return p.type === 'wood_grove'; }) &&
-                           ow30.pois.some(function(p) { return p.type === 'stone_quarry'; });
-
-  // 2. Settler Unit & Movement
-  const settler = getActiveOverworldParty(sandbox30);
-  const settlerSpawnValid = Boolean(
-    settler && settler.unitType === 'settler' &&
-    settler.canFoundCity === true && settler.alive === true &&
-    settler.x === ow30.spawnX && settler.y === ow30.spawnY
-  );
-
-  const startX30 = settler.x;
-  const startY30 = settler.y;
-  const moveRes1 = moveOverworldParty(settler.id, 1, 0, sandbox30);
-  const moveRes2 = moveOverworldParty(settler.id, 0, 1, sandbox30);
-  const settlerMoved = moveRes1.success && moveRes2.success && settler.x === startX30 + 1 && settler.y === startY30 + 1;
-  const fovUnveiled = ow30.explored[settler.y][settler.x] === true;
-
-  // Boundary/impassable move rejection
-  const impassableMoveRes = moveOverworldParty(settler.id, -settler.x, 0, sandbox30); // border is mountain
-  const impassableBlocked = !impassableMoveRes.success;
-
-  // 3. Settler Safe Respawn Contract (Non-Permanent Loss)
-  settler.alive = false;
-  settler.hp = 0;
-  const respawnRes = respawnSettler(sandbox30);
-  const respawnValid = respawnRes.success && settler.alive === true && settler.hp === settler.maxHp &&
-                       settler.x === ow30.spawnX && settler.y === ow30.spawnY;
-
-  // 4. City Founding Action
-  const foundRes = foundCity(settler.id, 'Oakhaven Prime', sandbox30);
-  const cityKeys = Object.keys(sandbox30.cities);
-  const foundedCity = sandbox30.cities[cityKeys[0]];
-  const cityFoundingValid = Boolean(
-    foundRes.success &&
-    settler.alive === false && settler.settled === true &&
-    cityKeys.length === 1 &&
-    foundedCity && foundedCity.name === 'Oakhaven Prime' &&
-    foundedCity.stockpile && foundedCity.stockpile.wood >= 50 && foundedCity.stockpile.stone >= 50 &&
-    foundedCity.buildings && foundedCity.buildings.guildHall >= 1 &&
-    ow30.pois.some(function(p) { return p.type === 'city'; })
-  );
-
-  // 5. Guided Tasks & Reward Distribution
-  const tasks30 = evaluateGuidedTasks(sandbox30);
-  const taskMove = tasks30.find(function(t) { return t.id === 'task_move_settler'; });
-  const taskFound = tasks30.find(function(t) { return t.id === 'task_found_first_city'; });
-  const tasksCompleted = Boolean(taskMove && taskMove.completed && taskFound && taskFound.completed);
-
-  const initialWood = foundedCity.stockpile.wood;
-  const initialStone = foundedCity.stockpile.stone;
-  const initialGold = sandbox30.guildVault.gold;
-  const claimRes = claimTaskReward('task_found_first_city', sandbox30);
-  const taskClaimedValid = Boolean(
-    claimRes.success &&
-    foundedCity.stockpile.wood === initialWood + 50 &&
-    foundedCity.stockpile.stone === initialStone + 50 &&
-    sandbox30.guildVault.gold === initialGold + 50 &&
-    sandbox30.tasks.claimed.indexOf('task_found_first_city') !== -1
-  );
-
-  // Duplicate claim rejection
-  const dupClaimRes = claimTaskReward('task_found_first_city', sandbox30);
-  const dupClaimBlocked = !dupClaimRes.success;
-
-  // 6. View Switching
-  switchActiveView('overworld', sandbox30);
-  const isOwView = sandbox30.activeView === 'overworld' && sandbox30.inGuild === true;
-  switchActiveView('guild', sandbox30);
-  const isGuildView = sandbox30.activeView === 'guild' && sandbox30.inGuild === true;
-  switchActiveView('dungeon', sandbox30);
-  const isDngView = sandbox30.activeView === 'dungeon' && sandbox30.inGuild === false;
-  const viewSwitchValid = isOwView && isGuildView && isDngView;
-
-  // 7. Save Migration backwards compatibility
-  const legacyV6Save = {
-    version: 'v0.5.0-inc5',
-    turn: 42,
-    inGuild: true,
-    guildVault: { gold: 120, copper: 10 }
-  };
-  const migratedFromV6 = migrateSaveData(legacyV6Save);
-  const migrationBackfillValid = Boolean(
-    migratedFromV6 &&
-    migratedFromV6.universe && migratedFromV6.universe.id === 'universe_prime' &&
-    migratedFromV6.world && migratedFromV6.world.id === 'world_prime' &&
-    migratedFromV6.overworld && Array.isArray(migratedFromV6.overworld.tiles) &&
-    migratedFromV6.cities && typeof migratedFromV6.cities === 'object' &&
-    migratedFromV6.tasks && Array.isArray(migratedFromV6.tasks.active) &&
-    migratedFromV6.activeView === 'guild' &&
-    migratedFromV6.guildVault.gold === 120
-  );
-
-  const t30Checks = {
-    macroHierarchyValid: macroHierarchyValid,
-    owDimensionsValid: owDimensionsValid,
-    allTerrainsPresent: allTerrainsPresent,
-    hasDungeonEntrance: hasDungeonEntrance,
-    hasResourceNodes: hasResourceNodes,
-    settlerSpawnValid: settlerSpawnValid,
-    settlerMoved: settlerMoved,
-    fovUnveiled: fovUnveiled,
-    impassableBlocked: impassableBlocked,
-    respawnValid: respawnValid,
-    cityFoundingValid: cityFoundingValid,
-    tasksCompleted: tasksCompleted,
-    taskClaimedValid: taskClaimedValid,
-    dupClaimBlocked: dupClaimBlocked,
-    viewSwitchValid: viewSwitchValid,
-    migrationBackfillValid: migrationBackfillValid
-  };
-
-  const failedKeys30 = Object.keys(t30Checks).filter(function(k) { return !t30Checks[k]; });
-  const t30Pass = failedKeys30.length === 0;
-  results.push({
-    name: '30. Overworld Map, Settler Unit, City Founding & Guided Task System',
-    pass: t30Pass,
-    detail: failedKeys30.length === 0
-      ? 'Overworld 48x36 procedural terrain & biomes verified, POIs verified, Settler unit spawn & movement verified, non-permanent loss respawn contract verified, city founding & stockpile creation verified, guided task completion & reward claiming verified, view switching verified, legacy save migration backfill verified'
-      : 'Failed checks: ' + failedKeys30.join(', ')
-  });
-
   return results;
 }
 
@@ -2029,7 +1851,7 @@ export function runSelfTests(renderModal = false) {
   if (typeof document !== 'undefined') {
     const btnText = document.getElementById('verifyBtnText');
     if (btnText) {
-      btnText.textContent = `Verify Inc-9.0 (${passCount}/${results.length} PASS)`;
+      btnText.textContent = `Verify Inc-8.2 (${passCount}/${results.length} PASS)`;
     }
 
     if (renderModal) {
