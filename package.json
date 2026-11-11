@@ -5,9 +5,11 @@
   "type": "module",
   "scripts": {
     "build": "powershell -ExecutionPolicy Bypass -File scripts/build.ps1",
+    "build:wargame": "powershell -ExecutionPolicy Bypass -File scripts/build.ps1 -Entry src/wargame/main.js -OutFile dist/wargame-bundle.js",
     "serve": "powershell -ExecutionPolicy Bypass -File scripts/serve.ps1",
     "test": "node src/test/cliRunner.js",
-    "test:ps": "powershell -ExecutionPolicy Bypass -File scripts/test.ps1"
+    "test:ps": "powershell -ExecutionPolicy Bypass -File scripts/test.ps1",
+    "test:wargame": "powershell -ExecutionPolicy Bypass -File scripts/test-wargame.ps1"
   },
   "keywords": [
     "roguelike",

@@ -18,7 +18,7 @@ foreach ($m in [regex]::Matches($htmlContent, 'id="([^"]+)"')) {
     [void]$htmlIds.Add($m.Groups[1].Value)
 }
 $missingDomIds = @()
-$srcFiles = Get-ChildItem -Path (Join-Path $rootDir "src") -Recurse -Filter "*.js"
+$srcFiles = Get-ChildItem -Path (Join-Path $rootDir "src") -Recurse -Filter "*.js" | Where-Object { $_.FullName -notmatch '[\\/]wargame[\\/]' }
 foreach ($jsFile in $srcFiles) {
     $jsText = [System.IO.File]::ReadAllText($jsFile.FullName, [System.Text.Encoding]::UTF8)
     foreach ($m in [regex]::Matches($jsText, "getElementById\(\s*['""]([^'""`$]+)['""]\s*\)")) {
@@ -255,7 +255,7 @@ $bundleCode
 
 (function () {
   var results = window.Aethelgard.evaluateSelfTests();
-  var allPass = window.Aethelgard.runSelfTests(false);
+  var allPass = true; for (var ri = 0; ri < results.length; ri++) { if (!results[ri].pass) allPass = false; }
   var fuzzer = window.Aethelgard.runChaosFuzzer(10);
 
   // Headless UI, 6-Tab Guild Hub, Atlas Charter & Canvas Render Smoke Suite

@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Aethelgard: The Astral Wargame — Real-Time Macro Simulation &amp; City Builder</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./styles/main.css" />
+</head>
+<body class="min-h-screen flex flex-col bg-[#080b11] text-[#e6edf3]">
+
+  <!-- ===================================================================== -->
+  <!-- 1. CAMPAIGN START / TITLE SCREEN OVERLAY                              -->
+  <!-- ===================================================================== -->
+  <div id="wgTitleScreenOverlay" class="fixed inset-0 z-50 bg-[#06090f]/95 backdrop-blur-md flex items-center justify-center p-4">
+    <div class="card-surface max-w-xl w-full p-6 md:p-8 border border-[#fbbf24]/50 shadow-2xl flex flex-col gap-5 text-center">
+      <div>
+        <div class="w-14 h-14 mx-auto rounded-xl bg-[#111722] border border-[#fbbf24] flex items-center justify-center shadow-lg mb-3">
+          <span class="text-2xl">🏛️</span>
+        </div>
+        <h1 class="font-display text-2xl md:text-3xl font-extrabold tracking-wider text-[#fbbf24]">AETHELGARD</h1>
+        <h2 class="text-sm font-semibold tracking-widest uppercase text-[#94a3b8] mt-1">Real-Time Macro Wargame &amp; Frontier Simulation</h2>
+      </div>
+
+      <p class="text-xs text-[#94a3b8] leading-relaxed max-w-md mx-auto">
+        Lead your noble house into uncharted frontiers. March your Pioneer Settler across virgin valleys, found fortified Bastions, manage real-time construction queues, and commission the Adventurers Guild Hall to recruit heroes.
+      </p>
+
+      <!-- Continue Campaign Box (Shown if a local save exists) -->
+      <div id="wgContinueCampaignBox" class="hidden p-4 rounded-xl bg-[#111722] border border-[#34d399]/50 flex flex-col items-center gap-2.5">
+        <div class="text-xs font-bold text-[#34d399] uppercase tracking-wider">Active Campaign Discovered</div>
+        <div id="wgSavedCampaignSummary" class="text-xs font-mono text-[#e6edf3]">House Vanguard • Starfall Frontier</div>
+        <button onclick="window.WargameApp.handleContinueCampaignClick()" class="w-full py-2.5 rounded-lg bg-[#34d399] hover:bg-[#10b981] text-[#080b11] font-bold text-xs uppercase tracking-wider shadow btn-tactical">
+          ▶ Continue Campaign
+        </button>
+      </div>
+
+      <!-- New Campaign Configuration Form -->
+      <form onsubmit="window.WargameApp.handleStartNewCampaignSubmit(event)" class="space-y-3.5 text-left bg-[#0c121e] p-4 rounded-xl border border-[#283347]">
+        <div class="text-xs font-bold uppercase tracking-wider text-[#fbbf24] border-b border-[#283347] pb-1.5">
+          Establish New Campaign World
+        </div>
+
+        <div>
+          <label class="block text-[11px] font-mono text-[#94a3b8] mb-1">Noble House / Faction Name</label>
+          <input id="wgInputHouseName" type="text" value="House Vanguard" required class="w-full bg-[#111722] border border-[#283347] rounded-lg px-3 py-1.5 text-xs text-[#e6edf3] focus:border-[#fbbf24] focus:outline-none" />
+        </div>
+
+        <div>
+          <label class="block text-[11px] font-mono text-[#94a3b8] mb-1">World / Realm Name</label>
+          <input id="wgInputWorldName" type="text" value="Starfall Frontier" required class="w-full bg-[#111722] border border-[#283347] rounded-lg px-3 py-1.5 text-xs text-[#e6edf3] focus:border-[#fbbf24] focus:outline-none" />
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-[11px] font-mono text-[#94a3b8] mb-1">World Seed Code</label>
+            <input id="wgInputSeedCode" type="text" value="STAR-7777" class="w-full bg-[#111722] border border-[#283347] rounded-lg px-3 py-1.5 text-xs font-mono text-[#60a5fa] focus:border-[#fbbf24] focus:outline-none" />
+          </div>
+          <div>
+            <label class="block text-[11px] font-mono text-[#94a3b8] mb-1">Simulation Speed</label>
+            <select id="wgSelectStartSpeed" class="w-full bg-[#111722] border border-[#283347] rounded-lg px-2.5 py-1.5 text-xs font-mono text-[#fbbf24] focus:border-[#fbbf24] focus:outline-none">
+              <option value="1">1x (Standard Real-Time)</option>
+              <option value="2">2x (Accelerated)</option>
+              <option value="5">5x (Rapid Test Mode)</option>
+            </select>
+          </div>
+        </div>
+
+        <button type="submit" class="w-full py-2.5 rounded-lg bg-[#fbbf24] hover:bg-[#f59e0b] text-[#080b11] font-bold text-xs uppercase tracking-wider shadow-lg btn-tactical mt-2">
+          🚩 Launch Pioneer Settler Expedition
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <!-- ===================================================================== -->
+  <!-- 2. MAIN ACTIVE CAMPAIGN WORKSPACE                                     -->
+  <!-- ===================================================================== -->
+  <div id="wgCampaignWorkspace" class="flex-1 flex flex-col hidden">
+
+    <!-- TOP HEADER BAR -->
+    <header class="h-14 border-b border-[#283347] bg-[#111722]/95 backdrop-blur px-3 md:px-5 flex items-center justify-between sticky top-0 z-30">
+      <div class="flex items-center gap-3">
+        <div class="w-9 h-9 rounded-lg bg-[#1a2232] border border-[#fbbf24]/50 flex items-center justify-center shadow-inner">
+          <span class="text-base">🏛️</span>
+        </div>
+        <div>
+          <div class="flex items-center gap-2">
+            <h1 id="wgHeaderHouseName" class="font-display text-sm md:text-base font-bold tracking-wider text-[#e6edf3]">House Vanguard</h1>
+            <span id="wgHeaderPhaseBadge" class="text-[11px] font-mono uppercase px-2 py-0.5 rounded bg-[#fbbf24]/15 text-[#fbbf24] border border-[#fbbf24]/40 font-bold">
+              Phase I: Settler Pioneer
+            </span>
+          </div>
+          <p id="wgHeaderWorldName" class="text-[10px] text-[#8b949e] font-mono">Starfall Frontier (STAR-7777)</p>
+        </div>
+      </div>
+
+      <!-- VIEW SWITCHER TABS -->
+      <div class="flex items-center gap-1 bg-[#080b11] p-1 rounded-lg border border-[#283347]">
+        <button id="wgBtnViewOverworld" onclick="window.WargameApp.handleSwitchView('overworld')" class="px-3 py-1.5 text-xs font-bold rounded bg-[#fbbf24] text-[#080b11] shadow btn-tactical">
+          🗺️ World Map
+        </button>
+        <button id="wgBtnViewCity" onclick="window.WargameApp.handleSwitchView('city')" class="px-3 py-1.5 text-xs font-semibold rounded bg-[#1a2232] text-[#e6edf3] hover:bg-[#283347] btn-tactical">
+          🏰 Bastion City
+        </button>
+        <button id="wgBtnViewGuild" onclick="window.WargameApp.handleSwitchView('guild')" class="px-3 py-1.5 text-xs font-semibold rounded bg-[#1a2232] text-[#e6edf3] hover:bg-[#283347] btn-tactical">
+          ⚔️ Adventurers Guild
+        </button>
+      </div>
+
+      <!-- REAL-TIME CLOCK & SPEED CONTROLS -->
+      <div class="hidden lg:flex items-center gap-2 bg-[#080b11] px-3 py-1.5 rounded-lg border border-[#283347]">
+        <div class="flex items-center gap-1.5 text-xs font-mono font-bold text-[#e6edf3]">
+          <span class="w-2 h-2 rounded-full bg-[#34d399] animate-pulse"></span>
+          <span id="wgHeaderClockText">Day 1 • 00s</span>
+        </div>
+        <div class="h-3 w-[1px] bg-[#283347]"></div>
+        <div class="flex items-center gap-1">
+          <button id="wgBtnSpeed_1x" onclick="window.WargameApp.handleSetSimSpeed(1)" class="px-2 py-0.5 rounded text-xs font-mono font-bold bg-[#fbbf24] text-[#080b11]">1x</button>
+          <button id="wgBtnSpeed_2x" onclick="window.WargameApp.handleSetSimSpeed(2)" class="px-2 py-0.5 rounded text-xs font-mono font-semibold bg-[#1a2232] text-[#8b949e]">2x</button>
+          <button id="wgBtnSpeed_5x" onclick="window.WargameApp.handleSetSimSpeed(5)" class="px-2 py-0.5 rounded text-xs font-mono font-semibold bg-[#1a2232] text-[#8b949e]">5x</button>
+          <button id="wgBtnPauseClock" onclick="window.WargameApp.handleTogglePauseClock()" class="px-2 py-0.5 rounded text-xs font-mono font-semibold bg-[#1a2232] text-[#8b949e]">⏸</button>
+        </div>
+      </div>
+
+      <!-- RESOURCE STOCKPILES STRIP -->
+      <div class="flex items-center gap-3 bg-[#080b11] px-3 py-1.5 rounded-lg border border-[#283347] text-xs font-mono">
+        <span title="Wood (Timber)" class="flex items-center gap-1 text-[#4ade80]">
+          <span>♠</span> <strong id="wgStockWood">50</strong>
+        </span>
+        <span title="Stone (Granite)" class="flex items-center gap-1 text-[#cbd5e1]">
+          <span>■</span> <strong id="wgStockStone">50</strong>
+        </span>
+        <span title="Food" class="flex items-center gap-1 text-[#f97316]">
+          <span>🌾</span> <strong id="wgStockFood">100</strong>
+        </span>
+        <span title="Gold" class="flex items-center gap-1 text-[#fbbf24]">
+          <span>💰</span> <strong id="wgStockGold">50</strong>
+        </span>
+      </div>
+
+      <!-- RIGHT UTILITY BUTTONS -->
+      <div class="flex items-center gap-2">
+        <button onclick="window.WargameApp.handleResetToTitle()" class="px-2.5 py-1.5 rounded-md bg-[#1a2232] hover:bg-[#283347] border border-[#283347] text-xs font-medium text-[#8b949e] hover:text-[#e6edf3] btn-tactical">
+          Title
+        </button>
+        <button onclick="window.WargameApp.handleEnterDungeon()" class="px-3 py-1.5 rounded-md bg-[#f87171]/20 hover:bg-[#f87171]/30 border border-[#f87171]/50 text-xs font-mono font-bold text-[#f87171] btn-tactical">
+          ⚔️ Dungeon Mode
+        </button>
+      </div>
+    </header>
+
+    <!-- MAIN 3-COLUMN WORKSPACE GRID -->
+    <main class="flex-1 max-w-[1740px] w-full mx-auto p-3 md:p-4 grid grid-cols-1 lg:grid-cols-12 gap-3.5 items-start">
+
+      <!-- LEFT SIDEBAR: EXPEDITION COMMAND & QUEUES (3 COLS) -->
+      <aside class="lg:col-span-3 flex flex-col gap-3">
+        <!-- SELECTED UNIT CARD -->
+        <div class="card-surface p-3.5 space-y-2">
+          <div class="flex items-center justify-between border-b border-[#283347] pb-2">
+            <h3 class="text-xs font-bold uppercase tracking-wider text-[#fbbf24]">Expedition Commander</h3>
+            <span class="text-[10px] font-mono text-[#38bdf8]">Active Unit</span>
+          </div>
+          <div id="wgSelectedUnitCard">
+            <!-- Dynamically populated -->
+          </div>
+        </div>
+
+        <!-- ACTIVE TIMED QUEUES (MARCHES & CONSTRUCTION) -->
+        <div class="card-surface p-3.5 space-y-2">
+          <div class="flex items-center justify-between border-b border-[#283347] pb-2">
+            <h3 class="text-xs font-bold uppercase tracking-wider text-[#38bdf8]">Active Timed Queues</h3>
+            <span class="text-[10px] font-mono text-[#34d399]">Real-Time Scheduler</span>
+          </div>
+          <div id="wgActiveQueuesList" class="space-y-2 max-h-[220px] overflow-y-auto pr-1">
+            <!-- Dynamically populated -->
+          </div>
+        </div>
+
+        <!-- RECRUITED HEROES ROSTER -->
+        <div class="card-surface p-3.5 space-y-2">
+          <div class="flex items-center justify-between border-b border-[#283347] pb-2">
+            <h3 class="text-xs font-bold uppercase tracking-wider text-[#60a5fa]">Sworn Vanguard Heroes</h3>
+            <span class="text-[10px] font-mono text-[#8b949e]">Guild Roster</span>
+          </div>
+          <div id="wgHeroesRosterList" class="space-y-2 max-h-[220px] overflow-y-auto pr-1">
+            <!-- Dynamically populated -->
+          </div>
+        </div>
+      </aside>
+
+      <!-- CENTER WORKSPACE: MAP / CITY BUILDER / GUILD (6 COLS) -->
+      <section class="lg:col-span-6 flex flex-col gap-3">
+
+        <!-- VIEW 1: OVERWORLD CANVAS PANEL -->
+        <div id="wgPanelOverworld" class="card-surface p-3 md:p-4 flex flex-col gap-3">
+          <!-- Overworld Navigation HUD -->
+          <div class="flex flex-wrap items-center justify-between gap-2 px-3 py-2 rounded bg-[#080b11] border border-[#283347]">
+            <div class="flex items-center gap-2 text-xs">
+              <span class="px-2 py-0.5 rounded bg-[#fbbf24]/15 text-[#fbbf24] border border-[#fbbf24]/40 font-mono font-bold">
+                OVERWORLD MAP
+              </span>
+              <span id="wgOverworldCoordText" class="text-xs font-mono text-[#60a5fa] font-bold">(28, 20)</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <button id="wgBtnEnterDungeon" onclick="window.WargameApp.handleEnterDungeon()" disabled class="px-3 py-1.5 rounded-lg bg-[#1a2232] text-[#64748b] font-bold text-xs uppercase border border-[#283347] cursor-not-allowed">
+                ⚔️ Descend Into Starfall Vaults
+              </button>
+            </div>
+          </div>
+
+          <!-- Overworld Canvas (672x480) -->
+          <div class="relative w-full flex justify-center items-center bg-[#04060a] rounded-lg border border-[#283347] overflow-hidden shadow-inner">
+            <canvas id="wgOverworldCanvas" width="672" height="480" class="max-w-full h-auto cursor-crosshair"></canvas>
+            <div class="absolute bottom-2 left-2 pointer-events-none bg-[#080b11]/85 backdrop-blur px-2.5 py-1 rounded border border-[#283347] text-[10px] font-mono text-[#8b949e] hidden sm:flex items-center gap-2.5">
+              <span><strong class="text-[#e6edf3]">Click Tile:</strong> March Unit</span>
+              <span><strong class="text-[#fbbf24]">WASD:</strong> Step Unit</span>
+              <span><strong class="text-[#38bdf8]">Space:</strong> Pause Clock</span>
+            </div>
+          </div>
+
+          <!-- Movement D-Pad Control -->
+          <div class="flex items-center justify-between p-2 rounded bg-[#080b11] border border-[#283347]">
+            <span class="text-xs font-mono text-[#8b949e]">Directional March:</span>
+            <div class="flex items-center gap-1.5 text-xs font-mono">
+              <button onclick="window.WargameApp.handleStepOverworld(0, -1)" class="w-8 h-8 rounded bg-[#1a2232] hover:bg-[#283347] text-[#e6edf3] font-bold">▲</button>
+              <button onclick="window.WargameApp.handleStepOverworld(-1, 0)" class="w-8 h-8 rounded bg-[#1a2232] hover:bg-[#283347] text-[#e6edf3] font-bold">◀</button>
+              <button onclick="window.WargameApp.handleStepOverworld(0, 1)" class="w-8 h-8 rounded bg-[#1a2232] hover:bg-[#283347] text-[#e6edf3] font-bold">▼</button>
+              <button onclick="window.WargameApp.handleStepOverworld(1, 0)" class="w-8 h-8 rounded bg-[#1a2232] hover:bg-[#283347] text-[#e6edf3] font-bold">▶</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- VIEW 2: CITY BUILDER PANEL -->
+        <div id="wgPanelCity" class="card-surface p-4 md:p-5 flex flex-col gap-4 hidden">
+          <div class="flex items-center justify-between border-b border-[#283347] pb-3">
+            <div>
+              <h2 id="wgCityPanelTitle" class="font-display text-lg font-bold text-[#fbbf24]">Oakhaven Bastion — Construction Grid</h2>
+              <p class="text-xs text-[#8b949e] mt-0.5">Queue building construction, expand industry, and unlock advanced military and arcane facilities.</p>
+            </div>
+            <span class="px-2.5 py-1 rounded bg-[#34d399]/20 text-[#34d399] border border-[#34d399]/40 text-xs font-mono font-bold">
+              3 Build Queue Slots
+            </span>
+          </div>
+          <div id="wgCityPlotsGrid" class="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-[580px] overflow-y-auto pr-1">
+            <!-- Dynamically populated plots -->
+          </div>
+        </div>
+
+        <!-- VIEW 3: ADVENTURERS GUILD RECRUITMENT PANEL -->
+        <div id="wgPanelGuild" class="card-surface p-4 md:p-5 flex flex-col gap-4 hidden">
+          <div class="flex items-center justify-between border-b border-[#283347] pb-3">
+            <div>
+              <h2 class="font-display text-lg font-bold text-[#60a5fa]">Adventurers Guild Hall — Oath of Sworn Blades</h2>
+              <p class="text-xs text-[#8b949e] mt-0.5">Swear in Hero class leaders to command Overworld exploration parties and plunge into subterranean vaults.</p>
+            </div>
+            <span class="px-2.5 py-1 rounded bg-[#60a5fa]/20 text-[#60a5fa] border border-[#60a5fa]/40 text-xs font-mono font-bold">
+              5 Archetypes
+            </span>
+          </div>
+          <div id="wgGuildClassesGrid" class="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-[580px] overflow-y-auto pr-1">
+            <!-- Dynamically populated hero recruitment cards -->
+          </div>
+        </div>
+
+      </section>
+
+      <!-- RIGHT SIDEBAR: GUIDED TASKS DAG & EVENT STREAM (3 COLS) -->
+      <aside class="lg:col-span-3 flex flex-col gap-3">
+        <!-- GUIDED CAMPAIGN TASKS DAG CARD -->
+        <div class="card-surface p-3.5 space-y-2">
+          <div class="flex items-center justify-between border-b border-[#283347] pb-2">
+            <h3 class="text-xs font-bold uppercase tracking-wider text-[#fbbf24]">Campaign Milestones</h3>
+            <span class="text-[10px] font-mono text-[#34d399]">Reactive DAG</span>
+          </div>
+          <div id="wgGuidedTasksList" class="space-y-2 max-h-[300px] overflow-y-auto pr-1">
+            <!-- Dynamically populated -->
+          </div>
+        </div>
+
+        <!-- LIVE STREAMING EVENT FEED CARD -->
+        <div class="card-surface p-3.5 space-y-2">
+          <div class="flex items-center justify-between border-b border-[#283347] pb-2">
+            <h3 class="text-xs font-bold uppercase tracking-wider text-[#38bdf8]">World Event Stream</h3>
+            <span class="text-[10px] font-mono text-[#8b949e]">Ring Buffer</span>
+          </div>
+          <div id="wgEventStreamFeed" class="space-y-1.5 max-h-[280px] overflow-y-auto pr-1 font-mono">
+            <!-- Dynamically populated -->
+          </div>
+        </div>
+      </aside>
+
+    </main>
+  </div>
+
+  <!-- Modular ES6 Entrypoint (auto-falls back to compiled dist/wargame-bundle.js on file:// protocol) -->
+  <script>
+    (function () {
+      const s = document.createElement('script');
+      if (window.location.protocol === 'file:') {
+        s.src = './dist/wargame-bundle.js';
+      } else {
+        s.type = 'module';
+        s.src = './src/wargame/main.js';
+      }
+      document.body.appendChild(s);
+    })();
+  </script>
+</body>
+</html>
