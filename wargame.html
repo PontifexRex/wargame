@@ -144,8 +144,8 @@
 
       <!-- RIGHT UTILITY BUTTONS -->
       <div class="flex items-center gap-2">
-        <button onclick="window.WargameApp.handleResetToTitle()" class="px-2.5 py-1.5 rounded-md bg-[#1a2232] hover:bg-[#283347] border border-[#283347] text-xs font-medium text-[#8b949e] hover:text-[#e6edf3] btn-tactical">
-          Title
+        <button data-action="reset-title" onclick="window.WargameApp.handleResetToTitle()" class="px-2.5 py-1.5 rounded-md bg-[#1a2232] hover:bg-[#283347] border border-[#283347] text-xs font-medium text-[#8b949e] hover:text-[#e6edf3] btn-tactical cursor-pointer">
+          Main Menu
         </button>
         <button data-action="enter-dungeon" onclick="window.WargameApp.handleEnterDungeon()" class="px-3 py-1.5 rounded-md bg-[#f87171]/20 hover:bg-[#f87171]/30 border border-[#f87171]/50 text-xs font-mono font-bold text-[#f87171] btn-tactical cursor-pointer">
           ⚔️ Dungeon Mode

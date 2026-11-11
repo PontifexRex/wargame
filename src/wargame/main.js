@@ -53,11 +53,15 @@ export function handleStartNewCampaignSubmit(e) {
 export function handleContinueCampaignClick() {
   const loaded = simHost.load();
   if (loaded) {
+    simHost.state._dirty = true;
     syncWargameUI(simHost);
   }
 }
 
 export function handleResetToTitle() {
+  if (simHost && simHost.state && simHost.state.world) {
+    simHost.save();
+  }
   simHost.state.campaignPhase = CAMPAIGN_PHASES.TITLE;
   simHost.state.world = null;
   syncWargameUI(simHost);
@@ -325,6 +329,8 @@ function setupWargameListeners() {
       if (hId) handleSelectPartyByHero(hId);
     } else if (action === 'continue-campaign') {
       handleContinueCampaignClick();
+    } else if (action === 'reset-title') {
+      handleResetToTitle();
     }
   });
 
@@ -431,11 +437,8 @@ export const WargameApp = {
 export function bootstrapWargame() {
   setupWargameListeners();
 
-  // Try restoring saved campaign if available
-  if (simHost.hasSavedCampaign()) {
-    simHost.load();
-  }
-
+  // Always present the Main Menu / Title Screen on initial startup or reload,
+  // allowing the player to either Continue an existing campaign or start a fresh one.
   syncWargameUI(simHost);
   requestAnimationFrame(wargameMainLoop);
 }
