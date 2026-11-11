@@ -1,6 +1,7 @@
 // Developer & Tester Console UI Component (Overlay, Command REPL & Quick Toolbar)
 
 import { gameState } from '../engine/state.js';
+import { usePocketPortal } from '../engine/actions.js';
 import {
   gotoFloor,
   setHeroLevel,
@@ -75,6 +76,15 @@ export function handleDevQuickSpawn(type, subId) {
     logDevConsole(`Quick-spawned ${res.type} (${(res.entity && res.entity.name) || subId}) at (${res.x}, ${res.y})`, 'good');
   } else {
     logDevConsole(`Failed to spawn: ${res.reason}`, 'bad');
+  }
+}
+
+export function handleDevActivatePocketPortalClick() {
+  const res = usePocketPortal();
+  if (res.ok) {
+    logDevConsole(`Activated Pocket Portal Device -> Warped to (${res.x}, ${res.y}) on Floor ${res.destFloor}!`, 'gold');
+  } else {
+    logDevConsole(`Failed to activate portal: ${res.reason}`, 'bad');
   }
 }
 

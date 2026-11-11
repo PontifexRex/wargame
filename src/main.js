@@ -26,7 +26,9 @@ import {
   equipItem,
   unequipItem,
   dropItem,
-  pickupGroundObjectsAt
+  pickupGroundObjectsAt,
+  traversePortal,
+  usePocketPortal
 } from './engine/actions.js';
 import {
   OBJECT_DEFINITIONS,
@@ -175,6 +177,7 @@ import {
   handleDevSpawnTypeChange,
   handleDevSpawnClick,
   handleDevQuickSpawn,
+  handleDevActivatePocketPortalClick,
   SPAWN_SUB_OPTIONS,
   handleDevTerminalSubmit,
   handleDevTerminalKeyDown
@@ -276,6 +279,8 @@ export const AethelgardAPI = {
   isPortalActive,
   registerDiscoveredWaypoint,
   getDiscoveredWaypoints,
+  traversePortal,
+  usePocketPortal,
   spawnGroundItem,
   spawnEntity,
   renderDoorTile,
@@ -364,6 +369,7 @@ export const AethelgardAPI = {
   handleDevSpawnTypeChange,
   handleDevSpawnClick,
   handleDevQuickSpawn,
+  handleDevActivatePocketPortalClick,
   SPAWN_SUB_OPTIONS,
   handleDevTerminalSubmit,
   handleDevTerminalKeyDown

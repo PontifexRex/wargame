@@ -75,7 +75,9 @@ import {
   unequipItem,
   dropItem,
   pickupGroundObjectsAt,
-  sellArmoryItem
+  sellArmoryItem,
+  traversePortal,
+  usePocketPortal
 } from '../engine/actions.js';
 import {
   OBJECT_DEFINITIONS,
@@ -1743,10 +1745,21 @@ export function evaluateSelfTests() {
 
   const riftTrav1 = executeInteraction(createInteractionRequest('hero', riftInst.instanceId, 'traverse'), sandbox29);
   const rift1Charges = riftInst.components.traversal.charges;
+  const rift1Teleported = (sandbox29.hero.x !== 6 || sandbox29.hero.y !== 6);
+
+  // Position hero adjacent to test second traversal
+  sandbox29.hero.x = 6;
+  sandbox29.hero.y = 5;
   const riftTrav2 = executeInteraction(createInteractionRequest('hero', riftInst.instanceId, 'traverse'), sandbox29);
   const rift2Charges = riftInst.components.traversal.charges;
   const riftCollapsed = riftInst.runtimeState.mechanical === 'collapsed';
   const riftRemovedFromFloor = !fl1_29.objects.find(function(o) { return o.instanceId === riftInst.instanceId; });
+
+  // Test Carried Pocket Portal Device
+  sandbox29.hero.x = 10;
+  sandbox29.hero.y = 10;
+  const pocketRes = usePocketPortal(sandbox29, true);
+  const pocketPortalWorked = pocketRes.ok && (sandbox29.hero.x !== 10 || sandbox29.hero.y !== 10);
 
   // Test Boss Defeat extraction portal spawn
   const testBoss29 = {
@@ -1810,7 +1823,9 @@ export function evaluateSelfTests() {
     isPortalActiveCheck: isPortalActiveCheck,
     wpRegistered: wpRegistered,
     riftChargesDecrement: rift1Charges === 1 && rift2Charges === 0,
+    rift1Teleported: rift1Teleported,
     riftCollapsedAndRemoved: riftCollapsed && riftRemovedFromFloor,
+    pocketPortalWorked: pocketPortalWorked,
     bossPortalSpawned: bossPortalSpawned,
     extractedViaPortal: extractedViaPortal,
     devSpawnerValid: devSpawnerValid,

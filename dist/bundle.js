@@ -6210,6 +6210,209 @@ function pickupGroundObjectsAt(x, y, state = gameState) {
   return count;
 }
 
+// ============================================================================
+// PORTAL & TRAVERSAL ENGINE (One-Way Teleportation, Waypoints & Pocket Devices)
+// ============================================================================
+
+function traversePortal(portal, state = gameState) {
+  if (!state || state.inGuild || !state.hero) return { ok: false, reason: 'not_in_dungeon' };
+  const currentFloorNum = (state.dungeon && state.dungeon.currentFloor) || 1;
+  const floor = ensureDungeonFloorHydrated(state.dungeon, currentFloorNum);
+  if (!floor) return { ok: false, reason: 'no_floor' };
+
+  if (!portal) return { ok: false, reason: 'no_portal' };
+  const rState = portal.runtimeState || {};
+  if (rState.mechanical === 'collapsed') {
+    if (state === gameState) {
+      actionCallbacks.floatingText(state.hero.x, state.hero.y, 'Portal Collapsed', '#8b949e');
+      actionCallbacks.log('The dimensional fissure has collapsed and is inert.', 'bad');
+    }
+    return { ok: false, reason: 'portal_collapsed' };
+  }
+
+  const trav = (portal.components && portal.components.traversal) || {};
+  const defId = portal.definitionId || '';
+
+  // 1. Boss Extraction Gateway -> Safe surface extraction
+  if (trav.portalType === 'extraction' || defId === 'portal_boss_extraction' || trav.transitionType === 'extraction') {
+    extractToGuild('Astral Sanctum Gateway', state);
+    return { ok: true, type: 'extraction' };
+  }
+
+  // 2. Waypoint Network Fast-Travel
+  if (trav.portalType === 'waypoint' || defId === 'portal_ancient_waypoint') {
+    registerDiscoveredWaypoint(currentFloorNum, portal.x, portal.y, portal, state);
+    if (portal.runtimeState) {
+      portal.runtimeState.discovery = 'revealed';
+    }
+    const wps = (state.dungeon && state.dungeon.waypoints) ? state.dungeon.waypoints : {};
+    const discovered = Object.keys(wps).map(function(k) { return wps[k]; }).filter(function(w) { return w.attuned; });
+    if (discovered.length > 1) {
+      discovered.sort(function(a, b) { return a.depth - b.depth; });
+      let curIdx = discovered.findIndex(function(w) { return w.depth === currentFloorNum; });
+      let nextWp = discovered[(curIdx + 1) % discovered.length];
+      if (nextWp) {
+        state.dungeon.currentFloor = nextWp.depth;
+        const destFloor = ensureDungeonFloorHydrated(state.dungeon, nextWp.depth);
+        state.hero.x = nextWp.x;
+        state.hero.y = nextWp.y;
+        detectNearbyTraps(destFloor, state);
+        pickupGroundObjectsAt(nextWp.x, nextWp.y, state);
+        if (state === gameState) {
+          playSound('spell');
+          actionCallbacks.updateFOV();
+          saveGame();
+          actionCallbacks.updateUI();
+          actionCallbacks.floatingText(state.hero.x, state.hero.y, `Waypoint: Floor ${nextWp.depth}!`, '#38bdf8');
+          actionCallbacks.log(`Traversed Celestial Waypoint Network to Floor ${nextWp.depth} (${nextWp.name}).`, 'gold');
+        }
+        return { ok: true, destFloor: nextWp.depth, x: nextWp.x, y: nextWp.y };
+      }
+    }
+  }
+
+  // 3. Resolve destination coordinates for Rifts, One-Way Doors & Custom Portals
+  let destFloorNum = currentFloorNum;
+  let destX = null;
+  let destY = null;
+
+  if (trav.destination && typeof trav.destination === 'object') {
+    if (typeof trav.destination.depth === 'number') destFloorNum = trav.destination.depth;
+    if (typeof trav.destination.x === 'number') destX = trav.destination.x;
+    if (typeof trav.destination.y === 'number') destY = trav.destination.y;
+  }
+
+  const destFloor = ensureDungeonFloorHydrated(state.dungeon, destFloorNum);
+  if (!destFloor) return { ok: false, reason: 'dest_floor_not_found' };
+
+  // If no explicit valid coordinate was specified or same as portal position:
+  // Find a distant room or chamber on the floor to teleport to (One-Way Teleportation)
+  const isInvalidCoord = destX === null || destY === null ||
+    destFloor.tiles[destY][destX] === TILE_WALL ||
+    (destX === portal.x && destY === portal.y && destFloorNum === currentFloorNum);
+
+  if (isInvalidCoord) {
+    const candidatePoints = [];
+    if (destFloor.rooms && destFloor.rooms.length > 0) {
+      for (let ri = 0; ri < destFloor.rooms.length; ri++) {
+        const r = destFloor.rooms[ri];
+        const rcx = r.cx !== undefined ? r.cx : (r.rx + Math.floor(r.rw / 2));
+        const rcy = r.cy !== undefined ? r.cy : (r.ry + Math.floor(r.rh / 2));
+        if (destFloor.tiles[rcy] && destFloor.tiles[rcy][rcx] === TILE_FLOOR) {
+          if (rcx !== portal.x || rcy !== portal.y || destFloorNum !== currentFloorNum) {
+            candidatePoints.push({ x: rcx, y: rcy });
+          }
+        }
+      }
+    }
+    if (candidatePoints.length === 0) {
+      for (let ty = 2; ty < destFloor.height - 2; ty++) {
+        for (let tx = 2; tx < destFloor.width - 2; tx++) {
+          if (destFloor.tiles[ty][tx] === TILE_FLOOR && (tx !== portal.x || ty !== portal.y || destFloorNum !== currentFloorNum)) {
+            candidatePoints.push({ x: tx, y: ty });
+          }
+        }
+      }
+    }
+
+    if (candidatePoints.length > 0) {
+      const originX = portal.x;
+      const originY = portal.y;
+      candidatePoints.sort(function(a, b) {
+        const distA = Math.hypot(a.x - originX, a.y - originY);
+        const distB = Math.hypot(b.x - originX, b.y - originY);
+        return distB - distA;
+      });
+      destX = candidatePoints[0].x;
+      destY = candidatePoints[0].y;
+    } else {
+      destX = destFloor.upPos.x;
+      destY = destFloor.upPos.y;
+    }
+  }
+
+  // 4. Consume charge if limited charges
+  if (typeof trav.charges === 'number') {
+    trav.charges -= 1;
+    if (trav.charges <= 0) {
+      if (portal.runtimeState) {
+        portal.runtimeState.mechanical = 'collapsed';
+      }
+      if (trav.collapseOnDeplete) {
+        removeWorldObject(floor, portal.instanceId);
+      }
+    }
+  }
+
+  // 5. Teleport the Hero!
+  state.dungeon.currentFloor = destFloorNum;
+  state.hero.x = destX;
+  state.hero.y = destY;
+
+  detectNearbyTraps(destFloor, state);
+  pickupGroundObjectsAt(destX, destY, state);
+
+  emitEngineEvent(ENGINE_EVENTS.PORTAL_TRAVERSED, {
+    portalType: trav.portalType || 'portal',
+    fromDepth: currentFloorNum,
+    targetDepth: destFloorNum,
+    targetX: destX,
+    targetY: destY,
+    instanceId: portal.instanceId,
+    remainingCharges: typeof trav.charges === 'number' ? trav.charges : null
+  }, state);
+
+  if (state === gameState) {
+    playSound('spell');
+    actionCallbacks.updateFOV();
+    saveGame();
+    actionCallbacks.updateUI();
+    actionCallbacks.floatingText(destX, destY, '✨ Warped through Portal!', '#c084fc');
+    actionCallbacks.log(`Stepped through ${portal.name || 'Portal'} -> Arrived at (${destX}, ${destY}) on Floor ${destFloorNum}!`, 'gold');
+  }
+
+  return { ok: true, destFloor: destFloorNum, x: destX, y: destY };
+}
+
+function usePocketPortal(state = gameState, autoStepThrough = true) {
+  if (!state || !state.hero || state.inGuild) {
+    if (state === gameState) {
+      actionCallbacks.floatingText(0, 0, 'Cannot use here', '#f87171');
+      actionCallbacks.log('Pocket Portal can only be activated while exploring a dungeon.', 'bad');
+    }
+    return { ok: false, reason: 'not_in_dungeon' };
+  }
+
+  const floor = ensureDungeonFloorHydrated(state.dungeon, state.dungeon.currentFloor);
+  if (!floor) return { ok: false, reason: 'no_floor' };
+
+  // Create an active one-way Astral Rift at current position
+  const rift = createPortalInstance('portal_astral_rift', state.hero.x, state.hero.y, {
+    name: 'Summoned Astral Rift',
+    traversal: {
+      portalType: 'rift',
+      transitionType: 'rift_jump',
+      charges: 2,
+      collapseOnDeplete: true
+    }
+  });
+  addWorldObject(floor, rift);
+
+  if (state === gameState) {
+    playSound('spell');
+    actionCallbacks.floatingText(state.hero.x, state.hero.y, '🌌 Astral Rift Opened!', '#c084fc');
+    actionCallbacks.log('You activated a Pocket Astral Rift! Dimensional fold opened.', 'gold');
+    actionCallbacks.updateFOV();
+    actionCallbacks.updateUI();
+  }
+
+  if (autoStepThrough) {
+    return traversePortal(rift, state);
+  }
+
+  return { ok: true, portal: rift };
+}
+
   // --- Module: src/engine/interactions.js ---
 // Unified Object Interaction & Traversal Pipeline (ADR-0010)
 // Evaluates requirements, deducts costs, applies atomic effects, and emits domain events.
@@ -6491,35 +6694,11 @@ function applyInteractionEffects(effects, context = {}, state = gameState) {
       }, state);
       applied.push(eff);
     } else if (eff.type === 'traverseWaypoint') {
-      const targetDepth = (context.parameters && context.parameters.targetDepth) !== undefined
-        ? context.parameters.targetDepth
-        : null;
-      emitEngineEvent(ENGINE_EVENTS.PORTAL_TRAVERSED, {
-        portalType: 'waypoint',
-        fromDepth: (floor && floor.depth) || 1,
-        targetDepth: targetDepth,
-        instanceId: target.instanceId
-      }, state);
-      applied.push(eff);
+      const travRes = traversePortal(target, state);
+      applied.push(Object.assign({}, eff, { result: travRes }));
     } else if (eff.type === 'traverseRift') {
-      const trav = target.components && target.components.traversal;
-      if (trav && typeof trav.charges === 'number') {
-        trav.charges -= 1;
-        if (trav.charges <= 0) {
-          if (target.runtimeState) {
-            target.runtimeState.mechanical = 'collapsed';
-          }
-          if (trav.collapseOnDeplete && floor) {
-            removeWorldObject(floor, target.instanceId);
-          }
-        }
-      }
-      emitEngineEvent(ENGINE_EVENTS.PORTAL_TRAVERSED, {
-        portalType: 'rift',
-        instanceId: target.instanceId,
-        remainingCharges: trav ? trav.charges : 0
-      }, state);
-      applied.push(eff);
+      const travRes = traversePortal(target, state);
+      applied.push(Object.assign({}, eff, { result: travRes }));
     } else if (eff.type === 'extractHero') {
       extractToGuild(eff.reason || 'Astral Portal', state);
       emitEngineEvent(ENGINE_EVENTS.PORTAL_TRAVERSED, {
@@ -7972,6 +8151,19 @@ function handlePlayerAction(dx, dy, state = gameState) {
     }
   }
 
+  // 6.5. Portal Collision & One-Way Traversal (Step-Through Gate)
+  const portalAtTarget = (floor.objects && floor.objects.length > 0)
+    ? floor.objects.find(function(o) { return o.x === nx && o.y === ny && o.objectType === 'portal'; })
+    : null;
+
+  if (portalAtTarget) {
+    const travRes = traversePortal(portalAtTarget, state);
+    if (travRes && travRes.ok) {
+      processTurn(state);
+      return;
+    }
+  }
+
   // 7. Step onto Walkable Tile
   if (targetTile !== TILE_WALL) {
     state.hero.x = nx;
@@ -8013,57 +8205,13 @@ function useStairsAtPlayer(state = gameState) {
 
   // 1. Check for interactive Portal at hero position
   const portalAtPlayer = (floor.objects && floor.objects.length > 0)
-    ? floor.objects.find(o => o.x === state.hero.x && o.y === state.hero.y && o.objectType === 'portal')
+    ? floor.objects.find(function(o) { return o.x === state.hero.x && o.y === state.hero.y && o.objectType === 'portal'; })
     : null;
 
   if (portalAtPlayer) {
-    const trav = portalAtPlayer.components && portalAtPlayer.components.traversal;
-    if (trav && trav.portalType === 'extraction') {
-      extractToGuild('Astral Sanctum Gateway', state);
+    const travRes = traversePortal(portalAtPlayer, state);
+    if (travRes && travRes.ok) {
       return;
-    }
-    if (trav && trav.portalType === 'waypoint') {
-      executeInteraction({ targetId: portalAtPlayer.instanceId, actionId: 'attune' }, state);
-      const wps = (state.dungeon && state.dungeon.waypoints) ? state.dungeon.waypoints : {};
-      const discovered = Object.keys(wps).map(k => wps[k]).filter(w => w.attuned);
-      if (discovered.length <= 1) {
-        if (state === gameState) {
-          playSound('lvl');
-          ui.floatingText(state.hero.x, state.hero.y, 'Waypoint Attuned!', '#38bdf8');
-          ui.log(`Attuned to Celestial Waypoint on Floor ${state.dungeon.currentFloor}. Chart more waypoints to enable fast-travel.`, 'good');
-        }
-        return;
-      }
-      discovered.sort((a, b) => a.depth - b.depth);
-      let curIdx = discovered.findIndex(w => w.depth === state.dungeon.currentFloor);
-      let nextWp = discovered[(curIdx + 1) % discovered.length];
-      if (nextWp) {
-        state.dungeon.currentFloor = nextWp.depth;
-        const destFloor = ensureDungeonFloorHydrated(state.dungeon, nextWp.depth);
-        state.hero.x = nextWp.x;
-        state.hero.y = nextWp.y;
-        detectNearbyTraps(destFloor, state);
-        if (state === gameState) {
-          playSound('spell');
-          fovCallback();
-          saveGame();
-          ui.updateUI();
-          ui.floatingText(state.hero.x, state.hero.y, `Waypoint: Floor ${nextWp.depth}!`, '#38bdf8');
-          ui.log(`Traversed Celestial Waypoint Network to Floor ${nextWp.depth} (${nextWp.name}).`, 'gold');
-        }
-        return;
-      }
-    }
-    if (trav && trav.portalType === 'rift') {
-      const riftRes = executeInteraction({ targetId: portalAtPlayer.instanceId, actionId: 'traverse' }, state);
-      if (riftRes && (riftRes.ok || riftRes.success)) {
-        if (state === gameState) {
-          playSound('spell');
-          ui.floatingText(state.hero.x, state.hero.y, 'Rift Traversed!', '#c084fc');
-          ui.log('Traversed Unstable Astral Rift into dimensional fold.', 'gold');
-        }
-        return;
-      }
     }
   }
 
@@ -13238,6 +13386,7 @@ function spawnEntity(type, subId = null, x = null, y = null, state = gameState) 
 
 
 
+
 let commandHistory = [];
 let historyIndex = -1;
 
@@ -13302,6 +13451,15 @@ function handleDevQuickSpawn(type, subId) {
     logDevConsole(`Quick-spawned ${res.type} (${(res.entity && res.entity.name) || subId}) at (${res.x}, ${res.y})`, 'good');
   } else {
     logDevConsole(`Failed to spawn: ${res.reason}`, 'bad');
+  }
+}
+
+function handleDevActivatePocketPortalClick() {
+  const res = usePocketPortal();
+  if (res.ok) {
+    logDevConsole(`Activated Pocket Portal Device -> Warped to (${res.x}, ${res.y}) on Floor ${res.destFloor}!`, 'gold');
+  } else {
+    logDevConsole(`Failed to activate portal: ${res.reason}`, 'bad');
   }
 }
 
@@ -13514,6 +13672,36 @@ function updateScannerOnHover(gx, gy) {
       <div class="text-[10px] text-[#8b949e]">${monster.affix ? monster.affix.desc : (monster.isRanged ? `Ranged Attacker (${monster.range || 3} tiles)` : 'Melee Guardian')}</div>
     `;
     return;
+  }
+
+  // World Objects (Doors & Portals)
+  const worldObj = (floor.objects && floor.objects.length > 0)
+    ? floor.objects.find(function(o) { return o.x === gx && o.y === gy; })
+    : null;
+  if (worldObj) {
+    if (worldObj.objectType === 'portal') {
+      const rState = worldObj.runtimeState || {};
+      const isCollapsed = rState.mechanical === 'collapsed';
+      const trav = (worldObj.components && worldObj.components.traversal) || {};
+      const charges = typeof trav.charges === 'number' ? `(${trav.charges} charges)` : '';
+      box.innerHTML = `
+        <div class="font-bold text-[#c084fc]">🌌 ${worldObj.name} (${gx}, ${gy}) ${charges}</div>
+        <div class="text-[11px] text-[#e6edf3]">${worldObj.description || 'A dimensional gateway connecting different spaces.'}</div>
+        <div class="text-[10px] text-[#38bdf8]">${isCollapsed ? 'Fissure has collapsed and is inert.' : 'Step through or click to instantly teleport to the destination!'}</div>
+      `;
+      return;
+    }
+    if (worldObj.objectType === 'door') {
+      const rState = worldObj.runtimeState || {};
+      const sec = rState.security || 'unlocked';
+      const mech = rState.mechanical || 'closed';
+      box.innerHTML = `
+        <div class="font-bold text-[#e6edf3]">🚪 ${worldObj.name} (${gx}, ${gy})</div>
+        <div class="text-[11px] text-[#8b949e]">Status: ${mech.toUpperCase()} • ${sec.toUpperCase()}</div>
+        <div class="text-[10px] text-[#34d399]">Walk into to open, unlock with matching key, or bash.</div>
+      `;
+      return;
+    }
   }
 
   const t = floor.tiles[gy][gx];
@@ -15427,10 +15615,21 @@ function evaluateSelfTests() {
 
   const riftTrav1 = executeInteraction(createInteractionRequest('hero', riftInst.instanceId, 'traverse'), sandbox29);
   const rift1Charges = riftInst.components.traversal.charges;
+  const rift1Teleported = (sandbox29.hero.x !== 6 || sandbox29.hero.y !== 6);
+
+  // Position hero adjacent to test second traversal
+  sandbox29.hero.x = 6;
+  sandbox29.hero.y = 5;
   const riftTrav2 = executeInteraction(createInteractionRequest('hero', riftInst.instanceId, 'traverse'), sandbox29);
   const rift2Charges = riftInst.components.traversal.charges;
   const riftCollapsed = riftInst.runtimeState.mechanical === 'collapsed';
   const riftRemovedFromFloor = !fl1_29.objects.find(function(o) { return o.instanceId === riftInst.instanceId; });
+
+  // Test Carried Pocket Portal Device
+  sandbox29.hero.x = 10;
+  sandbox29.hero.y = 10;
+  const pocketRes = usePocketPortal(sandbox29, true);
+  const pocketPortalWorked = pocketRes.ok && (sandbox29.hero.x !== 10 || sandbox29.hero.y !== 10);
 
   // Test Boss Defeat extraction portal spawn
   const testBoss29 = {
@@ -15494,7 +15693,9 @@ function evaluateSelfTests() {
     isPortalActiveCheck: isPortalActiveCheck,
     wpRegistered: wpRegistered,
     riftChargesDecrement: rift1Charges === 1 && rift2Charges === 0,
+    rift1Teleported: rift1Teleported,
     riftCollapsedAndRemoved: riftCollapsed && riftRemovedFromFloor,
+    pocketPortalWorked: pocketPortalWorked,
     bossPortalSpawned: bossPortalSpawned,
     extractedViaPortal: extractedViaPortal,
     devSpawnerValid: devSpawnerValid,
@@ -15762,6 +15963,8 @@ const AethelgardAPI = {
   isPortalActive,
   registerDiscoveredWaypoint,
   getDiscoveredWaypoints,
+  traversePortal,
+  usePocketPortal,
   spawnGroundItem,
   spawnEntity,
   renderDoorTile,
@@ -15850,6 +16053,7 @@ const AethelgardAPI = {
   handleDevSpawnTypeChange,
   handleDevSpawnClick,
   handleDevQuickSpawn,
+  handleDevActivatePocketPortalClick,
   SPAWN_SUB_OPTIONS,
   handleDevTerminalSubmit,
   handleDevTerminalKeyDown

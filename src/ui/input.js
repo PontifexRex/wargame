@@ -72,6 +72,36 @@ export function updateScannerOnHover(gx, gy) {
     return;
   }
 
+  // World Objects (Doors & Portals)
+  const worldObj = (floor.objects && floor.objects.length > 0)
+    ? floor.objects.find(function(o) { return o.x === gx && o.y === gy; })
+    : null;
+  if (worldObj) {
+    if (worldObj.objectType === 'portal') {
+      const rState = worldObj.runtimeState || {};
+      const isCollapsed = rState.mechanical === 'collapsed';
+      const trav = (worldObj.components && worldObj.components.traversal) || {};
+      const charges = typeof trav.charges === 'number' ? `(${trav.charges} charges)` : '';
+      box.innerHTML = `
+        <div class="font-bold text-[#c084fc]">🌌 ${worldObj.name} (${gx}, ${gy}) ${charges}</div>
+        <div class="text-[11px] text-[#e6edf3]">${worldObj.description || 'A dimensional gateway connecting different spaces.'}</div>
+        <div class="text-[10px] text-[#38bdf8]">${isCollapsed ? 'Fissure has collapsed and is inert.' : 'Step through or click to instantly teleport to the destination!'}</div>
+      `;
+      return;
+    }
+    if (worldObj.objectType === 'door') {
+      const rState = worldObj.runtimeState || {};
+      const sec = rState.security || 'unlocked';
+      const mech = rState.mechanical || 'closed';
+      box.innerHTML = `
+        <div class="font-bold text-[#e6edf3]">🚪 ${worldObj.name} (${gx}, ${gy})</div>
+        <div class="text-[11px] text-[#8b949e]">Status: ${mech.toUpperCase()} • ${sec.toUpperCase()}</div>
+        <div class="text-[10px] text-[#34d399]">Walk into to open, unlock with matching key, or bash.</div>
+      `;
+      return;
+    }
+  }
+
   const t = floor.tiles[gy][gx];
   if (ORE_CATALOG[t]) {
     const ore = ORE_CATALOG[t];

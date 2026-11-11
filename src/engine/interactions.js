@@ -4,7 +4,7 @@
 import { gameState } from './state.js';
 import { ENGINE_EVENTS, emitEngineEvent } from './events.js';
 import { findObjectById, removeWorldObject, registerDiscoveredWaypoint } from './objects.js';
-import { extractToGuild } from './actions.js';
+import { extractToGuild, traversePortal } from './actions.js';
 
 let interactionSeq = 1000;
 
@@ -279,35 +279,11 @@ export function applyInteractionEffects(effects, context = {}, state = gameState
       }, state);
       applied.push(eff);
     } else if (eff.type === 'traverseWaypoint') {
-      const targetDepth = (context.parameters && context.parameters.targetDepth) !== undefined
-        ? context.parameters.targetDepth
-        : null;
-      emitEngineEvent(ENGINE_EVENTS.PORTAL_TRAVERSED, {
-        portalType: 'waypoint',
-        fromDepth: (floor && floor.depth) || 1,
-        targetDepth: targetDepth,
-        instanceId: target.instanceId
-      }, state);
-      applied.push(eff);
+      const travRes = traversePortal(target, state);
+      applied.push(Object.assign({}, eff, { result: travRes }));
     } else if (eff.type === 'traverseRift') {
-      const trav = target.components && target.components.traversal;
-      if (trav && typeof trav.charges === 'number') {
-        trav.charges -= 1;
-        if (trav.charges <= 0) {
-          if (target.runtimeState) {
-            target.runtimeState.mechanical = 'collapsed';
-          }
-          if (trav.collapseOnDeplete && floor) {
-            removeWorldObject(floor, target.instanceId);
-          }
-        }
-      }
-      emitEngineEvent(ENGINE_EVENTS.PORTAL_TRAVERSED, {
-        portalType: 'rift',
-        instanceId: target.instanceId,
-        remainingCharges: trav ? trav.charges : 0
-      }, state);
-      applied.push(eff);
+      const travRes = traversePortal(target, state);
+      applied.push(Object.assign({}, eff, { result: travRes }));
     } else if (eff.type === 'extractHero') {
       extractToGuild(eff.reason || 'Astral Portal', state);
       emitEngineEvent(ENGINE_EVENTS.PORTAL_TRAVERSED, {
