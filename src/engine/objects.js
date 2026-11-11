@@ -70,7 +70,27 @@ export function createWorldObjectInstance(defId, options = {}) {
       defObj.defaultPermeability || {},
       options.permeability || {}
     ),
-    components: Object.assign({}, defObj.defaultComponents || {}, options.components || {}),
+    components: (function() {
+      const mc = {};
+      if (defObj.defaultComponents) {
+        const dKeys = Object.keys(defObj.defaultComponents);
+        for (let di = 0; di < dKeys.length; di++) {
+          const dk = dKeys[di];
+          mc[dk] = Object.assign({}, defObj.defaultComponents[dk]);
+        }
+      }
+      if (options.components) {
+        const oKeys = Object.keys(options.components);
+        for (let oi = 0; oi < oKeys.length; oi++) {
+          const ok = oKeys[oi];
+          mc[ok] = Object.assign(mc[ok] || {}, options.components[ok]);
+        }
+      }
+      if (options.traversal) {
+        mc.traversal = Object.assign(mc.traversal || {}, options.traversal);
+      }
+      return mc;
+    })(),
     customData: Object.assign({}, options.customData || {})
   };
 
@@ -442,4 +462,63 @@ export function isDoorTraversable(door) {
   else if (st.discovery === 'unknown') reason = 'secret_wall';
 
   return { traversable: false, reason: reason };
+}
+
+// ============================================================================
+// PORTAL & WAYPOINT HELPERS (Fast-Travel & Astral Traversal)
+// ============================================================================
+
+export function createPortalInstance(defId = 'portal_ancient_waypoint', x = 0, y = 0, options = {}) {
+  const portal = createWorldObjectInstance(defId, Object.assign({}, options, {
+    x: x,
+    y: y,
+    objectType: WORLD_OBJECT_TYPES.PORTAL
+  }));
+  return portal;
+}
+
+export function isPortal(obj) {
+  return Boolean(obj && obj.objectType === WORLD_OBJECT_TYPES.PORTAL);
+}
+
+export function isPortalActive(portal) {
+  if (!portal || !isPortal(portal)) return false;
+  const st = portal.runtimeState || {};
+  return st.mechanical === 'active';
+}
+
+export function registerDiscoveredWaypoint(floorDepth, x, y, waypointObj, state) {
+  if (!state || !state.dungeon) return false;
+  if (!state.dungeon.waypoints) {
+    state.dungeon.waypoints = {};
+  }
+  const key = `f${floorDepth}`;
+  const existing = state.dungeon.waypoints[key];
+  if (existing && existing.attuned) return false;
+
+  state.dungeon.waypoints[key] = {
+    depth: floorDepth,
+    x: x,
+    y: y,
+    attuned: true,
+    instanceId: waypointObj ? waypointObj.instanceId : `wp_${floorDepth}`,
+    name: (waypointObj && waypointObj.name) || `Floor ${floorDepth} Celestial Waypoint`,
+    discoveredAtTurn: state.turn || 0
+  };
+  return true;
+}
+
+export function getDiscoveredWaypoints(state) {
+  if (!state || !state.dungeon || !state.dungeon.waypoints) return [];
+  const wps = state.dungeon.waypoints;
+  const list = [];
+  const keys = Object.keys(wps);
+  for (let i = 0; i < keys.length; i++) {
+    const wp = wps[keys[i]];
+    if (wp && wp.attuned) {
+      list.push(wp);
+    }
+  }
+  list.sort((a, b) => a.depth - b.depth);
+  return list;
 }

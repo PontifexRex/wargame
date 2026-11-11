@@ -892,7 +892,8 @@ function createDungeonInstance(profileOrConfig, options = {}) {
     currentFloor: 1,
     deepestFloor: 1,
     isCleared: false,
-    floors: {}
+    floors: {},
+    waypoints: {}
   };
 }
 
@@ -1935,6 +1936,162 @@ registerObjectDefinition({
   }
 });
 
+// ============================================================================
+// 7. PORTAL & WAYPOINT DEFINITIONS (Fast-Travel, Rifts & Boss Extractions)
+// ============================================================================
+
+registerObjectDefinition({
+  definitionId: 'portal_ancient_waypoint',
+  category: OBJECT_CATEGORIES.WORLD_OBJECT,
+  objectType: WORLD_OBJECT_TYPES.PORTAL,
+  name: 'Ancient Celestial Waypoint',
+  description: 'A resonant stellar monolith inscribed with astronomical cartographic coordinates connecting to the Guild Waypoint Network.',
+  tags: ['portal', 'waypoint', 'celestial', 'monolith', 'fast_travel'],
+  defaultState: {
+    mechanical: 'active',
+    security: 'unlocked',
+    discovery: 'unknown',
+    power: 'powered',
+    structural: 'indestructible'
+  },
+  defaultPermeability: {
+    movement: true,
+    lineOfSight: true,
+    light: true,
+    sound: true,
+    projectiles: true,
+    magic: true
+  },
+  defaultComponents: {
+    traversal: {
+      portalType: 'waypoint',
+      networkId: 'astral_waypoints',
+      endpointType: 'bi_directional',
+      transitionType: 'instant',
+      allowsReturn: true
+    },
+    interactable: {
+      prompt: 'Attune Celestial Waypoint',
+      actions: {
+        attune: {
+          id: 'attune',
+          name: 'Attune Waypoint',
+          requirements: null,
+          costs: null,
+          effects: [
+            { type: 'attuneWaypoint' },
+            { type: 'changeState', axis: 'discovery', value: 'revealed' }
+          ]
+        },
+        traverse: {
+          id: 'traverse',
+          name: 'Travel via Waypoint Network',
+          requirements: { type: 'objectState', axis: 'discovery', value: 'revealed' },
+          costs: null,
+          effects: [
+            { type: 'traverseWaypoint' }
+          ]
+        }
+      }
+    }
+  }
+});
+
+registerObjectDefinition({
+  definitionId: 'portal_astral_rift',
+  category: OBJECT_CATEGORIES.WORLD_OBJECT,
+  objectType: WORLD_OBJECT_TYPES.PORTAL,
+  name: 'Unstable Astral Rift',
+  description: 'A fluctuating dimensional fissure tearing through the vault floor. Will collapse after finite traversals.',
+  tags: ['portal', 'rift', 'astral', 'unstable', 'limited_charges'],
+  defaultState: {
+    mechanical: 'active',
+    security: 'unlocked',
+    discovery: 'revealed',
+    power: 'powered',
+    structural: 'volatile'
+  },
+  defaultPermeability: {
+    movement: true,
+    lineOfSight: true,
+    light: true,
+    sound: true,
+    projectiles: true,
+    magic: true
+  },
+  defaultComponents: {
+    traversal: {
+      portalType: 'rift',
+      networkId: 'isolated_rift',
+      endpointType: 'one_way',
+      transitionType: 'rift_jump',
+      charges: 2,
+      maxCharges: 2,
+      collapseOnDeplete: true
+    },
+    interactable: {
+      prompt: 'Step into Astral Rift',
+      actions: {
+        traverse: {
+          id: 'traverse',
+          name: 'Enter Astral Rift',
+          requirements: { type: 'objectState', axis: 'mechanical', value: 'active' },
+          costs: null,
+          effects: [
+            { type: 'traverseRift' }
+          ]
+        }
+      }
+    }
+  }
+});
+
+registerObjectDefinition({
+  definitionId: 'portal_boss_extraction',
+  category: OBJECT_CATEGORIES.WORLD_OBJECT,
+  objectType: WORLD_OBJECT_TYPES.PORTAL,
+  name: 'Astral Sanctum Gateway',
+  description: 'A triumphant golden beacon portal materialized from the defeated boss guardian\'s residual astral energy.',
+  tags: ['portal', 'extraction', 'boss', 'sanctum', 'triumphant'],
+  defaultState: {
+    mechanical: 'active',
+    security: 'unlocked',
+    discovery: 'revealed',
+    power: 'powered',
+    structural: 'indestructible'
+  },
+  defaultPermeability: {
+    movement: true,
+    lineOfSight: true,
+    light: true,
+    sound: true,
+    projectiles: true,
+    magic: true
+  },
+  defaultComponents: {
+    traversal: {
+      portalType: 'extraction',
+      destination: 'guild',
+      endpointType: 'one_way',
+      transitionType: 'extraction'
+    },
+    interactable: {
+      prompt: 'Ascend to Surface',
+      actions: {
+        traverse: {
+          id: 'traverse',
+          name: 'Extract to Oakhaven',
+          requirements: null,
+          costs: null,
+          effects: [
+            { type: 'extractHero', reason: 'Astral Sanctum Gateway' }
+          ]
+        }
+      }
+    }
+  }
+});
+
   // --- Module: src/engine/objects.js ---
 // Foundational Game Object & Runtime Instance Engine (ADR-0010)
 // Manages object instances, spatial floor queries, item pickups, and the ItemStack stacking engine.
@@ -1994,7 +2151,27 @@ function createWorldObjectInstance(defId, options = {}) {
       defObj.defaultPermeability || {},
       options.permeability || {}
     ),
-    components: Object.assign({}, defObj.defaultComponents || {}, options.components || {}),
+    components: (function() {
+      const mc = {};
+      if (defObj.defaultComponents) {
+        const dKeys = Object.keys(defObj.defaultComponents);
+        for (let di = 0; di < dKeys.length; di++) {
+          const dk = dKeys[di];
+          mc[dk] = Object.assign({}, defObj.defaultComponents[dk]);
+        }
+      }
+      if (options.components) {
+        const oKeys = Object.keys(options.components);
+        for (let oi = 0; oi < oKeys.length; oi++) {
+          const ok = oKeys[oi];
+          mc[ok] = Object.assign(mc[ok] || {}, options.components[ok]);
+        }
+      }
+      if (options.traversal) {
+        mc.traversal = Object.assign(mc.traversal || {}, options.traversal);
+      }
+      return mc;
+    })(),
     customData: Object.assign({}, options.customData || {})
   };
 
@@ -2368,6 +2545,65 @@ function isDoorTraversable(door) {
   return { traversable: false, reason: reason };
 }
 
+// ============================================================================
+// PORTAL & WAYPOINT HELPERS (Fast-Travel & Astral Traversal)
+// ============================================================================
+
+function createPortalInstance(defId = 'portal_ancient_waypoint', x = 0, y = 0, options = {}) {
+  const portal = createWorldObjectInstance(defId, Object.assign({}, options, {
+    x: x,
+    y: y,
+    objectType: WORLD_OBJECT_TYPES.PORTAL
+  }));
+  return portal;
+}
+
+function isPortal(obj) {
+  return Boolean(obj && obj.objectType === WORLD_OBJECT_TYPES.PORTAL);
+}
+
+function isPortalActive(portal) {
+  if (!portal || !isPortal(portal)) return false;
+  const st = portal.runtimeState || {};
+  return st.mechanical === 'active';
+}
+
+function registerDiscoveredWaypoint(floorDepth, x, y, waypointObj, state) {
+  if (!state || !state.dungeon) return false;
+  if (!state.dungeon.waypoints) {
+    state.dungeon.waypoints = {};
+  }
+  const key = `f${floorDepth}`;
+  const existing = state.dungeon.waypoints[key];
+  if (existing && existing.attuned) return false;
+
+  state.dungeon.waypoints[key] = {
+    depth: floorDepth,
+    x: x,
+    y: y,
+    attuned: true,
+    instanceId: waypointObj ? waypointObj.instanceId : `wp_${floorDepth}`,
+    name: (waypointObj && waypointObj.name) || `Floor ${floorDepth} Celestial Waypoint`,
+    discoveredAtTurn: state.turn || 0
+  };
+  return true;
+}
+
+function getDiscoveredWaypoints(state) {
+  if (!state || !state.dungeon || !state.dungeon.waypoints) return [];
+  const wps = state.dungeon.waypoints;
+  const list = [];
+  const keys = Object.keys(wps);
+  for (let i = 0; i < keys.length; i++) {
+    const wp = wps[keys[i]];
+    if (wp && wp.attuned) {
+      list.push(wp);
+    }
+  }
+  list.sort((a, b) => a.depth - b.depth);
+  return list;
+}
+
   // --- Module: src/engine/state.js ---
 // Game State Schema (Multi-Dungeon Atlas v5/v6), Save Migration, RLE Persistence & Derived Hero Stats
 
@@ -2737,7 +2973,8 @@ function migrateSaveData(raw) {
         currentFloor: rawDng.currentFloor || 1,
         deepestFloor: rawDng.deepestFloor || rawDng.currentFloor || 1,
         isCleared: !!rawDng.isCleared,
-        floors: rawDng.floors || {}
+        floors: rawDng.floors || {},
+        waypoints: rawDng.waypoints || {}
       };
     });
     migrated.activeDungeonId = data.activeDungeonId && migrated.dungeons[data.activeDungeonId]
@@ -2757,6 +2994,7 @@ function migrateSaveData(raw) {
     targetDng.currentFloor = data.dungeon.currentFloor || data.dungeon.currentDepth || 1;
     targetDng.deepestFloor = Math.max(1, targetDng.currentFloor, Object.keys(data.dungeon.floors).length);
     targetDng.floors = {};
+    targetDng.waypoints = data.dungeon.waypoints || {};
     Object.keys(data.dungeon.floors).forEach(fk => {
       targetDng.floors[fk] = hydrateFloorFromStorage(data.dungeon.floors[fk]);
     });
@@ -3085,7 +3323,9 @@ const ENGINE_EVENTS = {
   OBJECT_INTERACTION:  'objectInteraction',
   OBJECT_STATE_CHANGED:'objectStateChanged',
   ITEM_PICKED_UP:      'itemPickedUp',
-  ITEM_DROPPED:        'itemDropped'
+  ITEM_DROPPED:        'itemDropped',
+  PORTAL_TRAVERSED:    'portalTraversed',
+  WAYPOINT_DISCOVERED: 'waypointDiscovered'
 };
 
 const eventListenersMap = {};
@@ -4313,6 +4553,46 @@ function generateFloor(depth, dungeonConfig = null, dungeonSeed = null) {
         });
         floorObj.objects.push(secDoor);
         break;
+      }
+    }
+  }
+
+  // Spawn Ancient Celestial Waypoint on milestone depths (5, 10, 15, 20...)
+  if (depth % 5 === 0 && rooms.length >= 2) {
+    let wpRoom = rooms.find(function(r) { return r !== upRoom && r !== downRoom; });
+    if (!wpRoom) wpRoom = rooms.find(function(r) { return r !== upRoom; }) || rooms[0];
+    if (wpRoom) {
+      let placed = false;
+      for (let ry = wpRoom.ry; ry < wpRoom.ry + wpRoom.rh && !placed; ry++) {
+        for (let rx = wpRoom.rx; rx < wpRoom.rx + wpRoom.rw && !placed; rx++) {
+          if (tiles[ry][rx] === TILE_FLOOR && !(rx === upPos.x && ry === upPos.y) && !(downPos && rx === downPos.x && ry === downPos.y)) {
+            const wpInst = createPortalInstance('portal_ancient_waypoint', rx, ry, {
+              traversal: {
+                destination: { depth: depth, x: rx, y: ry }
+              }
+            });
+            floorObj.objects.push(wpInst);
+            placed = true;
+          }
+        }
+      }
+    }
+  }
+
+  // Spawn Unstable Astral Rift occasionally in deeper strata (effDepth >= 3, 20% chance)
+  if (effDepth >= 3 && rand() < 0.20 && rooms.length >= 3) {
+    const riftRoom = rooms[Math.floor(rand() * rooms.length)];
+    if (riftRoom !== upRoom) {
+      const rx = riftRoom.rx + Math.floor(rand() * riftRoom.rw);
+      const ry = riftRoom.ry + Math.floor(rand() * riftRoom.rh);
+      if (tiles[ry][rx] === TILE_FLOOR && !(rx === upPos.x && ry === upPos.y) && !(downPos && rx === downPos.x && ry === downPos.y)) {
+        const targetDepth = Math.max(1, depth + (rand() < 0.5 ? 1 : -1));
+        const riftInst = createPortalInstance('portal_astral_rift', rx, ry, {
+          traversal: {
+            destination: { depth: targetDepth, x: null, y: null }
+          }
+        });
+        floorObj.objects.push(riftInst);
       }
     }
   }
@@ -5937,6 +6217,7 @@ function pickupGroundObjectsAt(x, y, state = gameState) {
 
 
 
+
 let interactionSeq = 1000;
 
 function createInteractionRequest(actorId, targetId, actionId, parameters = {}, context = {}) {
@@ -6195,6 +6476,56 @@ function applyInteractionEffects(effects, context = {}, state = gameState) {
       }
     } else if (eff.type === 'removeObject' && target && floor) {
       removeWorldObject(floor, target.instanceId);
+      applied.push(eff);
+    } else if (eff.type === 'attuneWaypoint') {
+      const flDepth = (floor && floor.depth) || (state && state.dungeon && state.dungeon.currentFloor) || 1;
+      registerDiscoveredWaypoint(flDepth, target.x, target.y, target, state);
+      if (target.runtimeState) {
+        target.runtimeState.discovery = 'revealed';
+      }
+      emitEngineEvent(ENGINE_EVENTS.WAYPOINT_DISCOVERED, {
+        depth: flDepth,
+        x: target.x,
+        y: target.y,
+        instanceId: target.instanceId
+      }, state);
+      applied.push(eff);
+    } else if (eff.type === 'traverseWaypoint') {
+      const targetDepth = (context.parameters && context.parameters.targetDepth) !== undefined
+        ? context.parameters.targetDepth
+        : null;
+      emitEngineEvent(ENGINE_EVENTS.PORTAL_TRAVERSED, {
+        portalType: 'waypoint',
+        fromDepth: (floor && floor.depth) || 1,
+        targetDepth: targetDepth,
+        instanceId: target.instanceId
+      }, state);
+      applied.push(eff);
+    } else if (eff.type === 'traverseRift') {
+      const trav = target.components && target.components.traversal;
+      if (trav && typeof trav.charges === 'number') {
+        trav.charges -= 1;
+        if (trav.charges <= 0) {
+          if (target.runtimeState) {
+            target.runtimeState.mechanical = 'collapsed';
+          }
+          if (trav.collapseOnDeplete && floor) {
+            removeWorldObject(floor, target.instanceId);
+          }
+        }
+      }
+      emitEngineEvent(ENGINE_EVENTS.PORTAL_TRAVERSED, {
+        portalType: 'rift',
+        instanceId: target.instanceId,
+        remainingCharges: trav ? trav.charges : 0
+      }, state);
+      applied.push(eff);
+    } else if (eff.type === 'extractHero') {
+      extractToGuild(eff.reason || 'Astral Portal', state);
+      emitEngineEvent(ENGINE_EVENTS.PORTAL_TRAVERSED, {
+        portalType: 'extraction',
+        instanceId: target.instanceId
+      }, state);
       applied.push(eff);
     } else {
       applied.push(eff);
@@ -6733,6 +7064,10 @@ function killMonster(monster, state = gameState) {
     if (floor.depth >= maxDepth) {
       state.dungeon.isCleared = true;
     }
+
+    // Spawn triumphant golden Astral Sanctum Gateway portal on boss defeat tile
+    const bossPortal = createPortalInstance('portal_boss_extraction', monster.x, monster.y);
+    addWorldObject(floor, bossPortal);
 
     if (state === gameState) {
       playSound('lvl');
@@ -7643,6 +7978,25 @@ function handlePlayerAction(dx, dy, state = gameState) {
     state.hero.y = ny;
     pickupGroundObjectsAt(nx, ny, state);
     detectNearbyTraps(floor, state);
+
+    // Auto-discover waypoint if stepping onto it
+    if (floor.objects && floor.objects.length > 0) {
+      for (let oi = 0; oi < floor.objects.length; oi++) {
+        const o = floor.objects[oi];
+        if (o && o.x === nx && o.y === ny && o.objectType === 'portal') {
+          if (o.definitionId === 'portal_ancient_waypoint' && o.runtimeState && o.runtimeState.discovery === 'unknown') {
+            executeInteraction({ targetId: o.instanceId, actionId: 'attune' }, state);
+            if (state === gameState) {
+              playSound('lvl');
+              ui.floatingText(nx, ny, 'Waypoint Attuned!', '#38bdf8');
+              ui.log(`Discovered and attuned Celestial Waypoint on Floor ${state.dungeon.currentFloor}!`, 'good');
+            }
+          }
+          break;
+        }
+      }
+    }
+
     processTurn(state);
   } else if (state === gameState) {
     ui.floatingText(nx, ny, 'Blocked', '#8b949e');
@@ -7657,6 +8011,63 @@ function useStairsAtPlayer(state = gameState) {
   if (!floor) return;
   const tile = floor.tiles[state.hero.y][state.hero.x];
 
+  // 1. Check for interactive Portal at hero position
+  const portalAtPlayer = (floor.objects && floor.objects.length > 0)
+    ? floor.objects.find(o => o.x === state.hero.x && o.y === state.hero.y && o.objectType === 'portal')
+    : null;
+
+  if (portalAtPlayer) {
+    const trav = portalAtPlayer.components && portalAtPlayer.components.traversal;
+    if (trav && trav.portalType === 'extraction') {
+      extractToGuild('Astral Sanctum Gateway', state);
+      return;
+    }
+    if (trav && trav.portalType === 'waypoint') {
+      executeInteraction({ targetId: portalAtPlayer.instanceId, actionId: 'attune' }, state);
+      const wps = (state.dungeon && state.dungeon.waypoints) ? state.dungeon.waypoints : {};
+      const discovered = Object.keys(wps).map(k => wps[k]).filter(w => w.attuned);
+      if (discovered.length <= 1) {
+        if (state === gameState) {
+          playSound('lvl');
+          ui.floatingText(state.hero.x, state.hero.y, 'Waypoint Attuned!', '#38bdf8');
+          ui.log(`Attuned to Celestial Waypoint on Floor ${state.dungeon.currentFloor}. Chart more waypoints to enable fast-travel.`, 'good');
+        }
+        return;
+      }
+      discovered.sort((a, b) => a.depth - b.depth);
+      let curIdx = discovered.findIndex(w => w.depth === state.dungeon.currentFloor);
+      let nextWp = discovered[(curIdx + 1) % discovered.length];
+      if (nextWp) {
+        state.dungeon.currentFloor = nextWp.depth;
+        const destFloor = ensureDungeonFloorHydrated(state.dungeon, nextWp.depth);
+        state.hero.x = nextWp.x;
+        state.hero.y = nextWp.y;
+        detectNearbyTraps(destFloor, state);
+        if (state === gameState) {
+          playSound('spell');
+          fovCallback();
+          saveGame();
+          ui.updateUI();
+          ui.floatingText(state.hero.x, state.hero.y, `Waypoint: Floor ${nextWp.depth}!`, '#38bdf8');
+          ui.log(`Traversed Celestial Waypoint Network to Floor ${nextWp.depth} (${nextWp.name}).`, 'gold');
+        }
+        return;
+      }
+    }
+    if (trav && trav.portalType === 'rift') {
+      const riftRes = executeInteraction({ targetId: portalAtPlayer.instanceId, actionId: 'traverse' }, state);
+      if (riftRes && (riftRes.ok || riftRes.success)) {
+        if (state === gameState) {
+          playSound('spell');
+          ui.floatingText(state.hero.x, state.hero.y, 'Rift Traversed!', '#c084fc');
+          ui.log('Traversed Unstable Astral Rift into dimensional fold.', 'gold');
+        }
+        return;
+      }
+    }
+  }
+
+  // 2. Stairs Traversal
   if (tile === TILE_STAIRS_UP) {
     if (state.dungeon.currentFloor === 1) {
       extractToGuild('Floor 1 Ascending Stairs (<)', state);
@@ -8977,11 +9388,13 @@ function renderMinimapCanvas(targetCanvasId = 'minimapCanvas') {
     }
   }
 
-  // Explored Doors on Minimap
+  // Explored Doors & Portals on Minimap
   if (floor.objects && floor.objects.length > 0) {
     for (let oi = 0; oi < floor.objects.length; oi++) {
       const obj = floor.objects[oi];
-      if (obj && obj.objectType === 'door' && floor.explored[obj.y] && floor.explored[obj.y][obj.x]) {
+      if (!obj || !floor.explored[obj.y] || !floor.explored[obj.y][obj.x]) continue;
+
+      if (obj.objectType === 'door') {
         const disc = obj.runtimeState && obj.runtimeState.discovery;
         if (disc !== 'unknown') {
           const rx = Math.floor(offX + obj.x * scale);
@@ -8990,6 +9403,12 @@ function renderMinimapCanvas(targetCanvasId = 'minimapCanvas') {
           const color = sec === 'locked' ? '#fbbf24' : '#d97706';
           poiMarkers.push({ x: rx, y: ry, color: color, size: Math.max(2, drawSize) });
         }
+      } else if (obj.objectType === 'portal') {
+        const rx = Math.floor(offX + obj.x * scale);
+        const ry = Math.floor(offY + obj.y * scale);
+        const pDefId = obj.definitionId || '';
+        const color = pDefId === 'portal_astral_rift' ? '#c084fc' : (pDefId === 'portal_boss_extraction' ? '#fbbf24' : '#38bdf8');
+        poiMarkers.push({ x: rx, y: ry, color: color, size: Math.max(3, drawSize + 1) });
       }
     }
   }
@@ -9223,6 +9642,126 @@ function renderDoorTile(ctx, px, py, door, biome, inSight) {
     ctx.arc(px + 23, py + 16, 2, 0, Math.PI * 2);
     ctx.stroke();
   }
+}
+
+function renderPortalTile(ctx, px, py, portal, biome, inSight) {
+  if (!ctx || !portal) return;
+  const defId = portal.definitionId || '';
+  const rState = portal.runtimeState || {};
+  const isCollapsed = rState.mechanical === 'collapsed';
+
+  // Base circular shadow dais
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
+  ctx.beginPath();
+  if (typeof ctx.ellipse === 'function') {
+    ctx.ellipse(px + 16, py + 22, 12, 6, 0, 0, Math.PI * 2);
+  } else {
+    ctx.arc(px + 16, py + 20, 10, 0, Math.PI * 2);
+  }
+  ctx.fill();
+
+  if (isCollapsed) {
+    ctx.fillStyle = '#1e293b';
+    ctx.fillRect(px + 8, py + 14, 16, 6);
+    ctx.strokeStyle = '#475569';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(px + 8, py + 14, 16, 6);
+    ctx.fillStyle = '#64748b';
+    ctx.fillRect(px + 12, py + 16, 8, 2);
+    return;
+  }
+
+  if (defId === 'portal_astral_rift') {
+    const trav = portal.components && portal.components.traversal;
+    const charges = trav && typeof trav.charges === 'number' ? trav.charges : 2;
+
+    ctx.fillStyle = 'rgba(192, 132, 252, 0.25)';
+    ctx.beginPath();
+    ctx.arc(px + 16, py + 16, 12, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.strokeStyle = '#c084fc';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(px + 16, py + 16, 8, 0, Math.PI * 1.5);
+    ctx.stroke();
+
+    ctx.strokeStyle = '#f472b6';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(px + 16, py + 16, 5, Math.PI * 0.5, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.fillStyle = '#0f172a';
+    ctx.beginPath();
+    ctx.arc(px + 16, py + 16, 3.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(px + 15, py + 15, 2, 2);
+
+    for (let c = 0; c < charges; c++) {
+      ctx.fillStyle = '#f472b6';
+      ctx.fillRect(px + 12 + c * 5, py + 4, 3, 3);
+    }
+    return;
+  }
+
+  if (defId === 'portal_boss_extraction') {
+    ctx.fillStyle = 'rgba(251, 191, 36, 0.25)';
+    ctx.beginPath();
+    ctx.arc(px + 16, py + 16, 13, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.strokeStyle = '#fbbf24';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(px + 16, py + 16, 9, 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.strokeStyle = '#fef08a';
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.arc(px + 16, py + 16, 5, 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.fillStyle = 'rgba(254, 240, 138, 0.6)';
+    ctx.fillRect(px + 15, py + 2, 2, 8);
+    ctx.fillRect(px + 10, py + 5, 2, 6);
+    ctx.fillRect(px + 20, py + 5, 2, 6);
+    return;
+  }
+
+  // Ancient Celestial Waypoint (portal_ancient_waypoint)
+  const isAttuned = rState.discovery === 'revealed';
+
+  ctx.fillStyle = '#1e293b';
+  ctx.fillRect(px + 6, py + 18, 20, 8);
+  ctx.fillStyle = '#334155';
+  ctx.fillRect(px + 9, py + 14, 14, 6);
+
+  ctx.fillStyle = '#475569';
+  ctx.fillRect(px + 5, py + 12, 3, 10);
+  ctx.fillRect(px + 24, py + 12, 3, 10);
+  ctx.fillRect(px + 5, py + 10, 3, 2);
+  ctx.fillRect(px + 24, py + 10, 3, 2);
+
+  const auraColor = isAttuned ? 'rgba(56, 189, 248, 0.35)' : 'rgba(148, 163, 184, 0.20)';
+  ctx.fillStyle = auraColor;
+  ctx.beginPath();
+  ctx.arc(px + 16, py + 10, 7, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = isAttuned ? '#38bdf8' : '#94a3b8';
+  ctx.beginPath();
+  ctx.moveTo(px + 16, py + 4);
+  ctx.lineTo(px + 20, py + 10);
+  ctx.lineTo(px + 16, py + 16);
+  ctx.lineTo(px + 12, py + 10);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.fillStyle = isAttuned ? '#ffffff' : '#cbd5e1';
+  ctx.fillRect(px + 15, py + 9, 2, 2);
 }
 
 function renderDungeonCanvas() {
@@ -9651,13 +10190,18 @@ function renderDungeonCanvas() {
         }
       }
 
-      // 4. World Objects on Tile (Doors)
+      // 4. World Objects on Tile (Doors & Portals)
       if (floor.objects && floor.objects.length > 0) {
         for (let oi = 0; oi < floor.objects.length; oi++) {
           const obj = floor.objects[oi];
-          if (obj && obj.x === x && obj.y === y && obj.objectType === 'door') {
-            renderDoorTile(ctx, px, py, obj, biome, inSight);
-            break;
+          if (obj && obj.x === x && obj.y === y) {
+            if (obj.objectType === 'door') {
+              renderDoorTile(ctx, px, py, obj, biome, inSight);
+              break;
+            } else if (obj.objectType === 'portal') {
+              renderPortalTile(ctx, px, py, obj, biome, inSight);
+              break;
+            }
           }
         }
       }
@@ -12306,6 +12850,9 @@ function hideFloatingItemTooltip() {
 
 
 
+
+
+
 function gotoFloor(depth, dungeonId = null, state = gameState) {
   if (!state || !state.hero) {
     return { ok: false, reason: 'no_hero' };
@@ -12563,14 +13110,127 @@ function executeDevCommand(cmdStr, state = gameState) {
     return { ok: res.ok, output: `God Mode is now ${res.godMode ? 'ON' : 'OFF'}` };
   }
 
+  if (verb === 'spawn') {
+    const type = arg1;
+    const subId = arg2;
+    const arg3 = parts[3];
+    const arg4 = parts[4];
+    const x = arg3 !== undefined ? Number(arg3) : null;
+    const y = arg4 !== undefined ? Number(arg4) : null;
+    if (!type) {
+      return { ok: false, output: 'Usage: spawn <door|portal|key|monster> [subId] [x] [y]' };
+    }
+    const res = spawnEntity(type, subId, x, y, state);
+    return {
+      ok: res.ok,
+      output: res.ok ? `Spawned ${res.type} (${res.entity.name || subId}) at (${res.x}, ${res.y})` : `Failed: ${res.reason}`
+    };
+  }
+
   if (verb === 'help') {
     return {
       ok: true,
-      output: 'Commands: goto <depth> [dungeonId], level <lvl>, heal, reveal, god, help'
+      output: 'Commands: goto <depth> [dungeonId], level <lvl>, heal, reveal, god, spawn <door|portal|key|monster> [subId], help'
     };
   }
 
   return { ok: false, output: `Unknown command "${verb}". Type "help" for a list of commands.` };
+}
+
+function spawnEntity(type, subId = null, x = null, y = null, state = gameState) {
+  if (!state || !state.hero || state.inGuild) {
+    return { ok: false, reason: 'not_in_dungeon' };
+  }
+  const floor = ensureDungeonFloorHydrated(state.dungeon, state.dungeon.currentFloor);
+  if (!floor) return { ok: false, reason: 'no_floor' };
+
+  const sx = typeof x === 'number' && !isNaN(x) ? x : state.hero.x + 1;
+  const sy = typeof y === 'number' && !isNaN(y) ? y : state.hero.y;
+
+  const tLower = (type || '').toLowerCase();
+  const subLower = (subId || '').toLowerCase();
+
+  if (tLower === 'door') {
+    let defId = 'door_wood_hinged';
+    if (subLower === 'iron' || subLower === 'reinforced') defId = 'door_iron_reinforced';
+    else if (subLower === 'portcullis' || subLower === 'grate') defId = 'door_iron_portcullis';
+    else if (subLower === 'vault' || subLower === 'dwarven') defId = 'door_vault_ancient';
+    else if (subLower === 'secret' || subLower === 'stone') defId = 'door_secret_stone';
+
+    const door = createDoorInstance(defId, sx, sy);
+    addWorldObject(floor, door);
+    if (state === gameState) {
+      emitEngineEvent(ENGINE_EVENTS.FOV_SYNC, {}, state);
+      emitEngineEvent(ENGINE_EVENTS.LOG, { msg: `[DEV] Spawned ${door.name} at (${sx}, ${sy}).`, tone: 'gold' }, state);
+    }
+    return { ok: true, entity: door, type: 'door', x: sx, y: sy };
+  }
+
+  if (tLower === 'portal') {
+    let defId = 'portal_ancient_waypoint';
+    if (subLower === 'rift' || subLower === 'astral') defId = 'portal_astral_rift';
+    else if (subLower === 'boss' || subLower === 'extraction' || subLower === 'gateway') defId = 'portal_boss_extraction';
+
+    const portal = createPortalInstance(defId, sx, sy);
+    addWorldObject(floor, portal);
+    if (state === gameState) {
+      emitEngineEvent(ENGINE_EVENTS.FOV_SYNC, {}, state);
+      emitEngineEvent(ENGINE_EVENTS.LOG, { msg: `[DEV] Spawned ${portal.name} at (${sx}, ${sy}).`, tone: 'gold' }, state);
+    }
+    return { ok: true, entity: portal, type: 'portal', x: sx, y: sy };
+  }
+
+  if (tLower === 'key') {
+    let keyDefId = 'key_iron_common';
+    if (subLower === 'vault' || subLower === 'dwarven') keyDefId = 'key_vault_dwarven';
+    else if (subLower === 'celestial' || subLower === 'rune') keyDefId = 'key_rune_celestial';
+
+    const pickup = spawnGroundItem(floor, keyDefId, sx, sy);
+    if (state === gameState) {
+      emitEngineEvent(ENGINE_EVENTS.FOV_SYNC, {}, state);
+      emitEngineEvent(ENGINE_EVENTS.LOG, { msg: `[DEV] Spawned ${pickup.name} at (${sx}, ${sy}).`, tone: 'gold' }, state);
+    }
+    return { ok: true, entity: pickup, type: 'key', x: sx, y: sy };
+  }
+
+  if (tLower === 'monster' || tLower === 'mob') {
+    const archId = subId || 'vault_crawler';
+    const isBoss = BOSS_ARCHETYPES[archId];
+    let monster = null;
+    if (isBoss) {
+      const bDef = BOSS_ARCHETYPES[archId];
+      monster = {
+        uid: `boss_dev_${Date.now()}`,
+        id: bDef.id,
+        bountyTag: 'boss',
+        name: bDef.name,
+        isBoss: true,
+        dropRarity: bDef.dropRarity || 'epic',
+        isRanged: !!bDef.isRanged,
+        range: bDef.range || 1,
+        x: sx,
+        y: sy,
+        hp: bDef.hp,
+        maxHp: bDef.hp,
+        atk: bDef.atk,
+        def: bDef.def,
+        xp: bDef.xp,
+        color: bDef.color,
+        statuses: []
+      };
+    } else {
+      monster = createMonsterEntityFromArchetype(archId, floor.depth || 1, sx, sy, false, Math.random, 999);
+    }
+    if (!floor.monsters) floor.monsters = [];
+    floor.monsters.push(monster);
+    if (state === gameState) {
+      emitEngineEvent(ENGINE_EVENTS.FOV_SYNC, {}, state);
+      emitEngineEvent(ENGINE_EVENTS.LOG, { msg: `[DEV] Spawned ${monster.name} at (${sx}, ${sy}).`, tone: 'gold' }, state);
+    }
+    return { ok: true, entity: monster, type: 'monster', x: sx, y: sy };
+  }
+
+  return { ok: false, reason: `Unknown spawn type "${type}". Valid: door, portal, key, monster` };
 }
 
   // --- Module: src/ui/devConsole.js ---
@@ -14660,6 +15320,126 @@ function evaluateSelfTests() {
       : `Failed checks: ${failedKeys28.join(', ')}`
   });
 
+  // -------------------------------------------------------------
+  // Test 29: Portal System, Ancient Waypoint Networks, Shared Traversal & Dev Console Spawner
+  // -------------------------------------------------------------
+  const wpDef = getObjectDefinition('portal_ancient_waypoint');
+  const riftDef = getObjectDefinition('portal_astral_rift');
+  const extDef = getObjectDefinition('portal_boss_extraction');
+
+  const defsExist = Boolean(
+    wpDef && wpDef.objectType === 'portal' && wpDef.defaultComponents && wpDef.defaultComponents.traversal &&
+    riftDef && riftDef.objectType === 'portal' && riftDef.defaultComponents && riftDef.defaultComponents.traversal &&
+    extDef && extDef.objectType === 'portal' && extDef.defaultComponents && extDef.defaultComponents.traversal
+  );
+
+  const wpInst = createPortalInstance('portal_ancient_waypoint', 5, 5);
+  const isPortalCheck = isPortal(wpInst);
+  const isPortalActiveCheck = isPortalActive(wpInst);
+
+  const sandbox29 = createDefaultGameState();
+  selectAdventurerClass('fighter', sandbox29);
+  const initialWps = getDiscoveredWaypoints(sandbox29);
+  registerDiscoveredWaypoint(5, 10, 12, wpInst, sandbox29);
+  const wpsAfterReg = getDiscoveredWaypoints(sandbox29);
+  const wpRegistered = initialWps.length === 0 && wpsAfterReg.length === 1 && wpsAfterReg[0].depth === 5;
+
+  const fl1_29 = ensureDungeonFloorHydrated(sandbox29.dungeon, 1);
+  sandbox29.inGuild = false;
+  sandbox29.hero.x = 6;
+  sandbox29.hero.y = 6;
+
+  // Test Astral Rift traversal & collapse
+  const riftInst = createPortalInstance('portal_astral_rift', 6, 6, {
+    traversal: { charges: 2, collapseOnDeplete: true }
+  });
+  fl1_29.objects.push(riftInst);
+
+  const riftTrav1 = executeInteraction(createInteractionRequest('hero', riftInst.instanceId, 'traverse'), sandbox29);
+  const rift1Charges = riftInst.components.traversal.charges;
+  const riftTrav2 = executeInteraction(createInteractionRequest('hero', riftInst.instanceId, 'traverse'), sandbox29);
+  const rift2Charges = riftInst.components.traversal.charges;
+  const riftCollapsed = riftInst.runtimeState.mechanical === 'collapsed';
+  const riftRemovedFromFloor = !fl1_29.objects.find(function(o) { return o.instanceId === riftInst.instanceId; });
+
+  // Test Boss Defeat extraction portal spawn
+  const testBoss29 = {
+    uid: 'boss_t29_colossus',
+    id: 'boss_colossus',
+    name: 'Astral Colossus',
+    isBoss: true,
+    hp: 0,
+    maxHp: 100,
+    x: 7,
+    y: 7
+  };
+  fl1_29.monsters.push(testBoss29);
+  killMonster(testBoss29, sandbox29);
+  const extPortal = fl1_29.objects.find(function(o) {
+    return o.x === 7 && o.y === 7 && o.objectType === 'portal';
+  });
+  const bossPortalSpawned = Boolean(
+    extPortal && extPortal.definitionId === 'portal_boss_extraction' &&
+    extPortal.components && extPortal.components.traversal &&
+    extPortal.components.traversal.transitionType === 'extraction'
+  );
+
+  // Test using stairs at extraction portal triggers surface extraction
+  sandbox29.hero.x = 7;
+  sandbox29.hero.y = 7;
+  useStairsAtPlayer(sandbox29);
+  const extractedViaPortal = sandbox29.inGuild === true;
+
+  // Test Dev Console Spawner
+  sandbox29.inGuild = false;
+  sandbox29.hero.x = 2;
+  sandbox29.hero.y = 2;
+
+  const spawnDoorRes = spawnEntity('door', 'iron', 3, 2, sandbox29);
+  const spawnPortalRes = spawnEntity('portal', 'rift', 4, 2, sandbox29);
+  const spawnKeyRes = spawnEntity('key', 'dwarven', 2, 3, sandbox29);
+  const spawnMobRes = spawnEntity('monster', 'skeleton_grunt', 3, 3, sandbox29);
+  const devCliSpawnRes = executeDevCommand('spawn portal waypoint 8 8', sandbox29);
+  const devSpawnedWaypoint = fl1_29.objects.find(function(o) {
+    return o.x === 8 && o.y === 8 && o.definitionId === 'portal_ancient_waypoint';
+  });
+
+  const devSpawnerValid = Boolean(
+    spawnDoorRes.ok && spawnDoorRes.type === 'door' &&
+    spawnPortalRes.ok && spawnPortalRes.type === 'portal' &&
+    spawnKeyRes.ok && spawnKeyRes.type === 'key' &&
+    spawnMobRes.ok && spawnMobRes.type === 'monster' &&
+    devCliSpawnRes.ok && devSpawnedWaypoint
+  );
+
+  // Test Procedural Floor 5 contains an Ancient Waypoint
+  const fl5_proc = generateFloor(5, CURATED_DUNGEON_PROFILES.starfall_vaults, 99999);
+  const hasProceduralWaypoint = fl5_proc.objects.some(function(o) {
+    return o.definitionId === 'portal_ancient_waypoint';
+  });
+
+  const t29Checks = {
+    defsExist: defsExist,
+    isPortalCheck: isPortalCheck,
+    isPortalActiveCheck: isPortalActiveCheck,
+    wpRegistered: wpRegistered,
+    riftChargesDecrement: rift1Charges === 1 && rift2Charges === 0,
+    riftCollapsedAndRemoved: riftCollapsed && riftRemovedFromFloor,
+    bossPortalSpawned: bossPortalSpawned,
+    extractedViaPortal: extractedViaPortal,
+    devSpawnerValid: devSpawnerValid,
+    hasProceduralWaypoint: hasProceduralWaypoint
+  };
+  const failedKeys29 = Object.keys(t29Checks).filter(function(k) { return !t29Checks[k]; });
+  const t29Pass = failedKeys29.length === 0;
+  results.push({
+    name: '29. Portal System, Ancient Waypoint Networks, Shared Traversal & Dev Console Spawner',
+    pass: t29Pass,
+    detail: failedKeys29.length === 0
+      ? 'Portal definitions verified, traversal components verified, waypoint network registration verified, astral rift charges & collapse verified, boss defeat extraction portal spawn & extraction verified, dev console object spawner (door/portal/key/monster) verified, procedural waypoint generation verified'
+      : 'Failed checks: ' + failedKeys29.join(', ')
+  });
+
   return results;
 }
 
@@ -14670,7 +15450,7 @@ function runSelfTests(renderModal = false) {
   if (typeof document !== 'undefined') {
     const btnText = document.getElementById('verifyBtnText');
     if (btnText) {
-      btnText.textContent = `Verify Inc-8.1 (${passCount}/${results.length} PASS)`;
+      btnText.textContent = `Verify Inc-8.2 (${passCount}/${results.length} PASS)`;
     }
 
     if (renderModal) {
@@ -14907,8 +15687,15 @@ const AethelgardAPI = {
   isDoorWalkable,
   isDoorOpaque,
   isDoorTraversable,
+  createPortalInstance,
+  isPortal,
+  isPortalActive,
+  registerDiscoveredWaypoint,
+  getDiscoveredWaypoints,
   spawnGroundItem,
+  spawnEntity,
   renderDoorTile,
+  renderPortalTile,
   createInteractionRequest,
   executeInteraction,
   evaluateRequirement,
@@ -14971,6 +15758,7 @@ const AethelgardAPI = {
     fullHeal: fullHeal,
     revealMap: revealMap,
     toggleGodMode: toggleGodMode,
+    spawnEntity: spawnEntity,
     executeCommand: executeDevCommand,
     toggleConsole: toggleDevConsole,
     openConsole: openDevConsole,

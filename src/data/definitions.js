@@ -812,3 +812,159 @@ registerObjectDefinition({
     }
   }
 });
+
+// ============================================================================
+// 7. PORTAL & WAYPOINT DEFINITIONS (Fast-Travel, Rifts & Boss Extractions)
+// ============================================================================
+
+registerObjectDefinition({
+  definitionId: 'portal_ancient_waypoint',
+  category: OBJECT_CATEGORIES.WORLD_OBJECT,
+  objectType: WORLD_OBJECT_TYPES.PORTAL,
+  name: 'Ancient Celestial Waypoint',
+  description: 'A resonant stellar monolith inscribed with astronomical cartographic coordinates connecting to the Guild Waypoint Network.',
+  tags: ['portal', 'waypoint', 'celestial', 'monolith', 'fast_travel'],
+  defaultState: {
+    mechanical: 'active',
+    security: 'unlocked',
+    discovery: 'unknown',
+    power: 'powered',
+    structural: 'indestructible'
+  },
+  defaultPermeability: {
+    movement: true,
+    lineOfSight: true,
+    light: true,
+    sound: true,
+    projectiles: true,
+    magic: true
+  },
+  defaultComponents: {
+    traversal: {
+      portalType: 'waypoint',
+      networkId: 'astral_waypoints',
+      endpointType: 'bi_directional',
+      transitionType: 'instant',
+      allowsReturn: true
+    },
+    interactable: {
+      prompt: 'Attune Celestial Waypoint',
+      actions: {
+        attune: {
+          id: 'attune',
+          name: 'Attune Waypoint',
+          requirements: null,
+          costs: null,
+          effects: [
+            { type: 'attuneWaypoint' },
+            { type: 'changeState', axis: 'discovery', value: 'revealed' }
+          ]
+        },
+        traverse: {
+          id: 'traverse',
+          name: 'Travel via Waypoint Network',
+          requirements: { type: 'objectState', axis: 'discovery', value: 'revealed' },
+          costs: null,
+          effects: [
+            { type: 'traverseWaypoint' }
+          ]
+        }
+      }
+    }
+  }
+});
+
+registerObjectDefinition({
+  definitionId: 'portal_astral_rift',
+  category: OBJECT_CATEGORIES.WORLD_OBJECT,
+  objectType: WORLD_OBJECT_TYPES.PORTAL,
+  name: 'Unstable Astral Rift',
+  description: 'A fluctuating dimensional fissure tearing through the vault floor. Will collapse after finite traversals.',
+  tags: ['portal', 'rift', 'astral', 'unstable', 'limited_charges'],
+  defaultState: {
+    mechanical: 'active',
+    security: 'unlocked',
+    discovery: 'revealed',
+    power: 'powered',
+    structural: 'volatile'
+  },
+  defaultPermeability: {
+    movement: true,
+    lineOfSight: true,
+    light: true,
+    sound: true,
+    projectiles: true,
+    magic: true
+  },
+  defaultComponents: {
+    traversal: {
+      portalType: 'rift',
+      networkId: 'isolated_rift',
+      endpointType: 'one_way',
+      transitionType: 'rift_jump',
+      charges: 2,
+      maxCharges: 2,
+      collapseOnDeplete: true
+    },
+    interactable: {
+      prompt: 'Step into Astral Rift',
+      actions: {
+        traverse: {
+          id: 'traverse',
+          name: 'Enter Astral Rift',
+          requirements: { type: 'objectState', axis: 'mechanical', value: 'active' },
+          costs: null,
+          effects: [
+            { type: 'traverseRift' }
+          ]
+        }
+      }
+    }
+  }
+});
+
+registerObjectDefinition({
+  definitionId: 'portal_boss_extraction',
+  category: OBJECT_CATEGORIES.WORLD_OBJECT,
+  objectType: WORLD_OBJECT_TYPES.PORTAL,
+  name: 'Astral Sanctum Gateway',
+  description: 'A triumphant golden beacon portal materialized from the defeated boss guardian\'s residual astral energy.',
+  tags: ['portal', 'extraction', 'boss', 'sanctum', 'triumphant'],
+  defaultState: {
+    mechanical: 'active',
+    security: 'unlocked',
+    discovery: 'revealed',
+    power: 'powered',
+    structural: 'indestructible'
+  },
+  defaultPermeability: {
+    movement: true,
+    lineOfSight: true,
+    light: true,
+    sound: true,
+    projectiles: true,
+    magic: true
+  },
+  defaultComponents: {
+    traversal: {
+      portalType: 'extraction',
+      destination: 'guild',
+      endpointType: 'one_way',
+      transitionType: 'extraction'
+    },
+    interactable: {
+      prompt: 'Ascend to Surface',
+      actions: {
+        traverse: {
+          id: 'traverse',
+          name: 'Extract to Oakhaven',
+          requirements: null,
+          costs: null,
+          effects: [
+            { type: 'extractHero', reason: 'Astral Sanctum Gateway' }
+          ]
+        }
+      }
+    }
+  }
+});

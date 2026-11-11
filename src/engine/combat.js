@@ -31,7 +31,7 @@ import {
 import { generateFloor, generateProceduralEquipment } from './procedural.js';
 import { playSound } from './audio.js';
 import { ENGINE_EVENTS, emitEngineEvent } from './events.js';
-import { isDoorWalkable, isDoorOpaque } from './objects.js';
+import { isDoorWalkable, isDoorOpaque, createPortalInstance, addWorldObject } from './objects.js';
 import { executeInteraction } from './interactions.js';
 import {
   registerActionCallbacks,
@@ -484,6 +484,10 @@ export function killMonster(monster, state = gameState) {
     if (floor.depth >= maxDepth) {
       state.dungeon.isCleared = true;
     }
+
+    // Spawn triumphant golden Astral Sanctum Gateway portal on boss defeat tile
+    const bossPortal = createPortalInstance('portal_boss_extraction', monster.x, monster.y);
+    addWorldObject(floor, bossPortal);
 
     if (state === gameState) {
       playSound('lvl');
@@ -1394,6 +1398,25 @@ export function handlePlayerAction(dx, dy, state = gameState) {
     state.hero.y = ny;
     pickupGroundObjectsAt(nx, ny, state);
     detectNearbyTraps(floor, state);
+
+    // Auto-discover waypoint if stepping onto it
+    if (floor.objects && floor.objects.length > 0) {
+      for (let oi = 0; oi < floor.objects.length; oi++) {
+        const o = floor.objects[oi];
+        if (o && o.x === nx && o.y === ny && o.objectType === 'portal') {
+          if (o.definitionId === 'portal_ancient_waypoint' && o.runtimeState && o.runtimeState.discovery === 'unknown') {
+            executeInteraction({ targetId: o.instanceId, actionId: 'attune' }, state);
+            if (state === gameState) {
+              playSound('lvl');
+              ui.floatingText(nx, ny, 'Waypoint Attuned!', '#38bdf8');
+              ui.log(`Discovered and attuned Celestial Waypoint on Floor ${state.dungeon.currentFloor}!`, 'good');
+            }
+          }
+          break;
+        }
+      }
+    }
+
     processTurn(state);
   } else if (state === gameState) {
     ui.floatingText(nx, ny, 'Blocked', '#8b949e');
@@ -1408,6 +1431,63 @@ export function useStairsAtPlayer(state = gameState) {
   if (!floor) return;
   const tile = floor.tiles[state.hero.y][state.hero.x];
 
+  // 1. Check for interactive Portal at hero position
+  const portalAtPlayer = (floor.objects && floor.objects.length > 0)
+    ? floor.objects.find(o => o.x === state.hero.x && o.y === state.hero.y && o.objectType === 'portal')
+    : null;
+
+  if (portalAtPlayer) {
+    const trav = portalAtPlayer.components && portalAtPlayer.components.traversal;
+    if (trav && trav.portalType === 'extraction') {
+      extractToGuild('Astral Sanctum Gateway', state);
+      return;
+    }
+    if (trav && trav.portalType === 'waypoint') {
+      executeInteraction({ targetId: portalAtPlayer.instanceId, actionId: 'attune' }, state);
+      const wps = (state.dungeon && state.dungeon.waypoints) ? state.dungeon.waypoints : {};
+      const discovered = Object.keys(wps).map(k => wps[k]).filter(w => w.attuned);
+      if (discovered.length <= 1) {
+        if (state === gameState) {
+          playSound('lvl');
+          ui.floatingText(state.hero.x, state.hero.y, 'Waypoint Attuned!', '#38bdf8');
+          ui.log(`Attuned to Celestial Waypoint on Floor ${state.dungeon.currentFloor}. Chart more waypoints to enable fast-travel.`, 'good');
+        }
+        return;
+      }
+      discovered.sort((a, b) => a.depth - b.depth);
+      let curIdx = discovered.findIndex(w => w.depth === state.dungeon.currentFloor);
+      let nextWp = discovered[(curIdx + 1) % discovered.length];
+      if (nextWp) {
+        state.dungeon.currentFloor = nextWp.depth;
+        const destFloor = ensureDungeonFloorHydrated(state.dungeon, nextWp.depth);
+        state.hero.x = nextWp.x;
+        state.hero.y = nextWp.y;
+        detectNearbyTraps(destFloor, state);
+        if (state === gameState) {
+          playSound('spell');
+          fovCallback();
+          saveGame();
+          ui.updateUI();
+          ui.floatingText(state.hero.x, state.hero.y, `Waypoint: Floor ${nextWp.depth}!`, '#38bdf8');
+          ui.log(`Traversed Celestial Waypoint Network to Floor ${nextWp.depth} (${nextWp.name}).`, 'gold');
+        }
+        return;
+      }
+    }
+    if (trav && trav.portalType === 'rift') {
+      const riftRes = executeInteraction({ targetId: portalAtPlayer.instanceId, actionId: 'traverse' }, state);
+      if (riftRes && (riftRes.ok || riftRes.success)) {
+        if (state === gameState) {
+          playSound('spell');
+          ui.floatingText(state.hero.x, state.hero.y, 'Rift Traversed!', '#c084fc');
+          ui.log('Traversed Unstable Astral Rift into dimensional fold.', 'gold');
+        }
+        return;
+      }
+    }
+  }
+
+  // 2. Stairs Traversal
   if (tile === TILE_STAIRS_UP) {
     if (state.dungeon.currentFloor === 1) {
       extractToGuild('Floor 1 Ascending Stairs (<)', state);

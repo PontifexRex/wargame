@@ -16,6 +16,14 @@ import {
 } from './state.js';
 import { generateFloor } from './procedural.js';
 import { ENGINE_EVENTS, emitEngineEvent } from './events.js';
+import {
+  createDoorInstance,
+  createPortalInstance,
+  spawnGroundItem,
+  addWorldObject
+} from './objects.js';
+import { createMonsterEntityFromArchetype } from './procedural.js';
+import { MONSTER_ARCHETYPES, BOSS_ARCHETYPES } from '../data/monsters.js';
 
 export function gotoFloor(depth, dungeonId = null, state = gameState) {
   if (!state || !state.hero) {
@@ -274,12 +282,125 @@ export function executeDevCommand(cmdStr, state = gameState) {
     return { ok: res.ok, output: `God Mode is now ${res.godMode ? 'ON' : 'OFF'}` };
   }
 
+  if (verb === 'spawn') {
+    const type = arg1;
+    const subId = arg2;
+    const arg3 = parts[3];
+    const arg4 = parts[4];
+    const x = arg3 !== undefined ? Number(arg3) : null;
+    const y = arg4 !== undefined ? Number(arg4) : null;
+    if (!type) {
+      return { ok: false, output: 'Usage: spawn <door|portal|key|monster> [subId] [x] [y]' };
+    }
+    const res = spawnEntity(type, subId, x, y, state);
+    return {
+      ok: res.ok,
+      output: res.ok ? `Spawned ${res.type} (${res.entity.name || subId}) at (${res.x}, ${res.y})` : `Failed: ${res.reason}`
+    };
+  }
+
   if (verb === 'help') {
     return {
       ok: true,
-      output: 'Commands: goto <depth> [dungeonId], level <lvl>, heal, reveal, god, help'
+      output: 'Commands: goto <depth> [dungeonId], level <lvl>, heal, reveal, god, spawn <door|portal|key|monster> [subId], help'
     };
   }
 
   return { ok: false, output: `Unknown command "${verb}". Type "help" for a list of commands.` };
+}
+
+export function spawnEntity(type, subId = null, x = null, y = null, state = gameState) {
+  if (!state || !state.hero || state.inGuild) {
+    return { ok: false, reason: 'not_in_dungeon' };
+  }
+  const floor = ensureDungeonFloorHydrated(state.dungeon, state.dungeon.currentFloor);
+  if (!floor) return { ok: false, reason: 'no_floor' };
+
+  const sx = typeof x === 'number' && !isNaN(x) ? x : state.hero.x + 1;
+  const sy = typeof y === 'number' && !isNaN(y) ? y : state.hero.y;
+
+  const tLower = (type || '').toLowerCase();
+  const subLower = (subId || '').toLowerCase();
+
+  if (tLower === 'door') {
+    let defId = 'door_wood_hinged';
+    if (subLower === 'iron' || subLower === 'reinforced') defId = 'door_iron_reinforced';
+    else if (subLower === 'portcullis' || subLower === 'grate') defId = 'door_iron_portcullis';
+    else if (subLower === 'vault' || subLower === 'dwarven') defId = 'door_vault_ancient';
+    else if (subLower === 'secret' || subLower === 'stone') defId = 'door_secret_stone';
+
+    const door = createDoorInstance(defId, sx, sy);
+    addWorldObject(floor, door);
+    if (state === gameState) {
+      emitEngineEvent(ENGINE_EVENTS.FOV_SYNC, {}, state);
+      emitEngineEvent(ENGINE_EVENTS.LOG, { msg: `[DEV] Spawned ${door.name} at (${sx}, ${sy}).`, tone: 'gold' }, state);
+    }
+    return { ok: true, entity: door, type: 'door', x: sx, y: sy };
+  }
+
+  if (tLower === 'portal') {
+    let defId = 'portal_ancient_waypoint';
+    if (subLower === 'rift' || subLower === 'astral') defId = 'portal_astral_rift';
+    else if (subLower === 'boss' || subLower === 'extraction' || subLower === 'gateway') defId = 'portal_boss_extraction';
+
+    const portal = createPortalInstance(defId, sx, sy);
+    addWorldObject(floor, portal);
+    if (state === gameState) {
+      emitEngineEvent(ENGINE_EVENTS.FOV_SYNC, {}, state);
+      emitEngineEvent(ENGINE_EVENTS.LOG, { msg: `[DEV] Spawned ${portal.name} at (${sx}, ${sy}).`, tone: 'gold' }, state);
+    }
+    return { ok: true, entity: portal, type: 'portal', x: sx, y: sy };
+  }
+
+  if (tLower === 'key') {
+    let keyDefId = 'key_iron_common';
+    if (subLower === 'vault' || subLower === 'dwarven') keyDefId = 'key_vault_dwarven';
+    else if (subLower === 'celestial' || subLower === 'rune') keyDefId = 'key_rune_celestial';
+
+    const pickup = spawnGroundItem(floor, keyDefId, sx, sy);
+    if (state === gameState) {
+      emitEngineEvent(ENGINE_EVENTS.FOV_SYNC, {}, state);
+      emitEngineEvent(ENGINE_EVENTS.LOG, { msg: `[DEV] Spawned ${pickup.name} at (${sx}, ${sy}).`, tone: 'gold' }, state);
+    }
+    return { ok: true, entity: pickup, type: 'key', x: sx, y: sy };
+  }
+
+  if (tLower === 'monster' || tLower === 'mob') {
+    const archId = subId || 'vault_crawler';
+    const isBoss = BOSS_ARCHETYPES[archId];
+    let monster = null;
+    if (isBoss) {
+      const bDef = BOSS_ARCHETYPES[archId];
+      monster = {
+        uid: `boss_dev_${Date.now()}`,
+        id: bDef.id,
+        bountyTag: 'boss',
+        name: bDef.name,
+        isBoss: true,
+        dropRarity: bDef.dropRarity || 'epic',
+        isRanged: !!bDef.isRanged,
+        range: bDef.range || 1,
+        x: sx,
+        y: sy,
+        hp: bDef.hp,
+        maxHp: bDef.hp,
+        atk: bDef.atk,
+        def: bDef.def,
+        xp: bDef.xp,
+        color: bDef.color,
+        statuses: []
+      };
+    } else {
+      monster = createMonsterEntityFromArchetype(archId, floor.depth || 1, sx, sy, false, Math.random, 999);
+    }
+    if (!floor.monsters) floor.monsters = [];
+    floor.monsters.push(monster);
+    if (state === gameState) {
+      emitEngineEvent(ENGINE_EVENTS.FOV_SYNC, {}, state);
+      emitEngineEvent(ENGINE_EVENTS.LOG, { msg: `[DEV] Spawned ${monster.name} at (${sx}, ${sy}).`, tone: 'gold' }, state);
+    }
+    return { ok: true, entity: monster, type: 'monster', x: sx, y: sy };
+  }
+
+  return { ok: false, reason: `Unknown spawn type "${type}". Valid: door, portal, key, monster` };
 }

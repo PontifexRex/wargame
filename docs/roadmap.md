@@ -275,6 +275,32 @@ Delivered the multi-dimensional state door system, tactical permeability raycast
   - Added Sandboxed **Test 28** in `src/test/selfTest.js` verifying door definitions, multi-state axes, portcullis vision permeability, bump auto-open, key unlock, Thief lockpicking, Fighter bashing, secret door discovery, and procedural door generation.
   - Expanded automated verification suite to **28/28 PASS** + Headless UI Smoke Suite.
 
+v0.8.2-portals - Increment 8.2: Portal System, Ancient Waypoint Networks, Shared Traversal & Dev Console Spawner
+
+Delivered the unified traversal engine, multi-state portal system, ancient waypoint network fast-travel, unstable astral rifts, boss extraction gateways, and developer console object spawner:
+- **Unified Traversal Engine (`src/engine/interactions.js`, `src/engine/objects.js`, `src/engine/combat.js`)**:
+  - Shared traversal component (`components.traversal`) unifying Doors, Stairs (`<`, `>`), and Portals into a consistent transition contract (`endpointType`, `transitionType`, `destination`, `charges`, `collapseOnDeplete`).
+  - Seamlessly handles transitions: `instant` (fast travel across charted floors), `rift_jump` (dimensional shortcuts), and `extraction` (surface return).
+- **3 Portal Definitions & Multi-Dimensional State Engine (`src/data/definitions.js`)**:
+  - `portal_ancient_waypoint`: Ancient celestial monoliths embedded in milestone strata (Floors 5, 10, 15, 20...) that players discover and attune. Unlocks fast-travel across the persistent dungeon floor network.
+  - `portal_astral_rift`: Fluctuating dimensional anomalies with finite charges (`charges: 2`). Traversal degrades stability until collapsing into inert cosmic residue and auto-clearing from the floor (`collapseOnDeplete`).
+  - `portal_boss_extraction`: Triumphant golden Astral Sanctum Gateway materializing upon defeating major bosses (Colossus, Weaver, Ignis, Vespera), offering immediate safe extraction to Oakhaven.
+  - Multi-state axes: `mechanical` (`active`, `dormant`, `collapsed`), `security` (`unlocked`, `sealed`), `discovery` (`revealed`, `unknown`), `power` (`powered`, `unpowered`), `structural`.
+- **Ancient Waypoint Network Persistence (`src/data/dungeons.js`, `src/engine/state.js`)**:
+  - Persistent `waypoints: {}` dictionary tracked per dungeon in `gameState.dungeons`.
+  - Full backward compatibility and automatic back-filling in `migrateSaveData(raw)`.
+  - Stepping onto an unknown waypoint auto-discovers and attunes it (`registerDiscoveredWaypoint`).
+  - Activating an attuned waypoint (`useStairsAtPlayer`) cycles through all discovered waypoints in the dungeon.
+- **Developer Console Phase 2 Spawner (`src/engine/dev.js`)**:
+  - Interactive spawner `spawnEntity(type, subId, x, y, state)` and terminal command `spawn <door|portal|key|monster> [subId] [x] [y]`.
+  - Supports spawning doors (`wood`, `iron`, `portcullis`, `vault`, `secret`), portals (`waypoint`, `rift`, `extraction`), keys (`iron`, `dwarven`, `celestial`), and monsters/bosses.
+- **2D Tactical Canvas & Minimap Visuals (`src/ui/renderer.js`)**:
+  - Distinct visual rendering for portals: celestial obelisk monolith with glowing cyan core, swirling violet-pink vortex astral rift with charge pips, and glowing golden tri-pillar boss sanctum gateway.
+  - Minimap POI markers for explored portals (cyan for waypoints, purple for rifts, gold for extraction gateways).
+- **Verification Gate**:
+  - Added Sandboxed **Test 29** in `src/test/selfTest.js` verifying portal definitions, instance creation, waypoint network registration/fast-travel, astral rift charges & collapse, boss defeat extraction portal spawn & safe extraction, dev console object spawner, and procedural waypoint placement.
+  - Expanded automated verification suite to **29/29 PASS** + Headless UI Smoke Suite.
+
 ---
 
 ## 2. Long-Term Game Vision & Strategic Pillars

@@ -377,7 +377,8 @@ export function migrateSaveData(raw) {
         currentFloor: rawDng.currentFloor || 1,
         deepestFloor: rawDng.deepestFloor || rawDng.currentFloor || 1,
         isCleared: !!rawDng.isCleared,
-        floors: rawDng.floors || {}
+        floors: rawDng.floors || {},
+        waypoints: rawDng.waypoints || {}
       };
     });
     migrated.activeDungeonId = data.activeDungeonId && migrated.dungeons[data.activeDungeonId]
@@ -397,6 +398,7 @@ export function migrateSaveData(raw) {
     targetDng.currentFloor = data.dungeon.currentFloor || data.dungeon.currentDepth || 1;
     targetDng.deepestFloor = Math.max(1, targetDng.currentFloor, Object.keys(data.dungeon.floors).length);
     targetDng.floors = {};
+    targetDng.waypoints = data.dungeon.waypoints || {};
     Object.keys(data.dungeon.floors).forEach(fk => {
       targetDng.floors[fk] = hydrateFloorFromStorage(data.dungeon.floors[fk]);
     });

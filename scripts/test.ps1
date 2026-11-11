@@ -142,8 +142,15 @@ public static class AethelgardChakraRunner {
         if (hr != 0) {
             IntPtr ex;
             if (JsGetAndClearException(out ex) == 0 && ex != IntPtr.Zero) {
-                IntPtr stackId, stackVal;
+                IntPtr stackId, stackVal, lineId, lineVal, colId, colVal;
                 string msg = ValToString(ex);
+                if (JsGetPropertyIdFromName("line", out lineId) == 0 && JsGetProperty(ex, lineId, out lineVal) == 0) {
+                    msg += " (Line: " + ValToString(lineVal);
+                    if (JsGetPropertyIdFromName("column", out colId) == 0 && JsGetProperty(ex, colId, out colVal) == 0) {
+                        msg += ", Col: " + ValToString(colVal);
+                    }
+                    msg += ")";
+                }
                 if (JsGetPropertyIdFromName("stack", out stackId) == 0 && JsGetProperty(ex, stackId, out stackVal) == 0) {
                     msg += "\n" + ValToString(stackVal);
                 }

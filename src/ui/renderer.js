@@ -1081,11 +1081,13 @@ export function renderMinimapCanvas(targetCanvasId = 'minimapCanvas') {
     }
   }
 
-  // Explored Doors on Minimap
+  // Explored Doors & Portals on Minimap
   if (floor.objects && floor.objects.length > 0) {
     for (let oi = 0; oi < floor.objects.length; oi++) {
       const obj = floor.objects[oi];
-      if (obj && obj.objectType === 'door' && floor.explored[obj.y] && floor.explored[obj.y][obj.x]) {
+      if (!obj || !floor.explored[obj.y] || !floor.explored[obj.y][obj.x]) continue;
+
+      if (obj.objectType === 'door') {
         const disc = obj.runtimeState && obj.runtimeState.discovery;
         if (disc !== 'unknown') {
           const rx = Math.floor(offX + obj.x * scale);
@@ -1094,6 +1096,12 @@ export function renderMinimapCanvas(targetCanvasId = 'minimapCanvas') {
           const color = sec === 'locked' ? '#fbbf24' : '#d97706';
           poiMarkers.push({ x: rx, y: ry, color: color, size: Math.max(2, drawSize) });
         }
+      } else if (obj.objectType === 'portal') {
+        const rx = Math.floor(offX + obj.x * scale);
+        const ry = Math.floor(offY + obj.y * scale);
+        const pDefId = obj.definitionId || '';
+        const color = pDefId === 'portal_astral_rift' ? '#c084fc' : (pDefId === 'portal_boss_extraction' ? '#fbbf24' : '#38bdf8');
+        poiMarkers.push({ x: rx, y: ry, color: color, size: Math.max(3, drawSize + 1) });
       }
     }
   }
@@ -1327,6 +1335,126 @@ export function renderDoorTile(ctx, px, py, door, biome, inSight) {
     ctx.arc(px + 23, py + 16, 2, 0, Math.PI * 2);
     ctx.stroke();
   }
+}
+
+export function renderPortalTile(ctx, px, py, portal, biome, inSight) {
+  if (!ctx || !portal) return;
+  const defId = portal.definitionId || '';
+  const rState = portal.runtimeState || {};
+  const isCollapsed = rState.mechanical === 'collapsed';
+
+  // Base circular shadow dais
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
+  ctx.beginPath();
+  if (typeof ctx.ellipse === 'function') {
+    ctx.ellipse(px + 16, py + 22, 12, 6, 0, 0, Math.PI * 2);
+  } else {
+    ctx.arc(px + 16, py + 20, 10, 0, Math.PI * 2);
+  }
+  ctx.fill();
+
+  if (isCollapsed) {
+    ctx.fillStyle = '#1e293b';
+    ctx.fillRect(px + 8, py + 14, 16, 6);
+    ctx.strokeStyle = '#475569';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(px + 8, py + 14, 16, 6);
+    ctx.fillStyle = '#64748b';
+    ctx.fillRect(px + 12, py + 16, 8, 2);
+    return;
+  }
+
+  if (defId === 'portal_astral_rift') {
+    const trav = portal.components && portal.components.traversal;
+    const charges = trav && typeof trav.charges === 'number' ? trav.charges : 2;
+
+    ctx.fillStyle = 'rgba(192, 132, 252, 0.25)';
+    ctx.beginPath();
+    ctx.arc(px + 16, py + 16, 12, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.strokeStyle = '#c084fc';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(px + 16, py + 16, 8, 0, Math.PI * 1.5);
+    ctx.stroke();
+
+    ctx.strokeStyle = '#f472b6';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(px + 16, py + 16, 5, Math.PI * 0.5, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.fillStyle = '#0f172a';
+    ctx.beginPath();
+    ctx.arc(px + 16, py + 16, 3.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(px + 15, py + 15, 2, 2);
+
+    for (let c = 0; c < charges; c++) {
+      ctx.fillStyle = '#f472b6';
+      ctx.fillRect(px + 12 + c * 5, py + 4, 3, 3);
+    }
+    return;
+  }
+
+  if (defId === 'portal_boss_extraction') {
+    ctx.fillStyle = 'rgba(251, 191, 36, 0.25)';
+    ctx.beginPath();
+    ctx.arc(px + 16, py + 16, 13, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.strokeStyle = '#fbbf24';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(px + 16, py + 16, 9, 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.strokeStyle = '#fef08a';
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.arc(px + 16, py + 16, 5, 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.fillStyle = 'rgba(254, 240, 138, 0.6)';
+    ctx.fillRect(px + 15, py + 2, 2, 8);
+    ctx.fillRect(px + 10, py + 5, 2, 6);
+    ctx.fillRect(px + 20, py + 5, 2, 6);
+    return;
+  }
+
+  // Ancient Celestial Waypoint (portal_ancient_waypoint)
+  const isAttuned = rState.discovery === 'revealed';
+
+  ctx.fillStyle = '#1e293b';
+  ctx.fillRect(px + 6, py + 18, 20, 8);
+  ctx.fillStyle = '#334155';
+  ctx.fillRect(px + 9, py + 14, 14, 6);
+
+  ctx.fillStyle = '#475569';
+  ctx.fillRect(px + 5, py + 12, 3, 10);
+  ctx.fillRect(px + 24, py + 12, 3, 10);
+  ctx.fillRect(px + 5, py + 10, 3, 2);
+  ctx.fillRect(px + 24, py + 10, 3, 2);
+
+  const auraColor = isAttuned ? 'rgba(56, 189, 248, 0.35)' : 'rgba(148, 163, 184, 0.20)';
+  ctx.fillStyle = auraColor;
+  ctx.beginPath();
+  ctx.arc(px + 16, py + 10, 7, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = isAttuned ? '#38bdf8' : '#94a3b8';
+  ctx.beginPath();
+  ctx.moveTo(px + 16, py + 4);
+  ctx.lineTo(px + 20, py + 10);
+  ctx.lineTo(px + 16, py + 16);
+  ctx.lineTo(px + 12, py + 10);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.fillStyle = isAttuned ? '#ffffff' : '#cbd5e1';
+  ctx.fillRect(px + 15, py + 9, 2, 2);
 }
 
 export function renderDungeonCanvas() {
@@ -1755,13 +1883,18 @@ export function renderDungeonCanvas() {
         }
       }
 
-      // 4. World Objects on Tile (Doors)
+      // 4. World Objects on Tile (Doors & Portals)
       if (floor.objects && floor.objects.length > 0) {
         for (let oi = 0; oi < floor.objects.length; oi++) {
           const obj = floor.objects[oi];
-          if (obj && obj.x === x && obj.y === y && obj.objectType === 'door') {
-            renderDoorTile(ctx, px, py, obj, biome, inSight);
-            break;
+          if (obj && obj.x === x && obj.y === y) {
+            if (obj.objectType === 'door') {
+              renderDoorTile(ctx, px, py, obj, biome, inSight);
+              break;
+            } else if (obj.objectType === 'portal') {
+              renderPortalTile(ctx, px, py, obj, biome, inSight);
+              break;
+            }
           }
         }
       }

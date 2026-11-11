@@ -32,6 +32,7 @@ import {
   fullHeal,
   revealMap,
   toggleGodMode,
+  spawnEntity,
   executeDevCommand
 } from '../engine/dev.js';
 import {
@@ -99,7 +100,12 @@ import {
   createDoorInstance,
   isDoorWalkable,
   isDoorOpaque,
-  isDoorTraversable
+  isDoorTraversable,
+  createPortalInstance,
+  isPortal,
+  isPortalActive,
+  registerDiscoveredWaypoint,
+  getDiscoveredWaypoints
 } from '../engine/objects.js';
 import {
   createInteractionRequest,
@@ -118,6 +124,7 @@ import {
   monsterAttackHero,
   killMonster,
   handlePlayerAction,
+  useStairsAtPlayer,
   runCorridor
 } from '../engine/combat.js';
 
@@ -1699,6 +1706,126 @@ export function evaluateSelfTests() {
       : `Failed checks: ${failedKeys28.join(', ')}`
   });
 
+  // -------------------------------------------------------------
+  // Test 29: Portal System, Ancient Waypoint Networks, Shared Traversal & Dev Console Spawner
+  // -------------------------------------------------------------
+  const wpDef = getObjectDefinition('portal_ancient_waypoint');
+  const riftDef = getObjectDefinition('portal_astral_rift');
+  const extDef = getObjectDefinition('portal_boss_extraction');
+
+  const defsExist = Boolean(
+    wpDef && wpDef.objectType === 'portal' && wpDef.defaultComponents && wpDef.defaultComponents.traversal &&
+    riftDef && riftDef.objectType === 'portal' && riftDef.defaultComponents && riftDef.defaultComponents.traversal &&
+    extDef && extDef.objectType === 'portal' && extDef.defaultComponents && extDef.defaultComponents.traversal
+  );
+
+  const wpInst = createPortalInstance('portal_ancient_waypoint', 5, 5);
+  const isPortalCheck = isPortal(wpInst);
+  const isPortalActiveCheck = isPortalActive(wpInst);
+
+  const sandbox29 = createDefaultGameState();
+  selectAdventurerClass('fighter', sandbox29);
+  const initialWps = getDiscoveredWaypoints(sandbox29);
+  registerDiscoveredWaypoint(5, 10, 12, wpInst, sandbox29);
+  const wpsAfterReg = getDiscoveredWaypoints(sandbox29);
+  const wpRegistered = initialWps.length === 0 && wpsAfterReg.length === 1 && wpsAfterReg[0].depth === 5;
+
+  const fl1_29 = ensureDungeonFloorHydrated(sandbox29.dungeon, 1);
+  sandbox29.inGuild = false;
+  sandbox29.hero.x = 6;
+  sandbox29.hero.y = 6;
+
+  // Test Astral Rift traversal & collapse
+  const riftInst = createPortalInstance('portal_astral_rift', 6, 6, {
+    traversal: { charges: 2, collapseOnDeplete: true }
+  });
+  fl1_29.objects.push(riftInst);
+
+  const riftTrav1 = executeInteraction(createInteractionRequest('hero', riftInst.instanceId, 'traverse'), sandbox29);
+  const rift1Charges = riftInst.components.traversal.charges;
+  const riftTrav2 = executeInteraction(createInteractionRequest('hero', riftInst.instanceId, 'traverse'), sandbox29);
+  const rift2Charges = riftInst.components.traversal.charges;
+  const riftCollapsed = riftInst.runtimeState.mechanical === 'collapsed';
+  const riftRemovedFromFloor = !fl1_29.objects.find(function(o) { return o.instanceId === riftInst.instanceId; });
+
+  // Test Boss Defeat extraction portal spawn
+  const testBoss29 = {
+    uid: 'boss_t29_colossus',
+    id: 'boss_colossus',
+    name: 'Astral Colossus',
+    isBoss: true,
+    hp: 0,
+    maxHp: 100,
+    x: 7,
+    y: 7
+  };
+  fl1_29.monsters.push(testBoss29);
+  killMonster(testBoss29, sandbox29);
+  const extPortal = fl1_29.objects.find(function(o) {
+    return o.x === 7 && o.y === 7 && o.objectType === 'portal';
+  });
+  const bossPortalSpawned = Boolean(
+    extPortal && extPortal.definitionId === 'portal_boss_extraction' &&
+    extPortal.components && extPortal.components.traversal &&
+    extPortal.components.traversal.transitionType === 'extraction'
+  );
+
+  // Test using stairs at extraction portal triggers surface extraction
+  sandbox29.hero.x = 7;
+  sandbox29.hero.y = 7;
+  useStairsAtPlayer(sandbox29);
+  const extractedViaPortal = sandbox29.inGuild === true;
+
+  // Test Dev Console Spawner
+  sandbox29.inGuild = false;
+  sandbox29.hero.x = 2;
+  sandbox29.hero.y = 2;
+
+  const spawnDoorRes = spawnEntity('door', 'iron', 3, 2, sandbox29);
+  const spawnPortalRes = spawnEntity('portal', 'rift', 4, 2, sandbox29);
+  const spawnKeyRes = spawnEntity('key', 'dwarven', 2, 3, sandbox29);
+  const spawnMobRes = spawnEntity('monster', 'skeleton_grunt', 3, 3, sandbox29);
+  const devCliSpawnRes = executeDevCommand('spawn portal waypoint 8 8', sandbox29);
+  const devSpawnedWaypoint = fl1_29.objects.find(function(o) {
+    return o.x === 8 && o.y === 8 && o.definitionId === 'portal_ancient_waypoint';
+  });
+
+  const devSpawnerValid = Boolean(
+    spawnDoorRes.ok && spawnDoorRes.type === 'door' &&
+    spawnPortalRes.ok && spawnPortalRes.type === 'portal' &&
+    spawnKeyRes.ok && spawnKeyRes.type === 'key' &&
+    spawnMobRes.ok && spawnMobRes.type === 'monster' &&
+    devCliSpawnRes.ok && devSpawnedWaypoint
+  );
+
+  // Test Procedural Floor 5 contains an Ancient Waypoint
+  const fl5_proc = generateFloor(5, CURATED_DUNGEON_PROFILES.starfall_vaults, 99999);
+  const hasProceduralWaypoint = fl5_proc.objects.some(function(o) {
+    return o.definitionId === 'portal_ancient_waypoint';
+  });
+
+  const t29Checks = {
+    defsExist: defsExist,
+    isPortalCheck: isPortalCheck,
+    isPortalActiveCheck: isPortalActiveCheck,
+    wpRegistered: wpRegistered,
+    riftChargesDecrement: rift1Charges === 1 && rift2Charges === 0,
+    riftCollapsedAndRemoved: riftCollapsed && riftRemovedFromFloor,
+    bossPortalSpawned: bossPortalSpawned,
+    extractedViaPortal: extractedViaPortal,
+    devSpawnerValid: devSpawnerValid,
+    hasProceduralWaypoint: hasProceduralWaypoint
+  };
+  const failedKeys29 = Object.keys(t29Checks).filter(function(k) { return !t29Checks[k]; });
+  const t29Pass = failedKeys29.length === 0;
+  results.push({
+    name: '29. Portal System, Ancient Waypoint Networks, Shared Traversal & Dev Console Spawner',
+    pass: t29Pass,
+    detail: failedKeys29.length === 0
+      ? 'Portal definitions verified, traversal components verified, waypoint network registration verified, astral rift charges & collapse verified, boss defeat extraction portal spawn & extraction verified, dev console object spawner (door/portal/key/monster) verified, procedural waypoint generation verified'
+      : 'Failed checks: ' + failedKeys29.join(', ')
+  });
+
   return results;
 }
 
@@ -1709,7 +1836,7 @@ export function runSelfTests(renderModal = false) {
   if (typeof document !== 'undefined') {
     const btnText = document.getElementById('verifyBtnText');
     if (btnText) {
-      btnText.textContent = `Verify Inc-8.1 (${passCount}/${results.length} PASS)`;
+      btnText.textContent = `Verify Inc-8.2 (${passCount}/${results.length} PASS)`;
     }
 
     if (renderModal) {

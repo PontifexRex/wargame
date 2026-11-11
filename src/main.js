@@ -47,7 +47,12 @@ import {
   isDoorWalkable,
   isDoorOpaque,
   isDoorTraversable,
-  spawnGroundItem
+  spawnGroundItem,
+  createPortalInstance,
+  isPortal,
+  isPortalActive,
+  registerDiscoveredWaypoint,
+  getDiscoveredWaypoints
 } from './engine/objects.js';
 import {
   createInteractionRequest,
@@ -69,6 +74,7 @@ import {
   renderDungeonCanvas,
   renderMinimapCanvas,
   renderDoorTile,
+  renderPortalTile,
   updateFOV,
   spawnFloatingText,
   drawPaperDollMannequin,
@@ -154,6 +160,7 @@ import {
   fullHeal,
   revealMap,
   toggleGodMode,
+  spawnEntity,
   executeDevCommand
 } from './engine/dev.js';
 import {
@@ -260,8 +267,15 @@ export const AethelgardAPI = {
   isDoorWalkable,
   isDoorOpaque,
   isDoorTraversable,
+  createPortalInstance,
+  isPortal,
+  isPortalActive,
+  registerDiscoveredWaypoint,
+  getDiscoveredWaypoints,
   spawnGroundItem,
+  spawnEntity,
   renderDoorTile,
+  renderPortalTile,
   createInteractionRequest,
   executeInteraction,
   evaluateRequirement,
@@ -324,6 +338,7 @@ export const AethelgardAPI = {
     fullHeal: fullHeal,
     revealMap: revealMap,
     toggleGodMode: toggleGodMode,
+    spawnEntity: spawnEntity,
     executeCommand: executeDevCommand,
     toggleConsole: toggleDevConsole,
     openConsole: openDevConsole,

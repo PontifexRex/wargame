@@ -194,17 +194,17 @@ To support complex interactive objects (Doors, Portals, Chests, Levers, Shrines,
 - **Lock-and-Key Procedural Progression Validation**: Extends `verifyPureFloorBFS` into a progression graph validator ensuring keys/levers always spawn upstream of the locked doors they control.
 
 ### 6.5 Phased Object Architecture Rollout Sequence
-| Phase | Scope | Core Deliverables |
-| :--- | :--- | :--- |
-| **Phase 0** | **Object Foundation** | `ObjectDefinition`, `RuntimeObject`, `WorldObjectInstance`, IDs, tags, lifecycle, component registry, spatial floor index (`floor.objects`), serialization |
-| **Phase 1** | **Interaction Foundation** | `IInteractable`, `InteractionRequest` / `InteractionResult`, boolean `Requirement` evaluator, `Cost` & `Effect` processors, object domain events |
-| **Phase 2** | **Item & Pickup System** | `ItemDefinition`, `ItemInstance`, `ItemStack` compatibility engine, `KeyDefinition` credentials, `WorldItemPickupInstance`, migrating Chests/Shrines/Traps to `WorldObjectInstance` |
-| **Phase 3** | **Basic Door System** | Hinged Wooden/Iron Doors & Portcullises at room choke points, Open/Close/Unlock/Bash actions, basic keys, dynamic FOV/LOS permeability |
-| **Phase 4** | **Advanced Doors & Locks** | Secret doors (`discovery` state), door traps, multi-lock Vault doors, barricading, structural destruction/debris, Lock-and-Key BFS validation |
-| **Phase 5** | **Basic Portals** | `PortalDefinition`, `PortalInstance`, fixed endpoints, manual/item activation, Dungeon Entrance <-> Overworld transitions |
-| **Phase 6** | **Advanced Portals** | `PortalNetwork` hub routing, portal stability/degradation, charge costs, multi-destination selection |
-| **Phase 7** | **World Topology & AI** | Regional location graph, traversal cost pathfinding for monsters/parties, multi-stage mechanisms |
-| **Phase 8** | **Authority & Persistence** | Revision-checked atomic transactions, delta persistence policies, replication-ready state envelopes |
+| Phase | Milestone | Scope | Core Deliverables | Status |
+| :--- | :--- | :--- | :--- | :--- |
+| **Phase 0** | `v0.8.0-objects` | **Object Foundation** | `ObjectDefinition`, `RuntimeObject`, `WorldObjectInstance`, IDs, tags, lifecycle, component registry, spatial floor index (`floor.objects`), serialization | **Complete (27/27 Tests)** |
+| **Phase 1** | `v0.8.0-objects` | **Interaction Foundation** | `IInteractable`, `InteractionRequest` / `InteractionResult`, boolean `Requirement` evaluator, `Cost` & `Effect` processors, object domain events | **Complete (27/27 Tests)** |
+| **Phase 2** | `v0.8.0-objects` | **Item & Pickup System** | `ItemDefinition`, `ItemInstance`, `ItemStack` compatibility engine, `KeyDefinition` credentials, `WorldItemPickupInstance`, migrating Chests/Shrines/Traps to `WorldObjectInstance` | **Complete (27/27 Tests)** |
+| **Phase 3** | `v0.8.1-doors` | **Basic Door System** | Hinged Wooden/Iron Doors & Portcullises at room choke points, Open/Close/Unlock/Bash actions, basic keys, dynamic FOV/LOS permeability | **Complete (28/28 Tests)** |
+| **Phase 4** | `v0.8.1-doors` | **Advanced Doors & Locks** | Secret doors (`discovery` state), door traps, multi-lock Vault doors, barricading, structural destruction/debris, Lock-and-Key BFS validation | **Complete (28/28 Tests)** |
+| **Phase 5** | `v0.8.2-portals` | **Basic Portals** | `PortalDefinition`, `PortalInstance`, shared `traversal` component, Astral Sanctum Boss Extraction, surface return | **Complete (29/29 Tests)** |
+| **Phase 6** | `v0.8.2-portals` | **Advanced Portals & Waypoint Networks** | Ancient Waypoint Network cross-floor travel, Unstable Astral Rifts with charge degradation & collapse, Dev Console Spawner (`spawn`) | **Complete (29/29 Tests)** |
+| **Phase 7** | `v0.8.3+` | **World Topology & AI** | Regional location graph, traversal cost pathfinding for monsters/parties, multi-stage mechanisms | Planned |
+| **Phase 8** | `v0.8.4+` | **Authority & Persistence** | Revision-checked atomic transactions, delta persistence policies, replication-ready state envelopes | Planned |
 
 ---
 

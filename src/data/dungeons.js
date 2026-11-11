@@ -465,7 +465,8 @@ export function createDungeonInstance(profileOrConfig, options = {}) {
     currentFloor: 1,
     deepestFloor: 1,
     isCleared: false,
-    floors: {}
+    floors: {},
+    waypoints: {}
   };
 }
 

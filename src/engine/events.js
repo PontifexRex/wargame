@@ -18,7 +18,9 @@ export const ENGINE_EVENTS = {
   OBJECT_INTERACTION:  'objectInteraction',
   OBJECT_STATE_CHANGED:'objectStateChanged',
   ITEM_PICKED_UP:      'itemPickedUp',
-  ITEM_DROPPED:        'itemDropped'
+  ITEM_DROPPED:        'itemDropped',
+  PORTAL_TRAVERSED:    'portalTraversed',
+  WAYPOINT_DISCOVERED: 'waypointDiscovered'
 };
 
 const eventListenersMap = {};

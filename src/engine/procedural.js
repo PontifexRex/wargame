@@ -22,7 +22,7 @@ import { normalizeDungeonConfig, resolveFloorBiome } from '../data/dungeons.js';
 import { createSeededRng } from './rng.js';
 import { createUint8Grid } from './compression.js';
 import { nextItemUid } from './state.js';
-import { createDoorInstance, spawnGroundItem } from './objects.js';
+import { createDoorInstance, createPortalInstance, spawnGroundItem } from './objects.js';
 
 export function rollSocketCountForRarity(rarityKey, slot) {
   if (slot === 'pickaxe') return 0;
@@ -724,6 +724,46 @@ export function generateFloor(depth, dungeonConfig = null, dungeonSeed = null) {
         });
         floorObj.objects.push(secDoor);
         break;
+      }
+    }
+  }
+
+  // Spawn Ancient Celestial Waypoint on milestone depths (5, 10, 15, 20...)
+  if (depth % 5 === 0 && rooms.length >= 2) {
+    let wpRoom = rooms.find(function(r) { return r !== upRoom && r !== downRoom; });
+    if (!wpRoom) wpRoom = rooms.find(function(r) { return r !== upRoom; }) || rooms[0];
+    if (wpRoom) {
+      let placed = false;
+      for (let ry = wpRoom.ry; ry < wpRoom.ry + wpRoom.rh && !placed; ry++) {
+        for (let rx = wpRoom.rx; rx < wpRoom.rx + wpRoom.rw && !placed; rx++) {
+          if (tiles[ry][rx] === TILE_FLOOR && !(rx === upPos.x && ry === upPos.y) && !(downPos && rx === downPos.x && ry === downPos.y)) {
+            const wpInst = createPortalInstance('portal_ancient_waypoint', rx, ry, {
+              traversal: {
+                destination: { depth: depth, x: rx, y: ry }
+              }
+            });
+            floorObj.objects.push(wpInst);
+            placed = true;
+          }
+        }
+      }
+    }
+  }
+
+  // Spawn Unstable Astral Rift occasionally in deeper strata (effDepth >= 3, 20% chance)
+  if (effDepth >= 3 && rand() < 0.20 && rooms.length >= 3) {
+    const riftRoom = rooms[Math.floor(rand() * rooms.length)];
+    if (riftRoom !== upRoom) {
+      const rx = riftRoom.rx + Math.floor(rand() * riftRoom.rw);
+      const ry = riftRoom.ry + Math.floor(rand() * riftRoom.rh);
+      if (tiles[ry][rx] === TILE_FLOOR && !(rx === upPos.x && ry === upPos.y) && !(downPos && rx === downPos.x && ry === downPos.y)) {
+        const targetDepth = Math.max(1, depth + (rand() < 0.5 ? 1 : -1));
+        const riftInst = createPortalInstance('portal_astral_rift', rx, ry, {
+          traversal: {
+            destination: { depth: targetDepth, x: null, y: null }
+          }
+        });
+        floorObj.objects.push(riftInst);
       }
     }
   }
