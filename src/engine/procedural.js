@@ -22,6 +22,7 @@ import { normalizeDungeonConfig, resolveFloorBiome } from '../data/dungeons.js';
 import { createSeededRng } from './rng.js';
 import { createUint8Grid } from './compression.js';
 import { nextItemUid } from './state.js';
+import { createDoorInstance, spawnGroundItem } from './objects.js';
 
 export function rollSocketCountForRarity(rarityKey, slot) {
   if (slot === 'pickaxe') return 0;
@@ -612,12 +613,119 @@ export function generateFloor(depth, dungeonConfig = null, dungeonSeed = null) {
     traps,
     vaults,
     monsters: [],
+    objects: [],
     oresMined: 0
   };
 
   // Guarantee pure trap-free walkability between < and > (or final sanctum)
   if (!verifyPureFloorBFS(floorObj)) {
     carveDirectFloorPath(floorObj);
+  }
+
+  // Procedural Door & Lock-and-Key Placement
+  const doorwayCandidates = [];
+  const candidateCoordMap = {};
+
+  for (let rIdx = 0; rIdx < rooms.length; rIdx++) {
+    const r = rooms[rIdx];
+    for (let x = r.rx; x < r.rx + r.rw; x++) {
+      const topY = r.ry - 1;
+      const botY = r.ry + r.rh;
+      if (topY >= 1 && topY < h - 1 && tiles[topY][x] === TILE_FLOOR) {
+        if (tiles[topY][x - 1] === TILE_WALL && tiles[topY][x + 1] === TILE_WALL) {
+          const k = `${x},${topY}`;
+          if (!candidateCoordMap[k]) {
+            candidateCoordMap[k] = true;
+            doorwayCandidates.push({ x, y: topY, room: r });
+          }
+        }
+      }
+      if (botY >= 1 && botY < h - 1 && tiles[botY][x] === TILE_FLOOR) {
+        if (tiles[botY][x - 1] === TILE_WALL && tiles[botY][x + 1] === TILE_WALL) {
+          const k = `${x},${botY}`;
+          if (!candidateCoordMap[k]) {
+            candidateCoordMap[k] = true;
+            doorwayCandidates.push({ x, y: botY, room: r });
+          }
+        }
+      }
+    }
+    for (let y = r.ry; y < r.ry + r.rh; y++) {
+      const leftX = r.rx - 1;
+      const rightX = r.rx + r.rw;
+      if (leftX >= 1 && leftX < w - 1 && tiles[y][leftX] === TILE_FLOOR) {
+        if (tiles[y - 1][leftX] === TILE_WALL && tiles[y + 1][leftX] === TILE_WALL) {
+          const k = `${leftX},${y}`;
+          if (!candidateCoordMap[k]) {
+            candidateCoordMap[k] = true;
+            doorwayCandidates.push({ x: leftX, y, room: r });
+          }
+        }
+      }
+      if (rightX >= 1 && rightX < w - 1 && tiles[y][rightX] === TILE_FLOOR) {
+        if (tiles[y - 1][rightX] === TILE_WALL && tiles[y + 1][rightX] === TILE_WALL) {
+          const k = `${rightX},${y}`;
+          if (!candidateCoordMap[k]) {
+            candidateCoordMap[k] = true;
+            doorwayCandidates.push({ x: rightX, y, room: r });
+          }
+        }
+      }
+    }
+  }
+
+  for (let ci = 0; ci < doorwayCandidates.length; ci++) {
+    const c = doorwayCandidates[ci];
+    if ((c.x === upPos.x && c.y === upPos.y) || (c.x === downPos.x && c.y === downPos.y)) continue;
+    if (tiles[c.y][c.x] !== TILE_FLOOR) continue;
+
+    const isVaultRoom = vaults && vaults.indexOf(c.room) !== -1;
+    if (isVaultRoom) {
+      const vaultDoorDefId = effDepth >= 4 ? 'door_vault_ancient' : 'door_iron_reinforced';
+      const doorInst = createDoorInstance(vaultDoorDefId, c.x, c.y, {
+        runtimeState: {
+          mechanical: 'closed',
+          security: 'locked',
+          structural: 'intact',
+          discovery: 'revealed'
+        }
+      });
+      floorObj.objects.push(doorInst);
+
+      const keyDefId = effDepth >= 4 ? 'item_key_dwarven' : 'item_key_iron';
+      const keyRoom = upRoom;
+      const kx = keyRoom.rx + Math.floor(rand() * keyRoom.rw);
+      const ky = keyRoom.ry + Math.floor(rand() * keyRoom.rh);
+      if (tiles[ky][kx] === TILE_FLOOR && !(kx === upPos.x && ky === upPos.y)) {
+        spawnGroundItem(floorObj, keyDefId, kx, ky);
+      }
+    } else if (c.room !== upRoom && rand() < 0.65) {
+      const doorDefId = rand() < 0.20 ? 'door_iron_portcullis' : 'door_wood_hinged';
+      const doorInst = createDoorInstance(doorDefId, c.x, c.y);
+      floorObj.objects.push(doorInst);
+    }
+  }
+
+  // Occasional secret door (if floor has >= 3 rooms)
+  if (rooms.length >= 3 && rand() < 0.35) {
+    for (let sTry = 0; sTry < 15; sTry++) {
+      const r = rooms[Math.floor(rand() * rooms.length)];
+      if (r === upRoom) continue;
+      const wx = r.rx + Math.floor(rand() * r.rw);
+      const wy = r.ry - 1;
+      if (wy >= 1 && tiles[wy][wx] === TILE_WALL && tiles[wy + 1][wx] === TILE_FLOOR) {
+        const secDoor = createDoorInstance('door_secret_stone', wx, wy, {
+          runtimeState: {
+            mechanical: 'closed',
+            security: 'unlocked',
+            structural: 'intact',
+            discovery: 'unknown'
+          }
+        });
+        floorObj.objects.push(secDoor);
+        break;
+      }
+    }
   }
 
   // Occupancy bitmap for fast O(1) monster placement collision checks on huge floors

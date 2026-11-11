@@ -635,6 +635,31 @@ export function detectNearbyTraps(floor, state = gameState) {
       }
     }
   }
+
+  // Detect and reveal hidden secret doors within perception radius
+  if (Array.isArray(floor.objects)) {
+    for (let oi = 0; oi < floor.objects.length; oi++) {
+      const obj = floor.objects[oi];
+      if (
+        obj &&
+        obj.objectType === 'door' &&
+        obj.runtimeState &&
+        obj.runtimeState.discovery === 'unknown'
+      ) {
+        const dist = Math.hypot(obj.x - h.x, obj.y - h.y);
+        if (dist <= vision + 0.35 && ((isScoutClass && dist <= 2.5) || spotScore >= threshold)) {
+          obj.runtimeState.discovery = 'revealed';
+          obj.revision = (obj.revision || 1) + 1;
+          spottedCount += 1;
+          if (state === gameState) {
+            playSound('gold');
+            actionCallbacks.floatingText(obj.x, obj.y, 'Secret Passage!', '#38bdf8');
+            actionCallbacks.log(`Keen senses revealed a secret stone passage at (${obj.x}, ${obj.y})!`, 'gold');
+          }
+        }
+      }
+    }
+  }
   return spottedCount;
 }
 

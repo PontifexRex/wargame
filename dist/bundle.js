@@ -1545,6 +1545,396 @@ registerObjectDefinition({
   }
 });
 
+// ============================================================================
+// 6. DOOR DEFINITIONS (Multi-State Barriers, Portcullises & Secret Entrances)
+// ============================================================================
+
+registerObjectDefinition({
+  definitionId: 'door_wood_hinged',
+  category: OBJECT_CATEGORIES.WORLD_OBJECT,
+  objectType: WORLD_OBJECT_TYPES.DOOR,
+  name: 'Wooden Dungeon Door',
+  description: 'A reinforced oak plank door bound with forged iron bands.',
+  tags: ['door', 'wood', 'hinged', 'bashable'],
+  defaultState: {
+    mechanical: 'closed',
+    security: 'unlocked',
+    discovery: 'revealed',
+    structural: 'intact'
+  },
+  defaultPermeability: {
+    movement: false,
+    lineOfSight: false,
+    light: false,
+    sound: true,
+    projectiles: false,
+    magic: false
+  },
+  defaultComponents: {
+    durability: { hp: 35, maxHp: 35, armor: 2, canBeForced: true },
+    lock: {
+      lockType: 'mechanical',
+      keyTag: 'key.common_iron',
+      pickDifficulty: 12,
+      forceDifficulty: 14
+    },
+    interactable: {
+      prompt: 'Operate Wooden Door',
+      actions: {
+        open: {
+          id: 'open',
+          name: 'Open Door',
+          requirements: { type: 'objectState', axis: 'security', value: 'unlocked' },
+          costs: null,
+          effects: [
+            { type: 'changeState', axis: 'mechanical', value: 'open' },
+            { type: 'updatePermeability', movement: true, lineOfSight: true, light: true, projectiles: true, magic: true }
+          ]
+        },
+        close: {
+          id: 'close',
+          name: 'Close Door',
+          requirements: { type: 'objectState', axis: 'mechanical', value: 'open' },
+          costs: null,
+          effects: [
+            { type: 'changeState', axis: 'mechanical', value: 'closed' },
+            { type: 'updatePermeability', movement: false, lineOfSight: false, light: false, projectiles: false, magic: false }
+          ]
+        },
+        unlock: {
+          id: 'unlock',
+          name: 'Unlock with Key',
+          requirements: { type: 'hasItemTag', tag: 'key.common_iron' },
+          costs: null,
+          effects: [
+            { type: 'changeState', axis: 'security', value: 'unlocked' }
+          ]
+        },
+        pick_lock: {
+          id: 'pick_lock',
+          name: 'Pick Lock',
+          requirements: {
+            op: 'OR',
+            rules: [
+              { type: 'requiredClass', classId: 'thief' },
+              { type: 'minStat', stat: 'dex', value: 15 }
+            ]
+          },
+          costs: null,
+          effects: [
+            { type: 'changeState', axis: 'security', value: 'unlocked' }
+          ]
+        },
+        bash: {
+          id: 'bash',
+          name: 'Force / Bash Door',
+          requirements: null,
+          costs: null,
+          effects: [
+            { type: 'bashDoor' }
+          ]
+        }
+      }
+    }
+  }
+});
+
+registerObjectDefinition({
+  definitionId: 'door_iron_reinforced',
+  category: OBJECT_CATEGORIES.WORLD_OBJECT,
+  objectType: WORLD_OBJECT_TYPES.DOOR,
+  name: 'Reinforced Iron Door',
+  description: 'A heavy riveted iron plate door with a dual-tumbler keyway.',
+  tags: ['door', 'metal', 'reinforced', 'vault_door', 'bashable'],
+  defaultState: {
+    mechanical: 'closed',
+    security: 'locked',
+    discovery: 'revealed',
+    structural: 'intact'
+  },
+  defaultPermeability: {
+    movement: false,
+    lineOfSight: false,
+    light: false,
+    sound: false,
+    projectiles: false,
+    magic: false
+  },
+  defaultComponents: {
+    durability: { hp: 80, maxHp: 80, armor: 8, canBeForced: true },
+    lock: {
+      lockType: 'mechanical',
+      keyTag: 'key.common_iron',
+      pickDifficulty: 16,
+      forceDifficulty: 20
+    },
+    interactable: {
+      prompt: 'Operate Iron Door',
+      actions: {
+        open: {
+          id: 'open',
+          name: 'Open Door',
+          requirements: { type: 'objectState', axis: 'security', value: 'unlocked' },
+          costs: null,
+          effects: [
+            { type: 'changeState', axis: 'mechanical', value: 'open' },
+            { type: 'updatePermeability', movement: true, lineOfSight: true, light: true, projectiles: true, magic: true }
+          ]
+        },
+        close: {
+          id: 'close',
+          name: 'Close Door',
+          requirements: { type: 'objectState', axis: 'mechanical', value: 'open' },
+          costs: null,
+          effects: [
+            { type: 'changeState', axis: 'mechanical', value: 'closed' },
+            { type: 'updatePermeability', movement: false, lineOfSight: false, light: false, projectiles: false, magic: false }
+          ]
+        },
+        unlock: {
+          id: 'unlock',
+          name: 'Unlock with Iron Key',
+          requirements: { type: 'hasItemTag', tag: 'key.common_iron' },
+          costs: null,
+          effects: [
+            { type: 'changeState', axis: 'security', value: 'unlocked' }
+          ]
+        },
+        pick_lock: {
+          id: 'pick_lock',
+          name: 'Pick Heavy Lock',
+          requirements: {
+            op: 'AND',
+            rules: [
+              { type: 'requiredClass', classId: 'thief' },
+              { type: 'minStat', stat: 'dex', value: 16 }
+            ]
+          },
+          costs: null,
+          effects: [
+            { type: 'changeState', axis: 'security', value: 'unlocked' }
+          ]
+        },
+        bash: {
+          id: 'bash',
+          name: 'Bash Iron Door',
+          requirements: null,
+          costs: null,
+          effects: [
+            { type: 'bashDoor' }
+          ]
+        }
+      }
+    }
+  }
+});
+
+registerObjectDefinition({
+  definitionId: 'door_iron_portcullis',
+  category: OBJECT_CATEGORIES.WORLD_OBJECT,
+  objectType: WORLD_OBJECT_TYPES.DOOR,
+  name: 'Iron Portcullis',
+  description: 'A heavy vertical wrought-iron grating allowing clear line of sight while preventing physical entry.',
+  tags: ['door', 'metal', 'portcullis', 'grated'],
+  defaultState: {
+    mechanical: 'closed',
+    security: 'unlocked',
+    discovery: 'revealed',
+    structural: 'intact'
+  },
+  defaultPermeability: {
+    movement: false,     // Closed portcullis blocks physical footsteps!
+    lineOfSight: true,  // Grate allows full line of sight!
+    light: true,        // Torchlight penetrates the bars!
+    sound: true,        // Sounds travel freely!
+    projectiles: true,  // Arrows and spell attacks shoot straight through the bars!
+    magic: true
+  },
+  defaultComponents: {
+    durability: { hp: 120, maxHp: 120, armor: 10, canBeForced: false },
+    lock: {
+      lockType: 'mechanism',
+      keyTag: 'key.portcullis_lever'
+    },
+    interactable: {
+      prompt: 'Inspect Portcullis',
+      actions: {
+        open: {
+          id: 'open',
+          name: 'Lift Portcullis',
+          requirements: { type: 'objectState', axis: 'security', value: 'unlocked' },
+          costs: null,
+          effects: [
+            { type: 'changeState', axis: 'mechanical', value: 'open' },
+            { type: 'updatePermeability', movement: true, lineOfSight: true, light: true, projectiles: true, magic: true }
+          ]
+        },
+        close: {
+          id: 'close',
+          name: 'Drop Portcullis',
+          requirements: { type: 'objectState', axis: 'mechanical', value: 'open' },
+          costs: null,
+          effects: [
+            { type: 'changeState', axis: 'mechanical', value: 'closed' },
+            { type: 'updatePermeability', movement: false, lineOfSight: true, light: true, projectiles: true, magic: true }
+          ]
+        }
+      }
+    }
+  }
+});
+
+registerObjectDefinition({
+  definitionId: 'door_secret_stone',
+  category: OBJECT_CATEGORIES.WORLD_OBJECT,
+  objectType: WORLD_OBJECT_TYPES.DOOR,
+  name: 'Concealed Secret Door',
+  description: 'A revolving masonry panel chiseled to blend indistinguishably into the surrounding ashlar dungeon walls.',
+  tags: ['door', 'secret', 'stone', 'hidden'],
+  defaultState: {
+    mechanical: 'closed',
+    security: 'unlocked',
+    discovery: 'unknown',
+    structural: 'intact'
+  },
+  defaultPermeability: {
+    movement: false,
+    lineOfSight: false,
+    light: false,
+    sound: false,
+    projectiles: false,
+    magic: false
+  },
+  defaultComponents: {
+    discovery: {
+      detectDc: 13,
+      isSecret: true
+    },
+    durability: { hp: 60, maxHp: 60, armor: 6, canBeForced: true },
+    interactable: {
+      prompt: 'Secret Stone Passage',
+      actions: {
+        reveal: {
+          id: 'reveal',
+          name: 'Reveal Secret Door',
+          requirements: {
+            op: 'OR',
+            rules: [
+              { type: 'requiredClass', classId: 'thief' },
+              { type: 'requiredClass', classId: 'ranger' },
+              { type: 'minStat', stat: 'int', value: 14 }
+            ]
+          },
+          costs: null,
+          effects: [
+            { type: 'changeState', axis: 'discovery', value: 'revealed' }
+          ]
+        },
+        open: {
+          id: 'open',
+          name: 'Pivot Secret Wall',
+          requirements: { type: 'objectState', axis: 'discovery', value: 'revealed' },
+          costs: null,
+          effects: [
+            { type: 'changeState', axis: 'mechanical', value: 'open' },
+            { type: 'updatePermeability', movement: true, lineOfSight: true, light: true, projectiles: true, magic: true }
+          ]
+        },
+        close: {
+          id: 'close',
+          name: 'Close Secret Wall',
+          requirements: { type: 'objectState', axis: 'mechanical', value: 'open' },
+          costs: null,
+          effects: [
+            { type: 'changeState', axis: 'mechanical', value: 'closed' },
+            { type: 'updatePermeability', movement: false, lineOfSight: false, light: false, projectiles: false, magic: false }
+          ]
+        }
+      }
+    }
+  }
+});
+
+registerObjectDefinition({
+  definitionId: 'door_vault_ancient',
+  category: OBJECT_CATEGORIES.WORLD_OBJECT,
+  objectType: WORLD_OBJECT_TYPES.DOOR,
+  name: 'Ancient Dwarven Vault Door',
+  description: 'A massive 4-inch solid brass and mithril security portal with complex celestial astronomical tumblers.',
+  tags: ['door', 'dwarven', 'vault', 'heavy'],
+  defaultState: {
+    mechanical: 'closed',
+    security: 'locked',
+    discovery: 'revealed',
+    structural: 'intact'
+  },
+  defaultPermeability: {
+    movement: false,
+    lineOfSight: false,
+    light: false,
+    sound: false,
+    projectiles: false,
+    magic: false
+  },
+  defaultComponents: {
+    durability: { hp: 160, maxHp: 160, armor: 14, canBeForced: false },
+    lock: {
+      lockType: 'dwarven_vault',
+      keyTag: 'key.dwarven_vault',
+      pickDifficulty: 20
+    },
+    interactable: {
+      prompt: 'Dwarven Vault Door',
+      actions: {
+        open: {
+          id: 'open',
+          name: 'Disengage Vault Seals',
+          requirements: { type: 'objectState', axis: 'security', value: 'unlocked' },
+          costs: null,
+          effects: [
+            { type: 'changeState', axis: 'mechanical', value: 'open' },
+            { type: 'updatePermeability', movement: true, lineOfSight: true, light: true, projectiles: true, magic: true }
+          ]
+        },
+        close: {
+          id: 'close',
+          name: 'Engage Vault Seals',
+          requirements: { type: 'objectState', axis: 'mechanical', value: 'open' },
+          costs: null,
+          effects: [
+            { type: 'changeState', axis: 'mechanical', value: 'closed' },
+            { type: 'updatePermeability', movement: false, lineOfSight: false, light: false, projectiles: false, magic: false }
+          ]
+        },
+        unlock: {
+          id: 'unlock',
+          name: 'Unlock with Dwarven Vault Key',
+          requirements: { type: 'hasItemTag', tag: 'key.dwarven_vault' },
+          costs: null,
+          effects: [
+            { type: 'changeState', axis: 'security', value: 'unlocked' }
+          ]
+        },
+        pick_lock: {
+          id: 'pick_lock',
+          name: 'Pick Dwarven Tumblers',
+          requirements: {
+            op: 'AND',
+            rules: [
+              { type: 'requiredClass', classId: 'thief' },
+              { type: 'minStat', stat: 'dex', value: 20 }
+            ]
+          },
+          costs: null,
+          effects: [
+            { type: 'changeState', axis: 'security', value: 'unlocked' }
+          ]
+        }
+      }
+    }
+  }
+});
+
   // --- Module: src/engine/objects.js ---
 // Foundational Game Object & Runtime Instance Engine (ADR-0010)
 // Manages object instances, spatial floor queries, item pickups, and the ItemStack stacking engine.
@@ -1688,6 +2078,15 @@ function createWorldItemPickupInstance(itemInstance, x, y, options = {}) {
   });
 
   return pickupObj;
+}
+
+function spawnGroundItem(floor, itemOrDefId, x, y, options = {}) {
+  const itemInst = typeof itemOrDefId === 'string' ? createItemInstance(itemOrDefId) : itemOrDefId;
+  const pickup = createWorldItemPickupInstance(itemInst, x, y, options);
+  if (floor) {
+    addWorldObject(floor, pickup);
+  }
+  return pickup;
 }
 
 // ============================================================================
@@ -1912,6 +2311,61 @@ function hydrateLegacyFloorObjects(floor) {
   }
 
   return objs;
+}
+
+// ============================================================================
+// DOOR HELPERS & PERMEABILITY QUERIES
+// ============================================================================
+
+function createDoorInstance(defId = 'door_wood_hinged', x = 0, y = 0, options = {}) {
+  const door = createWorldObjectInstance(defId, Object.assign({}, options, {
+    x: x,
+    y: y,
+    objectType: WORLD_OBJECT_TYPES.DOOR
+  }));
+  return door;
+}
+
+function isDoorWalkable(door) {
+  if (!door) return true;
+  if (door.objectType !== WORLD_OBJECT_TYPES.DOOR) return true;
+
+  const st = door.runtimeState || {};
+  if (st.mechanical === 'open') return true;
+  if (st.structural === 'destroyed' || st.structural === 'breached') return true;
+  if (door.permeability && door.permeability.movement === true) return true;
+
+  return false;
+}
+
+function isDoorOpaque(door) {
+  if (!door) return false;
+  if (door.objectType !== WORLD_OBJECT_TYPES.DOOR) return false;
+
+  const st = door.runtimeState || {};
+  // If door is open, destroyed, or breached, vision passes through
+  if (st.mechanical === 'open') return false;
+  if (st.structural === 'destroyed' || st.structural === 'breached') return false;
+
+  // If door has lineOfSight permeability (such as portcullis bars), vision passes through
+  if (door.permeability && door.permeability.lineOfSight === true) return false;
+
+  return true;
+}
+
+function isDoorTraversable(door) {
+  if (!door) return { traversable: true };
+  const walkable = isDoorWalkable(door);
+  if (walkable) return { traversable: true };
+
+  const st = door.runtimeState || {};
+  let reason = 'closed';
+  if (st.security === 'locked') reason = 'locked';
+  else if (st.security === 'sealed') reason = 'sealed';
+  else if (st.mechanical === 'jammed') reason = 'jammed';
+  else if (st.discovery === 'unknown') reason = 'secret_wall';
+
+  return { traversable: false, reason: reason };
 }
 
   // --- Module: src/engine/state.js ---
@@ -2578,6 +3032,14 @@ function playSound(type) {
       gain.gain.exponentialRampToValueAtTime(0.01, now + 0.16);
       osc.start(now);
       osc.stop(now + 0.16);
+    } else if (type === 'door') {
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(140, now);
+      osc.frequency.linearRampToValueAtTime(95, now + 0.14);
+      gain.gain.setValueAtTime(0.12, now);
+      gain.gain.exponentialRampToValueAtTime(0.01, now + 0.14);
+      osc.start(now);
+      osc.stop(now + 0.14);
     } else if (type === 'lvl') {
       osc.type = 'triangle';
       osc.frequency.setValueAtTime(440, now);
@@ -3142,6 +3604,7 @@ const BOSS_ARCHETYPES = {
 
   // --- Module: src/engine/procedural.js ---
 // Multi-Style Sector-Grid Procedural Floor Generator, Fast O(W*H) BFS, Declarative Spawns & Socketed Gear
+
 
 
 
@@ -3739,12 +4202,119 @@ function generateFloor(depth, dungeonConfig = null, dungeonSeed = null) {
     traps,
     vaults,
     monsters: [],
+    objects: [],
     oresMined: 0
   };
 
   // Guarantee pure trap-free walkability between < and > (or final sanctum)
   if (!verifyPureFloorBFS(floorObj)) {
     carveDirectFloorPath(floorObj);
+  }
+
+  // Procedural Door & Lock-and-Key Placement
+  const doorwayCandidates = [];
+  const candidateCoordMap = {};
+
+  for (let rIdx = 0; rIdx < rooms.length; rIdx++) {
+    const r = rooms[rIdx];
+    for (let x = r.rx; x < r.rx + r.rw; x++) {
+      const topY = r.ry - 1;
+      const botY = r.ry + r.rh;
+      if (topY >= 1 && topY < h - 1 && tiles[topY][x] === TILE_FLOOR) {
+        if (tiles[topY][x - 1] === TILE_WALL && tiles[topY][x + 1] === TILE_WALL) {
+          const k = `${x},${topY}`;
+          if (!candidateCoordMap[k]) {
+            candidateCoordMap[k] = true;
+            doorwayCandidates.push({ x, y: topY, room: r });
+          }
+        }
+      }
+      if (botY >= 1 && botY < h - 1 && tiles[botY][x] === TILE_FLOOR) {
+        if (tiles[botY][x - 1] === TILE_WALL && tiles[botY][x + 1] === TILE_WALL) {
+          const k = `${x},${botY}`;
+          if (!candidateCoordMap[k]) {
+            candidateCoordMap[k] = true;
+            doorwayCandidates.push({ x, y: botY, room: r });
+          }
+        }
+      }
+    }
+    for (let y = r.ry; y < r.ry + r.rh; y++) {
+      const leftX = r.rx - 1;
+      const rightX = r.rx + r.rw;
+      if (leftX >= 1 && leftX < w - 1 && tiles[y][leftX] === TILE_FLOOR) {
+        if (tiles[y - 1][leftX] === TILE_WALL && tiles[y + 1][leftX] === TILE_WALL) {
+          const k = `${leftX},${y}`;
+          if (!candidateCoordMap[k]) {
+            candidateCoordMap[k] = true;
+            doorwayCandidates.push({ x: leftX, y, room: r });
+          }
+        }
+      }
+      if (rightX >= 1 && rightX < w - 1 && tiles[y][rightX] === TILE_FLOOR) {
+        if (tiles[y - 1][rightX] === TILE_WALL && tiles[y + 1][rightX] === TILE_WALL) {
+          const k = `${rightX},${y}`;
+          if (!candidateCoordMap[k]) {
+            candidateCoordMap[k] = true;
+            doorwayCandidates.push({ x: rightX, y, room: r });
+          }
+        }
+      }
+    }
+  }
+
+  for (let ci = 0; ci < doorwayCandidates.length; ci++) {
+    const c = doorwayCandidates[ci];
+    if ((c.x === upPos.x && c.y === upPos.y) || (c.x === downPos.x && c.y === downPos.y)) continue;
+    if (tiles[c.y][c.x] !== TILE_FLOOR) continue;
+
+    const isVaultRoom = vaults && vaults.indexOf(c.room) !== -1;
+    if (isVaultRoom) {
+      const vaultDoorDefId = effDepth >= 4 ? 'door_vault_ancient' : 'door_iron_reinforced';
+      const doorInst = createDoorInstance(vaultDoorDefId, c.x, c.y, {
+        runtimeState: {
+          mechanical: 'closed',
+          security: 'locked',
+          structural: 'intact',
+          discovery: 'revealed'
+        }
+      });
+      floorObj.objects.push(doorInst);
+
+      const keyDefId = effDepth >= 4 ? 'item_key_dwarven' : 'item_key_iron';
+      const keyRoom = upRoom;
+      const kx = keyRoom.rx + Math.floor(rand() * keyRoom.rw);
+      const ky = keyRoom.ry + Math.floor(rand() * keyRoom.rh);
+      if (tiles[ky][kx] === TILE_FLOOR && !(kx === upPos.x && ky === upPos.y)) {
+        spawnGroundItem(floorObj, keyDefId, kx, ky);
+      }
+    } else if (c.room !== upRoom && rand() < 0.65) {
+      const doorDefId = rand() < 0.20 ? 'door_iron_portcullis' : 'door_wood_hinged';
+      const doorInst = createDoorInstance(doorDefId, c.x, c.y);
+      floorObj.objects.push(doorInst);
+    }
+  }
+
+  // Occasional secret door (if floor has >= 3 rooms)
+  if (rooms.length >= 3 && rand() < 0.35) {
+    for (let sTry = 0; sTry < 15; sTry++) {
+      const r = rooms[Math.floor(rand() * rooms.length)];
+      if (r === upRoom) continue;
+      const wx = r.rx + Math.floor(rand() * r.rw);
+      const wy = r.ry - 1;
+      if (wy >= 1 && tiles[wy][wx] === TILE_WALL && tiles[wy + 1][wx] === TILE_FLOOR) {
+        const secDoor = createDoorInstance('door_secret_stone', wx, wy, {
+          runtimeState: {
+            mechanical: 'closed',
+            security: 'unlocked',
+            structural: 'intact',
+            discovery: 'unknown'
+          }
+        });
+        floorObj.objects.push(secDoor);
+        break;
+      }
+    }
   }
 
   // Occupancy bitmap for fast O(1) monster placement collision checks on huge floors
@@ -4445,6 +5015,31 @@ function detectNearbyTraps(floor, state = gameState) {
           const tDef = TRAP_CATALOG[tMeta.type] || TRAP_CATALOG.spike;
           actionCallbacks.floatingText(x, y, '⚠ TRAP SPOTTED!', '#fbbf24');
           actionCallbacks.log(`Keen senses revealed a ${tDef.name} at (${x}, ${y})!`, 'gold');
+        }
+      }
+    }
+  }
+
+  // Detect and reveal hidden secret doors within perception radius
+  if (Array.isArray(floor.objects)) {
+    for (let oi = 0; oi < floor.objects.length; oi++) {
+      const obj = floor.objects[oi];
+      if (
+        obj &&
+        obj.objectType === 'door' &&
+        obj.runtimeState &&
+        obj.runtimeState.discovery === 'unknown'
+      ) {
+        const dist = Math.hypot(obj.x - h.x, obj.y - h.y);
+        if (dist <= vision + 0.35 && ((isScoutClass && dist <= 2.5) || spotScore >= threshold)) {
+          obj.runtimeState.discovery = 'revealed';
+          obj.revision = (obj.revision || 1) + 1;
+          spottedCount += 1;
+          if (state === gameState) {
+            playSound('gold');
+            actionCallbacks.floatingText(obj.x, obj.y, 'Secret Passage!', '#38bdf8');
+            actionCallbacks.log(`Keen senses revealed a secret stone passage at (${obj.x}, ${obj.y})!`, 'gold');
+          }
         }
       }
     }
@@ -5358,6 +5953,7 @@ function createInteractionRequest(actorId, targetId, actionId, parameters = {}, 
 function createInteractionResult(ok, actionId, reason = null, stateChanged = false, effectsApplied = [], message = '') {
   return {
     ok: Boolean(ok),
+    success: Boolean(ok),
     actionId: actionId,
     reason: reason,
     stateChanged: Boolean(stateChanged),
@@ -5540,6 +6136,42 @@ function applyInteractionEffects(effects, context = {}, state = gameState) {
     if (eff.type === 'changeState' && target && target.runtimeState) {
       target.runtimeState[eff.axis] = eff.value;
       applied.push(eff);
+    } else if (eff.type === 'updatePermeability' && target && target.permeability) {
+      if (eff.movement !== undefined) target.permeability.movement = Boolean(eff.movement);
+      if (eff.lineOfSight !== undefined) target.permeability.lineOfSight = Boolean(eff.lineOfSight);
+      if (eff.light !== undefined) target.permeability.light = Boolean(eff.light);
+      if (eff.projectiles !== undefined) target.permeability.projectiles = Boolean(eff.projectiles);
+      if (eff.magic !== undefined) target.permeability.magic = Boolean(eff.magic);
+      applied.push(eff);
+    } else if (eff.type === 'bashDoor' && target && target.components && target.components.durability) {
+      const dur = target.components.durability;
+      const atkPower = (actor && (actor.atk || actor.str)) || 10;
+      const armor = dur.armor || 0;
+      const dmg = Math.max(1, atkPower - armor);
+      dur.hp = Math.max(0, dur.hp - dmg);
+
+      if (dur.hp <= 0) {
+        if (target.runtimeState) {
+          target.runtimeState.structural = 'destroyed';
+          target.runtimeState.mechanical = 'open';
+        }
+        if (target.permeability) {
+          target.permeability.movement = true;
+          target.permeability.lineOfSight = true;
+          target.permeability.light = true;
+          target.permeability.projectiles = true;
+          target.permeability.magic = true;
+        }
+      } else if (dur.hp <= dur.maxHp * 0.4) {
+        if (target.runtimeState) {
+          target.runtimeState.structural = 'critically_damaged';
+        }
+      } else {
+        if (target.runtimeState) {
+          target.runtimeState.structural = 'damaged';
+        }
+      }
+      applied.push(Object.assign({}, eff, { damageDealt: dmg, remainingHp: dur.hp }));
     } else if (eff.type === 'applyDamage' && target && target.components && target.components.durability) {
       const dmg = Math.max(1, eff.amount || 1);
       target.components.durability.hp = Math.max(0, target.components.durability.hp - dmg);
@@ -5720,6 +6352,14 @@ function hasLineOfSight(floor, x0, y0, x1, y1) {
     if (tile === TILE_WALL || ORE_CATALOG[tile]) {
       return false;
     }
+    if (floor.objects && floor.objects.length > 0) {
+      for (let oi = 0; oi < floor.objects.length; oi++) {
+        const obj = floor.objects[oi];
+        if (obj && obj.x === cx && obj.y === cy && isDoorOpaque(obj)) {
+          return false;
+        }
+      }
+    }
   }
   return true;
 }
@@ -5868,6 +6508,18 @@ function computeSafeExploredPath(floor, sx, sy, tx, ty) {
       );
 
       if (!isSafeStep && !isInteractiveGoal) continue;
+
+      if (Array.isArray(floor.objects)) {
+        let isClosedDoor = false;
+        for (let di = 0; di < floor.objects.length; di++) {
+          const dobj = floor.objects[di];
+          if (dobj && dobj.x === nx && dobj.y === ny && dobj.objectType === 'door' && !isDoorWalkable(dobj)) {
+            isClosedDoor = true;
+            break;
+          }
+        }
+        if (isClosedDoor && nIdx !== targetIdx) continue;
+      }
 
       visited[nIdx] = 1;
       parent[nIdx] = cur;
@@ -6465,8 +7117,13 @@ function processTurn(state = gameState) {
               destTile === TILE_SHRINE_USED ||
               destTile === TILE_TRAP_DISARMED
             );
+            const doorObj = (floor.objects && floor.objects.length > 0)
+              ? floor.objects.find(o => o.x === tx && o.y === ty && o.objectType === 'door')
+              : null;
+            const doorBlocks = doorObj && !isDoorWalkable(doorObj);
             if (
               monsterWalkable &&
+              !doorBlocks &&
               !(tx === h.x && ty === h.y) &&
               !floor.monsters.some(other => other.x === tx && other.y === ty)
             ) {
@@ -6909,7 +7566,78 @@ function handlePlayerAction(dx, dy, state = gameState) {
     return;
   }
 
-  // 6. Step onto Walkable Tile
+  // 6. Door Collision & Interaction (Auto-open, Key Unlock, Destructible, Secret)
+  const doorAtTarget = (floor.objects && floor.objects.length > 0)
+    ? floor.objects.find(o => o.x === nx && o.y === ny && o.objectType === 'door')
+    : null;
+
+  if (doorAtTarget) {
+    const rState = doorAtTarget.runtimeState || {};
+    // 1. Unknown secret door: behaves like solid wall to unaware hero
+    if (rState.discovery === 'unknown') {
+      if (state === gameState) {
+        ui.floatingText(nx, ny, 'Solid Wall', '#8b949e');
+      }
+      return;
+    }
+
+    // 2. Walkable door (open, destroyed, or permeable)
+    if (isDoorWalkable(doorAtTarget)) {
+      state.hero.x = nx;
+      state.hero.y = ny;
+      pickupGroundObjectsAt(nx, ny, state);
+      detectNearbyTraps(floor, state);
+      processTurn(state);
+      return;
+    }
+
+    // 3. Closed door: check lock / security state
+    const sec = rState.security || 'unlocked';
+    if (sec === 'locked' || sec === 'reinforced_locked') {
+      // Try to unlock with matching key in inventory
+      const unlockRes = executeInteraction({ targetId: doorAtTarget.instanceId, actionId: 'unlock' }, state);
+      if (unlockRes && (unlockRes.ok || unlockRes.success)) {
+        // Automatically swing door open upon successful key unlock
+        executeInteraction({ targetId: doorAtTarget.instanceId, actionId: 'open' }, state);
+        if (state === gameState) {
+          playSound('door');
+          ui.floatingText(nx, ny, 'Unlocked & Opened!', '#34d399');
+          ui.log(`Unlocked and opened ${doorAtTarget.name} with key!`, 'good');
+          if (typeof fovCallback === 'function') fovCallback();
+        }
+        processTurn(state);
+        return;
+      } else {
+        // Locked door with no key
+        if (state === gameState) {
+          playSound('hit');
+          ui.floatingText(nx, ny, 'Locked!', '#f87171');
+          ui.log(`${doorAtTarget.name} is locked! (${unlockRes ? unlockRes.message : 'Key required'})`, 'bad');
+        }
+        return;
+      }
+    } else {
+      // Unlocked door: bump auto-open!
+      const openRes = executeInteraction({ targetId: doorAtTarget.instanceId, actionId: 'open' }, state);
+      if (openRes && (openRes.ok || openRes.success)) {
+        if (state === gameState) {
+          playSound('door');
+          ui.floatingText(nx, ny, 'Opened', '#e2e8f0');
+          ui.log(`Opened ${doorAtTarget.name}.`, 'info');
+          if (typeof fovCallback === 'function') fovCallback();
+        }
+        processTurn(state);
+        return;
+      } else {
+        if (state === gameState) {
+          ui.floatingText(nx, ny, 'Stuck!', '#f87171');
+        }
+        return;
+      }
+    }
+  }
+
+  // 7. Step onto Walkable Tile
   if (targetTile !== TILE_WALL) {
     state.hero.x = nx;
     state.hero.y = ny;
@@ -8249,6 +8977,23 @@ function renderMinimapCanvas(targetCanvasId = 'minimapCanvas') {
     }
   }
 
+  // Explored Doors on Minimap
+  if (floor.objects && floor.objects.length > 0) {
+    for (let oi = 0; oi < floor.objects.length; oi++) {
+      const obj = floor.objects[oi];
+      if (obj && obj.objectType === 'door' && floor.explored[obj.y] && floor.explored[obj.y][obj.x]) {
+        const disc = obj.runtimeState && obj.runtimeState.discovery;
+        if (disc !== 'unknown') {
+          const rx = Math.floor(offX + obj.x * scale);
+          const ry = Math.floor(offY + obj.y * scale);
+          const sec = obj.runtimeState && obj.runtimeState.security;
+          const color = sec === 'locked' ? '#fbbf24' : '#d97706';
+          poiMarkers.push({ x: rx, y: ry, color: color, size: Math.max(2, drawSize) });
+        }
+      }
+    }
+  }
+
   for (let i = 0; i < poiMarkers.length; i++) {
     const p = poiMarkers[i];
     ctx.fillStyle = p.color;
@@ -8283,6 +9028,201 @@ function renderMinimapCanvas(targetCanvasId = 'minimapCanvas') {
   const beacon = Math.max(3, drawSize + 1);
   ctx.fillStyle = '#ffffff';
   ctx.fillRect(heroPx - 1, heroPy - 1, beacon, beacon);
+}
+
+function renderDoorTile(ctx, px, py, door, biome, inSight) {
+  if (!ctx || !door) return;
+  const defId = door.definitionId || '';
+  const rState = door.runtimeState || {};
+  const mech = rState.mechanical || 'closed';
+  const sec = rState.security || 'unlocked';
+  const struct = rState.structural || 'intact';
+  const disc = rState.discovery || 'revealed';
+
+  // Unknown secret door renders as standard biome wall masonry
+  if (disc === 'unknown') {
+    ctx.fillStyle = biome.wallBase;
+    ctx.fillRect(px, py, TILE_SIZE, TILE_SIZE);
+    ctx.fillStyle = biome.wallShadow;
+    ctx.fillRect(px, py + 22, TILE_SIZE, 10);
+    ctx.strokeStyle = biome.wallBorder;
+    ctx.strokeRect(px + 0.5, py + 0.5, TILE_SIZE - 1, TILE_SIZE - 1);
+    return;
+  }
+
+  // Destroyed / Breached Door Rubble
+  if (struct === 'destroyed') {
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.35)';
+    ctx.fillRect(px + 4, py + 8, 24, 16);
+    ctx.fillStyle = '#78350f';
+    ctx.fillRect(px + 6, py + 12, 8, 3);
+    ctx.fillRect(px + 18, py + 16, 7, 3);
+    ctx.fillStyle = '#475569';
+    ctx.fillRect(px + 12, py + 10, 6, 4);
+    ctx.fillRect(px + 14, py + 20, 9, 3);
+    ctx.fillStyle = '#94a3b8';
+    ctx.fillRect(px + 9, py + 18, 4, 4);
+    return;
+  }
+
+  // Open Door (any type)
+  if (mech === 'open') {
+    ctx.fillStyle = '#1e293b';
+    ctx.fillRect(px + 2, py + 2, 4, 28);
+    ctx.fillRect(px + 26, py + 2, 4, 28);
+    ctx.fillRect(px + 2, py + 2, 28, 3);
+
+    if (defId === 'door_iron_portcullis') {
+      ctx.fillStyle = '#475569';
+      ctx.fillRect(px + 6, py + 3, 20, 6);
+      ctx.fillStyle = '#94a3b8';
+      for (let bx = 8; bx <= 24; bx += 4) {
+        ctx.fillRect(px + bx, py + 9, 2, 4);
+      }
+      ctx.fillStyle = '#cbd5e1';
+      ctx.fillRect(px + 4, py + 3, 1, 14);
+      ctx.fillRect(px + 27, py + 3, 1, 14);
+    } else if (defId === 'door_secret_stone') {
+      ctx.fillStyle = '#334155';
+      ctx.beginPath();
+      ctx.moveTo(px + 6, py + 4);
+      ctx.lineTo(px + 12, py + 2);
+      ctx.lineTo(px + 12, py + 28);
+      ctx.lineTo(px + 6, py + 28);
+      ctx.closePath();
+      ctx.fill();
+    } else {
+      ctx.fillStyle = defId === 'door_iron_reinforced' ? '#334155' : '#78350f';
+      ctx.fillRect(px + 6, py + 4, 4, 24);
+      ctx.fillStyle = '#fbbf24';
+      ctx.fillRect(px + 4, py + 8, 3, 3);
+      ctx.fillRect(px + 4, py + 22, 3, 3);
+    }
+    return;
+  }
+
+  // CLOSED DOORS:
+  if (defId === 'door_secret_stone') {
+    ctx.fillStyle = biome.wallBase;
+    ctx.fillRect(px, py, TILE_SIZE, TILE_SIZE);
+    ctx.fillStyle = biome.wallShadow;
+    ctx.fillRect(px, py + 22, TILE_SIZE, 10);
+    ctx.strokeStyle = '#38bdf8';
+    ctx.lineWidth = 1.2;
+    ctx.strokeRect(px + 4, py + 4, 24, 24);
+    ctx.fillStyle = '#38bdf8';
+    ctx.font = 'bold 9px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('ᚱ', px + 16, py + 18);
+    return;
+  }
+
+  if (defId === 'door_iron_portcullis') {
+    ctx.fillStyle = '#1e293b';
+    ctx.fillRect(px + 1, py + 1, 5, 30);
+    ctx.fillRect(px + 26, py + 1, 5, 30);
+    ctx.fillRect(px + 1, py + 1, 30, 4);
+
+    ctx.fillStyle = '#334155';
+    ctx.fillRect(px + 6, py + 10, 20, 2.5);
+    ctx.fillRect(px + 6, py + 20, 20, 2.5);
+
+    for (let bx = 8; bx <= 24; bx += 4) {
+      ctx.fillStyle = '#64748b';
+      ctx.fillRect(px + bx, py + 4, 2.5, 22);
+      ctx.fillStyle = '#94a3b8';
+      ctx.beginPath();
+      ctx.moveTo(px + bx, py + 26);
+      ctx.lineTo(px + bx + 1.25, py + 29);
+      ctx.lineTo(px + bx + 2.5, py + 26);
+      ctx.closePath();
+      ctx.fill();
+    }
+    return;
+  }
+
+  if (defId === 'door_vault_ancient') {
+    ctx.fillStyle = '#1e293b';
+    ctx.fillRect(px + 2, py + 2, 28, 28);
+    ctx.fillStyle = '#78350f';
+    ctx.fillRect(px + 4, py + 4, 24, 24);
+
+    ctx.fillStyle = '#d97706';
+    ctx.beginPath();
+    ctx.arc(px + 16, py + 16, 11, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = '#fbbf24';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    ctx.strokeStyle = '#fef08a';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(px + 16, py + 16, 6, 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.fillStyle = sec === 'locked' ? '#ef4444' : '#10b981';
+    ctx.fillRect(px + 14.5, py + 14.5, 3, 3);
+    return;
+  }
+
+  if (defId === 'door_iron_reinforced') {
+    ctx.fillStyle = '#0f172a';
+    ctx.fillRect(px + 2, py + 2, 28, 28);
+    ctx.fillStyle = '#334155';
+    ctx.fillRect(px + 4, py + 4, 24, 24);
+
+    ctx.strokeStyle = '#475569';
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.moveTo(px + 5, py + 5); ctx.lineTo(px + 27, py + 27);
+    ctx.moveTo(px + 27, py + 5); ctx.lineTo(px + 5, py + 27);
+    ctx.stroke();
+
+    ctx.fillStyle = '#94a3b8';
+    ctx.fillRect(px + 5, py + 5, 2, 2);
+    ctx.fillRect(px + 25, py + 5, 2, 2);
+    ctx.fillRect(px + 5, py + 25, 2, 2);
+    ctx.fillRect(px + 25, py + 25, 2, 2);
+
+    ctx.fillStyle = sec === 'locked' ? '#fbbf24' : '#64748b';
+    ctx.fillRect(px + 14, py + 13, 4, 6);
+    ctx.fillStyle = '#0f172a';
+    ctx.fillRect(px + 15, py + 15, 2, 2);
+    return;
+  }
+
+  // Standard Wooden Hinged Door (door_wood_hinged)
+  ctx.fillStyle = '#1e293b';
+  ctx.fillRect(px + 2, py + 2, 28, 28);
+
+  ctx.fillStyle = '#78350f';
+  ctx.fillRect(px + 4, py + 4, 24, 24);
+  ctx.fillStyle = '#451a03';
+  ctx.fillRect(px + 10, py + 4, 1, 24);
+  ctx.fillRect(px + 16, py + 4, 1, 24);
+  ctx.fillRect(px + 22, py + 4, 1, 24);
+
+  ctx.fillStyle = '#334155';
+  ctx.fillRect(px + 4, py + 8, 24, 3);
+  ctx.fillRect(px + 4, py + 20, 24, 3);
+  ctx.fillStyle = '#64748b';
+  ctx.fillRect(px + 6, py + 9, 1.5, 1.5);
+  ctx.fillRect(px + 18, py + 9, 1.5, 1.5);
+  ctx.fillRect(px + 6, py + 21, 1.5, 1.5);
+  ctx.fillRect(px + 18, py + 21, 1.5, 1.5);
+
+  if (sec === 'locked') {
+    ctx.fillStyle = '#fbbf24';
+    ctx.fillRect(px + 22, py + 14, 3, 4);
+    ctx.fillStyle = '#451a03';
+    ctx.fillRect(px + 23, py + 15, 1, 2);
+  } else {
+    ctx.fillStyle = '#94a3b8';
+    ctx.beginPath();
+    ctx.arc(px + 23, py + 16, 2, 0, Math.PI * 2);
+    ctx.stroke();
+  }
 }
 
 function renderDungeonCanvas() {
@@ -8708,6 +9648,17 @@ function renderDungeonCanvas() {
           ctx.fillRect(px + 10, py + 15, 12, 2);
           ctx.fillStyle = '#1e293b';
           ctx.fillRect(px + 13, py + 12, 6, 2);
+        }
+      }
+
+      // 4. World Objects on Tile (Doors)
+      if (floor.objects && floor.objects.length > 0) {
+        for (let oi = 0; oi < floor.objects.length; oi++) {
+          const obj = floor.objects[oi];
+          if (obj && obj.x === x && obj.y === y && obj.objectType === 'door') {
+            renderDoorTile(ctx, px, py, obj, biome, inSight);
+            break;
+          }
         }
       }
 
@@ -13553,6 +14504,162 @@ function evaluateSelfTests() {
       : `Failed checks: ${failedKeys27.join(', ')}`
   });
 
+  // 28. Multi-State Door System, Environmental Permeability Matrix & Lock-and-Key Generation
+  const sandbox28 = createDefaultGameState();
+  selectAdventurerClass('fighter', sandbox28);
+  sandbox28.inGuild = false;
+  const f28 = ensureDungeonFloorHydrated(sandbox28.dungeon, 1);
+  ensureFloorObjects(f28);
+  sandbox28.hero.x = 10;
+  sandbox28.hero.y = 10;
+
+  // A. Door Definitions & Multi-Dimensional State Engine
+  const hasWoodDoorDef = hasObjectDefinition('door_wood_hinged');
+  const hasIronDoorDef = hasObjectDefinition('door_iron_reinforced');
+  const hasPortcullisDef = hasObjectDefinition('door_iron_portcullis');
+  const hasSecretDoorDef = hasObjectDefinition('door_secret_stone');
+  const hasVaultDoorDef = hasObjectDefinition('door_vault_ancient');
+
+  const woodDoor = createDoorInstance('door_wood_hinged', 11, 10);
+  addWorldObject(f28, woodDoor);
+  const woodDoorStateValid = woodDoor.runtimeState &&
+    woodDoor.runtimeState.mechanical === 'closed' &&
+    woodDoor.runtimeState.security === 'unlocked' &&
+    woodDoor.runtimeState.structural === 'intact' &&
+    woodDoor.runtimeState.discovery === 'revealed';
+
+  // B. Permeability Queries & Tactical Portcullis Matrix (LOS allowed, movement blocked)
+  const portcullis = createDoorInstance('door_iron_portcullis', 10, 12);
+  addWorldObject(f28, portcullis);
+
+  const woodBlocksWalk = isDoorWalkable(woodDoor) === false;
+  const woodBlocksVision = isDoorOpaque(woodDoor) === true;
+  const portcullisBlocksWalk = isDoorWalkable(portcullis) === false;
+  const portcullisAllowsVision = isDoorOpaque(portcullis) === false;
+
+  // Verify Line-of-Sight penetration through portcullis bars vs solid door
+  f28.tiles[10][10] = TILE_FLOOR;
+  f28.tiles[10][11] = TILE_FLOOR;
+  f28.tiles[10][12] = TILE_FLOOR;
+  f28.tiles[10][13] = TILE_FLOOR;
+  f28.tiles[11][10] = TILE_FLOOR;
+  f28.tiles[12][10] = TILE_FLOOR;
+
+  // (10, 10) to (10, 13) has portcullis at (10, 12) -> LOS is true!
+  const portcullisLos = hasLineOfSight(f28, 10, 10, 10, 13);
+  // (10, 10) to (12, 10) has solid wood door at (11, 10) -> LOS is false!
+  const woodDoorLos = hasLineOfSight(f28, 10, 10, 12, 10);
+
+  // C. Bump Auto-Open & Movement
+  const prevHeroX = sandbox28.hero.x;
+  handlePlayerAction(1, 0, sandbox28); // Bump into closed wooden door at (11, 10)
+  const bumpOpenedDoor = woodDoor.runtimeState.mechanical === 'open' &&
+    isDoorWalkable(woodDoor) === true &&
+    sandbox28.hero.x === prevHeroX; // Opens without advancing hero position on bump turn
+
+  handlePlayerAction(1, 0, sandbox28); // Step through now-open door
+  const heroWalkedThrough = sandbox28.hero.x === 11 && sandbox28.hero.y === 10;
+
+  // D. Lock & Key Interaction (Unlock, Thief Pick Lock, Fighter Bash)
+  const lockedIronDoor = createDoorInstance('door_iron_reinforced', 11, 11, {
+    runtimeState: { mechanical: 'closed', security: 'locked', structural: 'intact' }
+  });
+  addWorldObject(f28, lockedIronDoor);
+
+  // Bump without key fails
+  sandbox28.hero.expeditionPack = [];
+  handlePlayerAction(0, 1, sandbox28);
+  const bumpLockedFailed = lockedIronDoor.runtimeState.security === 'locked' &&
+    sandbox28.hero.x === 11 && sandbox28.hero.y === 10;
+
+  // Bump with matching iron key unlocks & opens
+  const ironKeyItem = createItemInstance('key_iron_common', { quantity: 1 });
+  sandbox28.hero.expeditionPack = [ironKeyItem];
+  handlePlayerAction(0, 1, sandbox28);
+  const keyUnlockedAndOpened = lockedIronDoor.runtimeState.security === 'unlocked' &&
+    lockedIronDoor.runtimeState.mechanical === 'open';
+
+  // Thief lockpicking
+  const lockedVaultDoor = createDoorInstance('door_vault_ancient', 15, 15, {
+    runtimeState: { mechanical: 'closed', security: 'locked', structural: 'intact' }
+  });
+  addWorldObject(f28, lockedVaultDoor);
+  sandbox28.hero.x = 15;
+  sandbox28.hero.y = 14; // Stand adjacent to vault door
+  sandbox28.hero.classId = 'thief';
+  sandbox28.hero.dex = 20;
+  const pickReq = createInteractionRequest(sandbox28.hero, lockedVaultDoor.instanceId, 'pick_lock');
+  const pickRes = executeInteraction(pickReq, sandbox28);
+  const thiefPickedLock = pickRes.ok && lockedVaultDoor.runtimeState.security === 'unlocked';
+
+  // Fighter bash door until destroyed
+  const bashedDoor = createDoorInstance('door_wood_hinged', 16, 16);
+  addWorldObject(f28, bashedDoor);
+  sandbox28.hero.x = 16;
+  sandbox28.hero.y = 15; // Stand adjacent to bashed door
+  sandbox28.hero.classId = 'fighter';
+  sandbox28.hero.atk = 40;
+  const bashReq = createInteractionRequest(sandbox28.hero, bashedDoor.instanceId, 'bash');
+  executeInteraction(bashReq, sandbox28);
+  executeInteraction(bashReq, sandbox28);
+  const doorDestroyed = bashedDoor.runtimeState.structural === 'destroyed' &&
+    bashedDoor.runtimeState.mechanical === 'open' &&
+    isDoorWalkable(bashedDoor) === true &&
+    isDoorOpaque(bashedDoor) === false;
+
+  // E. Secret Door Perception & Discovery
+  const secretDoor = createDoorInstance('door_secret_stone', 12, 10, {
+    runtimeState: { mechanical: 'closed', security: 'unlocked', structural: 'intact', discovery: 'unknown' }
+  });
+  addWorldObject(f28, secretDoor);
+  const secretInitiallyHidden = secretDoor.runtimeState.discovery === 'unknown' &&
+    isDoorWalkable(secretDoor) === false;
+
+  // Scout detects secret door nearby
+  sandbox28.hero.x = 11;
+  sandbox28.hero.y = 10;
+  sandbox28.hero.classId = 'ranger';
+  detectNearbyTraps(f28, sandbox28);
+  const secretRevealed = secretDoor.runtimeState.discovery === 'revealed';
+
+  // F. Procedural Door Placement in generateFloor
+  const procFloor = generateFloor(2);
+  const hasProceduralDoors = Array.isArray(procFloor.objects) &&
+    procFloor.objects.some(o => o.objectType === 'door');
+
+  const t28Checks = {
+    hasWoodDoorDef: !!hasWoodDoorDef,
+    hasIronDoorDef: !!hasIronDoorDef,
+    hasPortcullisDef: !!hasPortcullisDef,
+    hasSecretDoorDef: !!hasSecretDoorDef,
+    hasVaultDoorDef: !!hasVaultDoorDef,
+    woodDoorStateValid: !!woodDoorStateValid,
+    woodBlocksWalk: !!woodBlocksWalk,
+    woodBlocksVision: !!woodBlocksVision,
+    portcullisBlocksWalk: !!portcullisBlocksWalk,
+    portcullisAllowsVision: !!portcullisAllowsVision,
+    portcullisLos: portcullisLos === true,
+    woodDoorLos: woodDoorLos === false,
+    bumpOpenedDoor: !!bumpOpenedDoor,
+    heroWalkedThrough: !!heroWalkedThrough,
+    bumpLockedFailed: !!bumpLockedFailed,
+    keyUnlockedAndOpened: !!keyUnlockedAndOpened,
+    thiefPickedLock: !!thiefPickedLock,
+    doorDestroyed: !!doorDestroyed,
+    secretInitiallyHidden: !!secretInitiallyHidden,
+    secretRevealed: !!secretRevealed,
+    hasProceduralDoors: !!hasProceduralDoors
+  };
+  const failedKeys28 = Object.keys(t28Checks).filter(k => !t28Checks[k]);
+  const t28Pass = failedKeys28.length === 0;
+  results.push({
+    name: '28. Multi-State Door System, Environmental Permeability Matrix & Lock-and-Key Generation',
+    pass: t28Pass,
+    detail: failedKeys28.length === 0
+      ? 'Door definitions verified, multi-state axes verified, portcullis vs wood door permeability verified (LOS through grate), bump auto-open & step-through verified, lock & key interaction verified, bash destructibility verified, secret door discovery verified, procedural door generation verified'
+      : `Failed checks: ${failedKeys28.join(', ')}`
+  });
+
   return results;
 }
 
@@ -13563,7 +14670,7 @@ function runSelfTests(renderModal = false) {
   if (typeof document !== 'undefined') {
     const btnText = document.getElementById('verifyBtnText');
     if (btnText) {
-      btnText.textContent = `Verify Inc-8.0 (${passCount}/${results.length} PASS)`;
+      btnText.textContent = `Verify Inc-8.1 (${passCount}/${results.length} PASS)`;
     }
 
     if (renderModal) {
@@ -13796,6 +14903,12 @@ const AethelgardAPI = {
   canItemsStack,
   mergeItemStacks,
   splitItemStack,
+  createDoorInstance,
+  isDoorWalkable,
+  isDoorOpaque,
+  isDoorTraversable,
+  spawnGroundItem,
+  renderDoorTile,
   createInteractionRequest,
   executeInteraction,
   evaluateRequirement,

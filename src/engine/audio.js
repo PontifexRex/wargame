@@ -49,6 +49,14 @@ export function playSound(type) {
       gain.gain.exponentialRampToValueAtTime(0.01, now + 0.16);
       osc.start(now);
       osc.stop(now + 0.16);
+    } else if (type === 'door') {
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(140, now);
+      osc.frequency.linearRampToValueAtTime(95, now + 0.14);
+      gain.gain.setValueAtTime(0.12, now);
+      gain.gain.exponentialRampToValueAtTime(0.01, now + 0.14);
+      osc.start(now);
+      osc.stop(now + 0.14);
     } else if (type === 'lvl') {
       osc.type = 'triangle';
       osc.frequency.setValueAtTime(440, now);

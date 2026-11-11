@@ -422,3 +422,393 @@ registerObjectDefinition({
     }
   }
 });
+
+// ============================================================================
+// 6. DOOR DEFINITIONS (Multi-State Barriers, Portcullises & Secret Entrances)
+// ============================================================================
+
+registerObjectDefinition({
+  definitionId: 'door_wood_hinged',
+  category: OBJECT_CATEGORIES.WORLD_OBJECT,
+  objectType: WORLD_OBJECT_TYPES.DOOR,
+  name: 'Wooden Dungeon Door',
+  description: 'A reinforced oak plank door bound with forged iron bands.',
+  tags: ['door', 'wood', 'hinged', 'bashable'],
+  defaultState: {
+    mechanical: 'closed',
+    security: 'unlocked',
+    discovery: 'revealed',
+    structural: 'intact'
+  },
+  defaultPermeability: {
+    movement: false,
+    lineOfSight: false,
+    light: false,
+    sound: true,
+    projectiles: false,
+    magic: false
+  },
+  defaultComponents: {
+    durability: { hp: 35, maxHp: 35, armor: 2, canBeForced: true },
+    lock: {
+      lockType: 'mechanical',
+      keyTag: 'key.common_iron',
+      pickDifficulty: 12,
+      forceDifficulty: 14
+    },
+    interactable: {
+      prompt: 'Operate Wooden Door',
+      actions: {
+        open: {
+          id: 'open',
+          name: 'Open Door',
+          requirements: { type: 'objectState', axis: 'security', value: 'unlocked' },
+          costs: null,
+          effects: [
+            { type: 'changeState', axis: 'mechanical', value: 'open' },
+            { type: 'updatePermeability', movement: true, lineOfSight: true, light: true, projectiles: true, magic: true }
+          ]
+        },
+        close: {
+          id: 'close',
+          name: 'Close Door',
+          requirements: { type: 'objectState', axis: 'mechanical', value: 'open' },
+          costs: null,
+          effects: [
+            { type: 'changeState', axis: 'mechanical', value: 'closed' },
+            { type: 'updatePermeability', movement: false, lineOfSight: false, light: false, projectiles: false, magic: false }
+          ]
+        },
+        unlock: {
+          id: 'unlock',
+          name: 'Unlock with Key',
+          requirements: { type: 'hasItemTag', tag: 'key.common_iron' },
+          costs: null,
+          effects: [
+            { type: 'changeState', axis: 'security', value: 'unlocked' }
+          ]
+        },
+        pick_lock: {
+          id: 'pick_lock',
+          name: 'Pick Lock',
+          requirements: {
+            op: 'OR',
+            rules: [
+              { type: 'requiredClass', classId: 'thief' },
+              { type: 'minStat', stat: 'dex', value: 15 }
+            ]
+          },
+          costs: null,
+          effects: [
+            { type: 'changeState', axis: 'security', value: 'unlocked' }
+          ]
+        },
+        bash: {
+          id: 'bash',
+          name: 'Force / Bash Door',
+          requirements: null,
+          costs: null,
+          effects: [
+            { type: 'bashDoor' }
+          ]
+        }
+      }
+    }
+  }
+});
+
+registerObjectDefinition({
+  definitionId: 'door_iron_reinforced',
+  category: OBJECT_CATEGORIES.WORLD_OBJECT,
+  objectType: WORLD_OBJECT_TYPES.DOOR,
+  name: 'Reinforced Iron Door',
+  description: 'A heavy riveted iron plate door with a dual-tumbler keyway.',
+  tags: ['door', 'metal', 'reinforced', 'vault_door', 'bashable'],
+  defaultState: {
+    mechanical: 'closed',
+    security: 'locked',
+    discovery: 'revealed',
+    structural: 'intact'
+  },
+  defaultPermeability: {
+    movement: false,
+    lineOfSight: false,
+    light: false,
+    sound: false,
+    projectiles: false,
+    magic: false
+  },
+  defaultComponents: {
+    durability: { hp: 80, maxHp: 80, armor: 8, canBeForced: true },
+    lock: {
+      lockType: 'mechanical',
+      keyTag: 'key.common_iron',
+      pickDifficulty: 16,
+      forceDifficulty: 20
+    },
+    interactable: {
+      prompt: 'Operate Iron Door',
+      actions: {
+        open: {
+          id: 'open',
+          name: 'Open Door',
+          requirements: { type: 'objectState', axis: 'security', value: 'unlocked' },
+          costs: null,
+          effects: [
+            { type: 'changeState', axis: 'mechanical', value: 'open' },
+            { type: 'updatePermeability', movement: true, lineOfSight: true, light: true, projectiles: true, magic: true }
+          ]
+        },
+        close: {
+          id: 'close',
+          name: 'Close Door',
+          requirements: { type: 'objectState', axis: 'mechanical', value: 'open' },
+          costs: null,
+          effects: [
+            { type: 'changeState', axis: 'mechanical', value: 'closed' },
+            { type: 'updatePermeability', movement: false, lineOfSight: false, light: false, projectiles: false, magic: false }
+          ]
+        },
+        unlock: {
+          id: 'unlock',
+          name: 'Unlock with Iron Key',
+          requirements: { type: 'hasItemTag', tag: 'key.common_iron' },
+          costs: null,
+          effects: [
+            { type: 'changeState', axis: 'security', value: 'unlocked' }
+          ]
+        },
+        pick_lock: {
+          id: 'pick_lock',
+          name: 'Pick Heavy Lock',
+          requirements: {
+            op: 'AND',
+            rules: [
+              { type: 'requiredClass', classId: 'thief' },
+              { type: 'minStat', stat: 'dex', value: 16 }
+            ]
+          },
+          costs: null,
+          effects: [
+            { type: 'changeState', axis: 'security', value: 'unlocked' }
+          ]
+        },
+        bash: {
+          id: 'bash',
+          name: 'Bash Iron Door',
+          requirements: null,
+          costs: null,
+          effects: [
+            { type: 'bashDoor' }
+          ]
+        }
+      }
+    }
+  }
+});
+
+registerObjectDefinition({
+  definitionId: 'door_iron_portcullis',
+  category: OBJECT_CATEGORIES.WORLD_OBJECT,
+  objectType: WORLD_OBJECT_TYPES.DOOR,
+  name: 'Iron Portcullis',
+  description: 'A heavy vertical wrought-iron grating allowing clear line of sight while preventing physical entry.',
+  tags: ['door', 'metal', 'portcullis', 'grated'],
+  defaultState: {
+    mechanical: 'closed',
+    security: 'unlocked',
+    discovery: 'revealed',
+    structural: 'intact'
+  },
+  defaultPermeability: {
+    movement: false,     // Closed portcullis blocks physical footsteps!
+    lineOfSight: true,  // Grate allows full line of sight!
+    light: true,        // Torchlight penetrates the bars!
+    sound: true,        // Sounds travel freely!
+    projectiles: true,  // Arrows and spell attacks shoot straight through the bars!
+    magic: true
+  },
+  defaultComponents: {
+    durability: { hp: 120, maxHp: 120, armor: 10, canBeForced: false },
+    lock: {
+      lockType: 'mechanism',
+      keyTag: 'key.portcullis_lever'
+    },
+    interactable: {
+      prompt: 'Inspect Portcullis',
+      actions: {
+        open: {
+          id: 'open',
+          name: 'Lift Portcullis',
+          requirements: { type: 'objectState', axis: 'security', value: 'unlocked' },
+          costs: null,
+          effects: [
+            { type: 'changeState', axis: 'mechanical', value: 'open' },
+            { type: 'updatePermeability', movement: true, lineOfSight: true, light: true, projectiles: true, magic: true }
+          ]
+        },
+        close: {
+          id: 'close',
+          name: 'Drop Portcullis',
+          requirements: { type: 'objectState', axis: 'mechanical', value: 'open' },
+          costs: null,
+          effects: [
+            { type: 'changeState', axis: 'mechanical', value: 'closed' },
+            { type: 'updatePermeability', movement: false, lineOfSight: true, light: true, projectiles: true, magic: true }
+          ]
+        }
+      }
+    }
+  }
+});
+
+registerObjectDefinition({
+  definitionId: 'door_secret_stone',
+  category: OBJECT_CATEGORIES.WORLD_OBJECT,
+  objectType: WORLD_OBJECT_TYPES.DOOR,
+  name: 'Concealed Secret Door',
+  description: 'A revolving masonry panel chiseled to blend indistinguishably into the surrounding ashlar dungeon walls.',
+  tags: ['door', 'secret', 'stone', 'hidden'],
+  defaultState: {
+    mechanical: 'closed',
+    security: 'unlocked',
+    discovery: 'unknown',
+    structural: 'intact'
+  },
+  defaultPermeability: {
+    movement: false,
+    lineOfSight: false,
+    light: false,
+    sound: false,
+    projectiles: false,
+    magic: false
+  },
+  defaultComponents: {
+    discovery: {
+      detectDc: 13,
+      isSecret: true
+    },
+    durability: { hp: 60, maxHp: 60, armor: 6, canBeForced: true },
+    interactable: {
+      prompt: 'Secret Stone Passage',
+      actions: {
+        reveal: {
+          id: 'reveal',
+          name: 'Reveal Secret Door',
+          requirements: {
+            op: 'OR',
+            rules: [
+              { type: 'requiredClass', classId: 'thief' },
+              { type: 'requiredClass', classId: 'ranger' },
+              { type: 'minStat', stat: 'int', value: 14 }
+            ]
+          },
+          costs: null,
+          effects: [
+            { type: 'changeState', axis: 'discovery', value: 'revealed' }
+          ]
+        },
+        open: {
+          id: 'open',
+          name: 'Pivot Secret Wall',
+          requirements: { type: 'objectState', axis: 'discovery', value: 'revealed' },
+          costs: null,
+          effects: [
+            { type: 'changeState', axis: 'mechanical', value: 'open' },
+            { type: 'updatePermeability', movement: true, lineOfSight: true, light: true, projectiles: true, magic: true }
+          ]
+        },
+        close: {
+          id: 'close',
+          name: 'Close Secret Wall',
+          requirements: { type: 'objectState', axis: 'mechanical', value: 'open' },
+          costs: null,
+          effects: [
+            { type: 'changeState', axis: 'mechanical', value: 'closed' },
+            { type: 'updatePermeability', movement: false, lineOfSight: false, light: false, projectiles: false, magic: false }
+          ]
+        }
+      }
+    }
+  }
+});
+
+registerObjectDefinition({
+  definitionId: 'door_vault_ancient',
+  category: OBJECT_CATEGORIES.WORLD_OBJECT,
+  objectType: WORLD_OBJECT_TYPES.DOOR,
+  name: 'Ancient Dwarven Vault Door',
+  description: 'A massive 4-inch solid brass and mithril security portal with complex celestial astronomical tumblers.',
+  tags: ['door', 'dwarven', 'vault', 'heavy'],
+  defaultState: {
+    mechanical: 'closed',
+    security: 'locked',
+    discovery: 'revealed',
+    structural: 'intact'
+  },
+  defaultPermeability: {
+    movement: false,
+    lineOfSight: false,
+    light: false,
+    sound: false,
+    projectiles: false,
+    magic: false
+  },
+  defaultComponents: {
+    durability: { hp: 160, maxHp: 160, armor: 14, canBeForced: false },
+    lock: {
+      lockType: 'dwarven_vault',
+      keyTag: 'key.dwarven_vault',
+      pickDifficulty: 20
+    },
+    interactable: {
+      prompt: 'Dwarven Vault Door',
+      actions: {
+        open: {
+          id: 'open',
+          name: 'Disengage Vault Seals',
+          requirements: { type: 'objectState', axis: 'security', value: 'unlocked' },
+          costs: null,
+          effects: [
+            { type: 'changeState', axis: 'mechanical', value: 'open' },
+            { type: 'updatePermeability', movement: true, lineOfSight: true, light: true, projectiles: true, magic: true }
+          ]
+        },
+        close: {
+          id: 'close',
+          name: 'Engage Vault Seals',
+          requirements: { type: 'objectState', axis: 'mechanical', value: 'open' },
+          costs: null,
+          effects: [
+            { type: 'changeState', axis: 'mechanical', value: 'closed' },
+            { type: 'updatePermeability', movement: false, lineOfSight: false, light: false, projectiles: false, magic: false }
+          ]
+        },
+        unlock: {
+          id: 'unlock',
+          name: 'Unlock with Dwarven Vault Key',
+          requirements: { type: 'hasItemTag', tag: 'key.dwarven_vault' },
+          costs: null,
+          effects: [
+            { type: 'changeState', axis: 'security', value: 'unlocked' }
+          ]
+        },
+        pick_lock: {
+          id: 'pick_lock',
+          name: 'Pick Dwarven Tumblers',
+          requirements: {
+            op: 'AND',
+            rules: [
+              { type: 'requiredClass', classId: 'thief' },
+              { type: 'minStat', stat: 'dex', value: 20 }
+            ]
+          },
+          costs: null,
+          effects: [
+            { type: 'changeState', axis: 'security', value: 'unlocked' }
+          ]
+        }
+      }
+    }
+  }
+});

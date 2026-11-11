@@ -31,6 +31,8 @@ import {
 import { generateFloor, generateProceduralEquipment } from './procedural.js';
 import { playSound } from './audio.js';
 import { ENGINE_EVENTS, emitEngineEvent } from './events.js';
+import { isDoorWalkable, isDoorOpaque } from './objects.js';
+import { executeInteraction } from './interactions.js';
 import {
   registerActionCallbacks,
   getActionCallbacks,
@@ -100,6 +102,14 @@ export function hasLineOfSight(floor, x0, y0, x1, y1) {
     const tile = floor.tiles[cy][cx];
     if (tile === TILE_WALL || ORE_CATALOG[tile]) {
       return false;
+    }
+    if (floor.objects && floor.objects.length > 0) {
+      for (let oi = 0; oi < floor.objects.length; oi++) {
+        const obj = floor.objects[oi];
+        if (obj && obj.x === cx && obj.y === cy && isDoorOpaque(obj)) {
+          return false;
+        }
+      }
     }
   }
   return true;
@@ -249,6 +259,18 @@ export function computeSafeExploredPath(floor, sx, sy, tx, ty) {
       );
 
       if (!isSafeStep && !isInteractiveGoal) continue;
+
+      if (Array.isArray(floor.objects)) {
+        let isClosedDoor = false;
+        for (let di = 0; di < floor.objects.length; di++) {
+          const dobj = floor.objects[di];
+          if (dobj && dobj.x === nx && dobj.y === ny && dobj.objectType === 'door' && !isDoorWalkable(dobj)) {
+            isClosedDoor = true;
+            break;
+          }
+        }
+        if (isClosedDoor && nIdx !== targetIdx) continue;
+      }
 
       visited[nIdx] = 1;
       parent[nIdx] = cur;
@@ -846,8 +868,13 @@ export function processTurn(state = gameState) {
               destTile === TILE_SHRINE_USED ||
               destTile === TILE_TRAP_DISARMED
             );
+            const doorObj = (floor.objects && floor.objects.length > 0)
+              ? floor.objects.find(o => o.x === tx && o.y === ty && o.objectType === 'door')
+              : null;
+            const doorBlocks = doorObj && !isDoorWalkable(doorObj);
             if (
               monsterWalkable &&
+              !doorBlocks &&
               !(tx === h.x && ty === h.y) &&
               !floor.monsters.some(other => other.x === tx && other.y === ty)
             ) {
@@ -1290,7 +1317,78 @@ export function handlePlayerAction(dx, dy, state = gameState) {
     return;
   }
 
-  // 6. Step onto Walkable Tile
+  // 6. Door Collision & Interaction (Auto-open, Key Unlock, Destructible, Secret)
+  const doorAtTarget = (floor.objects && floor.objects.length > 0)
+    ? floor.objects.find(o => o.x === nx && o.y === ny && o.objectType === 'door')
+    : null;
+
+  if (doorAtTarget) {
+    const rState = doorAtTarget.runtimeState || {};
+    // 1. Unknown secret door: behaves like solid wall to unaware hero
+    if (rState.discovery === 'unknown') {
+      if (state === gameState) {
+        ui.floatingText(nx, ny, 'Solid Wall', '#8b949e');
+      }
+      return;
+    }
+
+    // 2. Walkable door (open, destroyed, or permeable)
+    if (isDoorWalkable(doorAtTarget)) {
+      state.hero.x = nx;
+      state.hero.y = ny;
+      pickupGroundObjectsAt(nx, ny, state);
+      detectNearbyTraps(floor, state);
+      processTurn(state);
+      return;
+    }
+
+    // 3. Closed door: check lock / security state
+    const sec = rState.security || 'unlocked';
+    if (sec === 'locked' || sec === 'reinforced_locked') {
+      // Try to unlock with matching key in inventory
+      const unlockRes = executeInteraction({ targetId: doorAtTarget.instanceId, actionId: 'unlock' }, state);
+      if (unlockRes && (unlockRes.ok || unlockRes.success)) {
+        // Automatically swing door open upon successful key unlock
+        executeInteraction({ targetId: doorAtTarget.instanceId, actionId: 'open' }, state);
+        if (state === gameState) {
+          playSound('door');
+          ui.floatingText(nx, ny, 'Unlocked & Opened!', '#34d399');
+          ui.log(`Unlocked and opened ${doorAtTarget.name} with key!`, 'good');
+          if (typeof fovCallback === 'function') fovCallback();
+        }
+        processTurn(state);
+        return;
+      } else {
+        // Locked door with no key
+        if (state === gameState) {
+          playSound('hit');
+          ui.floatingText(nx, ny, 'Locked!', '#f87171');
+          ui.log(`${doorAtTarget.name} is locked! (${unlockRes ? unlockRes.message : 'Key required'})`, 'bad');
+        }
+        return;
+      }
+    } else {
+      // Unlocked door: bump auto-open!
+      const openRes = executeInteraction({ targetId: doorAtTarget.instanceId, actionId: 'open' }, state);
+      if (openRes && (openRes.ok || openRes.success)) {
+        if (state === gameState) {
+          playSound('door');
+          ui.floatingText(nx, ny, 'Opened', '#e2e8f0');
+          ui.log(`Opened ${doorAtTarget.name}.`, 'info');
+          if (typeof fovCallback === 'function') fovCallback();
+        }
+        processTurn(state);
+        return;
+      } else {
+        if (state === gameState) {
+          ui.floatingText(nx, ny, 'Stuck!', '#f87171');
+        }
+        return;
+      }
+    }
+  }
+
+  // 7. Step onto Walkable Tile
   if (targetTile !== TILE_WALL) {
     state.hero.x = nx;
     state.hero.y = ny;

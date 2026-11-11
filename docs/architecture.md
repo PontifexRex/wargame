@@ -1,7 +1,7 @@
 # Technical Architecture & Schema Contracts
 
 - **Entrypoint**: `index.html` + `src/main.js` (with `dist/bundle.js` fallback for `file://` & headless CLI verification)
-- **Current Release Baseline**: `v0.8.0-objects` (`27/27` automated self-tests passing)
+- **Current Release Baseline**: `v0.8.1-doors` (`28/28` automated self-tests passing)
 - **Current Schema Version**: `v0.5.0-inc5` (Schema v6)
 - **LocalStorage Key**: `aethelgard_save_v6` (with automatic migration from `aethelgard_save`, `aethelgard_save_v2`, `aethelgard_save_v3`, `aethelgard_save_v4`, and `aethelgard_save_v5`)
 - **Architecture Decision Records**: See `docs/adr/README.md` (`ADR-0001` through `ADR-0011`)

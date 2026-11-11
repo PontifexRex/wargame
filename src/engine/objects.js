@@ -156,6 +156,15 @@ export function createWorldItemPickupInstance(itemInstance, x, y, options = {}) 
   return pickupObj;
 }
 
+export function spawnGroundItem(floor, itemOrDefId, x, y, options = {}) {
+  const itemInst = typeof itemOrDefId === 'string' ? createItemInstance(itemOrDefId) : itemOrDefId;
+  const pickup = createWorldItemPickupInstance(itemInst, x, y, options);
+  if (floor) {
+    addWorldObject(floor, pickup);
+  }
+  return pickup;
+}
+
 // ============================================================================
 // SPATIAL FLOOR OBJECT QUERIES & MANAGEMENT
 // ============================================================================
@@ -378,4 +387,59 @@ export function hydrateLegacyFloorObjects(floor) {
   }
 
   return objs;
+}
+
+// ============================================================================
+// DOOR HELPERS & PERMEABILITY QUERIES
+// ============================================================================
+
+export function createDoorInstance(defId = 'door_wood_hinged', x = 0, y = 0, options = {}) {
+  const door = createWorldObjectInstance(defId, Object.assign({}, options, {
+    x: x,
+    y: y,
+    objectType: WORLD_OBJECT_TYPES.DOOR
+  }));
+  return door;
+}
+
+export function isDoorWalkable(door) {
+  if (!door) return true;
+  if (door.objectType !== WORLD_OBJECT_TYPES.DOOR) return true;
+
+  const st = door.runtimeState || {};
+  if (st.mechanical === 'open') return true;
+  if (st.structural === 'destroyed' || st.structural === 'breached') return true;
+  if (door.permeability && door.permeability.movement === true) return true;
+
+  return false;
+}
+
+export function isDoorOpaque(door) {
+  if (!door) return false;
+  if (door.objectType !== WORLD_OBJECT_TYPES.DOOR) return false;
+
+  const st = door.runtimeState || {};
+  // If door is open, destroyed, or breached, vision passes through
+  if (st.mechanical === 'open') return false;
+  if (st.structural === 'destroyed' || st.structural === 'breached') return false;
+
+  // If door has lineOfSight permeability (such as portcullis bars), vision passes through
+  if (door.permeability && door.permeability.lineOfSight === true) return false;
+
+  return true;
+}
+
+export function isDoorTraversable(door) {
+  if (!door) return { traversable: true };
+  const walkable = isDoorWalkable(door);
+  if (walkable) return { traversable: true };
+
+  const st = door.runtimeState || {};
+  let reason = 'closed';
+  if (st.security === 'locked') reason = 'locked';
+  else if (st.security === 'sealed') reason = 'sealed';
+  else if (st.mechanical === 'jammed') reason = 'jammed';
+  else if (st.discovery === 'unknown') reason = 'secret_wall';
+
+  return { traversable: false, reason: reason };
 }

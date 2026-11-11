@@ -246,6 +246,35 @@ Delivered the foundational game object architecture, unified interaction pipelin
   - Added Sandboxed **Test 27** in `src/test/selfTest.js` verifying definition/instance separation, spatial floor indexing, item stacking/splitting, requirement/cost execution pipeline, physical pickup creation/resolution, and legacy floor auto-migration.
   - Expanded automated verification suite to **27/27 PASS** + Headless UI Smoke Suite.
 
+v0.8.1-doors - Increment 8.1: Multi-State Door System, Environmental Permeability Matrix & Lock-and-Key Generation
+
+Delivered the multi-dimensional state door system, tactical permeability raycasting, bump interactions, procedural choke point placement, and lock-and-key generation:
+- **5 Door Definitions & Multi-Dimensional State Engine (`src/data/definitions.js`, `src/engine/objects.js`)**:
+  - Registered 5 distinct door templates: `door_wood_hinged` (sturdy oak with iron bands), `door_iron_reinforced` (riveted iron plates with heavy lock), `door_iron_portcullis` (wrought-iron see-through grate), `door_vault_ancient` (massive celestial dwarven brass & mithril vault door), `door_secret_stone` (chiseled stone wall panel).
+  - Multi-state axes: `mechanical` (`open`, `closed`, `jammed`), `security` (`unlocked`, `locked`, `sealed`), `structural` (`intact`, `damaged`, `critically_damaged`, `destroyed`), `discovery` (`revealed`, `unknown`), `power` (`unpowered`, `powered`).
+  - Helper query functions: `createDoorInstance`, `isDoorWalkable`, `isDoorOpaque`, `isDoorTraversable`.
+- **Environmental Permeability Matrix & Bresenham Raycasting**:
+  - Fine-grained permeability axes: `movement`, `lineOfSight`, `light`, `sound`, `projectiles`, `magic`.
+  - Tactical Portcullis Permeability: Blocks physical footsteps (`movement: false`), but allows full line of sight (`lineOfSight: true`) and projectile/spell targeting through the iron bars (`projectiles: true`, `magic: true`).
+  - Integrated into `hasLineOfSight(floor, x0, y0, x1, y1)` in `src/engine/combat.js` and viewport rendering in `src/ui/renderer.js`.
+- **Bump Auto-Open, Key Unlock & Monster Collision**:
+  - Walking into an unlocked closed door (`handlePlayerAction`) auto-opens the door and updates its permeability without consuming turn movement onto the tile.
+  - Walking into a locked door checks hero inventory for the matching key (`keyTag`). If held, unlocks and opens the door; if missing, provides immediate floating and chronicle feedback (`Locked!`).
+  - Monsters in `processTurn` respect door permeability and cannot path through closed doors.
+- **Thief Lockpicking, Fighter Bashing & Secret Door Perception**:
+  - Thief and high-dexterity characters can pick locks (`pick_lock` action).
+  - Destructible doors can be physically bashed (`bash` action). When durability reaches 0, the door transitions to `structural: 'destroyed'`, `mechanical: 'open'`, becoming permanently walkable rubble.
+  - Secret stone doors (`door_secret_stone`) spawn with `discovery: 'unknown'`, rendering identically to biome wall masonry. Scouts (Thief/Ranger) and high-perception heroes automatically reveal hidden doors in `detectNearbyTraps`.
+- **Procedural Choke Point Placement & Lock-and-Key Placement (`src/engine/procedural.js`)**:
+  - Automatically identifies room-corridor doorways (floor tiles bordered by opposing walls) and places doors.
+  - Guarded Treasure Vaults (`vaults`) spawn with locked security doors (`door_iron_reinforced` / `door_vault_ancient`) and matching keys placed in accessible exploration rooms outside the vault, strictly preserving progression solvability.
+- **2D Tactical Canvas & Minimap Visuals (`src/ui/renderer.js`)**:
+  - Custom canvas rendering for all 5 door types: timber oak with iron bands, reinforced steel plates with rivets, iron portcullises with pointed chisel teeth, circular brass dwarven astrolabe dials, glowing cyan runic seam secret doors, swung-open door jambs, and fractured rubble splinters.
+  - Doors rendered on minimap with distinct markers (amber for closed, gold for locked vault doors).
+- **Verification Gate**:
+  - Added Sandboxed **Test 28** in `src/test/selfTest.js` verifying door definitions, multi-state axes, portcullis vision permeability, bump auto-open, key unlock, Thief lockpicking, Fighter bashing, secret door discovery, and procedural door generation.
+  - Expanded automated verification suite to **28/28 PASS** + Headless UI Smoke Suite.
+
 ---
 
 ## 2. Long-Term Game Vision & Strategic Pillars

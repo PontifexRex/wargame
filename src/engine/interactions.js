@@ -21,6 +21,7 @@ export function createInteractionRequest(actorId, targetId, actionId, parameters
 export function createInteractionResult(ok, actionId, reason = null, stateChanged = false, effectsApplied = [], message = '') {
   return {
     ok: Boolean(ok),
+    success: Boolean(ok),
     actionId: actionId,
     reason: reason,
     stateChanged: Boolean(stateChanged),
@@ -203,6 +204,42 @@ export function applyInteractionEffects(effects, context = {}, state = gameState
     if (eff.type === 'changeState' && target && target.runtimeState) {
       target.runtimeState[eff.axis] = eff.value;
       applied.push(eff);
+    } else if (eff.type === 'updatePermeability' && target && target.permeability) {
+      if (eff.movement !== undefined) target.permeability.movement = Boolean(eff.movement);
+      if (eff.lineOfSight !== undefined) target.permeability.lineOfSight = Boolean(eff.lineOfSight);
+      if (eff.light !== undefined) target.permeability.light = Boolean(eff.light);
+      if (eff.projectiles !== undefined) target.permeability.projectiles = Boolean(eff.projectiles);
+      if (eff.magic !== undefined) target.permeability.magic = Boolean(eff.magic);
+      applied.push(eff);
+    } else if (eff.type === 'bashDoor' && target && target.components && target.components.durability) {
+      const dur = target.components.durability;
+      const atkPower = (actor && (actor.atk || actor.str)) || 10;
+      const armor = dur.armor || 0;
+      const dmg = Math.max(1, atkPower - armor);
+      dur.hp = Math.max(0, dur.hp - dmg);
+
+      if (dur.hp <= 0) {
+        if (target.runtimeState) {
+          target.runtimeState.structural = 'destroyed';
+          target.runtimeState.mechanical = 'open';
+        }
+        if (target.permeability) {
+          target.permeability.movement = true;
+          target.permeability.lineOfSight = true;
+          target.permeability.light = true;
+          target.permeability.projectiles = true;
+          target.permeability.magic = true;
+        }
+      } else if (dur.hp <= dur.maxHp * 0.4) {
+        if (target.runtimeState) {
+          target.runtimeState.structural = 'critically_damaged';
+        }
+      } else {
+        if (target.runtimeState) {
+          target.runtimeState.structural = 'damaged';
+        }
+      }
+      applied.push(Object.assign({}, eff, { damageDealt: dmg, remainingHp: dur.hp }));
     } else if (eff.type === 'applyDamage' && target && target.components && target.components.durability) {
       const dmg = Math.max(1, eff.amount || 1);
       target.components.durability.hp = Math.max(0, target.components.durability.hp - dmg);

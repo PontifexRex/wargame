@@ -42,7 +42,12 @@ import {
   removeWorldObject,
   canItemsStack,
   mergeItemStacks,
-  splitItemStack
+  splitItemStack,
+  createDoorInstance,
+  isDoorWalkable,
+  isDoorOpaque,
+  isDoorTraversable,
+  spawnGroundItem
 } from './engine/objects.js';
 import {
   createInteractionRequest,
@@ -63,6 +68,7 @@ import {
 import {
   renderDungeonCanvas,
   renderMinimapCanvas,
+  renderDoorTile,
   updateFOV,
   spawnFloatingText,
   drawPaperDollMannequin,
@@ -250,6 +256,12 @@ export const AethelgardAPI = {
   canItemsStack,
   mergeItemStacks,
   splitItemStack,
+  createDoorInstance,
+  isDoorWalkable,
+  isDoorOpaque,
+  isDoorTraversable,
+  spawnGroundItem,
+  renderDoorTile,
   createInteractionRequest,
   executeInteraction,
   evaluateRequirement,

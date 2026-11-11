@@ -1081,6 +1081,23 @@ export function renderMinimapCanvas(targetCanvasId = 'minimapCanvas') {
     }
   }
 
+  // Explored Doors on Minimap
+  if (floor.objects && floor.objects.length > 0) {
+    for (let oi = 0; oi < floor.objects.length; oi++) {
+      const obj = floor.objects[oi];
+      if (obj && obj.objectType === 'door' && floor.explored[obj.y] && floor.explored[obj.y][obj.x]) {
+        const disc = obj.runtimeState && obj.runtimeState.discovery;
+        if (disc !== 'unknown') {
+          const rx = Math.floor(offX + obj.x * scale);
+          const ry = Math.floor(offY + obj.y * scale);
+          const sec = obj.runtimeState && obj.runtimeState.security;
+          const color = sec === 'locked' ? '#fbbf24' : '#d97706';
+          poiMarkers.push({ x: rx, y: ry, color: color, size: Math.max(2, drawSize) });
+        }
+      }
+    }
+  }
+
   for (let i = 0; i < poiMarkers.length; i++) {
     const p = poiMarkers[i];
     ctx.fillStyle = p.color;
@@ -1115,6 +1132,201 @@ export function renderMinimapCanvas(targetCanvasId = 'minimapCanvas') {
   const beacon = Math.max(3, drawSize + 1);
   ctx.fillStyle = '#ffffff';
   ctx.fillRect(heroPx - 1, heroPy - 1, beacon, beacon);
+}
+
+export function renderDoorTile(ctx, px, py, door, biome, inSight) {
+  if (!ctx || !door) return;
+  const defId = door.definitionId || '';
+  const rState = door.runtimeState || {};
+  const mech = rState.mechanical || 'closed';
+  const sec = rState.security || 'unlocked';
+  const struct = rState.structural || 'intact';
+  const disc = rState.discovery || 'revealed';
+
+  // Unknown secret door renders as standard biome wall masonry
+  if (disc === 'unknown') {
+    ctx.fillStyle = biome.wallBase;
+    ctx.fillRect(px, py, TILE_SIZE, TILE_SIZE);
+    ctx.fillStyle = biome.wallShadow;
+    ctx.fillRect(px, py + 22, TILE_SIZE, 10);
+    ctx.strokeStyle = biome.wallBorder;
+    ctx.strokeRect(px + 0.5, py + 0.5, TILE_SIZE - 1, TILE_SIZE - 1);
+    return;
+  }
+
+  // Destroyed / Breached Door Rubble
+  if (struct === 'destroyed') {
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.35)';
+    ctx.fillRect(px + 4, py + 8, 24, 16);
+    ctx.fillStyle = '#78350f';
+    ctx.fillRect(px + 6, py + 12, 8, 3);
+    ctx.fillRect(px + 18, py + 16, 7, 3);
+    ctx.fillStyle = '#475569';
+    ctx.fillRect(px + 12, py + 10, 6, 4);
+    ctx.fillRect(px + 14, py + 20, 9, 3);
+    ctx.fillStyle = '#94a3b8';
+    ctx.fillRect(px + 9, py + 18, 4, 4);
+    return;
+  }
+
+  // Open Door (any type)
+  if (mech === 'open') {
+    ctx.fillStyle = '#1e293b';
+    ctx.fillRect(px + 2, py + 2, 4, 28);
+    ctx.fillRect(px + 26, py + 2, 4, 28);
+    ctx.fillRect(px + 2, py + 2, 28, 3);
+
+    if (defId === 'door_iron_portcullis') {
+      ctx.fillStyle = '#475569';
+      ctx.fillRect(px + 6, py + 3, 20, 6);
+      ctx.fillStyle = '#94a3b8';
+      for (let bx = 8; bx <= 24; bx += 4) {
+        ctx.fillRect(px + bx, py + 9, 2, 4);
+      }
+      ctx.fillStyle = '#cbd5e1';
+      ctx.fillRect(px + 4, py + 3, 1, 14);
+      ctx.fillRect(px + 27, py + 3, 1, 14);
+    } else if (defId === 'door_secret_stone') {
+      ctx.fillStyle = '#334155';
+      ctx.beginPath();
+      ctx.moveTo(px + 6, py + 4);
+      ctx.lineTo(px + 12, py + 2);
+      ctx.lineTo(px + 12, py + 28);
+      ctx.lineTo(px + 6, py + 28);
+      ctx.closePath();
+      ctx.fill();
+    } else {
+      ctx.fillStyle = defId === 'door_iron_reinforced' ? '#334155' : '#78350f';
+      ctx.fillRect(px + 6, py + 4, 4, 24);
+      ctx.fillStyle = '#fbbf24';
+      ctx.fillRect(px + 4, py + 8, 3, 3);
+      ctx.fillRect(px + 4, py + 22, 3, 3);
+    }
+    return;
+  }
+
+  // CLOSED DOORS:
+  if (defId === 'door_secret_stone') {
+    ctx.fillStyle = biome.wallBase;
+    ctx.fillRect(px, py, TILE_SIZE, TILE_SIZE);
+    ctx.fillStyle = biome.wallShadow;
+    ctx.fillRect(px, py + 22, TILE_SIZE, 10);
+    ctx.strokeStyle = '#38bdf8';
+    ctx.lineWidth = 1.2;
+    ctx.strokeRect(px + 4, py + 4, 24, 24);
+    ctx.fillStyle = '#38bdf8';
+    ctx.font = 'bold 9px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('ᚱ', px + 16, py + 18);
+    return;
+  }
+
+  if (defId === 'door_iron_portcullis') {
+    ctx.fillStyle = '#1e293b';
+    ctx.fillRect(px + 1, py + 1, 5, 30);
+    ctx.fillRect(px + 26, py + 1, 5, 30);
+    ctx.fillRect(px + 1, py + 1, 30, 4);
+
+    ctx.fillStyle = '#334155';
+    ctx.fillRect(px + 6, py + 10, 20, 2.5);
+    ctx.fillRect(px + 6, py + 20, 20, 2.5);
+
+    for (let bx = 8; bx <= 24; bx += 4) {
+      ctx.fillStyle = '#64748b';
+      ctx.fillRect(px + bx, py + 4, 2.5, 22);
+      ctx.fillStyle = '#94a3b8';
+      ctx.beginPath();
+      ctx.moveTo(px + bx, py + 26);
+      ctx.lineTo(px + bx + 1.25, py + 29);
+      ctx.lineTo(px + bx + 2.5, py + 26);
+      ctx.closePath();
+      ctx.fill();
+    }
+    return;
+  }
+
+  if (defId === 'door_vault_ancient') {
+    ctx.fillStyle = '#1e293b';
+    ctx.fillRect(px + 2, py + 2, 28, 28);
+    ctx.fillStyle = '#78350f';
+    ctx.fillRect(px + 4, py + 4, 24, 24);
+
+    ctx.fillStyle = '#d97706';
+    ctx.beginPath();
+    ctx.arc(px + 16, py + 16, 11, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = '#fbbf24';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    ctx.strokeStyle = '#fef08a';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(px + 16, py + 16, 6, 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.fillStyle = sec === 'locked' ? '#ef4444' : '#10b981';
+    ctx.fillRect(px + 14.5, py + 14.5, 3, 3);
+    return;
+  }
+
+  if (defId === 'door_iron_reinforced') {
+    ctx.fillStyle = '#0f172a';
+    ctx.fillRect(px + 2, py + 2, 28, 28);
+    ctx.fillStyle = '#334155';
+    ctx.fillRect(px + 4, py + 4, 24, 24);
+
+    ctx.strokeStyle = '#475569';
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.moveTo(px + 5, py + 5); ctx.lineTo(px + 27, py + 27);
+    ctx.moveTo(px + 27, py + 5); ctx.lineTo(px + 5, py + 27);
+    ctx.stroke();
+
+    ctx.fillStyle = '#94a3b8';
+    ctx.fillRect(px + 5, py + 5, 2, 2);
+    ctx.fillRect(px + 25, py + 5, 2, 2);
+    ctx.fillRect(px + 5, py + 25, 2, 2);
+    ctx.fillRect(px + 25, py + 25, 2, 2);
+
+    ctx.fillStyle = sec === 'locked' ? '#fbbf24' : '#64748b';
+    ctx.fillRect(px + 14, py + 13, 4, 6);
+    ctx.fillStyle = '#0f172a';
+    ctx.fillRect(px + 15, py + 15, 2, 2);
+    return;
+  }
+
+  // Standard Wooden Hinged Door (door_wood_hinged)
+  ctx.fillStyle = '#1e293b';
+  ctx.fillRect(px + 2, py + 2, 28, 28);
+
+  ctx.fillStyle = '#78350f';
+  ctx.fillRect(px + 4, py + 4, 24, 24);
+  ctx.fillStyle = '#451a03';
+  ctx.fillRect(px + 10, py + 4, 1, 24);
+  ctx.fillRect(px + 16, py + 4, 1, 24);
+  ctx.fillRect(px + 22, py + 4, 1, 24);
+
+  ctx.fillStyle = '#334155';
+  ctx.fillRect(px + 4, py + 8, 24, 3);
+  ctx.fillRect(px + 4, py + 20, 24, 3);
+  ctx.fillStyle = '#64748b';
+  ctx.fillRect(px + 6, py + 9, 1.5, 1.5);
+  ctx.fillRect(px + 18, py + 9, 1.5, 1.5);
+  ctx.fillRect(px + 6, py + 21, 1.5, 1.5);
+  ctx.fillRect(px + 18, py + 21, 1.5, 1.5);
+
+  if (sec === 'locked') {
+    ctx.fillStyle = '#fbbf24';
+    ctx.fillRect(px + 22, py + 14, 3, 4);
+    ctx.fillStyle = '#451a03';
+    ctx.fillRect(px + 23, py + 15, 1, 2);
+  } else {
+    ctx.fillStyle = '#94a3b8';
+    ctx.beginPath();
+    ctx.arc(px + 23, py + 16, 2, 0, Math.PI * 2);
+    ctx.stroke();
+  }
 }
 
 export function renderDungeonCanvas() {
@@ -1540,6 +1752,17 @@ export function renderDungeonCanvas() {
           ctx.fillRect(px + 10, py + 15, 12, 2);
           ctx.fillStyle = '#1e293b';
           ctx.fillRect(px + 13, py + 12, 6, 2);
+        }
+      }
+
+      // 4. World Objects on Tile (Doors)
+      if (floor.objects && floor.objects.length > 0) {
+        for (let oi = 0; oi < floor.objects.length; oi++) {
+          const obj = floor.objects[oi];
+          if (obj && obj.x === x && obj.y === y && obj.objectType === 'door') {
+            renderDoorTile(ctx, px, py, obj, biome, inSight);
+            break;
+          }
         }
       }
 

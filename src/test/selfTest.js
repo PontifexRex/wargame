@@ -48,7 +48,7 @@ import {
   generateProceduralEquipment
 } from '../engine/procedural.js';
 import { selectAdventurerClass } from '../ui/modals.js';
-import { drawPaperDollMannequin, drawHeroSprite, setSkillHover, getSkillHover } from '../ui/renderer.js';
+import { drawPaperDollMannequin, drawHeroSprite, setSkillHover, getSkillHover, renderDoorTile } from '../ui/renderer.js';
 import { setChronicleFilter, getChronicleFilter, inferChronicleCategory, logChronicle, clearChronicle } from '../ui/domSync.js';
 import {
   applyStatusEffect,
@@ -95,7 +95,11 @@ import {
   canItemsStack,
   mergeItemStacks,
   splitItemStack,
-  hydrateLegacyFloorObjects
+  hydrateLegacyFloorObjects,
+  createDoorInstance,
+  isDoorWalkable,
+  isDoorOpaque,
+  isDoorTraversable
 } from '../engine/objects.js';
 import {
   createInteractionRequest,
@@ -1539,6 +1543,162 @@ export function evaluateSelfTests() {
       : `Failed checks: ${failedKeys27.join(', ')}`
   });
 
+  // 28. Multi-State Door System, Environmental Permeability Matrix & Lock-and-Key Generation
+  const sandbox28 = createDefaultGameState();
+  selectAdventurerClass('fighter', sandbox28);
+  sandbox28.inGuild = false;
+  const f28 = ensureDungeonFloorHydrated(sandbox28.dungeon, 1);
+  ensureFloorObjects(f28);
+  sandbox28.hero.x = 10;
+  sandbox28.hero.y = 10;
+
+  // A. Door Definitions & Multi-Dimensional State Engine
+  const hasWoodDoorDef = hasObjectDefinition('door_wood_hinged');
+  const hasIronDoorDef = hasObjectDefinition('door_iron_reinforced');
+  const hasPortcullisDef = hasObjectDefinition('door_iron_portcullis');
+  const hasSecretDoorDef = hasObjectDefinition('door_secret_stone');
+  const hasVaultDoorDef = hasObjectDefinition('door_vault_ancient');
+
+  const woodDoor = createDoorInstance('door_wood_hinged', 11, 10);
+  addWorldObject(f28, woodDoor);
+  const woodDoorStateValid = woodDoor.runtimeState &&
+    woodDoor.runtimeState.mechanical === 'closed' &&
+    woodDoor.runtimeState.security === 'unlocked' &&
+    woodDoor.runtimeState.structural === 'intact' &&
+    woodDoor.runtimeState.discovery === 'revealed';
+
+  // B. Permeability Queries & Tactical Portcullis Matrix (LOS allowed, movement blocked)
+  const portcullis = createDoorInstance('door_iron_portcullis', 10, 12);
+  addWorldObject(f28, portcullis);
+
+  const woodBlocksWalk = isDoorWalkable(woodDoor) === false;
+  const woodBlocksVision = isDoorOpaque(woodDoor) === true;
+  const portcullisBlocksWalk = isDoorWalkable(portcullis) === false;
+  const portcullisAllowsVision = isDoorOpaque(portcullis) === false;
+
+  // Verify Line-of-Sight penetration through portcullis bars vs solid door
+  f28.tiles[10][10] = TILE_FLOOR;
+  f28.tiles[10][11] = TILE_FLOOR;
+  f28.tiles[10][12] = TILE_FLOOR;
+  f28.tiles[10][13] = TILE_FLOOR;
+  f28.tiles[11][10] = TILE_FLOOR;
+  f28.tiles[12][10] = TILE_FLOOR;
+
+  // (10, 10) to (10, 13) has portcullis at (10, 12) -> LOS is true!
+  const portcullisLos = hasLineOfSight(f28, 10, 10, 10, 13);
+  // (10, 10) to (12, 10) has solid wood door at (11, 10) -> LOS is false!
+  const woodDoorLos = hasLineOfSight(f28, 10, 10, 12, 10);
+
+  // C. Bump Auto-Open & Movement
+  const prevHeroX = sandbox28.hero.x;
+  handlePlayerAction(1, 0, sandbox28); // Bump into closed wooden door at (11, 10)
+  const bumpOpenedDoor = woodDoor.runtimeState.mechanical === 'open' &&
+    isDoorWalkable(woodDoor) === true &&
+    sandbox28.hero.x === prevHeroX; // Opens without advancing hero position on bump turn
+
+  handlePlayerAction(1, 0, sandbox28); // Step through now-open door
+  const heroWalkedThrough = sandbox28.hero.x === 11 && sandbox28.hero.y === 10;
+
+  // D. Lock & Key Interaction (Unlock, Thief Pick Lock, Fighter Bash)
+  const lockedIronDoor = createDoorInstance('door_iron_reinforced', 11, 11, {
+    runtimeState: { mechanical: 'closed', security: 'locked', structural: 'intact' }
+  });
+  addWorldObject(f28, lockedIronDoor);
+
+  // Bump without key fails
+  sandbox28.hero.expeditionPack = [];
+  handlePlayerAction(0, 1, sandbox28);
+  const bumpLockedFailed = lockedIronDoor.runtimeState.security === 'locked' &&
+    sandbox28.hero.x === 11 && sandbox28.hero.y === 10;
+
+  // Bump with matching iron key unlocks & opens
+  const ironKeyItem = createItemInstance('key_iron_common', { quantity: 1 });
+  sandbox28.hero.expeditionPack = [ironKeyItem];
+  handlePlayerAction(0, 1, sandbox28);
+  const keyUnlockedAndOpened = lockedIronDoor.runtimeState.security === 'unlocked' &&
+    lockedIronDoor.runtimeState.mechanical === 'open';
+
+  // Thief lockpicking
+  const lockedVaultDoor = createDoorInstance('door_vault_ancient', 15, 15, {
+    runtimeState: { mechanical: 'closed', security: 'locked', structural: 'intact' }
+  });
+  addWorldObject(f28, lockedVaultDoor);
+  sandbox28.hero.x = 15;
+  sandbox28.hero.y = 14; // Stand adjacent to vault door
+  sandbox28.hero.classId = 'thief';
+  sandbox28.hero.dex = 20;
+  const pickReq = createInteractionRequest(sandbox28.hero, lockedVaultDoor.instanceId, 'pick_lock');
+  const pickRes = executeInteraction(pickReq, sandbox28);
+  const thiefPickedLock = pickRes.ok && lockedVaultDoor.runtimeState.security === 'unlocked';
+
+  // Fighter bash door until destroyed
+  const bashedDoor = createDoorInstance('door_wood_hinged', 16, 16);
+  addWorldObject(f28, bashedDoor);
+  sandbox28.hero.x = 16;
+  sandbox28.hero.y = 15; // Stand adjacent to bashed door
+  sandbox28.hero.classId = 'fighter';
+  sandbox28.hero.atk = 40;
+  const bashReq = createInteractionRequest(sandbox28.hero, bashedDoor.instanceId, 'bash');
+  executeInteraction(bashReq, sandbox28);
+  executeInteraction(bashReq, sandbox28);
+  const doorDestroyed = bashedDoor.runtimeState.structural === 'destroyed' &&
+    bashedDoor.runtimeState.mechanical === 'open' &&
+    isDoorWalkable(bashedDoor) === true &&
+    isDoorOpaque(bashedDoor) === false;
+
+  // E. Secret Door Perception & Discovery
+  const secretDoor = createDoorInstance('door_secret_stone', 12, 10, {
+    runtimeState: { mechanical: 'closed', security: 'unlocked', structural: 'intact', discovery: 'unknown' }
+  });
+  addWorldObject(f28, secretDoor);
+  const secretInitiallyHidden = secretDoor.runtimeState.discovery === 'unknown' &&
+    isDoorWalkable(secretDoor) === false;
+
+  // Scout detects secret door nearby
+  sandbox28.hero.x = 11;
+  sandbox28.hero.y = 10;
+  sandbox28.hero.classId = 'ranger';
+  detectNearbyTraps(f28, sandbox28);
+  const secretRevealed = secretDoor.runtimeState.discovery === 'revealed';
+
+  // F. Procedural Door Placement in generateFloor
+  const procFloor = generateFloor(2);
+  const hasProceduralDoors = Array.isArray(procFloor.objects) &&
+    procFloor.objects.some(o => o.objectType === 'door');
+
+  const t28Checks = {
+    hasWoodDoorDef: !!hasWoodDoorDef,
+    hasIronDoorDef: !!hasIronDoorDef,
+    hasPortcullisDef: !!hasPortcullisDef,
+    hasSecretDoorDef: !!hasSecretDoorDef,
+    hasVaultDoorDef: !!hasVaultDoorDef,
+    woodDoorStateValid: !!woodDoorStateValid,
+    woodBlocksWalk: !!woodBlocksWalk,
+    woodBlocksVision: !!woodBlocksVision,
+    portcullisBlocksWalk: !!portcullisBlocksWalk,
+    portcullisAllowsVision: !!portcullisAllowsVision,
+    portcullisLos: portcullisLos === true,
+    woodDoorLos: woodDoorLos === false,
+    bumpOpenedDoor: !!bumpOpenedDoor,
+    heroWalkedThrough: !!heroWalkedThrough,
+    bumpLockedFailed: !!bumpLockedFailed,
+    keyUnlockedAndOpened: !!keyUnlockedAndOpened,
+    thiefPickedLock: !!thiefPickedLock,
+    doorDestroyed: !!doorDestroyed,
+    secretInitiallyHidden: !!secretInitiallyHidden,
+    secretRevealed: !!secretRevealed,
+    hasProceduralDoors: !!hasProceduralDoors
+  };
+  const failedKeys28 = Object.keys(t28Checks).filter(k => !t28Checks[k]);
+  const t28Pass = failedKeys28.length === 0;
+  results.push({
+    name: '28. Multi-State Door System, Environmental Permeability Matrix & Lock-and-Key Generation',
+    pass: t28Pass,
+    detail: failedKeys28.length === 0
+      ? 'Door definitions verified, multi-state axes verified, portcullis vs wood door permeability verified (LOS through grate), bump auto-open & step-through verified, lock & key interaction verified, bash destructibility verified, secret door discovery verified, procedural door generation verified'
+      : `Failed checks: ${failedKeys28.join(', ')}`
+  });
+
   return results;
 }
 
@@ -1549,7 +1709,7 @@ export function runSelfTests(renderModal = false) {
   if (typeof document !== 'undefined') {
     const btnText = document.getElementById('verifyBtnText');
     if (btnText) {
-      btnText.textContent = `Verify Inc-8.0 (${passCount}/${results.length} PASS)`;
+      btnText.textContent = `Verify Inc-8.1 (${passCount}/${results.length} PASS)`;
     }
 
     if (renderModal) {
