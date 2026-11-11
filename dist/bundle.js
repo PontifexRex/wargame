@@ -13241,6 +13241,70 @@ function spawnEntity(type, subId = null, x = null, y = null, state = gameState) 
 let commandHistory = [];
 let historyIndex = -1;
 
+const SPAWN_SUB_OPTIONS = {
+  portal: [
+    { value: 'waypoint', label: 'Ancient Celestial Waypoint' },
+    { value: 'rift', label: 'Unstable Astral Rift (2 Charges)' },
+    { value: 'extraction', label: 'Astral Sanctum Gateway (Exit)' }
+  ],
+  door: [
+    { value: 'wood', label: 'Wooden Door (Hinged)' },
+    { value: 'iron', label: 'Reinforced Iron Door (Locked)' },
+    { value: 'portcullis', label: 'Iron Portcullis (See-Through)' },
+    { value: 'vault', label: 'Ancient Dwarven Vault Door' },
+    { value: 'secret', label: 'Secret Stone Door (Hidden)' }
+  ],
+  key: [
+    { value: 'iron', label: 'Iron Dungeon Key' },
+    { value: 'vault', label: 'Dwarven Vault Key' },
+    { value: 'celestial', label: 'Celestial Rune Key' }
+  ],
+  monster: [
+    { value: 'crawler', label: 'Vault Crawler (Beast)' },
+    { value: 'skeleton_grunt', label: 'Skeleton Grunt (Undead)' },
+    { value: 'boss_colossus', label: 'Astral Colossus (Boss F5)' },
+    { value: 'boss_weaver', label: 'Abyssal Weaver (Boss F10)' },
+    { value: 'boss_ignis', label: 'Molten Ignis (Boss F15)' },
+    { value: 'boss_vespera', label: 'Matron Vespera (Boss F20)' }
+  ]
+};
+
+function handleDevSpawnTypeChange() {
+  if (typeof document === 'undefined') return;
+  const typeSelect = document.getElementById('devSpawnTypeSelect');
+  const subSelect = document.getElementById('devSpawnSubIdSelect');
+  if (!typeSelect || !subSelect) return;
+  const t = typeSelect.value || 'portal';
+  const opts = SPAWN_SUB_OPTIONS[t] || [];
+  subSelect.innerHTML = opts.map(function(o) {
+    return `<option value="${o.value}">${o.label}</option>`;
+  }).join('');
+}
+
+function handleDevSpawnClick() {
+  if (typeof document === 'undefined') return;
+  const typeSelect = document.getElementById('devSpawnTypeSelect');
+  const subSelect = document.getElementById('devSpawnSubIdSelect');
+  const type = typeSelect ? typeSelect.value : 'portal';
+  const subId = subSelect ? subSelect.value : 'waypoint';
+
+  const res = spawnEntity(type, subId);
+  if (res.ok) {
+    logDevConsole(`Spawned ${res.type} (${(res.entity && res.entity.name) || subId}) at (${res.x}, ${res.y})`, 'good');
+  } else {
+    logDevConsole(`Failed to spawn: ${res.reason}`, 'bad');
+  }
+}
+
+function handleDevQuickSpawn(type, subId) {
+  const res = spawnEntity(type, subId);
+  if (res.ok) {
+    logDevConsole(`Quick-spawned ${res.type} (${(res.entity && res.entity.name) || subId}) at (${res.x}, ${res.y})`, 'good');
+  } else {
+    logDevConsole(`Failed to spawn: ${res.reason}`, 'bad');
+  }
+}
+
 function isDevConsoleOpen() {
   if (typeof document === 'undefined') return false;
   const modal = document.getElementById('devConsoleModal');
@@ -13271,6 +13335,12 @@ function openDevConsole() {
   const levelInput = document.getElementById('devHeroLevelInput');
   if (levelInput && gameState.hero) {
     levelInput.value = gameState.hero.level || 1;
+  }
+
+  // Populate spawn dropdown options if needed
+  const subSelect = document.getElementById('devSpawnSubIdSelect');
+  if (subSelect && subSelect.children.length === 0) {
+    handleDevSpawnTypeChange();
   }
 
   modal.classList.remove('hidden');
@@ -15759,6 +15829,9 @@ const AethelgardAPI = {
     revealMap: revealMap,
     toggleGodMode: toggleGodMode,
     spawnEntity: spawnEntity,
+    spawnClick: handleDevSpawnClick,
+    quickSpawn: handleDevQuickSpawn,
+    spawnOptions: SPAWN_SUB_OPTIONS,
     executeCommand: executeDevCommand,
     toggleConsole: toggleDevConsole,
     openConsole: openDevConsole,
@@ -15774,6 +15847,10 @@ const AethelgardAPI = {
   handleDevFullHealClick,
   handleDevRevealMapClick,
   handleDevGodModeClick,
+  handleDevSpawnTypeChange,
+  handleDevSpawnClick,
+  handleDevQuickSpawn,
+  SPAWN_SUB_OPTIONS,
   handleDevTerminalSubmit,
   handleDevTerminalKeyDown
 };

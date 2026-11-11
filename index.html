@@ -1362,14 +1362,53 @@
         <button id="btnDevGodMode" onclick="window.Aethelgard.handleDevGodModeClick()" class="px-2.5 py-1 rounded bg-[#1a2232] hover:bg-[#283347] text-[#f87171] border border-[#283347] text-xs font-mono-num btn-tactical">⚡ Toggle God Mode</button>
       </div>
 
+      <!-- Entity & Object Spawner Tool -->
+      <div class="bg-[#080b11] p-3 rounded-lg border border-[#c084fc]/40 space-y-2.5">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-1.5">
+            <span class="w-2 h-2 rounded-full bg-[#c084fc] animate-pulse"></span>
+            <label class="block text-[10px] font-mono-num uppercase text-[#c084fc] font-bold">Entity &amp; Object Spawner</label>
+          </div>
+          <span class="text-[10px] font-mono-num text-[#8b949e]">Spawns adjacent to hero on current floor</span>
+        </div>
+        <div class="flex flex-wrap sm:flex-nowrap gap-2 items-center">
+          <select id="devSpawnTypeSelect" onchange="window.Aethelgard.handleDevSpawnTypeChange()" class="w-28 bg-[#111722] border border-[#283347] rounded px-2 py-1 text-xs text-[#c084fc] font-mono-num font-bold">
+            <option value="portal">Portal</option>
+            <option value="door">Door</option>
+            <option value="key">Key</option>
+            <option value="monster">Monster</option>
+          </select>
+          <select id="devSpawnSubIdSelect" class="flex-1 min-w-[200px] bg-[#111722] border border-[#283347] rounded px-2 py-1 text-xs text-[#e6edf3] font-mono-num">
+            <option value="waypoint">Ancient Celestial Waypoint</option>
+            <option value="rift">Unstable Astral Rift (2 Charges)</option>
+            <option value="extraction">Astral Sanctum Gateway (Exit)</option>
+          </select>
+          <button id="btnDevSpawnEntity" onclick="window.Aethelgard.handleDevSpawnClick()" class="px-3 py-1 rounded bg-[#c084fc]/25 hover:bg-[#c084fc]/35 border border-[#c084fc]/50 text-[#c084fc] text-xs font-mono-num font-bold btn-tactical whitespace-nowrap">+ Spawn</button>
+        </div>
+        <!-- 1-Click Quick Presets -->
+        <div class="flex flex-wrap items-center gap-1.5 pt-1 border-t border-[#283347]/50">
+          <span class="text-[10px] font-mono-num uppercase text-[#8b949e] mr-1">Quick Presets:</span>
+          <button id="btnDevQuickWaypoint" onclick="window.Aethelgard.handleDevQuickSpawn('portal', 'waypoint')" class="px-2 py-0.5 rounded bg-[#1a2232] hover:bg-[#283347] text-[#38bdf8] border border-[#38bdf8]/30 text-[10px] font-mono-num btn-tactical">+ Waypoint</button>
+          <button id="btnDevQuickRift" onclick="window.Aethelgard.handleDevQuickSpawn('portal', 'rift')" class="px-2 py-0.5 rounded bg-[#1a2232] hover:bg-[#283347] text-[#c084fc] border border-[#c084fc]/30 text-[10px] font-mono-num btn-tactical">+ Astral Rift</button>
+          <button id="btnDevQuickExtraction" onclick="window.Aethelgard.handleDevQuickSpawn('portal', 'extraction')" class="px-2 py-0.5 rounded bg-[#1a2232] hover:bg-[#283347] text-[#fbbf24] border border-[#fbbf24]/30 text-[10px] font-mono-num btn-tactical">+ Sanctum Portal</button>
+          <button id="btnDevQuickIronDoor" onclick="window.Aethelgard.handleDevQuickSpawn('door', 'iron')" class="px-2 py-0.5 rounded bg-[#1a2232] hover:bg-[#283347] text-[#94a3b8] border border-[#94a3b8]/30 text-[10px] font-mono-num btn-tactical">+ Iron Door</button>
+          <button id="btnDevQuickPortcullis" onclick="window.Aethelgard.handleDevQuickSpawn('door', 'portcullis')" class="px-2 py-0.5 rounded bg-[#1a2232] hover:bg-[#283347] text-[#94a3b8] border border-[#94a3b8]/30 text-[10px] font-mono-num btn-tactical">+ Portcullis</button>
+          <button id="btnDevQuickVaultDoor" onclick="window.Aethelgard.handleDevQuickSpawn('door', 'vault')" class="px-2 py-0.5 rounded bg-[#1a2232] hover:bg-[#283347] text-[#f59e0b] border border-[#f59e0b]/30 text-[10px] font-mono-num btn-tactical">+ Vault Door</button>
+          <button id="btnDevQuickSecretDoor" onclick="window.Aethelgard.handleDevQuickSpawn('door', 'secret')" class="px-2 py-0.5 rounded bg-[#1a2232] hover:bg-[#283347] text-[#94a3b8] border border-[#94a3b8]/30 text-[10px] font-mono-num btn-tactical">+ Secret Door</button>
+          <button id="btnDevQuickIronKey" onclick="window.Aethelgard.handleDevQuickSpawn('key', 'iron')" class="px-2 py-0.5 rounded bg-[#1a2232] hover:bg-[#283347] text-[#e2e8f0] border border-[#e2e8f0]/30 text-[10px] font-mono-num btn-tactical">+ Iron Key</button>
+          <button id="btnDevQuickVaultKey" onclick="window.Aethelgard.handleDevQuickSpawn('key', 'vault')" class="px-2 py-0.5 rounded bg-[#1a2232] hover:bg-[#283347] text-[#fbbf24] border border-[#fbbf24]/30 text-[10px] font-mono-num btn-tactical">+ Vault Key</button>
+          <button id="btnDevQuickBoss" onclick="window.Aethelgard.handleDevQuickSpawn('monster', 'boss_colossus')" class="px-2 py-0.5 rounded bg-[#1a2232] hover:bg-[#283347] text-[#f87171] border border-[#f87171]/30 text-[10px] font-mono-num btn-tactical">+ Colossus</button>
+        </div>
+      </div>
+
       <!-- Terminal Output & REPL -->
       <div class="flex-1 flex flex-col min-h-[160px] max-h-[260px] bg-[#04060a] rounded-lg border border-[#283347] overflow-hidden">
         <div id="devConsoleOutput" class="flex-1 overflow-y-auto p-2.5 font-mono-num text-[11px] space-y-1">
-          <div class="text-[#8b949e]">// Aethelgard Developer &amp; Tester Console ready. Type "help" or use buttons above.</div>
+          <div class="text-[#8b949e]">// Aethelgard Developer &amp; Tester Console ready. Use toolbar spawner above or type commands.</div>
         </div>
         <div class="flex items-center border-t border-[#283347] bg-[#080b11] px-2.5 py-1.5">
           <span class="text-xs font-mono-num text-[#c084fc] font-bold mr-2">&gt;</span>
-          <input id="devConsoleInput" type="text" placeholder="Type a dev command (e.g. goto 15, level 20, heal, reveal) or help..." onkeydown="window.Aethelgard.handleDevTerminalKeyDown(event)" class="flex-1 bg-transparent text-xs font-mono-num text-[#e6edf3] focus:outline-none placeholder-[#8b949e]/50" />
+          <input id="devConsoleInput" type="text" placeholder="Type a dev command (e.g. spawn portal waypoint, goto 15, level 20, heal, reveal) or help..." onkeydown="window.Aethelgard.handleDevTerminalKeyDown(event)" class="flex-1 bg-transparent text-xs font-mono-num text-[#e6edf3] focus:outline-none placeholder-[#8b949e]/50" />
           <button id="btnDevSubmitCommand" onclick="window.Aethelgard.handleDevTerminalSubmit()" class="px-2.5 py-0.5 rounded bg-[#1a2232] text-[#8b949e] hover:text-[#e6edf3] text-[10px] font-mono-num ml-2">Run</button>
         </div>
       </div>

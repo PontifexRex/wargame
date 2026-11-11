@@ -172,6 +172,10 @@ import {
   handleDevFullHealClick,
   handleDevRevealMapClick,
   handleDevGodModeClick,
+  handleDevSpawnTypeChange,
+  handleDevSpawnClick,
+  handleDevQuickSpawn,
+  SPAWN_SUB_OPTIONS,
   handleDevTerminalSubmit,
   handleDevTerminalKeyDown
 } from './ui/devConsole.js';
@@ -339,6 +343,9 @@ export const AethelgardAPI = {
     revealMap: revealMap,
     toggleGodMode: toggleGodMode,
     spawnEntity: spawnEntity,
+    spawnClick: handleDevSpawnClick,
+    quickSpawn: handleDevQuickSpawn,
+    spawnOptions: SPAWN_SUB_OPTIONS,
     executeCommand: executeDevCommand,
     toggleConsole: toggleDevConsole,
     openConsole: openDevConsole,
@@ -354,6 +361,10 @@ export const AethelgardAPI = {
   handleDevFullHealClick,
   handleDevRevealMapClick,
   handleDevGodModeClick,
+  handleDevSpawnTypeChange,
+  handleDevSpawnClick,
+  handleDevQuickSpawn,
+  SPAWN_SUB_OPTIONS,
   handleDevTerminalSubmit,
   handleDevTerminalKeyDown
 };
