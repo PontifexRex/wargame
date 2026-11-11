@@ -63,7 +63,7 @@
       </button>
       <button id="btnVerifySuite" onclick="window.Aethelgard.openDiagnosticsModal()" class="px-3 py-1.5 rounded-md bg-[#34d399]/15 hover:bg-[#34d399]/25 border border-[#34d399]/50 text-xs font-mono-num font-bold text-[#34d399] flex items-center gap-1.5 btn-tactical">
         <span class="w-2 h-2 rounded-full bg-[#34d399]"></span>
-        <span id="verifyBtnText">Verify Inc-7.0 (24/24 PASS)</span>
+        <span id="verifyBtnText">Verify Inc-7.1 (25/25 PASS)</span>
       </button>
     </div>
   </header>
@@ -763,7 +763,120 @@
         Three centuries ago, the astral meteor <strong class="text-[#fbbf24]">Vespera</strong> shattered the subterranean vaults beneath Oakhaven, mutating the deep masonry into an ever-shifting abyss of living star-ore and eldritch guardians. As a sworn member of the Adventurers Guild, you cannot die permanently—Guild Scouts will rescue your fallen body, though any unbanked loot in your Expedition Pack is forfeited to the dark.
       </p>
       <div id="classCardsContainer" class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
-        <!-- Populated dynamically -->
+        <!-- Fighter -->
+        <div class="p-3.5 rounded-lg bg-[#080b11] border border-[#283347] hover:border-[#f87171] flex flex-col justify-between gap-3">
+          <div>
+            <div class="flex items-center gap-3 mb-2">
+              <canvas id="classCardCanvas_fighter" width="48" height="48" class="rounded bg-[#04060a] border border-[#283347] flex-shrink-0 shadow-inner"></canvas>
+              <div class="flex-1 min-w-0">
+                <div class="flex items-center justify-between">
+                  <span class="font-display font-bold text-base text-[#f87171]">Fighter</span>
+                  <span class="text-[10px] font-mono-num px-2 py-0.5 rounded bg-[#1a2232] text-[#e6edf3]">HP 120 | MP 35</span>
+                </div>
+                <div class="text-[11px] text-[#fbbf24] font-medium">Iron Vanguard</div>
+              </div>
+            </div>
+            <div class="text-xs text-[#34d399] font-semibold mt-1.5">Passive: Unstoppable Stride</div>
+            <p class="text-[11px] text-[#8b949e]">+10 Max HP &amp; reduces incoming physical damage by 15%.</p>
+            <div class="text-xs text-[#60a5fa] font-semibold mt-1.5">Skill [Q]: Whirlwind Cleave (10 MP)</div>
+            <p class="text-[11px] text-[#8b949e]">Cleaves all adjacent foes for 150% weapon damage and stuns them for 1 turn.</p>
+          </div>
+          <button onclick="window.Aethelgard.selectAdventurerClass('fighter')" class="w-full py-2 rounded bg-[#fbbf24] hover:bg-[#f59e0b] text-[#080b11] font-bold text-xs uppercase tracking-wider btn-tactical">
+            Begin as Fighter
+          </button>
+        </div>
+
+        <!-- Thief -->
+        <div class="p-3.5 rounded-lg bg-[#080b11] border border-[#283347] hover:border-[#c084fc] flex flex-col justify-between gap-3">
+          <div>
+            <div class="flex items-center gap-3 mb-2">
+              <canvas id="classCardCanvas_thief" width="48" height="48" class="rounded bg-[#04060a] border border-[#283347] flex-shrink-0 shadow-inner"></canvas>
+              <div class="flex-1 min-w-0">
+                <div class="flex items-center justify-between">
+                  <span class="font-display font-bold text-base text-[#c084fc]">Thief</span>
+                  <span class="text-[10px] font-mono-num px-2 py-0.5 rounded bg-[#1a2232] text-[#e6edf3]">HP 90 | MP 45</span>
+                </div>
+                <div class="text-[11px] text-[#fbbf24] font-medium">Shadow Strider</div>
+              </div>
+            </div>
+            <div class="text-xs text-[#34d399] font-semibold mt-1.5">Passive: Opportunist</div>
+            <p class="text-[11px] text-[#8b949e]">+15% Critical Strike chance &amp; +25% gold found in chests.</p>
+            <div class="text-xs text-[#60a5fa] font-semibold mt-1.5">Skill [Q]: Shadowstep Strike (12 MP)</div>
+            <p class="text-[11px] text-[#8b949e]">Teleports to a free floor tile adjacent to a target within 3 tiles and strikes for 220% Crit damage.</p>
+          </div>
+          <button onclick="window.Aethelgard.selectAdventurerClass('thief')" class="w-full py-2 rounded bg-[#fbbf24] hover:bg-[#f59e0b] text-[#080b11] font-bold text-xs uppercase tracking-wider btn-tactical">
+            Begin as Thief
+          </button>
+        </div>
+
+        <!-- Mage -->
+        <div class="p-3.5 rounded-lg bg-[#080b11] border border-[#283347] hover:border-[#60a5fa] flex flex-col justify-between gap-3">
+          <div>
+            <div class="flex items-center gap-3 mb-2">
+              <canvas id="classCardCanvas_mage" width="48" height="48" class="rounded bg-[#04060a] border border-[#283347] flex-shrink-0 shadow-inner"></canvas>
+              <div class="flex-1 min-w-0">
+                <div class="flex items-center justify-between">
+                  <span class="font-display font-bold text-base text-[#60a5fa]">Mage</span>
+                  <span class="text-[10px] font-mono-num px-2 py-0.5 rounded bg-[#1a2232] text-[#e6edf3]">HP 82 | MP 80</span>
+                </div>
+                <div class="text-[11px] text-[#fbbf24] font-medium">Starweaver Adept</div>
+              </div>
+            </div>
+            <div class="text-xs text-[#34d399] font-semibold mt-1.5">Passive: Arcane Surge</div>
+            <p class="text-[11px] text-[#8b949e]">Regenerates +2 MP each turn and adds INT scaling to basic attacks.</p>
+            <div class="text-xs text-[#60a5fa] font-semibold mt-1.5">Skill [Q]: Starfall Nova (16 MP)</div>
+            <p class="text-[11px] text-[#8b949e]">Unleashes an astral detonation hitting all visible enemies within 4 tiles for 200% spell damage + Burn.</p>
+          </div>
+          <button onclick="window.Aethelgard.selectAdventurerClass('mage')" class="w-full py-2 rounded bg-[#fbbf24] hover:bg-[#f59e0b] text-[#080b11] font-bold text-xs uppercase tracking-wider btn-tactical">
+            Begin as Mage
+          </button>
+        </div>
+
+        <!-- Ranger -->
+        <div class="p-3.5 rounded-lg bg-[#080b11] border border-[#283347] hover:border-[#34d399] flex flex-col justify-between gap-3">
+          <div>
+            <div class="flex items-center gap-3 mb-2">
+              <canvas id="classCardCanvas_ranger" width="48" height="48" class="rounded bg-[#04060a] border border-[#283347] flex-shrink-0 shadow-inner"></canvas>
+              <div class="flex-1 min-w-0">
+                <div class="flex items-center justify-between">
+                  <span class="font-display font-bold text-base text-[#34d399]">Ranger</span>
+                  <span class="text-[10px] font-mono-num px-2 py-0.5 rounded bg-[#1a2232] text-[#e6edf3]">HP 95 | MP 45</span>
+                </div>
+                <div class="text-[11px] text-[#fbbf24] font-medium">Deepwood Pathfinder</div>
+              </div>
+            </div>
+            <div class="text-xs text-[#34d399] font-semibold mt-1.5">Passive: Eagle Eye</div>
+            <p class="text-[11px] text-[#8b949e]">7-tile Torchlight vision &amp; +15% Evasion.</p>
+            <div class="text-xs text-[#60a5fa] font-semibold mt-1.5">Skill [Q]: Starfall Volley (14 MP)</div>
+            <p class="text-[11px] text-[#8b949e]">Looses a piercing astral salvo striking up to 3 visible foes within 5 tiles for 180% weapon damage.</p>
+          </div>
+          <button onclick="window.Aethelgard.selectAdventurerClass('ranger')" class="w-full py-2 rounded bg-[#fbbf24] hover:bg-[#f59e0b] text-[#080b11] font-bold text-xs uppercase tracking-wider btn-tactical">
+            Begin as Ranger
+          </button>
+        </div>
+
+        <!-- Paladin -->
+        <div class="p-3.5 rounded-lg bg-[#080b11] border border-[#283347] hover:border-[#fbbf24] flex flex-col justify-between gap-3 md:col-span-2">
+          <div>
+            <div class="flex items-center gap-3 mb-2">
+              <canvas id="classCardCanvas_paladin" width="48" height="48" class="rounded bg-[#04060a] border border-[#283347] flex-shrink-0 shadow-inner"></canvas>
+              <div class="flex-1 min-w-0">
+                <div class="flex items-center justify-between">
+                  <span class="font-display font-bold text-base text-[#fbbf24]">Paladin</span>
+                  <span class="text-[10px] font-mono-num px-2 py-0.5 rounded bg-[#1a2232] text-[#e6edf3]">HP 125 | MP 50</span>
+                </div>
+                <div class="text-[11px] text-[#fbbf24] font-medium">Dawn Warden</div>
+              </div>
+            </div>
+            <div class="text-xs text-[#34d399] font-semibold mt-1.5">Passive: Aura of Radiance</div>
+            <p class="text-[11px] text-[#8b949e]">+10 Armor &amp; regenerates +1 HP every 3 turns.</p>
+            <div class="text-xs text-[#60a5fa] font-semibold mt-1.5">Skill [Q]: Holy Smite (16 MP)</div>
+            <p class="text-[11px] text-[#8b949e]">Strikes an adjacent foe for 240% holy damage and restores 15% of your Max HP.</p>
+          </div>
+          <button onclick="window.Aethelgard.selectAdventurerClass('paladin')" class="w-full py-2 rounded bg-[#fbbf24] hover:bg-[#f59e0b] text-[#080b11] font-bold text-xs uppercase tracking-wider btn-tactical">
+            Begin as Paladin
+          </button>
+        </div>
       </div>
     </div>
   </div>

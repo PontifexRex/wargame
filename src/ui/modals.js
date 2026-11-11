@@ -709,24 +709,18 @@ export function unsocketFromInspect(targetRef, socketIdx, isEquippedSlot) {
 export function openClassSelectModal(allowCancel = false) {
   if (typeof document === 'undefined') return;
   document.getElementById('btnCloseClassModal').classList.toggle('hidden', !allowCancel);
-  const container = document.getElementById('classCardsContainer');
-  container.innerHTML = Object.values(CLASSES).map(c => `
-    <div class="p-3.5 rounded-lg bg-[#080b11] border border-[#283347] hover:border-[#fbbf24] flex flex-col justify-between gap-3">
-      <div>
-        <div class="flex items-center justify-between">
-          <span class="font-display font-bold text-base" style="color:${c.color}">${c.name} — ${c.title}</span>
-          <span class="text-[10px] font-mono-num px-2 py-0.5 rounded bg-[#1a2232] text-[#e6edf3]">HP ${c.hpBase} | MP ${c.mpBase}</span>
-        </div>
-        <div class="text-xs text-[#34d399] font-semibold mt-1.5">Passive: ${c.passiveName}</div>
-        <p class="text-[11px] text-[#8b949e]">${c.passiveDesc}</p>
-        <div class="text-xs text-[#60a5fa] font-semibold mt-1.5">Skill [Q]: ${c.skillName} (${c.skillCost} MP)</div>
-        <p class="text-[11px] text-[#8b949e]">${c.skillDesc}</p>
-      </div>
-      <button onclick="window.Aethelgard.selectAdventurerClass('${c.id}')" class="w-full py-2 rounded bg-[#fbbf24] hover:bg-[#f59e0b] text-[#080b11] font-bold text-xs uppercase tracking-wider btn-tactical">
-        Begin as ${c.name}
-      </button>
-    </div>
-  `).join('');
+  const classList = Object.values(CLASSES);
+  for (let i = 0; i < classList.length; i++) {
+    const c = classList[i];
+    const cardCanvas = document.getElementById('classCardCanvas_' + c.id);
+    if (cardCanvas && typeof cardCanvas.getContext === 'function') {
+      const cardCtx = cardCanvas.getContext('2d');
+      if (cardCtx) {
+        cardCtx.clearRect(0, 0, 48, 48);
+        drawHeroSprite(cardCtx, 4, 4, c.id, 40);
+      }
+    }
+  }
   document.getElementById('classSelectModal').classList.remove('hidden');
 }
 

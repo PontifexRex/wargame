@@ -170,16 +170,38 @@ Delivered comprehensive character sheet and inventory ergonomics:
   - Added Sandboxed **Test 24** in `src/test/selfTest.js` verifying field equip/swap, unequip, drop, in-dungeon selling prohibition, corridor run, upfront item icons, canonical slot definitions, and anatomical paper-doll rendering.
   - Expanded automated verification suite to **24/24 PASS** + Headless UI Smoke Suite + 10-seed fuzzer pass.
 
+v0.7.1-art - Increment 7.1: Visual Overhaul & Class Artistry (5 Class Sprites, 2.5D Ashlar Wall Masonry & Drop-Shadows)
+
+Delivered complete visual overhaul, artisanal character sprites, and 2.5D dungeon environments:
+- **5 Handcrafted Playable Class Sprites (`drawHeroSprite`)**:
+  - Distinct pixel-vector artwork across all 5 classes on the tactical canvas, HUD portrait, Class Select cards, and Inventory Paper-Doll:
+    - **Fighter** (Ironclad Vanguard): Horned iron greathelm with glowing amber visor slit, steel cuirass with gold trim, flowing crimson cape, iron heater shield with red heraldic chevron, and steel broadsword with blade fuller.
+    - **Thief** (Shadowblade): Deep midnight shadow shroud cape, studded leather doublet with emerald rivets and poison vial pouch, rogue cowl with lower face mask, piercing emerald eyes, reverse-grip serrated poison stiletto, and forward-grip curved assassin dagger.
+    - **Mage** (Astral Elementalist): Trailing astral cobalt robes with cyan celestial hem and sash, pointed wizard hat with gold band, shadowed face with sapphire astral eyes, active swirling azure spell-flame orb, and gnarled rowan staff capped with a floating diamond star crystal prism.
+    - **Ranger** (Hawkeye Scout): Woodland camo cloak, diagonal leather quiver with feather arrow fletchings, flexible boiled leather tunic with leaf green trim, archer's peaked cowl with hawk feather crest and keen hawk-eyes, curved recurve longbow, and notched steel arrowhead.
+    - **Paladin** (Radiant Crusader): Winged greathelm with incandescent golden visor cross, radiant 4-point golden sunburst halo floating above head, polished silver plate mail, white tabard emblazoned with a radiant golden sun cross, towering sun kite shield, and righteous golden warhammer.
+- **Class-Defining Paper-Doll Mannequin Stages (`drawPaperDollMannequin`)**:
+  - Tailored silhouetted class features on the inventory mannequin: horns & crimson cape (Fighter), peaked cowl tip & shadow shroud (Thief), tall wizard hat cone & swirling mana orb (Mage), archer's cowl with hawk feather & quiver strap (Ranger), and radiant sun halo & sun cross breastplate (Paladin).
+- **Interactive Class Select Modal Overhaul (`#classSelectModal`)**:
+  - Live `<canvas>` portrait rendering in each archetype card showcasing all 5 classes with their handcrafted vector sprites.
+- **2.5D Dungeon Walls & Biome Masonry**:
+  - 8px top wall ledge (cap) with specular highlight and separation shadow groove.
+  - 24px vertical stone wall face with 2-course running-bond Ashlar brickwork and staggered mortar joints.
+  - Distinct biome masonry accents: chiseled dwarven runic mason marks (Dwarven Catacombs), bioluminescent quartz crystal glints in mortar seams (Crystalline Caverns), glowing magma fissures seeping through basalt blocks (Molten Forgeworks), and cosmic stardust void crystal facets (The Vespera Crater).
+  - Faceted mineral crystal geodes bursting from walls for all 6 ore types (`TILE_ORE_*`).
+- **High-Fidelity Floor Flagstones & Ambient Occlusion Drop-Shadows**:
+  - 2x2 stone flagstone pavers per floor tile with recessed mortar lines and deterministic hairline fissures.
+  - Real-time ambient occlusion drop-shadows cast onto floor tiles bordering walls to the North (3-tier soft shadow gradient) and West (soft edge shadow).
+- **3D Landmark Props**:
+  - 4-tier beveled stone staircase with glowing emerald guide runes and ascending beacon portal (`<` / `TILE_STAIRS_UP`).
+  - 4-tier subterranean abyss staircase receding into the dark with glowing cyan abyss light (`>` / `TILE_STAIRS_DOWN`).
+  - 3D domed banded gilded oak vault chests with padlock (closed) and glittering treasure piles (opened).
+  - Stepped runic dais shrines with hovering celestial diamond prisms.
+- **Verification Gate**:
+  - Added Sandboxed **Test 25** in `src/test/selfTest.js` verifying 5-class sprite rendering, mock canvas drawing operations, 2.5D wall/shadow contracts across all 4 biomes, and class-defining paper-doll mannequins.
+  - Expanded automated verification suite to **25/25 PASS** + Headless UI Smoke Suite + 10-seed fuzzer pass.
+
 2. Upcoming Increment Backlog
-
-### Iteration 2 (v0.7.1-art) — 5 Distinct Class Sprites & Upgraded Dungeon Wall/Floor Environments
-
-Scope & Deliverables:
-- 5 Distinct Class Sprites & Artwork: Custom, recognizable visual illustrations for Fighter, Thief, Mage, Ranger, and Paladin on the 2D canvas, HUD portrait, Class Select, and Inventory Paper-Doll.
-- 2.5D Dungeon Walls & Environments: Beveled stone mortar joints, drop-shadows onto floor tiles, and distinct biome masonry (Dwarven Catacombs, Crystalline Caverns, Molten Forgeworks, Vespera Crater).
-- Enhanced Landmark Props: Richer 3D staircases (`<` / `>`), banded gilded chests, and faceted sparkling ore veins.
-
----
 
 ### Iteration 3 (v0.7.2-tactical) — Tactical Combat Overlays & Chronicle Polish
 
