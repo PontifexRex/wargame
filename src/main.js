@@ -219,7 +219,13 @@ export const AethelgardAPI = {
   useHealingTonic,
   useRecallScroll,
   useStairsAtPlayer,
-  handlePlayerAction,
+  handlePlayerAction: (dx, dy, evt) => {
+    const isShift = (evt && evt.shiftKey) || (typeof window !== 'undefined' && window.event && window.event.shiftKey);
+    if (isShift) {
+      return runCorridor(dx, dy);
+    }
+    return handlePlayerAction(dx, dy);
+  },
   runCorridor,
   startAutoWalkTo,
   cancelAutoWalk,

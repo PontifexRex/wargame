@@ -1105,7 +1105,7 @@ export function evaluateSelfTests() {
   sandbox24.hero.x = f24.upPos.x;
   sandbox24.hero.y = f24.upPos.y;
   const runRes = runCorridor(1, 0, sandbox24);
-  const corridorRunValid = runRes.ok && typeof runRes.stepsTaken === 'number' && typeof runRes.stopReason === 'string';
+  const corridorRunValid = runRes.ok && runRes.stepsTaken >= 1 && typeof runRes.stopReason === 'string';
 
   // 6. Upfront Item Type Icons & Slot Metadata Canonical Contract
   const iconArmor = getItemTypeIcon('armor') === '🦺';

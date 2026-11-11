@@ -647,12 +647,12 @@
 
           <!-- ON-SCREEN DIRECTIONAL CONTROLS -->
           <div class="md:col-span-4 flex items-center justify-center gap-1 bg-[#080b11] p-1.5 rounded-lg border border-[#283347]">
-            <button onclick="window.Aethelgard.handlePlayerAction(-1, 0)" class="w-9 h-8 rounded bg-[#1a2232] hover:bg-[#283347] text-xs font-mono-num font-bold">←</button>
+            <button onclick="window.Aethelgard.handlePlayerAction(-1, 0, event)" class="w-9 h-8 rounded bg-[#1a2232] hover:bg-[#283347] text-xs font-mono-num font-bold" title="Move Left (Shift+Click to Fast-Run)">←</button>
             <div class="flex flex-col gap-1">
-              <button onclick="window.Aethelgard.handlePlayerAction(0, -1)" class="w-9 h-7 rounded bg-[#1a2232] hover:bg-[#283347] text-xs font-mono-num font-bold">↑</button>
-              <button onclick="window.Aethelgard.handlePlayerAction(0, 1)" class="w-9 h-7 rounded bg-[#1a2232] hover:bg-[#283347] text-xs font-mono-num font-bold">↓</button>
+              <button onclick="window.Aethelgard.handlePlayerAction(0, -1, event)" class="w-9 h-7 rounded bg-[#1a2232] hover:bg-[#283347] text-xs font-mono-num font-bold" title="Move Up (Shift+Click to Fast-Run)">↑</button>
+              <button onclick="window.Aethelgard.handlePlayerAction(0, 1, event)" class="w-9 h-7 rounded bg-[#1a2232] hover:bg-[#283347] text-xs font-mono-num font-bold" title="Move Down (Shift+Click to Fast-Run)">↓</button>
             </div>
-            <button onclick="window.Aethelgard.handlePlayerAction(1, 0)" class="w-9 h-8 rounded bg-[#1a2232] hover:bg-[#283347] text-xs font-mono-num font-bold">→</button>
+            <button onclick="window.Aethelgard.handlePlayerAction(1, 0, event)" class="w-9 h-8 rounded bg-[#1a2232] hover:bg-[#283347] text-xs font-mono-num font-bold" title="Move Right (Shift+Click to Fast-Run)">→</button>
             <button onclick="window.Aethelgard.waitTurn()" class="px-2.5 h-8 rounded bg-[#111722] hover:bg-[#1a2232] border border-[#283347] text-[10px] font-mono-num text-[#8b949e] hover:text-[#e6edf3]">WAIT</button>
           </div>
         </div>

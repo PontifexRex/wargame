@@ -4515,12 +4515,33 @@ function areHostilesInSight(floor, state = gameState) {
   return false;
 }
 
+function countHostilesInSight(floor, state = gameState) {
+  if (!floor || !floor.monsters || !state || !state.hero) return 0;
+  const h = state.hero;
+  const vision = h.visionRadius || 5;
+  const maxBox = Math.ceil(vision + 1);
+  let count = 0;
+
+  for (let i = 0; i < floor.monsters.length; i++) {
+    const m = floor.monsters[i];
+    if (!m || m.hp <= 0) continue;
+    if (Math.abs(m.x - h.x) > maxBox || Math.abs(m.y - h.y) > maxBox) continue;
+    if (Math.hypot(m.x - h.x, m.y - h.y) <= vision + 0.35 && hasLineOfSight(floor, h.x, h.y, m.x, m.y)) {
+      count++;
+    }
+  }
+  return count;
+}
+
 // ============================================================================
 // SAFE EXPLORED PATHFINDING & CLICK-TO-TRAVEL AUTO-WALK
 // ============================================================================
 
 let activeAutoWalkQueue = [];
 let autoWalkTimerId = null;
+let autoWalkMode = 'walk'; // 'walk' | 'sprint'
+let autoWalkInterval = 36;
+let initialVisibleMonsters = 0;
 
 function isAutoWalking() {
   return activeAutoWalkQueue.length > 0;
@@ -4536,6 +4557,8 @@ function setAutoWalkPath(pathArray) {
 
 function cancelAutoWalk() {
   activeAutoWalkQueue = [];
+  autoWalkMode = 'walk';
+  autoWalkInterval = 36;
   if (autoWalkTimerId !== null && typeof clearTimeout !== 'undefined') {
     clearTimeout(autoWalkTimerId);
     autoWalkTimerId = null;
@@ -4653,11 +4676,17 @@ function stepAutoWalkOnce(state = gameState) {
     return { ok: false, halted: true, reason: 'no_floor' };
   }
 
-  if (areHostilesInSight(floor, state)) {
+  const currentHostiles = countHostilesInSight(floor, state);
+  const meleeHostile = floor.monsters && floor.monsters.some(m => m.hp > 0 && Math.abs(m.x - state.hero.x) <= 1 && Math.abs(m.y - state.hero.y) <= 1);
+  const shouldHaltHostile = (autoWalkMode === 'sprint')
+    ? (meleeHostile || currentHostiles > initialVisibleMonsters)
+    : areHostilesInSight(floor, state);
+
+  if (shouldHaltHostile) {
     cancelAutoWalk();
     if (state === gameState) {
       ui.floatingText(state.hero.x, state.hero.y, '⚔ Hostile Sighted!', '#fbbf24');
-      ui.log('Auto-walk halted: hostile guardian in sight!', 'gold');
+      ui.log(`${autoWalkMode === 'sprint' ? 'Sprint' : 'Auto-walk'} halted: hostile guardian encountered!`, 'gold');
     }
     return { ok: false, halted: true, reason: 'hostile_in_sight' };
   }
@@ -4693,11 +4722,17 @@ function stepAutoWalkOnce(state = gameState) {
   }
 
   const postFloor = ensureDungeonFloorHydrated(state.dungeon, state.dungeon.currentFloor);
-  if (areHostilesInSight(postFloor, state)) {
+  const postHostiles = countHostilesInSight(postFloor, state);
+  const postMelee = postFloor.monsters && postFloor.monsters.some(m => m.hp > 0 && Math.abs(m.x - state.hero.x) <= 1 && Math.abs(m.y - state.hero.y) <= 1);
+  const postHaltHostile = (autoWalkMode === 'sprint')
+    ? (postMelee || postHostiles > initialVisibleMonsters)
+    : areHostilesInSight(postFloor, state);
+
+  if (postHaltHostile) {
     cancelAutoWalk();
     if (state === gameState) {
       ui.floatingText(state.hero.x, state.hero.y, '⚔ Hostile Sighted!', '#fbbf24');
-      ui.log('Auto-walk halted: hostile guardian in sight!', 'gold');
+      ui.log(`${autoWalkMode === 'sprint' ? 'Sprint' : 'Auto-walk'} halted: hostile guardian encountered!`, 'gold');
     }
     return { ok: true, stepped: true, halted: true, reason: 'hostile_in_sight' };
   }
@@ -4710,7 +4745,7 @@ function stepAutoWalkOnce(state = gameState) {
   };
 }
 
-function scheduleNextAutoWalkTick() {
+function scheduleNextAutoWalkTick(interval = autoWalkInterval) {
   if (autoWalkTimerId !== null && typeof clearTimeout !== 'undefined') {
     clearTimeout(autoWalkTimerId);
     autoWalkTimerId = null;
@@ -4720,9 +4755,9 @@ function scheduleNextAutoWalkTick() {
     autoWalkTimerId = null;
     const res = stepAutoWalkOnce(gameState);
     if (res && res.ok && !res.halted && res.remaining > 0) {
-      scheduleNextAutoWalkTick();
+      scheduleNextAutoWalkTick(interval);
     }
-  }, 36);
+  }, interval);
 }
 
 function startAutoWalkTo(tx, ty, state = gameState) {
@@ -4751,9 +4786,11 @@ function startAutoWalkTo(tx, ty, state = gameState) {
     return { ok: false, reason: 'no_path' };
   }
 
+  autoWalkMode = 'walk';
+  autoWalkInterval = 36;
   activeAutoWalkQueue = path;
   if (state === gameState) {
-    scheduleNextAutoWalkTick();
+    scheduleNextAutoWalkTick(autoWalkInterval);
   }
   return { ok: true, steps: path.length, path: path.slice() };
 }
@@ -5624,6 +5661,127 @@ function waitTurn(state = gameState) {
   processTurn(state);
 }
 
+function computeCorridorRunPath(dx, dy, floor, state = gameState) {
+  if (!floor || !floor.tiles || !state || !state.hero) {
+    return { path: [], stopReason: 'no_floor' };
+  }
+
+  const fw = floor.width || (floor.tiles[0] ? floor.tiles[0].length : DEFAULT_MAP_W);
+  const fh = floor.height || floor.tiles.length || DEFAULT_MAP_H;
+
+  function isWalkable(x, y) {
+    if (x < 0 || x >= fw || y < 0 || y >= fh) return false;
+    const t = floor.tiles[y][x];
+    if (t === TILE_WALL || ORE_CATALOG[t] || t === TILE_TRAP_VISIBLE) return false;
+    return true;
+  }
+
+  let curX = state.hero.x;
+  let curY = state.hero.y;
+  let curDx = dx;
+  let curDy = dy;
+  const path = [];
+  let stopReason = 'max_steps';
+  const maxSteps = 50;
+
+  // Determine if hero is starting in an open room vs a narrow corridor
+  let leftDir = { x: -curDy, y: curDx };
+  let rightDir = { x: curDy, y: -curDx };
+  const leftOpen = isWalkable(curX + leftDir.x, curY + leftDir.y);
+  const rightOpen = isWalkable(curX + rightDir.x, curY + rightDir.y);
+  let inRoom = leftOpen && rightOpen;
+
+  for (let s = 0; s < maxSteps; s++) {
+    let nx = curX + curDx;
+    let ny = curY + curDy;
+
+    // If straight ahead is blocked by a wall or obstacle
+    if (!isWalkable(nx, ny)) {
+      const canTurnLeft = isWalkable(curX + leftDir.x, curY + leftDir.y);
+      const canTurnRight = isWalkable(curX + rightDir.x, curY + rightDir.y);
+
+      if (canTurnLeft && !canTurnRight) {
+        // Bend in corridor: single 90-degree left turn
+        curDx = leftDir.x;
+        curDy = leftDir.y;
+        leftDir = { x: -curDy, y: curDx };
+        rightDir = { x: curDy, y: -curDx };
+        inRoom = false;
+        nx = curX + curDx;
+        ny = curY + curDy;
+      } else if (canTurnRight && !canTurnLeft) {
+        // Bend in corridor: single 90-degree right turn
+        curDx = rightDir.x;
+        curDy = rightDir.y;
+        leftDir = { x: -curDy, y: curDx };
+        rightDir = { x: curDy, y: -curDx };
+        inRoom = false;
+        nx = curX + curDx;
+        ny = curY + curDy;
+      } else {
+        stopReason = (canTurnLeft && canTurnRight) ? 'intersection' : 'blocked';
+        break;
+      }
+    }
+
+    if (!isWalkable(nx, ny)) {
+      stopReason = 'blocked';
+      break;
+    }
+
+    if (floor.monsters && floor.monsters.some(m => m.hp > 0 && m.x === nx && m.y === ny)) {
+      stopReason = 'hostile_ahead';
+      break;
+    }
+
+    if (floor.tiles[ny][nx] === TILE_TRAP_VISIBLE) {
+      stopReason = 'trap_ahead';
+      break;
+    }
+
+    path.push({ x: nx, y: ny });
+    curX = nx;
+    curY = ny;
+
+    const tileType = floor.tiles[curY][curX];
+    if (
+      tileType === TILE_STAIRS_UP ||
+      tileType === TILE_STAIRS_DOWN ||
+      tileType === TILE_CHEST ||
+      tileType === TILE_SHRINE
+    ) {
+      stopReason = 'reached_landmark';
+      break;
+    }
+
+    leftDir = { x: -curDy, y: curDx };
+    rightDir = { x: curDy, y: -curDx };
+    const lWalk = isWalkable(curX + leftDir.x, curY + leftDir.y);
+    const rWalk = isWalkable(curX + rightDir.x, curY + rightDir.y);
+
+    if (inRoom) {
+      // If started in a room, we keep sprinting straight until entering a corridor
+      if (!lWalk && !rWalk) {
+        inRoom = false;
+      }
+    } else {
+      // In a corridor:
+      if (lWalk && rWalk) {
+        // Reached entrance of an open room: halt at threshold!
+        stopReason = 'room_entrance';
+        break;
+      }
+      if (lWalk || rWalk) {
+        // T-junction or side branch: halt!
+        stopReason = 'intersection';
+        break;
+      }
+    }
+  }
+
+  return { path, stopReason };
+}
+
 function runCorridor(dx, dy, state = gameState) {
   if (!state || state.inGuild || !state.hero) {
     return { ok: false, reason: 'invalid_state', stepsTaken: 0 };
@@ -5634,126 +5792,52 @@ function runCorridor(dx, dy, state = gameState) {
   }
 
   cancelAutoWalk();
-  const maxSteps = 50;
-  let stepsTaken = 0;
-  let curDx = dx;
-  let curDy = dy;
-  let stopReason = 'max_steps';
 
-  const fw = floor.width || (floor.tiles[0] ? floor.tiles[0].length : DEFAULT_MAP_W);
-  const fh = floor.height || floor.tiles.length || DEFAULT_MAP_H;
-
-  const cardinalDirs = [
-    { x: 0, y: -1 },
-    { x: 0, y: 1 },
-    { x: -1, y: 0 },
-    { x: 1, y: 0 }
-  ];
-
-  function isWalkable(x, y) {
-    if (x < 0 || x >= fw || y < 0 || y >= fh) return false;
-    const t = floor.tiles[y][x];
-    if (t === TILE_WALL || ORE_CATALOG[t] || t === TILE_TRAP_VISIBLE) return false;
-    return true;
+  // If already engaged in melee with a hostile, do not run blindly
+  if (floor.monsters && floor.monsters.some(m => m.hp > 0 && Math.abs(m.x - state.hero.x) <= 1 && Math.abs(m.y - state.hero.y) <= 1)) {
+    const ui = getActionCallbacks();
+    if (state === gameState) {
+      ui.floatingText(state.hero.x, state.hero.y, 'Hostile in Melee!', '#f87171');
+      ui.log('Cannot fast-run while engaged in melee combat!', 'bad');
+    }
+    return { ok: false, reason: 'hostile_adjacent', stepsTaken: 0 };
   }
 
-  for (let s = 0; s < maxSteps; s++) {
-    if (areHostilesInSight(floor, state)) {
-      stopReason = 'hostile_in_sight';
-      break;
+  const { path, stopReason } = computeCorridorRunPath(dx, dy, floor, state);
+  if (path.length === 0) {
+    const ui = getActionCallbacks();
+    if (state === gameState) {
+      ui.floatingText(state.hero.x + dx, state.hero.y + dy, 'Blocked', '#8b949e');
     }
-
-    const nx = state.hero.x + curDx;
-    const ny = state.hero.y + curDy;
-
-    if (!isWalkable(nx, ny)) {
-      stopReason = 'blocked';
-      break;
-    }
-
-    if (floor.monsters.some(m => m.hp > 0 && m.x === nx && m.y === ny)) {
-      stopReason = 'hostile_ahead';
-      break;
-    }
-
-    const destTile = floor.tiles[ny][nx];
-    const isInteractive = (
-      destTile === TILE_STAIRS_UP ||
-      destTile === TILE_STAIRS_DOWN ||
-      destTile === TILE_CHEST ||
-      destTile === TILE_SHRINE
-    );
-
-    const hpBefore = state.hero.hp;
-    handlePlayerAction(curDx, curDy, state);
-    stepsTaken++;
-
-    if (state.inGuild) {
-      stopReason = 'left_dungeon';
-      break;
-    }
-
-    if (state.hero.hp < hpBefore) {
-      stopReason = 'took_damage';
-      break;
-    }
-
-    if (isInteractive) {
-      stopReason = 'reached_landmark';
-      break;
-    }
-
-    if (areHostilesInSight(floor, state)) {
-      stopReason = 'hostile_in_sight';
-      break;
-    }
-
-    const curTile = floor.tiles[state.hero.y][state.hero.x];
-    if (curTile === TILE_STAIRS_UP || curTile === TILE_STAIRS_DOWN || curTile === TILE_SHRINE) {
-      stopReason = 'reached_landmark';
-      break;
-    }
-
-    let adjacentLandmark = false;
-    for (let i = 0; i < cardinalDirs.length; i++) {
-      const ax = state.hero.x + cardinalDirs[i].x;
-      const ay = state.hero.y + cardinalDirs[i].y;
-      if (ax >= 0 && ax < fw && ay >= 0 && ay < fh) {
-        const at = floor.tiles[ay][ax];
-        if (ORE_CATALOG[at] || at === TILE_CHEST) {
-          adjacentLandmark = true;
-          break;
-        }
-      }
-    }
-    if (adjacentLandmark) {
-      stopReason = 'adjacent_landmark';
-      break;
-    }
-
-    const backX = state.hero.x - curDx;
-    const backY = state.hero.y - curDy;
-
-    const forwardOptions = [];
-    for (let i = 0; i < cardinalDirs.length; i++) {
-      const candX = state.hero.x + cardinalDirs[i].x;
-      const candY = state.hero.y + cardinalDirs[i].y;
-      if (candX === backX && candY === backY) continue;
-      if (isWalkable(candX, candY)) {
-        forwardOptions.push(cardinalDirs[i]);
-      }
-    }
-
-    if (forwardOptions.length === 1) {
-      curDx = forwardOptions[0].x;
-      curDy = forwardOptions[0].y;
-    } else {
-      stopReason = forwardOptions.length === 0 ? 'dead_end' : 'intersection';
-      break;
-    }
+    return { ok: false, reason: stopReason, stepsTaken: 0 };
   }
 
-  return { ok: true, stepsTaken, stopReason };
+  // Synchronous execution for sandboxed tests / headless environments
+  if (state !== gameState || typeof setTimeout === 'undefined') {
+    let stepsTaken = 0;
+    for (let i = 0; i < path.length; i++) {
+      const step = path[i];
+      const stepDx = step.x - state.hero.x;
+      const stepDy = step.y - state.hero.y;
+      handlePlayerAction(stepDx, stepDy, state);
+      stepsTaken++;
+      if (state.inGuild) break;
+    }
+    return { ok: true, stepsTaken, stopReason };
+  }
+
+  // Live browser execution: start high-speed animated sprint (22ms per step)
+  const ui = getActionCallbacks();
+  autoWalkMode = 'sprint';
+  autoWalkInterval = 22;
+  initialVisibleMonsters = countHostilesInSight(floor, state);
+  activeAutoWalkQueue = path.slice();
+
+  ui.floatingText(state.hero.x, state.hero.y, '⚡ Fast Run...', '#fbbf24');
+  ui.log(`Fast-run started: ${path.length} steps queued.`, 'info');
+  scheduleNextAutoWalkTick(autoWalkInterval);
+
+  return { ok: true, stepsTaken: path.length, stopReason };
 }
 
   // --- Module: src/ui/renderer.js ---
@@ -9257,35 +9341,44 @@ function setupInputs() {
     if (fullMapModal && !fullMapModal.classList.contains('hidden')) return;
     if (gameState.inGuild) return;
 
-    const isShift = !!e.shiftKey;
-    if (['ArrowUp', 'KeyW', 'Numpad8'].includes(e.code)) {
+    const isShift = Boolean(e.shiftKey);
+    const isUp = ['ArrowUp', 'KeyW', 'Numpad8'].includes(e.code) || e.key === 'w' || e.key === 'W' || e.key === 'ArrowUp';
+    const isDown = ['ArrowDown', 'KeyS', 'Numpad2'].includes(e.code) || e.key === 's' || e.key === 'S' || e.key === 'ArrowDown';
+    const isLeft = ['ArrowLeft', 'KeyA', 'Numpad4'].includes(e.code) || e.key === 'a' || e.key === 'A' || e.key === 'ArrowLeft';
+    const isRight = ['ArrowRight', 'KeyD', 'Numpad6'].includes(e.code) || e.key === 'd' || e.key === 'D' || e.key === 'ArrowRight';
+
+    if (isUp) {
       e.preventDefault();
       if (isShift) runCorridor(0, -1);
       else handlePlayerAction(0, -1);
-    } else if (['ArrowDown', 'KeyS', 'Numpad2'].includes(e.code)) {
+    } else if (isDown) {
       e.preventDefault();
       if (isShift) runCorridor(0, 1);
       else handlePlayerAction(0, 1);
-    } else if (['ArrowLeft', 'KeyA', 'Numpad4'].includes(e.code)) {
+    } else if (isLeft) {
       e.preventDefault();
       if (isShift) runCorridor(-1, 0);
       else handlePlayerAction(-1, 0);
-    } else if (['ArrowRight', 'KeyD', 'Numpad6'].includes(e.code)) {
+    } else if (isRight) {
       e.preventDefault();
       if (isShift) runCorridor(1, 0);
       else handlePlayerAction(1, 0);
-    } else if (e.code === 'Numpad7') {
+    } else if (e.code === 'Numpad7' || e.key === 'Home') {
       e.preventDefault();
-      handlePlayerAction(-1, -1);
-    } else if (e.code === 'Numpad9') {
+      if (isShift) runCorridor(-1, -1);
+      else handlePlayerAction(-1, -1);
+    } else if (e.code === 'Numpad9' || e.key === 'PageUp') {
       e.preventDefault();
-      handlePlayerAction(1, -1);
-    } else if (e.code === 'Numpad1') {
+      if (isShift) runCorridor(1, -1);
+      else handlePlayerAction(1, -1);
+    } else if (e.code === 'Numpad1' || e.key === 'End') {
       e.preventDefault();
-      handlePlayerAction(-1, 1);
-    } else if (e.code === 'Numpad3') {
+      if (isShift) runCorridor(-1, 1);
+      else handlePlayerAction(-1, 1);
+    } else if (e.code === 'Numpad3' || e.key === 'PageDown') {
       e.preventDefault();
-      handlePlayerAction(1, 1);
+      if (isShift) runCorridor(1, 1);
+      else handlePlayerAction(1, 1);
     } else if (['Numpad5', 'Space'].includes(e.code)) {
       e.preventDefault();
       waitTurn();
@@ -10447,7 +10540,7 @@ function evaluateSelfTests() {
   sandbox24.hero.x = f24.upPos.x;
   sandbox24.hero.y = f24.upPos.y;
   const runRes = runCorridor(1, 0, sandbox24);
-  const corridorRunValid = runRes.ok && typeof runRes.stepsTaken === 'number' && typeof runRes.stopReason === 'string';
+  const corridorRunValid = runRes.ok && runRes.stepsTaken >= 1 && typeof runRes.stopReason === 'string';
 
   // 6. Upfront Item Type Icons & Slot Metadata Canonical Contract
   const iconArmor = getItemTypeIcon('armor') === '🦺';
@@ -10746,7 +10839,13 @@ const AethelgardAPI = {
   useHealingTonic,
   useRecallScroll,
   useStairsAtPlayer,
-  handlePlayerAction,
+  handlePlayerAction: (dx, dy, evt) => {
+    const isShift = (evt && evt.shiftKey) || (typeof window !== 'undefined' && window.event && window.event.shiftKey);
+    if (isShift) {
+      return runCorridor(dx, dy);
+    }
+    return handlePlayerAction(dx, dy);
+  },
   runCorridor,
   startAutoWalkTo,
   cancelAutoWalk,

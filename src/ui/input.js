@@ -178,35 +178,44 @@ export function setupInputs() {
     if (fullMapModal && !fullMapModal.classList.contains('hidden')) return;
     if (gameState.inGuild) return;
 
-    const isShift = !!e.shiftKey;
-    if (['ArrowUp', 'KeyW', 'Numpad8'].includes(e.code)) {
+    const isShift = Boolean(e.shiftKey);
+    const isUp = ['ArrowUp', 'KeyW', 'Numpad8'].includes(e.code) || e.key === 'w' || e.key === 'W' || e.key === 'ArrowUp';
+    const isDown = ['ArrowDown', 'KeyS', 'Numpad2'].includes(e.code) || e.key === 's' || e.key === 'S' || e.key === 'ArrowDown';
+    const isLeft = ['ArrowLeft', 'KeyA', 'Numpad4'].includes(e.code) || e.key === 'a' || e.key === 'A' || e.key === 'ArrowLeft';
+    const isRight = ['ArrowRight', 'KeyD', 'Numpad6'].includes(e.code) || e.key === 'd' || e.key === 'D' || e.key === 'ArrowRight';
+
+    if (isUp) {
       e.preventDefault();
       if (isShift) runCorridor(0, -1);
       else handlePlayerAction(0, -1);
-    } else if (['ArrowDown', 'KeyS', 'Numpad2'].includes(e.code)) {
+    } else if (isDown) {
       e.preventDefault();
       if (isShift) runCorridor(0, 1);
       else handlePlayerAction(0, 1);
-    } else if (['ArrowLeft', 'KeyA', 'Numpad4'].includes(e.code)) {
+    } else if (isLeft) {
       e.preventDefault();
       if (isShift) runCorridor(-1, 0);
       else handlePlayerAction(-1, 0);
-    } else if (['ArrowRight', 'KeyD', 'Numpad6'].includes(e.code)) {
+    } else if (isRight) {
       e.preventDefault();
       if (isShift) runCorridor(1, 0);
       else handlePlayerAction(1, 0);
-    } else if (e.code === 'Numpad7') {
+    } else if (e.code === 'Numpad7' || e.key === 'Home') {
       e.preventDefault();
-      handlePlayerAction(-1, -1);
-    } else if (e.code === 'Numpad9') {
+      if (isShift) runCorridor(-1, -1);
+      else handlePlayerAction(-1, -1);
+    } else if (e.code === 'Numpad9' || e.key === 'PageUp') {
       e.preventDefault();
-      handlePlayerAction(1, -1);
-    } else if (e.code === 'Numpad1') {
+      if (isShift) runCorridor(1, -1);
+      else handlePlayerAction(1, -1);
+    } else if (e.code === 'Numpad1' || e.key === 'End') {
       e.preventDefault();
-      handlePlayerAction(-1, 1);
-    } else if (e.code === 'Numpad3') {
+      if (isShift) runCorridor(-1, 1);
+      else handlePlayerAction(-1, 1);
+    } else if (e.code === 'Numpad3' || e.key === 'PageDown') {
       e.preventDefault();
-      handlePlayerAction(1, 1);
+      if (isShift) runCorridor(1, 1);
+      else handlePlayerAction(1, 1);
     } else if (['Numpad5', 'Space'].includes(e.code)) {
       e.preventDefault();
       waitTurn();
