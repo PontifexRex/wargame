@@ -11,11 +11,14 @@ import {
   CITY_GRID_COLS,
   CITY_GRID_ROWS,
   CITY_TOTAL_PLOTS,
-  CITY_CENTER_PLOT_INDEX
+  CITY_CENTER_PLOT_INDEX,
+  DEFAULT_STORAGE_CAPS,
+  BASE_POPULATION_CAP,
+  HUT_POPULATION_PER_LEVEL
 } from '../constants.js';
 import { generateOverworldMap } from './pathfinding.js';
 import { createInitialTasksState } from './taskEngine.js';
-import { CITY_PLOT_SLOTS } from '../data/buildings.js';
+import { CITY_PLOT_SLOTS, CITY_BUILDINGS_CATALOG } from '../data/buildings.js';
 
 export function createTitleScreenState() {
   return {
@@ -70,7 +73,9 @@ export function createNewCampaignWorldState(options = {}) {
         wood: 50,
         stone: 50,
         food: 100,
-        gold: 50
+        gold: 50,
+        water: 50,
+        ore: 20
       },
       overworld: overworld,
       cities: {},
@@ -145,12 +150,54 @@ export function getSelectedOverworldUnit(state) {
 }
 
 export function getEffectiveStockpile(state) {
-  if (!state || !state.world) return { wood: 0, stone: 0, food: 0, gold: 0 };
+  const fallback = { wood: 0, stone: 0, food: 0, gold: 0, water: 0, ore: 0 };
+  if (!state || !state.world) return fallback;
   const city = getPrimaryCity(state);
   if (city && city.stockpile) {
     return city.stockpile;
   }
-  return state.world.realmStockpile || { wood: 0, stone: 0, food: 0, gold: 0 };
+  return state.world.realmStockpile || fallback;
+}
+
+export function computeCityStorageCaps(city) {
+  const caps = Object.assign({}, DEFAULT_STORAGE_CAPS || {
+    food: 200, wood: 200, stone: 200, ore: 100, water: 200, gold: 300
+  });
+  if (!city || !Array.isArray(city.plots)) return caps;
+  for (let i = 0; i < city.plots.length; i++) {
+    const p = city.plots[i];
+    if (!p.buildingId || (p.level || 0) <= 0 || p.underConstruction || p.demolishing) continue;
+    const bDef = CITY_BUILDINGS_CATALOG[p.buildingId];
+    if (bDef && bDef.storageBonus) {
+      const keys = Object.keys(bDef.storageBonus);
+      for (let k = 0; k < keys.length; k++) {
+        const resKey = keys[k];
+        caps[resKey] = (caps[resKey] || 0) + ((bDef.storageBonus[resKey] || 0) * (p.level || 1));
+      }
+    }
+  }
+  return caps;
+}
+
+export function computeCityPopulation(city, world = null) {
+  let maxPop = BASE_POPULATION_CAP || 10;
+  if (city && Array.isArray(city.plots)) {
+    for (let i = 0; i < city.plots.length; i++) {
+      const p = city.plots[i];
+      if (p.buildingId === 'hut' && (p.level || 0) > 0 && !p.demolishing) {
+        maxPop += (p.level || 1) * (HUT_POPULATION_PER_LEVEL || 5);
+      }
+    }
+  }
+  let currentPop = 5;
+  if (city && city.level) {
+    currentPop += (city.level - 1) * 2;
+  }
+  if (world && Array.isArray(world.heroes)) {
+    currentPop += world.heroes.length;
+  }
+  currentPop = Math.min(currentPop, maxPop);
+  return { current: currentPop, max: maxPop };
 }
 
 export function hasSavedWargameCampaign() {
@@ -207,9 +254,20 @@ export function loadWargameState(scheduler = null) {
   try {
     const parsed = JSON.parse(raw);
     if (!parsed || !parsed.world) return null;
+    if (parsed.world.realmStockpile) {
+      if (typeof parsed.world.realmStockpile.water !== 'number') parsed.world.realmStockpile.water = 50;
+      if (typeof parsed.world.realmStockpile.ore !== 'number')   parsed.world.realmStockpile.ore = 20;
+    }
     if (parsed.world.cities) {
       Object.keys(parsed.world.cities).forEach(function(cid) {
         const c = parsed.world.cities[cid];
+        if (!c.stockpile) c.stockpile = {};
+        if (typeof c.stockpile.water !== 'number') c.stockpile.water = 50;
+        if (typeof c.stockpile.ore !== 'number')   c.stockpile.ore = 20;
+        if (!c.buildings) c.buildings = {};
+        if (c.buildings.town_hall && !c.buildings.meeting_hall) {
+          c.buildings.meeting_hall = c.buildings.town_hall;
+        }
         if (!Array.isArray(c.buildQueue)) c.buildQueue = [];
         if (!c.maxBuildQueueSlots) c.maxBuildQueueSlots = 3;
         if (!Array.isArray(c.recruitmentQueue)) c.recruitmentQueue = [];

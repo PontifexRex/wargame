@@ -18,7 +18,9 @@ import {
 import {
   getPrimaryCity,
   getSelectedOverworldUnit,
-  getEffectiveStockpile
+  getEffectiveStockpile,
+  computeCityStorageCaps,
+  computeCityPopulation
 } from '../engine/state.js';
 import { getFormattedTasksList } from '../engine/taskEngine.js';
 
@@ -59,14 +61,27 @@ export function updateHeaderFastTick(simHost) {
   }
 
   const stock = getEffectiveStockpile(simHost.state);
+  const city = getPrimaryCity(simHost.state);
   const resWoodEl  = document.getElementById('wgStockWood');
   const resStoneEl = document.getElementById('wgStockStone');
   const resFoodEl  = document.getElementById('wgStockFood');
   const resGoldEl  = document.getElementById('wgStockGold');
-  if (resWoodEl && resWoodEl.textContent != String(stock.wood || 0))   resWoodEl.textContent  = stock.wood  || 0;
+  const resWaterEl = document.getElementById('wgStockWater');
+  const resOreEl   = document.getElementById('wgStockOre');
+  const popEl      = document.getElementById('wgStockPop');
+
+  if (resWoodEl  && resWoodEl.textContent  != String(stock.wood  || 0)) resWoodEl.textContent  = stock.wood  || 0;
   if (resStoneEl && resStoneEl.textContent != String(stock.stone || 0)) resStoneEl.textContent = stock.stone || 0;
-  if (resFoodEl && resFoodEl.textContent != String(stock.food || 0))   resFoodEl.textContent  = stock.food  || 0;
-  if (resGoldEl && resGoldEl.textContent != String(stock.gold || 0))   resGoldEl.textContent  = stock.gold  || 0;
+  if (resFoodEl  && resFoodEl.textContent  != String(stock.food  || 0)) resFoodEl.textContent  = stock.food  || 0;
+  if (resGoldEl  && resGoldEl.textContent  != String(stock.gold  || 0)) resGoldEl.textContent  = stock.gold  || 0;
+  if (resWaterEl && resWaterEl.textContent != String(stock.water || 0)) resWaterEl.textContent = stock.water || 0;
+  if (resOreEl   && resOreEl.textContent   != String(stock.ore   || 0)) resOreEl.textContent   = stock.ore   || 0;
+
+  if (popEl && city) {
+    const pop = computeCityPopulation(city, world);
+    const popStr = pop.current + '/' + pop.max;
+    if (popEl.textContent != popStr) popEl.textContent = popStr;
+  }
 }
 
 export function syncWargameUI(simHost) {
@@ -653,21 +668,65 @@ export function renderCityBuilderPanel(simHost) {
     const isMax = nextLevel > (curBDef.maxLevel || 5);
     const upgradeCost = computeBuildingUpgradeCost(curBId, nextLevel);
     const upgradeDurMs = computeBuildingDurationMs(curBId, nextLevel);
-    const canAfford = (city.stockpile.wood || 0) >= upgradeCost.wood &&
-                      (city.stockpile.stone || 0) >= upgradeCost.stone &&
-                      (city.stockpile.gold || 0) >= upgradeCost.gold;
+
+    const meetingHallLevel = Math.max(
+      (city.buildings && city.buildings.meeting_hall) || 0,
+      (city.buildings && city.buildings.town_hall) || 0,
+      1
+    );
+    const blockedByMeetingHall = (curBId !== 'meeting_hall' && curBId !== 'town_hall' && nextLevel > meetingHallLevel);
+
+    const canAfford = (city.stockpile.wood  || 0) >= (upgradeCost.wood  || 0) &&
+                      (city.stockpile.stone || 0) >= (upgradeCost.stone || 0) &&
+                      (city.stockpile.gold  || 0) >= (upgradeCost.gold  || 0) &&
+                      (city.stockpile.water || 0) >= (upgradeCost.water || 0) &&
+                      (city.stockpile.ore   || 0) >= (upgradeCost.ore   || 0);
+
+    let isAdjacentToWindmill = false;
+    if (Array.isArray(plots)) {
+      const nbs = [
+        { x: spX + 1, y: spY },
+        { x: spX - 1, y: spY },
+        { x: spX, y: spY + 1 },
+        { x: spX, y: spY - 1 }
+      ];
+      for (let n = 0; n < nbs.length; n++) {
+        const nb = nbs[n];
+        if (nb.x >= 0 && nb.x < 8 && nb.y >= 0 && nb.y < 8) {
+          const np = plots[nb.y * 8 + nb.x];
+          if (np && np.buildingId === 'windmill' && (np.level || 0) > 0 && !np.underConstruction && !np.demolishing) {
+            isAdjacentToWindmill = true;
+            break;
+          }
+        }
+      }
+    }
 
     const prodEntries = Object.entries(curBDef.productionPerTick || {});
-    const prodText = prodEntries.length > 0
-      ? prodEntries.map(function(e) { return '+' + (e[1] * curLevel) + ' ' + e[0]; }).join(', ') + ' / tick'
-      : 'Special Facility';
+    let prodText = 'Special Facility';
+    if (prodEntries.length > 0) {
+      const mult = isAdjacentToWindmill ? 1.20 : 1.0;
+      prodText = prodEntries.map(function(e) {
+        const val = Math.round(e[1] * curLevel * mult);
+        return '+' + val + ' ' + e[0];
+      }).join(', ') + ' / tick';
+    } else if (curBDef.providesPopulation) {
+      prodText = '+' + (curBDef.providesPopulation * curLevel) + ' Pop Cap';
+    } else if (curBDef.storageBonus) {
+      prodText = Object.entries(curBDef.storageBonus).map(function(e) { return '+' + (e[1] * curLevel) + ' ' + e[0] + ' Cap'; }).join(', ');
+    } else if (curBDef.adjacencyBonus) {
+      prodText = '+20% Adjacent Production';
+    }
 
     inspectorHtml += `
       <div class="p-3.5 rounded-lg bg-[#080b11] border border-[#283347] space-y-3">
         <div class="flex items-start gap-3">
           <span class="text-3xl">${curBDef.icon}</span>
-          <div>
-            <div class="text-sm font-bold text-[#e6edf3]">${curBDef.name} <span class="text-xs font-mono text-emerald-400 font-semibold">(Level ${curLevel})</span></div>
+          <div class="flex-1">
+            <div class="flex items-center justify-between">
+              <div class="text-sm font-bold text-[#e6edf3]">${curBDef.name} <span class="text-xs font-mono text-emerald-400 font-semibold">(Level ${curLevel})</span></div>
+              ${isAdjacentToWindmill ? `<span class="px-1.5 py-0.5 rounded bg-purple-950/60 text-purple-300 border border-purple-500/40 text-[9px] font-mono font-bold">💨 Windmill +20%</span>` : ''}
+            </div>
             <div class="text-[10px] font-mono uppercase text-[#8b949e]">${curBDef.category} • Yield: <span class="text-[#38bdf8]">${prodText}</span></div>
             <p class="text-[11px] text-[#8b949e] mt-1">${curBDef.desc}</p>
           </div>
@@ -682,10 +741,15 @@ export function renderCityBuilderPanel(simHost) {
                 <span class="text-[#38bdf8]">⏱ ${formatSimDuration(upgradeDurMs)}</span>
               </div>
               <div class="text-[10px] font-mono text-[#8b949e]">
-                Cost: ${upgradeCost.wood} Wood • ${upgradeCost.stone} Stone • ${upgradeCost.gold} Gold
+                Cost: ${upgradeCost.wood} Wood • ${upgradeCost.stone} Stone • ${upgradeCost.gold} Gold${upgradeCost.water ? (' • ' + upgradeCost.water + ' Water') : ''}${upgradeCost.ore ? (' • ' + upgradeCost.ore + ' Ore') : ''}
               </div>
-              <button data-action="queue-building" data-plot-index="${selPlot.plotIndex}" data-building-id="${curBId}" onclick="window.WargameApp.handleQueueBuilding(${selPlot.plotIndex}, '${curBId}')" ${!canAfford ? 'disabled' : ''} class="w-full py-1.5 rounded font-bold text-xs uppercase cursor-pointer ${canAfford ? 'bg-amber-400 hover:bg-amber-500 text-slate-900' : 'bg-slate-800 text-slate-500 cursor-not-allowed'}">
-                ▲ Upgrade Structure
+              ${blockedByMeetingHall ? `
+                <div class="text-[10px] font-mono text-amber-400 font-bold bg-amber-950/30 p-1.5 rounded border border-amber-500/30">
+                  ⚠️ Capped by Meeting Hall (Lv ${meetingHallLevel}). Upgrade Meeting Hall first!
+                </div>
+              ` : ''}
+              <button data-action="queue-building" data-plot-index="${selPlot.plotIndex}" data-building-id="${curBId}" onclick="window.WargameApp.handleQueueBuilding(${selPlot.plotIndex}, '${curBId}')" ${(!canAfford || blockedByMeetingHall) ? 'disabled' : ''} class="w-full py-1.5 rounded font-bold text-xs uppercase cursor-pointer ${canAfford && !blockedByMeetingHall ? 'bg-amber-400 hover:bg-amber-500 text-slate-900' : 'bg-slate-800 text-slate-500 cursor-not-allowed'}">
+                ${blockedByMeetingHall ? ('Requires Meeting Hall Lv ' + nextLevel) : '▲ Upgrade Structure'}
               </button>
             </div>
           ` : `
@@ -697,7 +761,7 @@ export function renderCityBuilderPanel(simHost) {
             <button data-action="start-move-mode" data-plot-index="${selPlot.plotIndex}" onclick="window.WargameApp.handleStartMoveMode(${selPlot.plotIndex})" class="py-1.5 px-2 rounded bg-[#1a2232] hover:bg-sky-500/20 text-sky-400 border border-sky-500/40 text-[11px] font-mono font-bold cursor-pointer text-center">
               ↔ Relocate (2.5s)
             </button>
-            ${curBId !== 'town_hall' ? `
+            ${(curBId !== 'town_hall' && curBId !== 'meeting_hall') ? `
               <button data-action="demolish-building" data-plot-index="${selPlot.plotIndex}" onclick="window.WargameApp.handleDemolishBuilding(${selPlot.plotIndex})" class="py-1.5 px-2 rounded bg-[#1a2232] hover:bg-red-500/20 text-red-400 border border-red-500/40 text-[11px] font-mono font-bold cursor-pointer text-center">
                 🔥 Demolish (35%)
               </button>
@@ -730,7 +794,31 @@ export function renderCityBuilderPanel(simHost) {
         </div>
       `;
     } else {
-      const constructibleKeys = Object.keys(CITY_BUILDINGS_CATALOG).filter(function(k) { return k !== 'town_hall'; });
+      let isAdjacentToWindmill = false;
+      if (Array.isArray(plots)) {
+        const nbs = [
+          { x: spX + 1, y: spY },
+          { x: spX - 1, y: spY },
+          { x: spX, y: spY + 1 },
+          { x: spX, y: spY - 1 }
+        ];
+        for (let n = 0; n < nbs.length; n++) {
+          const nb = nbs[n];
+          if (nb.x >= 0 && nb.x < 8 && nb.y >= 0 && nb.y < 8) {
+            const np = plots[nb.y * 8 + nb.x];
+            if (np && np.buildingId === 'windmill' && (np.level || 0) > 0 && !np.underConstruction && !np.demolishing) {
+              isAdjacentToWindmill = true;
+              break;
+            }
+          }
+        }
+      }
+
+      // Hide town_hall / meeting_hall from empty plot catalog (central citadel only) and redundant aliases
+      const constructibleKeys = Object.keys(CITY_BUILDINGS_CATALOG).filter(function(k) {
+        return k !== 'town_hall' && k !== 'meeting_hall' && k !== 'farmstead' && k !== 'sawmill';
+      });
+
       const catalogCards = constructibleKeys.map(function(bId) {
         const bDef = CITY_BUILDINGS_CATALOG[bId];
         const cost = computeBuildingUpgradeCost(bId, 1);
@@ -744,7 +832,16 @@ export function renderCityBuilderPanel(simHost) {
           for (let r = 0; r < rKeys.length; r++) {
             const reqB = rKeys[r];
             const reqLvl = bDef.requires[reqB];
-            const curReqLvl = (city.buildings && city.buildings[reqB]) || 0;
+            let curReqLvl = 0;
+            if (reqB === 'meeting_hall' || reqB === 'town_hall') {
+              curReqLvl = Math.max((city.buildings && city.buildings.meeting_hall) || 0, (city.buildings && city.buildings.town_hall) || 0);
+            } else if (reqB === 'garden' || reqB === 'farmstead') {
+              curReqLvl = Math.max((city.buildings && city.buildings.garden) || 0, (city.buildings && city.buildings.farmstead) || 0);
+            } else if (reqB === 'lumber_hut' || reqB === 'sawmill') {
+              curReqLvl = Math.max((city.buildings && city.buildings.lumber_hut) || 0, (city.buildings && city.buildings.sawmill) || 0);
+            } else {
+              curReqLvl = (city.buildings && city.buildings[reqB]) || 0;
+            }
             if (curReqLvl < reqLvl) {
               reqMet = false;
               const reqDef = CITY_BUILDINGS_CATALOG[reqB];
@@ -754,9 +851,11 @@ export function renderCityBuilderPanel(simHost) {
           }
         }
 
-        const canAfford = (city.stockpile.wood || 0) >= cost.wood &&
-                          (city.stockpile.stone || 0) >= cost.stone &&
-                          (city.stockpile.gold || 0) >= cost.gold;
+        const canAfford = (city.stockpile.wood  || 0) >= (cost.wood  || 0) &&
+                          (city.stockpile.stone || 0) >= (cost.stone || 0) &&
+                          (city.stockpile.gold  || 0) >= (cost.gold  || 0) &&
+                          (city.stockpile.water || 0) >= (cost.water || 0) &&
+                          (city.stockpile.ore   || 0) >= (cost.ore   || 0);
 
         return `
           <div class="p-2.5 rounded bg-[#080b11] border ${reqMet ? 'border-[#283347]' : 'border-slate-800 opacity-60'} flex items-center justify-between gap-2">
@@ -765,7 +864,7 @@ export function renderCityBuilderPanel(simHost) {
               <div class="min-w-0">
                 <div class="text-xs font-bold text-[#e6edf3] truncate">${bDef.name}</div>
                 <div class="text-[10px] font-mono text-[#8b949e]">
-                  ${cost.wood}W • ${cost.stone}S${cost.gold ? (' • ' + cost.gold + 'G') : ''} • ⏱ ${formatSimDuration(durMs)}
+                  ${cost.wood}W • ${cost.stone}S${cost.gold ? (' • ' + cost.gold + 'G') : ''}${cost.water ? (' • ' + cost.water + '💧') : ''}${cost.ore ? (' • ' + cost.ore + '⛏️') : ''} • ⏱ ${formatSimDuration(durMs)}
                 </div>
                 ${!reqMet ? `<div class="text-[9px] font-mono text-red-400 font-semibold">${reqLabel}</div>` : ''}
               </div>
@@ -779,7 +878,10 @@ export function renderCityBuilderPanel(simHost) {
 
       inspectorHtml += `
         <div class="space-y-2">
-          <div class="text-xs font-bold text-[#fbbf24] uppercase tracking-wider">Construct New Facility</div>
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-bold text-[#fbbf24] uppercase tracking-wider">Construct New Facility</span>
+            ${isAdjacentToWindmill ? `<span class="px-2 py-0.5 rounded bg-purple-950/60 text-purple-300 border border-purple-500/40 text-[9px] font-mono font-bold">💨 Windmill +20% Bonus Zone</span>` : ''}
+          </div>
           <div class="space-y-1.5 max-h-[380px] overflow-y-auto pr-1">
             ${catalogCards}
           </div>

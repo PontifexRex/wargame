@@ -382,5 +382,115 @@ export function evaluateWargameSelfTests() {
       : 'Failed 60s hero recruitment queue lifecycle'
   });
 
+  // =========================================================================
+  // Test 6: Tier 1 Buildings, Meeting Hall Level Cap, Water/Ore & Windmill Synergy
+  // =========================================================================
+  const host6 = createWargameSimHost();
+  host6.dispatch({
+    type: COMMAND_TYPES.START_NEW_CAMPAIGN,
+    payload: { houseName: 'House Frontier', seedCode: 'STAR-6006' }
+  });
+  host6.dispatch({
+    type: COMMAND_TYPES.FOUND_CITY,
+    payload: { cityName: 'Aethelgard Haven' }
+  });
+  const city6 = getPrimaryCity(host6.state);
+
+  // 1. Verify Water and Ore initialized in city stockpile
+  const hasWaterAndOre = typeof city6.stockpile.water === 'number' &&
+                         typeof city6.stockpile.ore === 'number' &&
+                         city6.stockpile.water >= 50 &&
+                         city6.stockpile.ore >= 20;
+
+  // 2. Verify Subsistence baseline production (+1 food, wood, stone, gold, water per 5s tick without industry)
+  const waterBeforeTick = city6.stockpile.water;
+  const foodBeforeTick  = city6.stockpile.food;
+  host6.stepClock(5000); // 5s resource production interval
+  const subsistenceYieldGiven = (city6.stockpile.water === waterBeforeTick + 1) &&
+                                (city6.stockpile.food === foodBeforeTick + 1);
+
+  // 3. Test Meeting Hall Level Cap:
+  // Build a Lumberjack Hut on Plot 1 (Level 1)
+  host6.dispatch({
+    type: COMMAND_TYPES.QUEUE_BUILDING,
+    payload: { plotIndex: 1, buildingId: 'lumber_hut' }
+  });
+  host6.stepClock(4000); // Complete Lumberjack Hut
+  const lumberHutLevel1 = city6.plots[1].buildingId === 'lumber_hut' && city6.plots[1].level === 1;
+
+  // Attempt to upgrade Lumberjack Hut to Level 2 while Meeting Hall is Level 1 -> MUST BE REJECTED!
+  const prematureLumberUpgrade = host6.dispatch({
+    type: COMMAND_TYPES.QUEUE_BUILDING,
+    payload: { plotIndex: 1, buildingId: 'lumber_hut' }
+  });
+  const upgradeBlockedByMeetingHall = !prematureLumberUpgrade.ok;
+
+  // Boost stockpile and upgrade Meeting Hall (Plot 27) to Level 2
+  city6.stockpile.wood = 500;
+  city6.stockpile.stone = 500;
+  city6.stockpile.gold = 500;
+  const queueMeetingHallLv2 = host6.dispatch({
+    type: COMMAND_TYPES.QUEUE_BUILDING,
+    payload: { plotIndex: 27, buildingId: 'town_hall' }
+  });
+  host6.stepClock(8000); // Complete Meeting Hall Level 2
+  const meetingHallLevel2 = (city6.buildings.meeting_hall === 2 || city6.buildings.town_hall === 2);
+
+  // Now upgrade Lumberjack Hut to Level 2 -> MUST SUCCEED!
+  const validLumberUpgrade = host6.dispatch({
+    type: COMMAND_TYPES.QUEUE_BUILDING,
+    payload: { plotIndex: 1, buildingId: 'lumber_hut' }
+  });
+  const upgradeAllowedAfterMeetingHall = validLumberUpgrade.ok;
+  host6.stepClock(6000); // Finish upgrading Lumberjack Hut
+
+  // 4. Test Hut Population Scaling & Multi-Building Stacking
+  const popBeforeHuts = city6.plots.reduce(function(acc, p) {
+    return acc + (p.buildingId === 'hut' ? (p.level * 5) : 0);
+  }, 10);
+  // Queue Hut 1 on Plot 2
+  host6.dispatch({ type: COMMAND_TYPES.QUEUE_BUILDING, payload: { plotIndex: 2, buildingId: 'hut' } });
+  host6.stepClock(4000);
+  // Queue Hut 2 on Plot 3 (Multi-building stacking)
+  host6.dispatch({ type: COMMAND_TYPES.QUEUE_BUILDING, payload: { plotIndex: 3, buildingId: 'hut' } });
+  host6.stepClock(4000);
+  const hutPlotsCount = city6.plots.filter(function(p) { return p.buildingId === 'hut' && p.level === 1; }).length;
+  const multiHutVerified = (hutPlotsCount === 2);
+
+  // 5. Test Windmill Spatial Adjacency Synergy (+20% yield to orthogonal neighbors)
+  // Place Garden on Plot 18 (x=2, y=2)
+  host6.dispatch({ type: COMMAND_TYPES.QUEUE_BUILDING, payload: { plotIndex: 18, buildingId: 'garden' } });
+  host6.stepClock(4000);
+
+  // Place Windmill on Plot 26 (x=2, y=3) which is immediately South of Plot 18
+  host6.dispatch({ type: COMMAND_TYPES.QUEUE_BUILDING, payload: { plotIndex: 26, buildingId: 'windmill' } });
+  host6.stepClock(6000);
+
+  // Step clock by 5000ms for a resource tick
+  const foodBeforeSynergyTick = city6.stockpile.food;
+  host6.stepClock(5000);
+  // Expected food gain: +1 subsistence + Garden Lv 1 with Windmill +20% (6 * 1.20 = 7.2 -> 7) = +8
+  const foodGained = city6.stockpile.food - foodBeforeSynergyTick;
+  const windmillSynergyVerified = (foodGained >= 8);
+
+  const t6Pass = Boolean(
+    hasWaterAndOre &&
+    subsistenceYieldGiven &&
+    lumberHutLevel1 &&
+    upgradeBlockedByMeetingHall &&
+    meetingHallLevel2 &&
+    upgradeAllowedAfterMeetingHall &&
+    multiHutVerified &&
+    windmillSynergyVerified
+  );
+
+  results.push({
+    name: '6. Tier 1 Buildings, Meeting Hall Level Cap, Water/Ore & Windmill Synergy',
+    pass: t6Pass,
+    detail: t6Pass
+      ? 'Subsistence yield, Meeting Hall level cap enforcement, Hut population stacking, and 8x8 Windmill adjacency synergy (+20%) verified'
+      : 'Failed Tier 1 building catalog or synergy invariants'
+  });
+
   return results;
 }

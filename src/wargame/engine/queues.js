@@ -4,13 +4,14 @@ import {
   CAMPAIGN_PHASES,
   STREAM_TOPICS,
   RESOURCE_PRODUCTION_INTERVAL_MS,
-  BASE_HERO_RECRUIT_DURATION_MS
+  BASE_HERO_RECRUIT_DURATION_MS,
+  WINDMILL_ADJACENCY_BONUS
 } from '../constants.js';
 import { CITY_BUILDINGS_CATALOG } from '../data/buildings.js';
 import { UNIT_ARCHETYPES, RECRUITABLE_HERO_CLASSES } from '../data/terrain.js';
 import { revealOverworldVision } from './pathfinding.js';
 import { evaluateTaskDAG } from './taskEngine.js';
-import { saveWargameState, getPrimaryCity } from './state.js';
+import { saveWargameState, getPrimaryCity, computeCityStorageCaps } from './state.js';
 
 export function scheduleNextMarchStep(unit, state, scheduler) {
   if (!unit || !unit.marchPlan || !Array.isArray(unit.marchPlan.remainingPath) || unit.marchPlan.remainingPath.length === 0) {
@@ -212,7 +213,19 @@ export function resolveBuildingCompleteJob(job, state, scheduler, eventStream) {
   const targetLvl = p.targetLevel || 1;
 
   if (!city.buildings) city.buildings = {};
-  city.buildings[bId] = targetLvl;
+  city.buildings[bId] = Math.max(city.buildings[bId] || 0, targetLvl);
+
+  if (bId === 'town_hall' || bId === 'meeting_hall') {
+    city.buildings.town_hall = Math.max(city.buildings.town_hall || 0, targetLvl);
+    city.buildings.meeting_hall = Math.max(city.buildings.meeting_hall || 0, targetLvl);
+    city.level = Math.max(city.level || 1, targetLvl);
+  } else if (bId === 'garden' || bId === 'farmstead') {
+    city.buildings.garden = Math.max(city.buildings.garden || 0, targetLvl);
+    city.buildings.farmstead = Math.max(city.buildings.farmstead || 0, targetLvl);
+  } else if (bId === 'lumber_hut' || bId === 'sawmill') {
+    city.buildings.lumber_hut = Math.max(city.buildings.lumber_hut || 0, targetLvl);
+    city.buildings.sawmill = Math.max(city.buildings.sawmill || 0, targetLvl);
+  }
 
   const plot = (city.plots || []).find(function(pl) { return pl.plotIndex === p.plotIndex; });
   if (plot) {
@@ -270,18 +283,34 @@ export function resolveBuildingDemolishJob(job, state, scheduler, eventStream) {
 
   if (isDeliberate) {
     // Deliberate demolition: credit salvage materials
-    const salvage = p.salvage || { wood: 0, stone: 0, gold: 0 };
+    const salvage = p.salvage || { wood: 0, stone: 0, gold: 0, water: 0, ore: 0 };
     city.stockpile.wood  = (city.stockpile.wood  || 0) + (salvage.wood  || 0);
     city.stockpile.stone = (city.stockpile.stone || 0) + (salvage.stone || 0);
     city.stockpile.gold  = (city.stockpile.gold  || 0) + (salvage.gold  || 0);
+    if (salvage.water) city.stockpile.water = (city.stockpile.water || 0) + salvage.water;
+    if (salvage.ore)   city.stockpile.ore   = (city.stockpile.ore   || 0) + salvage.ore;
 
-    // Clear building from city catalog
-    if (city.buildings && bId) {
-      delete city.buildings[bId];
-    }
     if (plot) {
       plot.buildingId = null;
       plot.level = 0;
+    }
+
+    // Recompute highest level for buildingId across remaining plots
+    let highestLvl = 0;
+    for (let pIdx = 0; pIdx < (city.plots || []).length; pIdx++) {
+      const pl = city.plots[pIdx];
+      if (pl.buildingId === bId) {
+        highestLvl = Math.max(highestLvl, pl.level || 0);
+      }
+    }
+    if (highestLvl > 0) {
+      if (city.buildings) city.buildings[bId] = highestLvl;
+    } else if (city.buildings) {
+      delete city.buildings[bId];
+      if (bId === 'sawmill') delete city.buildings.lumber_hut;
+      if (bId === 'lumber_hut') delete city.buildings.sawmill;
+      if (bId === 'farmstead') delete city.buildings.garden;
+      if (bId === 'garden') delete city.buildings.farmstead;
     }
   } else {
     // Site cleanup after cancelled construction
@@ -528,29 +557,83 @@ export function processResourceProductionTick(state, eventStream) {
 
   for (let i = 0; i < cityIds.length; i++) {
     const city = state.world.cities[cityIds[i]];
-    if (!city || !city.buildings || !city.stockpile) continue;
+    if (!city || !city.stockpile) continue;
 
-    const gains = { wood: 0, stone: 0, food: 0, gold: 0 };
-    const bKeys = Object.keys(city.buildings);
-    for (let k = 0; k < bKeys.length; k++) {
-      const bId = bKeys[k];
-      const lvl = city.buildings[bId] || 0;
-      if (lvl <= 0) continue;
-      const bDef = CITY_BUILDINGS_CATALOG[bId];
-      if (bDef && bDef.productionPerTick) {
-        if (bDef.productionPerTick.wood)  gains.wood  += bDef.productionPerTick.wood * lvl;
-        if (bDef.productionPerTick.stone) gains.stone += bDef.productionPerTick.stone * lvl;
-        if (bDef.productionPerTick.food)  gains.food  += bDef.productionPerTick.food * lvl;
-        if (bDef.productionPerTick.gold)  gains.gold  += bDef.productionPerTick.gold * lvl;
+    // Subsistence token production: Every city produces +1 food, wood, stone, gold, water baseline per tick
+    const gains = { wood: 1, stone: 1, food: 1, gold: 1, water: 1, ore: 0 };
+
+    if (Array.isArray(city.plots) && city.plots.length > 0) {
+      // Spatial plot-based production with adjacency bonuses
+      for (let p = 0; p < city.plots.length; p++) {
+        const plot = city.plots[p];
+        const bId = plot.buildingId;
+        const lvl = plot.level || 0;
+        if (!bId || lvl <= 0 || plot.underConstruction || plot.demolishing || plot.relocating) continue;
+
+        // Skip meeting_hall / town_hall here because token baseline is already accounted for
+        if (bId === 'meeting_hall' || bId === 'town_hall') continue;
+
+        const bDef = CITY_BUILDINGS_CATALOG[bId];
+        if (!bDef || !bDef.productionPerTick) continue;
+
+        // Check for adjacent active Windmills on the 8x8 grid
+        let windmillCount = 0;
+        const px = plot.x !== undefined ? plot.x : (plot.plotIndex % 8);
+        const py = plot.y !== undefined ? plot.y : Math.floor(plot.plotIndex / 8);
+        const neighbors = [
+          { x: px + 1, y: py },
+          { x: px - 1, y: py },
+          { x: px, y: py + 1 },
+          { x: px, y: py - 1 }
+        ];
+        for (let n = 0; n < neighbors.length; n++) {
+          const nb = neighbors[n];
+          if (nb.x >= 0 && nb.x < 8 && nb.y >= 0 && nb.y < 8) {
+            const nPlot = city.plots[nb.y * 8 + nb.x];
+            if (nPlot && nPlot.buildingId === 'windmill' && (nPlot.level || 0) > 0 && !nPlot.underConstruction && !nPlot.demolishing) {
+              windmillCount++;
+            }
+          }
+        }
+
+        const mult = 1.0 + (windmillCount * (WINDMILL_ADJACENCY_BONUS || 0.20));
+        const prod = bDef.productionPerTick;
+        if (prod.wood)  gains.wood  += Math.round(prod.wood  * lvl * mult);
+        if (prod.stone) gains.stone += Math.round(prod.stone * lvl * mult);
+        if (prod.food)  gains.food  += Math.round(prod.food  * lvl * mult);
+        if (prod.gold)  gains.gold  += Math.round(prod.gold  * lvl * mult);
+        if (prod.water) gains.water += Math.round(prod.water * lvl * mult);
+        if (prod.ore)   gains.ore   += Math.round(prod.ore   * lvl * mult);
+      }
+    } else if (city.buildings) {
+      // Fallback for legacy state
+      const bKeys = Object.keys(city.buildings);
+      for (let k = 0; k < bKeys.length; k++) {
+        const bId = bKeys[k];
+        if (bId === 'town_hall' || bId === 'meeting_hall') continue;
+        const lvl = city.buildings[bId] || 0;
+        if (lvl <= 0) continue;
+        const bDef = CITY_BUILDINGS_CATALOG[bId];
+        if (bDef && bDef.productionPerTick) {
+          if (bDef.productionPerTick.wood)  gains.wood  += bDef.productionPerTick.wood * lvl;
+          if (bDef.productionPerTick.stone) gains.stone += bDef.productionPerTick.stone * lvl;
+          if (bDef.productionPerTick.food)  gains.food  += bDef.productionPerTick.food * lvl;
+          if (bDef.productionPerTick.gold)  gains.gold  += bDef.productionPerTick.gold * lvl;
+          if (bDef.productionPerTick.water) gains.water += bDef.productionPerTick.water * lvl;
+          if (bDef.productionPerTick.ore)   gains.ore   += bDef.productionPerTick.ore * lvl;
+        }
       }
     }
 
-    city.stockpile.wood  = (city.stockpile.wood  || 0) + gains.wood;
-    city.stockpile.stone = (city.stockpile.stone || 0) + gains.stone;
-    city.stockpile.food  = (city.stockpile.food  || 0) + gains.food;
-    city.stockpile.gold  = (city.stockpile.gold  || 0) + gains.gold;
+    const caps = computeCityStorageCaps(city);
+    city.stockpile.wood  = Math.min(caps.wood  || 200, (city.stockpile.wood  || 0) + gains.wood);
+    city.stockpile.stone = Math.min(caps.stone || 200, (city.stockpile.stone || 0) + gains.stone);
+    city.stockpile.food  = Math.min(caps.food  || 200, (city.stockpile.food  || 0) + gains.food);
+    city.stockpile.gold  = Math.min(caps.gold  || 300, (city.stockpile.gold  || 0) + gains.gold);
+    city.stockpile.water = Math.min(caps.water || 200, (city.stockpile.water || 0) + gains.water);
+    city.stockpile.ore   = Math.min(caps.ore   || 100, (city.stockpile.ore   || 0) + gains.ore);
 
-    if (eventStream && (gains.wood > 0 || gains.stone > 0 || gains.food > 0 || gains.gold > 0)) {
+    if (eventStream && (gains.wood > 0 || gains.stone > 0 || gains.food > 0 || gains.gold > 0 || gains.water > 0 || gains.ore > 0)) {
       eventStream.publish(STREAM_TOPICS.RESOURCE_TICK, {
         cityId: city.id,
         cityName: city.name,
@@ -559,7 +642,9 @@ export function processResourceProductionTick(state, eventStream) {
           wood: city.stockpile.wood,
           stone: city.stockpile.stone,
           food: city.stockpile.food,
-          gold: city.stockpile.gold
+          gold: city.stockpile.gold,
+          water: city.stockpile.water,
+          ore: city.stockpile.ore
         }
       }, state.world.clock.simTimeMs);
     }

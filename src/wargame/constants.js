@@ -41,6 +41,19 @@ export const CITY_TOTAL_PLOTS = 64;
 export const CITY_CENTER_PLOT_INDEX = 27; // Center plot at (3, 3) where starter Bastion Keep / Hut is founded
 export const BASE_MOVE_BUILDING_DURATION_MS = 2500; // 2.5s base duration to relocate a structure to an empty plot
 
+// Base Resource Storage Limits & Population Capacities
+export const DEFAULT_STORAGE_CAPS = {
+  food:  200,
+  wood:  200,
+  stone: 200,
+  ore:   100,
+  water: 200,
+  gold:  300
+};
+export const BASE_POPULATION_CAP = 10;
+export const HUT_POPULATION_PER_LEVEL = 5;
+export const WINDMILL_ADJACENCY_BONUS = 0.20;
+
 // Structured Streaming Event Topics
 export const STREAM_TOPICS = {
   CAMPAIGN_STARTED:     'campaign.started',

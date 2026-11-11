@@ -265,11 +265,14 @@ export function dispatchWargameCommand(commandEnvelope, state, scheduler, eventS
         wood:  (baseStock.wood  || 0) + 40,
         stone: (baseStock.stone || 0) + 40,
         food:  (baseStock.food  || 0) + 50,
-        gold:  (baseStock.gold  || 0) + 25
+        gold:  (baseStock.gold  || 0) + 25,
+        water: (baseStock.water || 0) + 30,
+        ore:   (baseStock.ore   || 0) + 15
       },
-      // IMPORTANT: Only town_hall starts at level 1! Adventurers Guild Hall must be built in the real-time queue!
+      // IMPORTANT: Only town_hall / meeting_hall starts at level 1!
       buildings: {
-        town_hall: 1
+        town_hall: 1,
+        meeting_hall: 1
       },
       plots: createDefaultCityPlots(),
       selectedPlotIndex: CITY_CENTER_PLOT_INDEX !== undefined ? CITY_CENTER_PLOT_INDEX : 27,
@@ -398,7 +401,26 @@ export function dispatchWargameCommand(commandEnvelope, state, scheduler, eventS
       for (let i = 0; i < reqKeys.length; i++) {
         const reqB = reqKeys[i];
         const reqLvl = bDef.requires[reqB];
-        const curReqLvl = (city.buildings && city.buildings[reqB]) || 0;
+        let curReqLvl = 0;
+        if (reqB === 'meeting_hall' || reqB === 'town_hall') {
+          curReqLvl = Math.max(
+            (city.buildings && city.buildings.meeting_hall) || 0,
+            (city.buildings && city.buildings.town_hall) || 0
+          );
+        } else if (reqB === 'garden' || reqB === 'farmstead') {
+          curReqLvl = Math.max(
+            (city.buildings && city.buildings.garden) || 0,
+            (city.buildings && city.buildings.farmstead) || 0
+          );
+        } else if (reqB === 'lumber_hut' || reqB === 'sawmill') {
+          curReqLvl = Math.max(
+            (city.buildings && city.buildings.lumber_hut) || 0,
+            (city.buildings && city.buildings.sawmill) || 0
+          );
+        } else {
+          curReqLvl = (city.buildings && city.buildings[reqB]) || 0;
+        }
+
         if (curReqLvl < reqLvl) {
           const reqDef = CITY_BUILDINGS_CATALOG[reqB];
           return reject('Requires ' + (reqDef ? reqDef.name : reqB) + ' Level ' + reqLvl);
@@ -412,17 +434,34 @@ export function dispatchWargameCommand(commandEnvelope, state, scheduler, eventS
       return reject(bDef.name + ' has reached maximum level');
     }
 
+    // Meeting Hall Rule: No building in the city can exceed the level of the Meeting Hall
+    if (buildingId !== 'meeting_hall' && buildingId !== 'town_hall') {
+      const meetingHallLevel = Math.max(
+        (city.buildings && city.buildings.meeting_hall) || 0,
+        (city.buildings && city.buildings.town_hall) || 0,
+        1
+      );
+      if (targetLevel > meetingHallLevel) {
+        return reject('Cannot exceed Meeting Hall level (' + meetingHallLevel + ')');
+      }
+    }
+
     const cost = computeBuildingUpgradeCost(buildingId, targetLevel);
-    if ((city.stockpile.wood || 0) < cost.wood ||
-        (city.stockpile.stone || 0) < cost.stone ||
-        (city.stockpile.gold || 0) < cost.gold) {
+    const stock = city.stockpile;
+    if ((stock.wood  || 0) < (cost.wood  || 0) ||
+        (stock.stone || 0) < (cost.stone || 0) ||
+        (stock.gold  || 0) < (cost.gold  || 0) ||
+        (stock.water || 0) < (cost.water || 0) ||
+        (stock.ore   || 0) < (cost.ore   || 0)) {
       return reject('Insufficient city stockpiles (Need ' + cost.wood + ' Wood, ' + cost.stone + ' Stone, ' + cost.gold + ' Gold)');
     }
 
     // Deduct construction cost upfront
-    city.stockpile.wood  -= cost.wood;
-    city.stockpile.stone -= cost.stone;
-    city.stockpile.gold  -= cost.gold;
+    stock.wood  = (stock.wood  || 0) - (cost.wood  || 0);
+    stock.stone = (stock.stone || 0) - (cost.stone || 0);
+    stock.gold  = (stock.gold  || 0) - (cost.gold  || 0);
+    if (cost.water) stock.water = (stock.water || 0) - cost.water;
+    if (cost.ore)   stock.ore   = (stock.ore   || 0) - cost.ore;
 
     const durationMs = computeBuildingDurationMs(buildingId, targetLevel);
     const queueItem = {
@@ -572,6 +611,8 @@ export function dispatchWargameCommand(commandEnvelope, state, scheduler, eventS
         city.stockpile.wood  = (city.stockpile.wood  || 0) + (targetItem.cost.wood  || 0);
         city.stockpile.stone = (city.stockpile.stone || 0) + (targetItem.cost.stone || 0);
         city.stockpile.gold  = (city.stockpile.gold  || 0) + (targetItem.cost.gold  || 0);
+        if (targetItem.cost.water) city.stockpile.water = (city.stockpile.water || 0) + targetItem.cost.water;
+        if (targetItem.cost.ore)   city.stockpile.ore   = (city.stockpile.ore   || 0) + targetItem.cost.ore;
       }
       const plot = (city.plots || []).find(function(p) { return p.plotIndex === targetItem.plotIndex; });
       if (plot) {
@@ -603,6 +644,8 @@ export function dispatchWargameCommand(commandEnvelope, state, scheduler, eventS
       city.stockpile.wood  = (city.stockpile.wood  || 0) + Math.floor((targetItem.cost.wood  || 0) * unspentRatio);
       city.stockpile.stone = (city.stockpile.stone || 0) + Math.floor((targetItem.cost.stone || 0) * unspentRatio);
       city.stockpile.gold  = (city.stockpile.gold  || 0) + Math.floor((targetItem.cost.gold  || 0) * unspentRatio);
+      if (targetItem.cost.water) city.stockpile.water = (city.stockpile.water || 0) + Math.floor(targetItem.cost.water * unspentRatio);
+      if (targetItem.cost.ore)   city.stockpile.ore   = (city.stockpile.ore   || 0) + Math.floor(targetItem.cost.ore * unspentRatio);
     }
 
     // Replace the active queue item with a cleanup job taking 50% of already spent time (min 1000ms)
@@ -651,8 +694,8 @@ export function dispatchWargameCommand(commandEnvelope, state, scheduler, eventS
       return reject('No established building to demolish on this plot');
     }
 
-    if (plot.buildingId === 'town_hall') {
-      return reject('The Bastion Town Hall cannot be demolished');
+    if (plot.buildingId === 'town_hall' || plot.buildingId === 'meeting_hall') {
+      return reject('The Meeting Hall cannot be demolished');
     }
 
     if (plot.underConstruction || plot.demolishing) {
@@ -671,9 +714,11 @@ export function dispatchWargameCommand(commandEnvelope, state, scheduler, eventS
 
     const demolishDur = Math.max(2000, Math.floor(baseDur * (CANCEL_CLEANUP_TIME_RATIO || 0.50)));
     const salvage = {
-      wood: Math.floor((cost.wood || 0) * (DEMOLISH_SALVAGE_RATIO || 0.35)),
+      wood:  Math.floor((cost.wood  || 0) * (DEMOLISH_SALVAGE_RATIO || 0.35)),
       stone: Math.floor((cost.stone || 0) * (DEMOLISH_SALVAGE_RATIO || 0.35)),
-      gold: Math.floor((cost.gold || 0) * (DEMOLISH_SALVAGE_RATIO || 0.35))
+      gold:  Math.floor((cost.gold  || 0) * (DEMOLISH_SALVAGE_RATIO || 0.35)),
+      water: Math.floor((cost.water || 0) * (DEMOLISH_SALVAGE_RATIO || 0.35)),
+      ore:   Math.floor((cost.ore   || 0) * (DEMOLISH_SALVAGE_RATIO || 0.35))
     };
 
     const queueItem = {

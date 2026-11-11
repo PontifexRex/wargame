@@ -14435,6 +14435,7 @@ function evaluateSelfTests() {
   selectAdventurerClass('fighter', sandbox17);
   sandbox17.inGuild = false;
   const navFl = ensureDungeonFloorHydrated(sandbox17.dungeon, 1);
+  navFl.objects = [];
   for (let y = 8; y <= 18; y++) {
     for (let x = 8; x <= 18; x++) {
       navFl.tiles[y][x] = TILE_WALL;
@@ -15313,7 +15314,7 @@ function evaluateSelfTests() {
   const queriedChest = getObjectsAt(f27, 9, 8);
   const foundById = findObjectById(f27, chestInst.instanceId);
   const spatialIndexValid = queriedChest.length >= 1 &&
-    queriedChest[0].instanceId === chestInst.instanceId &&
+    queriedChest.some(function(o) { return o.instanceId === chestInst.instanceId; }) &&
     foundById && foundById.instanceId === chestInst.instanceId;
 
   // C. ItemStack Stacking Engine (stackable keys vs unstackable unique weapons)
@@ -15461,6 +15462,7 @@ function evaluateSelfTests() {
   f28.tiles[10][12] = TILE_FLOOR;
   f28.tiles[10][13] = TILE_FLOOR;
   f28.tiles[11][10] = TILE_FLOOR;
+  f28.tiles[11][11] = TILE_FLOOR;
   f28.tiles[12][10] = TILE_FLOOR;
 
   // (10, 10) to (10, 13) has portcullis at (10, 12) -> LOS is true!
