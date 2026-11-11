@@ -1,18 +1,18 @@
-# Zero-Dependency Local ES6 Development Server (PowerShell TcpListener)
-# Serves Aethelgard over http://127.0.0.1:8080 so native ES6 <script type="module"> runs directly from src/.
-
-param (
+param(
     [int]$Port = 8080
 )
 
+$ErrorActionPreference = "Stop"
 $root = [System.IO.Path]::GetFullPath("$PSScriptRoot\..")
 $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, $Port)
 $listener.Start()
 
 Write-Host "=== Aethelgard Local Dev Server ===" -ForegroundColor Cyan
 Write-Host "Serving native ES6 modules from: $root" -ForegroundColor Gray
-Write-Host "Open in browser: http://localhost:$Port/" -ForegroundColor Green
-Write-Host "Press Ctrl+C to stop." -ForegroundColor Yellow
+Write-Host "Open in browser:" -ForegroundColor Cyan
+Write-Host "  ★ Start Screen & World Map: http://localhost:$Port/ (or http://localhost:$Port/wargame.html)" -ForegroundColor Green
+Write-Host "  ★ Tactical Dungeon Vaults: http://localhost:$Port/index.html" -ForegroundColor Yellow
+Write-Host "Press Ctrl+C to stop." -ForegroundColor Gray
 
 $mimeMap = @{
     '.html' = 'text/html; charset=utf-8'
@@ -39,7 +39,7 @@ try {
                 }
                 $parts = $reqLine -split ' '
                 $urlPath = ($parts[1] -split '\?')[0]
-                if ($urlPath -eq '/') { $urlPath = '/index.html' }
+                if ($urlPath -eq '/') { $urlPath = '/wargame.html' }
                 $relPath = [System.Uri]::UnescapeDataString($urlPath.TrimStart('/')) -replace '/', '\'
                 $fullPath = [System.IO.Path]::GetFullPath((Join-Path $root $relPath))
 
