@@ -43,7 +43,8 @@ import {
   activateAstralShrine,
   resolveTrapInteraction,
   extractToGuild,
-  handleHeroDefeat
+  handleHeroDefeat,
+  pickupGroundObjectsAt
 } from './actions.js';
 
 export { applyStatusEffect };
@@ -1293,6 +1294,7 @@ export function handlePlayerAction(dx, dy, state = gameState) {
   if (targetTile !== TILE_WALL) {
     state.hero.x = nx;
     state.hero.y = ny;
+    pickupGroundObjectsAt(nx, ny, state);
     detectNearbyTraps(floor, state);
     processTurn(state);
   } else if (state === gameState) {

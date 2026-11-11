@@ -25,8 +25,30 @@ import {
   resetOrAbandonDungeon,
   equipItem,
   unequipItem,
-  dropItem
+  dropItem,
+  pickupGroundObjectsAt
 } from './engine/actions.js';
+import {
+  OBJECT_DEFINITIONS,
+  getObjectDefinition,
+  registerObjectDefinition
+} from './data/definitions.js';
+import {
+  createWorldObjectInstance,
+  createItemInstance,
+  createWorldItemPickupInstance,
+  getObjectsAt,
+  addWorldObject,
+  removeWorldObject,
+  canItemsStack,
+  mergeItemStacks,
+  splitItemStack
+} from './engine/objects.js';
+import {
+  createInteractionRequest,
+  executeInteraction,
+  evaluateRequirement
+} from './engine/interactions.js';
 import {
   registerCombatFOVCallback,
   handlePlayerAction,
@@ -218,6 +240,21 @@ export const AethelgardAPI = {
   equipItem,
   unequipItem,
   dropItem,
+  pickupGroundObjectsAt,
+  createWorldObjectInstance,
+  createItemInstance,
+  createWorldItemPickupInstance,
+  getObjectsAt,
+  addWorldObject,
+  removeWorldObject,
+  canItemsStack,
+  mergeItemStacks,
+  splitItemStack,
+  createInteractionRequest,
+  executeInteraction,
+  evaluateRequirement,
+  getObjectDefinition,
+  registerObjectDefinition,
   autoEquipBestGear,
   toggleItemLock,
   purchaseResearchRank,

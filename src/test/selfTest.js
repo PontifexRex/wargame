@@ -73,8 +73,35 @@ import {
   equipItem,
   unequipItem,
   dropItem,
+  pickupGroundObjectsAt,
   sellArmoryItem
 } from '../engine/actions.js';
+import {
+  OBJECT_DEFINITIONS,
+  getObjectDefinition,
+  hasObjectDefinition,
+  OBJECT_CATEGORIES,
+  WORLD_OBJECT_TYPES
+} from '../data/definitions.js';
+import {
+  createWorldObjectInstance,
+  createItemInstance,
+  createWorldItemPickupInstance,
+  ensureFloorObjects,
+  getObjectsAt,
+  findObjectById,
+  addWorldObject,
+  removeWorldObject,
+  canItemsStack,
+  mergeItemStacks,
+  splitItemStack,
+  hydrateLegacyFloorObjects
+} from '../engine/objects.js';
+import {
+  createInteractionRequest,
+  executeInteraction,
+  evaluateRequirement
+} from '../engine/interactions.js';
 import {
   executeClassSkill,
   getSkillTargetingInfo,
@@ -1378,6 +1405,140 @@ export function evaluateSelfTests() {
       : `Failed checks: ${failedKeys26.join(', ')}`
   });
 
+  // 27. Foundational Game Object Model, Interaction Pipeline & Ground Pickups
+  const sandbox27 = createDefaultGameState();
+  selectAdventurerClass('fighter', sandbox27);
+  sandbox27.inGuild = false;
+  const f27 = ensureDungeonFloorHydrated(sandbox27.dungeon, 1);
+  sandbox27.hero.x = 8;
+  sandbox27.hero.y = 8;
+
+  // A. Definition vs Instance Separation & Stable IDs
+  const hasKeyDef = hasObjectDefinition('key_iron_common');
+  const hasChestDef = hasObjectDefinition('container_vault_chest');
+  const chestInst = createWorldObjectInstance('container_vault_chest', { x: 9, y: 8 });
+  const chestInstValid = chestInst.instanceId &&
+    chestInst.definitionId === 'container_vault_chest' &&
+    chestInst.objectType === 'container' &&
+    chestInst.revision === 1 &&
+    chestInst.runtimeState &&
+    chestInst.runtimeState.mechanical === 'closed';
+
+  // B. Spatial Floor Object Index (add, query, find, remove)
+  ensureFloorObjects(f27);
+  addWorldObject(f27, chestInst);
+  const queriedChest = getObjectsAt(f27, 9, 8);
+  const foundById = findObjectById(f27, chestInst.instanceId);
+  const spatialIndexValid = queriedChest.length >= 1 &&
+    queriedChest[0].instanceId === chestInst.instanceId &&
+    foundById && foundById.instanceId === chestInst.instanceId;
+
+  // C. ItemStack Stacking Engine (stackable keys vs unstackable unique weapons)
+  const key1 = createItemInstance('key_iron_common', { quantity: 2 });
+  const key2 = createItemInstance('key_iron_common', { quantity: 3 });
+  const sword1 = createItemInstance({ id: 'broadsword', name: 'Broadsword', slot: 'weapon', atk: 8, affixes: ['sharp'] });
+  const sword2 = createItemInstance({ id: 'broadsword', name: 'Broadsword', slot: 'weapon', atk: 8, affixes: ['heavy'] });
+
+  const keysCanStack = canItemsStack(key1, key2);
+  const swordsCannotStack = !canItemsStack(sword1, sword2);
+  const mergedAmount = mergeItemStacks(key1, key2, 10);
+  const keysMergedValid = keysCanStack && swordsCannotStack && mergedAmount === 3 && key1.quantity === 5 && key2.quantity === 0;
+
+  const splitKey = splitItemStack(key1, 2);
+  const keysSplitValid = splitKey && splitKey.quantity === 2 && key1.quantity === 3;
+
+  // D. Unified Interaction Pipeline (Requirements, Costs & State Transitions)
+  const lockedChest = createWorldObjectInstance('container_vault_chest', {
+    x: 8,
+    y: 9,
+    runtimeState: { mechanical: 'closed', security: 'locked' },
+    components: {
+      interactable: {
+        actions: {
+          unlock_and_open: {
+            id: 'unlock_and_open',
+            requirements: { type: 'hasItemTag', tag: 'key.common_iron' },
+            costs: { consumeItemTag: 'key.common_iron' },
+            effects: [
+              { type: 'changeState', axis: 'security', value: 'unlocked' },
+              { type: 'changeState', axis: 'mechanical', value: 'open' }
+            ]
+          }
+        }
+      }
+    }
+  });
+  addWorldObject(f27, lockedChest);
+
+  // Attempt interaction without key -> fails requirements
+  sandbox27.hero.expeditionPack = [];
+  const reqNoKey = createInteractionRequest('hero', lockedChest.instanceId, 'unlock_and_open');
+  const resNoKey = executeInteraction(reqNoKey, sandbox27);
+  const requirementBlocked = !resNoKey.ok && lockedChest.revision === 1 && lockedChest.runtimeState.security === 'locked';
+
+  // Give hero the key -> passes requirements, deducts cost, updates state & bumps revision
+  sandbox27.hero.expeditionPack = [key1];
+  const prevKeyQty = key1.quantity;
+  const resWithKey = executeInteraction(reqNoKey, sandbox27);
+  const interactionSuccess = resWithKey.ok &&
+    lockedChest.revision === 2 &&
+    lockedChest.runtimeState.security === 'unlocked' &&
+    lockedChest.runtimeState.mechanical === 'open' &&
+    key1.quantity === prevKeyQty - 1;
+
+  // E. Physical World Item Pickups (drop in dungeon & pickup from floor)
+  const testArmor = { uid: 'test_drop_armor', name: 'Stalwart Breastplate', slot: 'armor', rarity: 'rare', def: 12 };
+  sandbox27.hero.expeditionGear = [testArmor];
+  const dropRes = dropItem('test_drop_armor', true, sandbox27);
+  const pickupOnFloor = getObjectsAt(f27, sandbox27.hero.x, sandbox27.hero.y, o => o.objectType === 'pickup');
+  const dropCreatedPickup = dropRes.ok &&
+    pickupOnFloor.length === 1 &&
+    pickupOnFloor[0].components.pickup &&
+    pickupOnFloor[0].components.pickup.item.name === 'Stalwart Breastplate';
+
+  const pickupCount = pickupGroundObjectsAt(sandbox27.hero.x, sandbox27.hero.y, sandbox27);
+  const pickupResolved = pickupCount === 1 &&
+    sandbox27.hero.expeditionGear.some(g => g.name === 'Stalwart Breastplate') &&
+    getObjectsAt(f27, sandbox27.hero.x, sandbox27.hero.y, o => o.objectType === 'pickup').length === 0;
+
+  // F. Backward-Compatible Legacy Floor Object Auto-Migration
+  const mockLegacyFloor = {
+    width: 20,
+    height: 20,
+    tiles: [
+      [TILE_WALL, TILE_FLOOR],
+      [TILE_CHEST, TILE_SHRINE]
+    ],
+    objects: []
+  };
+  const hydratedObjs = hydrateLegacyFloorObjects(mockLegacyFloor);
+  const legacyMigrated = hydratedObjs.length === 2 &&
+    hydratedObjs.some(o => o.objectType === 'container' && o.x === 0 && o.y === 1) &&
+    hydratedObjs.some(o => o.objectType === 'device' && o.x === 1 && o.y === 1);
+
+  const t27Checks = {
+    hasKeyDef: !!hasKeyDef,
+    hasChestDef: !!hasChestDef,
+    chestInstValid: !!chestInstValid,
+    spatialIndexValid: !!spatialIndexValid,
+    keysMergedValid: !!keysMergedValid,
+    keysSplitValid: !!keysSplitValid,
+    requirementBlocked: !!requirementBlocked,
+    interactionSuccess: !!interactionSuccess,
+    dropCreatedPickup: !!dropCreatedPickup,
+    pickupResolved: !!pickupResolved,
+    legacyMigrated: !!legacyMigrated
+  };
+  const failedKeys27 = Object.keys(t27Checks).filter(k => !t27Checks[k]);
+  const t27Pass = failedKeys27.length === 0;
+  results.push({
+    name: '27. Foundational Game Object Model, Interaction Pipeline & Ground Pickups',
+    pass: t27Pass,
+    detail: failedKeys27.length === 0
+      ? 'ObjectDefinition & RuntimeObject contracts verified, spatial floor index verified, ItemStack stacking engine verified, requirement & cost interaction pipeline verified, physical ground pickups verified, legacy floor hydration verified'
+      : `Failed checks: ${failedKeys27.join(', ')}`
+  });
+
   return results;
 }
 
@@ -1388,7 +1549,7 @@ export function runSelfTests(renderModal = false) {
   if (typeof document !== 'undefined') {
     const btnText = document.getElementById('verifyBtnText');
     if (btnText) {
-      btnText.textContent = `Verify Inc-7.2 (${passCount}/${results.length} PASS)`;
+      btnText.textContent = `Verify Inc-8.0 (${passCount}/${results.length} PASS)`;
     }
 
     if (renderModal) {

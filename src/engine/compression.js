@@ -117,6 +117,7 @@ export function packFloorForStorage(floor) {
     shrines: floor.shrines || {},
     traps: floor.traps || {},
     vaults: floor.vaults || [],
+    objects: Array.isArray(floor.objects) ? floor.objects : [],
     monsters: Array.isArray(floor.monsters) ? floor.monsters : [],
     oresMined: floor.oresMined || 0,
     tilesRle: encodeGridToRle(floor.tiles, w, h, false),
@@ -135,6 +136,7 @@ export function hydrateFloorFromStorage(rawFloor) {
     rawFloor.shrines = rawFloor.shrines || {};
     rawFloor.traps = rawFloor.traps || {};
     rawFloor.vaults = rawFloor.vaults || [];
+    rawFloor.objects = Array.isArray(rawFloor.objects) ? rawFloor.objects : [];
     if (rawFloor.hasDownStairs === undefined) rawFloor.hasDownStairs = true;
     return rawFloor;
   }
@@ -155,6 +157,7 @@ export function hydrateFloorFromStorage(rawFloor) {
     shrines: rawFloor.shrines || {},
     traps: rawFloor.traps || {},
     vaults: rawFloor.vaults || [],
+    objects: Array.isArray(rawFloor.objects) ? rawFloor.objects : [],
     monsters: Array.isArray(rawFloor.monsters) ? rawFloor.monsters : [],
     oresMined: rawFloor.oresMined || 0
   };

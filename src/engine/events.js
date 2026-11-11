@@ -14,7 +14,11 @@ export const ENGINE_EVENTS = {
   SHRINE_ACTIVATED: 'shrineActivated',
   TRAP_RESOLVED:    'trapResolved',
   EXTRACTED:        'extracted',
-  HERO_DEFEATED:    'heroDefeated'
+  HERO_DEFEATED:    'heroDefeated',
+  OBJECT_INTERACTION:  'objectInteraction',
+  OBJECT_STATE_CHANGED:'objectStateChanged',
+  ITEM_PICKED_UP:      'itemPickedUp',
+  ITEM_DROPPED:        'itemDropped'
 };
 
 const eventListenersMap = {};

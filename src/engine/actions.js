@@ -38,6 +38,14 @@ import {
 import { generateProceduralEquipment, rollSocketCountForRarity } from './procedural.js';
 import { playSound } from './audio.js';
 import { ENGINE_EVENTS, onEngineEvent, offEngineEvent, emitEngineEvent } from './events.js';
+import {
+  createWorldItemPickupInstance,
+  addWorldObject,
+  removeWorldObject,
+  getObjectsAt,
+  canItemsStack,
+  mergeItemStacks
+} from './objects.js';
 
 const actionCallbacks = {
   log: (msg, tone) => emitEngineEvent(ENGINE_EVENTS.LOG, { msg, tone }, gameState),
@@ -1392,42 +1400,123 @@ export function dropItem(uidOrId, isGear = true, state = gameState) {
   }
 
   const h = state.hero;
-  let droppedName = '';
+  let droppedItem = null;
 
   if (isGear) {
     if (Array.isArray(h.expeditionGear)) {
-      const idx = h.expeditionGear.findIndex(g => g && g.uid === uidOrId);
+      const idx = h.expeditionGear.findIndex(g => g && (g.uid === uidOrId || g.instanceId === uidOrId));
       if (idx !== -1) {
-        droppedName = h.expeditionGear[idx].name;
-        h.expeditionGear.splice(idx, 1);
+        droppedItem = h.expeditionGear.splice(idx, 1)[0];
       }
     }
-    if (!droppedName && state.guildVault && Array.isArray(state.guildVault.armory)) {
-      const aIdx = state.guildVault.armory.findIndex(g => g && g.uid === uidOrId);
+    if (!droppedItem && state.guildVault && Array.isArray(state.guildVault.armory)) {
+      const aIdx = state.guildVault.armory.findIndex(g => g && (g.uid === uidOrId || g.instanceId === uidOrId));
       if (aIdx !== -1) {
-        droppedName = state.guildVault.armory[aIdx].name;
-        state.guildVault.armory.splice(aIdx, 1);
+        droppedItem = state.guildVault.armory.splice(aIdx, 1)[0];
       }
     }
-    if (!droppedName) return { ok: false, reason: 'item_not_found' };
+    if (!droppedItem) return { ok: false, reason: 'item_not_found' };
   } else {
     if (!Array.isArray(h.expeditionPack)) return { ok: false, reason: 'no_expedition_pack' };
-    const idx = h.expeditionPack.findIndex(p => p && p.id === uidOrId);
+    const idx = h.expeditionPack.findIndex(p => p && (p.id === uidOrId || p.instanceId === uidOrId || p.uid === uidOrId));
     if (idx === -1) return { ok: false, reason: 'item_not_found' };
-    droppedName = h.expeditionPack[idx].name;
-    if (h.expeditionPack[idx].qty > 1) {
-      h.expeditionPack[idx].qty -= 1;
+    const orig = h.expeditionPack[idx];
+    const origQty = typeof orig.quantity === 'number' ? orig.quantity : (typeof orig.qty === 'number' ? orig.qty : 1);
+    if (origQty > 1) {
+      droppedItem = Object.assign({}, orig, { quantity: 1, qty: 1 });
+      if (typeof orig.quantity === 'number') orig.quantity -= 1;
+      if (typeof orig.qty === 'number') orig.qty -= 1;
     } else {
-      h.expeditionPack.splice(idx, 1);
+      droppedItem = h.expeditionPack.splice(idx, 1)[0];
     }
   }
 
+  // If inside dungeon, create a physical WorldItemPickupInstance on the floor
+  if (!state.inGuild && state.dungeon) {
+    const floor = ensureDungeonFloorHydrated(state.dungeon, state.dungeon.currentFloor);
+    if (floor) {
+      const pickup = createWorldItemPickupInstance(droppedItem, h.x, h.y);
+      addWorldObject(floor, pickup);
+    }
+  }
+
+  emitEngineEvent(ENGINE_EVENTS.ITEM_DROPPED, {
+    item: droppedItem,
+    x: h.x,
+    y: h.y
+  }, state);
+
   if (state === gameState) {
     playSound('click');
-    actionCallbacks.log(`Dropped ${droppedName} from inventory.`, 'info');
+    actionCallbacks.log(`Dropped ${droppedItem.name} from inventory.`, 'info');
     saveGame();
     actionCallbacks.updateUI();
   }
 
-  return { ok: true, dropped: droppedName };
+  return { ok: true, dropped: droppedItem.name, item: droppedItem };
+}
+
+export function pickupGroundObjectsAt(x, y, state = gameState) {
+  if (!state || state.inGuild || !state.hero) return 0;
+  const floor = ensureDungeonFloorHydrated(state.dungeon, state.dungeon.currentFloor);
+  if (!floor) return 0;
+
+  const pickups = getObjectsAt(floor, x, y, o => o.objectType === 'pickup' && o.components && o.components.pickup);
+  if (pickups.length === 0) return 0;
+
+  const h = state.hero;
+  if (!Array.isArray(h.expeditionPack)) h.expeditionPack = [];
+  if (!Array.isArray(h.expeditionGear)) h.expeditionGear = [];
+
+  let count = 0;
+  for (let i = 0; i < pickups.length; i++) {
+    const p = pickups[i];
+    const it = p.components.pickup.item;
+    if (!it) continue;
+
+    // Check if item can stack with existing item in expeditionPack
+    let stacked = false;
+    if (it.isStackable) {
+      for (let j = 0; j < h.expeditionPack.length; j++) {
+        const existing = h.expeditionPack[j];
+        if (canItemsStack(existing, it)) {
+          mergeItemStacks(existing, it);
+          if ((it.quantity || 0) <= 0) {
+            stacked = true;
+            break;
+          }
+        }
+      }
+    }
+
+    if (!stacked && (it.quantity || 1) > 0) {
+      if (it.slot && it.slot !== 'pickaxe') {
+        h.expeditionGear.push(it);
+      } else {
+        h.expeditionPack.push(it);
+      }
+    }
+
+    removeWorldObject(floor, p.instanceId);
+    count++;
+
+    emitEngineEvent(ENGINE_EVENTS.ITEM_PICKED_UP, {
+      item: it,
+      x: x,
+      y: y
+    }, state);
+
+    if (state === gameState) {
+      playSound('gold');
+      actionCallbacks.floatingText(x, y, `+${it.name}`, '#fbbf24');
+      actionCallbacks.log(`Picked up ${it.name} from the ground.`, 'gold');
+    }
+  }
+
+  if (count > 0 && state === gameState) {
+    saveGame();
+    actionCallbacks.updateUI();
+  }
+
+  return count;
 }

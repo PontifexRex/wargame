@@ -1073,6 +1073,7 @@ function packFloorForStorage(floor) {
     shrines: floor.shrines || {},
     traps: floor.traps || {},
     vaults: floor.vaults || [],
+    objects: Array.isArray(floor.objects) ? floor.objects : [],
     monsters: Array.isArray(floor.monsters) ? floor.monsters : [],
     oresMined: floor.oresMined || 0,
     tilesRle: encodeGridToRle(floor.tiles, w, h, false),
@@ -1091,6 +1092,7 @@ function hydrateFloorFromStorage(rawFloor) {
     rawFloor.shrines = rawFloor.shrines || {};
     rawFloor.traps = rawFloor.traps || {};
     rawFloor.vaults = rawFloor.vaults || [];
+    rawFloor.objects = Array.isArray(rawFloor.objects) ? rawFloor.objects : [];
     if (rawFloor.hasDownStairs === undefined) rawFloor.hasDownStairs = true;
     return rawFloor;
   }
@@ -1111,13 +1113,810 @@ function hydrateFloorFromStorage(rawFloor) {
     shrines: rawFloor.shrines || {},
     traps: rawFloor.traps || {},
     vaults: rawFloor.vaults || [],
+    objects: Array.isArray(rawFloor.objects) ? rawFloor.objects : [],
     monsters: Array.isArray(rawFloor.monsters) ? rawFloor.monsters : [],
     oresMined: rawFloor.oresMined || 0
   };
 }
 
+  // --- Module: src/data/definitions.js ---
+// Object Definitions Catalog & Schema Registries (ADR-0010)
+// Defines immutable templates for Items, Keys, Containers, Devices, Mechanisms, and Pickups.
+
+const OBJECT_CATEGORIES = {
+  ITEM: 'item',
+  WORLD_OBJECT: 'world_object'
+};
+
+const ITEM_CATEGORIES = {
+  CONSUMABLE: 'consumable',
+  EQUIPMENT:  'equipment',
+  MATERIAL:   'material',
+  KEY:        'key',
+  TOOL:       'tool',
+  QUEST:      'quest',
+  ARTIFACT:   'artifact',
+  CURRENCY:   'currency'
+};
+
+const WORLD_OBJECT_TYPES = {
+  STATIC:    'static',
+  DOOR:      'door',
+  PORTAL:    'portal',
+  CONTAINER: 'container',
+  MECHANISM: 'mechanism',
+  DEVICE:    'device',
+  PICKUP:    'pickup'
+};
+
+const OBJECT_DEFINITIONS = {};
+
+function registerObjectDefinition(def) {
+  if (!def || !def.definitionId) {
+    throw new Error('registerObjectDefinition requires a definition with definitionId');
+  }
+  OBJECT_DEFINITIONS[def.definitionId] = Object.freeze(Object.assign({}, def));
+  return OBJECT_DEFINITIONS[def.definitionId];
+}
+
+function getObjectDefinition(defId) {
+  return OBJECT_DEFINITIONS[defId] || null;
+}
+
+function hasObjectDefinition(defId) {
+  return Boolean(OBJECT_DEFINITIONS[defId]);
+}
+
+// ============================================================================
+// CORE DEFINITION TEMPLATES
+// ============================================================================
+
+// 1. KEY DEFINITIONS (Credentials & Keys for Locks & Vaults)
+registerObjectDefinition({
+  definitionId: 'key_iron_common',
+  category: OBJECT_CATEGORIES.ITEM,
+  itemCategory: ITEM_CATEGORIES.KEY,
+  name: 'Iron Skeleton Key',
+  namePlural: 'Iron Skeleton Keys',
+  description: 'A sturdy iron skeleton key capable of opening common dungeon doors and chests.',
+  icon: '🗝️',
+  rarity: 'common',
+  baseValue: 15,
+  isStackable: true,
+  maxStackSize: 10,
+  tags: ['key', 'metal', 'common_key', 'key.common_iron'],
+  defaultComponents: {
+    key: {
+      keyTag: 'key.common_iron',
+      securityLevel: 1,
+      consumeOnUse: true
+    }
+  }
+});
+
+registerObjectDefinition({
+  definitionId: 'key_vault_dwarven',
+  category: OBJECT_CATEGORIES.ITEM,
+  itemCategory: ITEM_CATEGORIES.KEY,
+  name: 'Dwarven Vault Key',
+  namePlural: 'Dwarven Vault Keys',
+  description: 'An intricately notched brass key bearing the seal of the Dwarven Guild Cartographers.',
+  icon: '🗝️',
+  rarity: 'rare',
+  baseValue: 60,
+  isStackable: true,
+  maxStackSize: 5,
+  tags: ['key', 'dwarven', 'vault_key', 'key.dwarven_vault'],
+  defaultComponents: {
+    key: {
+      keyTag: 'key.dwarven_vault',
+      securityLevel: 2,
+      consumeOnUse: true
+    }
+  }
+});
+
+registerObjectDefinition({
+  definitionId: 'key_rune_celestial',
+  category: OBJECT_CATEGORIES.ITEM,
+  itemCategory: ITEM_CATEGORIES.KEY,
+  name: 'Celestial Rune Sigil',
+  namePlural: 'Celestial Rune Sigils',
+  description: 'A glowing triangular star-stone pulsing with astral resonance.',
+  icon: '💠',
+  rarity: 'epic',
+  baseValue: 180,
+  isStackable: true,
+  maxStackSize: 3,
+  tags: ['key', 'astral', 'rune_key', 'key.celestial_rune'],
+  defaultComponents: {
+    key: {
+      keyTag: 'key.celestial_rune',
+      securityLevel: 3,
+      consumeOnUse: true
+    }
+  }
+});
+
+// 2. WORLD PICKUP DEFINITION (Ground Item Wrapper)
+registerObjectDefinition({
+  definitionId: 'pickup_world_item',
+  category: OBJECT_CATEGORIES.WORLD_OBJECT,
+  objectType: WORLD_OBJECT_TYPES.PICKUP,
+  name: 'Item Pickup',
+  description: 'An item resting upon the dungeon floor.',
+  tags: ['pickup', 'ground_loot'],
+  defaultPermeability: {
+    movement: true,
+    lineOfSight: true,
+    light: true,
+    sound: true,
+    projectiles: true,
+    magic: true
+  },
+  defaultComponents: {
+    interactable: {
+      prompt: 'Pick up item',
+      autoTriggerOnStep: true,
+      actions: {
+        pickup: {
+          id: 'pickup',
+          name: 'Take Item',
+          requirements: null,
+          costs: null,
+          effects: [{ type: 'pickupItem' }]
+        }
+      }
+    }
+  }
+});
+
+// 3. CONTAINER DEFINITION (Gilded Vault Chest)
+registerObjectDefinition({
+  definitionId: 'container_vault_chest',
+  category: OBJECT_CATEGORIES.WORLD_OBJECT,
+  objectType: WORLD_OBJECT_TYPES.CONTAINER,
+  name: 'Gilded Vault Chest',
+  description: 'A banded ironbound oak chest containing ancient vault treasures.',
+  tags: ['chest', 'container', 'treasure'],
+  defaultState: {
+    mechanical: 'closed',
+    security: 'unlocked',
+    structural: 'intact'
+  },
+  defaultPermeability: {
+    movement: false, // Closed chest blocks movement
+    lineOfSight: true,
+    light: true,
+    sound: true,
+    projectiles: true,
+    magic: true
+  },
+  defaultComponents: {
+    durability: { hp: 40, maxHp: 40, armor: 4 },
+    interactable: {
+      prompt: 'Open chest',
+      autoTriggerOnStep: false,
+      actions: {
+        open: {
+          id: 'open',
+          name: 'Open Chest',
+          requirements: {
+            op: 'OR',
+            rules: [
+              { type: 'objectState', axis: 'security', value: 'unlocked' },
+              { type: 'hasItemTag', tag: 'key.common_iron' }
+            ]
+          },
+          costs: null,
+          effects: [
+            { type: 'changeState', axis: 'mechanical', value: 'open' },
+            { type: 'grantChestLoot' }
+          ]
+        }
+      }
+    }
+  }
+});
+
+// 4. DEVICE DEFINITIONS (Subterranean Astral Shrines)
+registerObjectDefinition({
+  definitionId: 'device_shrine_celestial',
+  category: OBJECT_CATEGORIES.WORLD_OBJECT,
+  objectType: WORLD_OBJECT_TYPES.DEVICE,
+  name: 'Celestial Renewal Shrine',
+  description: 'A carved quartz dais radiating soothing lunar luminescence.',
+  tags: ['shrine', 'celestial', 'healing'],
+  defaultState: {
+    mechanical: 'closed', // 'closed' means active/unused
+    security: 'unlocked',
+    structural: 'intact'
+  },
+  defaultPermeability: {
+    movement: false,
+    lineOfSight: true,
+    light: true,
+    sound: true,
+    projectiles: true,
+    magic: true
+  },
+  defaultComponents: {
+    interactable: {
+      prompt: 'Pray at Shrine',
+      actions: {
+        bless: {
+          id: 'bless',
+          name: 'Receive Blessing',
+          requirements: { type: 'objectState', axis: 'mechanical', value: 'closed' },
+          costs: null,
+          effects: [
+            { type: 'changeState', axis: 'mechanical', value: 'open' }, // 'open' means used
+            { type: 'applyShrineBlessing', shrineId: 'shrine_renewal' }
+          ]
+        }
+      }
+    }
+  }
+});
+
+registerObjectDefinition({
+  definitionId: 'device_shrine_starfire',
+  category: OBJECT_CATEGORIES.WORLD_OBJECT,
+  objectType: WORLD_OBJECT_TYPES.DEVICE,
+  name: 'Starfire Blessing Shrine',
+  description: 'A blazing obelisk crowned with an incandescent astralite flame.',
+  tags: ['shrine', 'starfire', 'combat_buff'],
+  defaultState: {
+    mechanical: 'closed',
+    security: 'unlocked',
+    structural: 'intact'
+  },
+  defaultPermeability: {
+    movement: false,
+    lineOfSight: true,
+    light: true,
+    sound: true,
+    projectiles: true,
+    magic: true
+  },
+  defaultComponents: {
+    interactable: {
+      prompt: 'Claim Starfire',
+      actions: {
+        bless: {
+          id: 'bless',
+          name: 'Receive Starfire',
+          requirements: { type: 'objectState', axis: 'mechanical', value: 'closed' },
+          costs: null,
+          effects: [
+            { type: 'changeState', axis: 'mechanical', value: 'open' },
+            { type: 'applyShrineBlessing', shrineId: 'shrine_starfire' }
+          ]
+        }
+      }
+    }
+  }
+});
+
+registerObjectDefinition({
+  definitionId: 'device_shrine_aegis',
+  category: OBJECT_CATEGORIES.WORLD_OBJECT,
+  objectType: WORLD_OBJECT_TYPES.DEVICE,
+  name: 'Astral Aegis Shrine',
+  description: 'A crystalline pillar casting a protective shield of diamond light.',
+  tags: ['shrine', 'aegis', 'defense_buff'],
+  defaultState: {
+    mechanical: 'closed',
+    security: 'unlocked',
+    structural: 'intact'
+  },
+  defaultPermeability: {
+    movement: false,
+    lineOfSight: true,
+    light: true,
+    sound: true,
+    projectiles: true,
+    magic: true
+  },
+  defaultComponents: {
+    interactable: {
+      prompt: 'Attune Aegis',
+      actions: {
+        bless: {
+          id: 'bless',
+          name: 'Attune Shield',
+          requirements: { type: 'objectState', axis: 'mechanical', value: 'closed' },
+          costs: null,
+          effects: [
+            { type: 'changeState', axis: 'mechanical', value: 'open' },
+            { type: 'applyShrineBlessing', shrineId: 'shrine_aegis' }
+          ]
+        }
+      }
+    }
+  }
+});
+
+// 5. MECHANISM DEFINITIONS (Runic Traps)
+registerObjectDefinition({
+  definitionId: 'mechanism_trap_spikes',
+  category: OBJECT_CATEGORIES.WORLD_OBJECT,
+  objectType: WORLD_OBJECT_TYPES.MECHANISM,
+  name: 'Subterranean Spike Trap',
+  description: 'Concealed pressure-plate mechanism driving spring-loaded steel spikes.',
+  tags: ['trap', 'spikes', 'physical'],
+  defaultState: {
+    mechanical: 'closed', // ready to trigger
+    security: 'unlocked',
+    discovery: 'unknown', // hidden until spotted
+    structural: 'intact'
+  },
+  defaultPermeability: {
+    movement: true,
+    lineOfSight: true,
+    light: true,
+    sound: true,
+    projectiles: true,
+    magic: true
+  },
+  defaultComponents: {
+    trap: {
+      trapId: 'spikes',
+      damage: 18,
+      effect: 'bleed',
+      detectDc: 12,
+      disarmDc: 13
+    },
+    interactable: {
+      prompt: 'Disarm Spike Trap',
+      actions: {
+        disarm: {
+          id: 'disarm',
+          name: 'Disarm Trap',
+          requirements: {
+            op: 'OR',
+            rules: [
+              { type: 'requiredClass', classId: 'thief' },
+              { type: 'requiredClass', classId: 'ranger' },
+              { type: 'minStat', stat: 'dex', value: 16 }
+            ]
+          },
+          costs: null,
+          effects: [
+            { type: 'changeState', axis: 'mechanical', value: 'disabled' },
+            { type: 'disarmTrap' }
+          ]
+        }
+      }
+    }
+  }
+});
+
+registerObjectDefinition({
+  definitionId: 'mechanism_trap_flame',
+  category: OBJECT_CATEGORIES.WORLD_OBJECT,
+  objectType: WORLD_OBJECT_TYPES.MECHANISM,
+  name: 'Runic Flame Jet Trap',
+  description: 'Ancient carved floor rune triggering a column of pressurized magma flame.',
+  tags: ['trap', 'flame', 'elemental'],
+  defaultState: {
+    mechanical: 'closed',
+    security: 'unlocked',
+    discovery: 'unknown',
+    structural: 'intact'
+  },
+  defaultPermeability: {
+    movement: true,
+    lineOfSight: true,
+    light: true,
+    sound: true,
+    projectiles: true,
+    magic: true
+  },
+  defaultComponents: {
+    trap: {
+      trapId: 'flame',
+      damage: 24,
+      effect: 'burn',
+      detectDc: 14,
+      disarmDc: 15
+    },
+    interactable: {
+      prompt: 'Disarm Flame Rune',
+      actions: {
+        disarm: {
+          id: 'disarm',
+          name: 'Disarm Flame Rune',
+          requirements: {
+            op: 'OR',
+            rules: [
+              { type: 'requiredClass', classId: 'thief' },
+              { type: 'minStat', stat: 'dex', value: 18 }
+            ]
+          },
+          costs: null,
+          effects: [
+            { type: 'changeState', axis: 'mechanical', value: 'disabled' },
+            { type: 'disarmTrap' }
+          ]
+        }
+      }
+    }
+  }
+});
+
+  // --- Module: src/engine/objects.js ---
+// Foundational Game Object & Runtime Instance Engine (ADR-0010)
+// Manages object instances, spatial floor queries, item pickups, and the ItemStack stacking engine.
+
+
+
+let instanceSeq = 1000;
+
+function nextInstanceId(prefix = 'obj') {
+  return `${prefix}_${Date.now()}_${instanceSeq++}`;
+}
+
+// ============================================================================
+// INSTANCE FACTORIES
+// ============================================================================
+
+function createWorldObjectInstance(defId, options = {}) {
+  const def = getObjectDefinition(defId);
+  const defObj = def || {};
+
+  const inst = {
+    instanceId: options.instanceId || nextInstanceId(defObj.objectType || 'obj'),
+    definitionId: defId,
+    objectType: options.objectType || defObj.objectType || WORLD_OBJECT_TYPES.STATIC,
+    name: options.name || defObj.name || 'World Object',
+    x: typeof options.x === 'number' ? options.x : 0,
+    y: typeof options.y === 'number' ? options.y : 0,
+    worldId: options.worldId || 'world_prime',
+    locationId: options.locationId || null,
+    ownerId: options.ownerId || null,
+    factionId: options.factionId || null,
+    revision: typeof options.revision === 'number' ? options.revision : 1,
+    persistencePolicy: options.persistencePolicy || 'floor_persistent',
+    tags: Array.isArray(options.tags)
+      ? options.tags.slice()
+      : (defObj.tags ? defObj.tags.slice() : []),
+    runtimeState: Object.assign(
+      {
+        mechanical: 'closed',
+        security: 'unlocked',
+        discovery: 'revealed',
+        structural: 'intact',
+        power: 'unpowered'
+      },
+      defObj.defaultState || {},
+      options.runtimeState || {}
+    ),
+    permeability: Object.assign(
+      {
+        movement: true,
+        lineOfSight: true,
+        light: true,
+        sound: true,
+        projectiles: true,
+        magic: true
+      },
+      defObj.defaultPermeability || {},
+      options.permeability || {}
+    ),
+    components: Object.assign({}, defObj.defaultComponents || {}, options.components || {}),
+    customData: Object.assign({}, options.customData || {})
+  };
+
+  return inst;
+}
+
+function createItemInstance(defOrItem, options = {}) {
+  let defId = null;
+  let baseObj = {};
+
+  if (typeof defOrItem === 'string') {
+    defId = defOrItem;
+    baseObj = getObjectDefinition(defId) || {};
+  } else if (defOrItem && typeof defOrItem === 'object') {
+    defId = defOrItem.definitionId || defOrItem.id || 'custom_item';
+    baseObj = defOrItem;
+  }
+
+  const def = getObjectDefinition(defId);
+  const defData = def || {};
+
+  const inst = Object.assign({}, baseObj, {
+    instanceId: options.instanceId || baseObj.instanceId || baseObj.uid || nextInstanceId('item'),
+    definitionId: defId,
+    name: options.name || baseObj.name || defData.name || 'Unknown Item',
+    quantity: typeof options.quantity === 'number'
+      ? options.quantity
+      : (typeof baseObj.quantity === 'number' ? baseObj.quantity : 1),
+    quality: options.quality || baseObj.quality || 'normal',
+    rarity: options.rarity || baseObj.rarity || defData.rarity || 'common',
+    itemLevel: options.itemLevel || baseObj.itemLevel || 1,
+    durability: typeof options.durability === 'number'
+      ? options.durability
+      : (typeof baseObj.curDur === 'number' ? baseObj.curDur : null),
+    charges: typeof options.charges === 'number'
+      ? options.charges
+      : (typeof baseObj.charges === 'number' ? baseObj.charges : null),
+    isStackable: options.isStackable !== undefined
+      ? Boolean(options.isStackable)
+      : (baseObj.isStackable !== undefined ? Boolean(baseObj.isStackable) : Boolean(defData.isStackable)),
+    maxStackSize: options.maxStackSize || baseObj.maxStackSize || defData.maxStackSize || 99,
+    affixes: Array.isArray(options.affixes)
+      ? options.affixes.slice()
+      : (Array.isArray(baseObj.affixes) ? baseObj.affixes.slice() : []),
+    sockets: Array.isArray(options.sockets)
+      ? options.sockets.slice()
+      : (Array.isArray(baseObj.sockets) ? baseObj.sockets.slice() : []),
+    locked: Boolean(options.locked || baseObj.locked),
+    boundState: options.boundState || baseObj.boundState || 'unbound',
+    tags: Array.isArray(options.tags)
+      ? options.tags.slice()
+      : (Array.isArray(baseObj.tags) ? baseObj.tags.slice() : (defData.tags ? defData.tags.slice() : [])),
+    components: Object.assign({}, defData.defaultComponents || {}, baseObj.components || {}, options.components || {}),
+    customData: Object.assign({}, baseObj.customData || {}, options.customData || {})
+  });
+
+  // Preserve legacy uid alias for full backward-compatibility with UI/Armory
+  if (!inst.uid) {
+    inst.uid = inst.instanceId;
+  }
+
+  return inst;
+}
+
+function createWorldItemPickupInstance(itemInstance, x, y, options = {}) {
+  const normItem = itemInstance && itemInstance.instanceId ? itemInstance : createItemInstance(itemInstance);
+  const def = getObjectDefinition('pickup_world_item');
+
+  const pickupObj = createWorldObjectInstance('pickup_world_item', {
+    x: x,
+    y: y,
+    name: normItem.name,
+    objectType: WORLD_OBJECT_TYPES.PICKUP,
+    tags: ['pickup', normItem.rarity || 'common'].concat(normItem.tags || []),
+    components: Object.assign({}, def ? def.defaultComponents : {}, {
+      pickup: {
+        item: normItem
+      }
+    }),
+    customData: options.customData || {}
+  });
+
+  return pickupObj;
+}
+
+// ============================================================================
+// SPATIAL FLOOR OBJECT QUERIES & MANAGEMENT
+// ============================================================================
+
+function ensureFloorObjects(floor) {
+  if (!floor) return [];
+  if (!Array.isArray(floor.objects)) {
+    floor.objects = [];
+  }
+  return floor.objects;
+}
+
+function getObjectsAt(floor, x, y, filterFn = null) {
+  const objs = ensureFloorObjects(floor);
+  const matches = [];
+  for (let i = 0; i < objs.length; i++) {
+    const o = objs[i];
+    if (o && o.x === x && o.y === y) {
+      if (!filterFn || filterFn(o)) {
+        matches.push(o);
+      }
+    }
+  }
+  return matches;
+}
+
+function getFirstObjectAt(floor, x, y, objectType = null) {
+  const objs = ensureFloorObjects(floor);
+  for (let i = 0; i < objs.length; i++) {
+    const o = objs[i];
+    if (o && o.x === x && o.y === y) {
+      if (!objectType || o.objectType === objectType) {
+        return o;
+      }
+    }
+  }
+  return null;
+}
+
+function addWorldObject(floor, obj) {
+  if (!floor || !obj) return null;
+  const objs = ensureFloorObjects(floor);
+  objs.push(obj);
+  return obj;
+}
+
+function removeWorldObject(floor, instanceIdOrObj) {
+  if (!floor) return false;
+  const objs = ensureFloorObjects(floor);
+  const targetId = typeof instanceIdOrObj === 'string'
+    ? instanceIdOrObj
+    : (instanceIdOrObj ? instanceIdOrObj.instanceId : null);
+
+  if (!targetId) return false;
+
+  for (let i = 0; i < objs.length; i++) {
+    if (objs[i] && objs[i].instanceId === targetId) {
+      objs.splice(i, 1);
+      return true;
+    }
+  }
+  return false;
+}
+
+function findObjectById(floor, instanceId) {
+  if (!floor || !instanceId) return null;
+  const objs = ensureFloorObjects(floor);
+  for (let i = 0; i < objs.length; i++) {
+    if (objs[i] && objs[i].instanceId === instanceId) {
+      return objs[i];
+    }
+  }
+  return null;
+}
+
+// ============================================================================
+// ITEMSTACK STACKING ENGINE
+// ============================================================================
+
+function canItemsStack(a, b) {
+  if (!a || !b) return false;
+
+  // Equipment with equipment slots (weapon, armor, helm, boots, accessory, pickaxe) never stack
+  if (a.slot || b.slot) return false;
+
+  // Must share identical definition or base item ID
+  const aDef = a.definitionId || a.id;
+  const bDef = b.definitionId || b.id;
+  if (!aDef || !bDef || aDef !== bDef) return false;
+
+  // Explicit non-stackable flags
+  if (a.isStackable === false || b.isStackable === false) return false;
+
+  // Rarity and quality must match
+  if ((a.rarity || 'common') !== (b.rarity || 'common')) return false;
+  if ((a.quality || 'normal') !== (b.quality || 'normal')) return false;
+
+  // Binding states must match
+  if ((a.boundState || 'unbound') !== (b.boundState || 'unbound')) return false;
+
+  // Unique rolled affixes or socketed gems prevent stacking
+  const aAff = Array.isArray(a.affixes) ? a.affixes.length : 0;
+  const bAff = Array.isArray(b.affixes) ? b.affixes.length : 0;
+  if (aAff > 0 || bAff > 0) return false;
+
+  const aSock = Array.isArray(a.sockets) ? a.sockets.length : 0;
+  const bSock = Array.isArray(b.sockets) ? b.sockets.length : 0;
+  if (aSock > 0 || bSock > 0) return false;
+
+  return true;
+}
+
+function mergeItemStacks(target, source, maxStackSize = 99) {
+  if (!canItemsStack(target, source)) return 0;
+
+  const targetCap = target.maxStackSize || maxStackSize;
+  const currentQty = typeof target.quantity === 'number' ? target.quantity : 1;
+  const spaceLeft = Math.max(0, targetCap - currentQty);
+  if (spaceLeft <= 0) return 0;
+
+  const sourceQty = typeof source.quantity === 'number' ? source.quantity : 1;
+  const amountToMove = Math.min(spaceLeft, sourceQty);
+
+  target.quantity = currentQty + amountToMove;
+  source.quantity = sourceQty - amountToMove;
+
+  return amountToMove;
+}
+
+function splitItemStack(stack, qtyToSplit) {
+  if (!stack || typeof qtyToSplit !== 'number' || qtyToSplit <= 0) return null;
+  const currentQty = typeof stack.quantity === 'number' ? stack.quantity : 1;
+  if (qtyToSplit >= currentQty) return null;
+
+  stack.quantity = currentQty - qtyToSplit;
+
+  const splitInst = createItemInstance(stack, {
+    quantity: qtyToSplit,
+    instanceId: nextInstanceId('item_split')
+  });
+
+  return splitInst;
+}
+
+// ============================================================================
+// LEGACY FLOOR OBJECT AUTO-MIGRATION
+// ============================================================================
+
+function hydrateLegacyFloorObjects(floor) {
+  if (!floor || !floor.tiles) return [];
+  const objs = ensureFloorObjects(floor);
+
+  // If floor already has objects (e.g. from new generator or save), retain them
+  const existingCoords = {};
+  for (let i = 0; i < objs.length; i++) {
+    const o = objs[i];
+    if (o) existingCoords[`${o.x},${o.y}`] = true;
+  }
+
+  const fh = floor.height || floor.tiles.length;
+  const fw = floor.width || (floor.tiles[0] ? floor.tiles[0].length : 0);
+
+  for (let y = 0; y < fh; y++) {
+    const row = floor.tiles[y];
+    if (!row) continue;
+    for (let x = 0; x < fw; x++) {
+      const coordKey = `${x},${y}`;
+      if (existingCoords[coordKey]) continue;
+
+      const t = row[x];
+      if (t === TILE_CHEST || t === TILE_CHEST_OPEN) {
+        const chestObj = createWorldObjectInstance('container_vault_chest', {
+          x: x,
+          y: y,
+          runtimeState: {
+            mechanical: t === TILE_CHEST_OPEN ? 'open' : 'closed',
+            security: 'unlocked',
+            structural: 'intact'
+          }
+        });
+        objs.push(chestObj);
+        existingCoords[coordKey] = true;
+      } else if (t === TILE_SHRINE || t === TILE_SHRINE_USED) {
+        // Look up shrine type from floor.shrines map if present
+        const sMeta = (floor.shrines && floor.shrines[coordKey]) || {};
+        let defId = 'device_shrine_celestial';
+        if (sMeta.id === 'shrine_starfire') defId = 'device_shrine_starfire';
+        else if (sMeta.id === 'shrine_aegis') defId = 'device_shrine_aegis';
+
+        const shrineObj = createWorldObjectInstance(defId, {
+          x: x,
+          y: y,
+          runtimeState: {
+            mechanical: t === TILE_SHRINE_USED ? 'open' : 'closed', // 'open' = used
+            security: 'unlocked',
+            structural: 'intact'
+          }
+        });
+        objs.push(shrineObj);
+        existingCoords[coordKey] = true;
+      } else if (t === TILE_TRAP_HIDDEN || t === TILE_TRAP_VISIBLE || t === TILE_TRAP_DISARMED) {
+        const tMeta = (floor.traps && floor.traps[coordKey]) || {};
+        let defId = 'mechanism_trap_spikes';
+        if (tMeta.id === 'flame') defId = 'mechanism_trap_flame';
+
+        const trapObj = createWorldObjectInstance(defId, {
+          x: x,
+          y: y,
+          runtimeState: {
+            mechanical: t === TILE_TRAP_DISARMED ? 'disabled' : 'closed',
+            security: 'unlocked',
+            discovery: t === TILE_TRAP_HIDDEN ? 'unknown' : 'revealed',
+            structural: 'intact'
+          }
+        });
+        objs.push(trapObj);
+        existingCoords[coordKey] = true;
+      }
+    }
+  }
+
+  return objs;
+}
+
   // --- Module: src/engine/state.js ---
 // Game State Schema (Multi-Dungeon Atlas v5/v6), Save Migration, RLE Persistence & Derived Hero Stats
+
 
 
 
@@ -1244,7 +2043,11 @@ function createDefaultDungeonsRegistry() {
 function ensureDungeonFloorHydrated(dungeonObj, depth) {
   if (!dungeonObj || !dungeonObj.floors || !dungeonObj.floors[depth]) return null;
   dungeonObj.floors[depth] = hydrateFloorFromStorage(dungeonObj.floors[depth]);
-  return dungeonObj.floors[depth];
+  const fl = dungeonObj.floors[depth];
+  if (fl) {
+    hydrateLegacyFloorObjects(fl);
+  }
+  return fl;
 }
 
 function syncActiveDungeonAlias(state) {
@@ -1816,7 +2619,11 @@ const ENGINE_EVENTS = {
   SHRINE_ACTIVATED: 'shrineActivated',
   TRAP_RESOLVED:    'trapResolved',
   EXTRACTED:        'extracted',
-  HERO_DEFEATED:    'heroDefeated'
+  HERO_DEFEATED:    'heroDefeated',
+  OBJECT_INTERACTION:  'objectInteraction',
+  OBJECT_STATE_CHANGED:'objectStateChanged',
+  ITEM_PICKED_UP:      'itemPickedUp',
+  ITEM_DROPPED:        'itemDropped'
 };
 
 const eventListenersMap = {};
@@ -3040,6 +3847,7 @@ function generateFloor(depth, dungeonConfig = null, dungeonSeed = null) {
 
   // --- Module: src/engine/actions.js ---
 // Interactive Mining, Multi-Dungeon Atlas Management, Astral Gems & Lapidary, Guild Bounties, Shrines, Traps & Extraction
+
 
 
 
@@ -4406,44 +5214,454 @@ function dropItem(uidOrId, isGear = true, state = gameState) {
   }
 
   const h = state.hero;
-  let droppedName = '';
+  let droppedItem = null;
 
   if (isGear) {
     if (Array.isArray(h.expeditionGear)) {
-      const idx = h.expeditionGear.findIndex(g => g && g.uid === uidOrId);
+      const idx = h.expeditionGear.findIndex(g => g && (g.uid === uidOrId || g.instanceId === uidOrId));
       if (idx !== -1) {
-        droppedName = h.expeditionGear[idx].name;
-        h.expeditionGear.splice(idx, 1);
+        droppedItem = h.expeditionGear.splice(idx, 1)[0];
       }
     }
-    if (!droppedName && state.guildVault && Array.isArray(state.guildVault.armory)) {
-      const aIdx = state.guildVault.armory.findIndex(g => g && g.uid === uidOrId);
+    if (!droppedItem && state.guildVault && Array.isArray(state.guildVault.armory)) {
+      const aIdx = state.guildVault.armory.findIndex(g => g && (g.uid === uidOrId || g.instanceId === uidOrId));
       if (aIdx !== -1) {
-        droppedName = state.guildVault.armory[aIdx].name;
-        state.guildVault.armory.splice(aIdx, 1);
+        droppedItem = state.guildVault.armory.splice(aIdx, 1)[0];
       }
     }
-    if (!droppedName) return { ok: false, reason: 'item_not_found' };
+    if (!droppedItem) return { ok: false, reason: 'item_not_found' };
   } else {
     if (!Array.isArray(h.expeditionPack)) return { ok: false, reason: 'no_expedition_pack' };
-    const idx = h.expeditionPack.findIndex(p => p && p.id === uidOrId);
+    const idx = h.expeditionPack.findIndex(p => p && (p.id === uidOrId || p.instanceId === uidOrId || p.uid === uidOrId));
     if (idx === -1) return { ok: false, reason: 'item_not_found' };
-    droppedName = h.expeditionPack[idx].name;
-    if (h.expeditionPack[idx].qty > 1) {
-      h.expeditionPack[idx].qty -= 1;
+    const orig = h.expeditionPack[idx];
+    const origQty = typeof orig.quantity === 'number' ? orig.quantity : (typeof orig.qty === 'number' ? orig.qty : 1);
+    if (origQty > 1) {
+      droppedItem = Object.assign({}, orig, { quantity: 1, qty: 1 });
+      if (typeof orig.quantity === 'number') orig.quantity -= 1;
+      if (typeof orig.qty === 'number') orig.qty -= 1;
     } else {
-      h.expeditionPack.splice(idx, 1);
+      droppedItem = h.expeditionPack.splice(idx, 1)[0];
     }
   }
 
+  // If inside dungeon, create a physical WorldItemPickupInstance on the floor
+  if (!state.inGuild && state.dungeon) {
+    const floor = ensureDungeonFloorHydrated(state.dungeon, state.dungeon.currentFloor);
+    if (floor) {
+      const pickup = createWorldItemPickupInstance(droppedItem, h.x, h.y);
+      addWorldObject(floor, pickup);
+    }
+  }
+
+  emitEngineEvent(ENGINE_EVENTS.ITEM_DROPPED, {
+    item: droppedItem,
+    x: h.x,
+    y: h.y
+  }, state);
+
   if (state === gameState) {
     playSound('click');
-    actionCallbacks.log(`Dropped ${droppedName} from inventory.`, 'info');
+    actionCallbacks.log(`Dropped ${droppedItem.name} from inventory.`, 'info');
     saveGame();
     actionCallbacks.updateUI();
   }
 
-  return { ok: true, dropped: droppedName };
+  return { ok: true, dropped: droppedItem.name, item: droppedItem };
+}
+
+function pickupGroundObjectsAt(x, y, state = gameState) {
+  if (!state || state.inGuild || !state.hero) return 0;
+  const floor = ensureDungeonFloorHydrated(state.dungeon, state.dungeon.currentFloor);
+  if (!floor) return 0;
+
+  const pickups = getObjectsAt(floor, x, y, o => o.objectType === 'pickup' && o.components && o.components.pickup);
+  if (pickups.length === 0) return 0;
+
+  const h = state.hero;
+  if (!Array.isArray(h.expeditionPack)) h.expeditionPack = [];
+  if (!Array.isArray(h.expeditionGear)) h.expeditionGear = [];
+
+  let count = 0;
+  for (let i = 0; i < pickups.length; i++) {
+    const p = pickups[i];
+    const it = p.components.pickup.item;
+    if (!it) continue;
+
+    // Check if item can stack with existing item in expeditionPack
+    let stacked = false;
+    if (it.isStackable) {
+      for (let j = 0; j < h.expeditionPack.length; j++) {
+        const existing = h.expeditionPack[j];
+        if (canItemsStack(existing, it)) {
+          mergeItemStacks(existing, it);
+          if ((it.quantity || 0) <= 0) {
+            stacked = true;
+            break;
+          }
+        }
+      }
+    }
+
+    if (!stacked && (it.quantity || 1) > 0) {
+      if (it.slot && it.slot !== 'pickaxe') {
+        h.expeditionGear.push(it);
+      } else {
+        h.expeditionPack.push(it);
+      }
+    }
+
+    removeWorldObject(floor, p.instanceId);
+    count++;
+
+    emitEngineEvent(ENGINE_EVENTS.ITEM_PICKED_UP, {
+      item: it,
+      x: x,
+      y: y
+    }, state);
+
+    if (state === gameState) {
+      playSound('gold');
+      actionCallbacks.floatingText(x, y, `+${it.name}`, '#fbbf24');
+      actionCallbacks.log(`Picked up ${it.name} from the ground.`, 'gold');
+    }
+  }
+
+  if (count > 0 && state === gameState) {
+    saveGame();
+    actionCallbacks.updateUI();
+  }
+
+  return count;
+}
+
+  // --- Module: src/engine/interactions.js ---
+// Unified Object Interaction & Traversal Pipeline (ADR-0010)
+// Evaluates requirements, deducts costs, applies atomic effects, and emits domain events.
+
+
+
+
+let interactionSeq = 1000;
+
+function createInteractionRequest(actorId, targetId, actionId, parameters = {}, context = {}) {
+  return {
+    requestId: `req_${Date.now()}_${interactionSeq++}`,
+    actorId: actorId || 'hero',
+    targetId: targetId,
+    actionId: actionId || 'inspect',
+    parameters: parameters || {},
+    context: context || {}
+  };
+}
+
+function createInteractionResult(ok, actionId, reason = null, stateChanged = false, effectsApplied = [], message = '') {
+  return {
+    ok: Boolean(ok),
+    actionId: actionId,
+    reason: reason,
+    stateChanged: Boolean(stateChanged),
+    effectsApplied: Array.isArray(effectsApplied) ? effectsApplied : [],
+    message: message || ''
+  };
+}
+
+// ============================================================================
+// REQUIREMENT EVALUATION ENGINE
+// ============================================================================
+
+function evaluateRequirement(req, context = {}) {
+  if (!req) return { ok: true };
+
+  // Composable Boolean Combinators
+  if (req.op === 'AND') {
+    const rules = Array.isArray(req.rules) ? req.rules : [];
+    for (let i = 0; i < rules.length; i++) {
+      const res = evaluateRequirement(rules[i], context);
+      if (!res.ok) return res;
+    }
+    return { ok: true };
+  }
+
+  if (req.op === 'OR') {
+    const rules = Array.isArray(req.rules) ? req.rules : [];
+    if (rules.length === 0) return { ok: true };
+    let lastReason = 'no_condition_met';
+    for (let i = 0; i < rules.length; i++) {
+      const res = evaluateRequirement(rules[i], context);
+      if (res.ok) return { ok: true };
+      lastReason = res.reason;
+    }
+    return { ok: false, reason: lastReason };
+  }
+
+  if (req.op === 'NOT') {
+    const res = evaluateRequirement(req.rule, context);
+    return {
+      ok: !res.ok,
+      reason: res.ok ? 'condition_prohibited' : null
+    };
+  }
+
+  const actor = context.actor;
+  const target = context.target;
+
+  // Specific rule types:
+  if (req.type === 'hasItemTag') {
+    const tag = req.tag;
+    const inv = (actor && (actor.expeditionPack || actor.inventory)) || [];
+    const hasTag = inv.some(it => {
+      if (!it) return false;
+      if (Array.isArray(it.tags) && it.tags.indexOf(tag) !== -1) return true;
+      if (it.components && it.components.key && it.components.key.keyTag === tag) return true;
+      if (it.keyTag === tag) return true;
+      return false;
+    });
+    if (!hasTag) {
+      return { ok: false, reason: `missing_item_tag:${tag}` };
+    }
+    return { ok: true };
+  }
+
+  if (req.type === 'hasItemDef') {
+    const defId = req.defId;
+    const inv = (actor && (actor.expeditionPack || actor.inventory)) || [];
+    const hasDef = inv.some(it => it && (it.definitionId === defId || it.id === defId));
+    if (!hasDef) {
+      return { ok: false, reason: `missing_item_def:${defId}` };
+    }
+    return { ok: true };
+  }
+
+  if (req.type === 'minStat') {
+    const stat = req.stat;
+    const minVal = req.value || 0;
+    const val = (actor && (actor[stat] || (actor.bonusStats && actor.bonusStats[stat]))) || 0;
+    if (val < minVal) {
+      return { ok: false, reason: `insufficient_stat:${stat}_need_${minVal}` };
+    }
+    return { ok: true };
+  }
+
+  if (req.type === 'requiredClass') {
+    const needed = req.classId;
+    if (!actor || actor.classId !== needed) {
+      return { ok: false, reason: `required_class:${needed}` };
+    }
+    return { ok: true };
+  }
+
+  if (req.type === 'objectState') {
+    const axis = req.axis;
+    const expected = req.value;
+    const current = target && target.runtimeState && target.runtimeState[axis];
+    if (current !== expected) {
+      return { ok: false, reason: `invalid_state:${axis}_is_${current}_need_${expected}` };
+    }
+    return { ok: true };
+  }
+
+  if (req.type === 'custom' && typeof req.fn === 'function') {
+    const pass = req.fn(context);
+    return { ok: Boolean(pass), reason: pass ? null : 'custom_requirement_failed' };
+  }
+
+  return { ok: true };
+}
+
+// ============================================================================
+// COST PROCESSOR
+// ============================================================================
+
+function deductInteractionCosts(costs, context = {}) {
+  if (!costs || typeof costs !== 'object') return true;
+  const actor = context.actor;
+  if (!actor) return true;
+
+  if (costs.consumeItemTag) {
+    const tag = costs.consumeItemTag;
+    const inv = actor.expeditionPack || actor.inventory || [];
+    for (let i = 0; i < inv.length; i++) {
+      const it = inv[i];
+      const match = it && (
+        (Array.isArray(it.tags) && it.tags.indexOf(tag) !== -1) ||
+        (it.components && it.components.key && it.components.key.keyTag === tag) ||
+        (it.keyTag === tag)
+      );
+      if (match) {
+        if (typeof it.quantity === 'number' && it.quantity > 1) {
+          it.quantity -= 1;
+        } else {
+          inv.splice(i, 1);
+        }
+        break;
+      }
+    }
+  }
+
+  if (costs.consumeItemDef) {
+    const defId = costs.consumeItemDef;
+    const inv = actor.expeditionPack || actor.inventory || [];
+    for (let i = 0; i < inv.length; i++) {
+      const it = inv[i];
+      if (it && (it.definitionId === defId || it.id === defId)) {
+        if (typeof it.quantity === 'number' && it.quantity > 1) {
+          it.quantity -= 1;
+        } else {
+          inv.splice(i, 1);
+        }
+        break;
+      }
+    }
+  }
+
+  if (typeof costs.deductMp === 'number' && costs.deductMp > 0) {
+    actor.mp = Math.max(0, (actor.mp || 0) - costs.deductMp);
+  }
+
+  return true;
+}
+
+// ============================================================================
+// ATOMIC EFFECT RUNNER
+// ============================================================================
+
+function applyInteractionEffects(effects, context = {}, state = gameState) {
+  if (!Array.isArray(effects)) return [];
+  const applied = [];
+  const actor = context.actor;
+  const target = context.target;
+  const floor = context.floor;
+
+  for (let i = 0; i < effects.length; i++) {
+    const eff = effects[i];
+    if (!eff) continue;
+
+    if (eff.type === 'changeState' && target && target.runtimeState) {
+      target.runtimeState[eff.axis] = eff.value;
+      applied.push(eff);
+    } else if (eff.type === 'applyDamage' && target && target.components && target.components.durability) {
+      const dmg = Math.max(1, eff.amount || 1);
+      target.components.durability.hp = Math.max(0, target.components.durability.hp - dmg);
+      if (target.components.durability.hp <= 0 && target.runtimeState) {
+        target.runtimeState.structural = 'destroyed';
+      } else if (target.components.durability.hp < target.components.durability.maxHp * 0.4 && target.runtimeState) {
+        target.runtimeState.structural = 'damaged';
+      }
+      applied.push(eff);
+    } else if (eff.type === 'pickupItem' && target && target.components && target.components.pickup) {
+      const itemToTake = target.components.pickup.item;
+      if (itemToTake && actor) {
+        const pack = actor.expeditionPack || (state.guildVault ? state.guildVault.armory : null);
+        if (pack) {
+          pack.push(itemToTake);
+        }
+        if (floor) {
+          removeWorldObject(floor, target.instanceId);
+        }
+        applied.push(eff);
+      }
+    } else if (eff.type === 'removeObject' && target && floor) {
+      removeWorldObject(floor, target.instanceId);
+      applied.push(eff);
+    } else {
+      applied.push(eff);
+    }
+  }
+
+  return applied;
+}
+
+// ============================================================================
+// EXECUTE INTERACTION (Main Pipeline Orchestrator)
+// ============================================================================
+
+function executeInteraction(request, state = gameState) {
+  if (!request) {
+    return createInteractionResult(false, 'none', 'invalid_request', false, [], 'Invalid request');
+  }
+
+  const floor = state && state.dungeon && state.dungeon.floors
+    ? (state.dungeon.floors[state.dungeon.currentFloor] || null)
+    : null;
+
+  let target = null;
+  if (request.targetId && floor) {
+    target = findObjectById(floor, request.targetId);
+  } else if (typeof request.x === 'number' && typeof request.y === 'number' && floor) {
+    const objs = (floor.objects || []).filter(o => o.x === request.x && o.y === request.y);
+    target = objs[0] || null;
+  }
+
+  if (!target) {
+    return createInteractionResult(false, request.actionId, 'target_not_found', false, [], 'Target not found');
+  }
+
+  const actor = (state && state.hero) || { name: 'Player', classId: 'fighter' };
+
+  // Spatial range validation (Chebyshev distance <= 1.5 for manual interactions, 0 for step-over triggers)
+  const maxRange = request.maxRange !== undefined ? request.maxRange : 1.5;
+  const dist = Math.max(Math.abs(target.x - actor.x), Math.abs(target.y - actor.y));
+  if (dist > maxRange) {
+    return createInteractionResult(false, request.actionId, 'out_of_range', false, [], 'Target is out of reach');
+  }
+
+  // Look up action definition on target's interactable component
+  const interactable = target.components && target.components.interactable;
+  const actionDef = (interactable && interactable.actions && interactable.actions[request.actionId]) || {
+    id: request.actionId,
+    requirements: null,
+    costs: null,
+    effects: []
+  };
+
+  const context = {
+    actor: actor,
+    target: target,
+    floor: floor,
+    state: state,
+    parameters: request.parameters || {}
+  };
+
+  // 1. Evaluate Requirements
+  const reqResult = evaluateRequirement(actionDef.requirements, context);
+  if (!reqResult.ok) {
+    return createInteractionResult(false, request.actionId, reqResult.reason, false, [], `Requirements not met: ${reqResult.reason}`);
+  }
+
+  // 2. Deduct Costs
+  deductInteractionCosts(actionDef.costs, context);
+
+  // 3. Apply Effects
+  const appliedEffects = applyInteractionEffects(actionDef.effects, context, state);
+
+  // 4. Update Target Revision
+  target.revision = (target.revision || 1) + 1;
+
+  // 5. Emit Domain Events
+  emitEngineEvent(ENGINE_EVENTS.OBJECT_INTERACTION, {
+    actorId: actor.name || 'hero',
+    targetId: target.instanceId,
+    actionId: request.actionId,
+    targetType: target.objectType,
+    effects: appliedEffects
+  }, state);
+
+  if (appliedEffects.some(e => e.type === 'changeState')) {
+    emitEngineEvent(ENGINE_EVENTS.OBJECT_STATE_CHANGED, {
+      instanceId: target.instanceId,
+      runtimeState: target.runtimeState
+    }, state);
+  }
+
+  return createInteractionResult(
+    true,
+    request.actionId,
+    null,
+    appliedEffects.length > 0,
+    appliedEffects,
+    `Successfully executed ${request.actionId} on ${target.name}`
+  );
 }
 
   // --- Module: src/engine/combat.js ---
@@ -5695,6 +6913,7 @@ function handlePlayerAction(dx, dy, state = gameState) {
   if (targetTile !== TILE_WALL) {
     state.hero.x = nx;
     state.hero.y = ny;
+    pickupGroundObjectsAt(nx, ny, state);
     detectNearbyTraps(floor, state);
     processTurn(state);
   } else if (state === gameState) {
@@ -7520,6 +8739,50 @@ function renderDungeonCanvas() {
         ctx.fill();
       }
     }
+  }
+
+  // Draw Visible Ground Pickups (floor.objects with objectType === 'pickup')
+  const floorObjs = floor.objects || [];
+  for (let i = 0; i < floorObjs.length; i++) {
+    const o = floorObjs[i];
+    if (!o || o.objectType !== 'pickup' || !o.components || !o.components.pickup) continue;
+    const it = o.components.pickup.item;
+    if (!it) continue;
+
+    const vx = o.x - camX;
+    const vy = o.y - camY;
+    if (vx < 0 || vx >= VIEWPORT_WIDTH || vy < 0 || vy >= VIEWPORT_HEIGHT) continue;
+    if (!isTileVisibleNow(floor, hx, hy, vision, o.x, o.y)) continue;
+
+    const ox = vx * TILE_SIZE;
+    const oy = vy * TILE_SIZE;
+
+    // Glowing drop aura
+    const rKey = it.rarity || 'common';
+    const rDef = RARITY[rKey];
+    const rColor = (rDef && rDef.color) || '#94a3b8';
+
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
+    ctx.beginPath();
+    if (typeof ctx.ellipse === 'function') {
+      ctx.ellipse(ox + 16, oy + 24, 9, 4, 0, 0, Math.PI * 2);
+    } else {
+      ctx.arc(ox + 16, oy + 24, 6, 0, Math.PI * 2);
+    }
+    ctx.fill();
+
+    ctx.strokeStyle = rColor;
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.arc(ox + 16, oy + 16, 11, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // Upfront item type icon
+    const icon = getItemTypeIcon(it) || '📦';
+    ctx.font = '13px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(icon, ox + 16, oy + 16);
   }
 
   // Draw Visible Monsters inside Camera Frustum
@@ -10865,6 +12128,9 @@ function setupInputs() {
 
 
 
+
+
+
 function evaluateSelfTests() {
   const results = [];
 
@@ -12153,6 +13419,140 @@ function evaluateSelfTests() {
       : `Failed checks: ${failedKeys26.join(', ')}`
   });
 
+  // 27. Foundational Game Object Model, Interaction Pipeline & Ground Pickups
+  const sandbox27 = createDefaultGameState();
+  selectAdventurerClass('fighter', sandbox27);
+  sandbox27.inGuild = false;
+  const f27 = ensureDungeonFloorHydrated(sandbox27.dungeon, 1);
+  sandbox27.hero.x = 8;
+  sandbox27.hero.y = 8;
+
+  // A. Definition vs Instance Separation & Stable IDs
+  const hasKeyDef = hasObjectDefinition('key_iron_common');
+  const hasChestDef = hasObjectDefinition('container_vault_chest');
+  const chestInst = createWorldObjectInstance('container_vault_chest', { x: 9, y: 8 });
+  const chestInstValid = chestInst.instanceId &&
+    chestInst.definitionId === 'container_vault_chest' &&
+    chestInst.objectType === 'container' &&
+    chestInst.revision === 1 &&
+    chestInst.runtimeState &&
+    chestInst.runtimeState.mechanical === 'closed';
+
+  // B. Spatial Floor Object Index (add, query, find, remove)
+  ensureFloorObjects(f27);
+  addWorldObject(f27, chestInst);
+  const queriedChest = getObjectsAt(f27, 9, 8);
+  const foundById = findObjectById(f27, chestInst.instanceId);
+  const spatialIndexValid = queriedChest.length >= 1 &&
+    queriedChest[0].instanceId === chestInst.instanceId &&
+    foundById && foundById.instanceId === chestInst.instanceId;
+
+  // C. ItemStack Stacking Engine (stackable keys vs unstackable unique weapons)
+  const key1 = createItemInstance('key_iron_common', { quantity: 2 });
+  const key2 = createItemInstance('key_iron_common', { quantity: 3 });
+  const sword1 = createItemInstance({ id: 'broadsword', name: 'Broadsword', slot: 'weapon', atk: 8, affixes: ['sharp'] });
+  const sword2 = createItemInstance({ id: 'broadsword', name: 'Broadsword', slot: 'weapon', atk: 8, affixes: ['heavy'] });
+
+  const keysCanStack = canItemsStack(key1, key2);
+  const swordsCannotStack = !canItemsStack(sword1, sword2);
+  const mergedAmount = mergeItemStacks(key1, key2, 10);
+  const keysMergedValid = keysCanStack && swordsCannotStack && mergedAmount === 3 && key1.quantity === 5 && key2.quantity === 0;
+
+  const splitKey = splitItemStack(key1, 2);
+  const keysSplitValid = splitKey && splitKey.quantity === 2 && key1.quantity === 3;
+
+  // D. Unified Interaction Pipeline (Requirements, Costs & State Transitions)
+  const lockedChest = createWorldObjectInstance('container_vault_chest', {
+    x: 8,
+    y: 9,
+    runtimeState: { mechanical: 'closed', security: 'locked' },
+    components: {
+      interactable: {
+        actions: {
+          unlock_and_open: {
+            id: 'unlock_and_open',
+            requirements: { type: 'hasItemTag', tag: 'key.common_iron' },
+            costs: { consumeItemTag: 'key.common_iron' },
+            effects: [
+              { type: 'changeState', axis: 'security', value: 'unlocked' },
+              { type: 'changeState', axis: 'mechanical', value: 'open' }
+            ]
+          }
+        }
+      }
+    }
+  });
+  addWorldObject(f27, lockedChest);
+
+  // Attempt interaction without key -> fails requirements
+  sandbox27.hero.expeditionPack = [];
+  const reqNoKey = createInteractionRequest('hero', lockedChest.instanceId, 'unlock_and_open');
+  const resNoKey = executeInteraction(reqNoKey, sandbox27);
+  const requirementBlocked = !resNoKey.ok && lockedChest.revision === 1 && lockedChest.runtimeState.security === 'locked';
+
+  // Give hero the key -> passes requirements, deducts cost, updates state & bumps revision
+  sandbox27.hero.expeditionPack = [key1];
+  const prevKeyQty = key1.quantity;
+  const resWithKey = executeInteraction(reqNoKey, sandbox27);
+  const interactionSuccess = resWithKey.ok &&
+    lockedChest.revision === 2 &&
+    lockedChest.runtimeState.security === 'unlocked' &&
+    lockedChest.runtimeState.mechanical === 'open' &&
+    key1.quantity === prevKeyQty - 1;
+
+  // E. Physical World Item Pickups (drop in dungeon & pickup from floor)
+  const testArmor = { uid: 'test_drop_armor', name: 'Stalwart Breastplate', slot: 'armor', rarity: 'rare', def: 12 };
+  sandbox27.hero.expeditionGear = [testArmor];
+  const dropRes = dropItem('test_drop_armor', true, sandbox27);
+  const pickupOnFloor = getObjectsAt(f27, sandbox27.hero.x, sandbox27.hero.y, o => o.objectType === 'pickup');
+  const dropCreatedPickup = dropRes.ok &&
+    pickupOnFloor.length === 1 &&
+    pickupOnFloor[0].components.pickup &&
+    pickupOnFloor[0].components.pickup.item.name === 'Stalwart Breastplate';
+
+  const pickupCount = pickupGroundObjectsAt(sandbox27.hero.x, sandbox27.hero.y, sandbox27);
+  const pickupResolved = pickupCount === 1 &&
+    sandbox27.hero.expeditionGear.some(g => g.name === 'Stalwart Breastplate') &&
+    getObjectsAt(f27, sandbox27.hero.x, sandbox27.hero.y, o => o.objectType === 'pickup').length === 0;
+
+  // F. Backward-Compatible Legacy Floor Object Auto-Migration
+  const mockLegacyFloor = {
+    width: 20,
+    height: 20,
+    tiles: [
+      [TILE_WALL, TILE_FLOOR],
+      [TILE_CHEST, TILE_SHRINE]
+    ],
+    objects: []
+  };
+  const hydratedObjs = hydrateLegacyFloorObjects(mockLegacyFloor);
+  const legacyMigrated = hydratedObjs.length === 2 &&
+    hydratedObjs.some(o => o.objectType === 'container' && o.x === 0 && o.y === 1) &&
+    hydratedObjs.some(o => o.objectType === 'device' && o.x === 1 && o.y === 1);
+
+  const t27Checks = {
+    hasKeyDef: !!hasKeyDef,
+    hasChestDef: !!hasChestDef,
+    chestInstValid: !!chestInstValid,
+    spatialIndexValid: !!spatialIndexValid,
+    keysMergedValid: !!keysMergedValid,
+    keysSplitValid: !!keysSplitValid,
+    requirementBlocked: !!requirementBlocked,
+    interactionSuccess: !!interactionSuccess,
+    dropCreatedPickup: !!dropCreatedPickup,
+    pickupResolved: !!pickupResolved,
+    legacyMigrated: !!legacyMigrated
+  };
+  const failedKeys27 = Object.keys(t27Checks).filter(k => !t27Checks[k]);
+  const t27Pass = failedKeys27.length === 0;
+  results.push({
+    name: '27. Foundational Game Object Model, Interaction Pipeline & Ground Pickups',
+    pass: t27Pass,
+    detail: failedKeys27.length === 0
+      ? 'ObjectDefinition & RuntimeObject contracts verified, spatial floor index verified, ItemStack stacking engine verified, requirement & cost interaction pipeline verified, physical ground pickups verified, legacy floor hydration verified'
+      : `Failed checks: ${failedKeys27.join(', ')}`
+  });
+
   return results;
 }
 
@@ -12163,7 +13563,7 @@ function runSelfTests(renderModal = false) {
   if (typeof document !== 'undefined') {
     const btnText = document.getElementById('verifyBtnText');
     if (btnText) {
-      btnText.textContent = `Verify Inc-7.2 (${passCount}/${results.length} PASS)`;
+      btnText.textContent = `Verify Inc-8.0 (${passCount}/${results.length} PASS)`;
     }
 
     if (renderModal) {
@@ -12306,6 +13706,9 @@ function runChaosFuzzer(seedCount = 25) {
 
 
 
+
+
+
 // Bind UI callbacks into engine actions & combat
 registerActionCallbacks({
   log: logChronicle,
@@ -12383,6 +13786,21 @@ const AethelgardAPI = {
   equipItem,
   unequipItem,
   dropItem,
+  pickupGroundObjectsAt,
+  createWorldObjectInstance,
+  createItemInstance,
+  createWorldItemPickupInstance,
+  getObjectsAt,
+  addWorldObject,
+  removeWorldObject,
+  canItemsStack,
+  mergeItemStacks,
+  splitItemStack,
+  createInteractionRequest,
+  executeInteraction,
+  evaluateRequirement,
+  getObjectDefinition,
+  registerObjectDefinition,
   autoEquipBestGear,
   toggleItemLock,
   purchaseResearchRank,

@@ -17,6 +17,7 @@ import {
 } from '../data/dungeons.js';
 import { hashSeedString } from './rng.js';
 import { packFloorForStorage, hydrateFloorFromStorage } from './compression.js';
+import { hydrateLegacyFloorObjects } from './objects.js';
 
 let itemSeq = 1000;
 
@@ -136,7 +137,11 @@ export function createDefaultDungeonsRegistry() {
 export function ensureDungeonFloorHydrated(dungeonObj, depth) {
   if (!dungeonObj || !dungeonObj.floors || !dungeonObj.floors[depth]) return null;
   dungeonObj.floors[depth] = hydrateFloorFromStorage(dungeonObj.floors[depth]);
-  return dungeonObj.floors[depth];
+  const fl = dungeonObj.floors[depth];
+  if (fl) {
+    hydrateLegacyFloorObjects(fl);
+  }
+  return fl;
 }
 
 export function syncActiveDungeonAlias(state) {

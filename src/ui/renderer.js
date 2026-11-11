@@ -14,10 +14,12 @@ import {
   TILE_SHRINE,
   TILE_SHRINE_USED,
   TILE_TRAP_VISIBLE,
-  TILE_TRAP_DISARMED
+  TILE_TRAP_DISARMED,
+  RARITY
 } from '../constants.js';
 import { CLASSES } from '../data/classes.js';
 import { ORE_CATALOG } from '../data/ores.js';
+import { getItemTypeIcon } from '../data/items.js';
 import { SHRINE_CATALOG, TRAP_CATALOG } from '../data/gems.js';
 import { BIOME_PALETTES, resolveFloorBiome } from '../data/dungeons.js';
 import { gameState, ensureDungeonFloorHydrated } from '../engine/state.js';
@@ -1569,6 +1571,50 @@ export function renderDungeonCanvas() {
         ctx.fill();
       }
     }
+  }
+
+  // Draw Visible Ground Pickups (floor.objects with objectType === 'pickup')
+  const floorObjs = floor.objects || [];
+  for (let i = 0; i < floorObjs.length; i++) {
+    const o = floorObjs[i];
+    if (!o || o.objectType !== 'pickup' || !o.components || !o.components.pickup) continue;
+    const it = o.components.pickup.item;
+    if (!it) continue;
+
+    const vx = o.x - camX;
+    const vy = o.y - camY;
+    if (vx < 0 || vx >= VIEWPORT_WIDTH || vy < 0 || vy >= VIEWPORT_HEIGHT) continue;
+    if (!isTileVisibleNow(floor, hx, hy, vision, o.x, o.y)) continue;
+
+    const ox = vx * TILE_SIZE;
+    const oy = vy * TILE_SIZE;
+
+    // Glowing drop aura
+    const rKey = it.rarity || 'common';
+    const rDef = RARITY[rKey];
+    const rColor = (rDef && rDef.color) || '#94a3b8';
+
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
+    ctx.beginPath();
+    if (typeof ctx.ellipse === 'function') {
+      ctx.ellipse(ox + 16, oy + 24, 9, 4, 0, 0, Math.PI * 2);
+    } else {
+      ctx.arc(ox + 16, oy + 24, 6, 0, Math.PI * 2);
+    }
+    ctx.fill();
+
+    ctx.strokeStyle = rColor;
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.arc(ox + 16, oy + 16, 11, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // Upfront item type icon
+    const icon = getItemTypeIcon(it) || '📦';
+    ctx.font = '13px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(icon, ox + 16, oy + 16);
   }
 
   // Draw Visible Monsters inside Camera Frustum

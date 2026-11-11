@@ -1,7 +1,7 @@
 # Technical Architecture & Schema Contracts
 
 - **Entrypoint**: `index.html` + `src/main.js` (with `dist/bundle.js` fallback for `file://` & headless CLI verification)
-- **Current Release Baseline**: `v0.7.2-tactical` (`26/26` automated self-tests passing)
+- **Current Release Baseline**: `v0.8.0-objects` (`27/27` automated self-tests passing)
 - **Current Schema Version**: `v0.5.0-inc5` (Schema v6)
 - **LocalStorage Key**: `aethelgard_save_v6` (with automatic migration from `aethelgard_save`, `aethelgard_save_v2`, `aethelgard_save_v3`, `aethelgard_save_v4`, and `aethelgard_save_v5`)
 - **Architecture Decision Records**: See `docs/adr/README.md` (`ADR-0001` through `ADR-0011`)
@@ -10,7 +10,7 @@
 
 ## 1. Modular ES6 Layout & Dual Bootloader (`ADR-0001`)
 
-The codebase is organized into 26 ES6 modules under `src/` with zero external npm dependencies:
+The codebase is organized into 29 ES6 modules under `src/` with zero external npm dependencies:
 
 - **`src/constants.js`**: `SCHEMA_VERSION`, `STORAGE_KEY`, viewport constants (`VIEWPORT_WIDTH = 21`, `VIEWPORT_HEIGHT = 15`, `TILE_SIZE = 32`), default map dimensions (`DEFAULT_MAP_W = 80`, `DEFAULT_MAP_H = 60`), Tile IDs, Rarity multipliers, `CODEX_MASTERY_KILLS = 5`, and `CODEX_MASTERY_DMG_MULT = 1.08`.
 - **`src/data/`** *(Pure static registries — zero imports from `engine/` or `ui/`)*:

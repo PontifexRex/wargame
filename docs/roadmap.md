@@ -225,6 +225,27 @@ Delivered responsive combat feedback, tactical skill previews, threat telegraphs
   - Added Sandboxed **Test 26** in `src/test/selfTest.js` verifying pure non-destructive skill targeting preview across classes, zero-MP validation block, status & threat telegraphs, chronicle category auto-inference, consecutive grouping, and filter switching.
   - Expanded automated verification suite to **26/26 PASS** + Headless UI Smoke Suite.
 
+v0.8.0-objects - Increment 8.0: Foundational Game Object Model, Interaction Pipeline & Ground Pickups
+
+Delivered the foundational game object architecture, unified interaction pipeline, item stacking, and physical ground pickups:
+- **Object Definition & Runtime Instance Architecture (`src/data/definitions.js`, `src/engine/objects.js`)**:
+  - Strict separation between immutable authored templates (`ObjectDefinition`, `ItemDefinition`, `WorldObjectDefinition`) and mutable runtime instances (`RuntimeObject`, `ItemInstance`, `WorldObjectInstance`, `WorldItemPickupInstance`).
+  - Extensible component and capability model (`Interactable`, `Usable`, `Equippable`, `Traversable`, `Damageable`, `Destructible`, `Lockable`, `Container`, `TrapBearing`, `Discoverable`, `Permeable`).
+  - Spatial floor object layer (`floor.objects` with `getObjectsAt(floor, x, y)`, `addWorldObject`, `removeWorldObject`) decoupling interactive entities from raw scalar terrain tiles.
+  - Full RLE and JSON save persistence integration (`compression.js`) with lossless packing and automatic legacy floor object hydration (`hydrateLegacyFloorObjects`).
+- **Unified Interaction Pipeline (`src/engine/interactions.js`)**:
+  - Standardized `InteractionRequest` -> composable boolean `Requirement` evaluation (`AND`, `OR`, `NOT`, `hasItemTag`, `hasItemDef`, `minStat`, `minSkill`, `requiredClass`, `objectState`) -> separated `Cost` deduction -> atomic `Effect` runner -> `InteractionResult`.
+  - Decoupled domain event emission (`ENGINE_EVENTS.OBJECT_INTERACTION`, `OBJECT_STATE_CHANGED`, `ITEM_PICKED_UP`, `ITEM_DROPPED`).
+- **ItemStack Stacking Engine**:
+  - Smart stack compatibility (`canItemsStack`, `mergeItemStacks`, `splitItemStack`) allowing consumables, keys, and materials to stack cleanly while strictly preserving unique instance identity for rolled/socketed equipment.
+- **Physical Ground Pickups & In-Dungeon Dropping/Gathering**:
+  - Dropping an item in a dungeon (`dropItem`) creates a physical `WorldItemPickupInstance` on the dungeon floor.
+  - Stepping onto a tile with ground loot automatically collects it into inventory (`pickupGroundObjectsAt`), respecting stacking rules and triggering audio/floating text.
+  - Rendered on the 2D tactical canvas with drop-shadow, rarity glow ring, and upfront item type icon (`getItemTypeIcon`).
+- **Verification Gate**:
+  - Added Sandboxed **Test 27** in `src/test/selfTest.js` verifying definition/instance separation, spatial floor indexing, item stacking/splitting, requirement/cost execution pipeline, physical pickup creation/resolution, and legacy floor auto-migration.
+  - Expanded automated verification suite to **27/27 PASS** + Headless UI Smoke Suite.
+
 ---
 
 ## 2. Long-Term Game Vision & Strategic Pillars
@@ -259,19 +280,6 @@ Delivered responsive combat feedback, tactical skill previews, threat telegraphs
 ## 3. Upcoming Increment Roadmap (`v0.8.x` – `v1.0.x+`)
 
 ### Track A: Foundational Game Object, Item, Door & Portal Architecture (`v0.8.x` Series — `ADR-0010`)
-
-#### Increment 8.0 (`v0.8.0-objects`) — Foundational Object Model, Interaction Pipeline & Item/Pickup Unification (Phases 0–2)
-- **Object & Runtime Foundation (`src/engine/objects.js`, `src/data/definitions.js`)**:
-  - Strict separation between immutable `ObjectDefinition` (`ItemDefinition`, `WorldObjectDefinition`) and mutable `RuntimeObject` (`ItemInstance`, `WorldObjectInstance`, `WorldItemPickupInstance`).
-  - Component & Capability registry (`Interactable`, `Usable`, `Equippable`, `Traversable`, `Damageable`, `Destructible`, `Lockable`, `Container`, `TrapBearing`, `Discoverable`, `Permeable`).
-  - Spatial floor object layer (`floor.objects` with `getObjectsAt(floor, x, y)`) decoupling interactive entities from scalar terrain tiles (`floor.tiles[y][x]`).
-- **Unified Interaction Engine (`src/engine/interactions.js`)**:
-  - Standardized `InteractionRequest` -> boolean `Requirement` evaluator (`AND`/`OR` over item tags, stats, skills, class, state) -> separated `Cost` processor -> atomic `Effect` runner -> `InteractionResult` & domain events.
-- **Item Stacking, Keys & World Pickups**:
-  - `ItemStack` compatibility engine (stacking consumables, materials, and keys while keeping unique rolled equipment distinct).
-  - `KeyDefinition` & credential capability (`keyTag`, `securityLevel`, reusable vs. consumable keys).
-  - `WorldItemPickupInstance`: Dropping or spawning items in the dungeon creates physical ground pickups on the floor that can be inspected and picked up.
-  - Migrate existing Chests (`ContainerInstance`), Shrines (`DeviceInstance`), and Traps (`MechanismInstance`) onto the unified `WorldObjectInstance` layer while maintaining 100% backward save compatibility.
 
 #### Increment 8.1 (`v0.8.1-doors`) — Multi-State Door System, Permeability & Lock-and-Key Generation (Phases 3–4)
 - **Physical & Magical Door Types (`DoorDefinition` / `DoorInstance`)**:
