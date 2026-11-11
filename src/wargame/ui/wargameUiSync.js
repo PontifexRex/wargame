@@ -22,6 +22,15 @@ import {
 } from '../engine/state.js';
 import { getFormattedTasksList } from '../engine/taskEngine.js';
 
+function setHtmlIfChanged(el, newHtml) {
+  if (!el) return;
+  if (!el.dataset) el.dataset = {};
+  if (el.dataset.renderedHtml !== newHtml) {
+    el.innerHTML = newHtml;
+    el.dataset.renderedHtml = newHtml;
+  }
+}
+
 export function formatSimDuration(ms) {
   const totalSec = Math.max(0, Math.ceil(ms / 1000));
   const mins = Math.floor(totalSec / 60);
@@ -37,6 +46,27 @@ export function formatWorldClock(simTimeMs) {
   const day = Math.floor(totalSec / 60) + 1;
   const secInDay = totalSec % 60;
   return 'Day ' + day + ' • ' + (secInDay < 10 ? '0' + secInDay : secInDay) + 's';
+}
+
+export function updateHeaderFastTick(simHost) {
+  if (typeof document === 'undefined' || !simHost || !simHost.state || !simHost.state.world) return;
+  const world = simHost.state.world;
+  const clock = world.clock || { simTimeMs: 0, paused: false };
+
+  const clockTextEl = document.getElementById('wgHeaderClockText');
+  if (clockTextEl) {
+    clockTextEl.textContent = formatWorldClock(clock.simTimeMs) + (clock.paused ? ' [PAUSED]' : '');
+  }
+
+  const stock = getEffectiveStockpile(simHost.state);
+  const resWoodEl  = document.getElementById('wgStockWood');
+  const resStoneEl = document.getElementById('wgStockStone');
+  const resFoodEl  = document.getElementById('wgStockFood');
+  const resGoldEl  = document.getElementById('wgStockGold');
+  if (resWoodEl && resWoodEl.textContent != String(stock.wood || 0))   resWoodEl.textContent  = stock.wood  || 0;
+  if (resStoneEl && resStoneEl.textContent != String(stock.stone || 0)) resStoneEl.textContent = stock.stone || 0;
+  if (resFoodEl && resFoodEl.textContent != String(stock.food || 0))   resFoodEl.textContent  = stock.food  || 0;
+  if (resGoldEl && resGoldEl.textContent != String(stock.gold || 0))   resGoldEl.textContent  = stock.gold  || 0;
 }
 
 export function syncWargameUI(simHost) {
@@ -199,18 +229,19 @@ export function renderLeftCommandSidebar(simHost) {
   const selUnit = getSelectedOverworldUnit(state);
   const unitCardEl = document.getElementById('wgSelectedUnitCard');
   if (unitCardEl) {
+    let newHtml = '';
     if (!selUnit || !selUnit.alive) {
       const hasCity = Object.keys(world.cities || {}).length > 0;
       if (!hasCity) {
-        unitCardEl.innerHTML = `
+        newHtml = `
           <div class="p-3 rounded bg-[#450a0a]/40 border border-[#f87171]/50 space-y-2">
             <div class="text-xs font-bold text-[#f87171]">Pioneer Settler Lost</div>
             <p class="text-[11px] text-[#e6edf3]">Your initial pioneer column was lost before founding a city. Call forth a new settler column at the safe starting vale.</p>
-            <button onclick="window.WargameApp.handleRespawnSettler()" class="w-full py-1.5 rounded bg-[#fbbf24] text-[#080b11] font-bold text-xs uppercase">🚩 Respawn Pioneer Settler</button>
+            <button data-action="respawn-settler" onclick="window.WargameApp.handleRespawnSettler()" class="w-full py-1.5 rounded bg-[#fbbf24] hover:bg-[#f59e0b] text-[#080b11] font-bold text-xs uppercase cursor-pointer">🚩 Respawn Pioneer Settler</button>
           </div>
         `;
       } else {
-        unitCardEl.innerHTML = `
+        newHtml = `
           <div class="p-3 rounded bg-[#080b11] border border-[#283347] text-xs text-[#8b949e]">
             <div class="font-bold text-[#fbbf24] mb-1">🏰 Pioneer Settler Settled</div>
             <p class="text-[11px]">Your Pioneer Settler founded your primary Bastion. Construct the <strong>Adventurers Guild Hall</strong> in your city to recruit Hero Parties for Overworld exploration and dungeon delving!</p>
@@ -232,7 +263,7 @@ export function renderLeftCommandSidebar(simHost) {
               <span class="text-[#fbbf24]">${remSteps} tiles left</span>
             </div>
             <div class="text-[10px] text-[#8b949e] font-mono">Next tile in ${formatSimDuration(stepRemMs)}</div>
-            <button onclick="window.WargameApp.handleCancelMarch()" class="w-full mt-1 py-1 rounded bg-[#1a2232] hover:bg-[#f87171]/20 text-[#f87171] border border-[#f87171]/40 text-[10px] font-mono font-bold">✕ Halt March</button>
+            <button data-action="cancel-march" onclick="window.WargameApp.handleCancelMarch()" class="w-full mt-1 py-1 rounded bg-[#1a2232] hover:bg-[#f87171]/20 text-[#f87171] border border-[#f87171]/40 text-[10px] font-mono font-bold cursor-pointer">✕ Halt March</button>
           </div>
         `;
       } else {
@@ -241,7 +272,7 @@ export function renderLeftCommandSidebar(simHost) {
         `;
       }
 
-      unitCardEl.innerHTML = `
+      newHtml = `
         <div class="space-y-2.5">
           <div class="flex items-center justify-between">
             <div class="flex items-center gap-2">
@@ -255,13 +286,15 @@ export function renderLeftCommandSidebar(simHost) {
           </div>
           ${marchHtml}
           ${selUnit.canFoundCity ? `
-            <button onclick="window.WargameApp.handleFoundCity()" ${!canFoundHere ? 'disabled' : ''} class="w-full py-2 rounded-lg font-bold text-xs uppercase tracking-wider shadow ${canFoundHere ? 'bg-[#fbbf24] hover:bg-[#f59e0b] text-[#080b11] cursor-pointer' : 'bg-[#1a2232] text-[#64748b] cursor-not-allowed'}">
+            <button data-action="found-city" onclick="window.WargameApp.handleFoundCity()" ${!canFoundHere ? 'disabled' : ''} class="w-full py-2 rounded-lg font-bold text-xs uppercase tracking-wider shadow ${canFoundHere ? 'bg-[#fbbf24] hover:bg-[#f59e0b] text-[#080b11] cursor-pointer' : 'bg-[#1a2232] text-[#64748b] cursor-not-allowed'}">
               🏰 Found Bastion City Here
             </button>
           ` : ''}
         </div>
       `;
     }
+
+    setHtmlIfChanged(unitCardEl, newHtml);
   }
 
   // B. Active Timed Queues Summary (Construction & Marching)
@@ -324,23 +357,25 @@ export function renderLeftCommandSidebar(simHost) {
       }
     }
 
-    queuesListEl.innerHTML = itemsHtml.length > 0
+    const newQueuesHtml = itemsHtml.length > 0
       ? itemsHtml.join('')
       : `<div class="text-[11px] text-[#8b949e] italic py-1">No active marches or construction timers.</div>`;
+    setHtmlIfChanged(queuesListEl, newQueuesHtml);
   }
 
   // C. Recruited Heroes & Parties Roster (Only visible/populated once Guild Hall exists)
   const heroesListEl = document.getElementById('wgHeroesRosterList');
   if (heroesListEl) {
     const heroes = world.heroes || [];
+    let newHeroesHtml = '';
     if (heroes.length === 0) {
-      heroesListEl.innerHTML = `
+      newHeroesHtml = `
         <div class="text-[11px] text-[#8b949e] italic py-1">
           No Dungeon Heroes recruited yet. Found a city and construct the <strong>Adventurers Guild Hall</strong> to recruit your first Hero!
         </div>
       `;
     } else {
-      heroesListEl.innerHTML = heroes.map(function(h) {
+      newHeroesHtml = heroes.map(function(h) {
         return `
           <div class="p-2 rounded bg-[#080b11] border border-[#283347] flex items-center justify-between text-xs">
             <div class="flex items-center gap-2">
@@ -350,11 +385,12 @@ export function renderLeftCommandSidebar(simHost) {
                 <div class="text-[10px] font-mono text-[#8b949e]">Lv ${h.level} ${h.className} • HP ${h.stats.hp} • ATK ${h.stats.atk}</div>
               </div>
             </div>
-            <button onclick="window.WargameApp.handleSelectPartyByHero('${h.id}')" class="px-2 py-1 rounded bg-[#1a2232] hover:bg-[#283347] text-[#60a5fa] text-[10px] font-mono font-bold">Select Party</button>
+            <button data-action="select-party" data-hero-id="${h.id}" onclick="window.WargameApp.handleSelectPartyByHero('${h.id}')" class="px-2 py-1 rounded bg-[#1a2232] hover:bg-[#283347] text-[#60a5fa] text-[10px] font-mono font-bold cursor-pointer">Select Party</button>
           </div>
         `;
       }).join('');
     }
+    setHtmlIfChanged(heroesListEl, newHeroesHtml);
   }
 }
 
@@ -399,7 +435,7 @@ export function renderCityBuilderPanel(simHost) {
   if (titleEl) titleEl.textContent = city.name + ' — Bastion Construction Grid';
 
   const plots = city.plots || [];
-  gridEl.innerHTML = plots.map(function(plot) {
+  const newPlotsHtml = plots.map(function(plot) {
     const slotMeta = CITY_PLOT_SLOTS[plot.plotIndex] || { label: 'City Plot' };
     const bId = plot.buildingId || slotMeta.recommended;
     const bDef = CITY_BUILDINGS_CATALOG[bId];
@@ -440,13 +476,15 @@ export function renderCityBuilderPanel(simHost) {
             <span>Cost: ${cost.wood}W • ${cost.stone}S${cost.gold ? (' • ' + cost.gold + 'G') : ''}</span>
             <span class="text-[#38bdf8]">⏱ ${formatSimDuration(durMs)}</span>
           </div>
-          <button onclick="window.WargameApp.handleQueueBuilding(${plot.plotIndex}, '${bId}')" class="w-full py-1.5 rounded bg-[#fbbf24] hover:bg-[#f59e0b] text-[#080b11] font-bold text-xs uppercase btn-tactical">
+          <button data-action="queue-building" data-plot-index="${plot.plotIndex}" data-building-id="${bId}" onclick="window.WargameApp.handleQueueBuilding(${plot.plotIndex}, '${bId}')" class="w-full py-1.5 rounded bg-[#fbbf24] hover:bg-[#f59e0b] text-[#080b11] font-bold text-xs uppercase btn-tactical cursor-pointer">
             ${curLevel > 0 ? ('▲ Upgrade to Lv ' + nextLevel) : ('🔨 Construct ' + bDef.name)}
           </button>
         </div>
       </div>
     `;
   }).join('');
+
+  setHtmlIfChanged(gridEl, newPlotsHtml);
 }
 
 export function renderGuildRecruitmentPanel(simHost) {
@@ -455,7 +493,7 @@ export function renderGuildRecruitmentPanel(simHost) {
   const gridEl = document.getElementById('wgGuildClassesGrid');
   if (!city || !gridEl) return;
 
-  gridEl.innerHTML = RECRUITABLE_HERO_CLASSES.map(function(cls) {
+  const newGuildHtml = RECRUITABLE_HERO_CLASSES.map(function(cls) {
     const canAfford = (city.stockpile.gold || 0) >= cls.costGold && (city.stockpile.food || 0) >= cls.costFood;
     return `
       <div class="p-3.5 rounded-lg bg-[#080b11] border border-[#283347] flex flex-col justify-between gap-3">
@@ -474,13 +512,15 @@ export function renderGuildRecruitmentPanel(simHost) {
         </div>
         <div class="space-y-1.5 pt-2 border-t border-[#1e293b]">
           <div class="text-[11px] font-mono text-[#fbbf24]">Oath Cost: <strong>${cls.costGold} Gold</strong> • <strong>${cls.costFood} Food</strong></div>
-          <button onclick="window.WargameApp.handleRecruitHero('${cls.classId}')" ${!canAfford ? 'disabled' : ''} class="w-full py-1.5 rounded font-bold text-xs uppercase ${canAfford ? 'bg-[#60a5fa] hover:bg-[#3b82f6] text-[#080b11] cursor-pointer' : 'bg-[#1a2232] text-[#64748b] cursor-not-allowed'}">
+          <button data-action="recruit-hero" data-class-id="${cls.classId}" onclick="window.WargameApp.handleRecruitHero('${cls.classId}')" ${!canAfford ? 'disabled' : ''} class="w-full py-1.5 rounded font-bold text-xs uppercase ${canAfford ? 'bg-[#60a5fa] hover:bg-[#3b82f6] text-[#080b11] cursor-pointer' : 'bg-[#1a2232] text-[#64748b] cursor-not-allowed'}">
             ⚔️ Swear In ${cls.name}
           </button>
         </div>
       </div>
     `;
   }).join('');
+
+  setHtmlIfChanged(gridEl, newGuildHtml);
 }
 
 export function renderRightTasksAndStreamSidebar(simHost) {
@@ -490,7 +530,7 @@ export function renderRightTasksAndStreamSidebar(simHost) {
   const tasksEl = document.getElementById('wgGuidedTasksList');
   if (tasksEl) {
     const tasks = getFormattedTasksList(state);
-    tasksEl.innerHTML = tasks.map(function(t) {
+    const newTasksHtml = tasks.map(function(t) {
       if (t.status === 'locked') {
         return `
           <div class="p-2.5 rounded bg-[#080b11]/60 border border-[#1e293b] opacity-55 text-xs">
@@ -519,7 +559,7 @@ export function renderRightTasksAndStreamSidebar(simHost) {
           <div class="flex items-center justify-between pt-1">
             <span class="text-[10px] font-mono text-[#fbbf24]">Reward: ${t.rewardLabel}</span>
             ${t.readyToClaim ? `
-              <button onclick="window.WargameApp.handleClaimTask('${t.id}')" class="px-2.5 py-1 rounded bg-[#34d399] hover:bg-[#10b981] text-[#080b11] font-bold text-[10px] uppercase animate-pulse">
+              <button data-action="claim-task" data-task-id="${t.id}" onclick="window.WargameApp.handleClaimTask('${t.id}')" class="px-2.5 py-1 rounded bg-[#34d399] hover:bg-[#10b981] text-[#080b11] font-bold text-[10px] uppercase animate-pulse cursor-pointer">
                 ✨ Claim Reward
               </button>
             ` : ''}
@@ -527,13 +567,15 @@ export function renderRightTasksAndStreamSidebar(simHost) {
         </div>
       `;
     }).join('');
+
+    setHtmlIfChanged(tasksEl, newTasksHtml);
   }
 
   // 2. Live Streaming Event Log
   const streamEl = document.getElementById('wgEventStreamFeed');
   if (streamEl && simHost.eventStream) {
     const events = simHost.eventStream.getRecentEvents(30);
-    streamEl.innerHTML = events.slice().reverse().map(function(ev) {
+    const newStreamHtml = events.slice().reverse().map(function(ev) {
       return `
         <div class="py-1 border-b border-[#1a2232]/60 text-[11px] font-mono">
           <span class="text-[#64748b]">[#${ev.seqId}]</span>
@@ -542,6 +584,8 @@ export function renderRightTasksAndStreamSidebar(simHost) {
         </div>
       `;
     }).join('');
+
+    setHtmlIfChanged(streamEl, newStreamHtml);
   }
 }
 

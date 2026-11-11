@@ -14,7 +14,7 @@ import {
   setWargameHoverTile,
   getWargameCameraOrigin
 } from './ui/overworldView.js';
-import { syncWargameUI } from './ui/wargameUiSync.js';
+import { syncWargameUI, updateHeaderFastTick } from './ui/wargameUiSync.js';
 import { findOverworldPath, isOverworldTilePassable } from './engine/pathfinding.js';
 import { getSelectedOverworldUnit, getPrimaryCity } from './engine/state.js';
 import { evaluateWargameSelfTests } from './test/wargameSelfTest.js';
@@ -99,10 +99,14 @@ export function handleStepOverworld(dx, dy) {
 export function handleFoundCity() {
   const selUnit = getSelectedOverworldUnit(simHost.state);
   if (!selUnit) return;
-  simHost.dispatch({
+  const res = simHost.dispatch({
     type: COMMAND_TYPES.FOUND_CITY,
     payload: { unitId: selUnit.id, cityName: 'Oakhaven Bastion' }
   });
+  if (res && res.ok) {
+    simHost.state.activeView = WARGAME_VIEWS.CITY;
+  }
+  simHost.state._dirty = true;
   simHost.save();
   syncWargameUI(simHost);
 }
@@ -111,6 +115,8 @@ export function handleRespawnSettler() {
   simHost.dispatch({
     type: COMMAND_TYPES.RESPAWN_SETTLER
   });
+  simHost.state._dirty = true;
+  simHost.save();
   syncWargameUI(simHost);
 }
 
@@ -121,6 +127,8 @@ export function handleCancelMarch() {
     type: COMMAND_TYPES.CANCEL_UNIT_MARCH,
     payload: { unitId: selUnit.id }
   });
+  simHost.state._dirty = true;
+  simHost.save();
   syncWargameUI(simHost);
 }
 
@@ -129,6 +137,7 @@ export function handleQueueBuilding(plotIndex, buildingId) {
     type: COMMAND_TYPES.QUEUE_BUILDING,
     payload: { plotIndex: plotIndex, buildingId: buildingId }
   });
+  simHost.state._dirty = true;
   simHost.save();
   syncWargameUI(simHost);
 }
@@ -138,6 +147,7 @@ export function handleCancelBuilding(queueItemId) {
     type: COMMAND_TYPES.CANCEL_BUILDING,
     payload: { queueItemId: queueItemId }
   });
+  simHost.state._dirty = true;
   simHost.save();
   syncWargameUI(simHost);
 }
@@ -147,6 +157,7 @@ export function handleRecruitHero(classId) {
     type: COMMAND_TYPES.RECRUIT_HERO,
     payload: { classId: classId }
   });
+  simHost.state._dirty = true;
   simHost.save();
   syncWargameUI(simHost);
 }
@@ -156,6 +167,7 @@ export function handleClaimTask(taskId) {
     type: COMMAND_TYPES.CLAIM_TASK_REWARD,
     payload: { taskId: taskId }
   });
+  simHost.state._dirty = true;
   simHost.save();
   syncWargameUI(simHost);
 }
@@ -167,11 +179,15 @@ export function handleSelectPartyByHero(heroId) {
   if (pUnit) {
     ow.selectedUnitId = pUnit.id;
     simHost.state.activeView = WARGAME_VIEWS.OVERWORLD;
+    simHost.state._dirty = true;
     syncWargameUI(simHost);
   }
 }
 
 export function handleEnterDungeon() {
+  if (simHost && simHost.state && simHost.state.world) {
+    simHost.save();
+  }
   if (typeof window !== 'undefined' && window.location) {
     // Smooth transition into the tactical dungeon engine!
     window.location.href = './index.html';
@@ -244,10 +260,56 @@ function setupWargameListeners() {
           type: COMMAND_TYPES.ORDER_UNIT_MARCH,
           payload: { unitId: selUnit.id, targetX: tx, targetY: ty }
         });
+        simHost.state._dirty = true;
+        simHost.save();
         syncWargameUI(simHost);
       }
     });
   }
+
+  // Delegated Button Click Dispatcher (Guarantees clicks register even across re-renders)
+  document.addEventListener('click', function(e) {
+    if (!e.target) return;
+    const btn = e.target.closest('button[data-action]');
+    if (!btn) return;
+    const action = btn.dataset.action;
+    if (action === 'found-city') {
+      handleFoundCity();
+    } else if (action === 'claim-task') {
+      const taskId = btn.dataset.taskId;
+      if (taskId) handleClaimTask(taskId);
+    } else if (action === 'respawn-settler') {
+      handleRespawnSettler();
+    } else if (action === 'cancel-march') {
+      handleCancelMarch();
+    } else if (action === 'enter-dungeon') {
+      handleEnterDungeon();
+    } else if (action === 'queue-building') {
+      const pIdx = parseInt(btn.dataset.plotIndex, 10);
+      const bId = btn.dataset.buildingId;
+      if (!isNaN(pIdx) && bId) handleQueueBuilding(pIdx, bId);
+    } else if (action === 'recruit-hero') {
+      const cId = btn.dataset.classId;
+      if (cId) handleRecruitHero(cId);
+    } else if (action === 'select-party') {
+      const hId = btn.dataset.heroId;
+      if (hId) handleSelectPartyByHero(hId);
+    } else if (action === 'continue-campaign') {
+      handleContinueCampaignClick();
+    }
+  });
+
+  // Guarantee state preservation when leaving page (navigating to dungeon mode, reload, etc.)
+  window.addEventListener('beforeunload', function() {
+    if (simHost && simHost.state && simHost.state.world) {
+      simHost.save();
+    }
+  });
+  window.addEventListener('pagehide', function() {
+    if (simHost && simHost.state && simHost.state.world) {
+      simHost.save();
+    }
+  });
 
   // Global Keyboard shortcuts
   window.addEventListener('keydown', function(e) {
@@ -281,6 +343,8 @@ function setupWargameListeners() {
 // ---------------------------------------------------------------------------
 // Main Real-Time Simulation Loop
 // ---------------------------------------------------------------------------
+let lastUiSyncRealMs = 0;
+
 function wargameMainLoop(timestamp) {
   if (!lastFrameTimestamp) lastFrameTimestamp = timestamp;
   const elapsedRealMs = Math.min(250, timestamp - lastFrameTimestamp);
@@ -290,7 +354,7 @@ function wargameMainLoop(timestamp) {
     simHost.stepClock(elapsedRealMs);
 
     autoSaveAccumulatorMs += elapsedRealMs;
-    if (autoSaveAccumulatorMs >= 10000) {
+    if (autoSaveAccumulatorMs >= 5000) {
       autoSaveAccumulatorMs = 0;
       simHost.save();
     }
@@ -298,7 +362,14 @@ function wargameMainLoop(timestamp) {
     if (simHost.state.activeView === WARGAME_VIEWS.OVERWORLD) {
       renderWargameOverworldCanvas(simHost);
     }
-    syncWargameUI(simHost);
+    updateHeaderFastTick(simHost);
+
+    // Throttle DOM rebuilds so buttons don't get destroyed mid-click
+    if (simHost.state._dirty || (timestamp - lastUiSyncRealMs >= 400)) {
+      lastUiSyncRealMs = timestamp;
+      simHost.state._dirty = false;
+      syncWargameUI(simHost);
+    }
   }
 
   requestAnimationFrame(wargameMainLoop);

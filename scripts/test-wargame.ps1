@@ -106,6 +106,7 @@ function __makeMockEl(id) {
     width: id === 'wgOverworldCanvas' ? 672 : 200,
     height: id === 'wgOverworldCanvas' ? 480 : 200,
     value: '', textContent: '', innerHTML: '', className: '', style: {}, children: [], firstChild: null,
+    dataset: {},
     appendChild: function(c){ this.children.push(c); this.firstChild = this.children[0]; },
     removeChild: function(){ this.children.shift(); this.firstChild = this.children[0] || null; },
     addEventListener: function(){},
@@ -135,6 +136,7 @@ var localStorage = {
 var document = {
   readyState: 'complete',
   body: __makeMockEl('body'),
+  addEventListener: function(){},
   createElement: function(tag){ var e = __makeMockEl(tag); e.tagName = tag.toUpperCase(); return e; },
   getElementById: function(id){
     if (!__knownIds[id] && __missingRuntimeIds.indexOf(id) === -1) {

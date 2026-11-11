@@ -33,7 +33,7 @@
       <div id="wgContinueCampaignBox" class="hidden p-4 rounded-xl bg-[#111722] border border-[#34d399]/50 flex flex-col items-center gap-2.5">
         <div class="text-xs font-bold text-[#34d399] uppercase tracking-wider">Active Campaign Discovered</div>
         <div id="wgSavedCampaignSummary" class="text-xs font-mono text-[#e6edf3]">House Vanguard • Starfall Frontier</div>
-        <button onclick="window.WargameApp.handleContinueCampaignClick()" class="w-full py-2.5 rounded-lg bg-[#34d399] hover:bg-[#10b981] text-[#080b11] font-bold text-xs uppercase tracking-wider shadow btn-tactical">
+        <button data-action="continue-campaign" onclick="window.WargameApp.handleContinueCampaignClick()" class="w-full py-2.5 rounded-lg bg-[#34d399] hover:bg-[#10b981] text-[#080b11] font-bold text-xs uppercase tracking-wider shadow btn-tactical cursor-pointer">
           ▶ Continue Campaign
         </button>
       </div>
@@ -147,7 +147,7 @@
         <button onclick="window.WargameApp.handleResetToTitle()" class="px-2.5 py-1.5 rounded-md bg-[#1a2232] hover:bg-[#283347] border border-[#283347] text-xs font-medium text-[#8b949e] hover:text-[#e6edf3] btn-tactical">
           Title
         </button>
-        <button onclick="window.WargameApp.handleEnterDungeon()" class="px-3 py-1.5 rounded-md bg-[#f87171]/20 hover:bg-[#f87171]/30 border border-[#f87171]/50 text-xs font-mono font-bold text-[#f87171] btn-tactical">
+        <button data-action="enter-dungeon" onclick="window.WargameApp.handleEnterDungeon()" class="px-3 py-1.5 rounded-md bg-[#f87171]/20 hover:bg-[#f87171]/30 border border-[#f87171]/50 text-xs font-mono font-bold text-[#f87171] btn-tactical cursor-pointer">
           ⚔️ Dungeon Mode
         </button>
       </div>

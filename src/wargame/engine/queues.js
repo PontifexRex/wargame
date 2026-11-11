@@ -8,6 +8,7 @@ import {
 import { CITY_BUILDINGS_CATALOG } from '../data/buildings.js';
 import { revealOverworldVision } from './pathfinding.js';
 import { evaluateTaskDAG } from './taskEngine.js';
+import { saveWargameState } from './state.js';
 
 export function scheduleNextMarchStep(unit, state, scheduler) {
   if (!unit || !unit.marchPlan || !Array.isArray(unit.marchPlan.remainingPath) || unit.marchPlan.remainingPath.length === 0) {
@@ -109,6 +110,8 @@ export function resolveMarchStepJob(job, state, scheduler, eventStream) {
   } else {
     unit.status = 'idle';
     unit.marchPlan = null;
+    state._dirty = true;
+    saveWargameState(state, scheduler);
     if (eventStream) {
       eventStream.publish(STREAM_TOPICS.UNIT_MARCH_COMPLETED, {
         unitId: unit.id,
@@ -119,6 +122,7 @@ export function resolveMarchStepJob(job, state, scheduler, eventStream) {
     }
   }
 
+  state._dirty = true;
   evaluateTaskDAG(state, eventStream);
 }
 
@@ -211,6 +215,8 @@ export function resolveBuildingCompleteJob(job, state, scheduler, eventStream) {
   // Start next queued building in this city if any
   activateNextCityBuildQueueItem(city, state, scheduler);
 
+  state._dirty = true;
+  saveWargameState(state, scheduler);
   evaluateTaskDAG(state, eventStream);
 }
 
