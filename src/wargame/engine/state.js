@@ -98,6 +98,7 @@ export function createDefaultCityPlots() {
       buildingId: slot.defaultBuilding || null,
       level: slot.defaultBuilding ? 1 : 0,
       underConstruction: false,
+      demolishing: false,
       activeJobId: null
     });
   }
@@ -192,6 +193,15 @@ export function loadWargameState(scheduler = null) {
   try {
     const parsed = JSON.parse(raw);
     if (!parsed || !parsed.world) return null;
+    if (parsed.world.cities) {
+      Object.keys(parsed.world.cities).forEach(function(cid) {
+        const c = parsed.world.cities[cid];
+        if (!Array.isArray(c.buildQueue)) c.buildQueue = [];
+        if (!c.maxBuildQueueSlots) c.maxBuildQueueSlots = 3;
+        if (!Array.isArray(c.recruitmentQueue)) c.recruitmentQueue = [];
+        if (!c.maxRecruitQueueSlots) c.maxRecruitQueueSlots = 3;
+      });
+    }
     if (scheduler && Array.isArray(parsed.world.scheduledJobs)) {
       scheduler.hydrateJobs(parsed.world.scheduledJobs);
     }

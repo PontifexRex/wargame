@@ -28,6 +28,11 @@ export const OVERWORLD_TILE_SIZE = 32;
 // Real-Time Simulation Tick Configuration
 export const BASE_TICK_INTERVAL_MS = 100; // 10 simulation ticks per second (100ms resolution)
 export const RESOURCE_PRODUCTION_INTERVAL_MS = 5000; // Resource buildings yield every 5s base time
+export const BASE_HERO_RECRUIT_DURATION_MS = 60000; // 60 seconds real-time hero oath / induction duration
+export const BASE_BUILD_QUEUE_LIMIT = 3; // Maximum construction projects in queue (1 active + 2 pending)
+export const BASE_RECRUIT_QUEUE_LIMIT = 3; // Maximum heroes in recruitment queue (1 active + 2 pending)
+export const DEMOLISH_SALVAGE_RATIO = 0.35; // 35% salvage returned upon demolishing a building
+export const CANCEL_CLEANUP_TIME_RATIO = 0.50; // Cancelling active construction requires 50% of elapsed time for site cleanup
 
 // Structured Streaming Event Topics
 export const STREAM_TOPICS = {
@@ -46,9 +51,12 @@ export const STREAM_TOPICS = {
   CITY_FOUNDED:         'city.founded',
   BUILDING_QUEUED:      'city.buildingQueued',
   BUILDING_CANCELLED:   'city.buildingCancelled',
+  BUILDING_DEMOLISHED:  'city.buildingDemolished',
   BUILDING_COMPLETED:   'city.buildingCompleted',
   RESOURCE_TICK:        'city.resourceTick',
   RESOURCE_HARVESTED:   'overworld.resourceHarvested',
+  HERO_RECRUIT_STARTED: 'guild.heroRecruitStarted',
+  HERO_RECRUIT_CANCEL:  'guild.heroRecruitCancelled',
   HERO_RECRUITED:       'guild.heroRecruited',
   PARTY_FORMED:         'guild.partyFormed',
   DUNGEON_ENTERED:      'dungeon.entered',
@@ -69,7 +77,9 @@ export const COMMAND_TYPES = {
   RESPAWN_SETTLER:    'CMD_RESPAWN_SETTLER',
   QUEUE_BUILDING:     'CMD_QUEUE_BUILDING',
   CANCEL_BUILDING:    'CMD_CANCEL_BUILDING',
+  DEMOLISH_BUILDING:  'CMD_DEMOLISH_BUILDING',
   RECRUIT_HERO:       'CMD_RECRUIT_HERO',
+  CANCEL_RECRUITMENT: 'CMD_CANCEL_RECRUITMENT',
   CLAIM_TASK_REWARD:  'CMD_CLAIM_TASK_REWARD',
   SET_SIM_SPEED:      'CMD_SET_SIM_SPEED',
   SWITCH_VIEW:        'CMD_SWITCH_VIEW'

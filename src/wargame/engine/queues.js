@@ -3,12 +3,14 @@
 import {
   CAMPAIGN_PHASES,
   STREAM_TOPICS,
-  RESOURCE_PRODUCTION_INTERVAL_MS
+  RESOURCE_PRODUCTION_INTERVAL_MS,
+  BASE_HERO_RECRUIT_DURATION_MS
 } from '../constants.js';
 import { CITY_BUILDINGS_CATALOG } from '../data/buildings.js';
+import { UNIT_ARCHETYPES, RECRUITABLE_HERO_CLASSES } from '../data/terrain.js';
 import { revealOverworldVision } from './pathfinding.js';
 import { evaluateTaskDAG } from './taskEngine.js';
-import { saveWargameState } from './state.js';
+import { saveWargameState, getPrimaryCity } from './state.js';
 
 export function scheduleNextMarchStep(unit, state, scheduler) {
   if (!unit || !unit.marchPlan || !Array.isArray(unit.marchPlan.remainingPath) || unit.marchPlan.remainingPath.length === 0) {
@@ -131,14 +133,16 @@ export function activateNextCityBuildQueueItem(city, state, scheduler) {
 
   // Check if the front item is already active
   const front = city.buildQueue[0];
-  if (front.status === 'building') return front;
+  if (front.status === 'building' || front.status === 'demolishing') return front;
 
   const simTimeMs = state.world.clock.simTimeMs;
   const dur = Math.max(500, front.durationMs || 4000);
+  const isDemolishOrCleanup = front.type === 'demolish' || front.type === 'cleanup';
+  const jobType = isDemolishOrCleanup ? 'CITY_BUILDING_DEMOLISH_COMPLETE' : 'CITY_BUILDING_COMPLETE';
 
   const job = scheduler.scheduleJob({
-    jobId: 'build_' + city.id + '_plot_' + front.plotIndex + '_' + simTimeMs,
-    jobType: 'CITY_BUILDING_COMPLETE',
+    jobId: (isDemolishOrCleanup ? 'demolish_' : 'build_') + city.id + '_plot_' + front.plotIndex + '_' + simTimeMs,
+    jobType: jobType,
     ownerId: city.id,
     startSimTimeMs: simTimeMs,
     dueSimTimeMs: simTimeMs + dur,
@@ -147,18 +151,27 @@ export function activateNextCityBuildQueueItem(city, state, scheduler) {
       queueItemId: front.queueItemId,
       plotIndex: front.plotIndex,
       buildingId: front.buildingId,
-      targetLevel: front.targetLevel
+      targetLevel: front.targetLevel,
+      actionType: front.type || 'build',
+      previousLevel: front.previousLevel || 0,
+      salvage: front.salvage || null
     }
   });
 
-  front.status = 'building';
+  front.status = isDemolishOrCleanup ? 'demolishing' : 'building';
   front.jobId = job.jobId;
   front.startSimTimeMs = simTimeMs;
   front.dueSimTimeMs = simTimeMs + dur;
 
   const plot = (city.plots || []).find(function(p) { return p.plotIndex === front.plotIndex; });
   if (plot) {
-    plot.underConstruction = true;
+    if (isDemolishOrCleanup) {
+      plot.demolishing = true;
+      plot.underConstruction = false;
+    } else {
+      plot.underConstruction = true;
+      plot.demolishing = false;
+    }
     plot.activeJobId = job.jobId;
   }
 
@@ -182,6 +195,7 @@ export function resolveBuildingCompleteJob(job, state, scheduler, eventStream) {
     plot.buildingId = bId;
     plot.level = targetLvl;
     plot.underConstruction = false;
+    plot.demolishing = false;
     plot.activeJobId = null;
   }
 
@@ -214,6 +228,208 @@ export function resolveBuildingCompleteJob(job, state, scheduler, eventStream) {
 
   // Start next queued building in this city if any
   activateNextCityBuildQueueItem(city, state, scheduler);
+
+  state._dirty = true;
+  saveWargameState(state, scheduler);
+  evaluateTaskDAG(state, eventStream);
+}
+
+export function resolveBuildingDemolishJob(job, state, scheduler, eventStream) {
+  if (!state || !state.world || !state.world.cities) return;
+  const p = job.payload || {};
+  const city = state.world.cities[p.cityId];
+  if (!city) return;
+
+  const plot = (city.plots || []).find(function(pl) { return pl.plotIndex === p.plotIndex; });
+  const bId = p.buildingId;
+  const isDeliberate = p.actionType === 'demolish';
+
+  if (isDeliberate) {
+    // Deliberate demolition: credit salvage materials
+    const salvage = p.salvage || { wood: 0, stone: 0, gold: 0 };
+    city.stockpile.wood  = (city.stockpile.wood  || 0) + (salvage.wood  || 0);
+    city.stockpile.stone = (city.stockpile.stone || 0) + (salvage.stone || 0);
+    city.stockpile.gold  = (city.stockpile.gold  || 0) + (salvage.gold  || 0);
+
+    // Clear building from city catalog
+    if (city.buildings && bId) {
+      delete city.buildings[bId];
+    }
+    if (plot) {
+      plot.buildingId = null;
+      plot.level = 0;
+    }
+  } else {
+    // Site cleanup after cancelled construction
+    if (plot) {
+      const prevLvl = typeof p.previousLevel === 'number' ? p.previousLevel : 0;
+      if (prevLvl <= 0) {
+        plot.buildingId = null;
+        plot.level = 0;
+      } else {
+        plot.level = prevLvl;
+      }
+    }
+  }
+
+  if (plot) {
+    plot.underConstruction = false;
+    plot.demolishing = false;
+    plot.activeJobId = null;
+  }
+
+  // Remove from buildQueue
+  if (Array.isArray(city.buildQueue)) {
+    const idx = city.buildQueue.findIndex(function(q) { return q.queueItemId === p.queueItemId || q.jobId === job.jobId; });
+    if (idx !== -1) {
+      city.buildQueue.splice(idx, 1);
+    }
+  }
+
+  if (eventStream) {
+    eventStream.publish(isDeliberate ? STREAM_TOPICS.BUILDING_DEMOLISHED : STREAM_TOPICS.BUILDING_CANCELLED, {
+      cityId: city.id,
+      cityName: city.name,
+      buildingId: bId,
+      plotIndex: p.plotIndex,
+      salvage: isDeliberate ? (p.salvage || null) : null
+    }, job.dueSimTimeMs);
+  }
+
+  activateNextCityBuildQueueItem(city, state, scheduler);
+
+  state._dirty = true;
+  saveWargameState(state, scheduler);
+  evaluateTaskDAG(state, eventStream);
+}
+
+export function activateNextCityRecruitQueueItem(city, state, scheduler) {
+  if (!city || !Array.isArray(city.recruitmentQueue) || city.recruitmentQueue.length === 0) return null;
+
+  // Check if an item is already active
+  const front = city.recruitmentQueue[0];
+  if (front.status === 'training') return front;
+
+  const simTimeMs = state.world.clock.simTimeMs;
+  const dur = Math.max(1000, front.durationMs || BASE_HERO_RECRUIT_DURATION_MS);
+
+  const job = scheduler.scheduleJob({
+    jobId: 'recruit_' + city.id + '_' + front.classId + '_' + simTimeMs,
+    jobType: 'HERO_RECRUIT_COMPLETE',
+    ownerId: city.id,
+    startSimTimeMs: simTimeMs,
+    dueSimTimeMs: simTimeMs + dur,
+    payload: {
+      cityId: city.id,
+      queueItemId: front.queueItemId,
+      classId: front.classId,
+      heroName: front.heroName
+    }
+  });
+
+  front.status = 'training';
+  front.jobId = job.jobId;
+  front.startSimTimeMs = simTimeMs;
+  front.dueSimTimeMs = simTimeMs + dur;
+
+  return front;
+}
+
+export function resolveRecruitHeroJob(job, state, scheduler, eventStream) {
+  if (!state || !state.world) return;
+  const p = job.payload || {};
+  const world = state.world;
+  const city = (world.cities && world.cities[p.cityId]) || getPrimaryCity(state);
+  const ow = world.overworld;
+
+  const classDef = RECRUITABLE_HERO_CLASSES.find(function(c) { return c.classId === p.classId; });
+  if (!classDef) return;
+
+  const heroIndex = (world.heroes || []).length + 1;
+  const heroName = String(p.heroName || (classDef.name + ' #' + heroIndex)).trim();
+  const heroObj = {
+    id: 'hero_' + heroIndex + '_' + classDef.classId,
+    name: heroName,
+    classId: classDef.classId,
+    className: classDef.name,
+    title: classDef.title,
+    icon: classDef.icon,
+    color: classDef.color,
+    level: 1,
+    xp: 0,
+    stats: Object.assign({}, classDef.baseStats),
+    recruitedAtSimMs: job.dueSimTimeMs
+  };
+
+  if (!world.heroes) world.heroes = [];
+  world.heroes.push(heroObj);
+  world.stats.heroesRecruited = (world.stats.heroesRecruited || 0) + 1;
+
+  // Form an Overworld Vanguard Party at the City gates led by this Hero
+  const partyArch = UNIT_ARCHETYPES.hero_party;
+  const spawnX = city ? city.x : (ow ? ow.spawnX : 0);
+  const spawnY = city ? city.y : (ow ? ow.spawnY : 0);
+
+  const partyUnit = {
+    id: 'unit_party_' + heroIndex,
+    name: heroObj.name + '\'s Vanguard',
+    shortName: heroObj.name,
+    unitType: 'hero_party',
+    leaderHeroId: heroObj.id,
+    heroClassId: heroObj.classId,
+    x: spawnX,
+    y: spawnY,
+    hp: heroObj.stats.hp,
+    maxHp: heroObj.stats.hp,
+    visionRadius: heroObj.classId === 'ranger' ? 7 : partyArch.visionRadius,
+    canFoundCity: false,
+    canEnterDungeon: true,
+    alive: true,
+    status: 'idle',
+    marchPlan: null
+  };
+
+  if (ow) {
+    if (!ow.units) ow.units = [];
+    ow.units.push(partyUnit);
+    ow.selectedUnitId = partyUnit.id;
+    revealOverworldVision(ow, partyUnit.x, partyUnit.y, partyUnit.visionRadius);
+  }
+
+  if (!world.parties) world.parties = [];
+  world.parties.push({
+    id: partyUnit.id,
+    leaderHeroId: heroObj.id,
+    memberIds: [heroObj.id],
+    cityId: city ? city.id : null
+  });
+
+  // Remove from recruitmentQueue
+  if (city && Array.isArray(city.recruitmentQueue)) {
+    const idx = city.recruitmentQueue.findIndex(function(q) { return q.queueItemId === p.queueItemId || q.jobId === job.jobId; });
+    if (idx !== -1) {
+      city.recruitmentQueue.splice(idx, 1);
+    }
+  }
+
+  if (eventStream) {
+    eventStream.publish(STREAM_TOPICS.HERO_RECRUITED, {
+      heroId: heroObj.id,
+      heroName: heroObj.name,
+      classId: heroObj.classId,
+      partyUnitId: partyUnit.id
+    }, job.dueSimTimeMs);
+    eventStream.publish(STREAM_TOPICS.PARTY_FORMED, {
+      partyUnitId: partyUnit.id,
+      leaderName: heroObj.name,
+      x: partyUnit.x,
+      y: partyUnit.y
+    }, job.dueSimTimeMs);
+  }
+
+  if (city) {
+    activateNextCityRecruitQueueItem(city, state, scheduler);
+  }
 
   state._dirty = true;
   saveWargameState(state, scheduler);

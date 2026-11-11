@@ -297,20 +297,122 @@ export function renderLeftCommandSidebar(simHost) {
     setHtmlIfChanged(unitCardEl, newHtml);
   }
 
-  // B. Active Timed Queues Summary (Construction & Marching)
+  // B. Active Timed Queues Summary (Construction, Recruitment, and Marching)
   const queuesListEl = document.getElementById('wgActiveQueuesList');
   if (queuesListEl) {
-    const itemsHtml = [];
+    const sectionsHtml = [];
 
-    // 1. Unit Marches
+    // 1. City Construction & Demolition Queue
+    const cities = Object.values(world.cities || {});
+    for (let c = 0; c < cities.length; c++) {
+      const city = cities[c];
+      const bq = city.buildQueue || [];
+      if (bq.length > 0) {
+        const buildItems = [];
+        for (let q = 0; q < bq.length; q++) {
+          const item = bq[q];
+          const isDemolish = item.type === 'demolish';
+          const isCleanup = item.type === 'cleanup';
+          if (item.status === 'building' || item.status === 'demolishing') {
+            const dur = Math.max(1, (item.dueSimTimeMs || 0) - (item.startSimTimeMs || 0));
+            const rem = Math.max(0, (item.dueSimTimeMs || 0) - simTimeMs);
+            const pct = Math.min(100, Math.round(((dur - rem) / dur) * 100));
+            const label = isDemolish
+              ? ('🔥 Demolishing ' + item.buildingName)
+              : (isCleanup ? ('🧹 Cleaning Site ' + item.buildingName) : ('🔨 ' + item.buildingName + ' (Lv ' + item.targetLevel + ')'));
+            const barColor = isDemolish ? 'bg-[#f87171]' : (isCleanup ? 'bg-[#94a3b8]' : 'bg-[#fbbf24]');
+
+            buildItems.push(`
+              <div class="p-2 rounded bg-[#080b11] border ${isDemolish ? 'border-[#f87171]/50' : 'border-[#fbbf24]/50'} space-y-1">
+                <div class="flex justify-between items-center text-[11px] font-mono">
+                  <span class="${isDemolish ? 'text-[#f87171]' : 'text-[#fbbf24]'} font-bold">${label}</span>
+                  <div class="flex items-center gap-1.5">
+                    <span class="text-[#34d399]">${formatSimDuration(rem)}</span>
+                    ${!isCleanup ? `
+                      <button data-action="cancel-building" data-queue-item-id="${item.queueItemId}" onclick="window.WargameApp.handleCancelBuilding('${item.queueItemId}')" class="text-[#f87171] hover:underline text-[10px] ml-1 cursor-pointer">✕</button>
+                    ` : ''}
+                  </div>
+                </div>
+                <div class="w-full h-1.5 bg-[#111722] rounded-full overflow-hidden">
+                  <div class="h-full ${barColor}" style="width:${pct}%"></div>
+                </div>
+              </div>
+            `);
+          } else {
+            const qLabel = isDemolish
+              ? ('⏳ Queued Demolish: ' + item.buildingName)
+              : ('⏳ Queued: ' + item.buildingName + ' (Lv ' + item.targetLevel + ')');
+            buildItems.push(`
+              <div class="p-2 rounded bg-[#080b11] border border-[#283347] flex justify-between items-center text-[11px] font-mono">
+                <span class="text-[#8b949e]">${qLabel}</span>
+                <button data-action="cancel-building" data-queue-item-id="${item.queueItemId}" onclick="window.WargameApp.handleCancelBuilding('${item.queueItemId}')" class="text-[#f87171] hover:underline text-[10px] cursor-pointer">Cancel</button>
+              </div>
+            `);
+          }
+        }
+        sectionsHtml.push(`
+          <div class="space-y-1">
+            <div class="text-[10px] font-mono uppercase text-[#fbbf24] font-bold">🏗️ Build Queue (${bq.length}/${city.maxBuildQueueSlots || 3})</div>
+            ${buildItems.join('')}
+          </div>
+        `);
+      }
+    }
+
+    // 2. Hero Recruitment Queue
+    for (let c = 0; c < cities.length; c++) {
+      const city = cities[c];
+      const rq = city.recruitmentQueue || [];
+      if (rq.length > 0) {
+        const recruitItems = [];
+        for (let q = 0; q < rq.length; q++) {
+          const item = rq[q];
+          if (item.status === 'training') {
+            const dur = Math.max(1, (item.dueSimTimeMs || 0) - (item.startSimTimeMs || 0));
+            const rem = Math.max(0, (item.dueSimTimeMs || 0) - simTimeMs);
+            const pct = Math.min(100, Math.round(((dur - rem) / dur) * 100));
+            recruitItems.push(`
+              <div class="p-2 rounded bg-[#080b11] border border-[#60a5fa]/50 space-y-1">
+                <div class="flex justify-between items-center text-[11px] font-mono">
+                  <span class="text-[#60a5fa] font-bold">⚔️ Training: ${item.heroName || item.className}</span>
+                  <div class="flex items-center gap-1.5">
+                    <span class="text-[#34d399]">${formatSimDuration(rem)}</span>
+                    <button data-action="cancel-recruitment" data-queue-item-id="${item.queueItemId}" onclick="window.WargameApp.handleCancelRecruitment('${item.queueItemId}')" class="text-[#f87171] hover:underline text-[10px] ml-1 cursor-pointer">✕</button>
+                  </div>
+                </div>
+                <div class="w-full h-1.5 bg-[#111722] rounded-full overflow-hidden">
+                  <div class="h-full bg-[#60a5fa]" style="width:${pct}%"></div>
+                </div>
+              </div>
+            `);
+          } else {
+            recruitItems.push(`
+              <div class="p-2 rounded bg-[#080b11] border border-[#283347] flex justify-between items-center text-[11px] font-mono">
+                <span class="text-[#8b949e]">⏳ Queued: ${item.heroName || item.className}</span>
+                <button data-action="cancel-recruitment" data-queue-item-id="${item.queueItemId}" onclick="window.WargameApp.handleCancelRecruitment('${item.queueItemId}')" class="text-[#f87171] hover:underline text-[10px] cursor-pointer">Cancel</button>
+              </div>
+            `);
+          }
+        }
+        sectionsHtml.push(`
+          <div class="space-y-1">
+            <div class="text-[10px] font-mono uppercase text-[#60a5fa] font-bold">🛡️ Hero Training (${rq.length}/${city.maxRecruitQueueSlots || 3})</div>
+            ${recruitItems.join('')}
+          </div>
+        `);
+      }
+    }
+
+    // 3. Unit Marches
     const units = ow.units || [];
+    const marchItems = [];
     for (let i = 0; i < units.length; i++) {
       const u = units[i];
       if (u.alive && u.status === 'marching' && u.marchPlan) {
         const dur = Math.max(1, (u.marchPlan.stepDueSimTimeMs || 0) - (u.marchPlan.stepStartSimTimeMs || 0));
         const rem = Math.max(0, (u.marchPlan.stepDueSimTimeMs || 0) - simTimeMs);
         const pct = Math.min(100, Math.round(((dur - rem) / dur) * 100));
-        itemsHtml.push(`
+        marchItems.push(`
           <div class="p-2 rounded bg-[#080b11] border border-[#38bdf8]/40 space-y-1">
             <div class="flex justify-between text-[11px] font-mono">
               <span class="text-[#38bdf8] font-bold">🚩 ${u.shortName} → (${u.marchPlan.targetX}, ${u.marchPlan.targetY})</span>
@@ -323,43 +425,18 @@ export function renderLeftCommandSidebar(simHost) {
         `);
       }
     }
-
-    // 2. City Construction Queues
-    const cities = Object.values(world.cities || {});
-    for (let c = 0; c < cities.length; c++) {
-      const city = cities[c];
-      const bq = city.buildQueue || [];
-      for (let q = 0; q < bq.length; q++) {
-        const item = bq[q];
-        if (item.status === 'building') {
-          const dur = Math.max(1, (item.dueSimTimeMs || 0) - (item.startSimTimeMs || 0));
-          const rem = Math.max(0, (item.dueSimTimeMs || 0) - simTimeMs);
-          const pct = Math.min(100, Math.round(((dur - rem) / dur) * 100));
-          itemsHtml.push(`
-            <div class="p-2 rounded bg-[#080b11] border border-[#fbbf24]/50 space-y-1">
-              <div class="flex justify-between items-center text-[11px] font-mono">
-                <span class="text-[#fbbf24] font-bold">🔨 ${item.buildingName} (Lv ${item.targetLevel})</span>
-                <span class="text-[#34d399]">${formatSimDuration(rem)}</span>
-              </div>
-              <div class="w-full h-1.5 bg-[#111722] rounded-full overflow-hidden">
-                <div class="h-full bg-[#fbbf24]" style="width:${pct}%"></div>
-              </div>
-            </div>
-          `);
-        } else {
-          itemsHtml.push(`
-            <div class="p-2 rounded bg-[#080b11] border border-[#283347] flex justify-between items-center text-[11px] font-mono">
-              <span class="text-[#8b949e]">⏳ Queued: ${item.buildingName} (Lv ${item.targetLevel})</span>
-              <button onclick="window.WargameApp.handleCancelBuilding('${item.queueItemId}')" class="text-[#f87171] hover:underline text-[10px]">Cancel</button>
-            </div>
-          `);
-        }
-      }
+    if (marchItems.length > 0) {
+      sectionsHtml.push(`
+        <div class="space-y-1">
+          <div class="text-[10px] font-mono uppercase text-[#38bdf8] font-bold">🗺️ Unit Marches</div>
+          ${marchItems.join('')}
+        </div>
+      `);
     }
 
-    const newQueuesHtml = itemsHtml.length > 0
-      ? itemsHtml.join('')
-      : `<div class="text-[11px] text-[#8b949e] italic py-1">No active marches or construction timers.</div>`;
+    const newQueuesHtml = sectionsHtml.length > 0
+      ? sectionsHtml.join('')
+      : `<div class="text-[11px] text-[#8b949e] italic py-1">No active construction, training, or march timers.</div>`;
     setHtmlIfChanged(queuesListEl, newQueuesHtml);
   }
 
@@ -444,6 +521,21 @@ export function renderCityBuilderPanel(simHost) {
     const cost = computeBuildingUpgradeCost(bId, nextLevel);
     const durMs = computeBuildingDurationMs(bId, nextLevel);
 
+    if (plot.demolishing) {
+      return `
+        <div class="p-3.5 rounded-lg bg-[#080b11] border border-[#f87171] flex flex-col justify-between gap-2">
+          <div>
+            <div class="text-[10px] font-mono uppercase text-[#f87171]">Plot #${plot.plotIndex + 1} • Demolition / Cleanup</div>
+            <div class="text-sm font-bold text-[#e6edf3] mt-0.5">${bDef ? bDef.icon : '🔥'} ${bDef ? bDef.name : bId}</div>
+            <p class="text-[11px] text-[#8b949e] mt-1">${bDef ? bDef.desc : ''}</p>
+          </div>
+          <div class="py-1.5 px-2.5 rounded bg-[#f87171]/15 text-[#f87171] text-xs font-mono font-bold text-center">
+            🔥 Clearing Site in Queue...
+          </div>
+        </div>
+      `;
+    }
+
     if (plot.underConstruction) {
       return `
         <div class="p-3.5 rounded-lg bg-[#080b11] border border-[#fbbf24] flex flex-col justify-between gap-2">
@@ -468,8 +560,8 @@ export function renderCityBuilderPanel(simHost) {
               ${curLevel > 0 ? ('Level ' + curLevel) : 'Unbuilt'}
             </span>
           </div>
-          <div class="text-sm font-bold text-[#e6edf3] mt-1">${bDef.icon} ${bDef.name}</div>
-          <p class="text-[11px] text-[#8b949e] mt-1">${bDef.desc}</p>
+          <div class="text-sm font-bold text-[#e6edf3] mt-1">${bDef ? bDef.icon : '🏛️'} ${bDef ? bDef.name : bId}</div>
+          <p class="text-[11px] text-[#8b949e] mt-1">${bDef ? bDef.desc : ''}</p>
         </div>
         <div class="space-y-1.5 pt-2 border-t border-[#1e293b]">
           <div class="flex items-center justify-between text-[11px] font-mono text-[#cbd5e1]">
@@ -477,8 +569,13 @@ export function renderCityBuilderPanel(simHost) {
             <span class="text-[#38bdf8]">⏱ ${formatSimDuration(durMs)}</span>
           </div>
           <button data-action="queue-building" data-plot-index="${plot.plotIndex}" data-building-id="${bId}" onclick="window.WargameApp.handleQueueBuilding(${plot.plotIndex}, '${bId}')" class="w-full py-1.5 rounded bg-[#fbbf24] hover:bg-[#f59e0b] text-[#080b11] font-bold text-xs uppercase btn-tactical cursor-pointer">
-            ${curLevel > 0 ? ('▲ Upgrade to Lv ' + nextLevel) : ('🔨 Construct ' + bDef.name)}
+            ${curLevel > 0 ? ('▲ Upgrade to Lv ' + nextLevel) : ('🔨 Construct ' + (bDef ? bDef.name : bId))}
           </button>
+          ${curLevel > 0 && bId !== 'town_hall' ? `
+            <button data-action="demolish-building" data-plot-index="${plot.plotIndex}" onclick="window.WargameApp.handleDemolishBuilding(${plot.plotIndex})" class="w-full py-1 rounded bg-[#1a2232] hover:bg-[#f87171]/20 text-[#f87171] border border-[#f87171]/40 text-[10px] font-mono font-bold cursor-pointer">
+              🔥 Demolish [35% Salvage]
+            </button>
+          ` : ''}
         </div>
       </div>
     `;
@@ -513,7 +610,7 @@ export function renderGuildRecruitmentPanel(simHost) {
         <div class="space-y-1.5 pt-2 border-t border-[#1e293b]">
           <div class="text-[11px] font-mono text-[#fbbf24]">Oath Cost: <strong>${cls.costGold} Gold</strong> • <strong>${cls.costFood} Food</strong></div>
           <button data-action="recruit-hero" data-class-id="${cls.classId}" onclick="window.WargameApp.handleRecruitHero('${cls.classId}')" ${!canAfford ? 'disabled' : ''} class="w-full py-1.5 rounded font-bold text-xs uppercase ${canAfford ? 'bg-[#60a5fa] hover:bg-[#3b82f6] text-[#080b11] cursor-pointer' : 'bg-[#1a2232] text-[#64748b] cursor-not-allowed'}">
-            ⚔️ Swear In ${cls.name}
+            ⚔️ Train ${cls.name} (60s)
           </button>
         </div>
       </div>

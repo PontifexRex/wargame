@@ -6,7 +6,12 @@ import {
   WARGAME_VIEWS,
   STREAM_TOPICS,
   COMMAND_TYPES,
-  RESOURCE_PRODUCTION_INTERVAL_MS
+  RESOURCE_PRODUCTION_INTERVAL_MS,
+  BASE_HERO_RECRUIT_DURATION_MS,
+  BASE_BUILD_QUEUE_LIMIT,
+  BASE_RECRUIT_QUEUE_LIMIT,
+  DEMOLISH_SALVAGE_RATIO,
+  CANCEL_CLEANUP_TIME_RATIO
 } from '../constants.js';
 import {
   OVERWORLD_TERRAIN_DEFS,
@@ -29,6 +34,9 @@ import {
   resolveMarchStepJob,
   activateNextCityBuildQueueItem,
   resolveBuildingCompleteJob,
+  resolveBuildingDemolishJob,
+  activateNextCityRecruitQueueItem,
+  resolveRecruitHeroJob,
   processResourceProductionTick
 } from './queues.js';
 import { evaluateTaskDAG } from './taskEngine.js';
@@ -261,7 +269,9 @@ export function dispatchWargameCommand(commandEnvelope, state, scheduler, eventS
       },
       plots: createDefaultCityPlots(),
       buildQueue: [],
-      maxBuildQueueSlots: 3
+      maxBuildQueueSlots: BASE_BUILD_QUEUE_LIMIT || 3,
+      recruitmentQueue: [],
+      maxRecruitQueueSlots: BASE_RECRUIT_QUEUE_LIMIT || 3
     };
 
     world.cities[cityId] = newCity;
@@ -403,6 +413,7 @@ export function dispatchWargameCommand(commandEnvelope, state, scheduler, eventS
       buildingId: buildingId,
       buildingName: bDef.name,
       targetLevel: targetLevel,
+      previousLevel: currentLevel,
       cost: cost,
       durationMs: durationMs,
       status: 'queued', // 'queued' | 'building'
@@ -436,7 +447,7 @@ export function dispatchWargameCommand(commandEnvelope, state, scheduler, eventS
   }
 
   // ---------------------------------------------------------------------------
-  // 8. CANCEL BUILDING IN QUEUE (Refunds 100% of reserved resources)
+  // 8. CANCEL BUILDING IN QUEUE (Prorated Refund + 50% Time Spent Cleanup Job)
   // ---------------------------------------------------------------------------
   if (cmdType === COMMAND_TYPES.CANCEL_BUILDING) {
     const city = (payload.cityId && world.cities[payload.cityId]) || getPrimaryCity(state);
@@ -447,44 +458,152 @@ export function dispatchWargameCommand(commandEnvelope, state, scheduler, eventS
     const qId = payload.queueItemId;
     const idx = qId
       ? city.buildQueue.findIndex(function(q) { return q.queueItemId === qId; })
-      : city.buildQueue.length - 1;
+      : (typeof payload.plotIndex === 'number'
+          ? city.buildQueue.findIndex(function(q) { return q.plotIndex === payload.plotIndex; })
+          : city.buildQueue.length - 1);
 
     if (idx === -1) return reject('Construction item not found');
-    const removed = city.buildQueue.splice(idx, 1)[0];
+    const targetItem = city.buildQueue[idx];
 
-    if (removed.jobId && scheduler) {
-      scheduler.cancelJob(removed.jobId);
+    if (targetItem.type === 'cleanup') {
+      return reject('Site cleanup cannot be cancelled');
     }
 
-    // Refund resources
-    if (removed.cost) {
-      city.stockpile.wood  = (city.stockpile.wood  || 0) + (removed.cost.wood  || 0);
-      city.stockpile.stone = (city.stockpile.stone || 0) + (removed.cost.stone || 0);
-      city.stockpile.gold  = (city.stockpile.gold  || 0) + (removed.cost.gold  || 0);
+    if (targetItem.status === 'queued') {
+      // Pending item: 100% full refund
+      city.buildQueue.splice(idx, 1);
+      if (targetItem.cost) {
+        city.stockpile.wood  = (city.stockpile.wood  || 0) + (targetItem.cost.wood  || 0);
+        city.stockpile.stone = (city.stockpile.stone || 0) + (targetItem.cost.stone || 0);
+        city.stockpile.gold  = (city.stockpile.gold  || 0) + (targetItem.cost.gold  || 0);
+      }
+      const plot = (city.plots || []).find(function(p) { return p.plotIndex === targetItem.plotIndex; });
+      if (plot) {
+        plot.underConstruction = false;
+        plot.demolishing = false;
+        plot.activeJobId = null;
+      }
+      if (eventStream) {
+        eventStream.publish(STREAM_TOPICS.BUILDING_CANCELLED, {
+          cityId: city.id,
+          buildingId: targetItem.buildingId,
+          buildingName: targetItem.buildingName,
+          refundRatio: 1.0
+        }, simTimeMs);
+      }
+      return accept({ cancelled: targetItem, stockpile: city.stockpile });
     }
 
-    const plot = (city.plots || []).find(function(p) { return p.plotIndex === removed.plotIndex; });
-    if (plot) {
-      plot.underConstruction = false;
-      plot.activeJobId = null;
+    // Active item (status === 'building'):
+    // Calculate elapsed time & prorated refund based on remaining time ratio (1.0 - elapsed / dur)
+    if (targetItem.jobId && scheduler) {
+      scheduler.cancelJob(targetItem.jobId);
+    }
+    const elapsed = Math.max(0, simTimeMs - (targetItem.startSimTimeMs || simTimeMs));
+    const totalDur = Math.max(1, targetItem.durationMs || 4000);
+    const unspentRatio = Math.max(0, Math.min(1, 1.0 - (elapsed / totalDur)));
+
+    if (targetItem.cost) {
+      city.stockpile.wood  = (city.stockpile.wood  || 0) + Math.floor((targetItem.cost.wood  || 0) * unspentRatio);
+      city.stockpile.stone = (city.stockpile.stone || 0) + Math.floor((targetItem.cost.stone || 0) * unspentRatio);
+      city.stockpile.gold  = (city.stockpile.gold  || 0) + Math.floor((targetItem.cost.gold  || 0) * unspentRatio);
     }
 
-    // If front item was cancelled, start the next queued item
+    // Replace the active queue item with a cleanup job taking 50% of already spent time (min 1000ms)
+    const cleanupDur = Math.max(1000, Math.floor(elapsed * (CANCEL_CLEANUP_TIME_RATIO || 0.50)));
+    const cleanupItem = {
+      queueItemId: 'cleanup_' + targetItem.queueItemId,
+      cityId: city.id,
+      plotIndex: targetItem.plotIndex,
+      buildingId: targetItem.buildingId,
+      buildingName: targetItem.buildingName,
+      type: 'cleanup',
+      previousLevel: targetItem.previousLevel || 0,
+      durationMs: cleanupDur,
+      status: 'queued',
+      jobId: null,
+      startSimTimeMs: null,
+      dueSimTimeMs: null
+    };
+
+    city.buildQueue.splice(idx, 1, cleanupItem);
     activateNextCityBuildQueueItem(city, state, scheduler);
 
     if (eventStream) {
       eventStream.publish(STREAM_TOPICS.BUILDING_CANCELLED, {
         cityId: city.id,
-        buildingId: removed.buildingId,
-        buildingName: removed.buildingName
+        buildingId: targetItem.buildingId,
+        buildingName: targetItem.buildingName,
+        refundRatio: unspentRatio,
+        cleanupDurationMs: cleanupDur
       }, simTimeMs);
     }
 
-    return accept({ cancelled: removed, stockpile: city.stockpile });
+    return accept({ cancelled: targetItem, cleanup: cleanupItem, stockpile: city.stockpile });
   }
 
   // ---------------------------------------------------------------------------
-  // 9. RECRUIT HERO (Strictly requires Adventurers Guild Hall Level 1+)
+  // 8B. DEMOLISH BUILDING (Takes 50% Build Time & Yields 35% Salvage)
+  // ---------------------------------------------------------------------------
+  if (cmdType === COMMAND_TYPES.DEMOLISH_BUILDING) {
+    const city = (payload.cityId && world.cities[payload.cityId]) || getPrimaryCity(state);
+    if (!city) return reject('No city founded yet');
+
+    const plotIndex = typeof payload.plotIndex === 'number' ? payload.plotIndex : -1;
+    const plot = (city.plots || []).find(function(p) { return p.plotIndex === plotIndex; });
+    if (!plot || !plot.buildingId || (plot.level || 0) <= 0) {
+      return reject('No established building to demolish on this plot');
+    }
+
+    if (plot.buildingId === 'town_hall') {
+      return reject('The Bastion Town Hall cannot be demolished');
+    }
+
+    if (plot.underConstruction || plot.demolishing) {
+      return reject('Plot already has an active construction or demolition order');
+    }
+
+    if (city.buildQueue.length >= (city.maxBuildQueueSlots || BASE_BUILD_QUEUE_LIMIT || 3)) {
+      return reject('City construction queue is full');
+    }
+
+    const bId = plot.buildingId;
+    const bDef = CITY_BUILDINGS_CATALOG[bId];
+    const lvl = plot.level || 1;
+    const cost = computeBuildingUpgradeCost(bId, lvl);
+    const baseDur = computeBuildingDurationMs(bId, lvl);
+
+    const demolishDur = Math.max(2000, Math.floor(baseDur * (CANCEL_CLEANUP_TIME_RATIO || 0.50)));
+    const salvage = {
+      wood: Math.floor((cost.wood || 0) * (DEMOLISH_SALVAGE_RATIO || 0.35)),
+      stone: Math.floor((cost.stone || 0) * (DEMOLISH_SALVAGE_RATIO || 0.35)),
+      gold: Math.floor((cost.gold || 0) * (DEMOLISH_SALVAGE_RATIO || 0.35))
+    };
+
+    const queueItem = {
+      queueItemId: 'demolish_' + city.id + '_p' + plot.plotIndex + '_' + Date.now(),
+      cityId: city.id,
+      plotIndex: plot.plotIndex,
+      buildingId: bId,
+      buildingName: bDef ? bDef.name : bId,
+      type: 'demolish',
+      durationMs: demolishDur,
+      salvage: salvage,
+      status: 'queued',
+      jobId: null,
+      startSimTimeMs: null,
+      dueSimTimeMs: null
+    };
+
+    plot.demolishing = true;
+    city.buildQueue.push(queueItem);
+    activateNextCityBuildQueueItem(city, state, scheduler);
+
+    return accept({ queueItem: queueItem, salvage: salvage });
+  }
+
+  // ---------------------------------------------------------------------------
+  // 9. RECRUIT HERO (Real-Time 60s Training in Recruitment Queue)
   // ---------------------------------------------------------------------------
   if (cmdType === COMMAND_TYPES.RECRUIT_HERO) {
     const city = getPrimaryCity(state);
@@ -503,6 +622,14 @@ export function dispatchWargameCommand(commandEnvelope, state, scheduler, eventS
       return reject('Unknown hero class: ' + classId);
     }
 
+    if (!Array.isArray(city.recruitmentQueue)) {
+      city.recruitmentQueue = [];
+    }
+
+    if (city.recruitmentQueue.length >= (city.maxRecruitQueueSlots || BASE_RECRUIT_QUEUE_LIMIT || 3)) {
+      return reject('Hero training grounds are full (Maximum ' + (city.maxRecruitQueueSlots || 3) + ' in training queue)');
+    }
+
     if ((city.stockpile.gold || 0) < classDef.costGold || (city.stockpile.food || 0) < classDef.costFood) {
       return reject('Insufficient Gold or Food to swear in ' + classDef.name + ' (Need ' + classDef.costGold + ' Gold, ' + classDef.costFood + ' Food)');
     }
@@ -510,77 +637,92 @@ export function dispatchWargameCommand(commandEnvelope, state, scheduler, eventS
     city.stockpile.gold -= classDef.costGold;
     city.stockpile.food -= classDef.costFood;
 
-    const heroIndex = world.heroes.length + 1;
+    const heroIndex = (world.heroes || []).length + city.recruitmentQueue.length + 1;
     const heroName = String(payload.heroName || (classDef.name + ' #' + heroIndex)).trim();
-    const heroObj = {
-      id: 'hero_' + heroIndex + '_' + classId,
-      name: heroName,
+    const queueItem = {
+      queueItemId: 'rec_' + city.id + '_' + Date.now() + '_' + Math.floor(Math.random() * 1000),
+      cityId: city.id,
       classId: classDef.classId,
       className: classDef.name,
-      title: classDef.title,
-      icon: classDef.icon,
-      color: classDef.color,
-      level: 1,
-      xp: 0,
-      stats: Object.assign({}, classDef.baseStats),
-      recruitedAtSimMs: simTimeMs
+      heroName: heroName,
+      costGold: classDef.costGold,
+      costFood: classDef.costFood,
+      durationMs: BASE_HERO_RECRUIT_DURATION_MS,
+      status: 'queued',
+      jobId: null,
+      startSimTimeMs: null,
+      dueSimTimeMs: null
     };
 
-    world.heroes.push(heroObj);
-    world.stats.heroesRecruited = (world.stats.heroesRecruited || 0) + 1;
-
-    // Form an Overworld Vanguard Party at the City gates led by this Hero
-    const partyArch = UNIT_ARCHETYPES.hero_party;
-    const partyUnit = {
-      id: 'unit_party_' + heroIndex,
-      name: heroObj.name + '\'s Vanguard',
-      shortName: heroObj.name,
-      unitType: 'hero_party',
-      leaderHeroId: heroObj.id,
-      heroClassId: heroObj.classId,
-      x: city.x,
-      y: city.y,
-      hp: heroObj.stats.hp,
-      maxHp: heroObj.stats.hp,
-      visionRadius: heroObj.classId === 'ranger' ? 7 : partyArch.visionRadius,
-      canFoundCity: false,
-      canEnterDungeon: true,
-      alive: true,
-      status: 'idle',
-      marchPlan: null
-    };
-
-    ow.units.push(partyUnit);
-    ow.selectedUnitId = partyUnit.id;
-    world.parties.push({
-      id: partyUnit.id,
-      leaderHeroId: heroObj.id,
-      memberIds: [heroObj.id],
-      cityId: city.id
-    });
-
-    revealOverworldVision(ow, partyUnit.x, partyUnit.y, partyUnit.visionRadius);
+    city.recruitmentQueue.push(queueItem);
+    activateNextCityRecruitQueueItem(city, state, scheduler);
 
     if (eventStream) {
-      eventStream.publish(STREAM_TOPICS.HERO_RECRUITED, {
-        heroId: heroObj.id,
-        heroName: heroObj.name,
-        classId: heroObj.classId,
-        partyUnitId: partyUnit.id
-      }, simTimeMs);
-      eventStream.publish(STREAM_TOPICS.PARTY_FORMED, {
-        partyUnitId: partyUnit.id,
-        leaderName: heroObj.name,
-        x: partyUnit.x,
-        y: partyUnit.y
+      eventStream.publish(STREAM_TOPICS.HERO_RECRUIT_STARTED, {
+        cityId: city.id,
+        classId: classDef.classId,
+        heroName: heroName,
+        durationMs: BASE_HERO_RECRUIT_DURATION_MS
       }, simTimeMs);
     }
 
-    evaluateTaskDAG(state, eventStream);
+    return accept({
+      queueItem: queueItem,
+      stockpile: city.stockpile
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // 9B. CANCEL HERO RECRUITMENT (Prorated Refund of Gold & Food)
+  // ---------------------------------------------------------------------------
+  if (cmdType === COMMAND_TYPES.CANCEL_RECRUITMENT) {
+    const city = (payload.cityId && world.cities[payload.cityId]) || getPrimaryCity(state);
+    if (!city || !Array.isArray(city.recruitmentQueue) || city.recruitmentQueue.length === 0) {
+      return reject('No queued hero training to cancel');
+    }
+
+    const qId = payload.queueItemId;
+    const idx = qId
+      ? city.recruitmentQueue.findIndex(function(q) { return q.queueItemId === qId; })
+      : city.recruitmentQueue.length - 1;
+
+    if (idx === -1) return reject('Recruitment item not found');
+    const removed = city.recruitmentQueue.splice(idx, 1)[0];
+
+    let refundRatio = 1.0;
+    if (removed.status === 'training') {
+      if (removed.jobId && scheduler) {
+        scheduler.cancelJob(removed.jobId);
+      }
+      const elapsed = Math.max(0, simTimeMs - (removed.startSimTimeMs || simTimeMs));
+      const totalDur = Math.max(1, removed.durationMs || BASE_HERO_RECRUIT_DURATION_MS);
+      refundRatio = Math.max(0, Math.min(1, 1.0 - (elapsed / totalDur)));
+    }
+
+    const refGold = Math.floor((removed.costGold || 0) * refundRatio);
+    const refFood = Math.floor((removed.costFood || 0) * refundRatio);
+    city.stockpile.gold = (city.stockpile.gold || 0) + refGold;
+    city.stockpile.food = (city.stockpile.food || 0) + refFood;
+
+    // Start next recruitment item if front was cancelled
+    activateNextCityRecruitQueueItem(city, state, scheduler);
+
+    if (eventStream) {
+      eventStream.publish(STREAM_TOPICS.HERO_RECRUIT_CANCEL, {
+        cityId: city.id,
+        classId: removed.classId,
+        heroName: removed.heroName,
+        refundGold: refGold,
+        refundFood: refFood,
+        refundRatio: refundRatio
+      }, simTimeMs);
+    }
 
     return accept({
-      hero: heroObj,
-      partyUnit: partyUnit
+      cancelled: removed,
+      refundGold: refGold,
+      refundFood: refFood,
+      stockpile: city.stockpile
     });
   }
 
@@ -694,6 +836,10 @@ export function advanceSimulationClock(deltaRealMs, state, scheduler, eventStrea
         resolveMarchStepJob(job, state, scheduler, eventStream);
       } else if (job.jobType === 'CITY_BUILDING_COMPLETE') {
         resolveBuildingCompleteJob(job, state, scheduler, eventStream);
+      } else if (job.jobType === 'CITY_BUILDING_DEMOLISH_COMPLETE') {
+        resolveBuildingDemolishJob(job, state, scheduler, eventStream);
+      } else if (job.jobType === 'HERO_RECRUIT_COMPLETE') {
+        resolveRecruitHeroJob(job, state, scheduler, eventStream);
       }
     }
   }

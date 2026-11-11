@@ -157,7 +157,7 @@ export function evaluateWargameSelfTests() {
   });
 
   // =========================================================================
-  // Test 4: City Founding, Real-Time Construction Queue, Cancel Refund & Resource Ticks
+  // Test 4: City Founding, Multi-Domain Build Queue, Prorated Cancel & Demolition Salvage
   // =========================================================================
   const host4 = createWargameSimHost();
   host4.dispatch({
@@ -182,78 +182,149 @@ export function evaluateWargameSelfTests() {
   });
   const costDeducted = city4.stockpile.wood < woodBefore && city4.buildQueue.length === 1;
 
-  // Queue a Stoneworks Quarry on Plot #2, then cancel it and verify 100% resource refund
+  // Queue a Stoneworks Quarry on Plot #2 (pending item)
   const woodBeforeQuarry = city4.stockpile.wood;
   const queueQuarry = host4.dispatch({
     type: COMMAND_TYPES.QUEUE_BUILDING,
     payload: { plotIndex: 2, buildingId: 'quarry' }
   });
+  // Cancel pending item -> 100% full refund
   const cancelQuarry = host4.dispatch({
     type: COMMAND_TYPES.CANCEL_BUILDING,
     payload: { queueItemId: queueQuarry.data.queueItem.queueItemId }
   });
-  const refundVerified = cancelQuarry.ok && city4.stockpile.wood === woodBeforeQuarry && city4.buildQueue.length === 1;
+  const pendingRefundVerified = cancelQuarry.ok && city4.stockpile.wood === woodBeforeQuarry && city4.buildQueue.length === 1;
 
-  // Advance clock by 4500ms -> Sawmill completes!
+  // Test active cancel prorated refund + 50% cleanup demolition:
+  // Sawmill is active (duration 4000ms). Advance 2000ms (50% elapsed).
+  host4.stepClock(2000);
+  const woodBeforeCancelActive = city4.stockpile.wood;
+  const cancelActiveSawmill = host4.dispatch({
+    type: COMMAND_TYPES.CANCEL_BUILDING,
+    payload: { queueItemId: queueSawmill.data.queueItem.queueItemId }
+  });
+  // Should receive prorated refund: ~50% of cost (targetLevel 1 cost: wood 25 -> floor(25 * 0.5) = 12)
+  const proratedRefundGiven = cancelActiveSawmill.ok && city4.stockpile.wood > woodBeforeCancelActive;
+  // Cleanup item scheduled for max(1000, 2000 * 0.5) = 1000ms
+  const cleanupJobActive = city4.buildQueue.length === 1 && city4.buildQueue[0].type === 'cleanup' && city4.buildQueue[0].durationMs === 1000;
+
+  // Advance clock by 1000ms to finish cleanup
+  host4.stepClock(1000);
+  const cleanupFinished = city4.buildQueue.length === 0 && !city4.plots[1].underConstruction && !city4.plots[1].demolishing;
+
+  // Re-queue Sawmill on Plot #1 and advance 4500ms -> Sawmill completes!
+  host4.dispatch({
+    type: COMMAND_TYPES.QUEUE_BUILDING,
+    payload: { plotIndex: 1, buildingId: 'sawmill' }
+  });
   host4.stepClock(4500);
-  const sawmillCompleted = city4.buildings.sawmill === 1 && city4.buildQueue.length === 0;
+  const sawmillCompleted = city4.buildings.sawmill === 1;
 
-  // Advance clock by another 5000ms -> Periodic Resource Production Tick fires!
-  const woodBeforeTick = city4.stockpile.wood;
-  host4.stepClock(5000);
-  const resourceTickGranted = city4.stockpile.wood > woodBeforeTick;
+  // Test deliberate Demolition with 35% salvage:
+  const woodBeforeDemolish = city4.stockpile.wood;
+  const demolishCmd = host4.dispatch({
+    type: COMMAND_TYPES.DEMOLISH_BUILDING,
+    payload: { plotIndex: 1 }
+  });
+  const demolishQueued = demolishCmd.ok && city4.buildQueue.length === 1 && city4.buildQueue[0].type === 'demolish';
+  // Advance 2500ms to complete demolition
+  host4.stepClock(2500);
+  const demolishCompleted = !city4.buildings.sawmill && city4.plots[1].level === 0 && city4.stockpile.wood > woodBeforeDemolish;
+
+  // Test 3-slot build queue limit
+  host4.dispatch({ type: COMMAND_TYPES.QUEUE_BUILDING, payload: { plotIndex: 1, buildingId: 'sawmill' } });
+  host4.dispatch({ type: COMMAND_TYPES.QUEUE_BUILDING, payload: { plotIndex: 2, buildingId: 'quarry' } });
+  host4.dispatch({ type: COMMAND_TYPES.QUEUE_BUILDING, payload: { plotIndex: 3, buildingId: 'farmstead' } });
+  const fourthQueueBlocked = !host4.dispatch({ type: COMMAND_TYPES.QUEUE_BUILDING, payload: { plotIndex: 4, buildingId: 'guild_hall' } }).ok;
 
   const t4Pass = Boolean(
     foundCmd.ok &&
     phaseIsCity &&
     guildNotBuiltYet &&
-    queueSawmill.ok &&
     costDeducted &&
-    refundVerified &&
+    pendingRefundVerified &&
+    proratedRefundGiven &&
+    cleanupJobActive &&
+    cleanupFinished &&
     sawmillCompleted &&
-    resourceTickGranted
+    demolishQueued &&
+    demolishCompleted &&
+    fourthQueueBlocked
   );
 
   results.push({
-    name: '4. City Founding, Real-Time Construction Queue, Cancel Refund & Resource Production',
+    name: '4. City Founding, 3-Slot Queue Cap, Prorated Cancel + Cleanup & Demolition Salvage',
     pass: t4Pass,
     detail: t4Pass
-      ? 'City founding consumes settler, starts without pre-built Guild Hall, executes timed build queue, refunds cancelled jobs, and ticks resources'
-      : 'Failed city construction queue or resource tick check'
+      ? 'Queue limits enforced, active cancel yields prorated refund with 50% cleanup job, and deliberate demolition grants 35% salvage'
+      : 'Failed multi-domain queue lifecycle checks'
   });
 
   // =========================================================================
-  // Test 5: Adventurers Guild Hall Completion, Hero Recruitment & Reactive Task DAG
+  // Test 5: Adventurers Guild Hall Completion, 60s Hero Recruitment Queue & Vanguard Formation
   // =========================================================================
-  // In host4, claim completed tasks 1, 2, 3 to boost resources
-  host4.dispatch({ type: COMMAND_TYPES.CLAIM_TASK_REWARD, payload: { taskId: 'task_scout_wilderness' } });
-  host4.dispatch({ type: COMMAND_TYPES.CLAIM_TASK_REWARD, payload: { taskId: 'task_found_first_city' } });
-  host4.dispatch({ type: COMMAND_TYPES.CLAIM_TASK_REWARD, payload: { taskId: 'task_establish_production' } });
+  const host5 = createWargameSimHost();
+  host5.dispatch({
+    type: COMMAND_TYPES.START_NEW_CAMPAIGN,
+    payload: { houseName: 'House Guildmaster', seedCode: 'STAR-5005' }
+  });
+  host5.dispatch({
+    type: COMMAND_TYPES.FOUND_CITY,
+    payload: { cityName: 'Vanguard Hold' }
+  });
+  const city5 = getPrimaryCity(host5.state);
+
+  // Claim completed tasks 1 and 2 to boost stockpiles
+  host5.dispatch({ type: COMMAND_TYPES.CLAIM_TASK_REWARD, payload: { taskId: 'task_scout_wilderness' } });
+  host5.dispatch({ type: COMMAND_TYPES.CLAIM_TASK_REWARD, payload: { taskId: 'task_found_first_city' } });
 
   // Queue Adventurers Guild Hall on Plot #4 (6000ms build duration)
-  const queueGuild = host4.dispatch({
+  const queueGuild = host5.dispatch({
     type: COMMAND_TYPES.QUEUE_BUILDING,
     payload: { plotIndex: 4, buildingId: 'guild_hall' }
   });
 
   // Advance clock by 6500ms -> Guild Hall finishes and unlocks GUILD_UNLOCKED phase!
-  host4.stepClock(6500);
-  const guildUnlocked = host4.state.campaignPhase === CAMPAIGN_PHASES.GUILD_UNLOCKED && city4.buildings.guild_hall === 1;
+  host5.stepClock(6500);
+  const guildUnlocked = host5.state.campaignPhase === CAMPAIGN_PHASES.GUILD_UNLOCKED && city5.buildings.guild_hall === 1;
 
-  // Claim Task 4 ("Charter the Adventurers Guild Hall")
-  const claimTask4 = host4.dispatch({
+  // Claim Task 4 ("Charter the Adventurers Guild Hall") -> grants +100 Gold, +50 Food
+  const claimTask4 = host5.dispatch({
     type: COMMAND_TYPES.CLAIM_TASK_REWARD,
     payload: { taskId: 'task_build_guild_hall' }
   });
 
-  // Now recruit a Ranger Hero!
-  const recruitHero = host4.dispatch({
+  // Start training a Ranger Hero (60,000ms training queue)
+  const recruitRanger = host5.dispatch({
     type: COMMAND_TYPES.RECRUIT_HERO,
     payload: { classId: 'ranger', heroName: 'Sylvanas Pathfinder' }
   });
+  const rangerQueued = recruitRanger.ok && city5.recruitmentQueue.length === 1 && city5.recruitmentQueue[0].status === 'training';
+  const heroNotInstantlySpawned = host5.state.world.heroes.length === 0;
 
-  const heroCreated = host4.state.world.heroes.length === 1 && host4.state.world.heroes[0].classId === 'ranger';
-  const partySpawnedOnOverworld = host4.state.world.overworld.units.some(function(u) {
+  // Queue a 2nd trainee (Fighter) and test recruitment cancel prorated refund
+  const goldBeforeFighter = city5.stockpile.gold;
+  const recruitFighter = host5.dispatch({
+    type: COMMAND_TYPES.RECRUIT_HERO,
+    payload: { classId: 'fighter', heroName: 'Garrick Ironheart' }
+  });
+  const fighterQueued = recruitFighter.ok && city5.recruitmentQueue.length === 2 && city5.recruitmentQueue[1].status === 'queued';
+
+  // Cancel queued fighter -> 100% full refund
+  const cancelFighter = host5.dispatch({
+    type: COMMAND_TYPES.CANCEL_RECRUITMENT,
+    payload: { queueItemId: recruitFighter.data.queueItem.queueItemId }
+  });
+  const fighterRefundVerified = cancelFighter.ok && city5.stockpile.gold === goldBeforeFighter && city5.recruitmentQueue.length === 1;
+
+  // Advance clock by 30,000ms -> Ranger still in training!
+  host5.stepClock(30000);
+  const stillTrainingAt30s = host5.state.world.heroes.length === 0 && city5.recruitmentQueue.length === 1;
+
+  // Advance clock by remaining 30,000ms (total 60,000ms elapsed) -> Ranger training finishes!
+  host5.stepClock(30000);
+  const rangerCompleted = city5.recruitmentQueue.length === 0 && host5.state.world.heroes.length === 1 && host5.state.world.heroes[0].classId === 'ranger';
+  const partySpawnedOnOverworld = host5.state.world.overworld.units.some(function(u) {
     return u.unitType === 'hero_party' && u.canEnterDungeon === true && u.alive === true;
   });
 
@@ -261,17 +332,21 @@ export function evaluateWargameSelfTests() {
     queueGuild.ok &&
     guildUnlocked &&
     claimTask4.ok &&
-    recruitHero.ok &&
-    heroCreated &&
+    rangerQueued &&
+    heroNotInstantlySpawned &&
+    fighterQueued &&
+    fighterRefundVerified &&
+    stillTrainingAt30s &&
+    rangerCompleted &&
     partySpawnedOnOverworld
   );
 
   results.push({
-    name: '5. Adventurers Guild Hall Completion, Hero Recruitment & Reactive Task DAG Unlocking',
+    name: '5. Adventurers Guild Hall Completion, 60s Hero Recruitment Queue & Vanguard Formation',
     pass: t5Pass,
     detail: t5Pass
-      ? 'Completing Adventurers Guild Hall unlocks GUILD_UNLOCKED phase, task DAG progression, Hero recruitment, and Overworld Vanguard Party spawning'
-      : 'Failed Guild Hall or Hero Recruitment lifecycle'
+      ? 'Guild Hall completion unlocks recruitment, swearing in enqueues 60s trainee, cancel gives refund, and timer resolution inducts hero into Vanguard Party'
+      : 'Failed 60s hero recruitment queue lifecycle'
   });
 
   return results;

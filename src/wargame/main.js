@@ -152,6 +152,26 @@ export function handleCancelBuilding(queueItemId) {
   syncWargameUI(simHost);
 }
 
+export function handleDemolishBuilding(plotIndex) {
+  simHost.dispatch({
+    type: COMMAND_TYPES.DEMOLISH_BUILDING,
+    payload: { plotIndex: plotIndex }
+  });
+  simHost.state._dirty = true;
+  simHost.save();
+  syncWargameUI(simHost);
+}
+
+export function handleCancelRecruitment(queueItemId) {
+  simHost.dispatch({
+    type: COMMAND_TYPES.CANCEL_RECRUITMENT,
+    payload: { queueItemId: queueItemId }
+  });
+  simHost.state._dirty = true;
+  simHost.save();
+  syncWargameUI(simHost);
+}
+
 export function handleRecruitHero(classId) {
   simHost.dispatch({
     type: COMMAND_TYPES.RECRUIT_HERO,
@@ -288,9 +308,18 @@ function setupWargameListeners() {
       const pIdx = parseInt(btn.dataset.plotIndex, 10);
       const bId = btn.dataset.buildingId;
       if (!isNaN(pIdx) && bId) handleQueueBuilding(pIdx, bId);
+    } else if (action === 'cancel-building') {
+      const qId = btn.dataset.queueItemId;
+      if (qId) handleCancelBuilding(qId);
+    } else if (action === 'demolish-building') {
+      const pIdx = parseInt(btn.dataset.plotIndex, 10);
+      if (!isNaN(pIdx)) handleDemolishBuilding(pIdx);
     } else if (action === 'recruit-hero') {
       const cId = btn.dataset.classId;
       if (cId) handleRecruitHero(cId);
+    } else if (action === 'cancel-recruitment') {
+      const qId = btn.dataset.queueItemId;
+      if (qId) handleCancelRecruitment(qId);
     } else if (action === 'select-party') {
       const hId = btn.dataset.heroId;
       if (hId) handleSelectPartyByHero(hId);
@@ -390,7 +419,9 @@ export const WargameApp = {
   handleCancelMarch: handleCancelMarch,
   handleQueueBuilding: handleQueueBuilding,
   handleCancelBuilding: handleCancelBuilding,
+  handleDemolishBuilding: handleDemolishBuilding,
   handleRecruitHero: handleRecruitHero,
+  handleCancelRecruitment: handleCancelRecruitment,
   handleClaimTask: handleClaimTask,
   handleSelectPartyByHero: handleSelectPartyByHero,
   handleEnterDungeon: handleEnterDungeon,
