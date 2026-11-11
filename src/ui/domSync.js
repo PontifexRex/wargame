@@ -25,6 +25,9 @@ import {
 } from '../engine/state.js';
 import { ensureGuildBounties } from '../engine/actions.js';
 import { drawHeroSprite, renderMinimapCanvas } from './renderer.js';
+import { OVERWORLD_TERRAIN, OVERWORLD_POIS } from '../data/overworld.js';
+import { getActiveOverworldParty, evaluateGuidedTasks, ensureOverworldHydrated } from '../engine/overworld.js';
+import { renderOverworldCanvas } from './overworldRenderer.js';
 
 export function formatSocketPipsHtml(item) {
   if (!item || !item.maxSockets || item.maxSockets <= 0) return '';
@@ -815,17 +818,177 @@ export function updateAllUI() {
     `).join('');
   }
 
-  // View Toggle
-  if (gameState.inGuild) {
-    document.getElementById('guildViewPanel').classList.remove('hidden');
-    document.getElementById('dungeonViewPanel').classList.add('hidden');
+  // View Toggle: Overworld, Guild Bastion, or Subterranean Dungeon
+  const curView = gameState.activeView || (gameState.inGuild ? 'guild' : 'dungeon');
+  const owPanel = document.getElementById('overworldViewPanel');
+  const guildPanel = document.getElementById('guildViewPanel');
+  const dngPanel = document.getElementById('dungeonViewPanel');
+
+  if (curView === 'overworld') {
+    if (owPanel) owPanel.classList.remove('hidden');
+    if (guildPanel) guildPanel.classList.add('hidden');
+    if (dngPanel) dngPanel.classList.add('hidden');
+    renderOverworldHud();
+    renderGuidedTasksWidget();
+  } else if (curView === 'guild') {
+    if (owPanel) owPanel.classList.add('hidden');
+    if (guildPanel) guildPanel.classList.remove('hidden');
+    if (dngPanel) dngPanel.classList.add('hidden');
     renderGuildHub();
+    renderGuidedTasksWidget();
   } else {
-    document.getElementById('guildViewPanel').classList.add('hidden');
-    document.getElementById('dungeonViewPanel').classList.remove('hidden');
+    if (owPanel) owPanel.classList.add('hidden');
+    if (guildPanel) guildPanel.classList.add('hidden');
+    if (dngPanel) dngPanel.classList.remove('hidden');
     renderDungeonHud();
   }
+
+  // Update top view buttons
+  const btnOw = document.getElementById('btnViewOverworld');
+  const btnGld = document.getElementById('btnViewGuild');
+  const btnDng = document.getElementById('btnViewDungeon');
+  if (btnOw) {
+    btnOw.className = curView === 'overworld'
+      ? 'px-3 py-1 text-xs font-bold rounded bg-[#fbbf24] text-[#080b11] shadow'
+      : 'px-3 py-1 text-xs font-semibold rounded bg-[#1a2232] text-[#8b949e] hover:text-[#e6edf3]';
+  }
+  if (btnGld) {
+    btnGld.className = curView === 'guild'
+      ? 'px-3 py-1 text-xs font-bold rounded bg-[#fbbf24] text-[#080b11] shadow'
+      : 'px-3 py-1 text-xs font-semibold rounded bg-[#1a2232] text-[#8b949e] hover:text-[#e6edf3]';
+  }
+  if (btnDng) {
+    btnDng.className = curView === 'dungeon'
+      ? 'px-3 py-1 text-xs font-bold rounded bg-[#f87171] text-[#080b11] shadow'
+      : 'px-3 py-1 text-xs font-semibold rounded bg-[#1a2232] text-[#8b949e] hover:text-[#e6edf3]';
+  }
+
   renderMinimapCanvas('minimapCanvas');
+}
+
+export function renderOverworldHud() {
+  if (typeof document === 'undefined') return;
+  ensureOverworldHydrated(gameState);
+  const ow = gameState.overworld;
+  if (!ow) return;
+
+  const party = getActiveOverworldParty(gameState);
+  const px = party ? party.x : ow.spawnX;
+  const py = party ? party.y : ow.spawnY;
+  const tId = (ow.tiles && ow.tiles[py]) ? ow.tiles[py][px] : 1;
+  const tDef = OVERWORLD_TERRAIN[tId];
+
+  const coordEl = document.getElementById('uiOverworldCoord');
+  if (coordEl) coordEl.textContent = `(${px}, ${py})`;
+
+  const terrainEl = document.getElementById('uiOverworldTerrain');
+  if (terrainEl) terrainEl.textContent = tDef ? tDef.name : 'Unknown';
+
+  const statusEl = document.getElementById('uiOverworldPartyStatus');
+  if (statusEl) {
+    if (party && party.alive) {
+      statusEl.textContent = `${party.name} • Ready`;
+      statusEl.className = 'text-[#34d399] font-bold';
+    } else {
+      statusEl.textContent = 'Settled (Civilization Active)';
+      statusEl.className = 'text-[#fbbf24] font-bold';
+    }
+  }
+
+  // Stockpile resources
+  let wood = 0, stone = 0, gold = (gameState.guildVault && gameState.guildVault.gold) || 0, food = 0;
+  if (gameState.cities && Object.keys(gameState.cities).length > 0) {
+    const firstCity = gameState.cities[Object.keys(gameState.cities)[0]];
+    if (firstCity && firstCity.stockpile) {
+      wood = firstCity.stockpile.wood || 0;
+      stone = firstCity.stockpile.stone || 0;
+      gold = firstCity.stockpile.gold || gold;
+      food = firstCity.stockpile.food || 0;
+    }
+  }
+
+  const wEl = document.getElementById('uiOverworldWoodStockpile');
+  if (wEl) wEl.textContent = wood;
+  const sEl = document.getElementById('uiOverworldStoneStockpile');
+  if (sEl) sEl.textContent = stone;
+  const gEl = document.getElementById('uiOverworldGoldStockpile');
+  if (gEl) gEl.textContent = gold;
+  const fEl = document.getElementById('uiOverworldFoodStockpile');
+  if (fEl) fEl.textContent = food;
+
+  // Found city button state
+  const foundBtn = document.getElementById('btnFoundCity');
+  if (foundBtn) {
+    const canFound = Boolean(party && party.alive && party.canFoundCity && tDef && tDef.buildable);
+    foundBtn.disabled = !canFound;
+    if (canFound) {
+      foundBtn.className = 'px-3 py-1.5 rounded-lg bg-[#fbbf24] hover:bg-[#f59e0b] text-[#080b11] font-bold text-xs uppercase shadow btn-tactical cursor-pointer';
+    } else {
+      foundBtn.className = 'px-3 py-1.5 rounded-lg bg-[#1a2232] text-[#64748b] font-bold text-xs uppercase border border-[#283347] cursor-not-allowed';
+    }
+  }
+
+  // Enter Dungeon button state (if standing on or adjacent to dungeon entrance)
+  const dngBtn = document.getElementById('btnEnterOverworldDungeon');
+  if (dngBtn) {
+    let nearDungeon = false;
+    if (ow.pois) {
+      for (let i = 0; i < ow.pois.length; i++) {
+        const poi = ow.pois[i];
+        if (poi.type === 'dungeon_entrance' && Math.hypot(poi.x - px, poi.y - py) <= 1.5) {
+          nearDungeon = true;
+          break;
+        }
+      }
+    }
+    dngBtn.disabled = !nearDungeon;
+    if (nearDungeon) {
+      dngBtn.className = 'px-3 py-1.5 rounded-lg bg-[#f87171] hover:bg-[#ef4444] text-[#080b11] font-bold text-xs uppercase shadow btn-tactical cursor-pointer';
+    } else {
+      dngBtn.className = 'px-3 py-1.5 rounded-lg bg-[#1a2232] text-[#64748b] font-bold text-xs uppercase border border-[#283347] cursor-not-allowed';
+    }
+  }
+
+  renderOverworldCanvas();
+}
+
+export function renderGuidedTasksWidget() {
+  if (typeof document === 'undefined') return;
+  ensureOverworldHydrated(gameState);
+  const tasks = evaluateGuidedTasks(gameState);
+  if (!tasks || tasks.length === 0) return;
+
+  // Find first active task that is ready to claim, or first active incomplete task
+  let currentTask = tasks.find(t => t.readyToClaim);
+  if (!currentTask) {
+    currentTask = tasks.find(t => !t.claimed) || tasks[0];
+  }
+
+  const titleEl = document.getElementById('uiGuidedTaskTitle');
+  if (titleEl) titleEl.textContent = currentTask.title;
+
+  const descEl = document.getElementById('uiGuidedTaskDesc');
+  if (descEl) descEl.textContent = currentTask.desc;
+
+  const rewardEl = document.getElementById('uiGuidedTaskReward');
+  if (rewardEl) rewardEl.textContent = `Reward: ${currentTask.rewardLabel}`;
+
+  const claimBtn = document.getElementById('btnClaimTaskReward');
+  if (claimBtn) {
+    if (!claimBtn.dataset) claimBtn.dataset = {};
+    claimBtn.dataset.taskId = currentTask.id;
+    if (currentTask.readyToClaim) {
+      claimBtn.classList.remove('hidden');
+      claimBtn.textContent = '✨ Claim Reward';
+      claimBtn.className = 'px-3 py-1 rounded bg-[#34d399] hover:bg-[#10b981] text-[#080b11] font-bold text-xs uppercase shadow btn-tactical animate-pulse';
+    } else if (currentTask.claimed) {
+      claimBtn.classList.remove('hidden');
+      claimBtn.textContent = '✓ Completed';
+      claimBtn.className = 'px-3 py-1 rounded bg-[#1a2232] text-[#34d399] font-bold text-xs uppercase border border-[#34d399]/40 cursor-default';
+    } else {
+      claimBtn.classList.add('hidden');
+    }
+  }
 }
 
 export function switchGuildTab(tabId) {

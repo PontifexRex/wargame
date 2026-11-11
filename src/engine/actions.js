@@ -863,6 +863,7 @@ export function extractToGuild(method = 'Floor 1 Ascending Stairs (<)', state = 
   h.usedDivineIntervention = false;
   recomputeHeroDerivedStats(true, state);
   state.inGuild = true;
+  state.activeView = 'guild';
 
   if (state === gameState) {
     saveGame();
@@ -939,6 +940,7 @@ export function handleHeroDefeat(killerName = 'Abyssal Guardian', state = gameSt
   h.usedDivineIntervention = false;
   recomputeHeroDerivedStats(true, state);
   state.inGuild = true;
+  state.activeView = 'guild';
 
   if (state === gameState) {
     playSound('hit');

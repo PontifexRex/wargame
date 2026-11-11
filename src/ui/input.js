@@ -47,6 +47,9 @@ import {
   closeDevConsole,
   isDevConsoleOpen
 } from './devConsole.js';
+import { getActiveOverworldParty, moveOverworldParty } from '../engine/overworld.js';
+import { getOverworldCameraOrigin, setOverworldHoverTile, renderOverworldCanvas } from './overworldRenderer.js';
+import { updateAllUI } from './domSync.js';
 
 export function updateScannerOnHover(gx, gy) {
   if (typeof document === 'undefined') return;
@@ -207,6 +210,29 @@ export function setupInputs() {
     }
 
     if (fullMapModal && !fullMapModal.classList.contains('hidden')) return;
+
+    if (gameState.activeView === 'overworld') {
+      const isUp = ['ArrowUp', 'KeyW', 'Numpad8'].includes(e.code) || e.key === 'w' || e.key === 'W' || e.key === 'ArrowUp';
+      const isDown = ['ArrowDown', 'KeyS', 'Numpad2'].includes(e.code) || e.key === 's' || e.key === 'S' || e.key === 'ArrowDown';
+      const isLeft = ['ArrowLeft', 'KeyA', 'Numpad4'].includes(e.code) || e.key === 'a' || e.key === 'A' || e.key === 'ArrowLeft';
+      const isRight = ['ArrowRight', 'KeyD', 'Numpad6'].includes(e.code) || e.key === 'd' || e.key === 'D' || e.key === 'ArrowRight';
+      let odx = 0, ody = 0;
+      if (isUp) ody = -1;
+      else if (isDown) ody = 1;
+      else if (isLeft) odx = -1;
+      else if (isRight) odx = 1;
+
+      if (odx !== 0 || ody !== 0) {
+        e.preventDefault();
+        const p = getActiveOverworldParty(gameState);
+        if (p && p.alive) {
+          moveOverworldParty(p.id, odx, ody, gameState);
+          updateAllUI();
+        }
+      }
+      return;
+    }
+
     if (gameState.inGuild) return;
 
     const isShift = Boolean(e.shiftKey);
@@ -371,6 +397,53 @@ export function setupInputs() {
       if (pt && floor.explored[pt.y] && floor.explored[pt.y][pt.x]) {
         closeFullMapModal();
         startAutoWalkTo(pt.x, pt.y);
+      }
+    });
+  }
+
+  // Overworld Canvas Hover & Click-to-Move
+  const owCanvas = document.getElementById('overworldCanvas');
+  if (owCanvas) {
+    owCanvas.addEventListener('mousemove', function(e) {
+      if (!gameState || !gameState.overworld) return;
+      const party = getActiveOverworldParty(gameState);
+      const fx = party && party.alive ? party.x : gameState.overworld.spawnX;
+      const fy = party && party.alive ? party.y : gameState.overworld.spawnY;
+      const cam = getOverworldCameraOrigin(gameState.overworld, fx, fy);
+      const rect = owCanvas.getBoundingClientRect();
+      const scaleX = owCanvas.width / (rect.width || 1);
+      const scaleY = owCanvas.height / (rect.height || 1);
+      const cx = (e.clientX - rect.left) * scaleX;
+      const cy = (e.clientY - rect.top) * scaleY;
+      const gx = cam.camX + Math.floor(cx / TILE_SIZE);
+      const gy = cam.camY + Math.floor(cy / TILE_SIZE);
+      setOverworldHoverTile({ x: gx, y: gy });
+      renderOverworldCanvas();
+    });
+
+    owCanvas.addEventListener('mouseleave', function() {
+      setOverworldHoverTile(null);
+      renderOverworldCanvas();
+    });
+
+    owCanvas.addEventListener('click', function(e) {
+      if (!gameState || !gameState.overworld || gameState.activeView !== 'overworld') return;
+      const party = getActiveOverworldParty(gameState);
+      if (!party || !party.alive) return;
+      const cam = getOverworldCameraOrigin(gameState.overworld, party.x, party.y);
+      const rect = owCanvas.getBoundingClientRect();
+      const scaleX = owCanvas.width / (rect.width || 1);
+      const scaleY = owCanvas.height / (rect.height || 1);
+      const cx = (e.clientX - rect.left) * scaleX;
+      const cy = (e.clientY - rect.top) * scaleY;
+      const gx = cam.camX + Math.floor(cx / TILE_SIZE);
+      const gy = cam.camY + Math.floor(cy / TILE_SIZE);
+
+      const dx = Math.sign(gx - party.x);
+      const dy = Math.sign(gy - party.y);
+      if (dx !== 0 || dy !== 0) {
+        moveOverworldParty(party.id, dx, dy, gameState);
+        updateAllUI();
       }
     });
   }

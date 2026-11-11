@@ -1,6 +1,6 @@
 // Core constants, viewport dimensions, map scale presets, tile IDs, and rarity definitions
 
-export const SCHEMA_VERSION = 'v0.5.0-inc5';
+export const SCHEMA_VERSION = 'v0.9.0-overworld';
 export const STORAGE_KEY = 'aethelgard_save_v6';
 
 export const TILE_SIZE = 32;
@@ -12,6 +12,8 @@ export const GRID_W = VIEWPORT_WIDTH;
 export const GRID_H = VIEWPORT_HEIGHT;
 export const DEFAULT_MAP_W = 80;
 export const DEFAULT_MAP_H = 60;
+export const DEFAULT_OVERWORLD_W = 48;
+export const DEFAULT_OVERWORLD_H = 36;
 
 // Soft configurable cap on simultaneously chartered custom expeditions (not a structural limit; can be raised to 500+)
 export const DEFAULT_MAX_CHARTERED_DUNGEONS = 12;

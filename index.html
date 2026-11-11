@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Aethelgard: The Starfall Vaults — v0.8.2 (Portal System &amp; Traversal Framework)</title>
+  <title>Aethelgard: The Starfall Vaults — v0.9.0 (Overworld Map, Settler &amp; City Founding)</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -24,15 +24,28 @@
         <div class="flex items-center gap-2">
           <h1 class="font-display text-base md:text-lg font-bold tracking-wider text-[#e6edf3]">AETHELGARD</h1>
           <span class="text-[11px] font-mono-num uppercase px-2 py-0.5 rounded bg-[#fbbf24]/15 text-[#fbbf24] border border-[#fbbf24]/40 font-semibold">
-            v0.8.2 • Portals
+            v0.9.0 • Overworld
           </span>
         </div>
-        <p class="text-[11px] text-[#8b949e] hidden sm:block">The Starfall Vaults • Procedural Tactical Roguelike</p>
+        <p class="text-[11px] text-[#8b949e] hidden sm:block">The Starfall Vaults • Tactical Roguelike &amp; Subterranean Wargame</p>
       </div>
     </div>
 
+    <!-- VIEW SWITCHER TABS -->
+    <div class="flex items-center gap-1 bg-[#080b11] p-1 rounded-lg border border-[#283347]">
+      <button id="btnViewOverworld" onclick="window.Aethelgard.handleSwitchView('overworld')" class="px-3 py-1 text-xs font-bold rounded bg-[#fbbf24] text-[#080b11] shadow btn-tactical">
+        🗺️ World Map
+      </button>
+      <button id="btnViewGuild" onclick="window.Aethelgard.handleSwitchView('guild')" class="px-3 py-1 text-xs font-semibold rounded bg-[#1a2232] text-[#8b949e] hover:text-[#e6edf3] btn-tactical">
+        🏰 Bastion / Guild
+      </button>
+      <button id="btnViewDungeon" onclick="window.Aethelgard.handleSwitchView('dungeon')" class="px-3 py-1 text-xs font-semibold rounded bg-[#1a2232] text-[#8b949e] hover:text-[#e6edf3] btn-tactical">
+        ⚔️ Dungeon
+      </button>
+    </div>
+
     <!-- LOCATION & SEED STATUS -->
-    <div class="hidden md:flex items-center gap-4 bg-[#080b11] px-3.5 py-1.5 rounded-lg border border-[#283347]">
+    <div class="hidden xl:flex items-center gap-4 bg-[#080b11] px-3.5 py-1.5 rounded-lg border border-[#283347]">
       <div class="flex items-center gap-2">
         <span id="headerLocationDot" class="w-2.5 h-2.5 rounded-full bg-[#34d399]"></span>
         <span id="headerLocationText" class="text-xs font-semibold tracking-wide uppercase text-[#e6edf3]">Oakhaven Guild Bastion</span>
@@ -63,7 +76,7 @@
       </button>
       <button id="btnVerifySuite" onclick="window.Aethelgard.openDiagnosticsModal()" class="px-3 py-1.5 rounded-md bg-[#34d399]/15 hover:bg-[#34d399]/25 border border-[#34d399]/50 text-xs font-mono-num font-bold text-[#34d399] flex items-center gap-1.5 btn-tactical">
         <span class="w-2 h-2 rounded-full bg-[#34d399]"></span>
-        <span id="verifyBtnText">Verify Inc-8.2 (29/29 PASS)</span>
+        <span id="verifyBtnText">Verify Inc-9.0 (30/30 PASS)</span>
       </button>
     </div>
   </header>
@@ -207,8 +220,83 @@
       </div>
     </aside>
 
-    <!-- CENTER WORKSPACE: GUILD BASTION OR DUNGEON CANVAS (6 COLS) -->
+    <!-- CENTER WORKSPACE: OVERWORLD MAP, GUILD BASTION OR DUNGEON CANVAS (6 COLS) -->
     <section class="lg:col-span-6 flex flex-col gap-3 order-1 lg:order-2">
+
+      <!-- VIEW C: OVERWORLD MAP VIEWPORT -->
+      <div id="overworldViewPanel" class="card-surface p-3 md:p-4 flex flex-col gap-3">
+        <!-- TOP OVERWORLD HUD -->
+        <div class="flex flex-wrap items-center justify-between gap-2 px-3 py-2 rounded bg-[#080b11] border border-[#283347]">
+          <div class="flex flex-wrap items-center gap-2 text-xs">
+            <span class="px-2 py-0.5 rounded bg-[#fbbf24]/15 text-[#fbbf24] border border-[#fbbf24]/40 font-mono-num font-bold">
+              OVERWORLD MAP
+            </span>
+            <span id="uiOverworldCoord" class="text-[11px] font-mono-num text-[#60a5fa] font-bold">(24, 18)</span>
+            <span class="text-[#283347]">|</span>
+            <span id="uiOverworldTerrain" class="text-xs font-semibold text-[#84cc16]">Fertile Plains</span>
+            <span class="text-[#283347]">|</span>
+            <span id="uiOverworldPartyStatus" class="text-xs font-semibold text-[#34d399]">Pioneer Settler • Ready</span>
+          </div>
+          <!-- CITY RESOURCE STOCKPILES -->
+          <div class="flex items-center gap-3 text-xs font-mono-num">
+            <span title="Wood (Timber)" class="flex items-center gap-1 text-[#4ade80]">
+              <span>♠</span> <strong id="uiOverworldWoodStockpile">0</strong>
+            </span>
+            <span title="Stone (Granite)" class="flex items-center gap-1 text-[#cbd5e1]">
+              <span>■</span> <strong id="uiOverworldStoneStockpile">0</strong>
+            </span>
+            <span title="Gold" class="flex items-center gap-1 text-[#fbbf24]">
+              <span>💰</span> <strong id="uiOverworldGoldStockpile">35</strong>
+            </span>
+            <span title="Food" class="flex items-center gap-1 text-[#f97316]">
+              <span>🌾</span> <strong id="uiOverworldFoodStockpile">0</strong>
+            </span>
+          </div>
+        </div>
+
+        <!-- GUIDED TASK BANNER -->
+        <div id="uiGuidedTaskBanner" class="p-2.5 rounded-lg bg-[#111722] border border-[#38bdf8]/40 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
+          <div>
+            <div class="flex items-center gap-2">
+              <span class="px-1.5 py-0.5 rounded text-[10px] uppercase font-bold bg-[#38bdf8]/20 text-[#38bdf8]">Guided Objective</span>
+              <span id="uiGuidedTaskTitle" class="font-bold text-[#e6edf3]">Pioneer Exploration</span>
+            </div>
+            <p id="uiGuidedTaskDesc" class="text-[11px] text-[#8b949e] mt-0.5">March your Settler unit across the fertile Overworld (move at least 2 tiles).</p>
+            <div id="uiGuidedTaskReward" class="text-[10px] text-[#fbbf24] font-mono-num mt-0.5">Reward: +30 Food, +20 Wood</div>
+          </div>
+          <button id="btnClaimTaskReward" onclick="window.Aethelgard.handleClaimTaskRewardClick()" class="hidden px-3 py-1.5 rounded-lg bg-[#34d399] hover:bg-[#10b981] text-[#080b11] font-bold text-xs uppercase shadow btn-tactical">
+            ✨ Claim Reward
+          </button>
+        </div>
+
+        <!-- 2D OVERWORLD CANVAS VIEWPORT -->
+        <div class="relative w-full flex justify-center items-center bg-[#04060a] rounded-lg border border-[#283347] overflow-hidden shadow-inner">
+          <canvas id="overworldCanvas" width="672" height="480" class="max-w-full h-auto cursor-crosshair"></canvas>
+          <div class="absolute bottom-2 left-2 pointer-events-none bg-[#080b11]/85 backdrop-blur px-2.5 py-1 rounded border border-[#283347] text-[10px] font-mono-num text-[#8b949e] hidden sm:flex items-center gap-2.5">
+            <span><strong class="text-[#e6edf3]">WASD / Arrow Keys:</strong> March Unit</span>
+            <span><strong class="text-[#60a5fa]">Click Tile:</strong> Pathfind</span>
+            <span><strong class="text-[#fbbf24]">Found City:</strong> Erect Bastion</span>
+          </div>
+        </div>
+
+        <!-- OVERWORLD ACTION BAR -->
+        <div class="flex flex-wrap items-center justify-between gap-2 p-2.5 rounded-lg bg-[#080b11] border border-[#283347]">
+          <div class="flex flex-wrap items-center gap-2">
+            <button id="btnFoundCity" onclick="window.Aethelgard.handleFoundCityClick()" class="px-3 py-1.5 rounded-lg bg-[#fbbf24] hover:bg-[#f59e0b] text-[#080b11] font-bold text-xs uppercase shadow btn-tactical">
+              🏛️ Found Bastion City
+            </button>
+            <button id="btnEnterOverworldDungeon" onclick="window.Aethelgard.handleEnterOverworldDungeonClick()" class="px-3 py-1.5 rounded-lg bg-[#1a2232] text-[#64748b] font-bold text-xs uppercase border border-[#283347]">
+              ⚔️ Descend Into Vault
+            </button>
+          </div>
+          <div class="flex items-center gap-1.5 text-xs font-mono-num">
+            <button onclick="window.Aethelgard.handleMoveOverworldClick(0, -1)" class="w-8 h-8 rounded bg-[#1a2232] hover:bg-[#283347] text-[#e6edf3] font-bold btn-tactical">▲</button>
+            <button onclick="window.Aethelgard.handleMoveOverworldClick(-1, 0)" class="w-8 h-8 rounded bg-[#1a2232] hover:bg-[#283347] text-[#e6edf3] font-bold btn-tactical">◀</button>
+            <button onclick="window.Aethelgard.handleMoveOverworldClick(0, 1)" class="w-8 h-8 rounded bg-[#1a2232] hover:bg-[#283347] text-[#e6edf3] font-bold btn-tactical">▼</button>
+            <button onclick="window.Aethelgard.handleMoveOverworldClick(1, 0)" class="w-8 h-8 rounded bg-[#1a2232] hover:bg-[#283347] text-[#e6edf3] font-bold btn-tactical">▶</button>
+          </div>
+        </div>
+      </div>
 
       <!-- VIEW A: ADVENTURERS GUILD SURFACE HUB -->
       <div id="guildViewPanel" class="card-surface p-4 md:p-5 flex flex-col gap-4">
