@@ -329,6 +329,10 @@ Delivered the unified traversal engine, multi-state portal system, ancient waypo
    - **Idle / Upgrade Sub-Systems**: Progressive automation and resource efficiency upgrades interwoven with active play.
 6. **Incremental Discovery, Guided Tutorial & Reward Tasks**:
    - Systems unlock progressively so new players are never overwhelmed, guided by optional contextual tutorials and non-linear **Tasks/Missions** that grant early progression rewards.
+7. **Pacing, Economy Balance & Simulation-First Tuning ("No Blind Tuning")**:
+   - Worlds and campaigns are targeted to span up to a full year (~365 days) of engaging real-time and active progression without running aimlessly forever or burning out.
+   - Because construction durations scale exponentially ($2^{L-1}$), population food/water consumption escalates with city size, and research trees/perks compound, small balance tweaks can unintentionally collapse a 1-year design into 3 months—or conversely, create insurmountable starvation deadlocks.
+   - All balance changes, speed boosters, tech unlocks, and economy rates must be governed by automated, deterministic simulation tools and player archetype modeling to preserve game balance and pacing.
 
 ---
 
@@ -386,3 +390,25 @@ Delivered the unified traversal engine, multi-state portal system, ancient waypo
 - **Multi-Member Hero Parties**: Parties led by a Hero with multiple class members entering dungeons and tactical battles together.
 - **Guild Archetype Specializations**: Distinct configurations for **Adventurers Guilds**, **War Guilds**, and **Social Guilds**.
 - **Tactical Overworld Warfare, Alliances & World Victory Arc**: Timed marches, feints/fog-of-war intel, city defense, Divine War Reimbursement, and endgame Alliance victory objectives.
+
+---
+
+### Track D: Game Simulation, Macro Balance Calculator & Pacing Engine (`v0.9.5-sim` / Tooling Series)
+
+#### Increment 9.5 (`v0.9.5-sim`) — Headless Progression Simulator, Time-to-Finish Calculator & Balance Modeling Tools
+- **Headless Progression Simulator ("ChronoSim" Engine)**:
+  - Deterministic discrete-event simulation engine that runs days, weeks, months, or an entire 1-year campaign in milliseconds without rendering UI or waiting for real-time clocks.
+  - Simulates the full game loop: population growth, food/water consumption, resource production ticks, build queues (1–3 slots, subscription boosts), tech research, and overworld travel times.
+- **Configurable Player Playstyle Archetypes**:
+  - *Casual / Low-Activity*: 1–2 check-ins per day, modest queue utilization, natural idle gaps between orders.
+  - *Active / Standard*: 3–5 check-ins per day, disciplined queue queuing, balanced focus between city building and dungeon runs.
+  - *Hardcore / Min-Max Optimizer*: 24/7 queue uptime, maximum resource reinvestment, aggressive rush strategies.
+- **Pacing & Accelerator Impact Calculator ("What-If" Sensitivity Analysis)**:
+  - Evaluates macro pacing sensitivity when introducing new features, accelerators, or balance adjustments:
+    - e.g., *"If a new Guild research perk grants +15% construction speed, how does overall campaign duration change across all 3 archetypes?"*
+    - Prevents feature creep or boosters from accidentally compressing a 1-year target down to 3 months.
+- **Bottleneck, Deadlock & Starvation Trap Detection**:
+  - Automated invariant checker that alerts if specific resource curves (e.g. stone shortage, food/water drought, worker deficit) cause game-breaking progression deadlocks or irreversible starvation loops.
+- **Tooling Deliverables**:
+  - **CLI Tool**: `./scripts/simulate-pacing.ps1` (or `node src/wargame/tools/simulatePacing.js`) outputting ASCII timeline charts, milestone timestamps (Time-to-Guild, Time-to-Tier-2, Time-to-Victory), and balance variance reports.
+  - **Interactive Balance Calculator**: In-game Dev Console / Admin modal to run parameter sliders and visualize projected player timelines interactively.
