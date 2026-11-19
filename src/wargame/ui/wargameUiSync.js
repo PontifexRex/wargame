@@ -327,7 +327,7 @@ export function renderLeftCommandSidebar(simHost) {
           ${marchHtml}
           ${nearbyDng ? `
             <button data-action="enter-dungeon" data-poi-id="${nearbyDng.id}" onclick="window.WargameApp.handleEnterDungeon('${nearbyDng.id}')" class="w-full py-2 rounded-lg font-bold text-xs uppercase tracking-wider shadow bg-[#f87171] hover:bg-[#ef4444] text-[#080b11] cursor-pointer">
-              ⚔️ Breach ${nearbyDng.name}
+              ⚔️ Enter ${nearbyDng.name}
             </button>
           ` : ''}
           ${canReturnHome ? `
@@ -539,27 +539,6 @@ export function renderOverworldHudBar(simHost) {
     } else if (primaryCity) {
       coordEl.textContent = '(' + primaryCity.x + ', ' + primaryCity.y + ')';
     }
-  }
-
-  const dngBtn = document.getElementById('wgBtnEnterDungeon');
-  let nearbyDngPoi = null;
-  if (selUnit && selUnit.alive && selUnit.canEnterDungeon && selUnit.status === 'idle' && Array.isArray(ow.pois)) {
-    nearbyDngPoi = ow.pois.find(function(p) {
-      return p.type === 'dungeon_entrance' && selUnit.x === p.x && selUnit.y === p.y;
-    }) || null;
-  }
-  if (dngBtn) {
-    const canEnterDng = Boolean(nearbyDngPoi);
-    dngBtn.disabled = !canEnterDng;
-    dngBtn.textContent = canEnterDng
-      ? ('⚔️ Enter ' + nearbyDngPoi.name)
-      : '⚔️ Descend Into Vault (March to Ω)';
-    if (dngBtn.dataset) {
-      dngBtn.dataset.poiId = canEnterDng ? nearbyDngPoi.id : '';
-    }
-    dngBtn.className = canEnterDng
-      ? 'px-3 py-1.5 rounded-lg bg-[#f87171] hover:bg-[#ef4444] text-[#080b11] font-bold text-xs uppercase shadow cursor-pointer'
-      : 'px-3 py-1.5 rounded-lg bg-[#1a2232] text-[#64748b] font-bold text-xs uppercase border border-[#283347] cursor-not-allowed';
   }
 
   // Discovered Dungeons Quick-March Bar
@@ -812,6 +791,11 @@ export function renderCityBuilderPanel(simHost) {
         </div>
 
         <div class="space-y-2 pt-2 border-t border-[#1e293b]">
+          ${curBId === 'guild_hall' ? `
+            <button data-action="enter-guild" onclick="window.WargameApp.handleSwitchView('guild')" class="w-full py-2 rounded-lg font-bold text-xs uppercase tracking-wider shadow bg-[#60a5fa] hover:bg-[#3b82f6] text-[#080b11] cursor-pointer">
+              ⚔️ Enter Adventurers Guild
+            </button>
+          ` : ''}
           <!-- Upgrade Action -->
           ${!isMax ? `
             <div class="p-2.5 rounded bg-[#111722] border border-[#283347] space-y-1.5">

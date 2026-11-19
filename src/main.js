@@ -389,7 +389,8 @@ function bootstrapApp() {
   const loaded = loadGame();
   const handoff = consumeBridgeHandoff(BRIDGE_DIRECTIONS.TO_DUNGEON);
   if (handoff) {
-    if (!loaded || !gameState.hero) {
+    const isNewCamp = !gameState.wargameSession || gameState.wargameSession.campaignId !== (handoff.campaignId || 'world_prime');
+    if (!loaded || !gameState.hero || isNewCamp) {
       selectAdventurerClass((handoff.hero && handoff.hero.classId) || 'fighter');
     }
     applyWargameEntryHandoff(handoff, gameState);

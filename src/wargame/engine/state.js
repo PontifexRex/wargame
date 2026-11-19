@@ -53,6 +53,7 @@ export function createNewCampaignWorldState(options = {}) {
     },
     world: {
       id: 'world_prime',
+      campaignId: 'camp_' + seedCode + '_' + Date.now() + '_' + Math.floor(Math.random() * 10000),
       name: worldName,
       seedCode: seedCode,
       player: {

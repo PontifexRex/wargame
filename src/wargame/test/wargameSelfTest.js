@@ -475,12 +475,24 @@ export function evaluateWargameSelfTests() {
   host6.stepClock(4000);
   const wellUnlockedAfterGarden = isBuildingPrerequisiteMet(city6, 'well');
 
-  // 4. Test Population Sustenance Consumption & Growth
+  // 4. Test Population Sustenance Consumption, Growth & Immediate Frontier Growth Task Evaluation
   // With 5 citizens, consumption is 1 food and 1 water per tick.
   // With abundant food and water, growthProgress increases by +25 per tick.
   const popBeforeTick = city6.population.current;
   host6.stepClock(20000); // 4 resource production ticks (20s) -> should grow population by +1!
   const popGrew = city6.population.current >= popBeforeTick + 1;
+
+  // Verify Frontier Growth (task_grow_population_12) auto-completes on resource tick when pop reaches 12
+  city6.population.current = 11;
+  city6.population.max = 15;
+  city6.population.growthProgress = 75;
+  city6.stockpile.food = 150;
+  city6.stockpile.water = 150;
+  host6.state.world.tasks.task_build_well.status = 'completed';
+  host6.state.world.tasks.task_grow_population_12.status = 'available';
+  host6.stepClock(5000); // 1 tick -> grows from 11 to 12 and immediately triggers evaluateTaskDAG
+  const popTaskAutoCompleted = city6.population.current === 12 &&
+    host6.state.world.tasks.task_grow_population_12.status === 'completed';
 
   const t6Pass = Boolean(
     hasWaterAndOre &&
@@ -495,7 +507,8 @@ export function evaluateWargameSelfTests() {
     meetingHallLevel2 &&
     upgradeAllowedAfterMeetingHall &&
     wellUnlockedAfterGarden &&
-    popGrew
+    popGrew &&
+    popTaskAutoCompleted
   );
 
   results.push({

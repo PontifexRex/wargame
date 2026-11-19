@@ -15,6 +15,7 @@ export function createDungeonEntryEnvelope(data) {
     direction: BRIDGE_DIRECTIONS.TO_DUNGEON,
     timestamp: Date.now(),
     campaignId: src.campaignId || 'world_prime',
+    seedCode: src.seedCode || 'STAR-7777',
     houseName: src.houseName || 'House Vanguard',
     cityId: src.cityId || null,
     cityName: src.cityName || 'Oakhaven Bastion',

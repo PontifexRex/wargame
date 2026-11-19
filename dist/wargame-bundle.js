@@ -1995,6 +1995,7 @@ function createNewCampaignWorldState(options = {}) {
     },
     world: {
       id: 'world_prime',
+      campaignId: 'camp_' + seedCode + '_' + Date.now() + '_' + Math.floor(Math.random() * 10000),
       name: worldName,
       seedCode: seedCode,
       player: {
@@ -3022,6 +3023,7 @@ function processResourceProductionTick(state, eventStream) {
   if (!state || !state.world || !state.world.cities) return;
   const cityIds = Object.keys(state.world.cities);
   if (cityIds.length === 0) return;
+  let popChanged = false;
 
   for (let i = 0; i < cityIds.length; i++) {
     const city = state.world.cities[cityIds[i]];
@@ -3143,6 +3145,7 @@ function processResourceProductionTick(state, eventStream) {
         if (city.population.growthProgress >= 100) {
           city.population.current += 1;
           city.population.growthProgress = 0;
+          popChanged = true;
         }
       }
     } else {
@@ -3157,6 +3160,7 @@ function processResourceProductionTick(state, eventStream) {
       if (city.population.starveTicks >= 2 && city.population.current > 3) {
         city.population.current -= 1;
         city.population.starveTicks = 0;
+        popChanged = true;
       }
     }
 
@@ -3175,6 +3179,12 @@ function processResourceProductionTick(state, eventStream) {
         }
       }, state.world.clock.simTimeMs);
     }
+  }
+
+  // Immediately re-evaluate Task DAG when population changes (e.g., Frontier Growth to 12)
+  if (popChanged) {
+    state._dirty = true;
+    evaluateTaskDAG(state, eventStream);
   }
 }
 
@@ -3214,6 +3224,7 @@ function createDungeonEntryEnvelope(data) {
     direction: BRIDGE_DIRECTIONS.TO_DUNGEON,
     timestamp: Date.now(),
     campaignId: src.campaignId || 'world_prime',
+    seedCode: src.seedCode || 'STAR-7777',
     houseName: src.houseName || 'House Vanguard',
     cityId: src.cityId || null,
     cityName: src.cityName || 'Oakhaven Bastion',
@@ -4221,7 +4232,8 @@ function dispatchWargameCommand(commandEnvelope, state, scheduler, eventStream) 
     const city = getPrimaryCity(state);
 
     const envelopeData = {
-      campaignId: world.id,
+      campaignId: world.campaignId || (world.id + '_' + (world.seedCode || 'STAR')),
+      seedCode: world.seedCode || 'STAR-7777',
       houseName: (world.player && world.player.houseName) || 'House Vanguard',
       cityId: city ? city.id : null,
       cityName: city ? city.name : 'Oakhaven Bastion',
@@ -5269,7 +5281,7 @@ function renderLeftCommandSidebar(simHost) {
           ${marchHtml}
           ${nearbyDng ? `
             <button data-action="enter-dungeon" data-poi-id="${nearbyDng.id}" onclick="window.WargameApp.handleEnterDungeon('${nearbyDng.id}')" class="w-full py-2 rounded-lg font-bold text-xs uppercase tracking-wider shadow bg-[#f87171] hover:bg-[#ef4444] text-[#080b11] cursor-pointer">
-              ⚔️ Breach ${nearbyDng.name}
+              ⚔️ Enter ${nearbyDng.name}
             </button>
           ` : ''}
           ${canReturnHome ? `
@@ -5481,27 +5493,6 @@ function renderOverworldHudBar(simHost) {
     } else if (primaryCity) {
       coordEl.textContent = '(' + primaryCity.x + ', ' + primaryCity.y + ')';
     }
-  }
-
-  const dngBtn = document.getElementById('wgBtnEnterDungeon');
-  let nearbyDngPoi = null;
-  if (selUnit && selUnit.alive && selUnit.canEnterDungeon && selUnit.status === 'idle' && Array.isArray(ow.pois)) {
-    nearbyDngPoi = ow.pois.find(function(p) {
-      return p.type === 'dungeon_entrance' && selUnit.x === p.x && selUnit.y === p.y;
-    }) || null;
-  }
-  if (dngBtn) {
-    const canEnterDng = Boolean(nearbyDngPoi);
-    dngBtn.disabled = !canEnterDng;
-    dngBtn.textContent = canEnterDng
-      ? ('⚔️ Enter ' + nearbyDngPoi.name)
-      : '⚔️ Descend Into Vault (March to Ω)';
-    if (dngBtn.dataset) {
-      dngBtn.dataset.poiId = canEnterDng ? nearbyDngPoi.id : '';
-    }
-    dngBtn.className = canEnterDng
-      ? 'px-3 py-1.5 rounded-lg bg-[#f87171] hover:bg-[#ef4444] text-[#080b11] font-bold text-xs uppercase shadow cursor-pointer'
-      : 'px-3 py-1.5 rounded-lg bg-[#1a2232] text-[#64748b] font-bold text-xs uppercase border border-[#283347] cursor-not-allowed';
   }
 
   // Discovered Dungeons Quick-March Bar
@@ -5754,6 +5745,11 @@ function renderCityBuilderPanel(simHost) {
         </div>
 
         <div class="space-y-2 pt-2 border-t border-[#1e293b]">
+          ${curBId === 'guild_hall' ? `
+            <button data-action="enter-guild" onclick="window.WargameApp.handleSwitchView('guild')" class="w-full py-2 rounded-lg font-bold text-xs uppercase tracking-wider shadow bg-[#60a5fa] hover:bg-[#3b82f6] text-[#080b11] cursor-pointer">
+              ⚔️ Enter Adventurers Guild
+            </button>
+          ` : ''}
           <!-- Upgrade Action -->
           ${!isMax ? `
             <div class="p-2.5 rounded bg-[#111722] border border-[#283347] space-y-1.5">
@@ -6523,12 +6519,24 @@ function evaluateWargameSelfTests() {
   host6.stepClock(4000);
   const wellUnlockedAfterGarden = isBuildingPrerequisiteMet(city6, 'well');
 
-  // 4. Test Population Sustenance Consumption & Growth
+  // 4. Test Population Sustenance Consumption, Growth & Immediate Frontier Growth Task Evaluation
   // With 5 citizens, consumption is 1 food and 1 water per tick.
   // With abundant food and water, growthProgress increases by +25 per tick.
   const popBeforeTick = city6.population.current;
   host6.stepClock(20000); // 4 resource production ticks (20s) -> should grow population by +1!
   const popGrew = city6.population.current >= popBeforeTick + 1;
+
+  // Verify Frontier Growth (task_grow_population_12) auto-completes on resource tick when pop reaches 12
+  city6.population.current = 11;
+  city6.population.max = 15;
+  city6.population.growthProgress = 75;
+  city6.stockpile.food = 150;
+  city6.stockpile.water = 150;
+  host6.state.world.tasks.task_build_well.status = 'completed';
+  host6.state.world.tasks.task_grow_population_12.status = 'available';
+  host6.stepClock(5000); // 1 tick -> grows from 11 to 12 and immediately triggers evaluateTaskDAG
+  const popTaskAutoCompleted = city6.population.current === 12 &&
+    host6.state.world.tasks.task_grow_population_12.status === 'completed';
 
   const t6Pass = Boolean(
     hasWaterAndOre &&
@@ -6543,7 +6551,8 @@ function evaluateWargameSelfTests() {
     meetingHallLevel2 &&
     upgradeAllowedAfterMeetingHall &&
     wellUnlockedAfterGarden &&
-    popGrew
+    popGrew &&
+    popTaskAutoCompleted
   );
 
   results.push({

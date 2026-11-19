@@ -27,6 +27,7 @@ import { buildCharteredDungeonInstance, createDungeonInstance, CURATED_DUNGEON_P
 import { hashSeedString, randomSeedCode } from './rng.js';
 import {
   gameState,
+  createDefaultGameState,
   saveGame,
   nextItemUid,
   normalizeEquipmentSockets,
@@ -1020,13 +1021,39 @@ export function applyWargameEntryHandoff(handoff, state = gameState) {
   const dng = handoff.dungeon || {};
   const targetDungeonId = dng.dungeonId || 'dng_starfall';
   const targetProfileId = dng.profileId || 'starfall_vaults';
+  const incomingCampaignId = handoff.campaignId || 'world_prime';
+
+  // If entering from a brand-new Wargame campaign, reset persistent dungeons/vault/codex so previous playthrough exploration never bleeds over!
+  const isNewCampaign = !state.wargameSession || state.wargameSession.campaignId !== incomingCampaignId;
+  if (isNewCampaign) {
+    const fresh = createDefaultGameState();
+    state.turn = 0;
+    state.dungeons = fresh.dungeons;
+    state.activeDungeonId = fresh.activeDungeonId;
+    state.dungeon = fresh.dungeon;
+    state.guildVault = fresh.guildVault;
+    state.guildResearch = fresh.guildResearch;
+    state.guildBounties = fresh.guildBounties;
+    state.codex = fresh.codex;
+  }
 
   if (state.dungeons && state.dungeons[targetDungeonId]) {
+    if (isNewCampaign && handoff.seedCode) {
+      const targetInst = state.dungeons[targetDungeonId];
+      const freshSeed = String(handoff.seedCode) + '-' + targetProfileId.slice(0, 4).toUpperCase();
+      targetInst.seedCode = freshSeed;
+      targetInst.numericSeed = hashSeedString(freshSeed, 0);
+      targetInst.floors = {};
+      targetInst.waypoints = {};
+      targetInst.currentFloor = 1;
+    }
     selectActiveDungeon(targetDungeonId, state);
   } else if (CURATED_DUNGEON_PROFILES[targetProfileId]) {
+    const freshSeed = handoff.seedCode ? (String(handoff.seedCode) + '-' + targetProfileId.slice(0, 4).toUpperCase()) : null;
     const inst = createDungeonInstance(targetProfileId, {
       id: targetDungeonId,
       originType: 'curated',
+      seedCode: freshSeed || undefined,
       worldCoords: dng.coords || { x: 0, y: 0 }
     });
     state.dungeons[targetDungeonId] = inst;
@@ -1037,7 +1064,8 @@ export function applyWargameEntryHandoff(handoff, state = gameState) {
 
   state.wargameSession = {
     active: true,
-    campaignId: handoff.campaignId || 'world_prime',
+    campaignId: incomingCampaignId,
+    seedCode: handoff.seedCode || 'STAR-7777',
     houseName: handoff.houseName || 'House Vanguard',
     cityId: handoff.cityId || null,
     cityName: handoff.cityName || 'Oakhaven Bastion',

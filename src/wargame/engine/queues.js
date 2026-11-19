@@ -737,6 +737,7 @@ export function processResourceProductionTick(state, eventStream) {
   if (!state || !state.world || !state.world.cities) return;
   const cityIds = Object.keys(state.world.cities);
   if (cityIds.length === 0) return;
+  let popChanged = false;
 
   for (let i = 0; i < cityIds.length; i++) {
     const city = state.world.cities[cityIds[i]];
@@ -858,6 +859,7 @@ export function processResourceProductionTick(state, eventStream) {
         if (city.population.growthProgress >= 100) {
           city.population.current += 1;
           city.population.growthProgress = 0;
+          popChanged = true;
         }
       }
     } else {
@@ -872,6 +874,7 @@ export function processResourceProductionTick(state, eventStream) {
       if (city.population.starveTicks >= 2 && city.population.current > 3) {
         city.population.current -= 1;
         city.population.starveTicks = 0;
+        popChanged = true;
       }
     }
 
@@ -890,6 +893,12 @@ export function processResourceProductionTick(state, eventStream) {
         }
       }, state.world.clock.simTimeMs);
     }
+  }
+
+  // Immediately re-evaluate Task DAG when population changes (e.g., Frontier Growth to 12)
+  if (popChanged) {
+    state._dirty = true;
+    evaluateTaskDAG(state, eventStream);
   }
 }
 

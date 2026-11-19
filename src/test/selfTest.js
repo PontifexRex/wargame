@@ -1897,6 +1897,22 @@ export function evaluateSelfTests() {
     sandbox30.guildVault.copper === 6
   );
 
+  // Verify new campaignId resets stale dungeon exploration & vault, whereas same campaignId preserves it
+  sandbox30.guildVault.copper = 99;
+  const freshCampEnv30 = createDungeonEntryEnvelope({
+    campaignId: 'camp_fresh_9999',
+    seedCode: 'NEW-9999',
+    partyUnitId: 'unit_party_1',
+    hero: { id: 'hero_new', name: 'New Explorer', classId: 'fighter', level: 1, xp: 0 },
+    dungeon: { poiId: 'poi_dungeon_quarry', dungeonId: 'dng_quarry', profileId: 'copper_quarry', name: 'Sunken Copper Quarry', coords: { x: 19, y: 25 } }
+  });
+  applyWargameEntryHandoff(freshCampEnv30, sandbox30);
+  const newCampaignReset30 = Boolean(
+    sandbox30.wargameSession.campaignId === 'camp_fresh_9999' &&
+    sandbox30.guildVault.copper === 0 &&
+    sandbox30.dungeon.seedCode.indexOf('NEW-9999') === 0
+  );
+
   // Clean up localStorage bridge key so sandbox test leaves zero side effects
   clearBridgeHandoff();
 
@@ -1904,7 +1920,7 @@ export function evaluateSelfTests() {
   const mig30 = migrateSaveData({ version: 'v0.1.0-inc1', hero: { classId: 'fighter', level: 1 } });
   const migBackfill30 = mig30 && mig30.wargameSession === null;
 
-  const t30Pass = Boolean(sessionActive30 && extEnvValid30 && defEnvValid30 && migBackfill30);
+  const t30Pass = Boolean(sessionActive30 && extEnvValid30 && defEnvValid30 && newCampaignReset30 && migBackfill30);
   results.push({
     name: '30. Wargame Overworld Bridge Handoff (Entry, Extraction & Defeat Return Envelopes)',
     pass: t30Pass,

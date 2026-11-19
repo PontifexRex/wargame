@@ -945,7 +945,8 @@ export function dispatchWargameCommand(commandEnvelope, state, scheduler, eventS
     const city = getPrimaryCity(state);
 
     const envelopeData = {
-      campaignId: world.id,
+      campaignId: world.campaignId || (world.id + '_' + (world.seedCode || 'STAR')),
+      seedCode: world.seedCode || 'STAR-7777',
       houseName: (world.player && world.player.houseName) || 'House Vanguard',
       cityId: city ? city.id : null,
       cityName: city ? city.name : 'Oakhaven Bastion',
