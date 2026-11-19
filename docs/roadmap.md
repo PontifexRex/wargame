@@ -1,7 +1,7 @@
 # Aethelgard: Project Roadmap & Strategic Horizons
 
-> **Current Baseline**: `v0.9.2-city-progression`  
-> **Verification Status**: 29/29 Roguelike Baseline Tests PASS + 6/6 Wargame Simulation Tests PASS  
+> **Current Baseline**: `v0.9.3-dungeon-march`  
+> **Verification Status**: 30/30 Roguelike Baseline Tests PASS + 8/8 Wargame Simulation Tests PASS  
 > **Historical Release Notes**: For completed increment release logs, detailed feature breakdowns, and verification gates, refer to [CHANGELOG.md](../CHANGELOG.md).
 
 ---
@@ -49,7 +49,7 @@
 ## 2. Active & Upcoming Increment Roadmap
 
 ```
-Track B (City & Overworld)  ──► Inc 9.3 (Dungeon March) ──► Inc 9.4 (Forge Crafting) ──┐
+Track B (City & Overworld)  ──► Inc 9.4 (Forge Crafting & Tier 2 City) ───────────────┐
                                                                                        ├──► Track C (v1.0.x+)
 Track D (Tooling & Pacing) ──► Inc 9.5 (ChronoSim Engine & Balance Calculator) ───────┘
 ```
@@ -61,15 +61,8 @@ Track D (Tooling & Pacing) ──► Inc 9.5 (ChronoSim Engine & Balance Calcula
 *Preceding Increments:*  
 - **Increment 9.0 (`v0.9.0-wargame`)**: Real-time simulation engine, min-heap scheduler, Settler-first onboarding, A* marching, and WorldEventStream. *(Verified)*  
 - **Increment 9.1 (`v0.9.1-city-grid`)**: 8x8 spatial city grid, plot selection, timed relocation, demolition salvage, and 3-slot queues. *(Verified)*  
-- **Increment 9.2 (`v0.9.2-city-progression`)**: Tier 1 building catalog, prerequisite unlocks, doubling times, citizen sustenance, and 60s Hero Recruitment queue. *(Verified)*
-
-#### Increment 9.3 (`v0.9.3-dungeon-march`) — Real-Time Overworld Marching to Dungeons & Transition Pipeline
-- **Real-Time March to Dungeons**:
-  - Vanguard Party marches across Overworld tiles (~10s/tile) toward discovered Vault entrances.
-  - Intercepting wandering hostiles, scouting fog of war, and transition into turn-based tactical delving (`index.html` engine) upon entering the vault portal.
-- **Expedition Return & Recovery**:
-  - Surface extraction via Floor 1 Stairs places the Vanguard Party at the Overworld Vault Entrance and begins the timed march back to Oakhaven Bastion.
-  - Defeat returns the party directly to the City's Adventurers Guild Hall without permanent character or gear loss.
+- **Increment 9.2 (`v0.9.2-city-progression`)**: Tier 1 building catalog, prerequisite unlocks, doubling times, citizen sustenance, and 60s Hero Recruitment queue. *(Verified)*  
+- **Increment 9.3 (`v0.9.3-dungeon-march`)**: Multi-dungeon Overworld discovery, wandering hostile skirmishes, real-time march to vaults, cross-engine `wargameBridge` handoff (`wargame.html` ↔ `index.html`), extraction return march + cargo banking, Recall Scroll express return, and defeat recovery. *(Verified)*
 
 #### Increment 9.4 (`v0.9.4-forge-crafting`) — City Economy Expansion & Guild Star-Forge Runecrafting
 - **Expanded City Production Structures**:

@@ -1,6 +1,6 @@
 Aethelgard: The Starfall Vaults
 
-Current Build: v0.9.2-city-progression (Standalone Real-Time Simulation, City Progression & Paced Queues)
+Current Build: v0.9.3-dungeon-march (Real-Time Overworld Dungeon March, Wandering Hostiles & Cross-Engine Transition Pipeline)
 
 Architecture: Modular ES6 architecture (src/) + compiled file:// bundle (dist/bundle.js) / HTML5 Canvas 2D / Tailwind CSS
 

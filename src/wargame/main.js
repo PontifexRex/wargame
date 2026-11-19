@@ -18,6 +18,11 @@ import { syncWargameUI, updateHeaderFastTick } from './ui/wargameUiSync.js';
 import { findOverworldPath, isOverworldTilePassable } from './engine/pathfinding.js';
 import { getSelectedOverworldUnit, getPrimaryCity } from './engine/state.js';
 import { evaluateWargameSelfTests } from './test/wargameSelfTest.js';
+import {
+  BRIDGE_DIRECTIONS,
+  peekBridgeHandoff,
+  consumeBridgeHandoff
+} from '../engine/wargameBridge.js';
 
 export const simHost = createWargameSimHost();
 
@@ -239,13 +244,53 @@ export function handleSelectPartyByHero(heroId) {
   }
 }
 
-export function handleEnterDungeon() {
-  if (simHost && simHost.state && simHost.state.world) {
+export function handleMarchToDungeon(poiId) {
+  const selUnit = getSelectedOverworldUnit(simHost.state);
+  if (!selUnit) return;
+  simHost.dispatch({
+    type: COMMAND_TYPES.MARCH_TO_DUNGEON,
+    payload: { unitId: selUnit.id, poiId: poiId }
+  });
+  simHost.state._dirty = true;
+  simHost.save();
+  syncWargameUI(simHost);
+}
+
+export function handleReturnToCity() {
+  const selUnit = getSelectedOverworldUnit(simHost.state);
+  const city = getPrimaryCity(simHost.state);
+  if (!selUnit || !city) return;
+  simHost.dispatch({
+    type: COMMAND_TYPES.ORDER_UNIT_MARCH,
+    payload: {
+      unitId: selUnit.id,
+      targetX: city.x,
+      targetY: city.y,
+      intent: 'return_city',
+      targetCityId: city.id
+    }
+  });
+  simHost.state._dirty = true;
+  simHost.save();
+  syncWargameUI(simHost);
+}
+
+export function handleEnterDungeon(poiId) {
+  const selUnit = getSelectedOverworldUnit(simHost.state);
+  if (simHost && simHost.state && simHost.state.world && selUnit) {
+    const res = simHost.dispatch({
+      type: COMMAND_TYPES.ENTER_DUNGEON,
+      payload: { unitId: selUnit.id, poiId: poiId || null }
+    });
     simHost.save();
+    if (!res || !res.ok) {
+      syncWargameUI(simHost);
+      return;
+    }
   }
   if (typeof window !== 'undefined' && window.location) {
-    // Smooth transition into the tactical dungeon engine!
-    window.location.href = './index.html';
+    // Smooth transition into the tactical dungeon engine with handoff envelope!
+    window.location.href = './index.html?from=wargame';
   }
 }
 
@@ -338,7 +383,11 @@ function setupWargameListeners() {
     } else if (action === 'cancel-march') {
       handleCancelMarch();
     } else if (action === 'enter-dungeon') {
-      handleEnterDungeon();
+      handleEnterDungeon(btn.dataset.poiId || null);
+    } else if (action === 'march-to-dungeon') {
+      if (btn.dataset.poiId) handleMarchToDungeon(btn.dataset.poiId);
+    } else if (action === 'return-to-city') {
+      handleReturnToCity();
     } else if (action === 'queue-building') {
       const pIdx = parseInt(btn.dataset.plotIndex, 10);
       const bId = btn.dataset.buildingId;
@@ -482,6 +531,8 @@ export const WargameApp = {
   handleCancelRecruitment: handleCancelRecruitment,
   handleClaimTask: handleClaimTask,
   handleSelectPartyByHero: handleSelectPartyByHero,
+  handleMarchToDungeon: handleMarchToDungeon,
+  handleReturnToCity: handleReturnToCity,
   handleEnterDungeon: handleEnterDungeon,
   syncWargameUI: function() { syncWargameUI(simHost); }
 };
@@ -489,8 +540,24 @@ export const WargameApp = {
 export function bootstrapWargame() {
   setupWargameListeners();
 
-  // Always present the Main Menu / Title Screen on initial startup or reload,
-  // allowing the player to either Continue an existing campaign or start a fresh one.
+  // If returning from a Turn-Based Dungeon Delve (index.html), auto-resume campaign and resolve return outcome!
+  const pendingReturn = peekBridgeHandoff(BRIDGE_DIRECTIONS.TO_WARGAME);
+  if (pendingReturn) {
+    const loaded = simHost.load();
+    if (loaded) {
+      const consumed = consumeBridgeHandoff(BRIDGE_DIRECTIONS.TO_WARGAME);
+      if (consumed) {
+        simHost.dispatch({
+          type: COMMAND_TYPES.RESOLVE_DUNGEON_RETURN,
+          payload: consumed
+        });
+        simHost.state.activeView = WARGAME_VIEWS.OVERWORLD;
+        simHost.state._dirty = true;
+        simHost.save();
+      }
+    }
+  }
+
   syncWargameUI(simHost);
   requestAnimationFrame(wargameMainLoop);
 }

@@ -268,14 +268,37 @@ export function renderLeftCommandSidebar(simHost) {
       const tId = ow.tiles[selUnit.y][selUnit.x];
       const tDef = OVERWORLD_TERRAIN_DEFS[tId];
       const canFoundHere = Boolean(selUnit.canFoundCity && tDef && tDef.buildable);
+      const primaryCity = getPrimaryCity(state);
+      const nearbyDng = (selUnit.canEnterDungeon && Array.isArray(ow.pois))
+        ? ow.pois.find(function(p) { return p.type === 'dungeon_entrance' && Math.hypot(selUnit.x - p.x, selUnit.y - p.y) <= 1.5; })
+        : null;
+      const canReturnHome = Boolean(selUnit.canEnterDungeon && selUnit.status !== 'in_dungeon' && primaryCity && (selUnit.x !== primaryCity.x || selUnit.y !== primaryCity.y));
+
+      let cargoHtml = '';
+      if (selUnit.cargo && ((selUnit.cargo.gold || 0) > 0 || (selUnit.cargo.ore || 0) > 0 || (selUnit.cargo.gearCount || 0) > 0)) {
+        cargoHtml = `
+          <div class="p-2 rounded bg-[#451a03]/40 border border-[#fbbf24]/50 text-[11px] font-mono text-[#fbbf24] flex items-center justify-between">
+            <span>💰 Expedition Cargo</span>
+            <span>+${selUnit.cargo.gold || 0}g • +${selUnit.cargo.ore || 0} Ore</span>
+          </div>
+        `;
+      }
+
       let marchHtml = '';
-      if (selUnit.status === 'marching' && selUnit.marchPlan) {
+      if (selUnit.status === 'in_dungeon') {
+        marchHtml = `
+          <div class="p-2 rounded bg-[#450a0a]/40 border border-[#f87171]/50 text-[11px] font-mono text-[#f87171]">
+            ⚔️ Currently delving inside Vault.
+          </div>
+        `;
+      } else if (selUnit.status === 'marching' && selUnit.marchPlan) {
         const remSteps = selUnit.marchPlan.remainingPath ? selUnit.marchPlan.remainingPath.length : 0;
         const stepRemMs = Math.max(0, (selUnit.marchPlan.stepDueSimTimeMs || 0) - simTimeMs);
+        const isReturning = selUnit.marchPlan.intent === 'return_city';
         marchHtml = `
-          <div class="p-2 rounded bg-[#111722] border border-[#38bdf8]/40 space-y-1">
+          <div class="p-2 rounded bg-[#111722] border ${isReturning ? 'border-[#fbbf24]/50' : 'border-[#38bdf8]/40'} space-y-1">
             <div class="flex items-center justify-between text-[11px] font-mono">
-              <span class="text-[#38bdf8] font-bold">⏳ Marching to (${selUnit.marchPlan.targetX}, ${selUnit.marchPlan.targetY})</span>
+              <span class="${isReturning ? 'text-[#fbbf24]' : 'text-[#38bdf8]'} font-bold">${isReturning ? '🏠 Returning Home' : ('⏳ Marching to (' + selUnit.marchPlan.targetX + ', ' + selUnit.marchPlan.targetY + ')')}</span>
               <span class="text-[#fbbf24]">${remSteps} tiles left</span>
             </div>
             <div class="text-[10px] text-[#8b949e] font-mono">Next tile in ${formatSimDuration(stepRemMs)}</div>
@@ -300,7 +323,18 @@ export function renderLeftCommandSidebar(simHost) {
             </div>
             <span class="text-[11px] font-mono px-1.5 py-0.5 rounded bg-[#111722] text-[#34d399] border border-[#283347]">HP ${selUnit.hp}/${selUnit.maxHp}</span>
           </div>
+          ${cargoHtml}
           ${marchHtml}
+          ${nearbyDng ? `
+            <button data-action="enter-dungeon" data-poi-id="${nearbyDng.id}" onclick="window.WargameApp.handleEnterDungeon('${nearbyDng.id}')" class="w-full py-2 rounded-lg font-bold text-xs uppercase tracking-wider shadow bg-[#f87171] hover:bg-[#ef4444] text-[#080b11] cursor-pointer">
+              ⚔️ Breach ${nearbyDng.name}
+            </button>
+          ` : ''}
+          ${canReturnHome ? `
+            <button data-action="return-to-city" onclick="window.WargameApp.handleReturnToCity()" class="w-full py-1.5 rounded-lg font-bold text-[11px] uppercase tracking-wider bg-[#1a2232] hover:bg-[#283347] text-[#fbbf24] border border-[#fbbf24]/40 cursor-pointer">
+              🏰 March Home to ${primaryCity.name}
+            </button>
+          ` : ''}
           ${selUnit.canFoundCity ? `
             <button data-action="found-city" onclick="window.WargameApp.handleFoundCity()" ${!canFoundHere ? 'disabled' : ''} class="w-full py-2 rounded-lg font-bold text-xs uppercase tracking-wider shadow ${canFoundHere ? 'bg-[#fbbf24] hover:bg-[#f59e0b] text-[#080b11] cursor-pointer' : 'bg-[#1a2232] text-[#64748b] cursor-not-allowed'}">
               🏰 Found Bastion City Here
@@ -508,18 +542,62 @@ export function renderOverworldHudBar(simHost) {
   }
 
   const dngBtn = document.getElementById('wgBtnEnterDungeon');
+  let nearbyDngPoi = null;
+  if (selUnit && selUnit.alive && selUnit.canEnterDungeon && Array.isArray(ow.pois)) {
+    nearbyDngPoi = ow.pois.find(function(p) {
+      return p.type === 'dungeon_entrance' && Math.hypot(selUnit.x - p.x, selUnit.y - p.y) <= 1.5;
+    }) || null;
+  }
   if (dngBtn) {
-    let canEnterDng = false;
-    if (selUnit && selUnit.alive && selUnit.canEnterDungeon && Array.isArray(ow.pois)) {
-      const dngPoi = ow.pois.find(function(p) { return p.type === 'dungeon_entrance'; });
-      if (dngPoi && Math.hypot(selUnit.x - dngPoi.x, selUnit.y - dngPoi.y) <= 1.5) {
-        canEnterDng = true;
-      }
-    }
+    const canEnterDng = Boolean(nearbyDngPoi);
     dngBtn.disabled = !canEnterDng;
+    dngBtn.textContent = canEnterDng
+      ? ('⚔️ Enter ' + nearbyDngPoi.name)
+      : '⚔️ Descend Into Vault (March to Ω)';
+    if (dngBtn.dataset) {
+      dngBtn.dataset.poiId = canEnterDng ? nearbyDngPoi.id : '';
+    }
     dngBtn.className = canEnterDng
       ? 'px-3 py-1.5 rounded-lg bg-[#f87171] hover:bg-[#ef4444] text-[#080b11] font-bold text-xs uppercase shadow cursor-pointer'
       : 'px-3 py-1.5 rounded-lg bg-[#1a2232] text-[#64748b] font-bold text-xs uppercase border border-[#283347] cursor-not-allowed';
+  }
+
+  // Discovered Dungeons Quick-March Bar
+  const dngBarEl = document.getElementById('wgDiscoveredDungeonsBar');
+  if (dngBarEl) {
+    const discoveredDngs = (ow.pois || []).filter(function(p) {
+      return p.type === 'dungeon_entrance' && (p.discovered || (ow.explored[p.y] && ow.explored[p.y][p.x]));
+    });
+    if (discoveredDngs.length === 0) {
+      dngBarEl.classList.add('hidden');
+    } else {
+      dngBarEl.classList.remove('hidden');
+      const canMarchHero = Boolean(selUnit && selUnit.alive && selUnit.canEnterDungeon && selUnit.status !== 'in_dungeon');
+      const cardsHtml = discoveredDngs.map(function(p) {
+        const dist = selUnit ? Math.round(Math.hypot(selUnit.x - p.x, selUnit.y - p.y)) : null;
+        const atGate = Boolean(canMarchHero && dist !== null && dist <= 1.5);
+        return `
+          <div class="flex items-center justify-between gap-2 px-2 py-1.5 rounded bg-[#111722] border border-[#283347] text-[11px] font-mono">
+            <div class="flex items-center gap-1.5 min-w-0">
+              <span style="color:${p.accentColor || '#f87171'}" class="font-bold">Ω</span>
+              <span class="text-[#e6edf3] font-semibold truncate">${p.name}</span>
+              <span class="text-[10px] text-[#8b949e]">(${p.x},${p.y})${dist !== null ? (' • ' + dist + 't') : ''}</span>
+            </div>
+            ${atGate ? `
+              <button data-action="enter-dungeon" data-poi-id="${p.id}" onclick="window.WargameApp.handleEnterDungeon('${p.id}')" class="px-2 py-0.5 rounded bg-[#f87171] hover:bg-[#ef4444] text-[#080b11] font-bold text-[10px] uppercase cursor-pointer">Enter</button>
+            ` : (canMarchHero ? `
+              <button data-action="march-to-dungeon" data-poi-id="${p.id}" onclick="window.WargameApp.handleMarchToDungeon('${p.id}')" class="px-2 py-0.5 rounded bg-[#1a2232] hover:bg-[#283347] text-[#38bdf8] border border-[#38bdf8]/40 font-bold text-[10px] uppercase cursor-pointer">March</button>
+            ` : `
+              <span class="text-[10px] text-[#64748b]">Need Hero Party</span>
+            `)}
+          </div>
+        `;
+      }).join('');
+      setHtmlIfChanged(dngBarEl, `
+        <div class="text-[10px] font-mono uppercase text-[#f87171] font-bold">Ω Discovered Vault Entrances (${discoveredDngs.length})</div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-1.5">${cardsHtml}</div>
+      `);
+    }
   }
 }
 
@@ -997,6 +1075,27 @@ export function formatEventSummary(ev) {
   }
   if (ev.topic === STREAM_TOPICS.HERO_RECRUITED) {
     return '— Recruited ' + p.heroName + ' (' + p.classId + ')!';
+  }
+  if (ev.topic === STREAM_TOPICS.DUNGEON_DISCOVERED) {
+    return '— Discovered Vault: ' + p.dungeonName + ' at (' + p.x + ',' + p.y + ')!';
+  }
+  if (ev.topic === STREAM_TOPICS.DUNGEON_ENTERED) {
+    return '— ' + p.unitName + ' breached ' + p.dungeonName + '!';
+  }
+  if (ev.topic === STREAM_TOPICS.DUNGEON_RETURNED) {
+    if (p.outcome === 'defeated') {
+      return '— ' + p.unitName + ' rescued to ' + p.cityName + ' (+' + (p.salvagedGold || 0) + 'g salvage)';
+    }
+    return '— ' + p.unitName + ' extracted via ' + p.method + (p.expressReturn ? ' (Express to City)' : ' (Marching Home)');
+  }
+  if (ev.topic === STREAM_TOPICS.EXPEDITION_BANKED) {
+    return '— Banked +' + (p.gold || 0) + 'g, +' + (p.ore || 0) + ' Ore at ' + p.cityName + '!';
+  }
+  if (ev.topic === STREAM_TOPICS.OVERWORLD_SKIRMISH) {
+    if (p.victory) {
+      return '— ' + p.unitName + ' defeated ' + p.hostileName + ' (+' + (p.rewardGold || 0) + 'g, +' + (p.rewardOre || 0) + ' Ore)';
+    }
+    return '— ' + p.unitName + ' retreated from ' + p.hostileName + ' to ' + p.retreatedToCity;
   }
   if (ev.topic === STREAM_TOPICS.TASK_COMPLETED) {
     return '— Milestone Ready: ' + p.title;

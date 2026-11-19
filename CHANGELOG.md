@@ -10,9 +10,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Planned
-- **Track B Increment 9.3 (`v0.9.3-dungeon-march`)**: Real-time Overworld march to dungeon vaults, terrain traversal intervals, fog scouting, and transition into turn-based tactical delving.
 - **Track B Increment 9.4 (`v0.9.4-forge-crafting`)**: City economy expansion (Smeltery, Warehouse, Barracks, Temple of War) and Guild Star-Forge Runecrafting.
 - **Track D Increment 9.5 (`v0.9.5-sim`)**: Headless progression simulator ("ChronoSim"), time-to-finish calculator, and pacing sensitivity engine.
+
+---
+
+## [v0.9.3-dungeon-march] - 2026-11-19
+
+### Added
+- **Shared Cross-Engine Bridge (`src/engine/wargameBridge.js`)**:
+  - Dedicated `localStorage` handoff protocol (`aethelgard_bridge_handoff_v1`) connecting `wargame.html` and `index.html` while keeping both engines 100% standalone-capable.
+  - Structured `wargame_to_dungeon` entry and `dungeon_to_wargame` return envelopes with atomic consumption (`consumeBridgeHandoff`).
+- **Multi-Dungeon Overworld Map & Wandering Hostiles (`src/wargame/data/terrain.js`, `src/wargame/engine/pathfinding.js`)**:
+  - 4 curated Dungeon Entrance POIs placed across the Overworld frontier (`The Starfall Vaults`, `Sunken Copper Quarry`, `Whispering Mycelium Labyrinth`, `The Molten Forgeworks`).
+  - Completing the Adventurers Guild Hall automatically reveals `The Starfall Vaults` in fog-of-war (`STREAM_TOPICS.DUNGEON_DISCOVERED`); scouting uncovers deeper frontier vaults.
+  - Deterministic Overworld Wandering Hostiles (`Starfall Raiding Pack`, `Feral Brood Skitterers`, `Astral Cultist Patrol`) spawning outside the safe starting basin.
+- **Overworld Skirmishes, March Intents & Cargo Banking (`src/wargame/engine/commandBus.js`, `src/wargame/engine/queues.js`)**:
+  - New commands: `CMD_MARCH_TO_DUNGEON`, `CMD_ENTER_DUNGEON`, and `CMD_RESOLVE_DUNGEON_RETURN`.
+  - Deterministic Overworld Skirmish resolution (`resolveOverworldSkirmish`): victory awards XP, Gold, and Ore into `unit.cargo`; defeat triggers non-permanent retreat to the City Guild Hall at full HP.
+  - **Expedition Return Pipeline**:
+    - Floor 1 Ascending Stairs (`<`) and Boss Portals place the Vanguard Party at the Overworld Vault POI carrying extracted `cargo` and automatically queue a timed Return March (`intent: 'return_city'`) back to Oakhaven Bastion, banking spoils on arrival (`STREAM_TOPICS.EXPEDITION_BANKED`).
+    - Astral Recall Scrolls (`[R]`) express-teleport the party directly to the City and bank spoils immediately.
+    - Dungeon Defeat (Golden Rule #2) express-returns the party directly to the City Adventurers Guild Hall at full HP, credits Vanguard Pact salvage gold, and preserves Hero level/XP/gear.
+- **Overworld Canvas & HUD Upgrades (`src/wargame/ui/overworldView.js`, `src/wargame/ui/wargameUiSync.js`, `wargame.html`)**:
+  - Renders multiple colored Dungeon Entrances with breach rings, wandering hostiles, gold cargo pack indicators (`💰`), and `IN VAULT` badges.
+  - Added Discovered Dungeons quick-march bar (`#wgDiscoveredDungeonsBar`), unit card cargo badge, Breach Dungeon button, and March Home button.
+  - Added **Task 12 (`task_return_with_spoils`)** to the Campaign Task DAG.
+- **Roguelike Engine Session Integration (`src/engine/state.js`, `src/engine/actions.js`, `src/ui/modals.js`, `src/main.js`)**:
+  - Added `wargameSession` schema field with full v1–v6 migration backfill.
+  - `index.html` consumes inbound `wargame_to_dungeon` handoffs to descend directly into Floor 1 of the chosen vault, writes return envelopes on extraction/defeat, and surfaces a **"🗺️ Return to Overworld"** button in Outcome Modals.
+
+### Fixed
+- **Chained Scheduled Job Execution (`advanceSimulationClock`)**: Upgraded discrete-event clock stepping to process chained jobs (such as multi-step marches) chronologically within a single time jump.
+- **Overflow Expedition Spoils Protection (`processResourceProductionTick`)**: City storage caps now cap only passive production gains so dungeon spoils and task rewards are never deleted on subsequent resource ticks.
+
+### Verification
+- Added **Test 30** in `src/test/selfTest.js` verifying Wargame-to-Dungeon entry sync, extraction/defeat return envelopes, and v1 migration backfill.
+- Added **Tests 7–8** in `src/wargame/test/wargameSelfTest.js` verifying multi-dungeon discovery, wandering hostile skirmishes, `CMD_MARCH_TO_DUNGEON`, `CMD_ENTER_DUNGEON`, extraction return marches + cargo banking, Recall Scroll express returns, and defeat recovery.
+- Suite status: **30/30 Roguelike Tests PASS** + **8/8 Wargame Tests PASS** + Headless UI Smoke Suites (`./scripts/test.ps1` and `./scripts/test-wargame.ps1`).
 
 ---
 

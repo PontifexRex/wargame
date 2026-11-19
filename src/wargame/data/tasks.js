@@ -227,5 +227,20 @@ export const CAMPAIGN_TASKS_DAG = [
       }
       return { completed: false, progress: 0, target: 1 };
     }
+  },
+  {
+    id: 'task_return_with_spoils',
+    title: '12. Return With Dungeon Spoils',
+    category: 'delve',
+    prerequisites: ['task_march_to_dungeon'],
+    triggerTopics: [STREAM_TOPICS.EXPEDITION_BANKED, STREAM_TOPICS.DUNGEON_RETURNED],
+    desc: 'Extract from a Dungeon Vault and complete the return march to bank your expedition spoils at Oakhaven Bastion.',
+    rewardLabel: '+200 Gold, +40 Ore',
+    reward: { gold: 200, ore: 40 },
+    evaluate: function(state) {
+      if (!state || !state.world || !state.world.stats) return { completed: false, progress: 0, target: 1 };
+      const banked = state.world.stats.expeditionsBanked || 0;
+      return { completed: banked >= 1, progress: Math.min(1, banked), target: 1 };
+    }
   }
 ];

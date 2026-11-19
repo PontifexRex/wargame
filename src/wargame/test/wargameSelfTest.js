@@ -506,5 +506,232 @@ export function evaluateWargameSelfTests() {
       : 'Failed Tier 1 building catalog or paced progression invariants'
   });
 
+  // =========================================================================
+  // Test 7: Multi-Dungeon Discovery, Wandering Hostile Skirmish & Dungeon Entry Handoff
+  // =========================================================================
+  const host7 = createWargameSimHost();
+  host7.dispatch({
+    type: COMMAND_TYPES.START_NEW_CAMPAIGN,
+    payload: { houseName: 'House Expedition', seedCode: 'STAR-7007' }
+  });
+  host7.dispatch({
+    type: COMMAND_TYPES.FOUND_CITY,
+    payload: { cityName: 'Oakhaven Bastion' }
+  });
+  const city7 = getPrimaryCity(host7.state);
+  const ow7 = host7.state.world.overworld;
+
+  // Verify 4 curated dungeon POIs & wandering hostiles spawned
+  const dungeonPois7 = (ow7.pois || []).filter(function(p) { return p.type === 'dungeon_entrance'; });
+  const hasFourDungeons = dungeonPois7.length >= 4;
+  const hasWanderingHostiles = Array.isArray(ow7.hostiles) && ow7.hostiles.length >= 4;
+
+  // Build Adventurers Guild Hall -> verifies Starfall Vaults auto-discovery
+  city7.stockpile.wood = 500;
+  city7.stockpile.stone = 500;
+  city7.stockpile.gold = 500;
+  city7.stockpile.food = 500;
+  city7.stockpile.water = 500;
+  city7.population = { current: 20, max: 25, growthProgress: 0, starving: false, starveTicks: 0 };
+  city7.buildings.hut = 1;
+  city7.buildings.garden = 1;
+  city7.buildings.well = 1;
+  city7.buildings.lumber_camp = 1;
+  city7.buildings.quarry = 1;
+  city7.plots[2].buildingId = 'quarry';
+  city7.plots[2].level = 1;
+  host7.dispatch({
+    type: COMMAND_TYPES.QUEUE_BUILDING,
+    payload: { plotIndex: 1, buildingId: 'guild_hall' }
+  });
+  host7.stepClock(12000);
+
+  const starfallPoi = dungeonPois7.find(function(p) { return p.id === 'poi_dungeon_starfall'; });
+  const starfallRevealedByGuild = Boolean(starfallPoi && starfallPoi.discovered === true);
+
+  // Recruit Fighter Hero & advance 60s
+  host7.dispatch({
+    type: COMMAND_TYPES.RECRUIT_HERO,
+    payload: { classId: 'fighter', heroName: 'Aldric Vanguard' }
+  });
+  host7.stepClock(60000);
+  const party7 = ow7.units.find(function(u) { return u.unitType === 'hero_party' && u.alive; });
+
+  // Place a live wandering hostile directly adjacent to party and march onto it -> Victory!
+  const testHostile = ow7.hostiles[0];
+  testHostile.x = party7.x + 1;
+  testHostile.y = party7.y;
+  testHostile.alive = true;
+  host7.dispatch({
+    type: COMMAND_TYPES.ORDER_UNIT_MARCH,
+    payload: { unitId: party7.id, targetX: testHostile.x, targetY: testHostile.y }
+  });
+  host7.stepClock(8000);
+  const skirmishWon = !testHostile.alive && host7.state.world.stats.skirmishesWon >= 1 &&
+    Boolean(party7.cargo && party7.cargo.gold >= testHostile.rewardGold);
+
+  // Order March to Starfall Vaults via CMD_MARCH_TO_DUNGEON
+  const marchToDng = host7.dispatch({
+    type: COMMAND_TYPES.MARCH_TO_DUNGEON,
+    payload: { unitId: party7.id, poiId: 'poi_dungeon_starfall' }
+  });
+  const intentIsDungeon = Boolean(marchToDng.ok && party7.marchPlan && party7.marchPlan.intent === 'enter_dungeon');
+
+  // Advance clock until party arrives at Starfall Vaults
+  host7.stepClock(60000);
+  const arrivedAtVault = party7.x === starfallPoi.x && party7.y === starfallPoi.y;
+
+  // Enter Dungeon -> transitions to in_dungeon and produces valid handoff envelope
+  const enterRes = host7.dispatch({
+    type: COMMAND_TYPES.ENTER_DUNGEON,
+    payload: { unitId: party7.id, poiId: 'poi_dungeon_starfall', skipStorageWrite: true }
+  });
+  const enteredCleanly = Boolean(
+    enterRes.ok &&
+    party7.status === 'in_dungeon' &&
+    host7.state.world.stats.dungeonsEntered === 1 &&
+    enterRes.data &&
+    enterRes.data.envelope &&
+    enterRes.data.envelope.direction === 'wargame_to_dungeon' &&
+    enterRes.data.envelope.dungeon.dungeonId === 'dng_starfall'
+  );
+
+  const t7Checks = {
+    hasFourDungeons: hasFourDungeons,
+    hasWanderingHostiles: hasWanderingHostiles,
+    starfallRevealedByGuild: starfallRevealedByGuild,
+    skirmishWon: skirmishWon,
+    intentIsDungeon: intentIsDungeon,
+    arrivedAtVault: arrivedAtVault,
+    enteredCleanly: enteredCleanly
+  };
+  const failed7 = Object.keys(t7Checks).filter(function(k) { return !t7Checks[k]; });
+  const t7Pass = failed7.length === 0;
+
+  results.push({
+    name: '7. Multi-Dungeon Discovery, Wandering Hostile Skirmish & Dungeon Entry Handoff',
+    pass: t7Pass,
+    detail: t7Pass
+      ? '4 curated dungeon POIs, Guild Hall Starfall reveal, Overworld hostile skirmish victory & cargo, CMD_MARCH_TO_DUNGEON, and CMD_ENTER_DUNGEON handoff envelope verified'
+      : 'Failed checks: ' + failed7.join(', ')
+  });
+
+  // =========================================================================
+  // Test 8: Dungeon Extraction Return March, Cargo Banking, Recall Scroll & Defeat Recovery
+  // =========================================================================
+  const city7GoldBefore = city7.stockpile.gold;
+  const city7OreBefore = city7.stockpile.ore;
+
+  // 8A. Surface Extraction via Floor 1 Stairs -> placed at Vault POI & timed Return March home
+  const extReturn = host7.dispatch({
+    type: COMMAND_TYPES.RESOLVE_DUNGEON_RETURN,
+    payload: {
+      outcome: 'extracted',
+      method: 'Floor 1 Ascending Stairs (<)',
+      partyUnitId: party7.id,
+      heroId: party7.leaderHeroId,
+      heroLevel: 3,
+      heroXp: 240,
+      dungeonPoiId: 'poi_dungeon_starfall',
+      lootSummary: { gold: 120, ore: 18, gems: 2, gearCount: 1 }
+    }
+  });
+  const startedReturnMarch = Boolean(
+    extReturn.ok &&
+    extReturn.data.returnMarchStarted === true &&
+    party7.status === 'marching' &&
+    party7.marchPlan &&
+    party7.marchPlan.intent === 'return_city' &&
+    party7.cargo &&
+    party7.cargo.gold >= 120
+  );
+  const heroLevelSynced = host7.state.world.heroes[0].level === 3;
+
+  // Clear hostiles along return path so return march completes cleanly to city
+  ow7.hostiles.forEach(function(h) { h.alive = false; });
+  host7.stepClock(60000);
+  const returnedAndBanked = Boolean(
+    party7.x === city7.x &&
+    party7.y === city7.y &&
+    party7.cargo === null &&
+    city7.stockpile.gold >= city7GoldBefore + 120 &&
+    city7.stockpile.ore >= city7OreBefore + 18 &&
+    host7.state.world.stats.expeditionsBanked >= 1
+  );
+
+  // 8B. Astral Recall Scroll Express Extraction -> instant teleport to City & immediate bank
+  const goldBeforeRecall = city7.stockpile.gold;
+  party7.x = starfallPoi.x;
+  party7.y = starfallPoi.y;
+  party7.status = 'in_dungeon';
+  const recallReturn = host7.dispatch({
+    type: COMMAND_TYPES.RESOLVE_DUNGEON_RETURN,
+    payload: {
+      outcome: 'extracted',
+      method: 'Astral Recall Scroll',
+      partyUnitId: party7.id,
+      heroId: party7.leaderHeroId,
+      heroLevel: 4,
+      dungeonPoiId: 'poi_dungeon_starfall',
+      lootSummary: { gold: 80, ore: 10, gems: 1, gearCount: 0 }
+    }
+  });
+  const recallExpressVerified = Boolean(
+    recallReturn.ok &&
+    recallReturn.data.expressReturn === true &&
+    party7.x === city7.x &&
+    party7.y === city7.y &&
+    party7.status === 'idle' &&
+    city7.stockpile.gold === goldBeforeRecall + 80
+  );
+
+  // 8C. Non-Permanent Defeat Recovery -> express return to City Guild Hall, salvage credited, Hero preserved
+  const goldBeforeDefeat = city7.stockpile.gold;
+  party7.x = starfallPoi.x;
+  party7.y = starfallPoi.y;
+  party7.status = 'in_dungeon';
+  party7.cargo = { gold: 999, ore: 50, gems: 0, gearCount: 0 };
+  const defeatReturn = host7.dispatch({
+    type: COMMAND_TYPES.RESOLVE_DUNGEON_RETURN,
+    payload: {
+      outcome: 'defeated',
+      method: 'Guild Scout Rescue',
+      partyUnitId: party7.id,
+      heroId: party7.leaderHeroId,
+      heroLevel: 4,
+      killerName: 'Starfall Colossus',
+      floorDepth: 5,
+      lootSummary: { salvagedGold: 35 }
+    }
+  });
+  const defeatRecoveryVerified = Boolean(
+    defeatReturn.ok &&
+    party7.x === city7.x &&
+    party7.y === city7.y &&
+    party7.status === 'idle' &&
+    party7.hp === party7.maxHp &&
+    party7.cargo === null &&
+    city7.stockpile.gold === goldBeforeDefeat + 35 &&
+    host7.state.world.heroes[0].level === 4
+  );
+
+  const t8Checks = {
+    startedReturnMarch: startedReturnMarch,
+    heroLevelSynced: heroLevelSynced,
+    returnedAndBanked: returnedAndBanked,
+    recallExpressVerified: recallExpressVerified,
+    defeatRecoveryVerified: defeatRecoveryVerified
+  };
+  const failed8 = Object.keys(t8Checks).filter(function(k) { return !t8Checks[k]; });
+  const t8Pass = failed8.length === 0;
+
+  results.push({
+    name: '8. Dungeon Extraction Return March, Cargo Banking, Recall Scroll & Defeat Recovery',
+    pass: t8Pass,
+    detail: t8Pass
+      ? 'Floor 1 extraction return march & cargo banking, Astral Recall Scroll express teleport, and Golden Rule #2 defeat rescue verified'
+      : 'Failed checks: ' + failed8.join(', ')
+  });
+
   return results;
 }

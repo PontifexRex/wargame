@@ -3,10 +3,12 @@
 import { gameState, loadGame, saveGame, getCodexMasteryMultiplier } from './engine/state.js';
 import { toggleAudio } from './engine/audio.js';
 import { ENGINE_EVENTS, onEngineEvent, offEngineEvent, emitEngineEvent } from './engine/events.js';
+import { BRIDGE_DIRECTIONS, consumeBridgeHandoff } from './engine/wargameBridge.js';
 import {
   registerActionCallbacks,
   useHealingTonic,
   useRecallScroll,
+  applyWargameEntryHandoff,
   buyShopItem,
   sellMineralUnit,
   sellGemUnit,
@@ -312,6 +314,7 @@ export const AethelgardAPI = {
   executeClassSkill,
   useHealingTonic,
   useRecallScroll,
+  applyWargameEntryHandoff,
   useStairsAtPlayer,
   handlePlayerAction: (dx, dy, evt) => {
     const isShift = (evt && evt.shiftKey) || (typeof window !== 'undefined' && window.event && window.event.shiftKey);
@@ -341,6 +344,12 @@ export const AethelgardAPI = {
   drawPaperDollMannequin,
   getItemTypeIcon,
   SLOT_METADATA,
+  returnToWargameOverworld: function() {
+    saveGame();
+    if (typeof window !== 'undefined' && window.location) {
+      window.location.href = './wargame.html?return=dungeon';
+    }
+  },
   dev: {
     gotoFloor: gotoFloor,
     setLevel: setHeroLevel,
@@ -378,6 +387,16 @@ export const AethelgardAPI = {
 function bootstrapApp() {
   setupInputs();
   const loaded = loadGame();
+  const handoff = consumeBridgeHandoff(BRIDGE_DIRECTIONS.TO_DUNGEON);
+  if (handoff) {
+    if (!loaded || !gameState.hero) {
+      selectAdventurerClass((handoff.hero && handoff.hero.classId) || 'fighter');
+    }
+    applyWargameEntryHandoff(handoff, gameState);
+    updateFOV();
+    saveGame();
+    updateAllUI();
+  } else
   if (!loaded || !gameState.hero) {
     selectAdventurerClass('fighter');
     openClassSelectModal(false);

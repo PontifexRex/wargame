@@ -37,6 +37,7 @@ import {
 import {
   scheduleNextMarchStep,
   resolveMarchStepJob,
+  depositUnitCargoAtCity,
   activateNextCityBuildQueueItem,
   resolveBuildingCompleteJob,
   resolveBuildingDemolishJob,
@@ -45,6 +46,10 @@ import {
   resolveRecruitHeroJob,
   processResourceProductionTick
 } from './queues.js';
+import {
+  createDungeonEntryEnvelope,
+  writeDungeonEntryHandoff
+} from '../../engine/wargameBridge.js';
 import { evaluateTaskDAG } from './taskEngine.js';
 import {
   createNewCampaignWorldState,
@@ -118,6 +123,7 @@ export function dispatchWargameCommand(commandEnvelope, state, scheduler, eventS
     const unitId = payload.unitId || ow.selectedUnitId;
     const unit = (ow.units || []).find(function(u) { return u.id === unitId && u.alive; });
     if (!unit) return reject('No active unit selected for march');
+    if (unit.status === 'in_dungeon') return reject('Unit is currently delving inside a dungeon');
 
     const targetX = Number(payload.targetX);
     const targetY = Number(payload.targetY);
@@ -145,6 +151,9 @@ export function dispatchWargameCommand(commandEnvelope, state, scheduler, eventS
 
     const totalMs = path.reduce(function(sum, st) { return sum + (st.stepDurationMs || 3000); }, 0);
     unit.marchPlan = {
+      intent: payload.intent || 'move',
+      targetPoiId: payload.targetPoiId || null,
+      targetCityId: payload.targetCityId || null,
       targetX: targetX,
       targetY: targetY,
       remainingPath: path,
@@ -859,6 +868,275 @@ export function dispatchWargameCommand(commandEnvelope, state, scheduler, eventS
   }
 
   // ---------------------------------------------------------------------------
+  // 9C. MARCH TO DUNGEON (Quick-Order Hero Party to a Discovered Vault POI)
+  // ---------------------------------------------------------------------------
+  if (cmdType === COMMAND_TYPES.MARCH_TO_DUNGEON) {
+    const unitId = payload.unitId || ow.selectedUnitId;
+    const unit = (ow.units || []).find(function(u) { return u.id === unitId && u.alive; });
+    if (!unit || !unit.canEnterDungeon) {
+      return reject('Select a Hero-led Vanguard Party to march on a Dungeon');
+    }
+    if (unit.status === 'in_dungeon') {
+      return reject('Party is already delving inside a dungeon');
+    }
+
+    const poi = (ow.pois || []).find(function(p) {
+      return p.type === 'dungeon_entrance' && (payload.poiId ? p.id === payload.poiId : true);
+    });
+    if (!poi) return reject('Dungeon entrance not found on Overworld');
+    if (!poi.discovered && !(ow.explored[poi.y] && ow.explored[poi.y][poi.x])) {
+      return reject('Scout the Overworld to discover ' + poi.name + ' before marching there');
+    }
+
+    if (unit.x === poi.x && unit.y === poi.y) {
+      return accept({ alreadyAtEntrance: true, poiId: poi.id, dungeonId: poi.dungeonId });
+    }
+
+    return dispatchWargameCommand({
+      type: COMMAND_TYPES.ORDER_UNIT_MARCH,
+      payload: {
+        unitId: unit.id,
+        targetX: poi.x,
+        targetY: poi.y,
+        intent: 'enter_dungeon',
+        targetPoiId: poi.id
+      }
+    }, state, scheduler, eventStream);
+  }
+
+  // ---------------------------------------------------------------------------
+  // 9D. ENTER DUNGEON (Transition Hero Party into Turn-Based Tactical Engine)
+  // ---------------------------------------------------------------------------
+  if (cmdType === COMMAND_TYPES.ENTER_DUNGEON) {
+    const unitId = payload.unitId || ow.selectedUnitId;
+    const unit = (ow.units || []).find(function(u) { return u.id === unitId && u.alive; });
+    if (!unit || !unit.canEnterDungeon) {
+      return reject('Requires an active Hero-led Vanguard Party to enter a Dungeon');
+    }
+
+    const poi = (ow.pois || []).find(function(p) {
+      if (p.type !== 'dungeon_entrance') return false;
+      if (payload.poiId) return p.id === payload.poiId;
+      return Math.hypot(unit.x - p.x, unit.y - p.y) <= 1.5;
+    });
+    if (!poi) {
+      return reject('No Dungeon Entrance within reach');
+    }
+    if (Math.hypot(unit.x - poi.x, unit.y - poi.y) > 1.5) {
+      return reject('Party must march to ' + poi.name + ' before entering');
+    }
+
+    if (unit.marchPlan && unit.marchPlan.activeJobId && scheduler) {
+      scheduler.cancelJob(unit.marchPlan.activeJobId);
+    }
+    unit.x = poi.x;
+    unit.y = poi.y;
+    unit.status = 'in_dungeon';
+    unit.marchPlan = null;
+    unit.activeDungeonPoiId = poi.id;
+    unit.activeDungeonId = poi.dungeonId;
+
+    world.stats.dungeonsEntered = (world.stats.dungeonsEntered || 0) + 1;
+
+    const hero = (world.heroes || []).find(function(h) { return h.id === unit.leaderHeroId; });
+    const city = getPrimaryCity(state);
+
+    const envelopeData = {
+      campaignId: world.id,
+      houseName: (world.player && world.player.houseName) || 'House Vanguard',
+      cityId: city ? city.id : null,
+      cityName: city ? city.name : 'Oakhaven Bastion',
+      cityCoords: city ? { x: city.x, y: city.y } : null,
+      partyUnitId: unit.id,
+      hero: hero ? {
+        id: hero.id,
+        name: hero.name,
+        classId: hero.classId,
+        level: hero.level,
+        xp: hero.xp
+      } : {
+        id: unit.leaderHeroId || 'hero_1',
+        name: unit.shortName,
+        classId: unit.heroClassId || 'fighter',
+        level: 1,
+        xp: 0
+      },
+      dungeon: {
+        poiId: poi.id,
+        dungeonId: poi.dungeonId,
+        profileId: poi.profileId || 'starfall_vaults',
+        name: poi.name,
+        coords: { x: poi.x, y: poi.y }
+      }
+    };
+
+    const envelope = payload.skipStorageWrite
+      ? createDungeonEntryEnvelope(envelopeData)
+      : writeDungeonEntryHandoff(envelopeData);
+
+    if (eventStream) {
+      eventStream.publish(STREAM_TOPICS.DUNGEON_ENTERED, {
+        unitId: unit.id,
+        unitName: unit.shortName,
+        poiId: poi.id,
+        dungeonId: poi.dungeonId,
+        dungeonName: poi.name
+      }, simTimeMs);
+    }
+
+    evaluateTaskDAG(state, eventStream);
+    return accept({
+      unitId: unit.id,
+      poiId: poi.id,
+      dungeonId: poi.dungeonId,
+      envelope: envelope
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // 9E. RESOLVE DUNGEON RETURN (Extraction Return March, Recall Scroll, or Defeat)
+  // ---------------------------------------------------------------------------
+  if (cmdType === COMMAND_TYPES.RESOLVE_DUNGEON_RETURN) {
+    const outcome = payload.outcome === 'defeated' ? 'defeated' : 'extracted';
+    const method = payload.method || 'Floor 1 Ascending Stairs (<)';
+    const loot = payload.lootSummary || {};
+    const city = getPrimaryCity(state);
+
+    let unit = null;
+    if (payload.partyUnitId) {
+      unit = (ow.units || []).find(function(u) { return u.id === payload.partyUnitId && u.alive; });
+    }
+    if (!unit) {
+      unit = (ow.units || []).find(function(u) { return u.status === 'in_dungeon' && u.alive; })
+          || (ow.units || []).find(function(u) { return u.unitType === 'hero_party' && u.alive; });
+    }
+    if (!unit) return reject('No Vanguard Party found to resolve dungeon return');
+
+    // Sync hero progression back to Overworld roster
+    const hero = (world.heroes || []).find(function(h) {
+      return h.id === (payload.heroId || unit.leaderHeroId);
+    });
+    if (hero) {
+      if (typeof payload.heroLevel === 'number' && payload.heroLevel > hero.level) {
+        hero.level = payload.heroLevel;
+      }
+      if (typeof payload.heroXp === 'number' && payload.heroXp > (hero.xp || 0)) {
+        hero.xp = payload.heroXp;
+      }
+    }
+
+    const poiId = payload.dungeonPoiId || unit.activeDungeonPoiId;
+    const poi = (ow.pois || []).find(function(p) { return p.id === poiId; })
+             || (ow.pois || []).find(function(p) { return p.type === 'dungeon_entrance'; });
+
+    unit.activeDungeonPoiId = null;
+    unit.activeDungeonId = null;
+    ow.selectedUnitId = unit.id;
+
+    if (outcome === 'defeated') {
+      // Non-Permanent Defeat (Golden Rule #2): Express-return directly to City Adventurers Guild Hall
+      if (unit.marchPlan && unit.marchPlan.activeJobId && scheduler) {
+        scheduler.cancelJob(unit.marchPlan.activeJobId);
+      }
+      if (city) {
+        unit.x = city.x;
+        unit.y = city.y;
+        if (loot.salvagedGold > 0) {
+          city.stockpile.gold = (city.stockpile.gold || 0) + loot.salvagedGold;
+        }
+      }
+      unit.status = 'idle';
+      unit.marchPlan = null;
+      unit.hp = unit.maxHp;
+      unit.cargo = null;
+
+      if (eventStream) {
+        eventStream.publish(STREAM_TOPICS.DUNGEON_RETURNED, {
+          outcome: 'defeated',
+          method: 'Guild Scout Rescue',
+          unitId: unit.id,
+          unitName: unit.shortName,
+          killerName: payload.killerName || 'Abyssal Guardian',
+          floorDepth: payload.floorDepth || 1,
+          salvagedGold: loot.salvagedGold || 0,
+          cityName: city ? city.name : 'Bastion'
+        }, simTimeMs);
+      }
+
+      evaluateTaskDAG(state, eventStream);
+      return accept({ outcome: 'defeated', unitId: unit.id, x: unit.x, y: unit.y, salvagedGold: loot.salvagedGold || 0 });
+    }
+
+    // Outcome: 'extracted'
+    unit.hp = unit.maxHp;
+    unit.status = 'idle';
+    unit.marchPlan = null;
+
+    if (!unit.cargo) {
+      unit.cargo = { gold: 0, ore: 0, gems: 0, gearCount: 0 };
+    }
+    unit.cargo.gold      = (unit.cargo.gold      || 0) + (loot.gold      || 0);
+    unit.cargo.ore       = (unit.cargo.ore       || 0) + (loot.ore       || 0);
+    unit.cargo.gems      = (unit.cargo.gems      || 0) + (loot.gems      || 0);
+    unit.cargo.gearCount = (unit.cargo.gearCount || 0) + (loot.gearCount || 0);
+
+    const isRecallScroll = String(method).indexOf('Recall Scroll') !== -1;
+    let returnMarchStarted = false;
+
+    if (isRecallScroll && city) {
+      // Astral Recall Scroll: Instant teleport to City & immediate cargo banking!
+      unit.x = city.x;
+      unit.y = city.y;
+      depositUnitCargoAtCity(unit, city, state, simTimeMs, eventStream);
+    } else {
+      // Surface extraction via Floor 1 Stairs or Boss Portal: Exit at Vault POI & begin timed Return March home
+      if (poi) {
+        unit.x = poi.x;
+        unit.y = poi.y;
+        revealOverworldVision(ow, unit.x, unit.y, unit.visionRadius || 5);
+      }
+      if (city && (unit.x !== city.x || unit.y !== city.y)) {
+        const marchRes = dispatchWargameCommand({
+          type: COMMAND_TYPES.ORDER_UNIT_MARCH,
+          payload: {
+            unitId: unit.id,
+            targetX: city.x,
+            targetY: city.y,
+            intent: 'return_city',
+            targetCityId: city.id
+          }
+        }, state, scheduler, eventStream);
+        returnMarchStarted = Boolean(marchRes && marchRes.ok);
+      } else if (city) {
+        depositUnitCargoAtCity(unit, city, state, simTimeMs, eventStream);
+      }
+    }
+
+    if (eventStream) {
+      eventStream.publish(STREAM_TOPICS.DUNGEON_RETURNED, {
+        outcome: 'extracted',
+        method: method,
+        unitId: unit.id,
+        unitName: unit.shortName,
+        expressReturn: isRecallScroll,
+        returnMarchStarted: returnMarchStarted,
+        lootSummary: loot,
+        cityName: city ? city.name : 'Bastion'
+      }, simTimeMs);
+    }
+
+    evaluateTaskDAG(state, eventStream);
+    return accept({
+      outcome: 'extracted',
+      expressReturn: isRecallScroll,
+      returnMarchStarted: returnMarchStarted,
+      unitId: unit.id,
+      x: unit.x,
+      y: unit.y
+    });
+  }
+
+  // ---------------------------------------------------------------------------
   // 10. CLAIM TASK REWARD
   // ---------------------------------------------------------------------------
   if (cmdType === COMMAND_TYPES.CLAIM_TASK_REWARD) {
@@ -956,24 +1234,27 @@ export function advanceSimulationClock(deltaRealMs, state, scheduler, eventStrea
   const simDelta = Math.round(deltaRealMs * mult);
   const targetSimTime = clock.simTimeMs + simDelta;
 
-  // Pop and execute all scheduled jobs in chronological order up to targetSimTime
+  // Pop and execute all scheduled jobs (including chained jobs) in chronological order up to targetSimTime
   let jobsExecuted = 0;
   if (scheduler) {
-    const dueJobs = scheduler.popDueJobs(targetSimTime);
-    for (let i = 0; i < dueJobs.length; i++) {
-      const job = dueJobs[i];
-      clock.simTimeMs = job.dueSimTimeMs;
-      jobsExecuted++;
-      if (job.jobType === 'UNIT_MARCH_STEP') {
-        resolveMarchStepJob(job, state, scheduler, eventStream);
-      } else if (job.jobType === 'CITY_BUILDING_COMPLETE') {
-        resolveBuildingCompleteJob(job, state, scheduler, eventStream);
-      } else if (job.jobType === 'CITY_BUILDING_MOVE_COMPLETE') {
-        resolveBuildingMoveJob(job, state, scheduler, eventStream);
-      } else if (job.jobType === 'CITY_BUILDING_DEMOLISH_COMPLETE') {
-        resolveBuildingDemolishJob(job, state, scheduler, eventStream);
-      } else if (job.jobType === 'HERO_RECRUIT_COMPLETE') {
-        resolveRecruitHeroJob(job, state, scheduler, eventStream);
+    while (jobsExecuted < 500) {
+      const dueJobs = scheduler.popDueJobs(targetSimTime);
+      if (!dueJobs || dueJobs.length === 0) break;
+      for (let i = 0; i < dueJobs.length; i++) {
+        const job = dueJobs[i];
+        clock.simTimeMs = job.dueSimTimeMs;
+        jobsExecuted++;
+        if (job.jobType === 'UNIT_MARCH_STEP') {
+          resolveMarchStepJob(job, state, scheduler, eventStream);
+        } else if (job.jobType === 'CITY_BUILDING_COMPLETE') {
+          resolveBuildingCompleteJob(job, state, scheduler, eventStream);
+        } else if (job.jobType === 'CITY_BUILDING_MOVE_COMPLETE') {
+          resolveBuildingMoveJob(job, state, scheduler, eventStream);
+        } else if (job.jobType === 'CITY_BUILDING_DEMOLISH_COMPLETE') {
+          resolveBuildingDemolishJob(job, state, scheduler, eventStream);
+        } else if (job.jobType === 'HERO_RECRUIT_COMPLETE') {
+          resolveRecruitHeroJob(job, state, scheduler, eventStream);
+        }
       }
     }
   }

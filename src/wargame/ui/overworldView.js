@@ -170,24 +170,67 @@ export function renderWargameOverworldCanvas(simHost) {
       const cx = px + OVERWORLD_TILE_SIZE / 2;
       const cy = py + OVERWORLD_TILE_SIZE / 2;
       const pDef = OVERWORLD_POI_DEFS[poi.type] || OVERWORLD_POI_DEFS.dungeon_entrance;
+      const accent = poi.accentColor || pDef.color || '#fbbf24';
+
+      // Pulsing breach ring if selected Hero Party is within entry reach of this Dungeon POI
+      if (poi.type === 'dungeon_entrance' && selUnit && selUnit.alive && selUnit.canEnterDungeon &&
+          Math.hypot(selUnit.x - poi.x, selUnit.y - poi.y) <= 1.5) {
+        ctx.strokeStyle = accent;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(cx, cy, 15, 0, Math.PI * 2);
+        ctx.stroke();
+      }
 
       ctx.fillStyle = pDef.bgColor || '#1e1b4b';
       ctx.beginPath();
       ctx.arc(cx, cy, 12, 0, Math.PI * 2);
       ctx.fill();
-      ctx.strokeStyle = pDef.color || '#fbbf24';
+      ctx.strokeStyle = accent;
       ctx.lineWidth = 1.5;
       ctx.stroke();
 
       ctx.font = '13px sans-serif';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillStyle = pDef.color || '#fbbf24';
+      ctx.fillStyle = accent;
       ctx.fillText(pDef.symbol || 'Ω', cx, cy);
 
       ctx.font = 'bold 9px monospace';
       ctx.fillStyle = '#e6edf3';
       ctx.fillText(poi.name, cx, py - 3);
+    }
+  }
+
+  // 2B. Render Overworld Wandering Hostiles inside explored vision
+  if (Array.isArray(ow.hostiles)) {
+    for (let i = 0; i < ow.hostiles.length; i++) {
+      const h = ow.hostiles[i];
+      if (!h.alive) continue;
+      if (h.x < camX || h.x >= camX + OVERWORLD_VIEWPORT_W || h.y < camY || h.y >= camY + OVERWORLD_VIEWPORT_H) continue;
+      if (!ow.explored[h.y] || !ow.explored[h.y][h.x]) continue;
+
+      const px = (h.x - camX) * OVERWORLD_TILE_SIZE;
+      const py = (h.y - camY) * OVERWORLD_TILE_SIZE;
+      const cx = px + OVERWORLD_TILE_SIZE / 2;
+      const cy = py + OVERWORLD_TILE_SIZE / 2;
+
+      ctx.fillStyle = '#450a0a';
+      ctx.beginPath();
+      ctx.moveTo(cx, cy - 11);
+      ctx.lineTo(cx + 11, cy);
+      ctx.lineTo(cx, cy + 11);
+      ctx.lineTo(cx - 11, cy);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = h.color || '#f87171';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+
+      ctx.font = '11px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(h.icon || '💀', cx, cy);
     }
   }
 
@@ -293,8 +336,18 @@ export function renderWargameOverworldCanvas(simHost) {
       const by = cy - 18;
       ctx.fillStyle = '#090d16';
       ctx.fillRect(bx, by, barW, barH);
-      ctx.fillStyle = '#38bdf8';
+      ctx.fillStyle = (u.marchPlan && u.marchPlan.intent === 'return_city') ? '#fbbf24' : '#38bdf8';
       ctx.fillRect(bx, by, Math.round(barW * interp.progress), barH);
+    } else if (u.status === 'in_dungeon') {
+      ctx.font = 'bold 8px monospace';
+      ctx.fillStyle = '#f87171';
+      ctx.fillText('IN VAULT', cx, cy - 16);
+    }
+
+    // Gold Cargo Indicator when party carries unbanked skirmish or dungeon spoils
+    if (u.cargo && ((u.cargo.gold || 0) > 0 || (u.cargo.ore || 0) > 0)) {
+      ctx.font = '10px sans-serif';
+      ctx.fillText('💰', cx + 11, cy - 10);
     }
 
     ctx.font = 'bold 9px sans-serif';

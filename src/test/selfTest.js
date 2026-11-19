@@ -49,6 +49,7 @@ import {
   generateProceduralEquipment
 } from '../engine/procedural.js';
 import { selectAdventurerClass } from '../ui/modals.js';
+import { createDungeonEntryEnvelope, clearBridgeHandoff } from '../engine/wargameBridge.js';
 import { drawPaperDollMannequin, drawHeroSprite, setSkillHover, getSkillHover, renderDoorTile } from '../ui/renderer.js';
 import { setChronicleFilter, getChronicleFilter, inferChronicleCategory, logChronicle, clearChronicle } from '../ui/domSync.js';
 import {
@@ -60,6 +61,7 @@ import {
   purchaseResearchRank,
   extractToGuild,
   handleHeroDefeat,
+  applyWargameEntryHandoff,
   socketGemIntoItem,
   unsocketGemFromItem,
   detectNearbyTraps,
@@ -1841,6 +1843,74 @@ export function evaluateSelfTests() {
     detail: failedKeys29.length === 0
       ? 'Portal definitions verified, traversal components verified, waypoint network registration verified, astral rift charges & collapse verified, boss defeat extraction portal spawn & extraction verified, dev console object spawner (door/portal/key/monster) verified, procedural waypoint generation verified'
       : 'Failed checks: ' + failedKeys29.join(', ')
+  });
+
+  // -------------------------------------------------------------
+  // Test 30: Wargame Overworld Bridge Handoff (Entry, Extraction & Defeat Envelopes)
+  // -------------------------------------------------------------
+  const sandbox30 = createDefaultGameState();
+  selectAdventurerClass('ranger', sandbox30);
+  const entryEnv30 = createDungeonEntryEnvelope({
+    campaignId: 'world_prime',
+    houseName: 'House Vanguard',
+    cityId: 'city_1',
+    cityName: 'Oakhaven Bastion',
+    cityCoords: { x: 28, y: 20 },
+    partyUnitId: 'unit_party_1',
+    hero: { id: 'hero_1_ranger', name: 'Sylvanas Pathfinder', classId: 'ranger', level: 2, xp: 90 },
+    dungeon: { poiId: 'poi_dungeon_quarry', dungeonId: 'dng_quarry', profileId: 'copper_quarry', name: 'Sunken Copper Quarry', coords: { x: 19, y: 25 } }
+  });
+
+  const applied30 = applyWargameEntryHandoff(entryEnv30, sandbox30);
+  const sessionActive30 = Boolean(
+    applied30 &&
+    sandbox30.wargameSession &&
+    sandbox30.wargameSession.active === true &&
+    sandbox30.wargameSession.partyUnitId === 'unit_party_1' &&
+    sandbox30.activeDungeonId === 'dng_quarry' &&
+    sandbox30.inGuild === false &&
+    sandbox30.dungeon.currentFloor === 1
+  );
+
+  // Add pack loot & extract -> verify returnEnvelope is created with extracted outcome
+  sandbox30.hero.expeditionPack.push({ id: 'copper', name: 'Copper Ore', qty: 6, val: 5 });
+  const extRes30 = extractToGuild('Floor 1 Ascending Stairs (<)', sandbox30);
+  const extEnvValid30 = Boolean(
+    extRes30 &&
+    extRes30.returnEnvelope &&
+    extRes30.returnEnvelope.direction === 'dungeon_to_wargame' &&
+    extRes30.returnEnvelope.outcome === 'extracted' &&
+    extRes30.returnEnvelope.lootSummary.ore === 6 &&
+    sandbox30.guildVault.copper === 6
+  );
+
+  // Simulate defeat -> verify defeat returnEnvelope while preserving Golden Rule #2
+  sandbox30.inGuild = false;
+  sandbox30.hero.level = 4;
+  const defRes30 = handleHeroDefeat('Test Colossus', sandbox30);
+  const defEnvValid30 = Boolean(
+    defRes30 &&
+    defRes30.returnEnvelope &&
+    defRes30.returnEnvelope.outcome === 'defeated' &&
+    defRes30.returnEnvelope.killerName === 'Test Colossus' &&
+    sandbox30.hero.level === 4 &&
+    sandbox30.guildVault.copper === 6
+  );
+
+  // Clean up localStorage bridge key so sandbox test leaves zero side effects
+  clearBridgeHandoff();
+
+  // Verify legacy save migration backfills wargameSession cleanly
+  const mig30 = migrateSaveData({ version: 'v0.1.0-inc1', hero: { classId: 'fighter', level: 1 } });
+  const migBackfill30 = mig30 && mig30.wargameSession === null;
+
+  const t30Pass = Boolean(sessionActive30 && extEnvValid30 && defEnvValid30 && migBackfill30);
+  results.push({
+    name: '30. Wargame Overworld Bridge Handoff (Entry, Extraction & Defeat Return Envelopes)',
+    pass: t30Pass,
+    detail: t30Pass
+      ? 'Wargame-to-Dungeon entry sync, Extraction return envelope, Golden Rule #2 Defeat return envelope, and v1 migration backfill verified'
+      : 'Failed wargame bridge handoff or return envelope verification'
   });
 
   return results;

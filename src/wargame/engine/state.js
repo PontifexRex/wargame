@@ -91,7 +91,9 @@ export function createNewCampaignWorldState(options = {}) {
         buildingsCompleted: 0,
         resourcesHarvested: 0,
         heroesRecruited: 0,
-        dungeonsEntered: 0
+        dungeonsEntered: 0,
+        expeditionsBanked: 0,
+        skirmishesWon: 0
       }
     }
   };
@@ -268,6 +270,32 @@ export function loadWargameState(scheduler = null) {
     if (parsed.world.realmStockpile) {
       if (typeof parsed.world.realmStockpile.water !== 'number') parsed.world.realmStockpile.water = 50;
       if (typeof parsed.world.realmStockpile.ore !== 'number')   parsed.world.realmStockpile.ore = 20;
+    }
+    if (parsed.world.stats) {
+      if (typeof parsed.world.stats.expeditionsBanked !== 'number') parsed.world.stats.expeditionsBanked = 0;
+      if (typeof parsed.world.stats.skirmishesWon !== 'number')     parsed.world.stats.skirmishesWon = 0;
+    }
+    if (parsed.world.overworld) {
+      if (!Array.isArray(parsed.world.overworld.hostiles)) parsed.world.overworld.hostiles = [];
+      if (Array.isArray(parsed.world.overworld.pois)) {
+        for (let pi = 0; pi < parsed.world.overworld.pois.length; pi++) {
+          const poi = parsed.world.overworld.pois[pi];
+          if (poi.type === 'dungeon_entrance') {
+            if (!poi.profileId) poi.profileId = 'starfall_vaults';
+            if (typeof poi.discovered !== 'boolean') {
+              const expRow = parsed.world.overworld.explored && parsed.world.overworld.explored[poi.y];
+              poi.discovered = Boolean(expRow && expRow[poi.x]);
+            }
+          }
+        }
+      }
+      if (Array.isArray(parsed.world.overworld.units)) {
+        for (let ui = 0; ui < parsed.world.overworld.units.length; ui++) {
+          if (parsed.world.overworld.units[ui].cargo === undefined) {
+            parsed.world.overworld.units[ui].cargo = null;
+          }
+        }
+      }
     }
     if (parsed.world.cities) {
       Object.keys(parsed.world.cities).forEach(function(cid) {

@@ -49,6 +49,138 @@ export function scheduleNextMarchStep(unit, state, scheduler) {
   return job;
 }
 
+export function checkAndDiscoverDungeonsInVision(ow, simTimeMs, eventStream) {
+  if (!ow || !Array.isArray(ow.pois) || !Array.isArray(ow.explored)) return [];
+  const newlyDiscovered = [];
+  for (let i = 0; i < ow.pois.length; i++) {
+    const poi = ow.pois[i];
+    if (poi.type !== 'dungeon_entrance' || poi.discovered) continue;
+    if (ow.explored[poi.y] && ow.explored[poi.y][poi.x]) {
+      poi.discovered = true;
+      newlyDiscovered.push(poi);
+      if (eventStream) {
+        eventStream.publish(STREAM_TOPICS.DUNGEON_DISCOVERED, {
+          poiId: poi.id,
+          dungeonId: poi.dungeonId,
+          profileId: poi.profileId,
+          dungeonName: poi.name,
+          x: poi.x,
+          y: poi.y
+        }, simTimeMs);
+      }
+    }
+  }
+  return newlyDiscovered;
+}
+
+export function depositUnitCargoAtCity(unit, city, state, simTimeMs, eventStream) {
+  if (!unit || !unit.cargo || !city || !city.stockpile) return false;
+  const c = unit.cargo;
+  const gold = c.gold || 0;
+  const ore = c.ore || 0;
+  const gems = c.gems || 0;
+  const gearCount = c.gearCount || 0;
+  if (gold <= 0 && ore <= 0 && gems <= 0 && gearCount <= 0) {
+    unit.cargo = null;
+    return false;
+  }
+
+  city.stockpile.gold = (city.stockpile.gold || 0) + gold;
+  city.stockpile.ore  = (city.stockpile.ore  || 0) + ore;
+  unit.cargo = null;
+  if (state && state.world && state.world.stats) {
+    state.world.stats.expeditionsBanked = (state.world.stats.expeditionsBanked || 0) + 1;
+  }
+
+  if (eventStream) {
+    eventStream.publish(STREAM_TOPICS.EXPEDITION_BANKED, {
+      unitId: unit.id,
+      unitName: unit.shortName,
+      cityId: city.id,
+      cityName: city.name,
+      gold: gold,
+      ore: ore,
+      gems: gems,
+      gearCount: gearCount
+    }, simTimeMs);
+  }
+  return true;
+}
+
+export function resolveOverworldSkirmish(unit, hostile, state, scheduler, simTimeMs, eventStream) {
+  if (!unit || !hostile || !hostile.alive) return { victory: true, skipped: true };
+  const world = state && state.world;
+  const hero = (world && Array.isArray(world.heroes))
+    ? world.heroes.find(function(h) { return h.id === unit.leaderHeroId; })
+    : null;
+
+  const heroAtk = (hero && hero.stats && hero.stats.atk) ? hero.stats.atk : 26;
+  const heroDef = (hero && hero.stats && hero.stats.def) ? hero.stats.def : 12;
+  const heroLvl = (hero && hero.level) ? hero.level : 1;
+  const effectiveAtk = heroAtk + (heroLvl - 1) * 4;
+
+  const roundsToKill = Math.max(1, Math.ceil((hostile.hp || 60) / Math.max(5, effectiveAtk)));
+  const dmgPerRound = Math.max(2, (hostile.power || 18) - Math.floor(heroDef * 0.6));
+  const totalDmg = dmgPerRound * Math.max(1, roundsToKill - 1);
+
+  if ((unit.hp || 1) > totalDmg) {
+    unit.hp = Math.max(1, unit.hp - totalDmg);
+    hostile.alive = false;
+    if (world && world.stats) {
+      world.stats.skirmishesWon = (world.stats.skirmishesWon || 0) + 1;
+    }
+    if (hero) {
+      hero.xp = (hero.xp || 0) + (hostile.rewardXp || 25);
+    }
+    if (!unit.cargo) {
+      unit.cargo = { gold: 0, ore: 0, gems: 0, gearCount: 0 };
+    }
+    unit.cargo.gold = (unit.cargo.gold || 0) + (hostile.rewardGold || 20);
+    unit.cargo.ore  = (unit.cargo.ore  || 0) + (hostile.rewardOre  || 4);
+
+    if (eventStream) {
+      eventStream.publish(STREAM_TOPICS.OVERWORLD_SKIRMISH, {
+        victory: true,
+        unitId: unit.id,
+        unitName: unit.shortName,
+        hostileId: hostile.id,
+        hostileName: hostile.name,
+        damageTaken: totalDmg,
+        rewardGold: hostile.rewardGold || 20,
+        rewardOre: hostile.rewardOre || 4,
+        rewardXp: hostile.rewardXp || 25
+      }, simTimeMs);
+    }
+    return { victory: true, damageTaken: totalDmg };
+  }
+
+  // Defeat in Overworld Skirmish: Non-permanent retreat back to City Guild Hall
+  if (unit.marchPlan && unit.marchPlan.activeJobId && scheduler) {
+    scheduler.cancelJob(unit.marchPlan.activeJobId);
+  }
+  const city = getPrimaryCity(state);
+  if (city) {
+    unit.x = city.x;
+    unit.y = city.y;
+  }
+  unit.status = 'idle';
+  unit.marchPlan = null;
+  unit.hp = unit.maxHp;
+  unit.cargo = null;
+
+  if (eventStream) {
+    eventStream.publish(STREAM_TOPICS.OVERWORLD_SKIRMISH, {
+      victory: false,
+      unitId: unit.id,
+      unitName: unit.shortName,
+      hostileId: hostile.id,
+      hostileName: hostile.name,
+      retreatedToCity: city ? city.name : 'Bastion'
+    }, simTimeMs);
+  }
+  return { victory: false };
+}
+
 export function resolveMarchStepJob(job, state, scheduler, eventStream) {
   if (!state || !state.world || !state.world.overworld) return;
   const ow = state.world.overworld;
@@ -64,6 +196,23 @@ export function resolveMarchStepJob(job, state, scheduler, eventStream) {
   state.world.stats.totalUnitSteps = (state.world.stats.totalUnitSteps || 0) + 1;
 
   revealOverworldVision(ow, unit.x, unit.y, unit.visionRadius || 4);
+  checkAndDiscoverDungeonsInVision(ow, job.dueSimTimeMs, eventStream);
+
+  // Check for Wandering Hostile interception for Hero Parties
+  if (unit.unitType === 'hero_party' && Array.isArray(ow.hostiles)) {
+    const encountered = ow.hostiles.find(function(h) {
+      return h.alive && h.x === unit.x && h.y === unit.y;
+    });
+    if (encountered) {
+      const skirmishRes = resolveOverworldSkirmish(unit, encountered, state, scheduler, job.dueSimTimeMs, eventStream);
+      if (!skirmishRes.victory) {
+        state._dirty = true;
+        saveWargameState(state, scheduler);
+        evaluateTaskDAG(state, eventStream);
+        return;
+      }
+    }
+  }
 
   // Check if unit stepped onto a supply cache POI
   if (Array.isArray(ow.pois)) {
@@ -111,8 +260,23 @@ export function resolveMarchStepJob(job, state, scheduler, eventStream) {
   if (unit.marchPlan.remainingPath && unit.marchPlan.remainingPath.length > 0) {
     scheduleNextMarchStep(unit, state, scheduler);
   } else {
+    const completedIntent = unit.marchPlan.intent || 'move';
     unit.status = 'idle';
     unit.marchPlan = null;
+
+    // If arriving at a friendly City carrying cargo, bank spoils into City Stockpile and restore HP
+    const cityKeys = Object.keys(state.world.cities || {});
+    for (let cIdx = 0; cIdx < cityKeys.length; cIdx++) {
+      const city = state.world.cities[cityKeys[cIdx]];
+      if (city && city.x === unit.x && city.y === unit.y) {
+        unit.hp = unit.maxHp;
+        if (unit.cargo) {
+          depositUnitCargoAtCity(unit, city, state, job.dueSimTimeMs, eventStream);
+        }
+        break;
+      }
+    }
+
     state._dirty = true;
     saveWargameState(state, scheduler);
     if (eventStream) {
@@ -120,7 +284,8 @@ export function resolveMarchStepJob(job, state, scheduler, eventStream) {
         unitId: unit.id,
         unitName: unit.shortName,
         x: unit.x,
-        y: unit.y
+        y: unit.y,
+        intent: completedIntent
       }, job.dueSimTimeMs);
     }
   }
@@ -247,9 +412,19 @@ export function resolveBuildingCompleteJob(job, state, scheduler, eventStream) {
 
   state.world.stats.buildingsCompleted = (state.world.stats.buildingsCompleted || 0) + 1;
 
-  // If Adventurers Guild Hall is completed, unlock GUILD_UNLOCKED phase!
-  if (bId === 'guild_hall' && targetLvl >= 1 && state.campaignPhase === CAMPAIGN_PHASES.CITY_ESTABLISHED) {
-    state.campaignPhase = CAMPAIGN_PHASES.GUILD_UNLOCKED;
+  // If Adventurers Guild Hall is completed, unlock GUILD_UNLOCKED phase and reveal The Starfall Vaults!
+  if (bId === 'guild_hall' && targetLvl >= 1) {
+    if (state.campaignPhase === CAMPAIGN_PHASES.CITY_ESTABLISHED) {
+      state.campaignPhase = CAMPAIGN_PHASES.GUILD_UNLOCKED;
+    }
+    const ow = state.world.overworld;
+    if (ow && Array.isArray(ow.pois)) {
+      const starfallPoi = ow.pois.find(function(poi) { return poi.id === 'poi_dungeon_starfall' || poi.type === 'dungeon_entrance'; });
+      if (starfallPoi) {
+        revealOverworldVision(ow, starfallPoi.x, starfallPoi.y, 2);
+        checkAndDiscoverDungeonsInVision(ow, job.dueSimTimeMs, eventStream);
+      }
+    }
   }
 
   const bDef = CITY_BUILDINGS_CATALOG[bId];
@@ -501,6 +676,7 @@ export function resolveRecruitHeroJob(job, state, scheduler, eventStream) {
     canEnterDungeon: true,
     alive: true,
     status: 'idle',
+    cargo: null,
     marchPlan: null
   };
 
@@ -644,13 +820,20 @@ export function processResourceProductionTick(state, eventStream) {
       }
     }
 
-    // Add production gains before consumption
-    city.stockpile.wood  = (city.stockpile.wood  || 0) + gains.wood;
-    city.stockpile.stone = (city.stockpile.stone || 0) + gains.stone;
-    city.stockpile.food  = (city.stockpile.food  || 0) + gains.food;
-    city.stockpile.gold  = (city.stockpile.gold  || 0) + gains.gold;
-    city.stockpile.water = (city.stockpile.water || 0) + gains.water;
-    city.stockpile.ore   = (city.stockpile.ore   || 0) + gains.ore;
+    // Add passive production gains up to storage caps (never deleting overflow expedition spoils or task rewards!)
+    const caps = computeCityStorageCaps(city);
+    function addProductionCapped(cur, gain, cap) {
+      const base = cur || 0;
+      if (gain <= 0) return base;
+      if (base >= cap) return base;
+      return Math.min(cap, base + gain);
+    }
+    city.stockpile.wood  = addProductionCapped(city.stockpile.wood,  gains.wood,  caps.wood  || 200);
+    city.stockpile.stone = addProductionCapped(city.stockpile.stone, gains.stone, caps.stone || 200);
+    city.stockpile.food  = addProductionCapped(city.stockpile.food,  gains.food,  caps.food  || 200);
+    city.stockpile.gold  = addProductionCapped(city.stockpile.gold,  gains.gold,  caps.gold  || 300);
+    city.stockpile.water = addProductionCapped(city.stockpile.water, gains.water, caps.water || 200);
+    city.stockpile.ore   = addProductionCapped(city.stockpile.ore,   gains.ore,   caps.ore   || 100);
 
     // 3. Population Sustenance Consumption & Starvation Dynamics
     // Demand scales with population: 1 food and 1 water per 5 citizens
@@ -685,14 +868,6 @@ export function processResourceProductionTick(state, eventStream) {
         city.population.starveTicks = 0;
       }
     }
-
-    const caps = computeCityStorageCaps(city);
-    city.stockpile.wood  = Math.min(caps.wood  || 200, city.stockpile.wood);
-    city.stockpile.stone = Math.min(caps.stone || 200, city.stockpile.stone);
-    city.stockpile.food  = Math.min(caps.food  || 200, city.stockpile.food);
-    city.stockpile.gold  = Math.min(caps.gold  || 300, city.stockpile.gold);
-    city.stockpile.water = Math.min(caps.water || 200, city.stockpile.water);
-    city.stockpile.ore   = Math.min(caps.ore   || 100, city.stockpile.ore);
 
     if (eventStream && (gains.wood > 0 || gains.stone > 0 || gains.food > 0 || gains.gold > 0 || gains.water > 0 || gains.ore > 0)) {
       eventStream.publish(STREAM_TOPICS.RESOURCE_TICK, {

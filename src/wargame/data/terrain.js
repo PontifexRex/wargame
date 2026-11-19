@@ -225,3 +225,89 @@ export const RECRUITABLE_HERO_CLASSES = [
     specialty: 'Aura of Radiance, Holy Smite self-healing, and Divine Intervention.'
   }
 ];
+
+export const OVERWORLD_DUNGEON_CATALOG = [
+  {
+    poiId: 'poi_dungeon_starfall',
+    dungeonId: 'dng_starfall',
+    profileId: 'starfall_vaults',
+    name: 'The Starfall Vaults',
+    recommendedLevel: 1,
+    accentColor: '#f87171',
+    offsetDx: 5,
+    offsetDy: -3,
+    desc: 'Ancient dwarven subterranean catacombs scarred by the meteor Vespera.'
+  },
+  {
+    poiId: 'poi_dungeon_quarry',
+    dungeonId: 'dng_quarry',
+    profileId: 'copper_quarry',
+    name: 'Sunken Copper Quarry',
+    recommendedLevel: 1,
+    accentColor: '#fb923c',
+    offsetDx: -9,
+    offsetDy: 5,
+    desc: 'Flooded excavation shafts rich in surface copper and iron veins.'
+  },
+  {
+    poiId: 'poi_dungeon_mycelium',
+    dungeonId: 'dng_mycelium',
+    profileId: 'mycelium_labyrinth',
+    name: 'Whispering Mycelium Labyrinth',
+    recommendedLevel: 3,
+    accentColor: '#34d399',
+    offsetDx: 12,
+    offsetDy: 7,
+    desc: 'Bioluminescent fungal caverns teeming with ambush predators and geodes.'
+  },
+  {
+    poiId: 'poi_dungeon_molten',
+    dungeonId: 'dng_molten',
+    profileId: 'molten_crucible',
+    name: 'The Molten Forgeworks',
+    recommendedLevel: 5,
+    accentColor: '#f97316',
+    offsetDx: -14,
+    offsetDy: -9,
+    desc: 'Blazing basalt foundries guarded by dwarven automatons and magma golems.'
+  }
+];
+
+export const OVERWORLD_HOSTILE_ARCHETYPES = {
+  raider_pack: {
+    id: 'raider_pack',
+    name: 'Starfall Raiding Pack',
+    icon: '🐺',
+    level: 1,
+    power: 16,
+    maxHp: 58,
+    rewardGold: 20,
+    rewardOre: 4,
+    rewardXp: 25,
+    color: '#f87171'
+  },
+  brood_swarm: {
+    id: 'brood_swarm',
+    name: 'Feral Brood Skitterers',
+    icon: '🕷️',
+    level: 1,
+    power: 20,
+    maxHp: 70,
+    rewardGold: 25,
+    rewardOre: 5,
+    rewardXp: 35,
+    color: '#fb923c'
+  },
+  cultist_patrol: {
+    id: 'cultist_patrol',
+    name: 'Astral Cultist Patrol',
+    icon: '💀',
+    level: 2,
+    power: 28,
+    maxHp: 105,
+    rewardGold: 45,
+    rewardOre: 10,
+    rewardXp: 60,
+    color: '#c084fc'
+  }
+};

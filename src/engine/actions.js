@@ -23,7 +23,7 @@ import { GEM_IDS, GEM_CATALOG, SHRINE_CATALOG, TRAP_CATALOG } from '../data/gems
 import { buildProceduralBountySet } from '../data/bounties.js';
 import { SHOP_ITEMS, computeItemPowerScore, isItemUpgrade } from '../data/items.js';
 import { RESEARCH_PROJECTS } from '../data/research.js';
-import { buildCharteredDungeonInstance } from '../data/dungeons.js';
+import { buildCharteredDungeonInstance, createDungeonInstance, CURATED_DUNGEON_PROFILES } from '../data/dungeons.js';
 import { hashSeedString, randomSeedCode } from './rng.js';
 import {
   gameState,
@@ -36,7 +36,8 @@ import {
   getPickaxeMaxDurability,
   ensureCodexState
 } from './state.js';
-import { generateProceduralEquipment, rollSocketCountForRarity } from './procedural.js';
+import { generateFloor, generateProceduralEquipment, rollSocketCountForRarity } from './procedural.js';
+import { writeDungeonReturnHandoff } from './wargameBridge.js';
 import { playSound } from './audio.js';
 import { ENGINE_EVENTS, onEngineEvent, offEngineEvent, emitEngineEvent } from './events.js';
 import {
@@ -895,7 +896,28 @@ export function extractToGuild(method = 'Floor 1 Ascending Stairs (<)', state = 
     claimedBounties
   }, state);
 
-  return { oresBanked, gemsBanked, gearBanked, goldEarned, claimedBounties };
+  let returnEnvelope = null;
+  if (state.wargameSession && state.wargameSession.active) {
+    returnEnvelope = writeDungeonReturnHandoff({
+      outcome: 'extracted',
+      method: method,
+      partyUnitId: state.wargameSession.partyUnitId,
+      heroId: state.wargameSession.heroId,
+      heroLevel: h.level || 1,
+      heroXp: h.xp || 0,
+      dungeonId: state.activeDungeonId,
+      dungeonPoiId: state.wargameSession.dungeonPoiId,
+      lootSummary: {
+        gold: goldEarned,
+        ore: oresBanked,
+        gems: gemsBanked,
+        gearCount: gearBanked,
+        salvagedGold: 0
+      }
+    });
+  }
+
+  return { oresBanked, gemsBanked, gearBanked, goldEarned, claimedBounties, returnEnvelope };
 }
 
 export function useRecallScroll(state = gameState) {
@@ -967,7 +989,90 @@ export function handleHeroDefeat(killerName = 'Abyssal Guardian', state = gameSt
     lostGearCount
   }, state);
 
-  return { salvagedGold, lostOreCount, lostGearCount };
+  let returnEnvelope = null;
+  if (state.wargameSession && state.wargameSession.active) {
+    returnEnvelope = writeDungeonReturnHandoff({
+      outcome: 'defeated',
+      method: 'Guild Scout Rescue',
+      partyUnitId: state.wargameSession.partyUnitId,
+      heroId: state.wargameSession.heroId,
+      heroLevel: h.level || 1,
+      heroXp: h.xp || 0,
+      dungeonId: state.activeDungeonId,
+      dungeonPoiId: state.wargameSession.dungeonPoiId,
+      killerName: killerName,
+      floorDepth: state.dungeon ? state.dungeon.currentFloor : 1,
+      lootSummary: {
+        gold: 0,
+        ore: 0,
+        gems: 0,
+        gearCount: 0,
+        salvagedGold: salvagedGold
+      }
+    });
+  }
+
+  return { salvagedGold, lostOreCount, lostGearCount, returnEnvelope };
+}
+
+export function applyWargameEntryHandoff(handoff, state = gameState) {
+  if (!handoff || !state) return false;
+  const dng = handoff.dungeon || {};
+  const targetDungeonId = dng.dungeonId || 'dng_starfall';
+  const targetProfileId = dng.profileId || 'starfall_vaults';
+
+  if (state.dungeons && state.dungeons[targetDungeonId]) {
+    selectActiveDungeon(targetDungeonId, state);
+  } else if (CURATED_DUNGEON_PROFILES[targetProfileId]) {
+    const inst = createDungeonInstance(targetProfileId, {
+      id: targetDungeonId,
+      originType: 'curated',
+      worldCoords: dng.coords || { x: 0, y: 0 }
+    });
+    state.dungeons[targetDungeonId] = inst;
+    selectActiveDungeon(targetDungeonId, state);
+  } else {
+    syncActiveDungeonAlias(state);
+  }
+
+  state.wargameSession = {
+    active: true,
+    campaignId: handoff.campaignId || 'world_prime',
+    houseName: handoff.houseName || 'House Vanguard',
+    cityId: handoff.cityId || null,
+    cityName: handoff.cityName || 'Oakhaven Bastion',
+    cityCoords: handoff.cityCoords || null,
+    partyUnitId: handoff.partyUnitId || null,
+    heroId: (handoff.hero && handoff.hero.id) || null,
+    heroClassId: (handoff.hero && handoff.hero.classId) || 'fighter',
+    dungeonPoiId: dng.poiId || null,
+    dungeonId: state.activeDungeonId,
+    dungeonName: dng.name || (state.dungeon && state.dungeon.name) || 'The Starfall Vaults',
+    dungeonCoords: dng.coords || null
+  };
+
+  if (state.hero) {
+    if (handoff.hero && handoff.hero.name) {
+      state.hero.name = handoff.hero.name;
+    }
+    state.inGuild = false;
+    state.dungeon.currentFloor = 1;
+    if (!state.dungeon.floors[1]) {
+      state.dungeon.floors[1] = generateFloor(
+        1,
+        state.dungeon.config,
+        state.dungeon.numericSeed
+      );
+    }
+    const f1 = ensureDungeonFloorHydrated(state.dungeon, 1);
+    state.hero.x = f1.upPos.x;
+    state.hero.y = f1.upPos.y;
+  }
+
+  return true;
+}
+
+function __wargameBridgeSentinel() {
 }
 
 export function buyShopItem(itemId, state = gameState) {

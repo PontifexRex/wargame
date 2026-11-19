@@ -85,7 +85,11 @@ const STREAM_TOPICS = {
   HERO_RECRUIT_CANCEL:  'guild.heroRecruitCancelled',
   HERO_RECRUITED:       'guild.heroRecruited',
   PARTY_FORMED:         'guild.partyFormed',
+  DUNGEON_DISCOVERED:   'dungeon.discovered',
   DUNGEON_ENTERED:      'dungeon.entered',
+  DUNGEON_RETURNED:     'dungeon.returned',
+  EXPEDITION_BANKED:    'expedition.banked',
+  OVERWORLD_SKIRMISH:   'overworld.skirmish',
   TASK_UNLOCKED:        'task.unlocked',
   TASK_PROGRESS:        'task.progress',
   TASK_COMPLETED:       'task.completed',
@@ -106,9 +110,12 @@ const COMMAND_TYPES = {
   MOVE_BUILDING:      'CMD_MOVE_BUILDING',
   CANCEL_BUILDING:    'CMD_CANCEL_BUILDING',
   DEMOLISH_BUILDING:  'CMD_DEMOLISH_BUILDING',
-  RECRUIT_HERO:       'CMD_RECRUIT_HERO',
-  CANCEL_RECRUITMENT: 'CMD_CANCEL_RECRUITMENT',
-  CLAIM_TASK_REWARD:  'CMD_CLAIM_TASK_REWARD',
+  RECRUIT_HERO:          'CMD_RECRUIT_HERO',
+  CANCEL_RECRUITMENT:    'CMD_CANCEL_RECRUITMENT',
+  MARCH_TO_DUNGEON:      'CMD_MARCH_TO_DUNGEON',
+  ENTER_DUNGEON:         'CMD_ENTER_DUNGEON',
+  RESOLVE_DUNGEON_RETURN:'CMD_RESOLVE_DUNGEON_RETURN',
+  CLAIM_TASK_REWARD:     'CMD_CLAIM_TASK_REWARD',
   SET_SIM_SPEED:      'CMD_SET_SIM_SPEED',
   SWITCH_VIEW:        'CMD_SWITCH_VIEW'
 };
@@ -651,6 +658,92 @@ const RECRUITABLE_HERO_CLASSES = [
   }
 ];
 
+const OVERWORLD_DUNGEON_CATALOG = [
+  {
+    poiId: 'poi_dungeon_starfall',
+    dungeonId: 'dng_starfall',
+    profileId: 'starfall_vaults',
+    name: 'The Starfall Vaults',
+    recommendedLevel: 1,
+    accentColor: '#f87171',
+    offsetDx: 5,
+    offsetDy: -3,
+    desc: 'Ancient dwarven subterranean catacombs scarred by the meteor Vespera.'
+  },
+  {
+    poiId: 'poi_dungeon_quarry',
+    dungeonId: 'dng_quarry',
+    profileId: 'copper_quarry',
+    name: 'Sunken Copper Quarry',
+    recommendedLevel: 1,
+    accentColor: '#fb923c',
+    offsetDx: -9,
+    offsetDy: 5,
+    desc: 'Flooded excavation shafts rich in surface copper and iron veins.'
+  },
+  {
+    poiId: 'poi_dungeon_mycelium',
+    dungeonId: 'dng_mycelium',
+    profileId: 'mycelium_labyrinth',
+    name: 'Whispering Mycelium Labyrinth',
+    recommendedLevel: 3,
+    accentColor: '#34d399',
+    offsetDx: 12,
+    offsetDy: 7,
+    desc: 'Bioluminescent fungal caverns teeming with ambush predators and geodes.'
+  },
+  {
+    poiId: 'poi_dungeon_molten',
+    dungeonId: 'dng_molten',
+    profileId: 'molten_crucible',
+    name: 'The Molten Forgeworks',
+    recommendedLevel: 5,
+    accentColor: '#f97316',
+    offsetDx: -14,
+    offsetDy: -9,
+    desc: 'Blazing basalt foundries guarded by dwarven automatons and magma golems.'
+  }
+];
+
+const OVERWORLD_HOSTILE_ARCHETYPES = {
+  raider_pack: {
+    id: 'raider_pack',
+    name: 'Starfall Raiding Pack',
+    icon: '🐺',
+    level: 1,
+    power: 16,
+    maxHp: 58,
+    rewardGold: 20,
+    rewardOre: 4,
+    rewardXp: 25,
+    color: '#f87171'
+  },
+  brood_swarm: {
+    id: 'brood_swarm',
+    name: 'Feral Brood Skitterers',
+    icon: '🕷️',
+    level: 1,
+    power: 20,
+    maxHp: 70,
+    rewardGold: 25,
+    rewardOre: 5,
+    rewardXp: 35,
+    color: '#fb923c'
+  },
+  cultist_patrol: {
+    id: 'cultist_patrol',
+    name: 'Astral Cultist Patrol',
+    icon: '💀',
+    level: 2,
+    power: 28,
+    maxHp: 105,
+    rewardGold: 45,
+    rewardOre: 10,
+    rewardXp: 60,
+    color: '#c084fc'
+  }
+};
+
   // --- Module: src/engine/rng.js ---
 // Deterministic Seeded PRNG (Mulberry32) & Seed String Hashing
 
@@ -781,17 +874,29 @@ function generateOverworldMap(width = OVERWORLD_MAP_W, height = OVERWORLD_MAP_H,
       y: spawnY + 2,
       depleted: false,
       yield: { stone: 45 }
-    },
-    {
-      id: 'poi_dungeon_starfall',
-      type: 'dungeon_entrance',
-      name: 'The Starfall Vaults',
-      dungeonId: 'dng_starfall',
-      x: spawnX + 5,
-      y: spawnY - 3,
-      depleted: false
     }
   ];
+
+  // Register curated Dungeon Entrance POIs across the Overworld frontier
+  const dngCatalog = OVERWORLD_DUNGEON_CATALOG || [];
+  for (let d = 0; d < dngCatalog.length; d++) {
+    const def = dngCatalog[d];
+    const px = Math.max(2, Math.min(width - 3, spawnX + def.offsetDx));
+    const py = Math.max(2, Math.min(height - 3, spawnY + def.offsetDy));
+    pois.push({
+      id: def.poiId,
+      type: 'dungeon_entrance',
+      name: def.name,
+      dungeonId: def.dungeonId,
+      profileId: def.profileId,
+      recommendedLevel: def.recommendedLevel || 1,
+      accentColor: def.accentColor || '#f87171',
+      x: px,
+      y: py,
+      discovered: false,
+      depleted: false
+    });
+  }
 
   // Ensure all POIs sit on passable terrain and have a clear path from spawn
   for (let i = 0; i < pois.length; i++) {
@@ -799,6 +904,50 @@ function generateOverworldMap(width = OVERWORLD_MAP_W, height = OVERWORLD_MAP_H,
     if (tiles[p.y] && (tiles[p.y][p.x] === OW_TERRAIN_MOUNTAINS || tiles[p.y][p.x] === OW_TERRAIN_WATER)) {
       tiles[p.y][p.x] = OW_TERRAIN_PLAINS;
     }
+  }
+
+  // Spawn deterministic Overworld Wandering Hostiles outside the safe starting basin (radius >= 5)
+  const hostiles = [];
+  const hostileKeys = Object.keys(OVERWORLD_HOSTILE_ARCHETYPES || {});
+  const hostilePlacements = [
+    { dx: 3,   dy: -2,  archId: 'raider_pack' },
+    { dx: -6,  dy: 3,   archId: 'brood_swarm' },
+    { dx: 8,   dy: 4,   archId: 'raider_pack' },
+    { dx: -8,  dy: -5,  archId: 'cultist_patrol' },
+    { dx: 10,  dy: -6,  archId: 'brood_swarm' },
+    { dx: -11, dy: 7,   archId: 'cultist_patrol' }
+  ];
+  for (let h = 0; h < hostilePlacements.length; h++) {
+    const hp = hostilePlacements[h];
+    const hx = Math.max(2, Math.min(width - 3, spawnX + hp.dx));
+    const hy = Math.max(2, Math.min(height - 3, spawnY + hp.dy));
+    // Never overlap spawn or any POI
+    const overlapsPoi = pois.some(function(p) { return p.x === hx && p.y === hy; });
+    if (overlapsPoi) continue;
+    if (tiles[hy] && (tiles[hy][hx] === OW_TERRAIN_MOUNTAINS || tiles[hy][hx] === OW_TERRAIN_WATER)) {
+      tiles[hy][hx] = OW_TERRAIN_PLAINS;
+    }
+    const arch = OVERWORLD_HOSTILE_ARCHETYPES[hp.archId] || OVERWORLD_HOSTILE_ARCHETYPES[hostileKeys[0]];
+    if (!arch) continue;
+    hostiles.push({
+      id: 'ow_hostile_' + (h + 1),
+      archetypeId: arch.id,
+      name: arch.name,
+      icon: arch.icon,
+      color: arch.color || '#f87171',
+      level: arch.level || 1,
+      power: arch.power || 18,
+      hp: arch.maxHp || 60,
+      maxHp: arch.maxHp || 60,
+      rewardGold: arch.rewardGold || 20,
+      rewardOre: arch.rewardOre || 4,
+      rewardXp: arch.rewardXp || 25,
+      x: hx,
+      y: hy,
+      homeX: hx,
+      homeY: hy,
+      alive: true
+    });
   }
 
   // Spawn ONLY the Pioneer Settler unit initially (NO Dungeon Hero exists yet!)
@@ -817,6 +966,7 @@ function generateOverworldMap(width = OVERWORLD_MAP_W, height = OVERWORLD_MAP_H,
     canEnterDungeon: false,
     alive: true,
     status: 'idle', // 'idle' | 'marching' | 'settled'
+    cargo: null,
     marchPlan: null
   };
 
@@ -829,6 +979,7 @@ function generateOverworldMap(width = OVERWORLD_MAP_W, height = OVERWORLD_MAP_H,
     tiles: tiles,
     explored: explored,
     pois: pois,
+    hostiles: hostiles,
     units: [settlerUnit],
     selectedUnitId: settlerUnit.id
   };
@@ -1193,6 +1344,21 @@ const CAMPAIGN_TASKS_DAG = [
         }
       }
       return { completed: false, progress: 0, target: 1 };
+    }
+  },
+  {
+    id: 'task_return_with_spoils',
+    title: '12. Return With Dungeon Spoils',
+    category: 'delve',
+    prerequisites: ['task_march_to_dungeon'],
+    triggerTopics: [STREAM_TOPICS.EXPEDITION_BANKED, STREAM_TOPICS.DUNGEON_RETURNED],
+    desc: 'Extract from a Dungeon Vault and complete the return march to bank your expedition spoils at Oakhaven Bastion.',
+    rewardLabel: '+200 Gold, +40 Ore',
+    reward: { gold: 200, ore: 40 },
+    evaluate: function(state) {
+      if (!state || !state.world || !state.world.stats) return { completed: false, progress: 0, target: 1 };
+      const banked = state.world.stats.expeditionsBanked || 0;
+      return { completed: banked >= 1, progress: Math.min(1, banked), target: 1 };
     }
   }
 ];
@@ -1867,7 +2033,9 @@ function createNewCampaignWorldState(options = {}) {
         buildingsCompleted: 0,
         resourcesHarvested: 0,
         heroesRecruited: 0,
-        dungeonsEntered: 0
+        dungeonsEntered: 0,
+        expeditionsBanked: 0,
+        skirmishesWon: 0
       }
     }
   };
@@ -2045,6 +2213,32 @@ function loadWargameState(scheduler = null) {
       if (typeof parsed.world.realmStockpile.water !== 'number') parsed.world.realmStockpile.water = 50;
       if (typeof parsed.world.realmStockpile.ore !== 'number')   parsed.world.realmStockpile.ore = 20;
     }
+    if (parsed.world.stats) {
+      if (typeof parsed.world.stats.expeditionsBanked !== 'number') parsed.world.stats.expeditionsBanked = 0;
+      if (typeof parsed.world.stats.skirmishesWon !== 'number')     parsed.world.stats.skirmishesWon = 0;
+    }
+    if (parsed.world.overworld) {
+      if (!Array.isArray(parsed.world.overworld.hostiles)) parsed.world.overworld.hostiles = [];
+      if (Array.isArray(parsed.world.overworld.pois)) {
+        for (let pi = 0; pi < parsed.world.overworld.pois.length; pi++) {
+          const poi = parsed.world.overworld.pois[pi];
+          if (poi.type === 'dungeon_entrance') {
+            if (!poi.profileId) poi.profileId = 'starfall_vaults';
+            if (typeof poi.discovered !== 'boolean') {
+              const expRow = parsed.world.overworld.explored && parsed.world.overworld.explored[poi.y];
+              poi.discovered = Boolean(expRow && expRow[poi.x]);
+            }
+          }
+        }
+      }
+      if (Array.isArray(parsed.world.overworld.units)) {
+        for (let ui = 0; ui < parsed.world.overworld.units.length; ui++) {
+          if (parsed.world.overworld.units[ui].cargo === undefined) {
+            parsed.world.overworld.units[ui].cargo = null;
+          }
+        }
+      }
+    }
     if (parsed.world.cities) {
       Object.keys(parsed.world.cities).forEach(function(cid) {
         const c = parsed.world.cities[cid];
@@ -2140,6 +2334,138 @@ function scheduleNextMarchStep(unit, state, scheduler) {
   return job;
 }
 
+function checkAndDiscoverDungeonsInVision(ow, simTimeMs, eventStream) {
+  if (!ow || !Array.isArray(ow.pois) || !Array.isArray(ow.explored)) return [];
+  const newlyDiscovered = [];
+  for (let i = 0; i < ow.pois.length; i++) {
+    const poi = ow.pois[i];
+    if (poi.type !== 'dungeon_entrance' || poi.discovered) continue;
+    if (ow.explored[poi.y] && ow.explored[poi.y][poi.x]) {
+      poi.discovered = true;
+      newlyDiscovered.push(poi);
+      if (eventStream) {
+        eventStream.publish(STREAM_TOPICS.DUNGEON_DISCOVERED, {
+          poiId: poi.id,
+          dungeonId: poi.dungeonId,
+          profileId: poi.profileId,
+          dungeonName: poi.name,
+          x: poi.x,
+          y: poi.y
+        }, simTimeMs);
+      }
+    }
+  }
+  return newlyDiscovered;
+}
+
+function depositUnitCargoAtCity(unit, city, state, simTimeMs, eventStream) {
+  if (!unit || !unit.cargo || !city || !city.stockpile) return false;
+  const c = unit.cargo;
+  const gold = c.gold || 0;
+  const ore = c.ore || 0;
+  const gems = c.gems || 0;
+  const gearCount = c.gearCount || 0;
+  if (gold <= 0 && ore <= 0 && gems <= 0 && gearCount <= 0) {
+    unit.cargo = null;
+    return false;
+  }
+
+  city.stockpile.gold = (city.stockpile.gold || 0) + gold;
+  city.stockpile.ore  = (city.stockpile.ore  || 0) + ore;
+  unit.cargo = null;
+  if (state && state.world && state.world.stats) {
+    state.world.stats.expeditionsBanked = (state.world.stats.expeditionsBanked || 0) + 1;
+  }
+
+  if (eventStream) {
+    eventStream.publish(STREAM_TOPICS.EXPEDITION_BANKED, {
+      unitId: unit.id,
+      unitName: unit.shortName,
+      cityId: city.id,
+      cityName: city.name,
+      gold: gold,
+      ore: ore,
+      gems: gems,
+      gearCount: gearCount
+    }, simTimeMs);
+  }
+  return true;
+}
+
+function resolveOverworldSkirmish(unit, hostile, state, scheduler, simTimeMs, eventStream) {
+  if (!unit || !hostile || !hostile.alive) return { victory: true, skipped: true };
+  const world = state && state.world;
+  const hero = (world && Array.isArray(world.heroes))
+    ? world.heroes.find(function(h) { return h.id === unit.leaderHeroId; })
+    : null;
+
+  const heroAtk = (hero && hero.stats && hero.stats.atk) ? hero.stats.atk : 26;
+  const heroDef = (hero && hero.stats && hero.stats.def) ? hero.stats.def : 12;
+  const heroLvl = (hero && hero.level) ? hero.level : 1;
+  const effectiveAtk = heroAtk + (heroLvl - 1) * 4;
+
+  const roundsToKill = Math.max(1, Math.ceil((hostile.hp || 60) / Math.max(5, effectiveAtk)));
+  const dmgPerRound = Math.max(2, (hostile.power || 18) - Math.floor(heroDef * 0.6));
+  const totalDmg = dmgPerRound * Math.max(1, roundsToKill - 1);
+
+  if ((unit.hp || 1) > totalDmg) {
+    unit.hp = Math.max(1, unit.hp - totalDmg);
+    hostile.alive = false;
+    if (world && world.stats) {
+      world.stats.skirmishesWon = (world.stats.skirmishesWon || 0) + 1;
+    }
+    if (hero) {
+      hero.xp = (hero.xp || 0) + (hostile.rewardXp || 25);
+    }
+    if (!unit.cargo) {
+      unit.cargo = { gold: 0, ore: 0, gems: 0, gearCount: 0 };
+    }
+    unit.cargo.gold = (unit.cargo.gold || 0) + (hostile.rewardGold || 20);
+    unit.cargo.ore  = (unit.cargo.ore  || 0) + (hostile.rewardOre  || 4);
+
+    if (eventStream) {
+      eventStream.publish(STREAM_TOPICS.OVERWORLD_SKIRMISH, {
+        victory: true,
+        unitId: unit.id,
+        unitName: unit.shortName,
+        hostileId: hostile.id,
+        hostileName: hostile.name,
+        damageTaken: totalDmg,
+        rewardGold: hostile.rewardGold || 20,
+        rewardOre: hostile.rewardOre || 4,
+        rewardXp: hostile.rewardXp || 25
+      }, simTimeMs);
+    }
+    return { victory: true, damageTaken: totalDmg };
+  }
+
+  // Defeat in Overworld Skirmish: Non-permanent retreat back to City Guild Hall
+  if (unit.marchPlan && unit.marchPlan.activeJobId && scheduler) {
+    scheduler.cancelJob(unit.marchPlan.activeJobId);
+  }
+  const city = getPrimaryCity(state);
+  if (city) {
+    unit.x = city.x;
+    unit.y = city.y;
+  }
+  unit.status = 'idle';
+  unit.marchPlan = null;
+  unit.hp = unit.maxHp;
+  unit.cargo = null;
+
+  if (eventStream) {
+    eventStream.publish(STREAM_TOPICS.OVERWORLD_SKIRMISH, {
+      victory: false,
+      unitId: unit.id,
+      unitName: unit.shortName,
+      hostileId: hostile.id,
+      hostileName: hostile.name,
+      retreatedToCity: city ? city.name : 'Bastion'
+    }, simTimeMs);
+  }
+  return { victory: false };
+}
+
 function resolveMarchStepJob(job, state, scheduler, eventStream) {
   if (!state || !state.world || !state.world.overworld) return;
   const ow = state.world.overworld;
@@ -2155,6 +2481,23 @@ function resolveMarchStepJob(job, state, scheduler, eventStream) {
   state.world.stats.totalUnitSteps = (state.world.stats.totalUnitSteps || 0) + 1;
 
   revealOverworldVision(ow, unit.x, unit.y, unit.visionRadius || 4);
+  checkAndDiscoverDungeonsInVision(ow, job.dueSimTimeMs, eventStream);
+
+  // Check for Wandering Hostile interception for Hero Parties
+  if (unit.unitType === 'hero_party' && Array.isArray(ow.hostiles)) {
+    const encountered = ow.hostiles.find(function(h) {
+      return h.alive && h.x === unit.x && h.y === unit.y;
+    });
+    if (encountered) {
+      const skirmishRes = resolveOverworldSkirmish(unit, encountered, state, scheduler, job.dueSimTimeMs, eventStream);
+      if (!skirmishRes.victory) {
+        state._dirty = true;
+        saveWargameState(state, scheduler);
+        evaluateTaskDAG(state, eventStream);
+        return;
+      }
+    }
+  }
 
   // Check if unit stepped onto a supply cache POI
   if (Array.isArray(ow.pois)) {
@@ -2202,8 +2545,23 @@ function resolveMarchStepJob(job, state, scheduler, eventStream) {
   if (unit.marchPlan.remainingPath && unit.marchPlan.remainingPath.length > 0) {
     scheduleNextMarchStep(unit, state, scheduler);
   } else {
+    const completedIntent = unit.marchPlan.intent || 'move';
     unit.status = 'idle';
     unit.marchPlan = null;
+
+    // If arriving at a friendly City carrying cargo, bank spoils into City Stockpile and restore HP
+    const cityKeys = Object.keys(state.world.cities || {});
+    for (let cIdx = 0; cIdx < cityKeys.length; cIdx++) {
+      const city = state.world.cities[cityKeys[cIdx]];
+      if (city && city.x === unit.x && city.y === unit.y) {
+        unit.hp = unit.maxHp;
+        if (unit.cargo) {
+          depositUnitCargoAtCity(unit, city, state, job.dueSimTimeMs, eventStream);
+        }
+        break;
+      }
+    }
+
     state._dirty = true;
     saveWargameState(state, scheduler);
     if (eventStream) {
@@ -2211,7 +2569,8 @@ function resolveMarchStepJob(job, state, scheduler, eventStream) {
         unitId: unit.id,
         unitName: unit.shortName,
         x: unit.x,
-        y: unit.y
+        y: unit.y,
+        intent: completedIntent
       }, job.dueSimTimeMs);
     }
   }
@@ -2338,9 +2697,19 @@ function resolveBuildingCompleteJob(job, state, scheduler, eventStream) {
 
   state.world.stats.buildingsCompleted = (state.world.stats.buildingsCompleted || 0) + 1;
 
-  // If Adventurers Guild Hall is completed, unlock GUILD_UNLOCKED phase!
-  if (bId === 'guild_hall' && targetLvl >= 1 && state.campaignPhase === CAMPAIGN_PHASES.CITY_ESTABLISHED) {
-    state.campaignPhase = CAMPAIGN_PHASES.GUILD_UNLOCKED;
+  // If Adventurers Guild Hall is completed, unlock GUILD_UNLOCKED phase and reveal The Starfall Vaults!
+  if (bId === 'guild_hall' && targetLvl >= 1) {
+    if (state.campaignPhase === CAMPAIGN_PHASES.CITY_ESTABLISHED) {
+      state.campaignPhase = CAMPAIGN_PHASES.GUILD_UNLOCKED;
+    }
+    const ow = state.world.overworld;
+    if (ow && Array.isArray(ow.pois)) {
+      const starfallPoi = ow.pois.find(function(poi) { return poi.id === 'poi_dungeon_starfall' || poi.type === 'dungeon_entrance'; });
+      if (starfallPoi) {
+        revealOverworldVision(ow, starfallPoi.x, starfallPoi.y, 2);
+        checkAndDiscoverDungeonsInVision(ow, job.dueSimTimeMs, eventStream);
+      }
+    }
   }
 
   const bDef = CITY_BUILDINGS_CATALOG[bId];
@@ -2592,6 +2961,7 @@ function resolveRecruitHeroJob(job, state, scheduler, eventStream) {
     canEnterDungeon: true,
     alive: true,
     status: 'idle',
+    cargo: null,
     marchPlan: null
   };
 
@@ -2735,13 +3105,20 @@ function processResourceProductionTick(state, eventStream) {
       }
     }
 
-    // Add production gains before consumption
-    city.stockpile.wood  = (city.stockpile.wood  || 0) + gains.wood;
-    city.stockpile.stone = (city.stockpile.stone || 0) + gains.stone;
-    city.stockpile.food  = (city.stockpile.food  || 0) + gains.food;
-    city.stockpile.gold  = (city.stockpile.gold  || 0) + gains.gold;
-    city.stockpile.water = (city.stockpile.water || 0) + gains.water;
-    city.stockpile.ore   = (city.stockpile.ore   || 0) + gains.ore;
+    // Add passive production gains up to storage caps (never deleting overflow expedition spoils or task rewards!)
+    const caps = computeCityStorageCaps(city);
+    function addProductionCapped(cur, gain, cap) {
+      const base = cur || 0;
+      if (gain <= 0) return base;
+      if (base >= cap) return base;
+      return Math.min(cap, base + gain);
+    }
+    city.stockpile.wood  = addProductionCapped(city.stockpile.wood,  gains.wood,  caps.wood  || 200);
+    city.stockpile.stone = addProductionCapped(city.stockpile.stone, gains.stone, caps.stone || 200);
+    city.stockpile.food  = addProductionCapped(city.stockpile.food,  gains.food,  caps.food  || 200);
+    city.stockpile.gold  = addProductionCapped(city.stockpile.gold,  gains.gold,  caps.gold  || 300);
+    city.stockpile.water = addProductionCapped(city.stockpile.water, gains.water, caps.water || 200);
+    city.stockpile.ore   = addProductionCapped(city.stockpile.ore,   gains.ore,   caps.ore   || 100);
 
     // 3. Population Sustenance Consumption & Starvation Dynamics
     // Demand scales with population: 1 food and 1 water per 5 citizens
@@ -2776,14 +3153,6 @@ function processResourceProductionTick(state, eventStream) {
         city.population.starveTicks = 0;
       }
     }
-
-    const caps = computeCityStorageCaps(city);
-    city.stockpile.wood  = Math.min(caps.wood  || 200, city.stockpile.wood);
-    city.stockpile.stone = Math.min(caps.stone || 200, city.stockpile.stone);
-    city.stockpile.food  = Math.min(caps.food  || 200, city.stockpile.food);
-    city.stockpile.gold  = Math.min(caps.gold  || 300, city.stockpile.gold);
-    city.stockpile.water = Math.min(caps.water || 200, city.stockpile.water);
-    city.stockpile.ore   = Math.min(caps.ore   || 100, city.stockpile.ore);
 
     if (eventStream && (gains.wood > 0 || gains.stone > 0 || gains.food > 0 || gains.gold > 0 || gains.water > 0 || gains.ore > 0)) {
       eventStream.publish(STREAM_TOPICS.RESOURCE_TICK, {
@@ -2821,9 +3190,135 @@ function getUnitInterpolatedPosition(unit, currentSimTimeMs) {
   return { x: ix, y: iy, progress: t };
 }
 
+  // --- Module: src/engine/wargameBridge.js ---
+// Shared Cross-Engine Handoff Bridge between Macro Wargame (wargame.html) and Tactical Dungeon Engine (index.html)
+// Uses a dedicated localStorage envelope so both engines remain 100% standalone-capable with zero regressions.
+
+const BRIDGE_STORAGE_KEY = 'aethelgard_bridge_handoff_v1';
+
+const BRIDGE_DIRECTIONS = {
+  TO_DUNGEON: 'wargame_to_dungeon',
+  TO_WARGAME: 'dungeon_to_wargame'
+};
+
+function createDungeonEntryEnvelope(data) {
+  const src = data || {};
+  return {
+    version: 1,
+    direction: BRIDGE_DIRECTIONS.TO_DUNGEON,
+    timestamp: Date.now(),
+    campaignId: src.campaignId || 'world_prime',
+    houseName: src.houseName || 'House Vanguard',
+    cityId: src.cityId || null,
+    cityName: src.cityName || 'Oakhaven Bastion',
+    cityCoords: src.cityCoords ? { x: src.cityCoords.x, y: src.cityCoords.y } : null,
+    partyUnitId: src.partyUnitId || null,
+    hero: src.hero ? {
+      id: src.hero.id || null,
+      name: src.hero.name || 'Vanguard Hero',
+      classId: src.hero.classId || 'fighter',
+      level: typeof src.hero.level === 'number' ? src.hero.level : 1,
+      xp: typeof src.hero.xp === 'number' ? src.hero.xp : 0
+    } : null,
+    dungeon: src.dungeon ? {
+      poiId: src.dungeon.poiId || null,
+      dungeonId: src.dungeon.dungeonId || 'dng_starfall',
+      profileId: src.dungeon.profileId || 'starfall_vaults',
+      name: src.dungeon.name || 'The Starfall Vaults',
+      coords: src.dungeon.coords ? { x: src.dungeon.coords.x, y: src.dungeon.coords.y } : null
+    } : null
+  };
+}
+
+function createDungeonReturnEnvelope(data) {
+  const src = data || {};
+  const loot = src.lootSummary || {};
+  return {
+    version: 1,
+    direction: BRIDGE_DIRECTIONS.TO_WARGAME,
+    outcome: src.outcome === 'defeated' ? 'defeated' : 'extracted',
+    method: src.method || 'Floor 1 Ascending Stairs (<)',
+    timestamp: Date.now(),
+    partyUnitId: src.partyUnitId || null,
+    heroId: src.heroId || null,
+    heroLevel: typeof src.heroLevel === 'number' ? src.heroLevel : 1,
+    heroXp: typeof src.heroXp === 'number' ? src.heroXp : 0,
+    dungeonId: src.dungeonId || 'dng_starfall',
+    dungeonPoiId: src.dungeonPoiId || null,
+    killerName: src.killerName || null,
+    floorDepth: typeof src.floorDepth === 'number' ? src.floorDepth : 1,
+    lootSummary: {
+      gold: typeof loot.gold === 'number' ? loot.gold : 0,
+      ore: typeof loot.ore === 'number' ? loot.ore : 0,
+      gems: typeof loot.gems === 'number' ? loot.gems : 0,
+      gearCount: typeof loot.gearCount === 'number' ? loot.gearCount : 0,
+      salvagedGold: typeof loot.salvagedGold === 'number' ? loot.salvagedGold : 0
+    }
+  };
+}
+
+function writeDungeonEntryHandoff(data) {
+  const envelope = createDungeonEntryEnvelope(data);
+  if (typeof localStorage !== 'undefined') {
+    try {
+      localStorage.setItem(BRIDGE_STORAGE_KEY, JSON.stringify(envelope));
+    } catch (e) {
+      // Ignore storage quota errors in restricted environments
+    }
+  }
+  return envelope;
+}
+
+function writeDungeonReturnHandoff(data) {
+  const envelope = createDungeonReturnEnvelope(data);
+  if (typeof localStorage !== 'undefined') {
+    try {
+      localStorage.setItem(BRIDGE_STORAGE_KEY, JSON.stringify(envelope));
+    } catch (e) {
+      // Ignore storage quota errors in restricted environments
+    }
+  }
+  return envelope;
+}
+
+function peekBridgeHandoff(expectedDirection) {
+  if (typeof localStorage === 'undefined') return null;
+  try {
+    const raw = localStorage.getItem(BRIDGE_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') return null;
+    if (expectedDirection && parsed.direction !== expectedDirection) return null;
+    return parsed;
+  } catch (e) {
+    return null;
+  }
+}
+
+function clearBridgeHandoff() {
+  if (typeof localStorage === 'undefined') return;
+  try {
+    if (typeof localStorage.removeItem === 'function') {
+      localStorage.removeItem(BRIDGE_STORAGE_KEY);
+    } else {
+      localStorage.setItem(BRIDGE_STORAGE_KEY, '');
+    }
+  } catch (e) {
+    // Ignore storage errors
+  }
+}
+
+function consumeBridgeHandoff(expectedDirection) {
+  const env = peekBridgeHandoff(expectedDirection);
+  if (!env) return null;
+  clearBridgeHandoff();
+  return env;
+}
+
   // --- Module: src/wargame/engine/commandBus.js ---
 // Authoritative Command Bus & Simulation Host Engine
 // All player actions are dispatched as serializable Command Envelopes, validated, and applied to the World state.
+
 
 
 
@@ -2898,6 +3393,7 @@ function dispatchWargameCommand(commandEnvelope, state, scheduler, eventStream) 
     const unitId = payload.unitId || ow.selectedUnitId;
     const unit = (ow.units || []).find(function(u) { return u.id === unitId && u.alive; });
     if (!unit) return reject('No active unit selected for march');
+    if (unit.status === 'in_dungeon') return reject('Unit is currently delving inside a dungeon');
 
     const targetX = Number(payload.targetX);
     const targetY = Number(payload.targetY);
@@ -2925,6 +3421,9 @@ function dispatchWargameCommand(commandEnvelope, state, scheduler, eventStream) 
 
     const totalMs = path.reduce(function(sum, st) { return sum + (st.stepDurationMs || 3000); }, 0);
     unit.marchPlan = {
+      intent: payload.intent || 'move',
+      targetPoiId: payload.targetPoiId || null,
+      targetCityId: payload.targetCityId || null,
       targetX: targetX,
       targetY: targetY,
       remainingPath: path,
@@ -3639,6 +4138,275 @@ function dispatchWargameCommand(commandEnvelope, state, scheduler, eventStream) 
   }
 
   // ---------------------------------------------------------------------------
+  // 9C. MARCH TO DUNGEON (Quick-Order Hero Party to a Discovered Vault POI)
+  // ---------------------------------------------------------------------------
+  if (cmdType === COMMAND_TYPES.MARCH_TO_DUNGEON) {
+    const unitId = payload.unitId || ow.selectedUnitId;
+    const unit = (ow.units || []).find(function(u) { return u.id === unitId && u.alive; });
+    if (!unit || !unit.canEnterDungeon) {
+      return reject('Select a Hero-led Vanguard Party to march on a Dungeon');
+    }
+    if (unit.status === 'in_dungeon') {
+      return reject('Party is already delving inside a dungeon');
+    }
+
+    const poi = (ow.pois || []).find(function(p) {
+      return p.type === 'dungeon_entrance' && (payload.poiId ? p.id === payload.poiId : true);
+    });
+    if (!poi) return reject('Dungeon entrance not found on Overworld');
+    if (!poi.discovered && !(ow.explored[poi.y] && ow.explored[poi.y][poi.x])) {
+      return reject('Scout the Overworld to discover ' + poi.name + ' before marching there');
+    }
+
+    if (unit.x === poi.x && unit.y === poi.y) {
+      return accept({ alreadyAtEntrance: true, poiId: poi.id, dungeonId: poi.dungeonId });
+    }
+
+    return dispatchWargameCommand({
+      type: COMMAND_TYPES.ORDER_UNIT_MARCH,
+      payload: {
+        unitId: unit.id,
+        targetX: poi.x,
+        targetY: poi.y,
+        intent: 'enter_dungeon',
+        targetPoiId: poi.id
+      }
+    }, state, scheduler, eventStream);
+  }
+
+  // ---------------------------------------------------------------------------
+  // 9D. ENTER DUNGEON (Transition Hero Party into Turn-Based Tactical Engine)
+  // ---------------------------------------------------------------------------
+  if (cmdType === COMMAND_TYPES.ENTER_DUNGEON) {
+    const unitId = payload.unitId || ow.selectedUnitId;
+    const unit = (ow.units || []).find(function(u) { return u.id === unitId && u.alive; });
+    if (!unit || !unit.canEnterDungeon) {
+      return reject('Requires an active Hero-led Vanguard Party to enter a Dungeon');
+    }
+
+    const poi = (ow.pois || []).find(function(p) {
+      if (p.type !== 'dungeon_entrance') return false;
+      if (payload.poiId) return p.id === payload.poiId;
+      return Math.hypot(unit.x - p.x, unit.y - p.y) <= 1.5;
+    });
+    if (!poi) {
+      return reject('No Dungeon Entrance within reach');
+    }
+    if (Math.hypot(unit.x - poi.x, unit.y - poi.y) > 1.5) {
+      return reject('Party must march to ' + poi.name + ' before entering');
+    }
+
+    if (unit.marchPlan && unit.marchPlan.activeJobId && scheduler) {
+      scheduler.cancelJob(unit.marchPlan.activeJobId);
+    }
+    unit.x = poi.x;
+    unit.y = poi.y;
+    unit.status = 'in_dungeon';
+    unit.marchPlan = null;
+    unit.activeDungeonPoiId = poi.id;
+    unit.activeDungeonId = poi.dungeonId;
+
+    world.stats.dungeonsEntered = (world.stats.dungeonsEntered || 0) + 1;
+
+    const hero = (world.heroes || []).find(function(h) { return h.id === unit.leaderHeroId; });
+    const city = getPrimaryCity(state);
+
+    const envelopeData = {
+      campaignId: world.id,
+      houseName: (world.player && world.player.houseName) || 'House Vanguard',
+      cityId: city ? city.id : null,
+      cityName: city ? city.name : 'Oakhaven Bastion',
+      cityCoords: city ? { x: city.x, y: city.y } : null,
+      partyUnitId: unit.id,
+      hero: hero ? {
+        id: hero.id,
+        name: hero.name,
+        classId: hero.classId,
+        level: hero.level,
+        xp: hero.xp
+      } : {
+        id: unit.leaderHeroId || 'hero_1',
+        name: unit.shortName,
+        classId: unit.heroClassId || 'fighter',
+        level: 1,
+        xp: 0
+      },
+      dungeon: {
+        poiId: poi.id,
+        dungeonId: poi.dungeonId,
+        profileId: poi.profileId || 'starfall_vaults',
+        name: poi.name,
+        coords: { x: poi.x, y: poi.y }
+      }
+    };
+
+    const envelope = payload.skipStorageWrite
+      ? createDungeonEntryEnvelope(envelopeData)
+      : writeDungeonEntryHandoff(envelopeData);
+
+    if (eventStream) {
+      eventStream.publish(STREAM_TOPICS.DUNGEON_ENTERED, {
+        unitId: unit.id,
+        unitName: unit.shortName,
+        poiId: poi.id,
+        dungeonId: poi.dungeonId,
+        dungeonName: poi.name
+      }, simTimeMs);
+    }
+
+    evaluateTaskDAG(state, eventStream);
+    return accept({
+      unitId: unit.id,
+      poiId: poi.id,
+      dungeonId: poi.dungeonId,
+      envelope: envelope
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // 9E. RESOLVE DUNGEON RETURN (Extraction Return March, Recall Scroll, or Defeat)
+  // ---------------------------------------------------------------------------
+  if (cmdType === COMMAND_TYPES.RESOLVE_DUNGEON_RETURN) {
+    const outcome = payload.outcome === 'defeated' ? 'defeated' : 'extracted';
+    const method = payload.method || 'Floor 1 Ascending Stairs (<)';
+    const loot = payload.lootSummary || {};
+    const city = getPrimaryCity(state);
+
+    let unit = null;
+    if (payload.partyUnitId) {
+      unit = (ow.units || []).find(function(u) { return u.id === payload.partyUnitId && u.alive; });
+    }
+    if (!unit) {
+      unit = (ow.units || []).find(function(u) { return u.status === 'in_dungeon' && u.alive; })
+          || (ow.units || []).find(function(u) { return u.unitType === 'hero_party' && u.alive; });
+    }
+    if (!unit) return reject('No Vanguard Party found to resolve dungeon return');
+
+    // Sync hero progression back to Overworld roster
+    const hero = (world.heroes || []).find(function(h) {
+      return h.id === (payload.heroId || unit.leaderHeroId);
+    });
+    if (hero) {
+      if (typeof payload.heroLevel === 'number' && payload.heroLevel > hero.level) {
+        hero.level = payload.heroLevel;
+      }
+      if (typeof payload.heroXp === 'number' && payload.heroXp > (hero.xp || 0)) {
+        hero.xp = payload.heroXp;
+      }
+    }
+
+    const poiId = payload.dungeonPoiId || unit.activeDungeonPoiId;
+    const poi = (ow.pois || []).find(function(p) { return p.id === poiId; })
+             || (ow.pois || []).find(function(p) { return p.type === 'dungeon_entrance'; });
+
+    unit.activeDungeonPoiId = null;
+    unit.activeDungeonId = null;
+    ow.selectedUnitId = unit.id;
+
+    if (outcome === 'defeated') {
+      // Non-Permanent Defeat (Golden Rule #2): Express-return directly to City Adventurers Guild Hall
+      if (unit.marchPlan && unit.marchPlan.activeJobId && scheduler) {
+        scheduler.cancelJob(unit.marchPlan.activeJobId);
+      }
+      if (city) {
+        unit.x = city.x;
+        unit.y = city.y;
+        if (loot.salvagedGold > 0) {
+          city.stockpile.gold = (city.stockpile.gold || 0) + loot.salvagedGold;
+        }
+      }
+      unit.status = 'idle';
+      unit.marchPlan = null;
+      unit.hp = unit.maxHp;
+      unit.cargo = null;
+
+      if (eventStream) {
+        eventStream.publish(STREAM_TOPICS.DUNGEON_RETURNED, {
+          outcome: 'defeated',
+          method: 'Guild Scout Rescue',
+          unitId: unit.id,
+          unitName: unit.shortName,
+          killerName: payload.killerName || 'Abyssal Guardian',
+          floorDepth: payload.floorDepth || 1,
+          salvagedGold: loot.salvagedGold || 0,
+          cityName: city ? city.name : 'Bastion'
+        }, simTimeMs);
+      }
+
+      evaluateTaskDAG(state, eventStream);
+      return accept({ outcome: 'defeated', unitId: unit.id, x: unit.x, y: unit.y, salvagedGold: loot.salvagedGold || 0 });
+    }
+
+    // Outcome: 'extracted'
+    unit.hp = unit.maxHp;
+    unit.status = 'idle';
+    unit.marchPlan = null;
+
+    if (!unit.cargo) {
+      unit.cargo = { gold: 0, ore: 0, gems: 0, gearCount: 0 };
+    }
+    unit.cargo.gold      = (unit.cargo.gold      || 0) + (loot.gold      || 0);
+    unit.cargo.ore       = (unit.cargo.ore       || 0) + (loot.ore       || 0);
+    unit.cargo.gems      = (unit.cargo.gems      || 0) + (loot.gems      || 0);
+    unit.cargo.gearCount = (unit.cargo.gearCount || 0) + (loot.gearCount || 0);
+
+    const isRecallScroll = String(method).indexOf('Recall Scroll') !== -1;
+    let returnMarchStarted = false;
+
+    if (isRecallScroll && city) {
+      // Astral Recall Scroll: Instant teleport to City & immediate cargo banking!
+      unit.x = city.x;
+      unit.y = city.y;
+      depositUnitCargoAtCity(unit, city, state, simTimeMs, eventStream);
+    } else {
+      // Surface extraction via Floor 1 Stairs or Boss Portal: Exit at Vault POI & begin timed Return March home
+      if (poi) {
+        unit.x = poi.x;
+        unit.y = poi.y;
+        revealOverworldVision(ow, unit.x, unit.y, unit.visionRadius || 5);
+      }
+      if (city && (unit.x !== city.x || unit.y !== city.y)) {
+        const marchRes = dispatchWargameCommand({
+          type: COMMAND_TYPES.ORDER_UNIT_MARCH,
+          payload: {
+            unitId: unit.id,
+            targetX: city.x,
+            targetY: city.y,
+            intent: 'return_city',
+            targetCityId: city.id
+          }
+        }, state, scheduler, eventStream);
+        returnMarchStarted = Boolean(marchRes && marchRes.ok);
+      } else if (city) {
+        depositUnitCargoAtCity(unit, city, state, simTimeMs, eventStream);
+      }
+    }
+
+    if (eventStream) {
+      eventStream.publish(STREAM_TOPICS.DUNGEON_RETURNED, {
+        outcome: 'extracted',
+        method: method,
+        unitId: unit.id,
+        unitName: unit.shortName,
+        expressReturn: isRecallScroll,
+        returnMarchStarted: returnMarchStarted,
+        lootSummary: loot,
+        cityName: city ? city.name : 'Bastion'
+      }, simTimeMs);
+    }
+
+    evaluateTaskDAG(state, eventStream);
+    return accept({
+      outcome: 'extracted',
+      expressReturn: isRecallScroll,
+      returnMarchStarted: returnMarchStarted,
+      unitId: unit.id,
+      x: unit.x,
+      y: unit.y
+    });
+  }
+
+  // ---------------------------------------------------------------------------
   // 10. CLAIM TASK REWARD
   // ---------------------------------------------------------------------------
   if (cmdType === COMMAND_TYPES.CLAIM_TASK_REWARD) {
@@ -3736,24 +4504,27 @@ function advanceSimulationClock(deltaRealMs, state, scheduler, eventStream) {
   const simDelta = Math.round(deltaRealMs * mult);
   const targetSimTime = clock.simTimeMs + simDelta;
 
-  // Pop and execute all scheduled jobs in chronological order up to targetSimTime
+  // Pop and execute all scheduled jobs (including chained jobs) in chronological order up to targetSimTime
   let jobsExecuted = 0;
   if (scheduler) {
-    const dueJobs = scheduler.popDueJobs(targetSimTime);
-    for (let i = 0; i < dueJobs.length; i++) {
-      const job = dueJobs[i];
-      clock.simTimeMs = job.dueSimTimeMs;
-      jobsExecuted++;
-      if (job.jobType === 'UNIT_MARCH_STEP') {
-        resolveMarchStepJob(job, state, scheduler, eventStream);
-      } else if (job.jobType === 'CITY_BUILDING_COMPLETE') {
-        resolveBuildingCompleteJob(job, state, scheduler, eventStream);
-      } else if (job.jobType === 'CITY_BUILDING_MOVE_COMPLETE') {
-        resolveBuildingMoveJob(job, state, scheduler, eventStream);
-      } else if (job.jobType === 'CITY_BUILDING_DEMOLISH_COMPLETE') {
-        resolveBuildingDemolishJob(job, state, scheduler, eventStream);
-      } else if (job.jobType === 'HERO_RECRUIT_COMPLETE') {
-        resolveRecruitHeroJob(job, state, scheduler, eventStream);
+    while (jobsExecuted < 500) {
+      const dueJobs = scheduler.popDueJobs(targetSimTime);
+      if (!dueJobs || dueJobs.length === 0) break;
+      for (let i = 0; i < dueJobs.length; i++) {
+        const job = dueJobs[i];
+        clock.simTimeMs = job.dueSimTimeMs;
+        jobsExecuted++;
+        if (job.jobType === 'UNIT_MARCH_STEP') {
+          resolveMarchStepJob(job, state, scheduler, eventStream);
+        } else if (job.jobType === 'CITY_BUILDING_COMPLETE') {
+          resolveBuildingCompleteJob(job, state, scheduler, eventStream);
+        } else if (job.jobType === 'CITY_BUILDING_MOVE_COMPLETE') {
+          resolveBuildingMoveJob(job, state, scheduler, eventStream);
+        } else if (job.jobType === 'CITY_BUILDING_DEMOLISH_COMPLETE') {
+          resolveBuildingDemolishJob(job, state, scheduler, eventStream);
+        } else if (job.jobType === 'HERO_RECRUIT_COMPLETE') {
+          resolveRecruitHeroJob(job, state, scheduler, eventStream);
+        }
       }
     }
   }
@@ -3980,24 +4751,67 @@ function renderWargameOverworldCanvas(simHost) {
       const cx = px + OVERWORLD_TILE_SIZE / 2;
       const cy = py + OVERWORLD_TILE_SIZE / 2;
       const pDef = OVERWORLD_POI_DEFS[poi.type] || OVERWORLD_POI_DEFS.dungeon_entrance;
+      const accent = poi.accentColor || pDef.color || '#fbbf24';
+
+      // Pulsing breach ring if selected Hero Party is within entry reach of this Dungeon POI
+      if (poi.type === 'dungeon_entrance' && selUnit && selUnit.alive && selUnit.canEnterDungeon &&
+          Math.hypot(selUnit.x - poi.x, selUnit.y - poi.y) <= 1.5) {
+        ctx.strokeStyle = accent;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(cx, cy, 15, 0, Math.PI * 2);
+        ctx.stroke();
+      }
 
       ctx.fillStyle = pDef.bgColor || '#1e1b4b';
       ctx.beginPath();
       ctx.arc(cx, cy, 12, 0, Math.PI * 2);
       ctx.fill();
-      ctx.strokeStyle = pDef.color || '#fbbf24';
+      ctx.strokeStyle = accent;
       ctx.lineWidth = 1.5;
       ctx.stroke();
 
       ctx.font = '13px sans-serif';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillStyle = pDef.color || '#fbbf24';
+      ctx.fillStyle = accent;
       ctx.fillText(pDef.symbol || 'Ω', cx, cy);
 
       ctx.font = 'bold 9px monospace';
       ctx.fillStyle = '#e6edf3';
       ctx.fillText(poi.name, cx, py - 3);
+    }
+  }
+
+  // 2B. Render Overworld Wandering Hostiles inside explored vision
+  if (Array.isArray(ow.hostiles)) {
+    for (let i = 0; i < ow.hostiles.length; i++) {
+      const h = ow.hostiles[i];
+      if (!h.alive) continue;
+      if (h.x < camX || h.x >= camX + OVERWORLD_VIEWPORT_W || h.y < camY || h.y >= camY + OVERWORLD_VIEWPORT_H) continue;
+      if (!ow.explored[h.y] || !ow.explored[h.y][h.x]) continue;
+
+      const px = (h.x - camX) * OVERWORLD_TILE_SIZE;
+      const py = (h.y - camY) * OVERWORLD_TILE_SIZE;
+      const cx = px + OVERWORLD_TILE_SIZE / 2;
+      const cy = py + OVERWORLD_TILE_SIZE / 2;
+
+      ctx.fillStyle = '#450a0a';
+      ctx.beginPath();
+      ctx.moveTo(cx, cy - 11);
+      ctx.lineTo(cx + 11, cy);
+      ctx.lineTo(cx, cy + 11);
+      ctx.lineTo(cx - 11, cy);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = h.color || '#f87171';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+
+      ctx.font = '11px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(h.icon || '💀', cx, cy);
     }
   }
 
@@ -4103,8 +4917,18 @@ function renderWargameOverworldCanvas(simHost) {
       const by = cy - 18;
       ctx.fillStyle = '#090d16';
       ctx.fillRect(bx, by, barW, barH);
-      ctx.fillStyle = '#38bdf8';
+      ctx.fillStyle = (u.marchPlan && u.marchPlan.intent === 'return_city') ? '#fbbf24' : '#38bdf8';
       ctx.fillRect(bx, by, Math.round(barW * interp.progress), barH);
+    } else if (u.status === 'in_dungeon') {
+      ctx.font = 'bold 8px monospace';
+      ctx.fillStyle = '#f87171';
+      ctx.fillText('IN VAULT', cx, cy - 16);
+    }
+
+    // Gold Cargo Indicator when party carries unbanked skirmish or dungeon spoils
+    if (u.cargo && ((u.cargo.gold || 0) > 0 || (u.cargo.ore || 0) > 0)) {
+      ctx.font = '10px sans-serif';
+      ctx.fillText('💰', cx + 11, cy - 10);
     }
 
     ctx.font = 'bold 9px sans-serif';
@@ -4377,14 +5201,37 @@ function renderLeftCommandSidebar(simHost) {
       const tId = ow.tiles[selUnit.y][selUnit.x];
       const tDef = OVERWORLD_TERRAIN_DEFS[tId];
       const canFoundHere = Boolean(selUnit.canFoundCity && tDef && tDef.buildable);
+      const primaryCity = getPrimaryCity(state);
+      const nearbyDng = (selUnit.canEnterDungeon && Array.isArray(ow.pois))
+        ? ow.pois.find(function(p) { return p.type === 'dungeon_entrance' && Math.hypot(selUnit.x - p.x, selUnit.y - p.y) <= 1.5; })
+        : null;
+      const canReturnHome = Boolean(selUnit.canEnterDungeon && selUnit.status !== 'in_dungeon' && primaryCity && (selUnit.x !== primaryCity.x || selUnit.y !== primaryCity.y));
+
+      let cargoHtml = '';
+      if (selUnit.cargo && ((selUnit.cargo.gold || 0) > 0 || (selUnit.cargo.ore || 0) > 0 || (selUnit.cargo.gearCount || 0) > 0)) {
+        cargoHtml = `
+          <div class="p-2 rounded bg-[#451a03]/40 border border-[#fbbf24]/50 text-[11px] font-mono text-[#fbbf24] flex items-center justify-between">
+            <span>💰 Expedition Cargo</span>
+            <span>+${selUnit.cargo.gold || 0}g • +${selUnit.cargo.ore || 0} Ore</span>
+          </div>
+        `;
+      }
+
       let marchHtml = '';
-      if (selUnit.status === 'marching' && selUnit.marchPlan) {
+      if (selUnit.status === 'in_dungeon') {
+        marchHtml = `
+          <div class="p-2 rounded bg-[#450a0a]/40 border border-[#f87171]/50 text-[11px] font-mono text-[#f87171]">
+            ⚔️ Currently delving inside Vault.
+          </div>
+        `;
+      } else if (selUnit.status === 'marching' && selUnit.marchPlan) {
         const remSteps = selUnit.marchPlan.remainingPath ? selUnit.marchPlan.remainingPath.length : 0;
         const stepRemMs = Math.max(0, (selUnit.marchPlan.stepDueSimTimeMs || 0) - simTimeMs);
+        const isReturning = selUnit.marchPlan.intent === 'return_city';
         marchHtml = `
-          <div class="p-2 rounded bg-[#111722] border border-[#38bdf8]/40 space-y-1">
+          <div class="p-2 rounded bg-[#111722] border ${isReturning ? 'border-[#fbbf24]/50' : 'border-[#38bdf8]/40'} space-y-1">
             <div class="flex items-center justify-between text-[11px] font-mono">
-              <span class="text-[#38bdf8] font-bold">⏳ Marching to (${selUnit.marchPlan.targetX}, ${selUnit.marchPlan.targetY})</span>
+              <span class="${isReturning ? 'text-[#fbbf24]' : 'text-[#38bdf8]'} font-bold">${isReturning ? '🏠 Returning Home' : ('⏳ Marching to (' + selUnit.marchPlan.targetX + ', ' + selUnit.marchPlan.targetY + ')')}</span>
               <span class="text-[#fbbf24]">${remSteps} tiles left</span>
             </div>
             <div class="text-[10px] text-[#8b949e] font-mono">Next tile in ${formatSimDuration(stepRemMs)}</div>
@@ -4409,7 +5256,18 @@ function renderLeftCommandSidebar(simHost) {
             </div>
             <span class="text-[11px] font-mono px-1.5 py-0.5 rounded bg-[#111722] text-[#34d399] border border-[#283347]">HP ${selUnit.hp}/${selUnit.maxHp}</span>
           </div>
+          ${cargoHtml}
           ${marchHtml}
+          ${nearbyDng ? `
+            <button data-action="enter-dungeon" data-poi-id="${nearbyDng.id}" onclick="window.WargameApp.handleEnterDungeon('${nearbyDng.id}')" class="w-full py-2 rounded-lg font-bold text-xs uppercase tracking-wider shadow bg-[#f87171] hover:bg-[#ef4444] text-[#080b11] cursor-pointer">
+              ⚔️ Breach ${nearbyDng.name}
+            </button>
+          ` : ''}
+          ${canReturnHome ? `
+            <button data-action="return-to-city" onclick="window.WargameApp.handleReturnToCity()" class="w-full py-1.5 rounded-lg font-bold text-[11px] uppercase tracking-wider bg-[#1a2232] hover:bg-[#283347] text-[#fbbf24] border border-[#fbbf24]/40 cursor-pointer">
+              🏰 March Home to ${primaryCity.name}
+            </button>
+          ` : ''}
           ${selUnit.canFoundCity ? `
             <button data-action="found-city" onclick="window.WargameApp.handleFoundCity()" ${!canFoundHere ? 'disabled' : ''} class="w-full py-2 rounded-lg font-bold text-xs uppercase tracking-wider shadow ${canFoundHere ? 'bg-[#fbbf24] hover:bg-[#f59e0b] text-[#080b11] cursor-pointer' : 'bg-[#1a2232] text-[#64748b] cursor-not-allowed'}">
               🏰 Found Bastion City Here
@@ -4617,18 +5475,62 @@ function renderOverworldHudBar(simHost) {
   }
 
   const dngBtn = document.getElementById('wgBtnEnterDungeon');
+  let nearbyDngPoi = null;
+  if (selUnit && selUnit.alive && selUnit.canEnterDungeon && Array.isArray(ow.pois)) {
+    nearbyDngPoi = ow.pois.find(function(p) {
+      return p.type === 'dungeon_entrance' && Math.hypot(selUnit.x - p.x, selUnit.y - p.y) <= 1.5;
+    }) || null;
+  }
   if (dngBtn) {
-    let canEnterDng = false;
-    if (selUnit && selUnit.alive && selUnit.canEnterDungeon && Array.isArray(ow.pois)) {
-      const dngPoi = ow.pois.find(function(p) { return p.type === 'dungeon_entrance'; });
-      if (dngPoi && Math.hypot(selUnit.x - dngPoi.x, selUnit.y - dngPoi.y) <= 1.5) {
-        canEnterDng = true;
-      }
-    }
+    const canEnterDng = Boolean(nearbyDngPoi);
     dngBtn.disabled = !canEnterDng;
+    dngBtn.textContent = canEnterDng
+      ? ('⚔️ Enter ' + nearbyDngPoi.name)
+      : '⚔️ Descend Into Vault (March to Ω)';
+    if (dngBtn.dataset) {
+      dngBtn.dataset.poiId = canEnterDng ? nearbyDngPoi.id : '';
+    }
     dngBtn.className = canEnterDng
       ? 'px-3 py-1.5 rounded-lg bg-[#f87171] hover:bg-[#ef4444] text-[#080b11] font-bold text-xs uppercase shadow cursor-pointer'
       : 'px-3 py-1.5 rounded-lg bg-[#1a2232] text-[#64748b] font-bold text-xs uppercase border border-[#283347] cursor-not-allowed';
+  }
+
+  // Discovered Dungeons Quick-March Bar
+  const dngBarEl = document.getElementById('wgDiscoveredDungeonsBar');
+  if (dngBarEl) {
+    const discoveredDngs = (ow.pois || []).filter(function(p) {
+      return p.type === 'dungeon_entrance' && (p.discovered || (ow.explored[p.y] && ow.explored[p.y][p.x]));
+    });
+    if (discoveredDngs.length === 0) {
+      dngBarEl.classList.add('hidden');
+    } else {
+      dngBarEl.classList.remove('hidden');
+      const canMarchHero = Boolean(selUnit && selUnit.alive && selUnit.canEnterDungeon && selUnit.status !== 'in_dungeon');
+      const cardsHtml = discoveredDngs.map(function(p) {
+        const dist = selUnit ? Math.round(Math.hypot(selUnit.x - p.x, selUnit.y - p.y)) : null;
+        const atGate = Boolean(canMarchHero && dist !== null && dist <= 1.5);
+        return `
+          <div class="flex items-center justify-between gap-2 px-2 py-1.5 rounded bg-[#111722] border border-[#283347] text-[11px] font-mono">
+            <div class="flex items-center gap-1.5 min-w-0">
+              <span style="color:${p.accentColor || '#f87171'}" class="font-bold">Ω</span>
+              <span class="text-[#e6edf3] font-semibold truncate">${p.name}</span>
+              <span class="text-[10px] text-[#8b949e]">(${p.x},${p.y})${dist !== null ? (' • ' + dist + 't') : ''}</span>
+            </div>
+            ${atGate ? `
+              <button data-action="enter-dungeon" data-poi-id="${p.id}" onclick="window.WargameApp.handleEnterDungeon('${p.id}')" class="px-2 py-0.5 rounded bg-[#f87171] hover:bg-[#ef4444] text-[#080b11] font-bold text-[10px] uppercase cursor-pointer">Enter</button>
+            ` : (canMarchHero ? `
+              <button data-action="march-to-dungeon" data-poi-id="${p.id}" onclick="window.WargameApp.handleMarchToDungeon('${p.id}')" class="px-2 py-0.5 rounded bg-[#1a2232] hover:bg-[#283347] text-[#38bdf8] border border-[#38bdf8]/40 font-bold text-[10px] uppercase cursor-pointer">March</button>
+            ` : `
+              <span class="text-[10px] text-[#64748b]">Need Hero Party</span>
+            `)}
+          </div>
+        `;
+      }).join('');
+      setHtmlIfChanged(dngBarEl, `
+        <div class="text-[10px] font-mono uppercase text-[#f87171] font-bold">Ω Discovered Vault Entrances (${discoveredDngs.length})</div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-1.5">${cardsHtml}</div>
+      `);
+    }
   }
 }
 
@@ -5106,6 +6008,27 @@ function formatEventSummary(ev) {
   }
   if (ev.topic === STREAM_TOPICS.HERO_RECRUITED) {
     return '— Recruited ' + p.heroName + ' (' + p.classId + ')!';
+  }
+  if (ev.topic === STREAM_TOPICS.DUNGEON_DISCOVERED) {
+    return '— Discovered Vault: ' + p.dungeonName + ' at (' + p.x + ',' + p.y + ')!';
+  }
+  if (ev.topic === STREAM_TOPICS.DUNGEON_ENTERED) {
+    return '— ' + p.unitName + ' breached ' + p.dungeonName + '!';
+  }
+  if (ev.topic === STREAM_TOPICS.DUNGEON_RETURNED) {
+    if (p.outcome === 'defeated') {
+      return '— ' + p.unitName + ' rescued to ' + p.cityName + ' (+' + (p.salvagedGold || 0) + 'g salvage)';
+    }
+    return '— ' + p.unitName + ' extracted via ' + p.method + (p.expressReturn ? ' (Express to City)' : ' (Marching Home)');
+  }
+  if (ev.topic === STREAM_TOPICS.EXPEDITION_BANKED) {
+    return '— Banked +' + (p.gold || 0) + 'g, +' + (p.ore || 0) + ' Ore at ' + p.cityName + '!';
+  }
+  if (ev.topic === STREAM_TOPICS.OVERWORLD_SKIRMISH) {
+    if (p.victory) {
+      return '— ' + p.unitName + ' defeated ' + p.hostileName + ' (+' + (p.rewardGold || 0) + 'g, +' + (p.rewardOre || 0) + ' Ore)';
+    }
+    return '— ' + p.unitName + ' retreated from ' + p.hostileName + ' to ' + p.retreatedToCity;
   }
   if (ev.topic === STREAM_TOPICS.TASK_COMPLETED) {
     return '— Milestone Ready: ' + p.title;
@@ -5622,11 +6545,239 @@ function evaluateWargameSelfTests() {
       : 'Failed Tier 1 building catalog or paced progression invariants'
   });
 
+  // =========================================================================
+  // Test 7: Multi-Dungeon Discovery, Wandering Hostile Skirmish & Dungeon Entry Handoff
+  // =========================================================================
+  const host7 = createWargameSimHost();
+  host7.dispatch({
+    type: COMMAND_TYPES.START_NEW_CAMPAIGN,
+    payload: { houseName: 'House Expedition', seedCode: 'STAR-7007' }
+  });
+  host7.dispatch({
+    type: COMMAND_TYPES.FOUND_CITY,
+    payload: { cityName: 'Oakhaven Bastion' }
+  });
+  const city7 = getPrimaryCity(host7.state);
+  const ow7 = host7.state.world.overworld;
+
+  // Verify 4 curated dungeon POIs & wandering hostiles spawned
+  const dungeonPois7 = (ow7.pois || []).filter(function(p) { return p.type === 'dungeon_entrance'; });
+  const hasFourDungeons = dungeonPois7.length >= 4;
+  const hasWanderingHostiles = Array.isArray(ow7.hostiles) && ow7.hostiles.length >= 4;
+
+  // Build Adventurers Guild Hall -> verifies Starfall Vaults auto-discovery
+  city7.stockpile.wood = 500;
+  city7.stockpile.stone = 500;
+  city7.stockpile.gold = 500;
+  city7.stockpile.food = 500;
+  city7.stockpile.water = 500;
+  city7.population = { current: 20, max: 25, growthProgress: 0, starving: false, starveTicks: 0 };
+  city7.buildings.hut = 1;
+  city7.buildings.garden = 1;
+  city7.buildings.well = 1;
+  city7.buildings.lumber_camp = 1;
+  city7.buildings.quarry = 1;
+  city7.plots[2].buildingId = 'quarry';
+  city7.plots[2].level = 1;
+  host7.dispatch({
+    type: COMMAND_TYPES.QUEUE_BUILDING,
+    payload: { plotIndex: 1, buildingId: 'guild_hall' }
+  });
+  host7.stepClock(12000);
+
+  const starfallPoi = dungeonPois7.find(function(p) { return p.id === 'poi_dungeon_starfall'; });
+  const starfallRevealedByGuild = Boolean(starfallPoi && starfallPoi.discovered === true);
+
+  // Recruit Fighter Hero & advance 60s
+  host7.dispatch({
+    type: COMMAND_TYPES.RECRUIT_HERO,
+    payload: { classId: 'fighter', heroName: 'Aldric Vanguard' }
+  });
+  host7.stepClock(60000);
+  const party7 = ow7.units.find(function(u) { return u.unitType === 'hero_party' && u.alive; });
+
+  // Place a live wandering hostile directly adjacent to party and march onto it -> Victory!
+  const testHostile = ow7.hostiles[0];
+  testHostile.x = party7.x + 1;
+  testHostile.y = party7.y;
+  testHostile.alive = true;
+  host7.dispatch({
+    type: COMMAND_TYPES.ORDER_UNIT_MARCH,
+    payload: { unitId: party7.id, targetX: testHostile.x, targetY: testHostile.y }
+  });
+  host7.stepClock(8000);
+  const skirmishWon = !testHostile.alive && host7.state.world.stats.skirmishesWon >= 1 &&
+    Boolean(party7.cargo && party7.cargo.gold >= testHostile.rewardGold);
+
+  // Order March to Starfall Vaults via CMD_MARCH_TO_DUNGEON
+  const marchToDng = host7.dispatch({
+    type: COMMAND_TYPES.MARCH_TO_DUNGEON,
+    payload: { unitId: party7.id, poiId: 'poi_dungeon_starfall' }
+  });
+  const intentIsDungeon = Boolean(marchToDng.ok && party7.marchPlan && party7.marchPlan.intent === 'enter_dungeon');
+
+  // Advance clock until party arrives at Starfall Vaults
+  host7.stepClock(60000);
+  const arrivedAtVault = party7.x === starfallPoi.x && party7.y === starfallPoi.y;
+
+  // Enter Dungeon -> transitions to in_dungeon and produces valid handoff envelope
+  const enterRes = host7.dispatch({
+    type: COMMAND_TYPES.ENTER_DUNGEON,
+    payload: { unitId: party7.id, poiId: 'poi_dungeon_starfall', skipStorageWrite: true }
+  });
+  const enteredCleanly = Boolean(
+    enterRes.ok &&
+    party7.status === 'in_dungeon' &&
+    host7.state.world.stats.dungeonsEntered === 1 &&
+    enterRes.data &&
+    enterRes.data.envelope &&
+    enterRes.data.envelope.direction === 'wargame_to_dungeon' &&
+    enterRes.data.envelope.dungeon.dungeonId === 'dng_starfall'
+  );
+
+  const t7Checks = {
+    hasFourDungeons: hasFourDungeons,
+    hasWanderingHostiles: hasWanderingHostiles,
+    starfallRevealedByGuild: starfallRevealedByGuild,
+    skirmishWon: skirmishWon,
+    intentIsDungeon: intentIsDungeon,
+    arrivedAtVault: arrivedAtVault,
+    enteredCleanly: enteredCleanly
+  };
+  const failed7 = Object.keys(t7Checks).filter(function(k) { return !t7Checks[k]; });
+  const t7Pass = failed7.length === 0;
+
+  results.push({
+    name: '7. Multi-Dungeon Discovery, Wandering Hostile Skirmish & Dungeon Entry Handoff',
+    pass: t7Pass,
+    detail: t7Pass
+      ? '4 curated dungeon POIs, Guild Hall Starfall reveal, Overworld hostile skirmish victory & cargo, CMD_MARCH_TO_DUNGEON, and CMD_ENTER_DUNGEON handoff envelope verified'
+      : 'Failed checks: ' + failed7.join(', ')
+  });
+
+  // =========================================================================
+  // Test 8: Dungeon Extraction Return March, Cargo Banking, Recall Scroll & Defeat Recovery
+  // =========================================================================
+  const city7GoldBefore = city7.stockpile.gold;
+  const city7OreBefore = city7.stockpile.ore;
+
+  // 8A. Surface Extraction via Floor 1 Stairs -> placed at Vault POI & timed Return March home
+  const extReturn = host7.dispatch({
+    type: COMMAND_TYPES.RESOLVE_DUNGEON_RETURN,
+    payload: {
+      outcome: 'extracted',
+      method: 'Floor 1 Ascending Stairs (<)',
+      partyUnitId: party7.id,
+      heroId: party7.leaderHeroId,
+      heroLevel: 3,
+      heroXp: 240,
+      dungeonPoiId: 'poi_dungeon_starfall',
+      lootSummary: { gold: 120, ore: 18, gems: 2, gearCount: 1 }
+    }
+  });
+  const startedReturnMarch = Boolean(
+    extReturn.ok &&
+    extReturn.data.returnMarchStarted === true &&
+    party7.status === 'marching' &&
+    party7.marchPlan &&
+    party7.marchPlan.intent === 'return_city' &&
+    party7.cargo &&
+    party7.cargo.gold >= 120
+  );
+  const heroLevelSynced = host7.state.world.heroes[0].level === 3;
+
+  // Clear hostiles along return path so return march completes cleanly to city
+  ow7.hostiles.forEach(function(h) { h.alive = false; });
+  host7.stepClock(60000);
+  const returnedAndBanked = Boolean(
+    party7.x === city7.x &&
+    party7.y === city7.y &&
+    party7.cargo === null &&
+    city7.stockpile.gold >= city7GoldBefore + 120 &&
+    city7.stockpile.ore >= city7OreBefore + 18 &&
+    host7.state.world.stats.expeditionsBanked >= 1
+  );
+
+  // 8B. Astral Recall Scroll Express Extraction -> instant teleport to City & immediate bank
+  const goldBeforeRecall = city7.stockpile.gold;
+  party7.x = starfallPoi.x;
+  party7.y = starfallPoi.y;
+  party7.status = 'in_dungeon';
+  const recallReturn = host7.dispatch({
+    type: COMMAND_TYPES.RESOLVE_DUNGEON_RETURN,
+    payload: {
+      outcome: 'extracted',
+      method: 'Astral Recall Scroll',
+      partyUnitId: party7.id,
+      heroId: party7.leaderHeroId,
+      heroLevel: 4,
+      dungeonPoiId: 'poi_dungeon_starfall',
+      lootSummary: { gold: 80, ore: 10, gems: 1, gearCount: 0 }
+    }
+  });
+  const recallExpressVerified = Boolean(
+    recallReturn.ok &&
+    recallReturn.data.expressReturn === true &&
+    party7.x === city7.x &&
+    party7.y === city7.y &&
+    party7.status === 'idle' &&
+    city7.stockpile.gold === goldBeforeRecall + 80
+  );
+
+  // 8C. Non-Permanent Defeat Recovery -> express return to City Guild Hall, salvage credited, Hero preserved
+  const goldBeforeDefeat = city7.stockpile.gold;
+  party7.x = starfallPoi.x;
+  party7.y = starfallPoi.y;
+  party7.status = 'in_dungeon';
+  party7.cargo = { gold: 999, ore: 50, gems: 0, gearCount: 0 };
+  const defeatReturn = host7.dispatch({
+    type: COMMAND_TYPES.RESOLVE_DUNGEON_RETURN,
+    payload: {
+      outcome: 'defeated',
+      method: 'Guild Scout Rescue',
+      partyUnitId: party7.id,
+      heroId: party7.leaderHeroId,
+      heroLevel: 4,
+      killerName: 'Starfall Colossus',
+      floorDepth: 5,
+      lootSummary: { salvagedGold: 35 }
+    }
+  });
+  const defeatRecoveryVerified = Boolean(
+    defeatReturn.ok &&
+    party7.x === city7.x &&
+    party7.y === city7.y &&
+    party7.status === 'idle' &&
+    party7.hp === party7.maxHp &&
+    party7.cargo === null &&
+    city7.stockpile.gold === goldBeforeDefeat + 35 &&
+    host7.state.world.heroes[0].level === 4
+  );
+
+  const t8Checks = {
+    startedReturnMarch: startedReturnMarch,
+    heroLevelSynced: heroLevelSynced,
+    returnedAndBanked: returnedAndBanked,
+    recallExpressVerified: recallExpressVerified,
+    defeatRecoveryVerified: defeatRecoveryVerified
+  };
+  const failed8 = Object.keys(t8Checks).filter(function(k) { return !t8Checks[k]; });
+  const t8Pass = failed8.length === 0;
+
+  results.push({
+    name: '8. Dungeon Extraction Return March, Cargo Banking, Recall Scroll & Defeat Recovery',
+    pass: t8Pass,
+    detail: t8Pass
+      ? 'Floor 1 extraction return march & cargo banking, Astral Recall Scroll express teleport, and Golden Rule #2 defeat rescue verified'
+      : 'Failed checks: ' + failed8.join(', ')
+  });
+
   return results;
 }
 
   // --- Module: src/wargame/main.js ---
 // Standalone Macro Wargame Entrypoint, App Bootstrap & window.WargameApp Global Bridge
+
 
 
 
@@ -5855,13 +7006,53 @@ function handleSelectPartyByHero(heroId) {
   }
 }
 
-function handleEnterDungeon() {
-  if (simHost && simHost.state && simHost.state.world) {
+function handleMarchToDungeon(poiId) {
+  const selUnit = getSelectedOverworldUnit(simHost.state);
+  if (!selUnit) return;
+  simHost.dispatch({
+    type: COMMAND_TYPES.MARCH_TO_DUNGEON,
+    payload: { unitId: selUnit.id, poiId: poiId }
+  });
+  simHost.state._dirty = true;
+  simHost.save();
+  syncWargameUI(simHost);
+}
+
+function handleReturnToCity() {
+  const selUnit = getSelectedOverworldUnit(simHost.state);
+  const city = getPrimaryCity(simHost.state);
+  if (!selUnit || !city) return;
+  simHost.dispatch({
+    type: COMMAND_TYPES.ORDER_UNIT_MARCH,
+    payload: {
+      unitId: selUnit.id,
+      targetX: city.x,
+      targetY: city.y,
+      intent: 'return_city',
+      targetCityId: city.id
+    }
+  });
+  simHost.state._dirty = true;
+  simHost.save();
+  syncWargameUI(simHost);
+}
+
+function handleEnterDungeon(poiId) {
+  const selUnit = getSelectedOverworldUnit(simHost.state);
+  if (simHost && simHost.state && simHost.state.world && selUnit) {
+    const res = simHost.dispatch({
+      type: COMMAND_TYPES.ENTER_DUNGEON,
+      payload: { unitId: selUnit.id, poiId: poiId || null }
+    });
     simHost.save();
+    if (!res || !res.ok) {
+      syncWargameUI(simHost);
+      return;
+    }
   }
   if (typeof window !== 'undefined' && window.location) {
-    // Smooth transition into the tactical dungeon engine!
-    window.location.href = './index.html';
+    // Smooth transition into the tactical dungeon engine with handoff envelope!
+    window.location.href = './index.html?from=wargame';
   }
 }
 
@@ -5954,7 +7145,11 @@ function setupWargameListeners() {
     } else if (action === 'cancel-march') {
       handleCancelMarch();
     } else if (action === 'enter-dungeon') {
-      handleEnterDungeon();
+      handleEnterDungeon(btn.dataset.poiId || null);
+    } else if (action === 'march-to-dungeon') {
+      if (btn.dataset.poiId) handleMarchToDungeon(btn.dataset.poiId);
+    } else if (action === 'return-to-city') {
+      handleReturnToCity();
     } else if (action === 'queue-building') {
       const pIdx = parseInt(btn.dataset.plotIndex, 10);
       const bId = btn.dataset.buildingId;
@@ -6098,6 +7293,8 @@ const WargameApp = {
   handleCancelRecruitment: handleCancelRecruitment,
   handleClaimTask: handleClaimTask,
   handleSelectPartyByHero: handleSelectPartyByHero,
+  handleMarchToDungeon: handleMarchToDungeon,
+  handleReturnToCity: handleReturnToCity,
   handleEnterDungeon: handleEnterDungeon,
   syncWargameUI: function() { syncWargameUI(simHost); }
 };
@@ -6105,8 +7302,24 @@ const WargameApp = {
 function bootstrapWargame() {
   setupWargameListeners();
 
-  // Always present the Main Menu / Title Screen on initial startup or reload,
-  // allowing the player to either Continue an existing campaign or start a fresh one.
+  // If returning from a Turn-Based Dungeon Delve (index.html), auto-resume campaign and resolve return outcome!
+  const pendingReturn = peekBridgeHandoff(BRIDGE_DIRECTIONS.TO_WARGAME);
+  if (pendingReturn) {
+    const loaded = simHost.load();
+    if (loaded) {
+      const consumed = consumeBridgeHandoff(BRIDGE_DIRECTIONS.TO_WARGAME);
+      if (consumed) {
+        simHost.dispatch({
+          type: COMMAND_TYPES.RESOLVE_DUNGEON_RETURN,
+          payload: consumed
+        });
+        simHost.state.activeView = WARGAME_VIEWS.OVERWORLD;
+        simHost.state._dirty = true;
+        simHost.save();
+      }
+    }
+  }
+
   syncWargameUI(simHost);
   requestAnimationFrame(wargameMainLoop);
 }

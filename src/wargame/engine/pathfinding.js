@@ -12,6 +12,8 @@ import {
   OW_TERRAIN_WATER,
   OW_TERRAIN_FERTILE_VALE,
   OVERWORLD_TERRAIN_DEFS,
+  OVERWORLD_DUNGEON_CATALOG,
+  OVERWORLD_HOSTILE_ARCHETYPES,
   UNIT_ARCHETYPES
 } from '../data/terrain.js';
 import { createSeededRng, hashSeedString } from '../../engine/rng.js';
@@ -112,17 +114,29 @@ export function generateOverworldMap(width = OVERWORLD_MAP_W, height = OVERWORLD
       y: spawnY + 2,
       depleted: false,
       yield: { stone: 45 }
-    },
-    {
-      id: 'poi_dungeon_starfall',
-      type: 'dungeon_entrance',
-      name: 'The Starfall Vaults',
-      dungeonId: 'dng_starfall',
-      x: spawnX + 5,
-      y: spawnY - 3,
-      depleted: false
     }
   ];
+
+  // Register curated Dungeon Entrance POIs across the Overworld frontier
+  const dngCatalog = OVERWORLD_DUNGEON_CATALOG || [];
+  for (let d = 0; d < dngCatalog.length; d++) {
+    const def = dngCatalog[d];
+    const px = Math.max(2, Math.min(width - 3, spawnX + def.offsetDx));
+    const py = Math.max(2, Math.min(height - 3, spawnY + def.offsetDy));
+    pois.push({
+      id: def.poiId,
+      type: 'dungeon_entrance',
+      name: def.name,
+      dungeonId: def.dungeonId,
+      profileId: def.profileId,
+      recommendedLevel: def.recommendedLevel || 1,
+      accentColor: def.accentColor || '#f87171',
+      x: px,
+      y: py,
+      discovered: false,
+      depleted: false
+    });
+  }
 
   // Ensure all POIs sit on passable terrain and have a clear path from spawn
   for (let i = 0; i < pois.length; i++) {
@@ -130,6 +144,50 @@ export function generateOverworldMap(width = OVERWORLD_MAP_W, height = OVERWORLD
     if (tiles[p.y] && (tiles[p.y][p.x] === OW_TERRAIN_MOUNTAINS || tiles[p.y][p.x] === OW_TERRAIN_WATER)) {
       tiles[p.y][p.x] = OW_TERRAIN_PLAINS;
     }
+  }
+
+  // Spawn deterministic Overworld Wandering Hostiles outside the safe starting basin (radius >= 5)
+  const hostiles = [];
+  const hostileKeys = Object.keys(OVERWORLD_HOSTILE_ARCHETYPES || {});
+  const hostilePlacements = [
+    { dx: 3,   dy: -2,  archId: 'raider_pack' },
+    { dx: -6,  dy: 3,   archId: 'brood_swarm' },
+    { dx: 8,   dy: 4,   archId: 'raider_pack' },
+    { dx: -8,  dy: -5,  archId: 'cultist_patrol' },
+    { dx: 10,  dy: -6,  archId: 'brood_swarm' },
+    { dx: -11, dy: 7,   archId: 'cultist_patrol' }
+  ];
+  for (let h = 0; h < hostilePlacements.length; h++) {
+    const hp = hostilePlacements[h];
+    const hx = Math.max(2, Math.min(width - 3, spawnX + hp.dx));
+    const hy = Math.max(2, Math.min(height - 3, spawnY + hp.dy));
+    // Never overlap spawn or any POI
+    const overlapsPoi = pois.some(function(p) { return p.x === hx && p.y === hy; });
+    if (overlapsPoi) continue;
+    if (tiles[hy] && (tiles[hy][hx] === OW_TERRAIN_MOUNTAINS || tiles[hy][hx] === OW_TERRAIN_WATER)) {
+      tiles[hy][hx] = OW_TERRAIN_PLAINS;
+    }
+    const arch = OVERWORLD_HOSTILE_ARCHETYPES[hp.archId] || OVERWORLD_HOSTILE_ARCHETYPES[hostileKeys[0]];
+    if (!arch) continue;
+    hostiles.push({
+      id: 'ow_hostile_' + (h + 1),
+      archetypeId: arch.id,
+      name: arch.name,
+      icon: arch.icon,
+      color: arch.color || '#f87171',
+      level: arch.level || 1,
+      power: arch.power || 18,
+      hp: arch.maxHp || 60,
+      maxHp: arch.maxHp || 60,
+      rewardGold: arch.rewardGold || 20,
+      rewardOre: arch.rewardOre || 4,
+      rewardXp: arch.rewardXp || 25,
+      x: hx,
+      y: hy,
+      homeX: hx,
+      homeY: hy,
+      alive: true
+    });
   }
 
   // Spawn ONLY the Pioneer Settler unit initially (NO Dungeon Hero exists yet!)
@@ -148,6 +206,7 @@ export function generateOverworldMap(width = OVERWORLD_MAP_W, height = OVERWORLD
     canEnterDungeon: false,
     alive: true,
     status: 'idle', // 'idle' | 'marching' | 'settled'
+    cargo: null,
     marchPlan: null
   };
 
@@ -160,6 +219,7 @@ export function generateOverworldMap(width = OVERWORLD_MAP_W, height = OVERWORLD
     tiles: tiles,
     explored: explored,
     pois: pois,
+    hostiles: hostiles,
     units: [settlerUnit],
     selectedUnitId: settlerUnit.id
   };

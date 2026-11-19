@@ -2809,6 +2809,7 @@ function createDefaultGameState() {
     },
     guildBounties: buildProceduralBountySet(0, 0),
     codex: createDefaultCodexState(),
+    wargameSession: null,
     uiSettings: {
       armorySortBy: 'slot'
     }
@@ -2841,6 +2842,9 @@ function migrateSaveData(raw) {
 
   migrated.uiSettings = data.uiSettings || { armorySortBy: 'slot' };
   if (!migrated.uiSettings.armorySortBy) migrated.uiSettings.armorySortBy = 'slot';
+  migrated.wargameSession = (data.wargameSession && typeof data.wargameSession === 'object')
+    ? Object.assign({}, data.wargameSession)
+    : null;
 
   // Migrate Vault & Bank
   const srcVault = data.guildVault || data.bank || {};
@@ -3372,6 +3376,131 @@ function clearEngineEventListeners(eventName = null) {
   Object.keys(eventListenersMap).forEach(k => {
     delete eventListenersMap[k];
   });
+}
+
+  // --- Module: src/engine/wargameBridge.js ---
+// Shared Cross-Engine Handoff Bridge between Macro Wargame (wargame.html) and Tactical Dungeon Engine (index.html)
+// Uses a dedicated localStorage envelope so both engines remain 100% standalone-capable with zero regressions.
+
+const BRIDGE_STORAGE_KEY = 'aethelgard_bridge_handoff_v1';
+
+const BRIDGE_DIRECTIONS = {
+  TO_DUNGEON: 'wargame_to_dungeon',
+  TO_WARGAME: 'dungeon_to_wargame'
+};
+
+function createDungeonEntryEnvelope(data) {
+  const src = data || {};
+  return {
+    version: 1,
+    direction: BRIDGE_DIRECTIONS.TO_DUNGEON,
+    timestamp: Date.now(),
+    campaignId: src.campaignId || 'world_prime',
+    houseName: src.houseName || 'House Vanguard',
+    cityId: src.cityId || null,
+    cityName: src.cityName || 'Oakhaven Bastion',
+    cityCoords: src.cityCoords ? { x: src.cityCoords.x, y: src.cityCoords.y } : null,
+    partyUnitId: src.partyUnitId || null,
+    hero: src.hero ? {
+      id: src.hero.id || null,
+      name: src.hero.name || 'Vanguard Hero',
+      classId: src.hero.classId || 'fighter',
+      level: typeof src.hero.level === 'number' ? src.hero.level : 1,
+      xp: typeof src.hero.xp === 'number' ? src.hero.xp : 0
+    } : null,
+    dungeon: src.dungeon ? {
+      poiId: src.dungeon.poiId || null,
+      dungeonId: src.dungeon.dungeonId || 'dng_starfall',
+      profileId: src.dungeon.profileId || 'starfall_vaults',
+      name: src.dungeon.name || 'The Starfall Vaults',
+      coords: src.dungeon.coords ? { x: src.dungeon.coords.x, y: src.dungeon.coords.y } : null
+    } : null
+  };
+}
+
+function createDungeonReturnEnvelope(data) {
+  const src = data || {};
+  const loot = src.lootSummary || {};
+  return {
+    version: 1,
+    direction: BRIDGE_DIRECTIONS.TO_WARGAME,
+    outcome: src.outcome === 'defeated' ? 'defeated' : 'extracted',
+    method: src.method || 'Floor 1 Ascending Stairs (<)',
+    timestamp: Date.now(),
+    partyUnitId: src.partyUnitId || null,
+    heroId: src.heroId || null,
+    heroLevel: typeof src.heroLevel === 'number' ? src.heroLevel : 1,
+    heroXp: typeof src.heroXp === 'number' ? src.heroXp : 0,
+    dungeonId: src.dungeonId || 'dng_starfall',
+    dungeonPoiId: src.dungeonPoiId || null,
+    killerName: src.killerName || null,
+    floorDepth: typeof src.floorDepth === 'number' ? src.floorDepth : 1,
+    lootSummary: {
+      gold: typeof loot.gold === 'number' ? loot.gold : 0,
+      ore: typeof loot.ore === 'number' ? loot.ore : 0,
+      gems: typeof loot.gems === 'number' ? loot.gems : 0,
+      gearCount: typeof loot.gearCount === 'number' ? loot.gearCount : 0,
+      salvagedGold: typeof loot.salvagedGold === 'number' ? loot.salvagedGold : 0
+    }
+  };
+}
+
+function writeDungeonEntryHandoff(data) {
+  const envelope = createDungeonEntryEnvelope(data);
+  if (typeof localStorage !== 'undefined') {
+    try {
+      localStorage.setItem(BRIDGE_STORAGE_KEY, JSON.stringify(envelope));
+    } catch (e) {
+      // Ignore storage quota errors in restricted environments
+    }
+  }
+  return envelope;
+}
+
+function writeDungeonReturnHandoff(data) {
+  const envelope = createDungeonReturnEnvelope(data);
+  if (typeof localStorage !== 'undefined') {
+    try {
+      localStorage.setItem(BRIDGE_STORAGE_KEY, JSON.stringify(envelope));
+    } catch (e) {
+      // Ignore storage quota errors in restricted environments
+    }
+  }
+  return envelope;
+}
+
+function peekBridgeHandoff(expectedDirection) {
+  if (typeof localStorage === 'undefined') return null;
+  try {
+    const raw = localStorage.getItem(BRIDGE_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') return null;
+    if (expectedDirection && parsed.direction !== expectedDirection) return null;
+    return parsed;
+  } catch (e) {
+    return null;
+  }
+}
+
+function clearBridgeHandoff() {
+  if (typeof localStorage === 'undefined') return;
+  try {
+    if (typeof localStorage.removeItem === 'function') {
+      localStorage.removeItem(BRIDGE_STORAGE_KEY);
+    } else {
+      localStorage.setItem(BRIDGE_STORAGE_KEY, '');
+    }
+  } catch (e) {
+    // Ignore storage errors
+  }
+}
+
+function consumeBridgeHandoff(expectedDirection) {
+  const env = peekBridgeHandoff(expectedDirection);
+  if (!env) return null;
+  clearBridgeHandoff();
+  return env;
 }
 
   // --- Module: src/data/ores.js ---
@@ -4711,6 +4840,7 @@ function generateFloor(depth, dungeonConfig = null, dungeonSeed = null) {
 
 
 
+
 const actionCallbacks = {
   log: (msg, tone) => emitEngineEvent(ENGINE_EVENTS.LOG, { msg, tone }, gameState),
   updateUI: () => emitEngineEvent(ENGINE_EVENTS.UI_SYNC, {}, gameState),
@@ -5556,7 +5686,28 @@ function extractToGuild(method = 'Floor 1 Ascending Stairs (<)', state = gameSta
     claimedBounties
   }, state);
 
-  return { oresBanked, gemsBanked, gearBanked, goldEarned, claimedBounties };
+  let returnEnvelope = null;
+  if (state.wargameSession && state.wargameSession.active) {
+    returnEnvelope = writeDungeonReturnHandoff({
+      outcome: 'extracted',
+      method: method,
+      partyUnitId: state.wargameSession.partyUnitId,
+      heroId: state.wargameSession.heroId,
+      heroLevel: h.level || 1,
+      heroXp: h.xp || 0,
+      dungeonId: state.activeDungeonId,
+      dungeonPoiId: state.wargameSession.dungeonPoiId,
+      lootSummary: {
+        gold: goldEarned,
+        ore: oresBanked,
+        gems: gemsBanked,
+        gearCount: gearBanked,
+        salvagedGold: 0
+      }
+    });
+  }
+
+  return { oresBanked, gemsBanked, gearBanked, goldEarned, claimedBounties, returnEnvelope };
 }
 
 function useRecallScroll(state = gameState) {
@@ -5628,7 +5779,90 @@ function handleHeroDefeat(killerName = 'Abyssal Guardian', state = gameState) {
     lostGearCount
   }, state);
 
-  return { salvagedGold, lostOreCount, lostGearCount };
+  let returnEnvelope = null;
+  if (state.wargameSession && state.wargameSession.active) {
+    returnEnvelope = writeDungeonReturnHandoff({
+      outcome: 'defeated',
+      method: 'Guild Scout Rescue',
+      partyUnitId: state.wargameSession.partyUnitId,
+      heroId: state.wargameSession.heroId,
+      heroLevel: h.level || 1,
+      heroXp: h.xp || 0,
+      dungeonId: state.activeDungeonId,
+      dungeonPoiId: state.wargameSession.dungeonPoiId,
+      killerName: killerName,
+      floorDepth: state.dungeon ? state.dungeon.currentFloor : 1,
+      lootSummary: {
+        gold: 0,
+        ore: 0,
+        gems: 0,
+        gearCount: 0,
+        salvagedGold: salvagedGold
+      }
+    });
+  }
+
+  return { salvagedGold, lostOreCount, lostGearCount, returnEnvelope };
+}
+
+function applyWargameEntryHandoff(handoff, state = gameState) {
+  if (!handoff || !state) return false;
+  const dng = handoff.dungeon || {};
+  const targetDungeonId = dng.dungeonId || 'dng_starfall';
+  const targetProfileId = dng.profileId || 'starfall_vaults';
+
+  if (state.dungeons && state.dungeons[targetDungeonId]) {
+    selectActiveDungeon(targetDungeonId, state);
+  } else if (CURATED_DUNGEON_PROFILES[targetProfileId]) {
+    const inst = createDungeonInstance(targetProfileId, {
+      id: targetDungeonId,
+      originType: 'curated',
+      worldCoords: dng.coords || { x: 0, y: 0 }
+    });
+    state.dungeons[targetDungeonId] = inst;
+    selectActiveDungeon(targetDungeonId, state);
+  } else {
+    syncActiveDungeonAlias(state);
+  }
+
+  state.wargameSession = {
+    active: true,
+    campaignId: handoff.campaignId || 'world_prime',
+    houseName: handoff.houseName || 'House Vanguard',
+    cityId: handoff.cityId || null,
+    cityName: handoff.cityName || 'Oakhaven Bastion',
+    cityCoords: handoff.cityCoords || null,
+    partyUnitId: handoff.partyUnitId || null,
+    heroId: (handoff.hero && handoff.hero.id) || null,
+    heroClassId: (handoff.hero && handoff.hero.classId) || 'fighter',
+    dungeonPoiId: dng.poiId || null,
+    dungeonId: state.activeDungeonId,
+    dungeonName: dng.name || (state.dungeon && state.dungeon.name) || 'The Starfall Vaults',
+    dungeonCoords: dng.coords || null
+  };
+
+  if (state.hero) {
+    if (handoff.hero && handoff.hero.name) {
+      state.hero.name = handoff.hero.name;
+    }
+    state.inGuild = false;
+    state.dungeon.currentFloor = 1;
+    if (!state.dungeon.floors[1]) {
+      state.dungeon.floors[1] = generateFloor(
+        1,
+        state.dungeon.config,
+        state.dungeon.numericSeed
+      );
+    }
+    const f1 = ensureDungeonFloorHydrated(state.dungeon, 1);
+    state.hero.x = f1.upPos.x;
+    state.hero.y = f1.upPos.y;
+  }
+
+  return true;
+}
+
+function __wargameBridgeSentinel() {
 }
 
 function buyShopItem(itemId, state = gameState) {
@@ -11725,7 +11959,10 @@ function showOutcomeModal(title, desc, details = [], isConfirmNewDungeon = false
       <button onclick="window.Aethelgard.confirmChartNewDungeon()" class="px-4 py-1.5 rounded bg-[#f87171] text-[#080b11] font-bold text-xs font-mono-num">Confirm Re-Chart</button>
     `;
   } else {
-    btnBox.innerHTML = `<button onclick="window.Aethelgard.closeOutcomeModal()" class="px-4 py-1.5 rounded bg-[#fbbf24] text-[#080b11] font-bold text-xs">Continue</button>`;
+    const hasWargameSession = Boolean(gameState.wargameSession && gameState.wargameSession.active);
+    btnBox.innerHTML = (hasWargameSession
+      ? `<button onclick="window.Aethelgard.returnToWargameOverworld()" class="px-4 py-1.5 rounded bg-[#38bdf8] hover:bg-[#0ea5e9] text-[#080b11] font-bold text-xs cursor-pointer">🗺️ Return to Overworld</button>`
+      : '') + `<button onclick="window.Aethelgard.closeOutcomeModal()" class="px-4 py-1.5 rounded bg-[#fbbf24] text-[#080b11] font-bold text-xs cursor-pointer">Continue</button>`;
   }
   document.getElementById('outcomeModal').classList.remove('hidden');
 }
@@ -14000,6 +14237,7 @@ function setupInputs() {
 
 
 
+
 function evaluateSelfTests() {
   const results = [];
 
@@ -15713,6 +15951,74 @@ function evaluateSelfTests() {
       : 'Failed checks: ' + failedKeys29.join(', ')
   });
 
+  // -------------------------------------------------------------
+  // Test 30: Wargame Overworld Bridge Handoff (Entry, Extraction & Defeat Envelopes)
+  // -------------------------------------------------------------
+  const sandbox30 = createDefaultGameState();
+  selectAdventurerClass('ranger', sandbox30);
+  const entryEnv30 = createDungeonEntryEnvelope({
+    campaignId: 'world_prime',
+    houseName: 'House Vanguard',
+    cityId: 'city_1',
+    cityName: 'Oakhaven Bastion',
+    cityCoords: { x: 28, y: 20 },
+    partyUnitId: 'unit_party_1',
+    hero: { id: 'hero_1_ranger', name: 'Sylvanas Pathfinder', classId: 'ranger', level: 2, xp: 90 },
+    dungeon: { poiId: 'poi_dungeon_quarry', dungeonId: 'dng_quarry', profileId: 'copper_quarry', name: 'Sunken Copper Quarry', coords: { x: 19, y: 25 } }
+  });
+
+  const applied30 = applyWargameEntryHandoff(entryEnv30, sandbox30);
+  const sessionActive30 = Boolean(
+    applied30 &&
+    sandbox30.wargameSession &&
+    sandbox30.wargameSession.active === true &&
+    sandbox30.wargameSession.partyUnitId === 'unit_party_1' &&
+    sandbox30.activeDungeonId === 'dng_quarry' &&
+    sandbox30.inGuild === false &&
+    sandbox30.dungeon.currentFloor === 1
+  );
+
+  // Add pack loot & extract -> verify returnEnvelope is created with extracted outcome
+  sandbox30.hero.expeditionPack.push({ id: 'copper', name: 'Copper Ore', qty: 6, val: 5 });
+  const extRes30 = extractToGuild('Floor 1 Ascending Stairs (<)', sandbox30);
+  const extEnvValid30 = Boolean(
+    extRes30 &&
+    extRes30.returnEnvelope &&
+    extRes30.returnEnvelope.direction === 'dungeon_to_wargame' &&
+    extRes30.returnEnvelope.outcome === 'extracted' &&
+    extRes30.returnEnvelope.lootSummary.ore === 6 &&
+    sandbox30.guildVault.copper === 6
+  );
+
+  // Simulate defeat -> verify defeat returnEnvelope while preserving Golden Rule #2
+  sandbox30.inGuild = false;
+  sandbox30.hero.level = 4;
+  const defRes30 = handleHeroDefeat('Test Colossus', sandbox30);
+  const defEnvValid30 = Boolean(
+    defRes30 &&
+    defRes30.returnEnvelope &&
+    defRes30.returnEnvelope.outcome === 'defeated' &&
+    defRes30.returnEnvelope.killerName === 'Test Colossus' &&
+    sandbox30.hero.level === 4 &&
+    sandbox30.guildVault.copper === 6
+  );
+
+  // Clean up localStorage bridge key so sandbox test leaves zero side effects
+  clearBridgeHandoff();
+
+  // Verify legacy save migration backfills wargameSession cleanly
+  const mig30 = migrateSaveData({ version: 'v0.1.0-inc1', hero: { classId: 'fighter', level: 1 } });
+  const migBackfill30 = mig30 && mig30.wargameSession === null;
+
+  const t30Pass = Boolean(sessionActive30 && extEnvValid30 && defEnvValid30 && migBackfill30);
+  results.push({
+    name: '30. Wargame Overworld Bridge Handoff (Entry, Extraction & Defeat Return Envelopes)',
+    pass: t30Pass,
+    detail: t30Pass
+      ? 'Wargame-to-Dungeon entry sync, Extraction return envelope, Golden Rule #2 Defeat return envelope, and v1 migration backfill verified'
+      : 'Failed wargame bridge handoff or return envelope verification'
+  });
+
   return results;
 }
 
@@ -15869,6 +16175,7 @@ function runChaosFuzzer(seedCount = 25) {
 
 
 
+
 // Bind UI callbacks into engine actions & combat
 registerActionCallbacks({
   log: logChronicle,
@@ -15998,6 +16305,7 @@ const AethelgardAPI = {
   executeClassSkill,
   useHealingTonic,
   useRecallScroll,
+  applyWargameEntryHandoff,
   useStairsAtPlayer,
   handlePlayerAction: (dx, dy, evt) => {
     const isShift = (evt && evt.shiftKey) || (typeof window !== 'undefined' && window.event && window.event.shiftKey);
@@ -16027,6 +16335,12 @@ const AethelgardAPI = {
   drawPaperDollMannequin,
   getItemTypeIcon,
   SLOT_METADATA,
+  returnToWargameOverworld: function() {
+    saveGame();
+    if (typeof window !== 'undefined' && window.location) {
+      window.location.href = './wargame.html?return=dungeon';
+    }
+  },
   dev: {
     gotoFloor: gotoFloor,
     setLevel: setHeroLevel,
@@ -16064,6 +16378,16 @@ const AethelgardAPI = {
 function bootstrapApp() {
   setupInputs();
   const loaded = loadGame();
+  const handoff = consumeBridgeHandoff(BRIDGE_DIRECTIONS.TO_DUNGEON);
+  if (handoff) {
+    if (!loaded || !gameState.hero) {
+      selectAdventurerClass((handoff.hero && handoff.hero.classId) || 'fighter');
+    }
+    applyWargameEntryHandoff(handoff, gameState);
+    updateFOV();
+    saveGame();
+    updateAllUI();
+  } else
   if (!loaded || !gameState.hero) {
     selectAdventurerClass('fighter');
     openClassSelectModal(false);

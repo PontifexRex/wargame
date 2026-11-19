@@ -213,6 +213,7 @@ export function createDefaultGameState() {
     },
     guildBounties: buildProceduralBountySet(0, 0),
     codex: createDefaultCodexState(),
+    wargameSession: null,
     uiSettings: {
       armorySortBy: 'slot'
     }
@@ -245,6 +246,9 @@ export function migrateSaveData(raw) {
 
   migrated.uiSettings = data.uiSettings || { armorySortBy: 'slot' };
   if (!migrated.uiSettings.armorySortBy) migrated.uiSettings.armorySortBy = 'slot';
+  migrated.wargameSession = (data.wargameSession && typeof data.wargameSession === 'object')
+    ? Object.assign({}, data.wargameSession)
+    : null;
 
   // Migrate Vault & Bank
   const srcVault = data.guildVault || data.bank || {};
