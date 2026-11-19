@@ -1,4 +1,4 @@
-Project Roadmap & Increment Changelog
+﻿Project Roadmap & Increment Changelog
 
 1. Verified Release Changelog
 
@@ -303,6 +303,64 @@ Delivered the unified traversal engine, multi-state portal system, ancient waypo
 
 ---
 
+v0.9.0-wargame - Increment 9.0: Standalone Real-Time Simulation Engine, Settler Start & Event Stream
+
+Delivered the standalone real-time simulation foundation, discrete-event scheduler, settler onboarding, and event stream architecture:
+- **Binary Min-Heap Priority Queue Scheduler (`src/wargame/engine/scheduler.js`)**:
+  - Discrete-event scheduler operating in $O(\log N)$ chronological ordering supporting simulation speed multipliers (`1x`, `2x`, `5x`).
+  - High-precision scheduled jobs with unique `jobId`, arbitrary metadata, and safe mid-heap cancellation (`removeById`).
+- **WorldEventStream Pub/Sub Replay Engine (`src/wargame/engine/eventStream.js`)**:
+  - Decoupled in-memory circular ring buffer logging discrete simulation events with monotonic sequence IDs and timestamps.
+  - Granular topic subscriptions (`STREAM_TOPICS`: clock, units, cities, queues, tasks) with sequence cursor replay (`getEventsSince(cursor)`).
+- **Campaign Start Screen & Strict Settler-First Onboarding (`src/wargame/engine/commandBus.js`)**:
+  - Campaign Start Screen with House Name, World Name, Seed Code, and Simulation Speed.
+  - Starts in `SETTLER_PIONEER` phase with only a single Pioneer Settler unit on the Overworld grid, 0 cities, and 0 heroes.
+  - Strict onboarding contract: blocks premature hero recruitment or guild navigation before a City and Guild Hall exist.
+  - Safe non-permanent loss contract: Settler revives safely at the spawn point if lost prior to city founding (`RESPAWN_SETTLER`).
+- **Real-Time A* Unit Marching & Interpolation (`src/wargame/engine/pathfinding.js`)**:
+  - Real-time unit marching across overworld terrain tiles with terrain movement costs, chronological step intervals, and smooth visual interpolation.
+- **Standalone Shell (`wargame.html` & `dist/wargame-bundle.js`)**:
+  - Independent HTML entrypoint with live tactical canvas, event chronicle, and top-bar mode switcher to `index.html`.
+
+v0.9.1-city-grid - Increment 9.1: 8x8 Spatial City Grid, Plot Selection, Building Relocation & Multi-Domain Queues
+
+Delivered the 8x8 spatial city builder, discrete plot selection, building relocation, and demolition salvage:
+- **8x8 Spatial Grid & Plot Selection (`src/wargame/data/buildings.js`, `src/wargame/ui/wargameUiSync.js`)**:
+  - 64 discrete city plots with central Meeting Hall pre-established at plot index 27 (grid coordinates 3,3).
+  - Interactive plot selection (`SELECT_CITY_PLOT`) rendering plot coordinates, elevation, status, and contextual build actions.
+- **Timed Building Relocation (`MOVE_BUILDING`)**:
+  - Relocate established structures to any vacant plot with real-time relocation timers, preserving building levels.
+- **Demolition & Material Salvage (`DEMOLISH_BUILDING`)**:
+  - Deliberate building demolition returning 35% material salvage of base construction costs to the city stockpile.
+- **3-Slot Multi-Domain Build Queue (`src/wargame/engine/queues.js`)**:
+  - Multi-domain queue managing construction, upgrades, moves, demolition, and cleanup.
+  - Cancellation refunds: 100% full refund for pending queued jobs; prorated refund + cleanup timer for active in-progress jobs.
+
+v0.9.2-city-progression - Increment 9.2: Tier 1 Buildings, Meeting Hall Level Cap, Doubling Times, Population Sustenance & 60s Hero Recruitment
+
+Delivered comprehensive city economic tuning, paced sequential unlocks, doubling durations, citizen sustenance, and the 60-second hero recruitment pipeline:
+- **Tier 1 Building Catalog & Paced Prerequisite Unlocks**:
+  - Renamed building catalog: **Meeting Hall**, **Hut**, **Garden**, **Well**, **Lumber Camp**, **Quarry**, **Windmill**, **Adventurers Guild Hall**.
+  - Paced sequential prerequisite unlocks: Hut $\rightarrow$ Garden $\rightarrow$ Well $\rightarrow$ Lumber Camp $\rightarrow$ Quarry $\rightarrow$ Windmill $\rightarrow$ Adventurers Guild Hall.
+- **Doubling Construction Duration Formula**:
+  - Long-term campaign pacing formula ($T(L) = T_0 \times 2^{L-1}$), preventing endgame rush while keeping early gameplay snappy.
+- **Meeting Hall Level Cap**:
+  - Central Meeting Hall level dictates maximum allowable tier of all city structures, establishing strategic development milestones.
+- **Windmill Food Production Synergy**:
+  - Spatial synergy granting +25% Food production boost to adjacent gardens and wheat farms.
+- **6 City Stockpile Resources & Citizen Sustenance**:
+  - Stockpile resources: `wood`, `stone`, `ore`, `gold`, `food`, `water`.
+  - Population housing caps and sustenance consumption (1 food and 1 water per 5 citizens per 5s tick).
+- **60-Second Hero Recruitment Queue & Vanguard Formation**:
+  - Chartering the Adventurers Guild Hall unlocks the 60-second Hero Recruitment queue.
+  - Swearing in enqueues training of a chosen class (Fighter, Thief, Mage, Ranger, Paladin) with prorated cancel refunds.
+  - Completing training inducts the hero into the Overworld Vanguard Party with dungeon exploration capabilities.
+- **Verification Gate**:
+  - Added Sandboxed Tests 1–6 in `src/wargame/test/wargameSelfTest.js` verifying campaign onboarding, priority queue scheduler, A* marching, 8x8 spatial grid & relocation, 60s hero recruitment, and Tier 1 paced progression.
+  - Expanded automated verification suite to **29/29 Roguelike Tests PASS** + **6/6 Wargame Tests PASS** + Headless UI Smoke Suites (`./scripts/test.ps1` and `./scripts/test-wargame.ps1`).
+
+---
+
 ## 2. Long-Term Game Vision & Strategic Pillars
 
 **Aethelgard** is designed as a hybrid **Grand Strategy Wargame, Real-Time City Builder, and Tactical Procedural Dungeon RPG**. While multiplayer and production server infrastructure are deferred until the core game is complete, the single-player/local architecture is structured around the full domain model ("Start-With-One, Scale-To-Many": `1 Universe -> 1 World -> 1 Player -> 1 City -> 1 Hero/Party` initially, scaling cleanly to `N`).
@@ -363,26 +421,37 @@ Delivered the unified traversal engine, multi-state portal system, ancient waypo
 
 ### Track B: Overworld Map, Settler Onboarding, City Builder & Real-Time Loop (`v0.9.x` Series — `ADR-0011`)
 
-#### Increment 9.0 (`v0.9.0-overworld`) — Overworld Map, Settler Unit, City Founding & Guided Task System
-- **Macro State Hierarchy (`universe -> world -> overworld -> cities -> parties`)**:
-  - Overworld terrain grid with resource nodes (`Wood` forests, `Stone` outcrops, `Ore` hills), fog-of-war, and coordinates.
-- **First-15-Minutes Settler Onboarding**:
-  - Start on Overworld Map controlling a **Settler** at a valid unoccupied location (with safe respawn if killed before settling).
-  - **Guided Tutorial & Task System**:
-    - *Task 1 ("Settle Your First City")*: Founding City #1 on the Overworld map awards `50 Wood` and `50 Stone`.
-- **City Grid & Real-Time Build Queue**:
-  - City interior grid view with a real-time **Build Queue** (1 slot initially).
-  - *Task 2 ("Build the Adventurers Guild Hall")*: Costs `50 Wood, 50 Stone` (~30s real-time build timer).
-  - Completing the Adventurers Guild Hall unlocks the Hero and reveals the first **Dungeon Entrance** on the Overworld map.
-- **Real-Time Overworld March & Dungeon Transition**:
-  - Selecting a destination on the Overworld marches the party in real-time (~10s per grid tile).
-  - Exiting a dungeon via Floor 1 Stairs places the party at the Overworld Dungeon Entrance and automatically begins the march back to the City; dungeon defeat returns directly to the City's Adventurers Guild Hall.
+#### Increment 9.0 (`v0.9.0-wargame`) — Standalone Real-Time Simulation Engine, Settler Start & Event Stream [COMPLETE]
+- Discrete-event binary min-heap scheduler, WorldEventStream pub/sub replay, Title Screen, strict Settler-First onboarding, real-time A* unit marching with step interpolation, and safe non-permanent settler loss respawn.
+- Standalone `wargame.html` shell + `dist/wargame-bundle.js`.
 
-#### Increment 9.1 (`v0.9.1-city-economy`) — City Buildings, Resource Production & Guild Star-Forge
-- **Expanded City Buildings**:
-  - Resource producers (**Sawmill** for Wood, **Stoneworks** for Stone, **Smeltery** for Ores), **Warehouse**, **Barracks**, **Temple of War** (Divine War Reimbursement mechanics), and **Star-Forge**.
+#### Increment 9.1 (`v0.9.1-city-grid`) — 8x8 Spatial City Grid, Plot Selection, Building Relocation & Multi-Domain Queues [COMPLETE]
+- 8x8 spatial grid (64 plots), central Meeting Hall at (3,3) / plot index 27, plot selection and contextual inspector, timed building relocation, demolition with 35% material salvage, and 3-slot multi-domain construction queue (100% pending cancel refund, prorated active cancel refund + cleanup timer).
+
+#### Increment 9.2 (`v0.9.2-city-progression`) — Tier 1 Buildings, Meeting Hall Level Cap, Doubling Times, Population Sustenance & 60s Hero Recruitment [COMPLETE]
+- Tier 1 building catalog (Meeting Hall, Hut, Garden, Well, Lumber Camp, Quarry, Windmill, Adventurers Guild Hall).
+- Paced sequential prerequisite unlocks (Hut -> Garden -> Well -> Lumber Camp -> Quarry -> Windmill -> Adventurers Guild Hall).
+- Doubling construction duration formula ($T(L) = T_0 \times 2^{L-1}$) enforcing 1-year campaign pacing.
+- Meeting Hall level cap enforcing milestone progression.
+- Windmill spatial synergy (+25% Food production boost to adjacent gardens and wheat farms).
+- 6 city stockpile resources (`wood`, `stone`, `ore`, `gold`, `food`, `water`), population housing caps, and citizen sustenance consumption (1 food and 1 water per 5 citizens per 5s tick).
+- 60-second Hero Recruitment queue upon completing Adventurers Guild Hall, inducting trained heroes into the Overworld Vanguard Party.
+- Verified with **6/6 wargame self-tests passing** + Headless UI Smoke Suite (`./scripts/test-wargame.ps1`).
+
+#### Increment 9.3 (`v0.9.3-dungeon-march`) — Real-Time Overworld Marching to Dungeons & Transition Pipeline
+- **Real-Time March to Dungeons**:
+  - Vanguard Party marches across Overworld tiles (~10s/tile) toward discovered Vault entrances.
+  - Intercepting wandering hostiles, scouting fog of war, and transition into turn-based tactical delving (`index.html` engine) upon entering the vault portal.
+- **Expedition Return & Recovery**:
+  - Surface extraction via Floor 1 Stairs places the Vanguard Party at the Overworld Vault Entrance and begins the timed march back to Oakhaven Bastion.
+  - Defeat returns the party directly to the City's Adventurers Guild Hall.
+
+#### Increment 9.4 (`v0.9.4-forge-crafting`) — City Economy Expansion & Guild Star-Forge Runecrafting
+- **Expanded City Production**:
+  - Advanced producers (**Smeltery** for refined ingots, **Warehouse** for expanded storage caps, **Barracks**, **Temple of War** for Divine War Reimbursement).
+
 - **Guild Star-Forge Runecrafting**:
-  - Craft equipment, punch sockets, and re-roll affixes using dungeon minerals and city resources.
+  - Craft equipment, punch gem sockets, and re-roll affixes using dungeon minerals and city resources.
 
 ---
 

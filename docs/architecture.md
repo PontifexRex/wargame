@@ -224,3 +224,14 @@ To support the long-term grand strategy wargame vision while remaining 100% play
    - **Hero-Led Parties**: Parties of 1..N class members that march in **real-time** on the Overworld map (~10s/tile) and transition into **turn-based** tactical mode inside Dungeons.
 5. **Progressive Discovery & Guided Task System**:
    - Contextual tutorial tips and optional reward tasks (`Task 1: Settle Your First City` -> rewards `50 Wood, 50 Stone` -> `Task 2: Build Adventurers Guild Hall` [30s build timer] -> reveals first Overworld Dungeon Entrance -> real-time march to Dungeon).
+
+### 7.1 Phased Macro Wargame Architecture Rollout Sequence
+| Phase | Milestone | Scope | Core Deliverables | Status |
+| :--- | :--- | :--- | :--- | :--- |
+| **Phase 0** | `v0.9.0-wargame` | **Standalone Real-Time Sim Engine** | Binary min-heap discrete-event scheduler, WorldEventStream pub/sub replay, Title/Start screen, strict Settler-First onboarding, real-time A* marching, standalone `wargame.html` shell | **Complete (6/6 Tests)** |
+| **Phase 1** | `v0.9.1-city-grid` | **8x8 Spatial City Grid & Relocation** | 64 discrete city plots, central Meeting Hall at (3,3), plot inspection modal, timed building relocation, demolition with 35% salvage, 3-slot multi-domain queue | **Complete (6/6 Tests)** |
+| **Phase 2** | `v0.9.2-city-progression` | **Tier 1 Paced Economy & Hero Queue** | Renamed Tier 1 catalog (Meeting Hall, Hut, Garden, Well, Lumber Camp, Quarry, Windmill, Guild), doubling durations ($T_0 \times 2^{L-1}$), Meeting Hall level cap, Windmill synergy, 6 resources, citizen sustenance, 60s Hero Recruitment | **Complete (6/6 Tests)** |
+| **Phase 3** | `v0.9.3-dungeon-march` | **Dungeon March & Transition Pipeline** | Vanguard Party overworld march to vault entrances, transition into turn-based delving (`index.html`), extraction return march, defeat recovery | Planned |
+| **Phase 4** | `v0.9.4-forge-crafting` | **City Production & Star-Forge** | Smeltery ingot smelting, Warehouse storage caps, Barracks, Star-Forge runecrafting using dungeon minerals and city resources | Planned |
+| **Phase 5** | `v0.9.5-sim` | **Headless Progression Simulator** | Discrete-event campaign simulator ("ChronoSim"), playstyle archetype modeling (Casual, Active, Hardcore), 1-year pacing calculator, starvation trap checker | Planned |
+| **Phase 6** | `v1.0.0-wargame` | **Tactical Grand Strategy & Victory** | Multi-hero parties, Guild archetypes (War/Adventurer/Social), Divine War Reimbursement, alliances, world victory conditions | Planned |
