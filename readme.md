@@ -1,6 +1,6 @@
 Aethelgard: The Starfall Vaults
 
-Current Build: v0.5.0-inc5 (Deep Abyssal Biomes, Floors 15/20 Bosses & Bestiary Codex)
+Current Build: v0.9.2-city-progression (Standalone Real-Time Simulation, City Progression & Paced Queues)
 
 Architecture: Modular ES6 architecture (src/) + compiled file:// bundle (dist/bundle.js) / HTML5 Canvas 2D / Tailwind CSS
 
@@ -51,7 +51,8 @@ To support multi-agent development and seamless context handoffs across chat ses
 - `docs/architecture.md`: Master gameState JSON schema, save migration contract, sandboxed state injection pattern, and procedural generation invariants.
 - `docs/game_design_spec.md`: Exact mathematical formulas, 5 class definitions, 6-slot equipment & affix tables, 6 mineral veins, 6 dual-cost research trees, and boss mechanics.
 - `docs/agentic_workflow.md` & `docs/agentic_workflow_roadmap.md`: Living architecture diagrams and staged maturity roadmap for agentic development.
-- `docs/roadmap.md`: Cumulative changelog (Increments 1–5) and upcoming milestone backlogs.
+- `CHANGELOG.md`: Complete verified release history and changelog following Keep a Changelog standards.
+- `docs/roadmap.md`: Strategic vision, design pillars, and upcoming milestone roadmap across Tracks B, C, and D.
 - `docs/adr/`: Architecture Decision Records (`ADR-0001` through `ADR-0006`).
 
 5. Local Verification & Release Tagging Workflow
