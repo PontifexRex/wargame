@@ -577,9 +577,38 @@ export function evaluateWargameSelfTests() {
   });
   const intentIsDungeon = Boolean(marchToDng.ok && party7.marchPlan && party7.marchPlan.intent === 'enter_dungeon');
 
+  // Verify CMD_ENTER_DUNGEON is strictly blocked while party is still mid-march
+  const blockedWhileMarching = !host7.dispatch({
+    type: COMMAND_TYPES.ENTER_DUNGEON,
+    payload: { unitId: party7.id, poiId: 'poi_dungeon_starfall', skipStorageWrite: true }
+  }).ok;
+
   // Advance clock until party arrives at Starfall Vaults
   host7.stepClock(60000);
-  const arrivedAtVault = party7.x === starfallPoi.x && party7.y === starfallPoi.y;
+  const arrivedAtVault = party7.x === starfallPoi.x && party7.y === starfallPoi.y && party7.status === 'idle';
+
+  // Claim completed Task 11 while standing on the Vault tile -> party MUST stay at the Vault!
+  host7.dispatch({ type: COMMAND_TYPES.CLAIM_TASK_REWARD, payload: { taskId: 'task_scout_wilderness' } });
+  host7.dispatch({ type: COMMAND_TYPES.CLAIM_TASK_REWARD, payload: { taskId: 'task_found_first_city' } });
+  host7.dispatch({ type: COMMAND_TYPES.CLAIM_TASK_REWARD, payload: { taskId: 'task_build_first_hut' } });
+  host7.dispatch({ type: COMMAND_TYPES.CLAIM_TASK_REWARD, payload: { taskId: 'task_build_garden' } });
+  host7.dispatch({ type: COMMAND_TYPES.CLAIM_TASK_REWARD, payload: { taskId: 'task_build_well' } });
+  host7.dispatch({ type: COMMAND_TYPES.CLAIM_TASK_REWARD, payload: { taskId: 'task_grow_population_12' } });
+  host7.dispatch({ type: COMMAND_TYPES.CLAIM_TASK_REWARD, payload: { taskId: 'task_build_lumber_camp' } });
+  host7.dispatch({ type: COMMAND_TYPES.CLAIM_TASK_REWARD, payload: { taskId: 'task_build_quarry' } });
+  host7.dispatch({ type: COMMAND_TYPES.CLAIM_TASK_REWARD, payload: { taskId: 'task_build_guild_hall' } });
+  host7.dispatch({ type: COMMAND_TYPES.CLAIM_TASK_REWARD, payload: { taskId: 'task_recruit_first_hero' } });
+  const claimMarchTask = host7.dispatch({
+    type: COMMAND_TYPES.CLAIM_TASK_REWARD,
+    payload: { taskId: 'task_march_to_dungeon' }
+  });
+  const stayedAtVaultAfterClaim = Boolean(
+    claimMarchTask.ok &&
+    party7.x === starfallPoi.x &&
+    party7.y === starfallPoi.y &&
+    party7.status === 'idle' &&
+    ow7.selectedUnitId === party7.id
+  );
 
   // Enter Dungeon -> transitions to in_dungeon and produces valid handoff envelope
   const enterRes = host7.dispatch({
@@ -602,7 +631,9 @@ export function evaluateWargameSelfTests() {
     starfallRevealedByGuild: starfallRevealedByGuild,
     skirmishWon: skirmishWon,
     intentIsDungeon: intentIsDungeon,
+    blockedWhileMarching: blockedWhileMarching,
     arrivedAtVault: arrivedAtVault,
+    stayedAtVaultAfterClaim: stayedAtVaultAfterClaim,
     enteredCleanly: enteredCleanly
   };
   const failed7 = Object.keys(t7Checks).filter(function(k) { return !t7Checks[k]; });

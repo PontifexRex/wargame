@@ -372,6 +372,8 @@ function setupWargameListeners() {
     if (!e.target) return;
     const btn = e.target.closest('button[data-action]');
     if (!btn) return;
+    // Avoid double-firing buttons that already execute via inline onclick
+    if (btn.getAttribute && btn.getAttribute('onclick')) return;
     const action = btn.dataset.action;
     if (action === 'found-city') {
       handleFoundCity();

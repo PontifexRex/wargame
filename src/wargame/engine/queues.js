@@ -683,7 +683,13 @@ export function resolveRecruitHeroJob(job, state, scheduler, eventStream) {
   if (ow) {
     if (!ow.units) ow.units = [];
     ow.units.push(partyUnit);
-    ow.selectedUnitId = partyUnit.id;
+    // Preserve current selection if the player is already commanding an active unit in the field
+    const hasActiveSelected = Boolean(ow.selectedUnitId && ow.units.some(function(u) {
+      return u.id === ow.selectedUnitId && u.alive;
+    }));
+    if (!hasActiveSelected) {
+      ow.selectedUnitId = partyUnit.id;
+    }
     revealOverworldVision(ow, partyUnit.x, partyUnit.y, partyUnit.visionRadius);
   }
 

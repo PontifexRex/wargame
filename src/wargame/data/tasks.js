@@ -220,7 +220,7 @@ export const CAMPAIGN_TASKS_DAG = [
       if (dngPoi) {
         for (let i = 0; i < units.length; i++) {
           const u = units[i];
-          if (u.alive && u.unitType === 'hero_party' && Math.hypot(u.x - dngPoi.x, u.y - dngPoi.y) <= 1.5) {
+          if (u.alive && u.unitType === 'hero_party' && u.status !== 'marching' && u.x === dngPoi.x && u.y === dngPoi.y) {
             return { completed: true, progress: 1, target: 1 };
           }
         }

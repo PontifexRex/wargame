@@ -917,13 +917,16 @@ export function dispatchWargameCommand(commandEnvelope, state, scheduler, eventS
     const poi = (ow.pois || []).find(function(p) {
       if (p.type !== 'dungeon_entrance') return false;
       if (payload.poiId) return p.id === payload.poiId;
-      return Math.hypot(unit.x - p.x, unit.y - p.y) <= 1.5;
+      return unit.x === p.x && unit.y === p.y;
     });
     if (!poi) {
-      return reject('No Dungeon Entrance within reach');
+      return reject('Party must complete its march onto a Dungeon Entrance before entering');
     }
-    if (Math.hypot(unit.x - poi.x, unit.y - poi.y) > 1.5) {
-      return reject('Party must march to ' + poi.name + ' before entering');
+    if (unit.status === 'marching') {
+      return reject('Wait until the party finishes moving into ' + poi.name + ' before entering');
+    }
+    if (unit.x !== poi.x || unit.y !== poi.y) {
+      return reject('Party must stand directly on ' + poi.name + ' before entering');
     }
 
     if (unit.marchPlan && unit.marchPlan.activeJobId && scheduler) {

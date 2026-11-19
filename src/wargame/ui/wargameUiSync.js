@@ -269,8 +269,8 @@ export function renderLeftCommandSidebar(simHost) {
       const tDef = OVERWORLD_TERRAIN_DEFS[tId];
       const canFoundHere = Boolean(selUnit.canFoundCity && tDef && tDef.buildable);
       const primaryCity = getPrimaryCity(state);
-      const nearbyDng = (selUnit.canEnterDungeon && Array.isArray(ow.pois))
-        ? ow.pois.find(function(p) { return p.type === 'dungeon_entrance' && Math.hypot(selUnit.x - p.x, selUnit.y - p.y) <= 1.5; })
+      const nearbyDng = (selUnit.canEnterDungeon && selUnit.status === 'idle' && Array.isArray(ow.pois))
+        ? ow.pois.find(function(p) { return p.type === 'dungeon_entrance' && selUnit.x === p.x && selUnit.y === p.y; })
         : null;
       const canReturnHome = Boolean(selUnit.canEnterDungeon && selUnit.status !== 'in_dungeon' && primaryCity && (selUnit.x !== primaryCity.x || selUnit.y !== primaryCity.y));
 
@@ -543,9 +543,9 @@ export function renderOverworldHudBar(simHost) {
 
   const dngBtn = document.getElementById('wgBtnEnterDungeon');
   let nearbyDngPoi = null;
-  if (selUnit && selUnit.alive && selUnit.canEnterDungeon && Array.isArray(ow.pois)) {
+  if (selUnit && selUnit.alive && selUnit.canEnterDungeon && selUnit.status === 'idle' && Array.isArray(ow.pois)) {
     nearbyDngPoi = ow.pois.find(function(p) {
-      return p.type === 'dungeon_entrance' && Math.hypot(selUnit.x - p.x, selUnit.y - p.y) <= 1.5;
+      return p.type === 'dungeon_entrance' && selUnit.x === p.x && selUnit.y === p.y;
     }) || null;
   }
   if (dngBtn) {
@@ -575,7 +575,7 @@ export function renderOverworldHudBar(simHost) {
       const canMarchHero = Boolean(selUnit && selUnit.alive && selUnit.canEnterDungeon && selUnit.status !== 'in_dungeon');
       const cardsHtml = discoveredDngs.map(function(p) {
         const dist = selUnit ? Math.round(Math.hypot(selUnit.x - p.x, selUnit.y - p.y)) : null;
-        const atGate = Boolean(canMarchHero && dist !== null && dist <= 1.5);
+        const atGate = Boolean(canMarchHero && selUnit.status === 'idle' && selUnit.x === p.x && selUnit.y === p.y);
         return `
           <div class="flex items-center justify-between gap-2 px-2 py-1.5 rounded bg-[#111722] border border-[#283347] text-[11px] font-mono">
             <div class="flex items-center gap-1.5 min-w-0">

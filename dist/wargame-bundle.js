@@ -1338,7 +1338,7 @@ const CAMPAIGN_TASKS_DAG = [
       if (dngPoi) {
         for (let i = 0; i < units.length; i++) {
           const u = units[i];
-          if (u.alive && u.unitType === 'hero_party' && Math.hypot(u.x - dngPoi.x, u.y - dngPoi.y) <= 1.5) {
+          if (u.alive && u.unitType === 'hero_party' && u.status !== 'marching' && u.x === dngPoi.x && u.y === dngPoi.y) {
             return { completed: true, progress: 1, target: 1 };
           }
         }
@@ -2968,7 +2968,13 @@ function resolveRecruitHeroJob(job, state, scheduler, eventStream) {
   if (ow) {
     if (!ow.units) ow.units = [];
     ow.units.push(partyUnit);
-    ow.selectedUnitId = partyUnit.id;
+    // Preserve current selection if the player is already commanding an active unit in the field
+    const hasActiveSelected = Boolean(ow.selectedUnitId && ow.units.some(function(u) {
+      return u.id === ow.selectedUnitId && u.alive;
+    }));
+    if (!hasActiveSelected) {
+      ow.selectedUnitId = partyUnit.id;
+    }
     revealOverworldVision(ow, partyUnit.x, partyUnit.y, partyUnit.visionRadius);
   }
 
@@ -4187,13 +4193,16 @@ function dispatchWargameCommand(commandEnvelope, state, scheduler, eventStream) 
     const poi = (ow.pois || []).find(function(p) {
       if (p.type !== 'dungeon_entrance') return false;
       if (payload.poiId) return p.id === payload.poiId;
-      return Math.hypot(unit.x - p.x, unit.y - p.y) <= 1.5;
+      return unit.x === p.x && unit.y === p.y;
     });
     if (!poi) {
-      return reject('No Dungeon Entrance within reach');
+      return reject('Party must complete its march onto a Dungeon Entrance before entering');
     }
-    if (Math.hypot(unit.x - poi.x, unit.y - poi.y) > 1.5) {
-      return reject('Party must march to ' + poi.name + ' before entering');
+    if (unit.status === 'marching') {
+      return reject('Wait until the party finishes moving into ' + poi.name + ' before entering');
+    }
+    if (unit.x !== poi.x || unit.y !== poi.y) {
+      return reject('Party must stand directly on ' + poi.name + ' before entering');
     }
 
     if (unit.marchPlan && unit.marchPlan.activeJobId && scheduler) {
@@ -4753,9 +4762,9 @@ function renderWargameOverworldCanvas(simHost) {
       const pDef = OVERWORLD_POI_DEFS[poi.type] || OVERWORLD_POI_DEFS.dungeon_entrance;
       const accent = poi.accentColor || pDef.color || '#fbbf24';
 
-      // Pulsing breach ring if selected Hero Party is within entry reach of this Dungeon POI
+      // Pulsing breach ring only once selected Hero Party has finished moving onto this Dungeon POI
       if (poi.type === 'dungeon_entrance' && selUnit && selUnit.alive && selUnit.canEnterDungeon &&
-          Math.hypot(selUnit.x - poi.x, selUnit.y - poi.y) <= 1.5) {
+          selUnit.status === 'idle' && selUnit.x === poi.x && selUnit.y === poi.y) {
         ctx.strokeStyle = accent;
         ctx.lineWidth = 2;
         ctx.beginPath();
@@ -5202,8 +5211,8 @@ function renderLeftCommandSidebar(simHost) {
       const tDef = OVERWORLD_TERRAIN_DEFS[tId];
       const canFoundHere = Boolean(selUnit.canFoundCity && tDef && tDef.buildable);
       const primaryCity = getPrimaryCity(state);
-      const nearbyDng = (selUnit.canEnterDungeon && Array.isArray(ow.pois))
-        ? ow.pois.find(function(p) { return p.type === 'dungeon_entrance' && Math.hypot(selUnit.x - p.x, selUnit.y - p.y) <= 1.5; })
+      const nearbyDng = (selUnit.canEnterDungeon && selUnit.status === 'idle' && Array.isArray(ow.pois))
+        ? ow.pois.find(function(p) { return p.type === 'dungeon_entrance' && selUnit.x === p.x && selUnit.y === p.y; })
         : null;
       const canReturnHome = Boolean(selUnit.canEnterDungeon && selUnit.status !== 'in_dungeon' && primaryCity && (selUnit.x !== primaryCity.x || selUnit.y !== primaryCity.y));
 
@@ -5476,9 +5485,9 @@ function renderOverworldHudBar(simHost) {
 
   const dngBtn = document.getElementById('wgBtnEnterDungeon');
   let nearbyDngPoi = null;
-  if (selUnit && selUnit.alive && selUnit.canEnterDungeon && Array.isArray(ow.pois)) {
+  if (selUnit && selUnit.alive && selUnit.canEnterDungeon && selUnit.status === 'idle' && Array.isArray(ow.pois)) {
     nearbyDngPoi = ow.pois.find(function(p) {
-      return p.type === 'dungeon_entrance' && Math.hypot(selUnit.x - p.x, selUnit.y - p.y) <= 1.5;
+      return p.type === 'dungeon_entrance' && selUnit.x === p.x && selUnit.y === p.y;
     }) || null;
   }
   if (dngBtn) {
@@ -5508,7 +5517,7 @@ function renderOverworldHudBar(simHost) {
       const canMarchHero = Boolean(selUnit && selUnit.alive && selUnit.canEnterDungeon && selUnit.status !== 'in_dungeon');
       const cardsHtml = discoveredDngs.map(function(p) {
         const dist = selUnit ? Math.round(Math.hypot(selUnit.x - p.x, selUnit.y - p.y)) : null;
-        const atGate = Boolean(canMarchHero && dist !== null && dist <= 1.5);
+        const atGate = Boolean(canMarchHero && selUnit.status === 'idle' && selUnit.x === p.x && selUnit.y === p.y);
         return `
           <div class="flex items-center justify-between gap-2 px-2 py-1.5 rounded bg-[#111722] border border-[#283347] text-[11px] font-mono">
             <div class="flex items-center gap-1.5 min-w-0">
@@ -6616,9 +6625,38 @@ function evaluateWargameSelfTests() {
   });
   const intentIsDungeon = Boolean(marchToDng.ok && party7.marchPlan && party7.marchPlan.intent === 'enter_dungeon');
 
+  // Verify CMD_ENTER_DUNGEON is strictly blocked while party is still mid-march
+  const blockedWhileMarching = !host7.dispatch({
+    type: COMMAND_TYPES.ENTER_DUNGEON,
+    payload: { unitId: party7.id, poiId: 'poi_dungeon_starfall', skipStorageWrite: true }
+  }).ok;
+
   // Advance clock until party arrives at Starfall Vaults
   host7.stepClock(60000);
-  const arrivedAtVault = party7.x === starfallPoi.x && party7.y === starfallPoi.y;
+  const arrivedAtVault = party7.x === starfallPoi.x && party7.y === starfallPoi.y && party7.status === 'idle';
+
+  // Claim completed Task 11 while standing on the Vault tile -> party MUST stay at the Vault!
+  host7.dispatch({ type: COMMAND_TYPES.CLAIM_TASK_REWARD, payload: { taskId: 'task_scout_wilderness' } });
+  host7.dispatch({ type: COMMAND_TYPES.CLAIM_TASK_REWARD, payload: { taskId: 'task_found_first_city' } });
+  host7.dispatch({ type: COMMAND_TYPES.CLAIM_TASK_REWARD, payload: { taskId: 'task_build_first_hut' } });
+  host7.dispatch({ type: COMMAND_TYPES.CLAIM_TASK_REWARD, payload: { taskId: 'task_build_garden' } });
+  host7.dispatch({ type: COMMAND_TYPES.CLAIM_TASK_REWARD, payload: { taskId: 'task_build_well' } });
+  host7.dispatch({ type: COMMAND_TYPES.CLAIM_TASK_REWARD, payload: { taskId: 'task_grow_population_12' } });
+  host7.dispatch({ type: COMMAND_TYPES.CLAIM_TASK_REWARD, payload: { taskId: 'task_build_lumber_camp' } });
+  host7.dispatch({ type: COMMAND_TYPES.CLAIM_TASK_REWARD, payload: { taskId: 'task_build_quarry' } });
+  host7.dispatch({ type: COMMAND_TYPES.CLAIM_TASK_REWARD, payload: { taskId: 'task_build_guild_hall' } });
+  host7.dispatch({ type: COMMAND_TYPES.CLAIM_TASK_REWARD, payload: { taskId: 'task_recruit_first_hero' } });
+  const claimMarchTask = host7.dispatch({
+    type: COMMAND_TYPES.CLAIM_TASK_REWARD,
+    payload: { taskId: 'task_march_to_dungeon' }
+  });
+  const stayedAtVaultAfterClaim = Boolean(
+    claimMarchTask.ok &&
+    party7.x === starfallPoi.x &&
+    party7.y === starfallPoi.y &&
+    party7.status === 'idle' &&
+    ow7.selectedUnitId === party7.id
+  );
 
   // Enter Dungeon -> transitions to in_dungeon and produces valid handoff envelope
   const enterRes = host7.dispatch({
@@ -6641,7 +6679,9 @@ function evaluateWargameSelfTests() {
     starfallRevealedByGuild: starfallRevealedByGuild,
     skirmishWon: skirmishWon,
     intentIsDungeon: intentIsDungeon,
+    blockedWhileMarching: blockedWhileMarching,
     arrivedAtVault: arrivedAtVault,
+    stayedAtVaultAfterClaim: stayedAtVaultAfterClaim,
     enteredCleanly: enteredCleanly
   };
   const failed7 = Object.keys(t7Checks).filter(function(k) { return !t7Checks[k]; });
@@ -7134,6 +7174,8 @@ function setupWargameListeners() {
     if (!e.target) return;
     const btn = e.target.closest('button[data-action]');
     if (!btn) return;
+    // Avoid double-firing buttons that already execute via inline onclick
+    if (btn.getAttribute && btn.getAttribute('onclick')) return;
     const action = btn.dataset.action;
     if (action === 'found-city') {
       handleFoundCity();

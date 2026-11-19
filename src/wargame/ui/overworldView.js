@@ -172,9 +172,9 @@ export function renderWargameOverworldCanvas(simHost) {
       const pDef = OVERWORLD_POI_DEFS[poi.type] || OVERWORLD_POI_DEFS.dungeon_entrance;
       const accent = poi.accentColor || pDef.color || '#fbbf24';
 
-      // Pulsing breach ring if selected Hero Party is within entry reach of this Dungeon POI
+      // Pulsing breach ring only once selected Hero Party has finished moving onto this Dungeon POI
       if (poi.type === 'dungeon_entrance' && selUnit && selUnit.alive && selUnit.canEnterDungeon &&
-          Math.hypot(selUnit.x - poi.x, selUnit.y - poi.y) <= 1.5) {
+          selUnit.status === 'idle' && selUnit.x === poi.x && selUnit.y === poi.y) {
         ctx.strokeStyle = accent;
         ctx.lineWidth = 2;
         ctx.beginPath();
