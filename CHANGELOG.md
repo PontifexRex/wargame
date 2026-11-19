@@ -10,8 +10,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Planned
-- **Track B Increment 9.4 (`v0.9.4-forge-crafting`)**: City economy expansion (Smeltery, Warehouse, Barracks, Temple of War) and Guild Star-Forge Runecrafting.
-- **Track D Increment 9.5 (`v0.9.5-sim`)**: Headless progression simulator ("ChronoSim"), time-to-finish calculator, and pacing sensitivity engine.
+- **Track A (`v0.8.3`–`v0.8.7`)**: Interactive dungeon props & hazards, `Trigger -> Condition -> Action` event graph, environmental storytelling & handcrafted set-pieces, dungeon ecology & acoustic alerts, 10-slot paper-doll & vault modifiers.
+- **Track B (`v0.9.4`–`v0.9.10`)**: Shared cross-engine Character Sheet & Paper-Doll module, Tier 2 City Industry (Smeltery, Warehouse, Apothecary), City Blacksmith & Lapidary Workshop, Arcane Academy & Market, Frontier Outposts, Multi-City expansion, and City Defense / Temple of War.
+- **Track D (`v0.9.x-sim`)**: Headless progression simulator ("ChronoSim"), time-to-finish calculator, and 1-year pacing engine.
+- **Track E (Art Direction & Graphics Foundation)**: Visual pillars discovery, formal Art Bible & UI Design System, Asset Taxonomy & Management Pipeline, Graphics Engine Evaluation (`ADR-0012`), Golden Vertical Slice, and scaled visual migration.
 
 ---
 
