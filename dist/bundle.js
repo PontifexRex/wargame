@@ -6470,8 +6470,8 @@ function extractToGuild(method = 'Floor 1 Ascending Stairs (<)', state = gameSta
     details.push(`Total Vault Gold: ${state.guildVault.gold}g`);
 
     actionCallbacks.outcomeModal(
-      'Safe Extraction Complete!',
-      `You returned to the Grand Guild via ${method}. All gathered minerals, uncut Astral Gems, equipment, and completed Notice Board rewards have been secured.`,
+      (state.wargameSession && state.wargameSession.active) ? 'Returned to the Surface!' : 'Safe Extraction Complete!',
+      (state.wargameSession && state.wargameSession.active) ? `You surfaced at the dungeon entrance via ${method}. Your gathered minerals, Astral Gems, and equipment are packed with your party—return to the Overworld to march to your chosen city.` : `You returned to the Grand Guild via ${method}. All gathered minerals, uncut Astral Gems, equipment, and completed Notice Board rewards have been secured.`,
       details
     );
   }

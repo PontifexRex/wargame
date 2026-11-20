@@ -171,6 +171,7 @@ Track E (Art Direction & Graphics) ──► Stage E.1 (Pillars) ──► E.2 (
 
 #### Stage E.6 — Scaled Asset Production & Full Visual Migration
 - Roll out full asset sets (all biomes, Lv 1–5 building visual evolutions, full monster/boss rosters, dynamic lighting/shaders, particle VFX, and unified UI chrome) through the validated asset pipeline.
+- **Guild & City Building Interior Artwork**: Add bespoke atmospheric interior header/backdrop illustrations to every Guild and City Facility screen (Adventurers Guild, Fighters Guild, Thieves Guild, Mages Guild, Rangers Lodge, Temple Chapterhouse, Garrison, Dwarven Smeltery, Alchemist Apothecary, Blacksmith & Star-Forge, Lapidary Workshop, Warehouse) following our `docs/art_direction_brief.md` standards (Grounded High-Craft Fantasy Realism, dynamic warm/whimsical-to-dark lighting).
 
 ---
 

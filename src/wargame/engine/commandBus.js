@@ -1642,12 +1642,17 @@ export function dispatchWargameCommand(commandEnvelope, state, scheduler, eventS
 
     const isRecallScroll = String(method).indexOf('Recall Scroll') !== -1;
     let returnMarchStarted = false;
+    let surfacedAtEntrance = false;
 
-    if (isRecallScroll && city) {
-      // Astral Recall Scroll: Instant teleport to City & immediate cargo banking!
-      unit.x = city.x;
-      unit.y = city.y;
-      depositUnitCargoAtCity(unit, city, state, simTimeMs, eventStream);
+    if (isRecallScroll) {
+      // Astral Recall Scroll: Instant exit to the surface at the Dungeon Entrance POI (idle, cargo intact).
+      // Player chooses which City or destination to march to next on the Overworld.
+      if (poi) {
+        unit.x = poi.x;
+        unit.y = poi.y;
+        revealOverworldVision(ow, unit.x, unit.y, unit.visionRadius || 5);
+      }
+      surfacedAtEntrance = true;
     } else {
       // Surface extraction via Floor 1 Stairs or Boss Portal: Exit at Vault POI & begin timed Return March home
       if (poi) {
@@ -1678,7 +1683,8 @@ export function dispatchWargameCommand(commandEnvelope, state, scheduler, eventS
         method: method,
         unitId: unit.id,
         unitName: unit.shortName,
-        expressReturn: isRecallScroll,
+        expressReturn: false,
+        surfacedAtEntrance: surfacedAtEntrance,
         returnMarchStarted: returnMarchStarted,
         lootSummary: loot,
         cityName: city ? city.name : 'Bastion'
@@ -1688,7 +1694,8 @@ export function dispatchWargameCommand(commandEnvelope, state, scheduler, eventS
     evaluateTaskDAG(state, eventStream);
     return accept({
       outcome: 'extracted',
-      expressReturn: isRecallScroll,
+      expressReturn: false,
+      surfacedAtEntrance: surfacedAtEntrance,
       returnMarchStarted: returnMarchStarted,
       unitId: unit.id,
       x: unit.x,

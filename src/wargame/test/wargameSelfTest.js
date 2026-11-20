@@ -709,7 +709,7 @@ export function evaluateWargameSelfTests() {
     host7.state.world.stats.expeditionsBanked >= 1
   );
 
-  // 8B. Astral Recall Scroll Express Extraction -> instant teleport to City & immediate bank
+  // 8B. Astral Recall Scroll Surface Extraction -> surfaces at Vault POI (idle, cargo intact; does not teleport to a city)
   const goldBeforeRecall = city7.stockpile.gold;
   party7.x = starfallPoi.x;
   party7.y = starfallPoi.y;
@@ -726,13 +726,16 @@ export function evaluateWargameSelfTests() {
       lootSummary: { gold: 80, ore: 10, gems: 1, gearCount: 0 }
     }
   });
-  const recallExpressVerified = Boolean(
+  const recallSurfaceVerified = Boolean(
     recallReturn.ok &&
-    recallReturn.data.expressReturn === true &&
-    party7.x === city7.x &&
-    party7.y === city7.y &&
+    recallReturn.data.surfacedAtEntrance === true &&
+    recallReturn.data.returnMarchStarted === false &&
+    party7.x === starfallPoi.x &&
+    party7.y === starfallPoi.y &&
     party7.status === 'idle' &&
-    city7.stockpile.gold === goldBeforeRecall + 80
+    party7.cargo &&
+    party7.cargo.gold >= 80 &&
+    city7.stockpile.gold === goldBeforeRecall
   );
 
   // 8C. Non-Permanent Defeat Recovery -> express return to City Guild Hall, salvage credited, Hero preserved
@@ -769,7 +772,7 @@ export function evaluateWargameSelfTests() {
     startedReturnMarch: startedReturnMarch,
     heroLevelSynced: heroLevelSynced,
     returnedAndBanked: returnedAndBanked,
-    recallExpressVerified: recallExpressVerified,
+    recallSurfaceVerified: recallSurfaceVerified,
     defeatRecoveryVerified: defeatRecoveryVerified
   };
   const failed8 = Object.keys(t8Checks).filter(function(k) { return !t8Checks[k]; });
@@ -779,7 +782,7 @@ export function evaluateWargameSelfTests() {
     name: '8. Dungeon Extraction Return March, Cargo Banking, Recall Scroll & Defeat Recovery',
     pass: t8Pass,
     detail: t8Pass
-      ? 'Floor 1 extraction return march & cargo banking, Astral Recall Scroll express teleport, and Golden Rule #2 defeat rescue verified'
+      ? 'Floor 1 extraction return march & cargo banking, Astral Recall Scroll surface exit at dungeon entrance, and Golden Rule #2 defeat rescue verified'
       : 'Failed checks: ' + failed8.join(', ')
   });
 

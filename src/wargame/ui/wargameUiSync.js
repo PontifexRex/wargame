@@ -1418,7 +1418,7 @@ export function formatEventSummary(ev) {
     if (p.outcome === 'defeated') {
       return '— ' + p.unitName + ' rescued to ' + p.cityName + ' (+' + (p.salvagedGold || 0) + 'g salvage)';
     }
-    return '— ' + p.unitName + ' extracted via ' + p.method + (p.expressReturn ? ' (Express to City)' : ' (Marching Home)');
+    return '— ' + p.unitName + ' extracted via ' + p.method + (p.surfacedAtEntrance ? ' (Surfaced at Dungeon Entrance)' : (p.returnMarchStarted ? ' (Marching Home)' : ' (At Surface)'));
   }
   if (ev.topic === STREAM_TOPICS.EXPEDITION_BANKED) {
     return '— Banked +' + (p.gold || 0) + 'g, +' + (p.ore || 0) + ' Ore at ' + p.cityName + '!';

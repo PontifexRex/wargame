@@ -5267,12 +5267,17 @@ function dispatchWargameCommand(commandEnvelope, state, scheduler, eventStream) 
 
     const isRecallScroll = String(method).indexOf('Recall Scroll') !== -1;
     let returnMarchStarted = false;
+    let surfacedAtEntrance = false;
 
-    if (isRecallScroll && city) {
-      // Astral Recall Scroll: Instant teleport to City & immediate cargo banking!
-      unit.x = city.x;
-      unit.y = city.y;
-      depositUnitCargoAtCity(unit, city, state, simTimeMs, eventStream);
+    if (isRecallScroll) {
+      // Astral Recall Scroll: Instant exit to the surface at the Dungeon Entrance POI (idle, cargo intact).
+      // Player chooses which City or destination to march to next on the Overworld.
+      if (poi) {
+        unit.x = poi.x;
+        unit.y = poi.y;
+        revealOverworldVision(ow, unit.x, unit.y, unit.visionRadius || 5);
+      }
+      surfacedAtEntrance = true;
     } else {
       // Surface extraction via Floor 1 Stairs or Boss Portal: Exit at Vault POI & begin timed Return March home
       if (poi) {
@@ -5303,7 +5308,8 @@ function dispatchWargameCommand(commandEnvelope, state, scheduler, eventStream) 
         method: method,
         unitId: unit.id,
         unitName: unit.shortName,
-        expressReturn: isRecallScroll,
+        expressReturn: false,
+        surfacedAtEntrance: surfacedAtEntrance,
         returnMarchStarted: returnMarchStarted,
         lootSummary: loot,
         cityName: city ? city.name : 'Bastion'
@@ -5313,7 +5319,8 @@ function dispatchWargameCommand(commandEnvelope, state, scheduler, eventStream) 
     evaluateTaskDAG(state, eventStream);
     return accept({
       outcome: 'extracted',
-      expressReturn: isRecallScroll,
+      expressReturn: false,
+      surfacedAtEntrance: surfacedAtEntrance,
       returnMarchStarted: returnMarchStarted,
       unitId: unit.id,
       x: unit.x,
@@ -7945,7 +7952,7 @@ function formatEventSummary(ev) {
     if (p.outcome === 'defeated') {
       return '— ' + p.unitName + ' rescued to ' + p.cityName + ' (+' + (p.salvagedGold || 0) + 'g salvage)';
     }
-    return '— ' + p.unitName + ' extracted via ' + p.method + (p.expressReturn ? ' (Express to City)' : ' (Marching Home)');
+    return '— ' + p.unitName + ' extracted via ' + p.method + (p.surfacedAtEntrance ? ' (Surfaced at Dungeon Entrance)' : (p.returnMarchStarted ? ' (Marching Home)' : ' (At Surface)'));
   }
   if (ev.topic === STREAM_TOPICS.EXPEDITION_BANKED) {
     return '— Banked +' + (p.gold || 0) + 'g, +' + (p.ore || 0) + ' Ore at ' + p.cityName + '!';
@@ -8678,7 +8685,7 @@ function evaluateWargameSelfTests() {
     host7.state.world.stats.expeditionsBanked >= 1
   );
 
-  // 8B. Astral Recall Scroll Express Extraction -> instant teleport to City & immediate bank
+  // 8B. Astral Recall Scroll Surface Extraction -> surfaces at Vault POI (idle, cargo intact; does not teleport to a city)
   const goldBeforeRecall = city7.stockpile.gold;
   party7.x = starfallPoi.x;
   party7.y = starfallPoi.y;
@@ -8695,13 +8702,16 @@ function evaluateWargameSelfTests() {
       lootSummary: { gold: 80, ore: 10, gems: 1, gearCount: 0 }
     }
   });
-  const recallExpressVerified = Boolean(
+  const recallSurfaceVerified = Boolean(
     recallReturn.ok &&
-    recallReturn.data.expressReturn === true &&
-    party7.x === city7.x &&
-    party7.y === city7.y &&
+    recallReturn.data.surfacedAtEntrance === true &&
+    recallReturn.data.returnMarchStarted === false &&
+    party7.x === starfallPoi.x &&
+    party7.y === starfallPoi.y &&
     party7.status === 'idle' &&
-    city7.stockpile.gold === goldBeforeRecall + 80
+    party7.cargo &&
+    party7.cargo.gold >= 80 &&
+    city7.stockpile.gold === goldBeforeRecall
   );
 
   // 8C. Non-Permanent Defeat Recovery -> express return to City Guild Hall, salvage credited, Hero preserved
@@ -8738,7 +8748,7 @@ function evaluateWargameSelfTests() {
     startedReturnMarch: startedReturnMarch,
     heroLevelSynced: heroLevelSynced,
     returnedAndBanked: returnedAndBanked,
-    recallExpressVerified: recallExpressVerified,
+    recallSurfaceVerified: recallSurfaceVerified,
     defeatRecoveryVerified: defeatRecoveryVerified
   };
   const failed8 = Object.keys(t8Checks).filter(function(k) { return !t8Checks[k]; });
@@ -8748,7 +8758,7 @@ function evaluateWargameSelfTests() {
     name: '8. Dungeon Extraction Return March, Cargo Banking, Recall Scroll & Defeat Recovery',
     pass: t8Pass,
     detail: t8Pass
-      ? 'Floor 1 extraction return march & cargo banking, Astral Recall Scroll express teleport, and Golden Rule #2 defeat rescue verified'
+      ? 'Floor 1 extraction return march & cargo banking, Astral Recall Scroll surface exit at dungeon entrance, and Golden Rule #2 defeat rescue verified'
       : 'Failed checks: ' + failed8.join(', ')
   });
 
