@@ -1,9 +1,13 @@
-// Overworld 2D Canvas Renderer — Frustum-Culled Terrain, Fog of War, A* Route Preview & Smooth Unit Interpolation
+// =============================================================================
+// POINTY-TOP HEXAGONAL OVERWORLD CANVAS RENDERER (ADR-0014 Step 3)
+// Powered by shared HexGridAdapter + MapViewportEngine (Tier 3 Strategic Cartography).
+// Losslessly maps (x, y) Overworld coordinates via odd-r offset <-> axial (q, r)
+// with 3-state Fog of War, A* route preview, Cities, Dungeon POIs, Hostiles & Units.
+// =============================================================================
 
 import {
   OVERWORLD_VIEWPORT_W,
-  OVERWORLD_VIEWPORT_H,
-  OVERWORLD_TILE_SIZE
+  OVERWORLD_VIEWPORT_H
 } from '../constants.js';
 import {
   OW_TERRAIN_PLAINS,
@@ -17,9 +21,103 @@ import {
 } from '../data/terrain.js';
 import { getSelectedOverworldUnit, getPrimaryCity } from '../engine/state.js';
 import { getUnitInterpolatedPosition } from '../engine/queues.js';
+import { createHexGridAdapter } from '../../ui/shared/gridAdapters.js';
+import { createMapViewport } from '../../ui/shared/mapViewport.js';
 
 let wgHoverTile = null;
 let wgPreviewPath = null;
+let owHexAdapter = null;
+let owViewport = null;
+let owViewportInitialized = false;
+let owAttachedCanvas = null;
+let owUserPanned = false;
+
+// Tier 3 Strategic Cartography Daylight Palette (Art Bible §2.1)
+const HEX_TERRAIN_FILL = {
+  [OW_TERRAIN_PLAINS]:       { fill: '#4d7c4f', stroke: '#3a623d', dim: '#182820' },
+  [OW_TERRAIN_FERTILE_VALE]: { fill: '#659954', stroke: '#4a773e', dim: '#1e3123' },
+  [OW_TERRAIN_FOREST]:       { fill: '#2f5742', stroke: '#213f30', dim: '#12241d' },
+  [OW_TERRAIN_HILLS]:        { fill: '#6c7a89', stroke: '#4e5b68', dim: '#1e2733' },
+  [OW_TERRAIN_MOUNTAINS]:    { fill: '#475569', stroke: '#334155', dim: '#17202e' },
+  [OW_TERRAIN_WATER]:        { fill: '#2563eb', stroke: '#1d4ed8', dim: '#0f2347' }
+};
+
+export function ensureOverworldHexViewport(canvas) {
+  if (!owHexAdapter) {
+    owHexAdapter = createHexGridAdapter({ hexSize: 22 });
+  }
+  const w = canvas ? canvas.width : 672;
+  const h = canvas ? canvas.height : 480;
+  if (!owViewport) {
+    owViewport = createMapViewport({
+      gridAdapter: owHexAdapter,
+      viewportWidth: w,
+      viewportHeight: h,
+      minZoom: 0.55,
+      maxZoom: 2.1,
+      zoom: 1.0
+    });
+  } else if (canvas && (owViewport.camera.width !== w || owViewport.camera.height !== h)) {
+    owViewport.resize(w, h);
+  }
+  return owViewport;
+}
+
+export function offsetToWorldInterpolated(fx, fy) {
+  ensureOverworldHexViewport(null);
+  const x0 = Math.floor(fx);
+  const y0 = Math.floor(fy);
+  const tx = fx - x0;
+  const ty = fy - y0;
+  if (tx === 0 && ty === 0) {
+    const ax = owHexAdapter.offsetToAxial(x0, y0);
+    return owHexAdapter.tileToWorld(ax);
+  }
+  const x1 = Math.ceil(fx);
+  const y1 = Math.ceil(fy);
+  const w0 = owHexAdapter.tileToWorld(owHexAdapter.offsetToAxial(x0, y0));
+  const w1 = owHexAdapter.tileToWorld(owHexAdapter.offsetToAxial(x1, y1));
+  const t = Math.max(tx, ty);
+  return {
+    wx: w0.wx + (w1.wx - w0.wx) * t,
+    wy: w0.wy + (w1.wy - w0.wy) * t
+  };
+}
+
+export function centerOverworldOnOffset(col, row) {
+  const vp = ensureOverworldHexViewport(null);
+  const ax = owHexAdapter.offsetToAxial(Math.round(col), Math.round(row));
+  vp.centerOnTile(ax);
+  owUserPanned = false;
+  owViewportInitialized = true;
+}
+
+export function attachOverworldHexControls(canvas, handlers) {
+  if (!canvas || owAttachedCanvas === canvas) return;
+  owAttachedCanvas = canvas;
+  const vp = ensureOverworldHexViewport(canvas);
+  const cb = handlers || {};
+
+  vp.attachPointerControls(canvas, {
+    onHoverTile: function(axial) {
+      if (!axial) {
+        if (typeof cb.onHoverOffset === 'function') cb.onHoverOffset(null);
+        return;
+      }
+      const off = owHexAdapter.axialToOffset(axial.q, axial.r);
+      if (typeof cb.onHoverOffset === 'function') cb.onHoverOffset({ x: off.col, y: off.row });
+    },
+    onTapTile: function(axial) {
+      if (!axial) return;
+      const off = owHexAdapter.axialToOffset(axial.q, axial.r);
+      if (typeof cb.onTapOffset === 'function') cb.onTapOffset({ x: off.col, y: off.row });
+    },
+    onCameraChange: function() {
+      owUserPanned = true;
+      if (typeof cb.onRepaint === 'function') cb.onRepaint();
+    }
+  });
+}
 
 export function setWargameHoverTile(tile, previewPath = null) {
   wgHoverTile = tile;
@@ -45,12 +143,32 @@ export function getWargameCameraOrigin(ow, centerX, centerY) {
   return { camX: camX, camY: camY };
 }
 
+function drawHexPolygon(ctx, pts, fill, stroke, lineWidth) {
+  ctx.beginPath();
+  ctx.moveTo(pts[0].sx, pts[0].sy);
+  for (let i = 1; i < 6; i++) {
+    ctx.lineTo(pts[i].sx, pts[i].sy);
+  }
+  ctx.closePath();
+  if (fill) {
+    ctx.fillStyle = fill;
+    ctx.fill();
+  }
+  if (stroke) {
+    ctx.strokeStyle = stroke;
+    ctx.lineWidth = lineWidth || 1;
+    ctx.stroke();
+  }
+}
+
 export function renderWargameOverworldCanvas(simHost) {
   if (typeof document === 'undefined' || !simHost || !simHost.state || !simHost.state.world) return;
   const canvas = document.getElementById('wgOverworldCanvas');
-  if (!canvas) return;
+  if (!canvas || typeof canvas.getContext !== 'function') return;
 
   const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+
   ctx.fillStyle = '#06090f';
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
@@ -59,6 +177,8 @@ export function renderWargameOverworldCanvas(simHost) {
   const ow = world.overworld;
   if (!ow || !ow.tiles) return;
 
+  const vp = ensureOverworldHexViewport(canvas);
+  const z = vp.camera.zoom;
   const simTimeMs = world.clock ? world.clock.simTimeMs : 0;
   const selUnit = getSelectedOverworldUnit(state);
   const primaryCity = getPrimaryCity(state);
@@ -75,296 +195,247 @@ export function renderWargameOverworldCanvas(simHost) {
     focusY = primaryCity.y;
   }
 
-  const cam = getWargameCameraOrigin(ow, focusX, focusY);
-  const camX = cam.camX;
-  const camY = cam.camY;
+  // Keep camera centered on active unit until user manually drags/pans
+  if (!owViewportInitialized || !owUserPanned) {
+    const focusW = offsetToWorldInterpolated(focusX, focusY);
+    vp.centerOnWorld(focusW.wx, focusW.wy);
+    owViewportInitialized = true;
+  }
+
   const visionRadius = selUnit ? (selUnit.visionRadius || 4) : 5;
+  const visRect = vp.getVisibleWorldRect(48);
 
-  // 1. Render Terrain Grid
-  for (let vy = 0; vy < OVERWORLD_VIEWPORT_H; vy++) {
-    const y = camY + vy;
-    if (y < 0 || y >= ow.height) continue;
+  // 1. Render Frustum-Culled Pointy-Top Hexagonal Terrain Grid
+  for (let y = 0; y < ow.height; y++) {
     const expRow = ow.explored[y];
+    for (let x = 0; x < ow.width; x++) {
+      const ax = owHexAdapter.offsetToAxial(x, y);
+      const centerW = owHexAdapter.tileToWorld(ax);
+      if (centerW.wx < visRect.minX || centerW.wx > visRect.maxX || centerW.wy < visRect.minY || centerW.wy > visRect.maxY) {
+        continue;
+      }
 
-    for (let vx = 0; vx < OVERWORLD_VIEWPORT_W; vx++) {
-      const x = camX + vx;
-      if (x < 0 || x >= ow.width) continue;
-
-      const px = vx * OVERWORLD_TILE_SIZE;
-      const py = vy * OVERWORLD_TILE_SIZE;
+      const polyW = owHexAdapter.getTilePolygon(ax);
+      const pts = polyW.map(function(p) { return vp.worldToScreen(p.wx, p.wy); });
+      const centerS = vp.worldToScreen(centerW.wx, centerW.wy);
       const isExplored = expRow && expRow[x];
 
       if (!isExplored) {
-        ctx.fillStyle = '#05070c';
-        ctx.fillRect(px, py, OVERWORLD_TILE_SIZE, OVERWORLD_TILE_SIZE);
-        ctx.strokeStyle = '#0c121e';
-        ctx.lineWidth = 1;
-        ctx.strokeRect(px + 0.5, py + 0.5, OVERWORLD_TILE_SIZE - 1, OVERWORLD_TILE_SIZE - 1);
+        drawHexPolygon(ctx, pts, '#070b12', '#111a28', 0.8);
         continue;
       }
 
       const dist = Math.hypot(x - focusX, y - focusY);
       const inSight = dist <= visionRadius + 0.45;
       const tId = ow.tiles[y][x];
+      const pal = HEX_TERRAIN_FILL[tId] || HEX_TERRAIN_FILL[OW_TERRAIN_PLAINS];
       const tDef = OVERWORLD_TERRAIN_DEFS[tId] || OVERWORLD_TERRAIN_DEFS[OW_TERRAIN_PLAINS];
 
-      ctx.fillStyle = inSight ? tDef.bgColor : '#0c1420';
-      ctx.fillRect(px, py, OVERWORLD_TILE_SIZE, OVERWORLD_TILE_SIZE);
+      drawHexPolygon(
+        ctx,
+        pts,
+        inSight ? pal.fill : pal.dim,
+        inSight ? pal.stroke : '#182538',
+        1
+      );
 
-      ctx.strokeStyle = inSight ? tDef.borderColor : '#162234';
-      ctx.lineWidth = 1;
-      ctx.strokeRect(px + 0.5, py + 0.5, OVERWORLD_TILE_SIZE - 1, OVERWORLD_TILE_SIZE - 1);
-
-      const cx = px + OVERWORLD_TILE_SIZE / 2;
-      const cy = py + OVERWORLD_TILE_SIZE / 2;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-
-      if (tId === OW_TERRAIN_FERTILE_VALE) {
-        ctx.fillStyle = inSight ? '#4ade80' : '#15803d';
-        ctx.font = '12px sans-serif';
-        ctx.fillText('❀', cx, cy);
-      } else if (tId === OW_TERRAIN_FOREST) {
-        ctx.fillStyle = inSight ? '#22c55e' : '#166534';
-        ctx.font = '13px sans-serif';
-        ctx.fillText('♠', cx - 4, cy - 2);
-        ctx.fillText('♠', cx + 4, cy + 3);
-      } else if (tId === OW_TERRAIN_HILLS) {
-        ctx.fillStyle = inSight ? '#cbd5e1' : '#64748b';
-        ctx.font = '13px sans-serif';
-        ctx.fillText('▲', cx, cy);
-      } else if (tId === OW_TERRAIN_MOUNTAINS) {
-        ctx.fillStyle = inSight ? '#f1f5f9' : '#94a3b8';
-        ctx.font = '14px sans-serif';
-        ctx.fillText('▲', cx - 3, cy);
-        ctx.font = '11px sans-serif';
-        ctx.fillText('▲', cx + 5, cy + 2);
-      } else if (tId === OW_TERRAIN_WATER) {
-        ctx.fillStyle = inSight ? '#38bdf8' : '#0284c7';
-        ctx.font = '13px sans-serif';
-        ctx.fillText('≈', cx, cy);
-      } else if (inSight) {
-        ctx.fillStyle = '#3f6212';
+      // Crisp Tier 3 cartographic detail cue
+      if (tId === OW_TERRAIN_MOUNTAINS) {
+        ctx.fillStyle = inSight ? '#cbd5e1' : '#334155';
         ctx.beginPath();
-        ctx.arc(cx, cy, 1.5, 0, Math.PI * 2);
+        ctx.moveTo(centerS.sx, centerS.sy - 8 * z);
+        ctx.lineTo(centerS.sx + 7 * z, centerS.sy + 5 * z);
+        ctx.lineTo(centerS.sx - 7 * z, centerS.sy + 5 * z);
+        ctx.closePath();
         ctx.fill();
-      }
-
-      if (!inSight) {
-        ctx.fillStyle = 'rgba(5, 8, 15, 0.52)';
-        ctx.fillRect(px, py, OVERWORLD_TILE_SIZE, OVERWORLD_TILE_SIZE);
-      }
-    }
-  }
-
-  // 2. Render Points of Interest (Resource Caches, Groves, Quarries, Dungeon Entrances)
-  if (Array.isArray(ow.pois)) {
-    for (let i = 0; i < ow.pois.length; i++) {
-      const poi = ow.pois[i];
-      if (poi.depleted) continue;
-      if (poi.x < camX || poi.x >= camX + OVERWORLD_VIEWPORT_W || poi.y < camY || poi.y >= camY + OVERWORLD_VIEWPORT_H) continue;
-      if (!ow.explored[poi.y] || !ow.explored[poi.y][poi.x]) continue;
-
-      const px = (poi.x - camX) * OVERWORLD_TILE_SIZE;
-      const py = (poi.y - camY) * OVERWORLD_TILE_SIZE;
-      const cx = px + OVERWORLD_TILE_SIZE / 2;
-      const cy = py + OVERWORLD_TILE_SIZE / 2;
-      const pDef = OVERWORLD_POI_DEFS[poi.type] || OVERWORLD_POI_DEFS.dungeon_entrance;
-      const accent = poi.accentColor || pDef.color || '#fbbf24';
-
-      // Pulsing breach ring only once selected Hero Party has finished moving onto this Dungeon POI
-      if (poi.type === 'dungeon_entrance' && selUnit && selUnit.alive && selUnit.canEnterDungeon &&
-          selUnit.status === 'idle' && selUnit.x === poi.x && selUnit.y === poi.y) {
-        ctx.strokeStyle = accent;
-        ctx.lineWidth = 2;
+      } else if (tId === OW_TERRAIN_FOREST) {
+        ctx.fillStyle = inSight ? '#1e3f2d' : '#0f2018';
         ctx.beginPath();
-        ctx.arc(cx, cy, 15, 0, Math.PI * 2);
+        ctx.arc(centerS.sx - 4 * z, centerS.sy, 4 * z, 0, Math.PI * 2);
+        ctx.arc(centerS.sx + 4 * z, centerS.sy + 1 * z, 3.5 * z, 0, Math.PI * 2);
+        ctx.arc(centerS.sx, centerS.sy - 4 * z, 4 * z, 0, Math.PI * 2);
+        ctx.fill();
+      } else if (tId === OW_TERRAIN_WATER) {
+        ctx.strokeStyle = inSight ? 'rgba(186, 230, 253, 0.45)' : 'rgba(56, 189, 248, 0.15)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(centerS.sx - 6 * z, centerS.sy);
+        ctx.lineTo(centerS.sx + 6 * z, centerS.sy);
         ctx.stroke();
+      } else if (tId === OW_TERRAIN_FERTILE_VALE && inSight) {
+        ctx.fillStyle = 'rgba(254, 240, 138, 0.45)';
+        ctx.beginPath();
+        ctx.arc(centerS.sx, centerS.sy, 2.2 * z, 0, Math.PI * 2);
+        ctx.fill();
+      } else if (tDef && tDef.symbol && z >= 0.85 && tId === OW_TERRAIN_HILLS) {
+        ctx.fillStyle = inSight ? '#cbd5e1' : '#475569';
+        ctx.font = Math.round(10 * z) + 'px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('▲', centerS.sx, centerS.sy);
       }
-
-      ctx.fillStyle = pDef.bgColor || '#1e1b4b';
-      ctx.beginPath();
-      ctx.arc(cx, cy, 12, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.strokeStyle = accent;
-      ctx.lineWidth = 1.5;
-      ctx.stroke();
-
-      ctx.font = '13px sans-serif';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillStyle = accent;
-      ctx.fillText(pDef.symbol || 'Ω', cx, cy);
-
-      ctx.font = 'bold 9px monospace';
-      ctx.fillStyle = '#e6edf3';
-      ctx.fillText(poi.name, cx, py - 3);
     }
   }
 
-  // 2B. Render Overworld Wandering Hostiles inside explored vision
-  if (Array.isArray(ow.hostiles)) {
-    for (let i = 0; i < ow.hostiles.length; i++) {
-      const h = ow.hostiles[i];
-      if (!h.alive) continue;
-      if (h.x < camX || h.x >= camX + OVERWORLD_VIEWPORT_W || h.y < camY || h.y >= camY + OVERWORLD_VIEWPORT_H) continue;
-      if (!ow.explored[h.y] || !ow.explored[h.y][h.x]) continue;
-
-      const px = (h.x - camX) * OVERWORLD_TILE_SIZE;
-      const py = (h.y - camY) * OVERWORLD_TILE_SIZE;
-      const cx = px + OVERWORLD_TILE_SIZE / 2;
-      const cy = py + OVERWORLD_TILE_SIZE / 2;
-
-      ctx.fillStyle = '#450a0a';
-      ctx.beginPath();
-      ctx.moveTo(cx, cy - 11);
-      ctx.lineTo(cx + 11, cy);
-      ctx.lineTo(cx, cy + 11);
-      ctx.lineTo(cx - 11, cy);
-      ctx.closePath();
-      ctx.fill();
-      ctx.strokeStyle = h.color || '#f87171';
-      ctx.lineWidth = 1.5;
-      ctx.stroke();
-
-      ctx.font = '11px sans-serif';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(h.icon || '💀', cx, cy);
-    }
-  }
-
-  // 3. Render Founded Cities
-  const cityKeys = Object.keys(world.cities || {});
-  for (let i = 0; i < cityKeys.length; i++) {
-    const city = world.cities[cityKeys[i]];
-    if (city.x < camX || city.x >= camX + OVERWORLD_VIEWPORT_W || city.y < camY || city.y >= camY + OVERWORLD_VIEWPORT_H) continue;
-
-    const px = (city.x - camX) * OVERWORLD_TILE_SIZE;
-    const py = (city.y - camY) * OVERWORLD_TILE_SIZE;
-    const cx = px + OVERWORLD_TILE_SIZE / 2;
-    const cy = py + OVERWORLD_TILE_SIZE / 2;
-
-    ctx.fillStyle = 'rgba(251, 191, 36, 0.22)';
+  // 2. Render Hover Hex & A* Route Preview
+  if (wgPreviewPath && wgPreviewPath.length > 1) {
+    ctx.save();
+    ctx.strokeStyle = '#38bdf8';
+    ctx.lineWidth = Math.max(2, 2.5 * z);
+    if (typeof ctx.setLineDash === 'function') ctx.setLineDash([5, 4]);
     ctx.beginPath();
-    ctx.arc(cx, cy, 14, 0, Math.PI * 2);
-    ctx.fill();
+    for (let pi = 0; pi < wgPreviewPath.length; pi++) {
+      const node = wgPreviewPath[pi];
+      const w = owHexAdapter.tileToWorld(owHexAdapter.offsetToAxial(node.x, node.y));
+      const s = vp.worldToScreen(w.wx, w.wy);
+      if (pi === 0) ctx.moveTo(s.sx, s.sy);
+      else ctx.lineTo(s.sx, s.sy);
+    }
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  if (wgHoverTile && wgHoverTile.x >= 0 && wgHoverTile.x < ow.width && wgHoverTile.y >= 0 && wgHoverTile.y < ow.height) {
+    const hAx = owHexAdapter.offsetToAxial(wgHoverTile.x, wgHoverTile.y);
+    const hPts = owHexAdapter.getTilePolygon(hAx).map(function(p) { return vp.worldToScreen(p.wx, p.wy); });
+    drawHexPolygon(ctx, hPts, 'rgba(251, 191, 36, 0.22)', '#fbbf24', 2);
+  }
+
+  // 3. Render Active March Path for Selected Unit
+  if (selUnit && selUnit.status === 'marching' && selUnit.marchPlan && Array.isArray(selUnit.marchPlan.path)) {
+    const path = selUnit.marchPlan.path;
+    ctx.save();
     ctx.strokeStyle = '#fbbf24';
+    ctx.lineWidth = Math.max(2, 2.5 * z);
+    if (typeof ctx.setLineDash === 'function') ctx.setLineDash([6, 4]);
+    ctx.beginPath();
+    for (let mi = 0; mi < path.length; mi++) {
+      const w = owHexAdapter.tileToWorld(owHexAdapter.offsetToAxial(path[mi].x, path[mi].y));
+      const s = vp.worldToScreen(w.wx, w.wy);
+      if (mi === 0) ctx.moveTo(s.sx, s.sy);
+      else ctx.lineTo(s.sx, s.sy);
+    }
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // 4. Render Discovered Points of Interest (Dungeons, Resource Caches, etc.)
+  const pois = ow.pois || [];
+  for (let i = 0; i < pois.length; i++) {
+    const poi = pois[i];
+    if (poi.collected) continue;
+    const isExp = (ow.explored[poi.y] && ow.explored[poi.y][poi.x]) || poi.discovered;
+    if (!isExp) continue;
+
+    const ax = owHexAdapter.offsetToAxial(poi.x, poi.y);
+    const w = owHexAdapter.tileToWorld(ax);
+    if (w.wx < visRect.minX || w.wx > visRect.maxX || w.wy < visRect.minY || w.wy > visRect.maxY) continue;
+    const s = vp.worldToScreen(w.wx, w.wy);
+    const pDef = OVERWORLD_POI_DEFS[poi.type] || { symbol: '★', color: '#fbbf24', bgColor: '#1e293b' };
+
+    ctx.fillStyle = pDef.bgColor || '#1e293b';
+    ctx.beginPath();
+    ctx.arc(s.sx, s.sy, 11 * z, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = poi.accentColor || pDef.color || '#fbbf24';
     ctx.lineWidth = 2;
     ctx.stroke();
 
-    ctx.font = '16px sans-serif';
+    ctx.fillStyle = poi.accentColor || pDef.color || '#fbbf24';
+    ctx.font = 'bold ' + Math.round(12 * z) + 'px sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText('🏰', cx, cy);
-
-    ctx.font = 'bold 10px sans-serif';
-    ctx.fillStyle = '#fbbf24';
-    ctx.fillText(city.name, cx, py - 4);
+    ctx.fillText(pDef.symbol || 'Ω', s.sx, s.sy);
   }
 
-  // 4. Render Active March Waypoint Path & Hover Preview Path
-  if (selUnit && selUnit.alive && selUnit.marchPlan && Array.isArray(selUnit.marchPlan.remainingPath)) {
-    const rem = selUnit.marchPlan.remainingPath;
-    ctx.strokeStyle = '#38bdf8';
-    ctx.lineWidth = 2;
-    ctx.setLineDash([4, 4]);
-    ctx.beginPath();
-    const interp = getUnitInterpolatedPosition(selUnit, simTimeMs);
-    ctx.moveTo((interp.x - camX + 0.5) * OVERWORLD_TILE_SIZE, (interp.y - camY + 0.5) * OVERWORLD_TILE_SIZE);
-    for (let i = 0; i < rem.length; i++) {
-      const st = rem[i];
-      ctx.lineTo((st.x - camX + 0.5) * OVERWORLD_TILE_SIZE, (st.y - camY + 0.5) * OVERWORLD_TILE_SIZE);
-    }
-    ctx.stroke();
-    ctx.setLineDash([]);
-  } else if (wgPreviewPath && wgPreviewPath.length > 0 && selUnit && selUnit.alive) {
-    ctx.strokeStyle = 'rgba(251, 191, 36, 0.65)';
-    ctx.lineWidth = 2;
-    ctx.setLineDash([3, 3]);
-    ctx.beginPath();
-    ctx.moveTo((selUnit.x - camX + 0.5) * OVERWORLD_TILE_SIZE, (selUnit.y - camY + 0.5) * OVERWORLD_TILE_SIZE);
-    for (let i = 0; i < wgPreviewPath.length; i++) {
-      const st = wgPreviewPath[i];
-      ctx.lineTo((st.x - camX + 0.5) * OVERWORLD_TILE_SIZE, (st.y - camY + 0.5) * OVERWORLD_TILE_SIZE);
-    }
-    ctx.stroke();
-    ctx.setLineDash([]);
-  }
-
-  // 5. Render Overworld Units (Settlers & Hero Parties) with Smooth Real-Time Interpolation
-  const units = ow.units || [];
-  for (let i = 0; i < units.length; i++) {
-    const u = units[i];
-    if (!u.alive) continue;
-    const interp = getUnitInterpolatedPosition(u, simTimeMs);
-    if (interp.x < camX - 1 || interp.x >= camX + OVERWORLD_VIEWPORT_W + 1 ||
-        interp.y < camY - 1 || interp.y >= camY + OVERWORLD_VIEWPORT_H + 1) {
-      continue;
-    }
-
-    const cx = (interp.x - camX + 0.5) * OVERWORLD_TILE_SIZE;
-    const cy = (interp.y - camY + 0.5) * OVERWORLD_TILE_SIZE;
-    const isSelected = selUnit && selUnit.id === u.id;
-
-    if (isSelected) {
-      ctx.strokeStyle = '#38bdf8';
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.arc(cx, cy, 14, 0, Math.PI * 2);
-      ctx.stroke();
-    }
+  // 5. Render Bastion Cities
+  const cities = world.cities || [];
+  for (let c = 0; c < cities.length; c++) {
+    const city = cities[c];
+    const ax = owHexAdapter.offsetToAxial(city.x, city.y);
+    const w = owHexAdapter.tileToWorld(ax);
+    if (w.wx < visRect.minX || w.wx > visRect.maxX || w.wy < visRect.minY || w.wy > visRect.maxY) continue;
+    const s = vp.worldToScreen(w.wx, w.wy);
 
     ctx.fillStyle = '#0f172a';
     ctx.beginPath();
-    ctx.arc(cx, cy, 11, 0, Math.PI * 2);
+    ctx.arc(s.sx, s.sy, 14 * z, 0, Math.PI * 2);
     ctx.fill();
-    ctx.strokeStyle = u.unitType === 'settler' ? '#fbbf24' : '#60a5fa';
-    ctx.lineWidth = 2;
+    ctx.strokeStyle = '#fbbf24';
+    ctx.lineWidth = 2.5;
     ctx.stroke();
 
-    ctx.font = '13px sans-serif';
+    ctx.font = Math.round(14 * z) + 'px sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(u.unitType === 'settler' ? '🚩' : '⚔️', cx, cy);
+    ctx.fillText('🏰', s.sx, s.sy - 1 * z);
 
-    // Step Progress Bar above marching unit
-    if (u.status === 'marching') {
-      const barW = 24;
-      const barH = 4;
-      const bx = cx - barW / 2;
-      const by = cy - 18;
-      ctx.fillStyle = '#090d16';
-      ctx.fillRect(bx, by, barW, barH);
-      ctx.fillStyle = (u.marchPlan && u.marchPlan.intent === 'return_city') ? '#fbbf24' : '#38bdf8';
-      ctx.fillRect(bx, by, Math.round(barW * interp.progress), barH);
-    } else if (u.status === 'in_dungeon') {
-      ctx.font = 'bold 8px monospace';
-      ctx.fillStyle = '#f87171';
-      ctx.fillText('IN VAULT', cx, cy - 16);
-    }
-
-    // Gold Cargo Indicator when party carries unbanked skirmish or dungeon spoils
-    if (u.cargo && ((u.cargo.gold || 0) > 0 || (u.cargo.ore || 0) > 0)) {
-      ctx.font = '10px sans-serif';
-      ctx.fillText('💰', cx + 11, cy - 10);
-    }
-
-    ctx.font = 'bold 9px sans-serif';
-    ctx.fillStyle = isSelected ? '#38bdf8' : '#e6edf3';
-    ctx.fillText(u.shortName || u.name, cx, cy + 19);
+    ctx.font = 'bold ' + Math.max(9, Math.round(10 * z)) + 'px monospace';
+    ctx.fillStyle = '#080b11';
+    const labelW = Math.max(54, city.name.length * 6.5) * z;
+    ctx.fillRect(s.sx - labelW * 0.5, s.sy + 12 * z, labelW, 13 * z);
+    ctx.fillStyle = '#fbbf24';
+    ctx.fillText(city.name, s.sx, s.sy + 18.5 * z);
   }
 
-  // 6. Hover Tile Reticle
-  if (wgHoverTile) {
-    const hx = wgHoverTile.x;
-    const hy = wgHoverTile.y;
-    if (hx >= camX && hx < camX + OVERWORLD_VIEWPORT_W && hy >= camY && hy < camY + OVERWORLD_VIEWPORT_H) {
-      const hpx = (hx - camX) * OVERWORLD_TILE_SIZE;
-      const hpy = (hy - camY) * OVERWORLD_TILE_SIZE;
-      ctx.strokeStyle = 'rgba(251, 191, 36, 0.85)';
-      ctx.lineWidth = 2;
-      ctx.strokeRect(hpx + 1, hpy + 1, OVERWORLD_TILE_SIZE - 2, OVERWORLD_TILE_SIZE - 2);
-    }
+  // 6. Render Wandering Hostiles (In Active Vision)
+  const hostiles = ow.hostiles || [];
+  for (let hi = 0; hi < hostiles.length; hi++) {
+    const hos = hostiles[hi];
+    if (!hos.alive) continue;
+    if (Math.hypot(hos.x - focusX, hos.y - focusY) > visionRadius + 1.2) continue;
+
+    const w = owHexAdapter.tileToWorld(owHexAdapter.offsetToAxial(hos.x, hos.y));
+    const s = vp.worldToScreen(w.wx, w.wy);
+
+    ctx.fillStyle = '#7f1d1d';
+    ctx.beginPath();
+    ctx.moveTo(s.sx, s.sy - 10 * z);
+    ctx.lineTo(s.sx + 10 * z, s.sy);
+    ctx.lineTo(s.sx, s.sy + 10 * z);
+    ctx.lineTo(s.sx - 10 * z, s.sy);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = '#f87171';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    ctx.fillStyle = '#fecaca';
+    ctx.font = 'bold ' + Math.round(10 * z) + 'px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('☠', s.sx, s.sy);
+  }
+
+  // 7. Render Player Units (Settlers & Hero Vanguard Parties)
+  const units = ow.units || [];
+  for (let ui = 0; ui < units.length; ui++) {
+    const u = units[ui];
+    if (!u.alive) continue;
+
+    const interp = getUnitInterpolatedPosition(u, simTimeMs);
+    const w = offsetToWorldInterpolated(interp.x, interp.y);
+    const s = vp.worldToScreen(w.wx, w.wy);
+    const isSel = selUnit && selUnit.id === u.id;
+
+    // Ground contact shadow
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
+    ctx.beginPath();
+    ctx.arc(s.sx, s.sy + 5 * z, 9 * z, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Unit Heraldic Shield Medallion
+    ctx.fillStyle = u.unitType === 'hero_party' ? '#1e3a8a' : '#065f46';
+    ctx.beginPath();
+    ctx.arc(s.sx, s.sy, 11 * z, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = isSel ? '#fbbf24' : '#e2e8f0';
+    ctx.lineWidth = isSel ? 2.5 : 1.5;
+    ctx.stroke();
+
+    ctx.font = Math.round(12 * z) + 'px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(u.unitType === 'hero_party' ? '⚔️' : '🚩', s.sx, s.sy);
   }
 }

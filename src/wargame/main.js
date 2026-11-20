@@ -12,7 +12,9 @@ import { createWargameSimHost } from './engine/simHost.js';
 import {
   renderWargameOverworldCanvas,
   setWargameHoverTile,
-  getWargameCameraOrigin
+  getWargameCameraOrigin,
+  attachOverworldHexControls,
+  centerOverworldOnOffset
 } from './ui/overworldView.js';
 import { syncWargameUI, updateHeaderFastTick } from './ui/wargameUiSync.js';
 import { attachCityIsoControls, renderCityIsoCanvas } from './ui/cityIsoCanvas.js';
@@ -568,68 +570,45 @@ function setupWargameListeners() {
 
   const canvas = document.getElementById('wgOverworldCanvas');
   if (canvas) {
-    canvas.addEventListener('mousemove', function(e) {
-      if (!simHost.state.world || !simHost.state.world.overworld) return;
-      const rect = canvas.getBoundingClientRect();
-      const scaleX = canvas.width / rect.width;
-      const scaleY = canvas.height / rect.height;
-      const mx = (e.clientX - rect.left) * scaleX;
-      const my = (e.clientY - rect.top) * scaleY;
-
-      const ow = simHost.state.world.overworld;
-      const selUnit = getSelectedOverworldUnit(simHost.state);
-      const primaryCity = getPrimaryCity(simHost.state);
-
-      const focusX = selUnit ? selUnit.x : (primaryCity ? primaryCity.x : ow.spawnX);
-      const focusY = selUnit ? selUnit.y : (primaryCity ? primaryCity.y : ow.spawnY);
-
-      const cam = getWargameCameraOrigin(ow, focusX, focusY);
-      const tx = cam.camX + Math.floor(mx / OVERWORLD_TILE_SIZE);
-      const ty = cam.camY + Math.floor(my / OVERWORLD_TILE_SIZE);
-
-      if (tx >= 0 && tx < ow.width && ty >= 0 && ty < ow.height) {
-        let previewRoute = null;
-        if (selUnit && selUnit.alive && isOverworldTilePassable(ow, tx, ty)) {
-          previewRoute = findOverworldPath(ow, selUnit.x, selUnit.y, tx, ty);
+    attachOverworldHexControls(canvas, {
+      onHoverOffset: function(off) {
+        if (!simHost.state.world || !simHost.state.world.overworld || !off) {
+          setWargameHoverTile(null, null);
+          return;
         }
-        setWargameHoverTile({ x: tx, y: ty }, previewRoute);
-      } else {
-        setWargameHoverTile(null, null);
+        const ow = simHost.state.world.overworld;
+        const selUnit = getSelectedOverworldUnit(simHost.state);
+        if (off.x >= 0 && off.x < ow.width && off.y >= 0 && off.y < ow.height) {
+          let previewRoute = null;
+          if (selUnit && selUnit.alive && isOverworldTilePassable(ow, off.x, off.y)) {
+            previewRoute = findOverworldPath(ow, selUnit.x, selUnit.y, off.x, off.y);
+          }
+          setWargameHoverTile({ x: off.x, y: off.y }, previewRoute);
+        } else {
+          setWargameHoverTile(null, null);
+        }
+      },
+      onTapOffset: function(off) {
+        if (!simHost.state.world || !simHost.state.world.overworld || !off) return;
+        const ow = simHost.state.world.overworld;
+        const selUnit = getSelectedOverworldUnit(simHost.state);
+        if (off.x >= 0 && off.x < ow.width && off.y >= 0 && off.y < ow.height && selUnit && selUnit.alive) {
+          simHost.dispatch({
+            type: COMMAND_TYPES.ORDER_UNIT_MARCH,
+            payload: { unitId: selUnit.id, targetX: off.x, targetY: off.y }
+          });
+          simHost.state._dirty = true;
+          simHost.save();
+          syncWargameUI(simHost);
+        }
+      },
+      onRepaint: function() {
+        renderWargameOverworldCanvas(simHost);
       }
     });
 
     canvas.addEventListener('mouseleave', function() {
       setWargameHoverTile(null, null);
-    });
-
-    canvas.addEventListener('click', function(e) {
-      if (!simHost.state.world || !simHost.state.world.overworld) return;
-      const rect = canvas.getBoundingClientRect();
-      const scaleX = canvas.width / rect.width;
-      const scaleY = canvas.height / rect.height;
-      const mx = (e.clientX - rect.left) * scaleX;
-      const my = (e.clientY - rect.top) * scaleY;
-
-      const ow = simHost.state.world.overworld;
-      const selUnit = getSelectedOverworldUnit(simHost.state);
-      const primaryCity = getPrimaryCity(simHost.state);
-
-      const focusX = selUnit ? selUnit.x : (primaryCity ? primaryCity.x : ow.spawnX);
-      const focusY = selUnit ? selUnit.y : (primaryCity ? primaryCity.y : ow.spawnY);
-
-      const cam = getWargameCameraOrigin(ow, focusX, focusY);
-      const tx = cam.camX + Math.floor(mx / OVERWORLD_TILE_SIZE);
-      const ty = cam.camY + Math.floor(my / OVERWORLD_TILE_SIZE);
-
-      if (tx >= 0 && tx < ow.width && ty >= 0 && ty < ow.height && selUnit && selUnit.alive) {
-        simHost.dispatch({
-          type: COMMAND_TYPES.ORDER_UNIT_MARCH,
-          payload: { unitId: selUnit.id, targetX: tx, targetY: ty }
-        });
-        simHost.state._dirty = true;
-        simHost.save();
-        syncWargameUI(simHost);
-      }
     });
   }
 

@@ -5632,8 +5632,575 @@ function createWargameSimHost(initialState = null) {
   };
 }
 
+  // --- Module: src/ui/shared/gridAdapters.js ---
+// =============================================================================
+// UNIFIED GRID ADAPTERS (ADR-0014 — Path A: Best-in-Class Domain Projections)
+// Pure, deterministic, zero-DOM ES2017 coordinate & topology math shared across:
+//   1. OrthoGridAdapter (Dungeon 2.5D Oblique Square Grid)
+//   2. IsoGridAdapter   (Bastion City 2:1 Rotated Square Isometric Diamond Grid)
+//   3. HexGridAdapter   (Overworld Pointy-Top Hexagonal Axial/Cube Grid)
+// =============================================================================
+
+const SQRT3 = Math.sqrt(3);
+
+const GRID_TYPES = {
+  ORTHO: 'ortho',
+  ISO: 'iso',
+  HEX_POINTY: 'hex_pointy'
+};
+
+// ---------------------------------------------------------------------------
+// 1. ORTHOGONAL SQUARE GRID ADAPTER (Starfall Vaults — 2.5D Oblique Dungeon)
+// ---------------------------------------------------------------------------
+function createOrthoGridAdapter(options) {
+  const opts = options || {};
+  const tw = opts.tileWidth || 32;
+  const th = opts.tileHeight || 32;
+
+  return {
+    type: GRID_TYPES.ORTHO,
+    tileWidth: tw,
+    tileHeight: th,
+
+    tileToWorld: function(coord) {
+      return {
+        wx: (coord.x + 0.5) * tw,
+        wy: (coord.y + 0.5) * th
+      };
+    },
+
+    worldToTile: function(wx, wy) {
+      return {
+        x: Math.floor(wx / tw),
+        y: Math.floor(wy / th)
+      };
+    },
+
+    getNeighbors: function(coord, includeDiagonals) {
+      const x = coord.x;
+      const y = coord.y;
+      const list = [
+        { x: x, y: y - 1 },
+        { x: x + 1, y: y },
+        { x: x, y: y + 1 },
+        { x: x - 1, y: y }
+      ];
+      if (includeDiagonals) {
+        list.push(
+          { x: x + 1, y: y - 1 },
+          { x: x + 1, y: y + 1 },
+          { x: x - 1, y: y + 1 },
+          { x: x - 1, y: y - 1 }
+        );
+      }
+      return list;
+    },
+
+    getDistance: function(a, b) {
+      return Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
+    },
+
+    getTilePolygon: function(coord) {
+      const x0 = coord.x * tw;
+      const y0 = coord.y * th;
+      return [
+        { wx: x0, wy: y0 },
+        { wx: x0 + tw, wy: y0 },
+        { wx: x0 + tw, wy: y0 + th },
+        { wx: x0, wy: y0 + th }
+      ];
+    }
+  };
+}
+
+// ---------------------------------------------------------------------------
+// 2. ROTATED SQUARE (2:1 ISOMETRIC DIAMOND) ADAPTER (Bastion City 8x8 Plots)
+// ---------------------------------------------------------------------------
+function createIsoGridAdapter(options) {
+  const opts = options || {};
+  const tw = opts.tileWidth || 96;
+  const th = opts.tileHeight || 48;
+  const halfW = tw / 2;
+  const halfH = th / 2;
+
+  return {
+    type: GRID_TYPES.ISO,
+    tileWidth: tw,
+    tileHeight: th,
+
+    tileToWorld: function(coord) {
+      return {
+        wx: (coord.x - coord.y) * halfW,
+        wy: (coord.x + coord.y) * halfH
+      };
+    },
+
+    worldToTile: function(wx, wy) {
+      const fx = (wx / halfW + wy / halfH) * 0.5;
+      const fy = (wy / halfH - wx / halfW) * 0.5;
+      return {
+        x: Math.round(fx),
+        y: Math.round(fy)
+      };
+    },
+
+    getNeighbors: function(coord) {
+      const x = coord.x;
+      const y = coord.y;
+      return [
+        { x: x, y: y - 1 },
+        { x: x + 1, y: y },
+        { x: x, y: y + 1 },
+        { x: x - 1, y: y }
+      ];
+    },
+
+    getDistance: function(a, b) {
+      return Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
+    },
+
+    getTilePolygon: function(coord) {
+      const c = this.tileToWorld(coord);
+      return [
+        { wx: c.wx, wy: c.wy - halfH },
+        { wx: c.wx + halfW, wy: c.wy },
+        { wx: c.wx, wy: c.wy + halfH },
+        { wx: c.wx - halfW, wy: c.wy }
+      ];
+    },
+
+    // Back-to-front painter's sort order for isometric 3D building overlap
+    getDrawOrder: function(cols, rows) {
+      const order = [];
+      for (let sum = 0; sum <= (cols - 1) + (rows - 1); sum++) {
+        for (let x = 0; x < cols; x++) {
+          const y = sum - x;
+          if (y >= 0 && y < rows) {
+            order.push({ x: x, y: y, plotIndex: y * cols + x });
+          }
+        }
+      }
+      return order;
+    }
+  };
+}
+
+// ---------------------------------------------------------------------------
+// 3. POINTY-TOP HEXAGONAL GRID ADAPTER (Overworld Macro Strategy — Axial/Cube)
+// Implements Red Blob Games canonical axial (q, r) & cube (q, r, s) math.
+// ---------------------------------------------------------------------------
+const HEX_DIRECTIONS = [
+  { q: 1, r: 0 },
+  { q: 1, r: -1 },
+  { q: 0, r: -1 },
+  { q: -1, r: 0 },
+  { q: -1, r: 1 },
+  { q: 0, r: 1 }
+];
+
+function cubeRound(fq, fr) {
+  const fs = -fq - fr;
+  let rq = Math.round(fq);
+  let rr = Math.round(fr);
+  const rs = Math.round(fs);
+
+  const qDiff = Math.abs(rq - fq);
+  const rDiff = Math.abs(rr - fr);
+  const sDiff = Math.abs(rs - fs);
+
+  if (qDiff > rDiff && qDiff > sDiff) {
+    rq = -rr - rs;
+  } else if (rDiff > sDiff) {
+    rr = -rq - rs;
+  }
+  return { q: rq === 0 ? 0 : rq, r: rr === 0 ? 0 : rr };
+}
+
+function createHexGridAdapter(options) {
+  const opts = options || {};
+  const size = opts.hexSize || 28;
+
+  return {
+    type: GRID_TYPES.HEX_POINTY,
+    hexSize: size,
+    tileWidth: SQRT3 * size,
+    tileHeight: 2 * size,
+
+    tileToWorld: function(coord) {
+      const q = coord.q;
+      const r = coord.r;
+      return {
+        wx: size * (SQRT3 * q + (SQRT3 * 0.5) * r),
+        wy: size * (1.5 * r)
+      };
+    },
+
+    worldToTile: function(wx, wy) {
+      const fq = ((SQRT3 / 3) * wx - (1 / 3) * wy) / size;
+      const fr = ((2 / 3) * wy) / size;
+      return cubeRound(fq, fr);
+    },
+
+    getNeighbors: function(coord) {
+      const out = [];
+      for (let i = 0; i < HEX_DIRECTIONS.length; i++) {
+        out.push({
+          q: coord.q + HEX_DIRECTIONS[i].q,
+          r: coord.r + HEX_DIRECTIONS[i].r
+        });
+      }
+      return out;
+    },
+
+    getDistance: function(a, b) {
+      const dq = a.q - b.q;
+      const dr = a.r - b.r;
+      return (Math.abs(dq) + Math.abs(dq + dr) + Math.abs(dr)) * 0.5;
+    },
+
+    getRing: function(center, radius) {
+      if (radius <= 0) return [{ q: center.q, r: center.r }];
+      const results = [];
+      let curQ = center.q + HEX_DIRECTIONS[4].q * radius;
+      let curR = center.r + HEX_DIRECTIONS[4].r * radius;
+      for (let side = 0; side < 6; side++) {
+        for (let step = 0; step < radius; step++) {
+          results.push({ q: curQ, r: curR });
+          curQ += HEX_DIRECTIONS[side].q;
+          curR += HEX_DIRECTIONS[side].r;
+        }
+      }
+      return results;
+    },
+
+    getSpiral: function(center, maxRadius) {
+      const results = [{ q: center.q, r: center.r }];
+      for (let rad = 1; rad <= maxRadius; rad++) {
+        const ring = this.getRing(center, rad);
+        for (let i = 0; i < ring.length; i++) {
+          results.push(ring[i]);
+        }
+      }
+      return results;
+    },
+
+    // Odd-r offset (col, row) <-> Axial (q, r) for lossless legacy Overworld coordinate migration
+    offsetToAxial: function(col, row) {
+      const q = col - Math.floor((row - (row & 1)) / 2);
+      return { q: q, r: row };
+    },
+
+    axialToOffset: function(q, r) {
+      const col = q + Math.floor((r - (r & 1)) / 2);
+      return { col: col, row: r };
+    },
+
+    getTilePolygon: function(coord) {
+      const c = this.tileToWorld(coord);
+      const pts = [];
+      for (let i = 0; i < 6; i++) {
+        const angleRad = (Math.PI / 180) * (60 * i - 30);
+        pts.push({
+          wx: c.wx + size * Math.cos(angleRad),
+          wy: c.wy + size * Math.sin(angleRad)
+        });
+      }
+      return pts;
+    }
+  };
+}
+
+  // --- Module: src/ui/shared/mapViewport.js ---
+// =============================================================================
+// SHARED MAP VIEWPORT ENGINE (ADR-0014 §3)
+// Unified camera pan, zoom-toward-cursor/pinch, frustum culling, pointer/touch
+// tap-vs-drag disambiguation, and 6-layer render pipeline contract.
+// Works seamlessly with PixiJS v8 (pixi-viewport) or Canvas 2D fallback.
+// =============================================================================
+
+const MAP_RENDER_LAYERS = {
+  TERRAIN: 0,
+  DECALS: 1,
+  PROPS: 2,
+  ACTORS: 3,
+  LIGHTING: 4,
+  OVERLAYS: 5
+};
+
+function createMapViewport(options) {
+  const opts = options || {};
+  const gridAdapter = opts.gridAdapter || null;
+  const minZoom = typeof opts.minZoom === 'number' ? opts.minZoom : 0.45;
+  const maxZoom = typeof opts.maxZoom === 'number' ? opts.maxZoom : 2.5;
+  const bounds = opts.bounds || null; // { minX, maxX, minY, maxY }
+
+  const camera = {
+    x: typeof opts.x === 'number' ? opts.x : 0, // World X at viewport center
+    y: typeof opts.y === 'number' ? opts.y : 0, // World Y at viewport center
+    zoom: typeof opts.zoom === 'number' ? opts.zoom : 1.0,
+    width: opts.viewportWidth || 672,
+    height: opts.viewportHeight || 480
+  };
+
+  function clampCamera() {
+    if (camera.zoom < minZoom) camera.zoom = minZoom;
+    if (camera.zoom > maxZoom) camera.zoom = maxZoom;
+    if (bounds) {
+      if (typeof bounds.minX === 'number' && camera.x < bounds.minX) camera.x = bounds.minX;
+      if (typeof bounds.maxX === 'number' && camera.x > bounds.maxX) camera.x = bounds.maxX;
+      if (typeof bounds.minY === 'number' && camera.y < bounds.minY) camera.y = bounds.minY;
+      if (typeof bounds.maxY === 'number' && camera.y > bounds.maxY) camera.y = bounds.maxY;
+    }
+  }
+
+  function screenToWorld(sx, sy) {
+    return {
+      wx: camera.x + (sx - camera.width * 0.5) / camera.zoom,
+      wy: camera.y + (sy - camera.height * 0.5) / camera.zoom
+    };
+  }
+
+  function worldToScreen(wx, wy) {
+    return {
+      sx: (wx - camera.x) * camera.zoom + camera.width * 0.5,
+      sy: (wy - camera.y) * camera.zoom + camera.height * 0.5
+    };
+  }
+
+  function setZoom(nextZoom, anchorSx, anchorSy) {
+    const clamped = Math.max(minZoom, Math.min(maxZoom, nextZoom));
+    if (typeof anchorSx === 'number' && typeof anchorSy === 'number') {
+      const before = screenToWorld(anchorSx, anchorSy);
+      camera.zoom = clamped;
+      const after = screenToWorld(anchorSx, anchorSy);
+      camera.x += (before.wx - after.wx);
+      camera.y += (before.wy - after.wy);
+    } else {
+      camera.zoom = clamped;
+    }
+    clampCamera();
+    return camera.zoom;
+  }
+
+  function panByScreenDelta(dsx, dsy) {
+    camera.x -= dsx / camera.zoom;
+    camera.y -= dsy / camera.zoom;
+    clampCamera();
+  }
+
+  function centerOnWorld(wx, wy) {
+    camera.x = wx;
+    camera.y = wy;
+    clampCamera();
+  }
+
+  function centerOnTile(coord) {
+    if (!gridAdapter || typeof gridAdapter.tileToWorld !== 'function') return;
+    const w = gridAdapter.tileToWorld(coord);
+    centerOnWorld(w.wx, w.wy);
+  }
+
+  function screenToTile(sx, sy) {
+    if (!gridAdapter || typeof gridAdapter.worldToTile !== 'function') return null;
+    const w = screenToWorld(sx, sy);
+    return gridAdapter.worldToTile(w.wx, w.wy);
+  }
+
+  function tileToScreen(coord) {
+    if (!gridAdapter || typeof gridAdapter.tileToWorld !== 'function') return null;
+    const w = gridAdapter.tileToWorld(coord);
+    return worldToScreen(w.wx, w.wy);
+  }
+
+  function getVisibleWorldRect(margin) {
+    const pad = typeof margin === 'number' ? margin : 64;
+    const tl = screenToWorld(-pad, -pad);
+    const br = screenToWorld(camera.width + pad, camera.height + pad);
+    return {
+      minX: tl.wx,
+      minY: tl.wy,
+      maxX: br.wx,
+      maxY: br.wy
+    };
+  }
+
+  function resize(width, height) {
+    if (width > 0) camera.width = width;
+    if (height > 0) camera.height = height;
+    clampCamera();
+  }
+
+  // Unified Mouse + Touch Pointer Controller (Tap-vs-Drag disambiguation + Pinch-Zoom)
+  function attachPointerControls(canvasEl, handlers) {
+    if (!canvasEl || typeof canvasEl.addEventListener !== 'function') return function() {};
+    const cb = handlers || {};
+    const dragThresholdPx = 8;
+
+    let isDown = false;
+    let dragged = false;
+    let startX = 0;
+    let startY = 0;
+    let lastX = 0;
+    let lastY = 0;
+    let lastPinchDist = 0;
+
+    function getLocalPos(clientX, clientY) {
+      const rect = canvasEl.getBoundingClientRect();
+      const scaleX = rect.width > 0 ? (camera.width / rect.width) : 1;
+      const scaleY = rect.height > 0 ? (camera.height / rect.height) : 1;
+      return {
+        sx: (clientX - rect.left) * scaleX,
+        sy: (clientY - rect.top) * scaleY
+      };
+    }
+
+    function onMouseDown(e) {
+      isDown = true;
+      dragged = false;
+      startX = lastX = e.clientX;
+      startY = lastY = e.clientY;
+    }
+
+    function onMouseMove(e) {
+      const pos = getLocalPos(e.clientX, e.clientY);
+      if (isDown) {
+        const dx = e.clientX - lastX;
+        const dy = e.clientY - lastY;
+        if (Math.hypot(e.clientX - startX, e.clientY - startY) >= dragThresholdPx) {
+          dragged = true;
+        }
+        if (dragged) {
+          panByScreenDelta(dx, dy);
+          if (typeof cb.onCameraChange === 'function') cb.onCameraChange(camera);
+        }
+        lastX = e.clientX;
+        lastY = e.clientY;
+      } else if (typeof cb.onHoverTile === 'function') {
+        cb.onHoverTile(screenToTile(pos.sx, pos.sy), pos);
+      }
+    }
+
+    function onMouseUp(e) {
+      if (!isDown) return;
+      isDown = false;
+      if (!dragged && typeof cb.onTapTile === 'function') {
+        const pos = getLocalPos(e.clientX, e.clientY);
+        cb.onTapTile(screenToTile(pos.sx, pos.sy), pos);
+      }
+    }
+
+    function onWheel(e) {
+      if (typeof e.preventDefault === 'function') e.preventDefault();
+      const pos = getLocalPos(e.clientX, e.clientY);
+      const factor = e.deltaY < 0 ? 1.12 : 0.89;
+      setZoom(camera.zoom * factor, pos.sx, pos.sy);
+      if (typeof cb.onCameraChange === 'function') cb.onCameraChange(camera);
+    }
+
+    function onTouchStart(e) {
+      if (!e.touches || e.touches.length === 0) return;
+      if (e.touches.length === 1) {
+        isDown = true;
+        dragged = false;
+        startX = lastX = e.touches[0].clientX;
+        startY = lastY = e.touches[0].clientY;
+      } else if (e.touches.length === 2) {
+        isDown = false;
+        dragged = true;
+        lastPinchDist = Math.hypot(
+          e.touches[0].clientX - e.touches[1].clientX,
+          e.touches[0].clientY - e.touches[1].clientY
+        );
+      }
+    }
+
+    function onTouchMove(e) {
+      if (!e.touches || e.touches.length === 0) return;
+      if (e.touches.length === 1 && isDown) {
+        const t = e.touches[0];
+        if (Math.hypot(t.clientX - startX, t.clientY - startY) >= dragThresholdPx) {
+          dragged = true;
+        }
+        if (dragged) {
+          if (typeof e.preventDefault === 'function') e.preventDefault();
+          panByScreenDelta(t.clientX - lastX, t.clientY - lastY);
+          if (typeof cb.onCameraChange === 'function') cb.onCameraChange(camera);
+        }
+        lastX = t.clientX;
+        lastY = t.clientY;
+      } else if (e.touches.length === 2) {
+        if (typeof e.preventDefault === 'function') e.preventDefault();
+        const dist = Math.hypot(
+          e.touches[0].clientX - e.touches[1].clientX,
+          e.touches[0].clientY - e.touches[1].clientY
+        );
+        if (lastPinchDist > 0 && dist > 0) {
+          const midX = (e.touches[0].clientX + e.touches[1].clientX) * 0.5;
+          const midY = (e.touches[0].clientY + e.touches[1].clientY) * 0.5;
+          const pos = getLocalPos(midX, midY);
+          setZoom(camera.zoom * (dist / lastPinchDist), pos.sx, pos.sy);
+          if (typeof cb.onCameraChange === 'function') cb.onCameraChange(camera);
+        }
+        lastPinchDist = dist;
+      }
+    }
+
+    function onTouchEnd(e) {
+      if (isDown && !dragged && typeof cb.onTapTile === 'function' && e.changedTouches && e.changedTouches[0]) {
+        const pos = getLocalPos(e.changedTouches[0].clientX, e.changedTouches[0].clientY);
+        cb.onTapTile(screenToTile(pos.sx, pos.sy), pos);
+      }
+      isDown = false;
+      lastPinchDist = 0;
+    }
+
+    canvasEl.addEventListener('mousedown', onMouseDown);
+    canvasEl.addEventListener('mousemove', onMouseMove);
+    canvasEl.addEventListener('mouseup', onMouseUp);
+    canvasEl.addEventListener('wheel', onWheel, { passive: false });
+    canvasEl.addEventListener('touchstart', onTouchStart, { passive: true });
+    canvasEl.addEventListener('touchmove', onTouchMove, { passive: false });
+    canvasEl.addEventListener('touchend', onTouchEnd, { passive: true });
+
+    return function detach() {
+      canvasEl.removeEventListener('mousedown', onMouseDown);
+      canvasEl.removeEventListener('mousemove', onMouseMove);
+      canvasEl.removeEventListener('mouseup', onMouseUp);
+      canvasEl.removeEventListener('wheel', onWheel);
+      canvasEl.removeEventListener('touchstart', onTouchStart);
+      canvasEl.removeEventListener('touchmove', onTouchMove);
+      canvasEl.removeEventListener('touchend', onTouchEnd);
+    };
+  }
+
+  clampCamera();
+
+  return {
+    camera: camera,
+    gridAdapter: gridAdapter,
+    screenToWorld: screenToWorld,
+    worldToScreen: worldToScreen,
+    setZoom: setZoom,
+    panByScreenDelta: panByScreenDelta,
+    centerOnWorld: centerOnWorld,
+    centerOnTile: centerOnTile,
+    screenToTile: screenToTile,
+    tileToScreen: tileToScreen,
+    getVisibleWorldRect: getVisibleWorldRect,
+    resize: resize,
+    attachPointerControls: attachPointerControls
+  };
+}
+
   // --- Module: src/wargame/ui/overworldView.js ---
-// Overworld 2D Canvas Renderer — Frustum-Culled Terrain, Fog of War, A* Route Preview & Smooth Unit Interpolation
+// =============================================================================
+// POINTY-TOP HEXAGONAL OVERWORLD CANVAS RENDERER (ADR-0014 Step 3)
+// Powered by shared HexGridAdapter + MapViewportEngine (Tier 3 Strategic Cartography).
+// Losslessly maps (x, y) Overworld coordinates via odd-r offset <-> axial (q, r)
+// with 3-state Fog of War, A* route preview, Cities, Dungeon POIs, Hostiles & Units.
+// =============================================================================
+
+
 
 
 
@@ -5641,6 +6208,98 @@ function createWargameSimHost(initialState = null) {
 
 let wgHoverTile = null;
 let wgPreviewPath = null;
+let owHexAdapter = null;
+let owViewport = null;
+let owViewportInitialized = false;
+let owAttachedCanvas = null;
+let owUserPanned = false;
+
+// Tier 3 Strategic Cartography Daylight Palette (Art Bible §2.1)
+const HEX_TERRAIN_FILL = {
+  [OW_TERRAIN_PLAINS]:       { fill: '#4d7c4f', stroke: '#3a623d', dim: '#182820' },
+  [OW_TERRAIN_FERTILE_VALE]: { fill: '#659954', stroke: '#4a773e', dim: '#1e3123' },
+  [OW_TERRAIN_FOREST]:       { fill: '#2f5742', stroke: '#213f30', dim: '#12241d' },
+  [OW_TERRAIN_HILLS]:        { fill: '#6c7a89', stroke: '#4e5b68', dim: '#1e2733' },
+  [OW_TERRAIN_MOUNTAINS]:    { fill: '#475569', stroke: '#334155', dim: '#17202e' },
+  [OW_TERRAIN_WATER]:        { fill: '#2563eb', stroke: '#1d4ed8', dim: '#0f2347' }
+};
+
+function ensureOverworldHexViewport(canvas) {
+  if (!owHexAdapter) {
+    owHexAdapter = createHexGridAdapter({ hexSize: 22 });
+  }
+  const w = canvas ? canvas.width : 672;
+  const h = canvas ? canvas.height : 480;
+  if (!owViewport) {
+    owViewport = createMapViewport({
+      gridAdapter: owHexAdapter,
+      viewportWidth: w,
+      viewportHeight: h,
+      minZoom: 0.55,
+      maxZoom: 2.1,
+      zoom: 1.0
+    });
+  } else if (canvas && (owViewport.camera.width !== w || owViewport.camera.height !== h)) {
+    owViewport.resize(w, h);
+  }
+  return owViewport;
+}
+
+function offsetToWorldInterpolated(fx, fy) {
+  ensureOverworldHexViewport(null);
+  const x0 = Math.floor(fx);
+  const y0 = Math.floor(fy);
+  const tx = fx - x0;
+  const ty = fy - y0;
+  if (tx === 0 && ty === 0) {
+    const ax = owHexAdapter.offsetToAxial(x0, y0);
+    return owHexAdapter.tileToWorld(ax);
+  }
+  const x1 = Math.ceil(fx);
+  const y1 = Math.ceil(fy);
+  const w0 = owHexAdapter.tileToWorld(owHexAdapter.offsetToAxial(x0, y0));
+  const w1 = owHexAdapter.tileToWorld(owHexAdapter.offsetToAxial(x1, y1));
+  const t = Math.max(tx, ty);
+  return {
+    wx: w0.wx + (w1.wx - w0.wx) * t,
+    wy: w0.wy + (w1.wy - w0.wy) * t
+  };
+}
+
+function centerOverworldOnOffset(col, row) {
+  const vp = ensureOverworldHexViewport(null);
+  const ax = owHexAdapter.offsetToAxial(Math.round(col), Math.round(row));
+  vp.centerOnTile(ax);
+  owUserPanned = false;
+  owViewportInitialized = true;
+}
+
+function attachOverworldHexControls(canvas, handlers) {
+  if (!canvas || owAttachedCanvas === canvas) return;
+  owAttachedCanvas = canvas;
+  const vp = ensureOverworldHexViewport(canvas);
+  const cb = handlers || {};
+
+  vp.attachPointerControls(canvas, {
+    onHoverTile: function(axial) {
+      if (!axial) {
+        if (typeof cb.onHoverOffset === 'function') cb.onHoverOffset(null);
+        return;
+      }
+      const off = owHexAdapter.axialToOffset(axial.q, axial.r);
+      if (typeof cb.onHoverOffset === 'function') cb.onHoverOffset({ x: off.col, y: off.row });
+    },
+    onTapTile: function(axial) {
+      if (!axial) return;
+      const off = owHexAdapter.axialToOffset(axial.q, axial.r);
+      if (typeof cb.onTapOffset === 'function') cb.onTapOffset({ x: off.col, y: off.row });
+    },
+    onCameraChange: function() {
+      owUserPanned = true;
+      if (typeof cb.onRepaint === 'function') cb.onRepaint();
+    }
+  });
+}
 
 function setWargameHoverTile(tile, previewPath = null) {
   wgHoverTile = tile;
@@ -5666,12 +6325,32 @@ function getWargameCameraOrigin(ow, centerX, centerY) {
   return { camX: camX, camY: camY };
 }
 
+function drawHexPolygon(ctx, pts, fill, stroke, lineWidth) {
+  ctx.beginPath();
+  ctx.moveTo(pts[0].sx, pts[0].sy);
+  for (let i = 1; i < 6; i++) {
+    ctx.lineTo(pts[i].sx, pts[i].sy);
+  }
+  ctx.closePath();
+  if (fill) {
+    ctx.fillStyle = fill;
+    ctx.fill();
+  }
+  if (stroke) {
+    ctx.strokeStyle = stroke;
+    ctx.lineWidth = lineWidth || 1;
+    ctx.stroke();
+  }
+}
+
 function renderWargameOverworldCanvas(simHost) {
   if (typeof document === 'undefined' || !simHost || !simHost.state || !simHost.state.world) return;
   const canvas = document.getElementById('wgOverworldCanvas');
-  if (!canvas) return;
+  if (!canvas || typeof canvas.getContext !== 'function') return;
 
   const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+
   ctx.fillStyle = '#06090f';
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
@@ -5680,6 +6359,8 @@ function renderWargameOverworldCanvas(simHost) {
   const ow = world.overworld;
   if (!ow || !ow.tiles) return;
 
+  const vp = ensureOverworldHexViewport(canvas);
+  const z = vp.camera.zoom;
   const simTimeMs = world.clock ? world.clock.simTimeMs : 0;
   const selUnit = getSelectedOverworldUnit(state);
   const primaryCity = getPrimaryCity(state);
@@ -5696,297 +6377,248 @@ function renderWargameOverworldCanvas(simHost) {
     focusY = primaryCity.y;
   }
 
-  const cam = getWargameCameraOrigin(ow, focusX, focusY);
-  const camX = cam.camX;
-  const camY = cam.camY;
+  // Keep camera centered on active unit until user manually drags/pans
+  if (!owViewportInitialized || !owUserPanned) {
+    const focusW = offsetToWorldInterpolated(focusX, focusY);
+    vp.centerOnWorld(focusW.wx, focusW.wy);
+    owViewportInitialized = true;
+  }
+
   const visionRadius = selUnit ? (selUnit.visionRadius || 4) : 5;
+  const visRect = vp.getVisibleWorldRect(48);
 
-  // 1. Render Terrain Grid
-  for (let vy = 0; vy < OVERWORLD_VIEWPORT_H; vy++) {
-    const y = camY + vy;
-    if (y < 0 || y >= ow.height) continue;
+  // 1. Render Frustum-Culled Pointy-Top Hexagonal Terrain Grid
+  for (let y = 0; y < ow.height; y++) {
     const expRow = ow.explored[y];
+    for (let x = 0; x < ow.width; x++) {
+      const ax = owHexAdapter.offsetToAxial(x, y);
+      const centerW = owHexAdapter.tileToWorld(ax);
+      if (centerW.wx < visRect.minX || centerW.wx > visRect.maxX || centerW.wy < visRect.minY || centerW.wy > visRect.maxY) {
+        continue;
+      }
 
-    for (let vx = 0; vx < OVERWORLD_VIEWPORT_W; vx++) {
-      const x = camX + vx;
-      if (x < 0 || x >= ow.width) continue;
-
-      const px = vx * OVERWORLD_TILE_SIZE;
-      const py = vy * OVERWORLD_TILE_SIZE;
+      const polyW = owHexAdapter.getTilePolygon(ax);
+      const pts = polyW.map(function(p) { return vp.worldToScreen(p.wx, p.wy); });
+      const centerS = vp.worldToScreen(centerW.wx, centerW.wy);
       const isExplored = expRow && expRow[x];
 
       if (!isExplored) {
-        ctx.fillStyle = '#05070c';
-        ctx.fillRect(px, py, OVERWORLD_TILE_SIZE, OVERWORLD_TILE_SIZE);
-        ctx.strokeStyle = '#0c121e';
-        ctx.lineWidth = 1;
-        ctx.strokeRect(px + 0.5, py + 0.5, OVERWORLD_TILE_SIZE - 1, OVERWORLD_TILE_SIZE - 1);
+        drawHexPolygon(ctx, pts, '#070b12', '#111a28', 0.8);
         continue;
       }
 
       const dist = Math.hypot(x - focusX, y - focusY);
       const inSight = dist <= visionRadius + 0.45;
       const tId = ow.tiles[y][x];
+      const pal = HEX_TERRAIN_FILL[tId] || HEX_TERRAIN_FILL[OW_TERRAIN_PLAINS];
       const tDef = OVERWORLD_TERRAIN_DEFS[tId] || OVERWORLD_TERRAIN_DEFS[OW_TERRAIN_PLAINS];
 
-      ctx.fillStyle = inSight ? tDef.bgColor : '#0c1420';
-      ctx.fillRect(px, py, OVERWORLD_TILE_SIZE, OVERWORLD_TILE_SIZE);
+      drawHexPolygon(
+        ctx,
+        pts,
+        inSight ? pal.fill : pal.dim,
+        inSight ? pal.stroke : '#182538',
+        1
+      );
 
-      ctx.strokeStyle = inSight ? tDef.borderColor : '#162234';
-      ctx.lineWidth = 1;
-      ctx.strokeRect(px + 0.5, py + 0.5, OVERWORLD_TILE_SIZE - 1, OVERWORLD_TILE_SIZE - 1);
-
-      const cx = px + OVERWORLD_TILE_SIZE / 2;
-      const cy = py + OVERWORLD_TILE_SIZE / 2;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-
-      if (tId === OW_TERRAIN_FERTILE_VALE) {
-        ctx.fillStyle = inSight ? '#4ade80' : '#15803d';
-        ctx.font = '12px sans-serif';
-        ctx.fillText('❀', cx, cy);
-      } else if (tId === OW_TERRAIN_FOREST) {
-        ctx.fillStyle = inSight ? '#22c55e' : '#166534';
-        ctx.font = '13px sans-serif';
-        ctx.fillText('♠', cx - 4, cy - 2);
-        ctx.fillText('♠', cx + 4, cy + 3);
-      } else if (tId === OW_TERRAIN_HILLS) {
-        ctx.fillStyle = inSight ? '#cbd5e1' : '#64748b';
-        ctx.font = '13px sans-serif';
-        ctx.fillText('▲', cx, cy);
-      } else if (tId === OW_TERRAIN_MOUNTAINS) {
-        ctx.fillStyle = inSight ? '#f1f5f9' : '#94a3b8';
-        ctx.font = '14px sans-serif';
-        ctx.fillText('▲', cx - 3, cy);
-        ctx.font = '11px sans-serif';
-        ctx.fillText('▲', cx + 5, cy + 2);
-      } else if (tId === OW_TERRAIN_WATER) {
-        ctx.fillStyle = inSight ? '#38bdf8' : '#0284c7';
-        ctx.font = '13px sans-serif';
-        ctx.fillText('≈', cx, cy);
-      } else if (inSight) {
-        ctx.fillStyle = '#3f6212';
+      // Crisp Tier 3 cartographic detail cue
+      if (tId === OW_TERRAIN_MOUNTAINS) {
+        ctx.fillStyle = inSight ? '#cbd5e1' : '#334155';
         ctx.beginPath();
-        ctx.arc(cx, cy, 1.5, 0, Math.PI * 2);
+        ctx.moveTo(centerS.sx, centerS.sy - 8 * z);
+        ctx.lineTo(centerS.sx + 7 * z, centerS.sy + 5 * z);
+        ctx.lineTo(centerS.sx - 7 * z, centerS.sy + 5 * z);
+        ctx.closePath();
         ctx.fill();
-      }
-
-      if (!inSight) {
-        ctx.fillStyle = 'rgba(5, 8, 15, 0.52)';
-        ctx.fillRect(px, py, OVERWORLD_TILE_SIZE, OVERWORLD_TILE_SIZE);
-      }
-    }
-  }
-
-  // 2. Render Points of Interest (Resource Caches, Groves, Quarries, Dungeon Entrances)
-  if (Array.isArray(ow.pois)) {
-    for (let i = 0; i < ow.pois.length; i++) {
-      const poi = ow.pois[i];
-      if (poi.depleted) continue;
-      if (poi.x < camX || poi.x >= camX + OVERWORLD_VIEWPORT_W || poi.y < camY || poi.y >= camY + OVERWORLD_VIEWPORT_H) continue;
-      if (!ow.explored[poi.y] || !ow.explored[poi.y][poi.x]) continue;
-
-      const px = (poi.x - camX) * OVERWORLD_TILE_SIZE;
-      const py = (poi.y - camY) * OVERWORLD_TILE_SIZE;
-      const cx = px + OVERWORLD_TILE_SIZE / 2;
-      const cy = py + OVERWORLD_TILE_SIZE / 2;
-      const pDef = OVERWORLD_POI_DEFS[poi.type] || OVERWORLD_POI_DEFS.dungeon_entrance;
-      const accent = poi.accentColor || pDef.color || '#fbbf24';
-
-      // Pulsing breach ring only once selected Hero Party has finished moving onto this Dungeon POI
-      if (poi.type === 'dungeon_entrance' && selUnit && selUnit.alive && selUnit.canEnterDungeon &&
-          selUnit.status === 'idle' && selUnit.x === poi.x && selUnit.y === poi.y) {
-        ctx.strokeStyle = accent;
-        ctx.lineWidth = 2;
+      } else if (tId === OW_TERRAIN_FOREST) {
+        ctx.fillStyle = inSight ? '#1e3f2d' : '#0f2018';
         ctx.beginPath();
-        ctx.arc(cx, cy, 15, 0, Math.PI * 2);
+        ctx.arc(centerS.sx - 4 * z, centerS.sy, 4 * z, 0, Math.PI * 2);
+        ctx.arc(centerS.sx + 4 * z, centerS.sy + 1 * z, 3.5 * z, 0, Math.PI * 2);
+        ctx.arc(centerS.sx, centerS.sy - 4 * z, 4 * z, 0, Math.PI * 2);
+        ctx.fill();
+      } else if (tId === OW_TERRAIN_WATER) {
+        ctx.strokeStyle = inSight ? 'rgba(186, 230, 253, 0.45)' : 'rgba(56, 189, 248, 0.15)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(centerS.sx - 6 * z, centerS.sy);
+        ctx.lineTo(centerS.sx + 6 * z, centerS.sy);
         ctx.stroke();
+      } else if (tId === OW_TERRAIN_FERTILE_VALE && inSight) {
+        ctx.fillStyle = 'rgba(254, 240, 138, 0.45)';
+        ctx.beginPath();
+        ctx.arc(centerS.sx, centerS.sy, 2.2 * z, 0, Math.PI * 2);
+        ctx.fill();
+      } else if (tDef && tDef.symbol && z >= 0.85 && tId === OW_TERRAIN_HILLS) {
+        ctx.fillStyle = inSight ? '#cbd5e1' : '#475569';
+        ctx.font = Math.round(10 * z) + 'px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('▲', centerS.sx, centerS.sy);
       }
-
-      ctx.fillStyle = pDef.bgColor || '#1e1b4b';
-      ctx.beginPath();
-      ctx.arc(cx, cy, 12, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.strokeStyle = accent;
-      ctx.lineWidth = 1.5;
-      ctx.stroke();
-
-      ctx.font = '13px sans-serif';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillStyle = accent;
-      ctx.fillText(pDef.symbol || 'Ω', cx, cy);
-
-      ctx.font = 'bold 9px monospace';
-      ctx.fillStyle = '#e6edf3';
-      ctx.fillText(poi.name, cx, py - 3);
     }
   }
 
-  // 2B. Render Overworld Wandering Hostiles inside explored vision
-  if (Array.isArray(ow.hostiles)) {
-    for (let i = 0; i < ow.hostiles.length; i++) {
-      const h = ow.hostiles[i];
-      if (!h.alive) continue;
-      if (h.x < camX || h.x >= camX + OVERWORLD_VIEWPORT_W || h.y < camY || h.y >= camY + OVERWORLD_VIEWPORT_H) continue;
-      if (!ow.explored[h.y] || !ow.explored[h.y][h.x]) continue;
-
-      const px = (h.x - camX) * OVERWORLD_TILE_SIZE;
-      const py = (h.y - camY) * OVERWORLD_TILE_SIZE;
-      const cx = px + OVERWORLD_TILE_SIZE / 2;
-      const cy = py + OVERWORLD_TILE_SIZE / 2;
-
-      ctx.fillStyle = '#450a0a';
-      ctx.beginPath();
-      ctx.moveTo(cx, cy - 11);
-      ctx.lineTo(cx + 11, cy);
-      ctx.lineTo(cx, cy + 11);
-      ctx.lineTo(cx - 11, cy);
-      ctx.closePath();
-      ctx.fill();
-      ctx.strokeStyle = h.color || '#f87171';
-      ctx.lineWidth = 1.5;
-      ctx.stroke();
-
-      ctx.font = '11px sans-serif';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(h.icon || '💀', cx, cy);
-    }
-  }
-
-  // 3. Render Founded Cities
-  const cityKeys = Object.keys(world.cities || {});
-  for (let i = 0; i < cityKeys.length; i++) {
-    const city = world.cities[cityKeys[i]];
-    if (city.x < camX || city.x >= camX + OVERWORLD_VIEWPORT_W || city.y < camY || city.y >= camY + OVERWORLD_VIEWPORT_H) continue;
-
-    const px = (city.x - camX) * OVERWORLD_TILE_SIZE;
-    const py = (city.y - camY) * OVERWORLD_TILE_SIZE;
-    const cx = px + OVERWORLD_TILE_SIZE / 2;
-    const cy = py + OVERWORLD_TILE_SIZE / 2;
-
-    ctx.fillStyle = 'rgba(251, 191, 36, 0.22)';
+  // 2. Render Hover Hex & A* Route Preview
+  if (wgPreviewPath && wgPreviewPath.length > 1) {
+    ctx.save();
+    ctx.strokeStyle = '#38bdf8';
+    ctx.lineWidth = Math.max(2, 2.5 * z);
+    if (typeof ctx.setLineDash === 'function') ctx.setLineDash([5, 4]);
     ctx.beginPath();
-    ctx.arc(cx, cy, 14, 0, Math.PI * 2);
-    ctx.fill();
+    for (let pi = 0; pi < wgPreviewPath.length; pi++) {
+      const node = wgPreviewPath[pi];
+      const w = owHexAdapter.tileToWorld(owHexAdapter.offsetToAxial(node.x, node.y));
+      const s = vp.worldToScreen(w.wx, w.wy);
+      if (pi === 0) ctx.moveTo(s.sx, s.sy);
+      else ctx.lineTo(s.sx, s.sy);
+    }
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  if (wgHoverTile && wgHoverTile.x >= 0 && wgHoverTile.x < ow.width && wgHoverTile.y >= 0 && wgHoverTile.y < ow.height) {
+    const hAx = owHexAdapter.offsetToAxial(wgHoverTile.x, wgHoverTile.y);
+    const hPts = owHexAdapter.getTilePolygon(hAx).map(function(p) { return vp.worldToScreen(p.wx, p.wy); });
+    drawHexPolygon(ctx, hPts, 'rgba(251, 191, 36, 0.22)', '#fbbf24', 2);
+  }
+
+  // 3. Render Active March Path for Selected Unit
+  if (selUnit && selUnit.status === 'marching' && selUnit.marchPlan && Array.isArray(selUnit.marchPlan.path)) {
+    const path = selUnit.marchPlan.path;
+    ctx.save();
     ctx.strokeStyle = '#fbbf24';
+    ctx.lineWidth = Math.max(2, 2.5 * z);
+    if (typeof ctx.setLineDash === 'function') ctx.setLineDash([6, 4]);
+    ctx.beginPath();
+    for (let mi = 0; mi < path.length; mi++) {
+      const w = owHexAdapter.tileToWorld(owHexAdapter.offsetToAxial(path[mi].x, path[mi].y));
+      const s = vp.worldToScreen(w.wx, w.wy);
+      if (mi === 0) ctx.moveTo(s.sx, s.sy);
+      else ctx.lineTo(s.sx, s.sy);
+    }
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // 4. Render Discovered Points of Interest (Dungeons, Resource Caches, etc.)
+  const pois = ow.pois || [];
+  for (let i = 0; i < pois.length; i++) {
+    const poi = pois[i];
+    if (poi.collected) continue;
+    const isExp = (ow.explored[poi.y] && ow.explored[poi.y][poi.x]) || poi.discovered;
+    if (!isExp) continue;
+
+    const ax = owHexAdapter.offsetToAxial(poi.x, poi.y);
+    const w = owHexAdapter.tileToWorld(ax);
+    if (w.wx < visRect.minX || w.wx > visRect.maxX || w.wy < visRect.minY || w.wy > visRect.maxY) continue;
+    const s = vp.worldToScreen(w.wx, w.wy);
+    const pDef = OVERWORLD_POI_DEFS[poi.type] || { symbol: '★', color: '#fbbf24', bgColor: '#1e293b' };
+
+    ctx.fillStyle = pDef.bgColor || '#1e293b';
+    ctx.beginPath();
+    ctx.arc(s.sx, s.sy, 11 * z, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = poi.accentColor || pDef.color || '#fbbf24';
     ctx.lineWidth = 2;
     ctx.stroke();
 
-    ctx.font = '16px sans-serif';
+    ctx.fillStyle = poi.accentColor || pDef.color || '#fbbf24';
+    ctx.font = 'bold ' + Math.round(12 * z) + 'px sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText('🏰', cx, cy);
-
-    ctx.font = 'bold 10px sans-serif';
-    ctx.fillStyle = '#fbbf24';
-    ctx.fillText(city.name, cx, py - 4);
+    ctx.fillText(pDef.symbol || 'Ω', s.sx, s.sy);
   }
 
-  // 4. Render Active March Waypoint Path & Hover Preview Path
-  if (selUnit && selUnit.alive && selUnit.marchPlan && Array.isArray(selUnit.marchPlan.remainingPath)) {
-    const rem = selUnit.marchPlan.remainingPath;
-    ctx.strokeStyle = '#38bdf8';
-    ctx.lineWidth = 2;
-    ctx.setLineDash([4, 4]);
-    ctx.beginPath();
-    const interp = getUnitInterpolatedPosition(selUnit, simTimeMs);
-    ctx.moveTo((interp.x - camX + 0.5) * OVERWORLD_TILE_SIZE, (interp.y - camY + 0.5) * OVERWORLD_TILE_SIZE);
-    for (let i = 0; i < rem.length; i++) {
-      const st = rem[i];
-      ctx.lineTo((st.x - camX + 0.5) * OVERWORLD_TILE_SIZE, (st.y - camY + 0.5) * OVERWORLD_TILE_SIZE);
-    }
-    ctx.stroke();
-    ctx.setLineDash([]);
-  } else if (wgPreviewPath && wgPreviewPath.length > 0 && selUnit && selUnit.alive) {
-    ctx.strokeStyle = 'rgba(251, 191, 36, 0.65)';
-    ctx.lineWidth = 2;
-    ctx.setLineDash([3, 3]);
-    ctx.beginPath();
-    ctx.moveTo((selUnit.x - camX + 0.5) * OVERWORLD_TILE_SIZE, (selUnit.y - camY + 0.5) * OVERWORLD_TILE_SIZE);
-    for (let i = 0; i < wgPreviewPath.length; i++) {
-      const st = wgPreviewPath[i];
-      ctx.lineTo((st.x - camX + 0.5) * OVERWORLD_TILE_SIZE, (st.y - camY + 0.5) * OVERWORLD_TILE_SIZE);
-    }
-    ctx.stroke();
-    ctx.setLineDash([]);
-  }
-
-  // 5. Render Overworld Units (Settlers & Hero Parties) with Smooth Real-Time Interpolation
-  const units = ow.units || [];
-  for (let i = 0; i < units.length; i++) {
-    const u = units[i];
-    if (!u.alive) continue;
-    const interp = getUnitInterpolatedPosition(u, simTimeMs);
-    if (interp.x < camX - 1 || interp.x >= camX + OVERWORLD_VIEWPORT_W + 1 ||
-        interp.y < camY - 1 || interp.y >= camY + OVERWORLD_VIEWPORT_H + 1) {
-      continue;
-    }
-
-    const cx = (interp.x - camX + 0.5) * OVERWORLD_TILE_SIZE;
-    const cy = (interp.y - camY + 0.5) * OVERWORLD_TILE_SIZE;
-    const isSelected = selUnit && selUnit.id === u.id;
-
-    if (isSelected) {
-      ctx.strokeStyle = '#38bdf8';
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.arc(cx, cy, 14, 0, Math.PI * 2);
-      ctx.stroke();
-    }
+  // 5. Render Bastion Cities
+  const cities = world.cities || [];
+  for (let c = 0; c < cities.length; c++) {
+    const city = cities[c];
+    const ax = owHexAdapter.offsetToAxial(city.x, city.y);
+    const w = owHexAdapter.tileToWorld(ax);
+    if (w.wx < visRect.minX || w.wx > visRect.maxX || w.wy < visRect.minY || w.wy > visRect.maxY) continue;
+    const s = vp.worldToScreen(w.wx, w.wy);
 
     ctx.fillStyle = '#0f172a';
     ctx.beginPath();
-    ctx.arc(cx, cy, 11, 0, Math.PI * 2);
+    ctx.arc(s.sx, s.sy, 14 * z, 0, Math.PI * 2);
     ctx.fill();
-    ctx.strokeStyle = u.unitType === 'settler' ? '#fbbf24' : '#60a5fa';
-    ctx.lineWidth = 2;
+    ctx.strokeStyle = '#fbbf24';
+    ctx.lineWidth = 2.5;
     ctx.stroke();
 
-    ctx.font = '13px sans-serif';
+    ctx.font = Math.round(14 * z) + 'px sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(u.unitType === 'settler' ? '🚩' : '⚔️', cx, cy);
+    ctx.fillText('🏰', s.sx, s.sy - 1 * z);
 
-    // Step Progress Bar above marching unit
-    if (u.status === 'marching') {
-      const barW = 24;
-      const barH = 4;
-      const bx = cx - barW / 2;
-      const by = cy - 18;
-      ctx.fillStyle = '#090d16';
-      ctx.fillRect(bx, by, barW, barH);
-      ctx.fillStyle = (u.marchPlan && u.marchPlan.intent === 'return_city') ? '#fbbf24' : '#38bdf8';
-      ctx.fillRect(bx, by, Math.round(barW * interp.progress), barH);
-    } else if (u.status === 'in_dungeon') {
-      ctx.font = 'bold 8px monospace';
-      ctx.fillStyle = '#f87171';
-      ctx.fillText('IN VAULT', cx, cy - 16);
-    }
-
-    // Gold Cargo Indicator when party carries unbanked skirmish or dungeon spoils
-    if (u.cargo && ((u.cargo.gold || 0) > 0 || (u.cargo.ore || 0) > 0)) {
-      ctx.font = '10px sans-serif';
-      ctx.fillText('💰', cx + 11, cy - 10);
-    }
-
-    ctx.font = 'bold 9px sans-serif';
-    ctx.fillStyle = isSelected ? '#38bdf8' : '#e6edf3';
-    ctx.fillText(u.shortName || u.name, cx, cy + 19);
+    ctx.font = 'bold ' + Math.max(9, Math.round(10 * z)) + 'px monospace';
+    ctx.fillStyle = '#080b11';
+    const labelW = Math.max(54, city.name.length * 6.5) * z;
+    ctx.fillRect(s.sx - labelW * 0.5, s.sy + 12 * z, labelW, 13 * z);
+    ctx.fillStyle = '#fbbf24';
+    ctx.fillText(city.name, s.sx, s.sy + 18.5 * z);
   }
 
-  // 6. Hover Tile Reticle
-  if (wgHoverTile) {
-    const hx = wgHoverTile.x;
-    const hy = wgHoverTile.y;
-    if (hx >= camX && hx < camX + OVERWORLD_VIEWPORT_W && hy >= camY && hy < camY + OVERWORLD_VIEWPORT_H) {
-      const hpx = (hx - camX) * OVERWORLD_TILE_SIZE;
-      const hpy = (hy - camY) * OVERWORLD_TILE_SIZE;
-      ctx.strokeStyle = 'rgba(251, 191, 36, 0.85)';
-      ctx.lineWidth = 2;
-      ctx.strokeRect(hpx + 1, hpy + 1, OVERWORLD_TILE_SIZE - 2, OVERWORLD_TILE_SIZE - 2);
-    }
+  // 6. Render Wandering Hostiles (In Active Vision)
+  const hostiles = ow.hostiles || [];
+  for (let hi = 0; hi < hostiles.length; hi++) {
+    const hos = hostiles[hi];
+    if (!hos.alive) continue;
+    if (Math.hypot(hos.x - focusX, hos.y - focusY) > visionRadius + 1.2) continue;
+
+    const w = owHexAdapter.tileToWorld(owHexAdapter.offsetToAxial(hos.x, hos.y));
+    const s = vp.worldToScreen(w.wx, w.wy);
+
+    ctx.fillStyle = '#7f1d1d';
+    ctx.beginPath();
+    ctx.moveTo(s.sx, s.sy - 10 * z);
+    ctx.lineTo(s.sx + 10 * z, s.sy);
+    ctx.lineTo(s.sx, s.sy + 10 * z);
+    ctx.lineTo(s.sx - 10 * z, s.sy);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = '#f87171';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    ctx.fillStyle = '#fecaca';
+    ctx.font = 'bold ' + Math.round(10 * z) + 'px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('☠', s.sx, s.sy);
+  }
+
+  // 7. Render Player Units (Settlers & Hero Vanguard Parties)
+  const units = ow.units || [];
+  for (let ui = 0; ui < units.length; ui++) {
+    const u = units[ui];
+    if (!u.alive) continue;
+
+    const interp = getUnitInterpolatedPosition(u, simTimeMs);
+    const w = offsetToWorldInterpolated(interp.x, interp.y);
+    const s = vp.worldToScreen(w.wx, w.wy);
+    const isSel = selUnit && selUnit.id === u.id;
+
+    // Ground contact shadow
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
+    ctx.beginPath();
+    ctx.arc(s.sx, s.sy + 5 * z, 9 * z, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Unit Heraldic Shield Medallion
+    ctx.fillStyle = u.unitType === 'hero_party' ? '#1e3a8a' : '#065f46';
+    ctx.beginPath();
+    ctx.arc(s.sx, s.sy, 11 * z, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = isSel ? '#fbbf24' : '#e2e8f0';
+    ctx.lineWidth = isSel ? 2.5 : 1.5;
+    ctx.stroke();
+
+    ctx.font = Math.round(12 * z) + 'px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(u.unitType === 'hero_party' ? '⚔️' : '🚩', s.sx, s.sy);
   }
 }
 
@@ -7284,566 +7916,6 @@ function getActiveRenderAdapter() {
     sharedAdapter = createRenderAdapter({ mode: 'auto' });
   }
   return sharedAdapter;
-}
-
-  // --- Module: src/ui/shared/gridAdapters.js ---
-// =============================================================================
-// UNIFIED GRID ADAPTERS (ADR-0014 — Path A: Best-in-Class Domain Projections)
-// Pure, deterministic, zero-DOM ES2017 coordinate & topology math shared across:
-//   1. OrthoGridAdapter (Dungeon 2.5D Oblique Square Grid)
-//   2. IsoGridAdapter   (Bastion City 2:1 Rotated Square Isometric Diamond Grid)
-//   3. HexGridAdapter   (Overworld Pointy-Top Hexagonal Axial/Cube Grid)
-// =============================================================================
-
-const SQRT3 = Math.sqrt(3);
-
-const GRID_TYPES = {
-  ORTHO: 'ortho',
-  ISO: 'iso',
-  HEX_POINTY: 'hex_pointy'
-};
-
-// ---------------------------------------------------------------------------
-// 1. ORTHOGONAL SQUARE GRID ADAPTER (Starfall Vaults — 2.5D Oblique Dungeon)
-// ---------------------------------------------------------------------------
-function createOrthoGridAdapter(options) {
-  const opts = options || {};
-  const tw = opts.tileWidth || 32;
-  const th = opts.tileHeight || 32;
-
-  return {
-    type: GRID_TYPES.ORTHO,
-    tileWidth: tw,
-    tileHeight: th,
-
-    tileToWorld: function(coord) {
-      return {
-        wx: (coord.x + 0.5) * tw,
-        wy: (coord.y + 0.5) * th
-      };
-    },
-
-    worldToTile: function(wx, wy) {
-      return {
-        x: Math.floor(wx / tw),
-        y: Math.floor(wy / th)
-      };
-    },
-
-    getNeighbors: function(coord, includeDiagonals) {
-      const x = coord.x;
-      const y = coord.y;
-      const list = [
-        { x: x, y: y - 1 },
-        { x: x + 1, y: y },
-        { x: x, y: y + 1 },
-        { x: x - 1, y: y }
-      ];
-      if (includeDiagonals) {
-        list.push(
-          { x: x + 1, y: y - 1 },
-          { x: x + 1, y: y + 1 },
-          { x: x - 1, y: y + 1 },
-          { x: x - 1, y: y - 1 }
-        );
-      }
-      return list;
-    },
-
-    getDistance: function(a, b) {
-      return Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
-    },
-
-    getTilePolygon: function(coord) {
-      const x0 = coord.x * tw;
-      const y0 = coord.y * th;
-      return [
-        { wx: x0, wy: y0 },
-        { wx: x0 + tw, wy: y0 },
-        { wx: x0 + tw, wy: y0 + th },
-        { wx: x0, wy: y0 + th }
-      ];
-    }
-  };
-}
-
-// ---------------------------------------------------------------------------
-// 2. ROTATED SQUARE (2:1 ISOMETRIC DIAMOND) ADAPTER (Bastion City 8x8 Plots)
-// ---------------------------------------------------------------------------
-function createIsoGridAdapter(options) {
-  const opts = options || {};
-  const tw = opts.tileWidth || 96;
-  const th = opts.tileHeight || 48;
-  const halfW = tw / 2;
-  const halfH = th / 2;
-
-  return {
-    type: GRID_TYPES.ISO,
-    tileWidth: tw,
-    tileHeight: th,
-
-    tileToWorld: function(coord) {
-      return {
-        wx: (coord.x - coord.y) * halfW,
-        wy: (coord.x + coord.y) * halfH
-      };
-    },
-
-    worldToTile: function(wx, wy) {
-      const fx = (wx / halfW + wy / halfH) * 0.5;
-      const fy = (wy / halfH - wx / halfW) * 0.5;
-      return {
-        x: Math.round(fx),
-        y: Math.round(fy)
-      };
-    },
-
-    getNeighbors: function(coord) {
-      const x = coord.x;
-      const y = coord.y;
-      return [
-        { x: x, y: y - 1 },
-        { x: x + 1, y: y },
-        { x: x, y: y + 1 },
-        { x: x - 1, y: y }
-      ];
-    },
-
-    getDistance: function(a, b) {
-      return Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
-    },
-
-    getTilePolygon: function(coord) {
-      const c = this.tileToWorld(coord);
-      return [
-        { wx: c.wx, wy: c.wy - halfH },
-        { wx: c.wx + halfW, wy: c.wy },
-        { wx: c.wx, wy: c.wy + halfH },
-        { wx: c.wx - halfW, wy: c.wy }
-      ];
-    },
-
-    // Back-to-front painter's sort order for isometric 3D building overlap
-    getDrawOrder: function(cols, rows) {
-      const order = [];
-      for (let sum = 0; sum <= (cols - 1) + (rows - 1); sum++) {
-        for (let x = 0; x < cols; x++) {
-          const y = sum - x;
-          if (y >= 0 && y < rows) {
-            order.push({ x: x, y: y, plotIndex: y * cols + x });
-          }
-        }
-      }
-      return order;
-    }
-  };
-}
-
-// ---------------------------------------------------------------------------
-// 3. POINTY-TOP HEXAGONAL GRID ADAPTER (Overworld Macro Strategy — Axial/Cube)
-// Implements Red Blob Games canonical axial (q, r) & cube (q, r, s) math.
-// ---------------------------------------------------------------------------
-const HEX_DIRECTIONS = [
-  { q: 1, r: 0 },
-  { q: 1, r: -1 },
-  { q: 0, r: -1 },
-  { q: -1, r: 0 },
-  { q: -1, r: 1 },
-  { q: 0, r: 1 }
-];
-
-function cubeRound(fq, fr) {
-  const fs = -fq - fr;
-  let rq = Math.round(fq);
-  let rr = Math.round(fr);
-  const rs = Math.round(fs);
-
-  const qDiff = Math.abs(rq - fq);
-  const rDiff = Math.abs(rr - fr);
-  const sDiff = Math.abs(rs - fs);
-
-  if (qDiff > rDiff && qDiff > sDiff) {
-    rq = -rr - rs;
-  } else if (rDiff > sDiff) {
-    rr = -rq - rs;
-  }
-  return { q: rq === 0 ? 0 : rq, r: rr === 0 ? 0 : rr };
-}
-
-function createHexGridAdapter(options) {
-  const opts = options || {};
-  const size = opts.hexSize || 28;
-
-  return {
-    type: GRID_TYPES.HEX_POINTY,
-    hexSize: size,
-    tileWidth: SQRT3 * size,
-    tileHeight: 2 * size,
-
-    tileToWorld: function(coord) {
-      const q = coord.q;
-      const r = coord.r;
-      return {
-        wx: size * (SQRT3 * q + (SQRT3 * 0.5) * r),
-        wy: size * (1.5 * r)
-      };
-    },
-
-    worldToTile: function(wx, wy) {
-      const fq = ((SQRT3 / 3) * wx - (1 / 3) * wy) / size;
-      const fr = ((2 / 3) * wy) / size;
-      return cubeRound(fq, fr);
-    },
-
-    getNeighbors: function(coord) {
-      const out = [];
-      for (let i = 0; i < HEX_DIRECTIONS.length; i++) {
-        out.push({
-          q: coord.q + HEX_DIRECTIONS[i].q,
-          r: coord.r + HEX_DIRECTIONS[i].r
-        });
-      }
-      return out;
-    },
-
-    getDistance: function(a, b) {
-      const dq = a.q - b.q;
-      const dr = a.r - b.r;
-      return (Math.abs(dq) + Math.abs(dq + dr) + Math.abs(dr)) * 0.5;
-    },
-
-    getRing: function(center, radius) {
-      if (radius <= 0) return [{ q: center.q, r: center.r }];
-      const results = [];
-      let curQ = center.q + HEX_DIRECTIONS[4].q * radius;
-      let curR = center.r + HEX_DIRECTIONS[4].r * radius;
-      for (let side = 0; side < 6; side++) {
-        for (let step = 0; step < radius; step++) {
-          results.push({ q: curQ, r: curR });
-          curQ += HEX_DIRECTIONS[side].q;
-          curR += HEX_DIRECTIONS[side].r;
-        }
-      }
-      return results;
-    },
-
-    getSpiral: function(center, maxRadius) {
-      const results = [{ q: center.q, r: center.r }];
-      for (let rad = 1; rad <= maxRadius; rad++) {
-        const ring = this.getRing(center, rad);
-        for (let i = 0; i < ring.length; i++) {
-          results.push(ring[i]);
-        }
-      }
-      return results;
-    },
-
-    // Odd-r offset (col, row) <-> Axial (q, r) for lossless legacy Overworld coordinate migration
-    offsetToAxial: function(col, row) {
-      const q = col - Math.floor((row - (row & 1)) / 2);
-      return { q: q, r: row };
-    },
-
-    axialToOffset: function(q, r) {
-      const col = q + Math.floor((r - (r & 1)) / 2);
-      return { col: col, row: r };
-    },
-
-    getTilePolygon: function(coord) {
-      const c = this.tileToWorld(coord);
-      const pts = [];
-      for (let i = 0; i < 6; i++) {
-        const angleRad = (Math.PI / 180) * (60 * i - 30);
-        pts.push({
-          wx: c.wx + size * Math.cos(angleRad),
-          wy: c.wy + size * Math.sin(angleRad)
-        });
-      }
-      return pts;
-    }
-  };
-}
-
-  // --- Module: src/ui/shared/mapViewport.js ---
-// =============================================================================
-// SHARED MAP VIEWPORT ENGINE (ADR-0014 §3)
-// Unified camera pan, zoom-toward-cursor/pinch, frustum culling, pointer/touch
-// tap-vs-drag disambiguation, and 6-layer render pipeline contract.
-// Works seamlessly with PixiJS v8 (pixi-viewport) or Canvas 2D fallback.
-// =============================================================================
-
-const MAP_RENDER_LAYERS = {
-  TERRAIN: 0,
-  DECALS: 1,
-  PROPS: 2,
-  ACTORS: 3,
-  LIGHTING: 4,
-  OVERLAYS: 5
-};
-
-function createMapViewport(options) {
-  const opts = options || {};
-  const gridAdapter = opts.gridAdapter || null;
-  const minZoom = typeof opts.minZoom === 'number' ? opts.minZoom : 0.45;
-  const maxZoom = typeof opts.maxZoom === 'number' ? opts.maxZoom : 2.5;
-  const bounds = opts.bounds || null; // { minX, maxX, minY, maxY }
-
-  const camera = {
-    x: typeof opts.x === 'number' ? opts.x : 0, // World X at viewport center
-    y: typeof opts.y === 'number' ? opts.y : 0, // World Y at viewport center
-    zoom: typeof opts.zoom === 'number' ? opts.zoom : 1.0,
-    width: opts.viewportWidth || 672,
-    height: opts.viewportHeight || 480
-  };
-
-  function clampCamera() {
-    if (camera.zoom < minZoom) camera.zoom = minZoom;
-    if (camera.zoom > maxZoom) camera.zoom = maxZoom;
-    if (bounds) {
-      if (typeof bounds.minX === 'number' && camera.x < bounds.minX) camera.x = bounds.minX;
-      if (typeof bounds.maxX === 'number' && camera.x > bounds.maxX) camera.x = bounds.maxX;
-      if (typeof bounds.minY === 'number' && camera.y < bounds.minY) camera.y = bounds.minY;
-      if (typeof bounds.maxY === 'number' && camera.y > bounds.maxY) camera.y = bounds.maxY;
-    }
-  }
-
-  function screenToWorld(sx, sy) {
-    return {
-      wx: camera.x + (sx - camera.width * 0.5) / camera.zoom,
-      wy: camera.y + (sy - camera.height * 0.5) / camera.zoom
-    };
-  }
-
-  function worldToScreen(wx, wy) {
-    return {
-      sx: (wx - camera.x) * camera.zoom + camera.width * 0.5,
-      sy: (wy - camera.y) * camera.zoom + camera.height * 0.5
-    };
-  }
-
-  function setZoom(nextZoom, anchorSx, anchorSy) {
-    const clamped = Math.max(minZoom, Math.min(maxZoom, nextZoom));
-    if (typeof anchorSx === 'number' && typeof anchorSy === 'number') {
-      const before = screenToWorld(anchorSx, anchorSy);
-      camera.zoom = clamped;
-      const after = screenToWorld(anchorSx, anchorSy);
-      camera.x += (before.wx - after.wx);
-      camera.y += (before.wy - after.wy);
-    } else {
-      camera.zoom = clamped;
-    }
-    clampCamera();
-    return camera.zoom;
-  }
-
-  function panByScreenDelta(dsx, dsy) {
-    camera.x -= dsx / camera.zoom;
-    camera.y -= dsy / camera.zoom;
-    clampCamera();
-  }
-
-  function centerOnWorld(wx, wy) {
-    camera.x = wx;
-    camera.y = wy;
-    clampCamera();
-  }
-
-  function centerOnTile(coord) {
-    if (!gridAdapter || typeof gridAdapter.tileToWorld !== 'function') return;
-    const w = gridAdapter.tileToWorld(coord);
-    centerOnWorld(w.wx, w.wy);
-  }
-
-  function screenToTile(sx, sy) {
-    if (!gridAdapter || typeof gridAdapter.worldToTile !== 'function') return null;
-    const w = screenToWorld(sx, sy);
-    return gridAdapter.worldToTile(w.wx, w.wy);
-  }
-
-  function tileToScreen(coord) {
-    if (!gridAdapter || typeof gridAdapter.tileToWorld !== 'function') return null;
-    const w = gridAdapter.tileToWorld(coord);
-    return worldToScreen(w.wx, w.wy);
-  }
-
-  function getVisibleWorldRect(margin) {
-    const pad = typeof margin === 'number' ? margin : 64;
-    const tl = screenToWorld(-pad, -pad);
-    const br = screenToWorld(camera.width + pad, camera.height + pad);
-    return {
-      minX: tl.wx,
-      minY: tl.wy,
-      maxX: br.wx,
-      maxY: br.wy
-    };
-  }
-
-  function resize(width, height) {
-    if (width > 0) camera.width = width;
-    if (height > 0) camera.height = height;
-    clampCamera();
-  }
-
-  // Unified Mouse + Touch Pointer Controller (Tap-vs-Drag disambiguation + Pinch-Zoom)
-  function attachPointerControls(canvasEl, handlers) {
-    if (!canvasEl || typeof canvasEl.addEventListener !== 'function') return function() {};
-    const cb = handlers || {};
-    const dragThresholdPx = 8;
-
-    let isDown = false;
-    let dragged = false;
-    let startX = 0;
-    let startY = 0;
-    let lastX = 0;
-    let lastY = 0;
-    let lastPinchDist = 0;
-
-    function getLocalPos(clientX, clientY) {
-      const rect = canvasEl.getBoundingClientRect();
-      const scaleX = rect.width > 0 ? (camera.width / rect.width) : 1;
-      const scaleY = rect.height > 0 ? (camera.height / rect.height) : 1;
-      return {
-        sx: (clientX - rect.left) * scaleX,
-        sy: (clientY - rect.top) * scaleY
-      };
-    }
-
-    function onMouseDown(e) {
-      isDown = true;
-      dragged = false;
-      startX = lastX = e.clientX;
-      startY = lastY = e.clientY;
-    }
-
-    function onMouseMove(e) {
-      const pos = getLocalPos(e.clientX, e.clientY);
-      if (isDown) {
-        const dx = e.clientX - lastX;
-        const dy = e.clientY - lastY;
-        if (Math.hypot(e.clientX - startX, e.clientY - startY) >= dragThresholdPx) {
-          dragged = true;
-        }
-        if (dragged) {
-          panByScreenDelta(dx, dy);
-          if (typeof cb.onCameraChange === 'function') cb.onCameraChange(camera);
-        }
-        lastX = e.clientX;
-        lastY = e.clientY;
-      } else if (typeof cb.onHoverTile === 'function') {
-        cb.onHoverTile(screenToTile(pos.sx, pos.sy), pos);
-      }
-    }
-
-    function onMouseUp(e) {
-      if (!isDown) return;
-      isDown = false;
-      if (!dragged && typeof cb.onTapTile === 'function') {
-        const pos = getLocalPos(e.clientX, e.clientY);
-        cb.onTapTile(screenToTile(pos.sx, pos.sy), pos);
-      }
-    }
-
-    function onWheel(e) {
-      if (typeof e.preventDefault === 'function') e.preventDefault();
-      const pos = getLocalPos(e.clientX, e.clientY);
-      const factor = e.deltaY < 0 ? 1.12 : 0.89;
-      setZoom(camera.zoom * factor, pos.sx, pos.sy);
-      if (typeof cb.onCameraChange === 'function') cb.onCameraChange(camera);
-    }
-
-    function onTouchStart(e) {
-      if (!e.touches || e.touches.length === 0) return;
-      if (e.touches.length === 1) {
-        isDown = true;
-        dragged = false;
-        startX = lastX = e.touches[0].clientX;
-        startY = lastY = e.touches[0].clientY;
-      } else if (e.touches.length === 2) {
-        isDown = false;
-        dragged = true;
-        lastPinchDist = Math.hypot(
-          e.touches[0].clientX - e.touches[1].clientX,
-          e.touches[0].clientY - e.touches[1].clientY
-        );
-      }
-    }
-
-    function onTouchMove(e) {
-      if (!e.touches || e.touches.length === 0) return;
-      if (e.touches.length === 1 && isDown) {
-        const t = e.touches[0];
-        if (Math.hypot(t.clientX - startX, t.clientY - startY) >= dragThresholdPx) {
-          dragged = true;
-        }
-        if (dragged) {
-          if (typeof e.preventDefault === 'function') e.preventDefault();
-          panByScreenDelta(t.clientX - lastX, t.clientY - lastY);
-          if (typeof cb.onCameraChange === 'function') cb.onCameraChange(camera);
-        }
-        lastX = t.clientX;
-        lastY = t.clientY;
-      } else if (e.touches.length === 2) {
-        if (typeof e.preventDefault === 'function') e.preventDefault();
-        const dist = Math.hypot(
-          e.touches[0].clientX - e.touches[1].clientX,
-          e.touches[0].clientY - e.touches[1].clientY
-        );
-        if (lastPinchDist > 0 && dist > 0) {
-          const midX = (e.touches[0].clientX + e.touches[1].clientX) * 0.5;
-          const midY = (e.touches[0].clientY + e.touches[1].clientY) * 0.5;
-          const pos = getLocalPos(midX, midY);
-          setZoom(camera.zoom * (dist / lastPinchDist), pos.sx, pos.sy);
-          if (typeof cb.onCameraChange === 'function') cb.onCameraChange(camera);
-        }
-        lastPinchDist = dist;
-      }
-    }
-
-    function onTouchEnd(e) {
-      if (isDown && !dragged && typeof cb.onTapTile === 'function' && e.changedTouches && e.changedTouches[0]) {
-        const pos = getLocalPos(e.changedTouches[0].clientX, e.changedTouches[0].clientY);
-        cb.onTapTile(screenToTile(pos.sx, pos.sy), pos);
-      }
-      isDown = false;
-      lastPinchDist = 0;
-    }
-
-    canvasEl.addEventListener('mousedown', onMouseDown);
-    canvasEl.addEventListener('mousemove', onMouseMove);
-    canvasEl.addEventListener('mouseup', onMouseUp);
-    canvasEl.addEventListener('wheel', onWheel, { passive: false });
-    canvasEl.addEventListener('touchstart', onTouchStart, { passive: true });
-    canvasEl.addEventListener('touchmove', onTouchMove, { passive: false });
-    canvasEl.addEventListener('touchend', onTouchEnd, { passive: true });
-
-    return function detach() {
-      canvasEl.removeEventListener('mousedown', onMouseDown);
-      canvasEl.removeEventListener('mousemove', onMouseMove);
-      canvasEl.removeEventListener('mouseup', onMouseUp);
-      canvasEl.removeEventListener('wheel', onWheel);
-      canvasEl.removeEventListener('touchstart', onTouchStart);
-      canvasEl.removeEventListener('touchmove', onTouchMove);
-      canvasEl.removeEventListener('touchend', onTouchEnd);
-    };
-  }
-
-  clampCamera();
-
-  return {
-    camera: camera,
-    gridAdapter: gridAdapter,
-    screenToWorld: screenToWorld,
-    worldToScreen: worldToScreen,
-    setZoom: setZoom,
-    panByScreenDelta: panByScreenDelta,
-    centerOnWorld: centerOnWorld,
-    centerOnTile: centerOnTile,
-    screenToTile: screenToTile,
-    tileToScreen: tileToScreen,
-    getVisibleWorldRect: getVisibleWorldRect,
-    resize: resize,
-    attachPointerControls: attachPointerControls
-  };
 }
 
   // --- Module: src/wargame/ui/cityIsoCanvas.js ---
@@ -11638,68 +11710,45 @@ function setupWargameListeners() {
 
   const canvas = document.getElementById('wgOverworldCanvas');
   if (canvas) {
-    canvas.addEventListener('mousemove', function(e) {
-      if (!simHost.state.world || !simHost.state.world.overworld) return;
-      const rect = canvas.getBoundingClientRect();
-      const scaleX = canvas.width / rect.width;
-      const scaleY = canvas.height / rect.height;
-      const mx = (e.clientX - rect.left) * scaleX;
-      const my = (e.clientY - rect.top) * scaleY;
-
-      const ow = simHost.state.world.overworld;
-      const selUnit = getSelectedOverworldUnit(simHost.state);
-      const primaryCity = getPrimaryCity(simHost.state);
-
-      const focusX = selUnit ? selUnit.x : (primaryCity ? primaryCity.x : ow.spawnX);
-      const focusY = selUnit ? selUnit.y : (primaryCity ? primaryCity.y : ow.spawnY);
-
-      const cam = getWargameCameraOrigin(ow, focusX, focusY);
-      const tx = cam.camX + Math.floor(mx / OVERWORLD_TILE_SIZE);
-      const ty = cam.camY + Math.floor(my / OVERWORLD_TILE_SIZE);
-
-      if (tx >= 0 && tx < ow.width && ty >= 0 && ty < ow.height) {
-        let previewRoute = null;
-        if (selUnit && selUnit.alive && isOverworldTilePassable(ow, tx, ty)) {
-          previewRoute = findOverworldPath(ow, selUnit.x, selUnit.y, tx, ty);
+    attachOverworldHexControls(canvas, {
+      onHoverOffset: function(off) {
+        if (!simHost.state.world || !simHost.state.world.overworld || !off) {
+          setWargameHoverTile(null, null);
+          return;
         }
-        setWargameHoverTile({ x: tx, y: ty }, previewRoute);
-      } else {
-        setWargameHoverTile(null, null);
+        const ow = simHost.state.world.overworld;
+        const selUnit = getSelectedOverworldUnit(simHost.state);
+        if (off.x >= 0 && off.x < ow.width && off.y >= 0 && off.y < ow.height) {
+          let previewRoute = null;
+          if (selUnit && selUnit.alive && isOverworldTilePassable(ow, off.x, off.y)) {
+            previewRoute = findOverworldPath(ow, selUnit.x, selUnit.y, off.x, off.y);
+          }
+          setWargameHoverTile({ x: off.x, y: off.y }, previewRoute);
+        } else {
+          setWargameHoverTile(null, null);
+        }
+      },
+      onTapOffset: function(off) {
+        if (!simHost.state.world || !simHost.state.world.overworld || !off) return;
+        const ow = simHost.state.world.overworld;
+        const selUnit = getSelectedOverworldUnit(simHost.state);
+        if (off.x >= 0 && off.x < ow.width && off.y >= 0 && off.y < ow.height && selUnit && selUnit.alive) {
+          simHost.dispatch({
+            type: COMMAND_TYPES.ORDER_UNIT_MARCH,
+            payload: { unitId: selUnit.id, targetX: off.x, targetY: off.y }
+          });
+          simHost.state._dirty = true;
+          simHost.save();
+          syncWargameUI(simHost);
+        }
+      },
+      onRepaint: function() {
+        renderWargameOverworldCanvas(simHost);
       }
     });
 
     canvas.addEventListener('mouseleave', function() {
       setWargameHoverTile(null, null);
-    });
-
-    canvas.addEventListener('click', function(e) {
-      if (!simHost.state.world || !simHost.state.world.overworld) return;
-      const rect = canvas.getBoundingClientRect();
-      const scaleX = canvas.width / rect.width;
-      const scaleY = canvas.height / rect.height;
-      const mx = (e.clientX - rect.left) * scaleX;
-      const my = (e.clientY - rect.top) * scaleY;
-
-      const ow = simHost.state.world.overworld;
-      const selUnit = getSelectedOverworldUnit(simHost.state);
-      const primaryCity = getPrimaryCity(simHost.state);
-
-      const focusX = selUnit ? selUnit.x : (primaryCity ? primaryCity.x : ow.spawnX);
-      const focusY = selUnit ? selUnit.y : (primaryCity ? primaryCity.y : ow.spawnY);
-
-      const cam = getWargameCameraOrigin(ow, focusX, focusY);
-      const tx = cam.camX + Math.floor(mx / OVERWORLD_TILE_SIZE);
-      const ty = cam.camY + Math.floor(my / OVERWORLD_TILE_SIZE);
-
-      if (tx >= 0 && tx < ow.width && ty >= 0 && ty < ow.height && selUnit && selUnit.alive) {
-        simHost.dispatch({
-          type: COMMAND_TYPES.ORDER_UNIT_MARCH,
-          payload: { unitId: selUnit.id, targetX: tx, targetY: ty }
-        });
-        simHost.state._dirty = true;
-        simHost.save();
-        syncWargameUI(simHost);
-      }
     });
   }
 
