@@ -126,12 +126,11 @@ Every interactive button has explicit `default`, `hover`, `active`, `focus-visib
 - **Danger / Destructive (`btn-danger`)**: `rgba(127, 29, 29, 0.45)` fill, `#f87171` text, `1px solid rgba(248, 113, 113, 0.5)`. Used for *Dismiss Hero*, *Demolish Building*, *Cancel Queue*.
 - **Disabled / Locked**: `opacity: 0.45`, `cursor: not-allowed`, paired with an explicit inline reason (e.g., *"Requires Meeting Hall Lv 2"* or *"Need 25g, 5 Ore"*).
 
-### 5.2 Guild & City Facility Modal Anatomy
-All enterable City buildings and Guilds share a unified modal anatomy:
-1. **Interior Art Banner Slot (`120px–160px` tall)**: Full-bleed Tier 1 atmospheric interior illustration (see [`docs/art_bible.md` §2.4](art_bible.md#24-guild--city-building-interior-artwork-tier-1-banner-illustrations)) with a subtle bottom dark-gradient scrim (`transparent` → `#0f1520`) so the facility title, building level badge, and close button (`✕`) remain effortlessly readable.
-2. **Facility Tab Bar** (when a building offers multiple services, e.g. Recruit / Training / Quests / Shop): Horizontal underline-accent tabs in `--text-gold`.
-3. **Interactive Body**: Structured 2-column grid of service cards (recipes, recruits, contracts, vault slots) with clear cost chips showing green (affordable) vs. red (insufficient) resource icons.
-4. **Sticky Footer**: Quick resource summary + close button.
+### 5.2 Guild & City Facility Interior Stage Anatomy (Immersive On-Scene Actions)
+All enterable City buildings and Guilds use a **Full-Bleed Interactive Interior Stage** (`min-h-[460px]` to `min-h-[560px]`):
+1. **Full-Bleed Tier 1 Interior Backdrop**: The building's atmospheric interior illustration (see [`docs/art_bible.md` §2.4](art_bible.md#24-guild--city-building-interior-artwork-tier-1-banner-illustrations)) fills the entire stage (`object-cover`) with a balanced vertical vignette scrim (`from-[#080b11]/60 via-[#080b11]/25 to-[#080b11]/90`) that keeps the central architectural focal point (hearth, anvil, altar, quest board) open and unobstructed.
+2. **Floating Scene Header Overlay**: Translucent frosted-obsidian title badge (`bg-[#080b11]/70 backdrop-blur-md border border-[#fbbf24]/40`) and navigation/close actions anchored at the top edge of the scene.
+3. **On-Scene Interactive Action Controls**: Recruitment cards, forging buttons, smelting/brewing controls, and vault actions float directly **over the interior artwork** in frosted-obsidian glass (`bg-[#080b11]/75 backdrop-blur-md`) with brushed-gold borders so players feel immersed *inside* the building while taking action.
 
 ### 5.3 Shared Character Sheet & Paper-Doll Layout
 Consistent across both `wargame.html` and `index.html`:

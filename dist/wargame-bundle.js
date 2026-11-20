@@ -7480,37 +7480,9 @@ function renderWargameFacilityModal(simHost) {
   const fac = bDef.facilities || {};
   const sections = [];
 
-  // Stage E.5 Golden Slice: Tier 1 Guild / City Facility Interior Banner via Semantic AssetRegistry
+  // Stage E.5 Golden Slice: Immersive Full-Bleed Interior Stage with On-Scene Action Overlays
   const interiorAssetId = getFacilityInteriorAssetId(bId);
   const interiorSrc = getProductionImageSrc(interiorAssetId);
-  if (interiorSrc) {
-    sections.push(`
-      <div class="relative h-36 rounded-lg overflow-hidden border border-[#fbbf24]/40 bg-[#080b11] shadow-lg">
-        <img src="${interiorSrc}" alt="${bDef.name} Interior" class="w-full h-full object-cover object-center" />
-        <div class="absolute inset-0 bg-gradient-to-t from-[#0f1520] via-[#0f1520]/35 to-transparent"></div>
-        <div class="absolute bottom-2 left-3 right-3 flex items-end justify-between gap-2">
-          <div>
-            <div class="text-[10px] font-mono uppercase tracking-wider text-[#fbbf24]">${city.name} • Level ${lvl}</div>
-            <div class="text-xs text-[#e6edf3]/90">${bDef.desc || ''}</div>
-          </div>
-          <span class="px-2 py-0.5 rounded bg-[#080b11]/80 border border-[#fbbf24]/40 text-[9px] font-mono text-[#fbbf24] uppercase whitespace-nowrap">Tier 1 Interior</span>
-        </div>
-      </div>
-    `);
-  } else {
-    sections.push(`
-      <div class="p-3 rounded-lg bg-gradient-to-r from-[#161e2e] via-[#0f1520] to-[#080b11] border border-[#283347] flex items-center justify-between gap-3">
-        <div class="flex items-center gap-3">
-          <div class="w-10 h-10 rounded-lg bg-[#080b11] border border-[#fbbf24]/30 flex items-center justify-center text-xl">${bDef.icon || '🏛️'}</div>
-          <div>
-            <div class="text-xs font-bold text-[#e6edf3]">${bDef.name} — Level ${lvl}</div>
-            <div class="text-[11px] text-[#8b949e]">${bDef.desc || ''}</div>
-          </div>
-        </div>
-        <span class="px-2 py-0.5 rounded bg-[#080b11] border border-[#283347] text-[9px] font-mono text-[#64748b] uppercase whitespace-nowrap">${getActiveRenderAdapter().backend}</span>
-      </div>
-    `);
-  }
 
   if (fac.smelting) {
     sections.push(`
@@ -7692,7 +7664,42 @@ function renderWargameFacilityModal(simHost) {
     `);
   }
 
-  setHtmlIfChanged(bodyEl, sections.join('') || `<div class="text-xs text-[#8b949e]">Facility operational.</div>`);
+  const innerHtml = sections.join('') || `<div class="text-xs text-[#8b949e]">Facility operational.</div>`;
+  if (interiorSrc) {
+    const immersiveStageHtml = `
+      <div class="relative min-h-[460px] rounded-xl overflow-hidden border border-[#fbbf24]/50 bg-[#080b11] shadow-2xl flex flex-col justify-between">
+        <img src="${interiorSrc}" alt="${bDef.name} Interior" class="absolute inset-0 w-full h-full object-cover object-center" />
+        <div class="absolute inset-0 bg-gradient-to-b from-[#080b11]/55 via-[#080b11]/25 to-[#080b11]/92"></div>
+        <div class="relative z-10 p-3.5 flex items-center justify-between gap-2">
+          <div class="px-3 py-1.5 rounded-lg bg-[#080b11]/70 backdrop-blur-md border border-[#fbbf24]/40">
+            <div class="text-[10px] font-mono uppercase tracking-wider text-[#fbbf24]">${city.name} • ${bDef.name} Lv ${lvl}</div>
+            <div class="text-[11px] text-[#e6edf3]/90">${bDef.desc || ''}</div>
+          </div>
+          <span class="px-2.5 py-1 rounded-lg bg-[#080b11]/75 backdrop-blur-md border border-[#fbbf24]/40 text-[10px] font-mono text-[#fbbf24] uppercase whitespace-nowrap">Interactive Interior</span>
+        </div>
+        <div class="relative z-10 flex-1 min-h-[110px]"></div>
+        <div class="relative z-10 p-3.5 space-y-2.5 [&_>div]:bg-[#080b11]/75 [&_>div]:backdrop-blur-md">
+          ${innerHtml}
+        </div>
+      </div>
+    `;
+    setHtmlIfChanged(bodyEl, immersiveStageHtml);
+  } else {
+    const fallbackStageHtml = `
+      <div class="p-3 rounded-lg bg-gradient-to-r from-[#161e2e] via-[#0f1520] to-[#080b11] border border-[#283347] flex items-center justify-between gap-3">
+        <div class="flex items-center gap-3">
+          <div class="w-10 h-10 rounded-lg bg-[#080b11] border border-[#fbbf24]/30 flex items-center justify-center text-xl">${bDef.icon || '🏛️'}</div>
+          <div>
+            <div class="text-xs font-bold text-[#e6edf3]">${bDef.name} — Level ${lvl}</div>
+            <div class="text-[11px] text-[#8b949e]">${bDef.desc || ''}</div>
+          </div>
+        </div>
+        <span class="px-2 py-0.5 rounded bg-[#080b11] border border-[#283347] text-[9px] font-mono text-[#64748b] uppercase whitespace-nowrap">${getActiveRenderAdapter().backend}</span>
+      </div>
+      ${innerHtml}
+    `;
+    setHtmlIfChanged(bodyEl, fallbackStageHtml);
+  }
 }
 
 function renderTitleScreenSummary(simHost) {
@@ -8433,7 +8440,7 @@ function renderGuildRecruitmentPanel(simHost) {
       ? `<img src="${portraitSrc}" alt="${cls.name}" class="w-14 h-14 rounded-lg object-cover border border-[#fbbf24]/50 shadow shrink-0 bg-[#111722]" />`
       : `<div class="w-14 h-14 rounded-lg bg-[#111722] border border-[#283347] flex items-center justify-center text-2xl shrink-0">${cls.icon}</div>`;
     return `
-      <div class="p-3.5 rounded-lg bg-[#080b11] border border-[#283347] flex flex-col justify-between gap-3">
+      <div class="p-3 rounded-lg bg-[#080b11]/78 backdrop-blur-md border border-[#fbbf24]/35 hover:border-[#fbbf24]/75 transition flex flex-col justify-between gap-2.5 shadow-lg">
         <div>
           <div class="flex items-start gap-3">
             ${portraitHtml}
