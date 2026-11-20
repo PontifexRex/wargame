@@ -163,6 +163,10 @@ Consistent across both `wargame.html` and `index.html`:
 - Reverse-chronological (newest on top) or auto-scrolling log with **category filter chips** (`All`, `Combat`, `Loot`, `City`, `System`).
 - Left `2px` color accent bar per entry (`gold` for loot/milestones, `good` emerald for gains, `bad` crimson for damage/alerts, `sys` sky for system/navigation) so players can scan history visually without reading every word.
 
+### 5.6 Universal Screen Info (`ⓘ`) Button & Help Popup Pattern
+- Every major screen header (Overworld, City, Dungeon, Guild/Facility Interiors, Character Sheet) includes a compact **`ⓘ` Info button** (`32×32px` desktop / `44×44px` mobile touch target) in the top bar.
+- Explanatory descriptions, lore blurbs, and option breakdowns (e.g., what the Adventurers Guild or Blacksmith offers) live inside this contextual **Screen Info Popup / Bottom Sheet** rather than cluttering the main interior artwork or gameplay canvas.
+
 ---
 
 ## 6. Interaction, Feedback & Accessibility Standards

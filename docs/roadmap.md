@@ -98,8 +98,9 @@ Track E (Art Direction & Graphics) ──► Stage E.1 (Pillars) ──► E.2 (
 - **Increment 9.7 (`v0.9.7-city-crafting`)**: City Blacksmith & Star-Forge (`CMD_FORGE_EQUIPMENT`, `CMD_TEMPER_EQUIPMENT`) and Lapidary Workshop (`CMD_PUNCH_SOCKET`, `CMD_SOCKET_CITY_GEM`, `CMD_UNSOCKET_CITY_GEM`) decoupled from Guilds into enterable City Constructs. *(Verified)*
 - **Increment 9.7.5 (`v0.9.7.5-guild-parity`)**: Unified Adventurers Guild with all other Class Guilds via the same enterable Building Interior & modular `facilities` pipeline, introduced the dedicated **Adventurer** class (`Torch Flare` skill), and gated specialist class recruitment strictly behind each class's Guild / Temple Chapterhouse. *(Verified)*
 
-#### Increment 9.8 (`v0.9.8-city-academy`) — Arcane Academy (Research) & Market Trade Post
-- **Arcane Academy / Library** *(Enterable City Construct)*: Hosts dual-cost City & Expedition Research trees (Cartography, Geology, Metallurgy, Logistics, Construction Efficiency).
+#### Increment 9.8 (`v0.9.8-city-academy`) — Arcane Academy (Research Tech Trees), Deep Training System & Market Trade Post
+- **Research & Training Architecture Design (`ADR-0014`)**: Design a rich, scalable, visual approach for extensive Research and Class Training options—replacing flat lists with structured **Branching Tech Trees / Starlight Constellations** (tiered prerequisites, domain branches, real-time research queues, dual-cost investments, and visual dependency paths) and **Guild Training Curriculums / Mastery Tracks** per class.
+- **Arcane Academy / Library** *(Enterable City Construct)*: Hosts multi-branch City & Expedition Research trees (Cartography, Geology, Metallurgy, Logistics, Construction Efficiency, Military Doctrine).
 - **Market / Trade Post** *(Enterable City Construct)*: Appraise/liquidate dungeon relics and surplus ores for Gold, and convert surplus city resources at dynamic exchange rates.
 
 #### Increment 9.8 (`v0.9.8-overworld-frontiers`) — Claimable Overworld Outposts, Scouts & Dynamic Patrols
@@ -158,6 +159,7 @@ Track E (Art Direction & Graphics) ──► Stage E.1 (Pillars) ──► E.2 (
 
 #### Stage E.5.5 — Cross-Platform Navigation Architecture (Screens vs. Popups) & Mobile-First Responsive UX
 - **Screen vs. Popup Taxonomy (`docs/ui_design_system.md` §4.4)**: Formalize full-screen destinations (Overworld, City, Dungeon, Building Interiors, Character Profile) vs. focused contextual Popups / Mobile Bottom Sheets (Forging, Tempering, Recruitment Confirm, Inspect, Extraction).
+- **Universal Screen Info (`ⓘ`) Button & Uncluttered Headers**: Place a compact **`ⓘ` Info button** in the top header of every major screen (Overworld, City, Dungeon, Guild/Facility Interiors, Character Sheet) that opens a contextual Info Popup explaining the screen and its options—moving descriptive flavor/help text (such as Adventurers Guild descriptions) out of the main screen to maximize artwork and mobile breathing room.
 - **Mobile-First & Reactive Layout**: Refactor HUD and panels for seamless portrait/landscape mobile play (`≥ 44×44px` touch targets, thumb-zone bottom navigation bar, collapsible Tasks/Chronicle drawers, reduced on-screen text/button density by splitting crowded controls into focused sub-screens or bottom sheets).
 
 #### Stage E.6 — Scaled Asset Production, Diegetic Scene Hotspots & Full Visual Migration
