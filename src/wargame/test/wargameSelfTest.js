@@ -9,7 +9,7 @@ import {
 import { createWargameSimHost } from '../engine/simHost.js';
 import { createMinHeapPriorityQueue } from '../engine/scheduler.js';
 import { getPrimaryCity, getSelectedOverworldUnit, computeCityPopulation, computeCityStorageSlotCapacity } from '../engine/state.js';
-import { computeBuildingDurationMs, isBuildingPrerequisiteMet, computeMaxPartySize, getCityRecruitableClasses } from '../data/buildings.js';
+import { CITY_BUILDINGS_CATALOG, computeBuildingDurationMs, isBuildingPrerequisiteMet, computeMaxPartySize, getCityRecruitableClasses } from '../data/buildings.js';
 import {
   normalizeSharedHeroProfile,
   renderSharedPaperDollMannequin,
@@ -1083,10 +1083,20 @@ export function evaluateWargameSelfTests() {
   const fallbackPortraitSrc = getProductionImageSrc(getHeroPortraitAssetId('mage'));
   const adapter13 = createRenderAdapter({ mode: 'auto' });
 
+  const enterableBuildingIds13 = [
+    'guild_hall', 'fighters_guild', 'thieves_guild', 'mages_guild', 'rangers_lodge', 'temple_chapterhouse',
+    'garrison', 'smeltery', 'apothecary', 'blacksmith', 'lapidary', 'warehouse'
+  ];
+  const all12InteriorsResolved = enterableBuildingIds13.every(function(bid) {
+    const def = CITY_BUILDINGS_CATALOG[bid];
+    return Boolean(def && def.interiorAssetId && getProductionImageSrc(def.interiorAssetId));
+  });
+
   const t13Checks = {
-    manifestValid: manifestCheck13.valid && manifestCheck13.total >= 20 && manifestCheck13.productionCount >= 4,
+    manifestValid: manifestCheck13.valid && manifestCheck13.total >= 20 && manifestCheck13.productionCount >= 16,
     guildBannerResolved: Boolean(guildBannerSrc && guildBannerSrc.indexOf('city_interior_adventurers_guild') !== -1),
     forgeBannerResolved: Boolean(forgeBannerSrc && forgeBannerSrc.indexOf('city_interior_blacksmith') !== -1),
+    all12InteriorsResolved: all12InteriorsResolved,
     portraitsResolved: Boolean(fighterPortraitSrc && paladinPortraitSrc && fallbackPortraitSrc === null),
     adapterFallbackValid: Boolean(adapter13 && adapter13.backend === RENDER_BACKENDS.CANVAS_2D && adapter13.getStats().valid)
   };

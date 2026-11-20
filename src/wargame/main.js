@@ -345,6 +345,7 @@ export function handleOpenFacilityModal(buildingId) {
   if (!simHost.state) return;
   simHost.state._openFacilityId = buildingId;
   simHost.state._facilityTab = null;
+  simHost.state._showFacilityInfo = false;
   simHost.state._dirty = true;
   syncWargameUI(simHost);
 }
@@ -352,6 +353,12 @@ export function handleOpenFacilityModal(buildingId) {
 export function handleSwitchFacilityTab(tabId) {
   if (!simHost.state) return;
   simHost.state._facilityTab = tabId || null;
+  syncWargameUI(simHost);
+}
+
+export function handleToggleFacilityInfo() {
+  if (!simHost.state) return;
+  simHost.state._showFacilityInfo = !simHost.state._showFacilityInfo;
   syncWargameUI(simHost);
 }
 
@@ -755,6 +762,7 @@ export const WargameApp = {
   handleDismissHero: handleDismissHero,
   handleOpenFacilityModal: handleOpenFacilityModal,
   handleSwitchFacilityTab: handleSwitchFacilityTab,
+  handleToggleFacilityInfo: handleToggleFacilityInfo,
   handleCloseFacilityModal: handleCloseFacilityModal,
   handleSmeltIngots: handleSmeltIngots,
   handleBrewProvision: handleBrewProvision,

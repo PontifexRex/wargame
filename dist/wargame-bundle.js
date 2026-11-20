@@ -1760,6 +1760,10 @@ const CITY_BUILDINGS_CATALOG = {
     baseCost: { wood: 30, stone: 30, gold: 0 },
     storageBonus: { wood: 200, stone: 200, ore: 200, ingots: 100 },
     inventorySlotBonus: 50,
+    interiorAssetId: 'city_interior_warehouse_default_static',
+    facilities: {
+      storage: { slotBonusPerLevel: 50 }
+    },
     requires: { meeting_hall: 1, lumber_camp: 1, quarry: 1 },
     desc: 'Dry storage depot that expands wood/stone/ore caps by +200 and City Vault Storage by +50 item slots per level.'
   },
@@ -1773,6 +1777,7 @@ const CITY_BUILDINGS_CATALOG = {
     baseBuildTimeMs: 5500,
     baseCost: { wood: 35, stone: 45, gold: 20 },
     requires: { meeting_hall: 1, quarry: 1 },
+    interiorAssetId: 'city_interior_smeltery_default_static',
     facilities: {
       smelting: { oreCost: 5, woodCost: 5, ingotYield: 2 }
     },
@@ -1788,6 +1793,7 @@ const CITY_BUILDINGS_CATALOG = {
     baseBuildTimeMs: 5000,
     baseCost: { wood: 35, stone: 30, gold: 25 },
     requires: { meeting_hall: 1, garden: 1, well: 1 },
+    interiorAssetId: 'city_interior_apothecary_default_static',
     facilities: {
       brewing: true
     },
@@ -1803,6 +1809,7 @@ const CITY_BUILDINGS_CATALOG = {
     baseBuildTimeMs: 6000,
     baseCost: { wood: 40, stone: 50, gold: 30 },
     requires: { meeting_hall: 1, smeltery: 1 },
+    interiorAssetId: 'city_interior_blacksmith_default_static',
     facilities: {
       blacksmithing: true
     },
@@ -1818,6 +1825,7 @@ const CITY_BUILDINGS_CATALOG = {
     baseBuildTimeMs: 6000,
     baseCost: { wood: 35, stone: 45, gold: 35 },
     requires: { meeting_hall: 1, quarry: 1 },
+    interiorAssetId: 'city_interior_lapidary_default_static',
     facilities: {
       lapidary: true
     },
@@ -1887,6 +1895,7 @@ const CITY_BUILDINGS_CATALOG = {
     requires: { meeting_hall: 1, quarry: 1 },
     requiredPopulation: 20,
     recruits: ['adventurer'],
+    interiorAssetId: 'city_interior_adventurers_guild_default_static',
     facilities: {
       recruitment: { classes: [{ classId: 'adventurer', minLevel: 1 }] },
       questBoard: { domain: 'adventurers' },
@@ -1906,6 +1915,7 @@ const CITY_BUILDINGS_CATALOG = {
     baseBuildTimeMs: 5500,
     baseCost: { wood: 45, stone: 45, gold: 30 },
     requires: { meeting_hall: 1, guild_hall: 1 },
+    interiorAssetId: 'city_interior_garrison_default_static',
     facilities: {
       partyManagement: { baseBonus: 1 }
     },
@@ -1921,6 +1931,7 @@ const CITY_BUILDINGS_CATALOG = {
     baseBuildTimeMs: 6500,
     baseCost: { wood: 40, stone: 55, gold: 35 },
     requires: { meeting_hall: 1, guild_hall: 1 },
+    interiorAssetId: 'city_interior_temple_chapterhouse_default_static',
     facilities: {
       recruitment: {
         classes: [
@@ -1945,6 +1956,7 @@ const CITY_BUILDINGS_CATALOG = {
     baseBuildTimeMs: 5500,
     baseCost: { wood: 40, stone: 45, gold: 30 },
     requires: { meeting_hall: 1, quarry: 1 },
+    interiorAssetId: 'city_interior_fighters_guild_default_static',
     facilities: {
       recruitment: { classes: [{ classId: 'fighter', minLevel: 1 }] },
       questBoard: { domain: 'fighters' },
@@ -1964,6 +1976,7 @@ const CITY_BUILDINGS_CATALOG = {
     baseBuildTimeMs: 5500,
     baseCost: { wood: 40, stone: 35, gold: 35 },
     requires: { meeting_hall: 1, lumber_camp: 1 },
+    interiorAssetId: 'city_interior_thieves_guild_default_static',
     facilities: {
       recruitment: { classes: [{ classId: 'thief', minLevel: 1 }] },
       questBoard: { domain: 'thieves' },
@@ -1983,6 +1996,7 @@ const CITY_BUILDINGS_CATALOG = {
     baseBuildTimeMs: 6500,
     baseCost: { wood: 35, stone: 50, gold: 40 },
     requires: { meeting_hall: 1, quarry: 1 },
+    interiorAssetId: 'city_interior_mages_guild_default_static',
     facilities: {
       recruitment: { classes: [{ classId: 'mage', minLevel: 1 }] },
       questBoard: { domain: 'mages' },
@@ -2002,6 +2016,7 @@ const CITY_BUILDINGS_CATALOG = {
     baseBuildTimeMs: 5500,
     baseCost: { wood: 50, stone: 30, gold: 25 },
     requires: { meeting_hall: 1, lumber_camp: 1 },
+    interiorAssetId: 'city_interior_rangers_lodge_default_static',
     facilities: {
       recruitment: { classes: [{ classId: 'ranger', minLevel: 1 }] },
       questBoard: { domain: 'rangers' },
@@ -6295,7 +6310,7 @@ function getItemTypeIcon(itemOrSlot) {
 
   // --- Module: src/ui/shared/assetRegistry.js ---
 // =============================================================================
-// SHARED SEMANTIC ASSET REGISTRY (Stage E.5 — Golden Slice / ADR-0013)
+// SHARED SEMANTIC ASSET REGISTRY (Stage E.5 â€” Golden Slice / ADR-0013)
 // Resolves all Tier 1-3 visual assets strictly by semantic ID via assets/manifest.json,
 // with graceful procedural fallback and zero-CORS file:// support.
 // =============================================================================
@@ -6436,7 +6451,7 @@ const DEFAULT_ASSET_MANIFEST = {
       tier: 1,
       domain: 'city',
       category: 'interior',
-      status: 'procedural_fallback',
+      status: 'production',
       src: 'assets/runtime/tier1/interiors/city_interior_fighters_guild_default_static.jpg',
       atlasFrame: null,
       width: 1280,
@@ -6449,7 +6464,7 @@ const DEFAULT_ASSET_MANIFEST = {
       tier: 1,
       domain: 'city',
       category: 'interior',
-      status: 'procedural_fallback',
+      status: 'production',
       src: 'assets/runtime/tier1/interiors/city_interior_thieves_guild_default_static.jpg',
       atlasFrame: null,
       width: 1280,
@@ -6462,7 +6477,7 @@ const DEFAULT_ASSET_MANIFEST = {
       tier: 1,
       domain: 'city',
       category: 'interior',
-      status: 'procedural_fallback',
+      status: 'production',
       src: 'assets/runtime/tier1/interiors/city_interior_mages_guild_default_static.jpg',
       atlasFrame: null,
       width: 1280,
@@ -6475,7 +6490,7 @@ const DEFAULT_ASSET_MANIFEST = {
       tier: 1,
       domain: 'city',
       category: 'interior',
-      status: 'procedural_fallback',
+      status: 'production',
       src: 'assets/runtime/tier1/interiors/city_interior_rangers_lodge_default_static.jpg',
       atlasFrame: null,
       width: 1280,
@@ -6488,7 +6503,7 @@ const DEFAULT_ASSET_MANIFEST = {
       tier: 1,
       domain: 'city',
       category: 'interior',
-      status: 'procedural_fallback',
+      status: 'production',
       src: 'assets/runtime/tier1/interiors/city_interior_temple_chapterhouse_default_static.jpg',
       atlasFrame: null,
       width: 1280,
@@ -6501,7 +6516,7 @@ const DEFAULT_ASSET_MANIFEST = {
       tier: 1,
       domain: 'city',
       category: 'interior',
-      status: 'procedural_fallback',
+      status: 'production',
       src: 'assets/runtime/tier1/interiors/city_interior_garrison_default_static.jpg',
       atlasFrame: null,
       width: 1280,
@@ -6514,7 +6529,7 @@ const DEFAULT_ASSET_MANIFEST = {
       tier: 1,
       domain: 'city',
       category: 'interior',
-      status: 'procedural_fallback',
+      status: 'production',
       src: 'assets/runtime/tier1/interiors/city_interior_smeltery_default_static.jpg',
       atlasFrame: null,
       width: 1280,
@@ -6527,7 +6542,7 @@ const DEFAULT_ASSET_MANIFEST = {
       tier: 1,
       domain: 'city',
       category: 'interior',
-      status: 'procedural_fallback',
+      status: 'production',
       src: 'assets/runtime/tier1/interiors/city_interior_apothecary_default_static.jpg',
       atlasFrame: null,
       width: 1280,
@@ -6553,7 +6568,7 @@ const DEFAULT_ASSET_MANIFEST = {
       tier: 1,
       domain: 'city',
       category: 'interior',
-      status: 'procedural_fallback',
+      status: 'production',
       src: 'assets/runtime/tier1/interiors/city_interior_lapidary_default_static.jpg',
       atlasFrame: null,
       width: 1280,
@@ -6566,7 +6581,7 @@ const DEFAULT_ASSET_MANIFEST = {
       tier: 1,
       domain: 'city',
       category: 'interior',
-      status: 'procedural_fallback',
+      status: 'production',
       src: 'assets/runtime/tier1/interiors/city_interior_warehouse_default_static.jpg',
       atlasFrame: null,
       width: 1280,
@@ -7737,9 +7752,26 @@ function renderWargameFacilityModal(simHost) {
   const fac = bDef.facilities || {};
   const sections = [];
 
-  // Stage E.5 Golden Slice: Immersive Full-Bleed Interior Stage with On-Scene Action Overlays
-  const interiorAssetId = getFacilityInteriorAssetId(bId);
+  // Stage E.5/E.6: Common Config-Driven Full-Bleed Interior Stage (reads interiorAssetId directly from building config)
+  const interiorAssetId = bDef.interiorAssetId || getFacilityInteriorAssetId(bId);
   const interiorSrc = getProductionImageSrc(interiorAssetId);
+
+  if (fac.storage) {
+    const slotCap = computeCityStorageSlotCapacity(city);
+    const items = (city.storage && Array.isArray(city.storage.items)) ? city.storage.items : [];
+    const previewItems = items.slice(0, 6).map(function(it) {
+      return `<span class="px-2 py-1 rounded bg-[#111722] border border-[#283347] text-[10px] font-mono text-[#e6edf3]">${getItemTypeIcon(it.slot)} ${it.name}</span>`;
+    }).join('');
+    sections.push(`
+      <div class="p-3 rounded-lg bg-[#080b11] border border-[#94a3b8]/40 space-y-2">
+        <div class="flex items-center justify-between text-xs font-mono">
+          <span class="text-[#fbbf24] font-bold">📦 City Vault Storage</span>
+          <span class="text-[#e6edf3]">Used: <strong class="text-[#38bdf8]">${items.length} / ${slotCap}</strong> Slots (+${(bDef.inventorySlotBonus || 50) * lvl} Warehouse Bonus)</span>
+        </div>
+        <div class="flex flex-wrap gap-1.5">${previewItems || '<span class="text-[11px] text-[#64748b] italic">Vault is currently empty. Dump Hero expedition bags from the Character Sheet while in the City.</span>'}</div>
+      </div>
+    `);
+  }
 
   if (fac.smelting) {
     sections.push(`
@@ -7885,20 +7917,31 @@ function renderWargameFacilityModal(simHost) {
   }
 
   const innerHtml = sections.join('') || `<div class="text-xs text-[#8b949e]">Facility operational.</div>`;
+  const showInfo = Boolean(simHost.state && simHost.state._showFacilityInfo);
+  const infoPopoverHtml = showInfo ? `
+    <div class="mx-3.5 p-3 rounded-lg bg-[#080b11]/92 backdrop-blur-md border border-[#fbbf24]/60 shadow-xl space-y-1.5 text-xs">
+      <div class="flex items-center justify-between">
+        <span class="font-bold text-[#fbbf24]">ⓘ About ${bDef.name} (Level ${lvl})</span>
+        <button onclick="window.WargameApp.handleToggleFacilityInfo()" class="text-[#94a3b8] hover:text-white text-xs font-bold cursor-pointer">✕</button>
+      </div>
+      <p class="text-[11px] text-[#e6edf3]/90 leading-relaxed">${bDef.desc || 'Operational town construct.'}</p>
+    </div>
+  ` : '';
+
   if (interiorSrc) {
     const immersiveStageHtml = `
-      <div class="relative min-h-[460px] rounded-xl overflow-hidden border border-[#fbbf24]/50 bg-[#080b11] shadow-2xl flex flex-col justify-between">
+      <div class="relative min-h-[480px] rounded-xl overflow-hidden border border-[#fbbf24]/50 bg-[#080b11] shadow-2xl flex flex-col justify-between">
         <img src="${interiorSrc}" alt="${bDef.name} Interior" class="absolute inset-0 w-full h-full object-cover object-center" />
-        <div class="absolute inset-0 bg-gradient-to-b from-[#080b11]/55 via-[#080b11]/25 to-[#080b11]/92"></div>
+        <div class="absolute inset-0 bg-gradient-to-b from-[#080b11]/55 via-[#080b11]/20 to-[#080b11]/92"></div>
         <div class="relative z-10 p-3.5 flex items-center justify-between gap-2">
           <div class="px-3 py-1.5 rounded-lg bg-[#080b11]/70 backdrop-blur-md border border-[#fbbf24]/40">
-            <div class="text-[10px] font-mono uppercase tracking-wider text-[#fbbf24]">${city.name} • ${bDef.name} Lv ${lvl}</div>
-            <div class="text-[11px] text-[#e6edf3]/90">${bDef.desc || ''}</div>
+            <div class="text-xs font-display font-bold text-[#fbbf24]">${bDef.icon || '🏛️'} ${bDef.name} <span class="text-[10px] font-mono text-[#e6edf3]/80">• Lv ${lvl} (${city.name})</span></div>
           </div>
-          <span class="px-2.5 py-1 rounded-lg bg-[#080b11]/75 backdrop-blur-md border border-[#fbbf24]/40 text-[10px] font-mono text-[#fbbf24] uppercase whitespace-nowrap">Interactive Interior</span>
+          <button onclick="window.WargameApp.handleToggleFacilityInfo()" title="Building Info" class="w-8 h-8 rounded-full bg-[#080b11]/80 hover:bg-[#fbbf24] hover:text-[#080b11] backdrop-blur-md border border-[#fbbf24]/50 text-[#fbbf24] font-bold text-xs flex items-center justify-center cursor-pointer transition">ⓘ</button>
         </div>
-        <div class="relative z-10 flex-1 min-h-[110px]"></div>
-        <div class="relative z-10 p-3.5 space-y-2.5 [&_>div]:bg-[#080b11]/75 [&_>div]:backdrop-blur-md">
+        ${infoPopoverHtml ? `<div class="relative z-20">${infoPopoverHtml}</div>` : ''}
+        <div class="relative z-10 flex-1 min-h-[120px]"></div>
+        <div class="relative z-10 p-3.5 space-y-2.5 [&_>div]:bg-[#080b11]/78 [&_>div]:backdrop-blur-md">
           ${innerHtml}
         </div>
       </div>
@@ -8653,21 +8696,34 @@ function renderGuildRecruitmentPanel(simHost) {
   const bId = 'guild_hall';
   const bDef = CITY_BUILDINGS_CATALOG[bId];
   const lvl = (city.buildings && city.buildings[bId]) || 1;
-  const interiorSrc = getProductionImageSrc(getFacilityInteriorAssetId(bId));
+  const interiorSrc = getProductionImageSrc(bDef.interiorAssetId || getFacilityInteriorAssetId(bId));
   const servicesHtml = buildUnifiedGuildServicesHtml(simHost, bId, city, bDef, lvl);
+  const showInfo = Boolean(state && state._showFacilityInfo);
+  const infoPopoverHtml = showInfo ? `
+    <div class="mx-4 p-3 rounded-lg bg-[#080b11]/92 backdrop-blur-md border border-[#fbbf24]/60 shadow-xl space-y-1.5 text-xs">
+      <div class="flex items-center justify-between">
+        <span class="font-bold text-[#fbbf24]">ⓘ About ${bDef.name} (Level ${lvl})</span>
+        <button onclick="window.WargameApp.handleToggleFacilityInfo()" class="text-[#94a3b8] hover:text-white text-xs font-bold cursor-pointer">✕</button>
+      </div>
+      <p class="text-[11px] text-[#e6edf3]/90 leading-relaxed">${bDef.desc || ''}</p>
+    </div>
+  ` : '';
 
   const unifiedHtml = `
     <div class="relative min-h-[540px] rounded-xl overflow-hidden border border-[#fbbf24]/50 bg-[#080b11] shadow-2xl flex flex-col justify-between">
       ${interiorSrc ? `<img src="${interiorSrc}" alt="${bDef.name} Interior" class="absolute inset-0 w-full h-full object-cover object-center" />` : ''}
-      <div class="absolute inset-0 bg-gradient-to-b from-[#080b11]/60 via-[#080b11]/25 to-[#080b11]/92"></div>
-      <div class="relative z-10 p-4 flex items-start justify-between gap-3">
+      <div class="absolute inset-0 bg-gradient-to-b from-[#080b11]/55 via-[#080b11]/20 to-[#080b11]/92"></div>
+      <div class="relative z-10 p-4 flex items-center justify-between gap-3">
         <div class="px-3.5 py-2 rounded-lg bg-[#080b11]/70 backdrop-blur-md border border-[#fbbf24]/40">
-          <div class="text-[10px] font-mono uppercase tracking-wider text-[#fbbf24]">${city.name} • ${bDef.name} Lv ${lvl}</div>
-          <div class="text-xs text-[#e6edf3]/90 mt-0.5">${bDef.desc || ''}</div>
+          <div class="text-sm font-display font-bold text-[#fbbf24]">${bDef.icon || '⚔️'} ${bDef.name} <span class="text-[10px] font-mono text-[#e6edf3]/80">• Lv ${lvl} (${city.name})</span></div>
         </div>
-        <button onclick="window.WargameApp.handleSwitchView('city')" class="px-3 py-1.5 rounded-lg bg-[#080b11]/75 hover:bg-[#fbbf24] hover:text-[#080b11] backdrop-blur-md text-[#fbbf24] border border-[#fbbf24]/50 text-[11px] font-mono font-bold uppercase cursor-pointer transition whitespace-nowrap">🏰 Exit to City</button>
+        <div class="flex items-center gap-2">
+          <button onclick="window.WargameApp.handleToggleFacilityInfo()" title="Guild Info" class="w-8 h-8 rounded-full bg-[#080b11]/80 hover:bg-[#fbbf24] hover:text-[#080b11] backdrop-blur-md border border-[#fbbf24]/50 text-[#fbbf24] font-bold text-xs flex items-center justify-center cursor-pointer transition">ⓘ</button>
+          <button onclick="window.WargameApp.handleSwitchView('city')" class="px-3 py-1.5 rounded-lg bg-[#080b11]/75 hover:bg-[#fbbf24] hover:text-[#080b11] backdrop-blur-md text-[#fbbf24] border border-[#fbbf24]/50 text-[11px] font-mono font-bold uppercase cursor-pointer transition whitespace-nowrap">🏰 Exit to City</button>
+        </div>
       </div>
-      <div class="relative z-10 flex-1 min-h-[140px]"></div>
+      ${infoPopoverHtml ? `<div class="relative z-20">${infoPopoverHtml}</div>` : ''}
+      <div class="relative z-10 flex-1 min-h-[150px]"></div>
       <div class="relative z-10 p-4 [&_>div]:bg-[#080b11]/78 [&_>div]:backdrop-blur-md">
         ${servicesHtml}
       </div>
@@ -9880,10 +9936,20 @@ function evaluateWargameSelfTests() {
   const fallbackPortraitSrc = getProductionImageSrc(getHeroPortraitAssetId('mage'));
   const adapter13 = createRenderAdapter({ mode: 'auto' });
 
+  const enterableBuildingIds13 = [
+    'guild_hall', 'fighters_guild', 'thieves_guild', 'mages_guild', 'rangers_lodge', 'temple_chapterhouse',
+    'garrison', 'smeltery', 'apothecary', 'blacksmith', 'lapidary', 'warehouse'
+  ];
+  const all12InteriorsResolved = enterableBuildingIds13.every(function(bid) {
+    const def = CITY_BUILDINGS_CATALOG[bid];
+    return Boolean(def && def.interiorAssetId && getProductionImageSrc(def.interiorAssetId));
+  });
+
   const t13Checks = {
-    manifestValid: manifestCheck13.valid && manifestCheck13.total >= 20 && manifestCheck13.productionCount >= 4,
+    manifestValid: manifestCheck13.valid && manifestCheck13.total >= 20 && manifestCheck13.productionCount >= 16,
     guildBannerResolved: Boolean(guildBannerSrc && guildBannerSrc.indexOf('city_interior_adventurers_guild') !== -1),
     forgeBannerResolved: Boolean(forgeBannerSrc && forgeBannerSrc.indexOf('city_interior_blacksmith') !== -1),
+    all12InteriorsResolved: all12InteriorsResolved,
     portraitsResolved: Boolean(fighterPortraitSrc && paladinPortraitSrc && fallbackPortraitSrc === null),
     adapterFallbackValid: Boolean(adapter13 && adapter13.backend === RENDER_BACKENDS.CANVAS_2D && adapter13.getStats().valid)
   };
@@ -10271,6 +10337,7 @@ function handleOpenFacilityModal(buildingId) {
   if (!simHost.state) return;
   simHost.state._openFacilityId = buildingId;
   simHost.state._facilityTab = null;
+  simHost.state._showFacilityInfo = false;
   simHost.state._dirty = true;
   syncWargameUI(simHost);
 }
@@ -10278,6 +10345,12 @@ function handleOpenFacilityModal(buildingId) {
 function handleSwitchFacilityTab(tabId) {
   if (!simHost.state) return;
   simHost.state._facilityTab = tabId || null;
+  syncWargameUI(simHost);
+}
+
+function handleToggleFacilityInfo() {
+  if (!simHost.state) return;
+  simHost.state._showFacilityInfo = !simHost.state._showFacilityInfo;
   syncWargameUI(simHost);
 }
 
@@ -10681,6 +10754,7 @@ const WargameApp = {
   handleDismissHero: handleDismissHero,
   handleOpenFacilityModal: handleOpenFacilityModal,
   handleSwitchFacilityTab: handleSwitchFacilityTab,
+  handleToggleFacilityInfo: handleToggleFacilityInfo,
   handleCloseFacilityModal: handleCloseFacilityModal,
   handleSmeltIngots: handleSmeltIngots,
   handleBrewProvision: handleBrewProvision,

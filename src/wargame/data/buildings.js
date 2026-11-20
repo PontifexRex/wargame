@@ -180,6 +180,10 @@ export const CITY_BUILDINGS_CATALOG = {
     baseCost: { wood: 30, stone: 30, gold: 0 },
     storageBonus: { wood: 200, stone: 200, ore: 200, ingots: 100 },
     inventorySlotBonus: 50,
+    interiorAssetId: 'city_interior_warehouse_default_static',
+    facilities: {
+      storage: { slotBonusPerLevel: 50 }
+    },
     requires: { meeting_hall: 1, lumber_camp: 1, quarry: 1 },
     desc: 'Dry storage depot that expands wood/stone/ore caps by +200 and City Vault Storage by +50 item slots per level.'
   },
@@ -193,6 +197,7 @@ export const CITY_BUILDINGS_CATALOG = {
     baseBuildTimeMs: 5500,
     baseCost: { wood: 35, stone: 45, gold: 20 },
     requires: { meeting_hall: 1, quarry: 1 },
+    interiorAssetId: 'city_interior_smeltery_default_static',
     facilities: {
       smelting: { oreCost: 5, woodCost: 5, ingotYield: 2 }
     },
@@ -208,6 +213,7 @@ export const CITY_BUILDINGS_CATALOG = {
     baseBuildTimeMs: 5000,
     baseCost: { wood: 35, stone: 30, gold: 25 },
     requires: { meeting_hall: 1, garden: 1, well: 1 },
+    interiorAssetId: 'city_interior_apothecary_default_static',
     facilities: {
       brewing: true
     },
@@ -223,6 +229,7 @@ export const CITY_BUILDINGS_CATALOG = {
     baseBuildTimeMs: 6000,
     baseCost: { wood: 40, stone: 50, gold: 30 },
     requires: { meeting_hall: 1, smeltery: 1 },
+    interiorAssetId: 'city_interior_blacksmith_default_static',
     facilities: {
       blacksmithing: true
     },
@@ -238,6 +245,7 @@ export const CITY_BUILDINGS_CATALOG = {
     baseBuildTimeMs: 6000,
     baseCost: { wood: 35, stone: 45, gold: 35 },
     requires: { meeting_hall: 1, quarry: 1 },
+    interiorAssetId: 'city_interior_lapidary_default_static',
     facilities: {
       lapidary: true
     },
@@ -307,6 +315,7 @@ export const CITY_BUILDINGS_CATALOG = {
     requires: { meeting_hall: 1, quarry: 1 },
     requiredPopulation: 20,
     recruits: ['adventurer'],
+    interiorAssetId: 'city_interior_adventurers_guild_default_static',
     facilities: {
       recruitment: { classes: [{ classId: 'adventurer', minLevel: 1 }] },
       questBoard: { domain: 'adventurers' },
@@ -326,6 +335,7 @@ export const CITY_BUILDINGS_CATALOG = {
     baseBuildTimeMs: 5500,
     baseCost: { wood: 45, stone: 45, gold: 30 },
     requires: { meeting_hall: 1, guild_hall: 1 },
+    interiorAssetId: 'city_interior_garrison_default_static',
     facilities: {
       partyManagement: { baseBonus: 1 }
     },
@@ -341,6 +351,7 @@ export const CITY_BUILDINGS_CATALOG = {
     baseBuildTimeMs: 6500,
     baseCost: { wood: 40, stone: 55, gold: 35 },
     requires: { meeting_hall: 1, guild_hall: 1 },
+    interiorAssetId: 'city_interior_temple_chapterhouse_default_static',
     facilities: {
       recruitment: {
         classes: [
@@ -365,6 +376,7 @@ export const CITY_BUILDINGS_CATALOG = {
     baseBuildTimeMs: 5500,
     baseCost: { wood: 40, stone: 45, gold: 30 },
     requires: { meeting_hall: 1, quarry: 1 },
+    interiorAssetId: 'city_interior_fighters_guild_default_static',
     facilities: {
       recruitment: { classes: [{ classId: 'fighter', minLevel: 1 }] },
       questBoard: { domain: 'fighters' },
@@ -384,6 +396,7 @@ export const CITY_BUILDINGS_CATALOG = {
     baseBuildTimeMs: 5500,
     baseCost: { wood: 40, stone: 35, gold: 35 },
     requires: { meeting_hall: 1, lumber_camp: 1 },
+    interiorAssetId: 'city_interior_thieves_guild_default_static',
     facilities: {
       recruitment: { classes: [{ classId: 'thief', minLevel: 1 }] },
       questBoard: { domain: 'thieves' },
@@ -403,6 +416,7 @@ export const CITY_BUILDINGS_CATALOG = {
     baseBuildTimeMs: 6500,
     baseCost: { wood: 35, stone: 50, gold: 40 },
     requires: { meeting_hall: 1, quarry: 1 },
+    interiorAssetId: 'city_interior_mages_guild_default_static',
     facilities: {
       recruitment: { classes: [{ classId: 'mage', minLevel: 1 }] },
       questBoard: { domain: 'mages' },
@@ -422,6 +436,7 @@ export const CITY_BUILDINGS_CATALOG = {
     baseBuildTimeMs: 5500,
     baseCost: { wood: 50, stone: 30, gold: 25 },
     requires: { meeting_hall: 1, lumber_camp: 1 },
+    interiorAssetId: 'city_interior_rangers_lodge_default_static',
     facilities: {
       recruitment: { classes: [{ classId: 'ranger', minLevel: 1 }] },
       questBoard: { domain: 'rangers' },

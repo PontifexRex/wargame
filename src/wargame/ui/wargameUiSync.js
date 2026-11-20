@@ -496,9 +496,26 @@ export function renderWargameFacilityModal(simHost) {
   const fac = bDef.facilities || {};
   const sections = [];
 
-  // Stage E.5 Golden Slice: Immersive Full-Bleed Interior Stage with On-Scene Action Overlays
-  const interiorAssetId = getFacilityInteriorAssetId(bId);
+  // Stage E.5/E.6: Common Config-Driven Full-Bleed Interior Stage (reads interiorAssetId directly from building config)
+  const interiorAssetId = bDef.interiorAssetId || getFacilityInteriorAssetId(bId);
   const interiorSrc = getProductionImageSrc(interiorAssetId);
+
+  if (fac.storage) {
+    const slotCap = computeCityStorageSlotCapacity(city);
+    const items = (city.storage && Array.isArray(city.storage.items)) ? city.storage.items : [];
+    const previewItems = items.slice(0, 6).map(function(it) {
+      return `<span class="px-2 py-1 rounded bg-[#111722] border border-[#283347] text-[10px] font-mono text-[#e6edf3]">${getItemTypeIcon(it.slot)} ${it.name}</span>`;
+    }).join('');
+    sections.push(`
+      <div class="p-3 rounded-lg bg-[#080b11] border border-[#94a3b8]/40 space-y-2">
+        <div class="flex items-center justify-between text-xs font-mono">
+          <span class="text-[#fbbf24] font-bold">📦 City Vault Storage</span>
+          <span class="text-[#e6edf3]">Used: <strong class="text-[#38bdf8]">${items.length} / ${slotCap}</strong> Slots (+${(bDef.inventorySlotBonus || 50) * lvl} Warehouse Bonus)</span>
+        </div>
+        <div class="flex flex-wrap gap-1.5">${previewItems || '<span class="text-[11px] text-[#64748b] italic">Vault is currently empty. Dump Hero expedition bags from the Character Sheet while in the City.</span>'}</div>
+      </div>
+    `);
+  }
 
   if (fac.smelting) {
     sections.push(`
@@ -644,20 +661,31 @@ export function renderWargameFacilityModal(simHost) {
   }
 
   const innerHtml = sections.join('') || `<div class="text-xs text-[#8b949e]">Facility operational.</div>`;
+  const showInfo = Boolean(simHost.state && simHost.state._showFacilityInfo);
+  const infoPopoverHtml = showInfo ? `
+    <div class="mx-3.5 p-3 rounded-lg bg-[#080b11]/92 backdrop-blur-md border border-[#fbbf24]/60 shadow-xl space-y-1.5 text-xs">
+      <div class="flex items-center justify-between">
+        <span class="font-bold text-[#fbbf24]">ⓘ About ${bDef.name} (Level ${lvl})</span>
+        <button onclick="window.WargameApp.handleToggleFacilityInfo()" class="text-[#94a3b8] hover:text-white text-xs font-bold cursor-pointer">✕</button>
+      </div>
+      <p class="text-[11px] text-[#e6edf3]/90 leading-relaxed">${bDef.desc || 'Operational town construct.'}</p>
+    </div>
+  ` : '';
+
   if (interiorSrc) {
     const immersiveStageHtml = `
-      <div class="relative min-h-[460px] rounded-xl overflow-hidden border border-[#fbbf24]/50 bg-[#080b11] shadow-2xl flex flex-col justify-between">
+      <div class="relative min-h-[480px] rounded-xl overflow-hidden border border-[#fbbf24]/50 bg-[#080b11] shadow-2xl flex flex-col justify-between">
         <img src="${interiorSrc}" alt="${bDef.name} Interior" class="absolute inset-0 w-full h-full object-cover object-center" />
-        <div class="absolute inset-0 bg-gradient-to-b from-[#080b11]/55 via-[#080b11]/25 to-[#080b11]/92"></div>
+        <div class="absolute inset-0 bg-gradient-to-b from-[#080b11]/55 via-[#080b11]/20 to-[#080b11]/92"></div>
         <div class="relative z-10 p-3.5 flex items-center justify-between gap-2">
           <div class="px-3 py-1.5 rounded-lg bg-[#080b11]/70 backdrop-blur-md border border-[#fbbf24]/40">
-            <div class="text-[10px] font-mono uppercase tracking-wider text-[#fbbf24]">${city.name} • ${bDef.name} Lv ${lvl}</div>
-            <div class="text-[11px] text-[#e6edf3]/90">${bDef.desc || ''}</div>
+            <div class="text-xs font-display font-bold text-[#fbbf24]">${bDef.icon || '🏛️'} ${bDef.name} <span class="text-[10px] font-mono text-[#e6edf3]/80">• Lv ${lvl} (${city.name})</span></div>
           </div>
-          <span class="px-2.5 py-1 rounded-lg bg-[#080b11]/75 backdrop-blur-md border border-[#fbbf24]/40 text-[10px] font-mono text-[#fbbf24] uppercase whitespace-nowrap">Interactive Interior</span>
+          <button onclick="window.WargameApp.handleToggleFacilityInfo()" title="Building Info" class="w-8 h-8 rounded-full bg-[#080b11]/80 hover:bg-[#fbbf24] hover:text-[#080b11] backdrop-blur-md border border-[#fbbf24]/50 text-[#fbbf24] font-bold text-xs flex items-center justify-center cursor-pointer transition">ⓘ</button>
         </div>
-        <div class="relative z-10 flex-1 min-h-[110px]"></div>
-        <div class="relative z-10 p-3.5 space-y-2.5 [&_>div]:bg-[#080b11]/75 [&_>div]:backdrop-blur-md">
+        ${infoPopoverHtml ? `<div class="relative z-20">${infoPopoverHtml}</div>` : ''}
+        <div class="relative z-10 flex-1 min-h-[120px]"></div>
+        <div class="relative z-10 p-3.5 space-y-2.5 [&_>div]:bg-[#080b11]/78 [&_>div]:backdrop-blur-md">
           ${innerHtml}
         </div>
       </div>
@@ -1412,21 +1440,34 @@ export function renderGuildRecruitmentPanel(simHost) {
   const bId = 'guild_hall';
   const bDef = CITY_BUILDINGS_CATALOG[bId];
   const lvl = (city.buildings && city.buildings[bId]) || 1;
-  const interiorSrc = getProductionImageSrc(getFacilityInteriorAssetId(bId));
+  const interiorSrc = getProductionImageSrc(bDef.interiorAssetId || getFacilityInteriorAssetId(bId));
   const servicesHtml = buildUnifiedGuildServicesHtml(simHost, bId, city, bDef, lvl);
+  const showInfo = Boolean(state && state._showFacilityInfo);
+  const infoPopoverHtml = showInfo ? `
+    <div class="mx-4 p-3 rounded-lg bg-[#080b11]/92 backdrop-blur-md border border-[#fbbf24]/60 shadow-xl space-y-1.5 text-xs">
+      <div class="flex items-center justify-between">
+        <span class="font-bold text-[#fbbf24]">ⓘ About ${bDef.name} (Level ${lvl})</span>
+        <button onclick="window.WargameApp.handleToggleFacilityInfo()" class="text-[#94a3b8] hover:text-white text-xs font-bold cursor-pointer">✕</button>
+      </div>
+      <p class="text-[11px] text-[#e6edf3]/90 leading-relaxed">${bDef.desc || ''}</p>
+    </div>
+  ` : '';
 
   const unifiedHtml = `
     <div class="relative min-h-[540px] rounded-xl overflow-hidden border border-[#fbbf24]/50 bg-[#080b11] shadow-2xl flex flex-col justify-between">
       ${interiorSrc ? `<img src="${interiorSrc}" alt="${bDef.name} Interior" class="absolute inset-0 w-full h-full object-cover object-center" />` : ''}
-      <div class="absolute inset-0 bg-gradient-to-b from-[#080b11]/60 via-[#080b11]/25 to-[#080b11]/92"></div>
-      <div class="relative z-10 p-4 flex items-start justify-between gap-3">
+      <div class="absolute inset-0 bg-gradient-to-b from-[#080b11]/55 via-[#080b11]/20 to-[#080b11]/92"></div>
+      <div class="relative z-10 p-4 flex items-center justify-between gap-3">
         <div class="px-3.5 py-2 rounded-lg bg-[#080b11]/70 backdrop-blur-md border border-[#fbbf24]/40">
-          <div class="text-[10px] font-mono uppercase tracking-wider text-[#fbbf24]">${city.name} • ${bDef.name} Lv ${lvl}</div>
-          <div class="text-xs text-[#e6edf3]/90 mt-0.5">${bDef.desc || ''}</div>
+          <div class="text-sm font-display font-bold text-[#fbbf24]">${bDef.icon || '⚔️'} ${bDef.name} <span class="text-[10px] font-mono text-[#e6edf3]/80">• Lv ${lvl} (${city.name})</span></div>
         </div>
-        <button onclick="window.WargameApp.handleSwitchView('city')" class="px-3 py-1.5 rounded-lg bg-[#080b11]/75 hover:bg-[#fbbf24] hover:text-[#080b11] backdrop-blur-md text-[#fbbf24] border border-[#fbbf24]/50 text-[11px] font-mono font-bold uppercase cursor-pointer transition whitespace-nowrap">🏰 Exit to City</button>
+        <div class="flex items-center gap-2">
+          <button onclick="window.WargameApp.handleToggleFacilityInfo()" title="Guild Info" class="w-8 h-8 rounded-full bg-[#080b11]/80 hover:bg-[#fbbf24] hover:text-[#080b11] backdrop-blur-md border border-[#fbbf24]/50 text-[#fbbf24] font-bold text-xs flex items-center justify-center cursor-pointer transition">ⓘ</button>
+          <button onclick="window.WargameApp.handleSwitchView('city')" class="px-3 py-1.5 rounded-lg bg-[#080b11]/75 hover:bg-[#fbbf24] hover:text-[#080b11] backdrop-blur-md text-[#fbbf24] border border-[#fbbf24]/50 text-[11px] font-mono font-bold uppercase cursor-pointer transition whitespace-nowrap">🏰 Exit to City</button>
+        </div>
       </div>
-      <div class="relative z-10 flex-1 min-h-[140px]"></div>
+      ${infoPopoverHtml ? `<div class="relative z-20">${infoPopoverHtml}</div>` : ''}
+      <div class="relative z-10 flex-1 min-h-[150px]"></div>
       <div class="relative z-10 p-4 [&_>div]:bg-[#080b11]/78 [&_>div]:backdrop-blur-md">
         ${servicesHtml}
       </div>
