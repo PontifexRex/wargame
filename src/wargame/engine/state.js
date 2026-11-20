@@ -21,6 +21,7 @@ import {
 import { generateOverworldMap } from './pathfinding.js';
 import { createInitialTasksState } from './taskEngine.js';
 import { CITY_PLOT_SLOTS, CITY_BUILDINGS_CATALOG } from '../data/buildings.js';
+import { createDefaultProgressionState, ensureProgressionState } from '../../progression/progressionState.js';
 
 export function createTitleScreenState() {
   return {
@@ -91,6 +92,7 @@ export function createNewCampaignWorldState(options = {}) {
       heroes: [],
       parties: [],
       tasks: createInitialTasksState(),
+      progression: createDefaultProgressionState(0),
       scheduledJobs: [],
       stats: {
         totalUnitSteps: 0,
@@ -398,6 +400,9 @@ export function loadWargameState(scheduler = null) {
           c.plots = freshPlots;
         }
       });
+    }
+    if (parsed.world) {
+      ensureProgressionState(parsed.world);
     }
     if (scheduler && Array.isArray(parsed.world.scheduledJobs)) {
       scheduler.hydrateJobs(parsed.world.scheduledJobs);

@@ -63,15 +63,8 @@ Track E (Art Direction & Mobile UX)     ──► Stage E.6 (Painted Tier 2 Iso/
 
 *Promoted ahead of Increment 9.8+ so Market, Pantheon/Divine Alignment, Quests, Achievements/Titles, and Multi-City all consume these shared, server-ready foundational services natively. Implemented locally first in pure deterministic JS with server-ready idempotent interfaces.*
 
-#### Increment 10.1 (`v0.10.1-prog-foundation`) — Phase 1: Fixed-Precision Currency Ledger, Nested Prerequisites & Versioned Catalog
-- **Generic Currency & Transaction Ledger (`CurrencyService`)**:
-  - Data-driven `CurrencyDefinition` (supporting fixed decimal precision / scaled integers—never imprecise floats), multi-owner `CurrencyAccount` (`Player`, `Guild`, `Alliance`, future entities), and auditable `CurrencyTransaction` ledger with `IdempotencyKey` and balance reconstruction.
-  - **Unified Atomic Payment Interface**: All-or-nothing payment validation combining fungible currencies (RP, Gold) with physical inventory/stockpile resources (Wood, Stone, Ore, Ingots, Items).
-- **Generic Nested Prerequisite & Eligibility Engine (`ResearchEligibilityService`)**:
-  - Evaluates arbitrary nested `AND` / `OR` / `NOT` condition trees across `Visibility`, `Eligibility`, `Start`, `Completion`, and `Bonus` categories; returns rich status codes (`Available`, `Locked`, `Hidden`, `Unaffordable`, `Queue full`, `Restricted by guild/alliance/alignment`, `Subject unavailable`) with exact unmet condition explanations.
-- **Versioned Research & Training Catalog (`ResearchCatalogService`, `TrainingCatalogService`)**:
-  - Clean separation of Definitions (`Domain -> Tree -> Branch -> Item -> Level -> Milestone`) vs. Runtime Instances (`ResearchProgressInstance`, `TrainingInstance`) with immutable definition versioning.
-  - Seed the **5 Representative Prototype Trees**: **General Knowledge**, **Adventurer Basics**, **Weapon Proficiency** (including `WAR_WEAPON_HEAVY_001` 3-level heavy weapon unlock), **City Development**, and **Divine Knowledge**.
+*Preceding Increments:*  
+- **Increment 10.1 (`v0.10.1-prog-foundation` / `ADR-0015`) — Phase 1 Foundation**: Implemented scaled-integer fixed-precision `CurrencyService` (`0.00001` precision, idempotent auditable ledger, balance reconstruction, unified atomic currency+stockpile payments), nested `AND`/`OR`/`NOT` `ResearchEligibilityService` (with guild/alliance/alignment restriction codes), versioned `ResearchCatalogService` (15 domains, 5 representative prototype trees incl. `WAR_WEAPON_HEAVY_001` & hero training definitions), and `world.progression` state backfill. *(Verified)*
 
 #### Increment 10.2 (`v0.10.2-prog-accrual-queues`) — Phase 2: Passive & Activity Fractional Accrual, Configurable Queues & Offline Progress
 - **Passive & Event-Driven Fractional Accrual (`ResearchAccrualService`)**:

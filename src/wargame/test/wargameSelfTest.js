@@ -27,6 +27,17 @@ import { createRenderAdapter, RENDER_BACKENDS } from '../../ui/shared/renderAdap
 import { getScreenInfoContent } from '../ui/wargameUiSync.js';
 import { createIsoGridAdapter, createHexGridAdapter } from '../../ui/shared/gridAdapters.js';
 import { createMapViewport } from '../../ui/shared/mapViewport.js';
+import {
+  OWNER_TYPES,
+  TRANSACTION_TYPES,
+  createCurrencyLedgerState,
+  recordCurrencyTransaction,
+  getCurrencyBalance,
+  reconstructAccountBalance,
+  executeAtomicPayment
+} from '../../progression/currencyService.js';
+import { evaluateConditionNode, evaluateResearchEligibility, EVALUATION_STATUS } from '../../progression/eligibilityService.js';
+import { PROTOTYPE_RESEARCH_ITEMS, validateResearchCatalog } from '../../progression/researchCatalog.js';
 
 export function evaluateWargameSelfTests() {
   const results = [];
@@ -1201,6 +1212,81 @@ export function evaluateWargameSelfTests() {
     detail: t16Pass
       ? 'Hex rings/spirals (12/19), 8x8 Iso painter sort, centerOnTile/screenToTile picking & frustum bounds verified'
       : 'Failed ADR-0014 MapViewportEngine or GridAdapter checks'
+  });
+
+  // =========================================================================
+  // Test 17: Track F Phase 1 — Fixed-Precision Currency Ledger, Atomic Payments, Nested Prerequisites & 5-Tree Catalog (Inc 10.1)
+  // =========================================================================
+  const ledger17 = createCurrencyLedgerState();
+  // Exact scaled-integer fractional precision: 0.00001 + 0.001 + 0.005 = 0.00601 (601 atomic units)
+  recordCurrencyTransaction(ledger17, { ownerId: 'p1', ownerType: OWNER_TYPES.PLAYER, currencyId: 'rp_adventurer', amount: 0.00001, transactionType: TRANSACTION_TYPES.AWARD, source: 'passive', idempotencyKey: 'k1', nowMs: 1000 });
+  recordCurrencyTransaction(ledger17, { ownerId: 'p1', ownerType: OWNER_TYPES.PLAYER, currencyId: 'rp_adventurer', amount: 0.001,   transactionType: TRANSACTION_TYPES.AWARD, source: 'move',    idempotencyKey: 'k2', nowMs: 2000 });
+  recordCurrencyTransaction(ledger17, { ownerId: 'p1', ownerType: OWNER_TYPES.PLAYER, currencyId: 'rp_adventurer', amount: 0.005,   transactionType: TRANSACTION_TYPES.AWARD, source: 'kill',    idempotencyKey: 'k3', nowMs: 3000 });
+  // Duplicate idempotencyKey MUST NOT double-award!
+  const dupRes17 = recordCurrencyTransaction(ledger17, { ownerId: 'p1', ownerType: OWNER_TYPES.PLAYER, currencyId: 'rp_adventurer', amount: 0.005, transactionType: TRANSACTION_TYPES.AWARD, source: 'kill', idempotencyKey: 'k3', nowMs: 3001 });
+  const bal17 = getCurrencyBalance(ledger17, 'p1', OWNER_TYPES.PLAYER, 'rp_adventurer');
+  const recon17 = reconstructAccountBalance(ledger17, 'p1', OWNER_TYPES.PLAYER, 'rp_adventurer');
+  const scaledPrecisionOk = bal17.availableScaled === 601 && recon17.reconstructedScaled === 601 && dupRes17.duplicate === true;
+
+  // Unified Atomic Payment (Currency + Physical Stockpile): fails with ZERO partial deduction if stone is short
+  recordCurrencyTransaction(ledger17, { ownerId: 'p1', ownerType: OWNER_TYPES.PLAYER, currencyId: 'rp_general', amount: 1, transactionType: TRANSACTION_TYPES.AWARD, source: 'grant', nowMs: 4000 });
+  const mockStock17 = { stone: 10 };
+  const failPay17 = executeAtomicPayment(ledger17, [
+    { kind: 'currency', currencyId: 'rp_general', amount: 0.5 },
+    { kind: 'stockpile', resourceId: 'stone', amount: 30 }
+  ], { ownerId: 'p1', ownerType: OWNER_TYPES.PLAYER, stockpile: mockStock17, nowMs: 4100 });
+  const noPartialDeduction = !failPay17.ok && getCurrencyBalance(ledger17, 'p1', OWNER_TYPES.PLAYER, 'rp_general').availableScaled === 100000 && mockStock17.stone === 10;
+
+  mockStock17.stone = 40;
+  const okPay17 = executeAtomicPayment(ledger17, [
+    { kind: 'currency', currencyId: 'rp_general', amount: 0.5 },
+    { kind: 'stockpile', resourceId: 'stone', amount: 30 }
+  ], { ownerId: 'p1', ownerType: OWNER_TYPES.PLAYER, stockpile: mockStock17, nowMs: 4200 });
+  const atomicPayOk = okPay17.ok && getCurrencyBalance(ledger17, 'p1', OWNER_TYPES.PLAYER, 'rp_general').availableScaled === 50000 && mockStock17.stone === 10;
+
+  // Spec §8.5 Nested AND/OR Prerequisite Evaluation + Alignment Restriction
+  const nestedSpecCond = {
+    operator: 'AND',
+    conditions: [
+      { type: 'hero_level', operator: 'greater_than_or_equal', value: 10 },
+      {
+        operator: 'OR',
+        conditions: [
+          { type: 'research_level', research_item_id: 'w12', operator: 'greater_than_or_equal', value: 1 },
+          { type: 'research_level', research_item_id: 'w59', operator: 'greater_than_or_equal', value: 1 },
+          { type: 'research_level', research_item_id: 'w80', operator: 'greater_than_or_equal', value: 1 }
+        ]
+      }
+    ]
+  };
+  const nestedFail = evaluateConditionNode(nestedSpecCond, { heroLevel: 10, researchProgress: {} });
+  const nestedPass = evaluateConditionNode(nestedSpecCond, { heroLevel: 10, researchProgress: { w59: { currentLevel: 1 } } });
+  const relLocked = evaluateResearchEligibility(PROTOTYPE_RESEARCH_ITEMS.REL_LITURGY_001, 1, { alignment: { godTags: ['shadow'] } });
+  const relOpen = evaluateResearchEligibility(PROTOTYPE_RESEARCH_ITEMS.REL_LITURGY_001, 1, { alignment: { godTags: ['solar', 'war'] } });
+
+  // Catalog validation (15 domains, 5 representative trees, WAR_WEAPON_HEAVY_001 3 levels)
+  const catVal17 = validateResearchCatalog();
+  const heavyItem17 = PROTOTYPE_RESEARCH_ITEMS.WAR_WEAPON_HEAVY_001;
+  const hasWorldProgression = Boolean(host14.state.world && host14.state.world.progression && host14.state.world.progression.currencyLedger);
+
+  const t17Checks = {
+    scaledPrecisionOk: scaledPrecisionOk,
+    noPartialDeduction: noPartialDeduction,
+    atomicPayOk: atomicPayOk,
+    nestedLogicOk: !nestedFail.passed && nestedPass.passed,
+    alignmentGatingOk: relLocked.status === EVALUATION_STATUS.RESTRICTED_ALIGNMENT && relOpen.status === EVALUATION_STATUS.AVAILABLE,
+    catalogValid: catVal17.valid && catVal17.domainCount === 15 && catVal17.treeCount === 5 && Boolean(heavyItem17 && heavyItem17.levelLimit === 3),
+    hasWorldProgression: hasWorldProgression
+  };
+  const failed17 = Object.keys(t17Checks).filter(function(k) { return !t17Checks[k]; });
+  const t17Pass = failed17.length === 0;
+
+  results.push({
+    name: '17. Track F Phase 1: Fixed-Precision Currency Ledger, Atomic Payments, Nested Prerequisites & 5-Tree Catalog (Inc 10.1)',
+    pass: t17Pass,
+    detail: t17Pass
+      ? 'Scaled-integer 0.00001 precision, idempotency, balance reconstruction, atomic currency+stockpile payments, nested AND/OR/alignment rules & 15-domain/5-tree catalog verified'
+      : 'Failed checks: ' + failed17.join(', ')
   });
 
   return results;
