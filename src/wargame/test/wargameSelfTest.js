@@ -16,6 +16,14 @@ import {
   SHARED_PAPER_DOLL_SLOTS,
   COSMETIC_SLOTS
 } from '../../ui/shared/characterSheet.js';
+import {
+  DEFAULT_ASSET_MANIFEST,
+  validateAssetManifest,
+  getFacilityInteriorAssetId,
+  getHeroPortraitAssetId,
+  getProductionImageSrc
+} from '../../ui/shared/assetRegistry.js';
+import { createRenderAdapter, RENDER_BACKENDS } from '../../ui/shared/renderAdapter.js';
 
 export function evaluateWargameSelfTests() {
   const results = [];
@@ -1058,6 +1066,37 @@ export function evaluateWargameSelfTests() {
     detail: t12Pass
       ? 'Blacksmith forging & tempering, Lapidary socket punching, Ruby socketing (+4 ATK), and safe gem extraction verified'
       : 'Failed checks: ' + failed12.join(', ')
+  });
+
+  // =========================================================================
+  // Test 13: Semantic AssetRegistry, Guild Interior Banners & RenderAdapter (Stage E.5)
+  // =========================================================================
+  const manifestCheck13 = validateAssetManifest(DEFAULT_ASSET_MANIFEST);
+  const guildBannerId = getFacilityInteriorAssetId('guild_hall');
+  const forgeBannerId = getFacilityInteriorAssetId('blacksmith');
+  const guildBannerSrc = getProductionImageSrc(guildBannerId);
+  const forgeBannerSrc = getProductionImageSrc(forgeBannerId);
+  const fighterPortraitSrc = getProductionImageSrc(getHeroPortraitAssetId('fighter'));
+  const paladinPortraitSrc = getProductionImageSrc(getHeroPortraitAssetId('paladin'));
+  const fallbackPortraitSrc = getProductionImageSrc(getHeroPortraitAssetId('thief'));
+  const adapter13 = createRenderAdapter({ mode: 'auto' });
+
+  const t13Checks = {
+    manifestValid: manifestCheck13.valid && manifestCheck13.total >= 20 && manifestCheck13.productionCount >= 4,
+    guildBannerResolved: Boolean(guildBannerSrc && guildBannerSrc.indexOf('city_interior_adventurers_guild') !== -1),
+    forgeBannerResolved: Boolean(forgeBannerSrc && forgeBannerSrc.indexOf('city_interior_blacksmith') !== -1),
+    portraitsResolved: Boolean(fighterPortraitSrc && paladinPortraitSrc && fallbackPortraitSrc === null),
+    adapterFallbackValid: Boolean(adapter13 && adapter13.backend === RENDER_BACKENDS.CANVAS_2D && adapter13.getStats().valid)
+  };
+  const failed13 = Object.keys(t13Checks).filter(function(k) { return !t13Checks[k]; });
+  const t13Pass = failed13.length === 0;
+
+  results.push({
+    name: '13. Semantic AssetRegistry, Guild Interior Banners & RenderAdapter (Stage E.5)',
+    pass: t13Pass,
+    detail: t13Pass
+      ? 'Manifest schema valid (' + manifestCheck13.total + ' entries, ' + manifestCheck13.productionCount + ' production Golden Slice assets), Tier 1 interior/portrait resolution & Canvas2D fallback verified'
+      : 'Failed checks: ' + failed13.join(', ')
   });
 
   return results;

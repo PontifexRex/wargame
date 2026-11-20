@@ -4,6 +4,7 @@
 import { RARITY } from '../../constants.js';
 import { CLASSES } from '../../data/classes.js';
 import { getItemTypeIcon } from '../../data/items.js';
+import { getHeroPortraitAssetId, getCachedImage } from './assetRegistry.js';
 
 export const SHARED_PAPER_DOLL_SLOTS = [
   // Row 1: Head & Neck
@@ -137,6 +138,39 @@ export function renderSharedPaperDollMannequin(canvas, hero) {
   ctx.beginPath();
   ctx.arc(cx, cy - 20, 120, 0, Math.PI * 2);
   ctx.fill();
+
+  // Stage E.5 Golden Slice: Tier 1 Prestige Realism Portrait Medallion (when production art exists)
+  const portraitId = getHeroPortraitAssetId(classId);
+  const portraitImg = getCachedImage(portraitId, function() {
+    renderSharedPaperDollMannequin(canvas, hero);
+  });
+  if (portraitImg && typeof ctx.drawImage === 'function') {
+    const rad = Math.min(Math.floor(w * 0.34), Math.floor(h * 0.34));
+    const py = Math.floor(h * 0.46);
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(cx, py, rad, 0, Math.PI * 2);
+    ctx.closePath();
+    ctx.clip();
+    ctx.drawImage(portraitImg, cx - rad, py - rad, rad * 2, rad * 2);
+    ctx.restore();
+
+    // Brushed Celestial Gold outer medallion bezel
+    ctx.strokeStyle = '#fbbf24';
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.arc(cx, py, rad + 1, 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.strokeStyle = themeColor + '66';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(cx, py, rad + 5, 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.restore();
+    return;
+  }
 
   // Pedestal / Dais ellipse at feet
   ctx.fillStyle = '#0f172a';

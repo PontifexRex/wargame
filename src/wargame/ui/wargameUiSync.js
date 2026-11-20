@@ -33,6 +33,11 @@ import {
   buildSharedHeroStatsHtml,
   buildSharedCosmeticsPreviewHtml
 } from '../../ui/shared/characterSheet.js';
+import {
+  getFacilityInteriorAssetId,
+  getProductionImageSrc
+} from '../../ui/shared/assetRegistry.js';
+import { getActiveRenderAdapter } from '../../ui/shared/renderAdapter.js';
 import { RARITY } from '../../constants.js';
 import { getItemTypeIcon } from '../../data/items.js';
 
@@ -371,6 +376,38 @@ export function renderWargameFacilityModal(simHost) {
   if (!bodyEl) return;
   const fac = bDef.facilities || {};
   const sections = [];
+
+  // Stage E.5 Golden Slice: Tier 1 Guild / City Facility Interior Banner via Semantic AssetRegistry
+  const interiorAssetId = getFacilityInteriorAssetId(bId);
+  const interiorSrc = getProductionImageSrc(interiorAssetId);
+  if (interiorSrc) {
+    sections.push(`
+      <div class="relative h-36 rounded-lg overflow-hidden border border-[#fbbf24]/40 bg-[#080b11] shadow-lg">
+        <img src="${interiorSrc}" alt="${bDef.name} Interior" class="w-full h-full object-cover object-center" />
+        <div class="absolute inset-0 bg-gradient-to-t from-[#0f1520] via-[#0f1520]/35 to-transparent"></div>
+        <div class="absolute bottom-2 left-3 right-3 flex items-end justify-between gap-2">
+          <div>
+            <div class="text-[10px] font-mono uppercase tracking-wider text-[#fbbf24]">${city.name} • Level ${lvl}</div>
+            <div class="text-xs text-[#e6edf3]/90">${bDef.desc || ''}</div>
+          </div>
+          <span class="px-2 py-0.5 rounded bg-[#080b11]/80 border border-[#fbbf24]/40 text-[9px] font-mono text-[#fbbf24] uppercase whitespace-nowrap">Tier 1 Interior</span>
+        </div>
+      </div>
+    `);
+  } else {
+    sections.push(`
+      <div class="p-3 rounded-lg bg-gradient-to-r from-[#161e2e] via-[#0f1520] to-[#080b11] border border-[#283347] flex items-center justify-between gap-3">
+        <div class="flex items-center gap-3">
+          <div class="w-10 h-10 rounded-lg bg-[#080b11] border border-[#fbbf24]/30 flex items-center justify-center text-xl">${bDef.icon || '🏛️'}</div>
+          <div>
+            <div class="text-xs font-bold text-[#e6edf3]">${bDef.name} — Level ${lvl}</div>
+            <div class="text-[11px] text-[#8b949e]">${bDef.desc || ''}</div>
+          </div>
+        </div>
+        <span class="px-2 py-0.5 rounded bg-[#080b11] border border-[#283347] text-[9px] font-mono text-[#64748b] uppercase whitespace-nowrap">${getActiveRenderAdapter().backend}</span>
+      </div>
+    `);
+  }
 
   if (fac.smelting) {
     sections.push(`

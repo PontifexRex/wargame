@@ -1,4 +1,6 @@
 // 23/23 Comprehensive Automated Self-Test Suite (Sandboxed & Non-Destructive)
+import { DEFAULT_ASSET_MANIFEST, validateAssetManifest, getProductionImageSrc, getHeroPortraitAssetId } from '../ui/shared/assetRegistry.js';
+import { createRenderAdapter, RENDER_BACKENDS } from '../ui/shared/renderAdapter.js';
 
 import {
   SCHEMA_VERSION,
@@ -2033,6 +2035,26 @@ export function evaluateSelfTests() {
     detail: t31Pass
       ? '8 Inc 8.3 object definitions, lever->portcullis & pressure-plate->secret-door links, destructible oil barrel/crate, and symmetric hero/monster hazards verified'
       : 'Failed Inc 8.3 interactive props, linked mechanisms, or environmental hazard checks'
+  });
+
+  const t32Manifest = validateAssetManifest(DEFAULT_ASSET_MANIFEST);
+  const t32Adapter = createRenderAdapter({ mode: 'auto' });
+  const t32Pass = Boolean(
+    t32Manifest.valid &&
+    t32Manifest.total >= 20 &&
+    t32Manifest.productionCount >= 4 &&
+    getProductionImageSrc(getHeroPortraitAssetId('fighter')) &&
+    getProductionImageSrc(getHeroPortraitAssetId('paladin')) &&
+    getProductionImageSrc('dng_container_chest_gilded_closed') === null &&
+    t32Adapter.backend === RENDER_BACKENDS.CANVAS_2D
+  );
+
+  results.push({
+    name: '32. Semantic AssetRegistry, Golden Slice Tier 1 Resolution & RenderAdapter (Stage E.5)',
+    pass: t32Pass,
+    detail: t32Pass
+      ? 'Manifest valid (' + t32Manifest.total + ' entries, ' + t32Manifest.productionCount + ' production), Tier 1 portraits & procedural fallback verified'
+      : 'Failed Stage E.5 AssetRegistry or RenderAdapter checks'
   });
 
   return results;
