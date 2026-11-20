@@ -38,6 +38,16 @@ import {
 } from '../../progression/currencyService.js';
 import { evaluateConditionNode, evaluateResearchEligibility, EVALUATION_STATUS } from '../../progression/eligibilityService.js';
 import { PROTOTYPE_RESEARCH_ITEMS, validateResearchCatalog } from '../../progression/researchCatalog.js';
+import { createDefaultProgressionState } from '../../progression/progressionState.js';
+import { processPassiveAccrual, awardActivityResearchPoints } from '../../progression/accrualService.js';
+import {
+  startOrEnqueueResearch,
+  pauseResearchItem,
+  resumeResearchItem,
+  cancelResearchItem,
+  advanceResearchProgress,
+  REFUND_POLICIES
+} from '../../progression/queueService.js';
 
 export function evaluateWargameSelfTests() {
   const results = [];
@@ -1287,6 +1297,73 @@ export function evaluateWargameSelfTests() {
     detail: t17Pass
       ? 'Scaled-integer 0.00001 precision, idempotency, balance reconstruction, atomic currency+stockpile payments, nested AND/OR/alignment rules & 15-domain/5-tree catalog verified'
       : 'Failed checks: ' + failed17.join(', ')
+  });
+
+  // =========================================================================
+  // Test 18: Track F Phase 2 — Passive/Activity Accrual, Anti-Abuse, Queues & Offline Completion (Inc 10.2)
+  // =========================================================================
+  const prog18 = createDefaultProgressionState(0);
+  // 1. Offline passive accrual over 10,000s at 0.00001/s with +50% generation modifier => 0.15000 rp_general (15000 scaled)
+  const passRes18 = processPassiveAccrual(prog18, 'p1', 10000 * 1000, { generationModifiers: { additiveBonus: 0.5 } });
+  const passiveOfflineOk = passRes18.ok && passRes18.awardedScaled === 15000;
+
+  // 2. Activity fractional awards + duplicate eventId guard + cooldown guard
+  const actMove1 = awardActivityResearchPoints(prog18, { ownerId: 'p1', activityType: 'dungeon_move', eventId: 'ev1', nowMs: 10000 });
+  const actMoveDup = awardActivityResearchPoints(prog18, { ownerId: 'p1', activityType: 'dungeon_move', eventId: 'ev1', nowMs: 11000 });
+  const actMoveCooldown = awardActivityResearchPoints(prog18, { ownerId: 'p1', activityType: 'dungeon_move', eventId: 'ev2', nowMs: 10100 });
+  const actQuest = awardActivityResearchPoints(prog18, { ownerId: 'p1', activityType: 'research_quest', eventId: 'q1', nowMs: 12000 });
+  const activityAccrualOk = Boolean(
+    actMove1.ok && actMove1.awardedScaled === 100 &&
+    actMoveDup.duplicate === true &&
+    !actMoveCooldown.ok && actMoveCooldown.throttledReason === 'cooldown_active' &&
+    actQuest.ok && getCurrencyBalance(prog18.currencyLedger, 'p1', OWNER_TYPES.PLAYER, 'rp_adventurer').availableScaled === 500100
+  );
+
+  // 3. Queue start, pending without cost deduction, pause/resume, offline completion + auto-promote, cancel refund
+  recordCurrencyTransaction(prog18.currencyLedger, { ownerId: 'p1', ownerType: OWNER_TYPES.PLAYER, currencyId: 'gold', amount: 200, transactionType: TRANSACTION_TYPES.AWARD, source: 'seed', nowMs: 12000 });
+  const startGen = startOrEnqueueResearch(prog18, { ownerId: 'p1', researchItemId: 'GEN_SCHOLAR_001', nowMs: 20000 });
+  const advBalBeforePending = getCurrencyBalance(prog18.currencyLedger, 'p1', OWNER_TYPES.PLAYER, 'rp_adventurer').availableScaled;
+  const enqueueAdv = startOrEnqueueResearch(prog18, { ownerId: 'p1', researchItemId: 'ADV_SURVIVAL_001', nowMs: 20000 });
+  const pendingNoCostDeducted = enqueueAdv.ok && enqueueAdv.queuedAs === 'pending' &&
+    getCurrencyBalance(prog18.currencyLedger, 'p1', OWNER_TYPES.PLAYER, 'rp_adventurer').availableScaled === advBalBeforePending;
+
+  // Pause after 10s, resume after 20s idle -> elapsed stays 10s!
+  pauseResearchItem(prog18, 'GEN_SCHOLAR_001', 30000);
+  const advWhilePaused = advanceResearchProgress(prog18, 50000);
+  resumeResearchItem(prog18, 'GEN_SCHOLAR_001', 50000);
+  const pausePreserved = advWhilePaused.completedItems.length === 0 && prog18.researchQueue.activeItems[0].elapsedMs === 10000;
+
+  // Offline jump +25s (total 35s >= 30s) -> completes GEN_SCHOLAR_001 Lv1 & auto-promotes ADV_SURVIVAL_001!
+  const advComplete = advanceResearchProgress(prog18, 75000);
+  const completedAndPromoted = advComplete.completedItems.length === 1 &&
+    advComplete.completedItems[0].researchItemId === 'GEN_SCHOLAR_001' &&
+    advComplete.promotedItems.length === 1 &&
+    advComplete.promotedItems[0].researchItemId === 'ADV_SURVIVAL_001';
+
+  // Cancel promoted active item with FULL refund -> gold & rp_adventurer restored
+  const goldBeforeCancel = getCurrencyBalance(prog18.currencyLedger, 'p1', OWNER_TYPES.PLAYER, 'gold').available;
+  const cancelRes18 = cancelResearchItem(prog18, 'ADV_SURVIVAL_001', { nowMs: 76000, refundPolicy: REFUND_POLICIES.FULL });
+  const cancelRefundOk = cancelRes18.ok &&
+    getCurrencyBalance(prog18.currencyLedger, 'p1', OWNER_TYPES.PLAYER, 'gold').available === goldBeforeCancel + 30;
+
+  const t18Checks = {
+    passiveOfflineOk: passiveOfflineOk,
+    activityAccrualOk: activityAccrualOk,
+    startGenOk: Boolean(startGen.ok && startGen.entry.snapshot.definitionVersion === '1.0.0'),
+    pendingNoCostDeducted: pendingNoCostDeducted,
+    pausePreserved: pausePreserved,
+    completedAndPromoted: completedAndPromoted,
+    cancelRefundOk: cancelRefundOk
+  };
+  const failed18 = Object.keys(t18Checks).filter(function(k) { return !t18Checks[k]; });
+  const t18Pass = failed18.length === 0;
+
+  results.push({
+    name: '18. Track F Phase 2: Passive/Activity Accrual, Anti-Abuse, Queues & Offline Completion (Inc 10.2)',
+    pass: t18Pass,
+    detail: t18Pass
+      ? 'Offline passive accrual, activity anti-abuse (idempotency/cooldown), pending queue auto-promotion, pause/resume, snapshots & cancel refund verified'
+      : 'Failed checks: ' + failed18.join(', ')
   });
 
   return results;

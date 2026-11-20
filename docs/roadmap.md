@@ -65,15 +65,7 @@ Track E (Art Direction & Mobile UX)     ──► Stage E.6 (Painted Tier 2 Iso/
 
 *Preceding Increments:*  
 - **Increment 10.1 (`v0.10.1-prog-foundation` / `ADR-0015`) — Phase 1 Foundation**: Implemented scaled-integer fixed-precision `CurrencyService` (`0.00001` precision, idempotent auditable ledger, balance reconstruction, unified atomic currency+stockpile payments), nested `AND`/`OR`/`NOT` `ResearchEligibilityService` (with guild/alliance/alignment restriction codes), versioned `ResearchCatalogService` (15 domains, 5 representative prototype trees incl. `WAR_WEAPON_HEAVY_001` & hero training definitions), and `world.progression` state backfill. *(Verified)*
-
-#### Increment 10.2 (`v0.10.2-prog-accrual-queues`) — Phase 2: Passive & Activity Fractional Accrual, Configurable Queues & Offline Progress
-- **Passive & Event-Driven Fractional Accrual (`ResearchAccrualService`)**:
-  - Continuous passive general RP accrual (configurable base rate, e.g. `0.00001/sec`, with authoritative elapsed-time **offline catch-up**).
-  - Event-driven fractional awards for qualifying dungeon/city/overworld activities (e.g. `0.001` movement, `0.005` monster defeated, `0.002` chest opened, `0.010` discovery, `0.050` dungeon clear) governed by data-driven award rules with **anti-abuse controls** (duplicate event detection, idempotency, cooldowns, caps, diminishing returns).
-  - Strictly separates **RP generation modifiers** from **research/training speed modifiers**.
-- **Configurable Research Queues (`ResearchQueueService`, `ResearchProgressService`)**:
-  - Initial baseline: 1 standard free Research Queue + 1 subscriber Research Queue (configurable).
-  - Supports add, remove pending, pause, resume, cancel (configurable refund policies), reorder, auto-start next, ETA, and atomic start with **definition version snapshots** so content edits never corrupt active progress.
+- **Increment 10.2 (`v0.10.2-prog-accrual-queues`) — Phase 2 Accrual & Queues**: Implemented `ResearchAccrualService` (passive offline elapsed-time accrual + event-driven fractional activity awards with idempotency, cooldowns, caps & diminishing returns) and `ResearchQueueService` (configurable free/subscriber queues, definition version snapshots, pause/resume, pending auto-promotion without upfront cost deduction, and configurable cancel refund policies). *(Verified)*
 
 #### Increment 10.3 (`v0.10.3-prog-ownership`) — Phase 3: 4-Tier Ownership, Guild/Alliance Research & Terminology Alignment
 - **City Hall vs. Player Guild vs. Alliance Terminology Clarity**:
