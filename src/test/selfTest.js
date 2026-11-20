@@ -1,6 +1,8 @@
 // 23/23 Comprehensive Automated Self-Test Suite (Sandboxed & Non-Destructive)
 import { DEFAULT_ASSET_MANIFEST, validateAssetManifest, getProductionImageSrc, getHeroPortraitAssetId } from '../ui/shared/assetRegistry.js';
 import { createRenderAdapter, RENDER_BACKENDS } from '../ui/shared/renderAdapter.js';
+import { createOrthoGridAdapter, createIsoGridAdapter, createHexGridAdapter } from '../ui/shared/gridAdapters.js';
+import { createMapViewport, MAP_RENDER_LAYERS } from '../ui/shared/mapViewport.js';
 
 import {
   SCHEMA_VERSION,
@@ -2055,6 +2057,48 @@ export function evaluateSelfTests() {
     detail: t32Pass
       ? 'Manifest valid (' + t32Manifest.total + ' entries, ' + t32Manifest.productionCount + ' production), Tier 1 portraits & procedural fallback verified'
       : 'Failed Stage E.5 AssetRegistry or RenderAdapter checks'
+  });
+
+  // 33. Unified GridAdapters (Ortho, 2:1 Iso, Pointy Hex) & MapViewportEngine (ADR-0014)
+  const ortho33 = createOrthoGridAdapter({ tileWidth: 32, tileHeight: 32 });
+  const orthoPt = ortho33.tileToWorld({ x: 7, y: 11 });
+  const orthoBack = ortho33.worldToTile(orthoPt.wx, orthoPt.wy);
+
+  const iso33 = createIsoGridAdapter({ tileWidth: 96, tileHeight: 48 });
+  const isoPt = iso33.tileToWorld({ x: 5, y: 3 });
+  const isoBack = iso33.worldToTile(isoPt.wx, isoPt.wy);
+  const isoOrder = iso33.getDrawOrder(8, 8);
+
+  const hex33 = createHexGridAdapter({ hexSize: 28 });
+  const hexPt = hex33.tileToWorld({ q: 4, r: -2 });
+  const hexBack = hex33.worldToTile(hexPt.wx, hexPt.wy);
+  const hexNbs = hex33.getNeighbors({ q: 0, r: 0 });
+  const hexEquidistant = hexNbs.length === 6 && hexNbs.every(function(n) { return hex33.getDistance({ q: 0, r: 0 }, n) === 1; });
+  const hexOff = hex33.axialToOffset(hex33.offsetToAxial(13, 9).q, hex33.offsetToAxial(13, 9).r);
+
+  const vp33 = createMapViewport({ gridAdapter: hex33, viewportWidth: 672, viewportHeight: 480 });
+  vp33.centerOnTile({ q: 4, r: -2 });
+  const pickedCenter = vp33.screenToTile(336, 240);
+  const beforeZoomW = vp33.screenToWorld(200, 150);
+  vp33.setZoom(1.5, 200, 150);
+  const afterZoomW = vp33.screenToWorld(200, 150);
+  const zoomAnchorStable = Math.abs(beforeZoomW.wx - afterZoomW.wx) < 0.01 && Math.abs(beforeZoomW.wy - afterZoomW.wy) < 0.01;
+
+  const t33Pass = Boolean(
+    orthoBack.x === 7 && orthoBack.y === 11 &&
+    isoBack.x === 5 && isoBack.y === 3 && isoOrder.length === 64 &&
+    hexBack.q === 4 && hexBack.r === -2 && hexEquidistant &&
+    hexOff.col === 13 && hexOff.row === 9 &&
+    pickedCenter.q === 4 && pickedCenter.r === -2 &&
+    zoomAnchorStable && MAP_RENDER_LAYERS.OVERLAYS === 5
+  );
+
+  results.push({
+    name: '33. Unified GridAdapters (Ortho, 2:1 Iso, Pointy Hex) & MapViewportEngine (ADR-0014)',
+    pass: t33Pass,
+    detail: t33Pass
+      ? 'Ortho/Iso/Hex round-trip picking, 8x8 Iso draw sort, Hex 6-neighbor symmetry, offset migration & zoom-anchor stability verified'
+      : 'Failed ADR-0014 GridAdapter or MapViewportEngine checks'
   });
 
   return results;

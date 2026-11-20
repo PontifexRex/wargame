@@ -25,6 +25,8 @@ import {
 } from '../../ui/shared/assetRegistry.js';
 import { createRenderAdapter, RENDER_BACKENDS } from '../../ui/shared/renderAdapter.js';
 import { getScreenInfoContent } from '../ui/wargameUiSync.js';
+import { createIsoGridAdapter, createHexGridAdapter } from '../../ui/shared/gridAdapters.js';
+import { createMapViewport } from '../../ui/shared/mapViewport.js';
 
 export function evaluateWargameSelfTests() {
   const results = [];
@@ -1168,6 +1170,37 @@ export function evaluateWargameSelfTests() {
     detail: t15Pass
       ? 'Contextual Screen Info (i) content verified for Overworld, City, and Guild screens'
       : 'Failed Stage E.5.5 screen info checks'
+  });
+
+  // =========================================================================
+  // Test 16: Unified MapViewportEngine, Hex Overworld & 2:1 Iso City Adapters (ADR-0014)
+  // =========================================================================
+  const hex16 = createHexGridAdapter({ hexSize: 28 });
+  const ring2 = hex16.getRing({ q: 0, r: 0 }, 2);
+  const spiral2 = hex16.getSpiral({ q: 0, r: 0 }, 2);
+  const iso16 = createIsoGridAdapter({ tileWidth: 96, tileHeight: 48 });
+  const isoDraw = iso16.getDrawOrder(8, 8);
+  const vp16 = createMapViewport({ gridAdapter: iso16, viewportWidth: 640, viewportHeight: 480 });
+  vp16.centerOnTile({ x: 3, y: 4 });
+  const isoPicked = vp16.screenToTile(320, 240);
+  const visRect = vp16.getVisibleWorldRect(32);
+
+  const t16Pass = Boolean(
+    ring2.length === 12 &&
+    spiral2.length === 19 &&
+    isoDraw.length === 64 &&
+    isoDraw[0].x === 0 && isoDraw[0].y === 0 &&
+    isoDraw[63].x === 7 && isoDraw[63].y === 7 &&
+    isoPicked.x === 3 && isoPicked.y === 4 &&
+    visRect.maxX > visRect.minX && visRect.maxY > visRect.minY
+  );
+
+  results.push({
+    name: '16. Unified MapViewportEngine, Hex Overworld & 2:1 Iso City Adapters (ADR-0014)',
+    pass: t16Pass,
+    detail: t16Pass
+      ? 'Hex rings/spirals (12/19), 8x8 Iso painter sort, centerOnTile/screenToTile picking & frustum bounds verified'
+      : 'Failed ADR-0014 MapViewportEngine or GridAdapter checks'
   });
 
   return results;
