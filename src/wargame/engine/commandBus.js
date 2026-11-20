@@ -868,6 +868,46 @@ export function dispatchWargameCommand(commandEnvelope, state, scheduler, eventS
   }
 
   // ---------------------------------------------------------------------------
+  // 9B2. EQUIP / UNEQUIP HERO EQUIPMENT (Shared Character Sheet Operations)
+  // ---------------------------------------------------------------------------
+  if (cmdType === COMMAND_TYPES.EQUIP_HERO_ITEM) {
+    const hero = (world.heroes || []).find(function(h) { return h.id === payload.heroId; });
+    if (!hero) return reject('Hero not found');
+    if (!Array.isArray(hero.bagGear)) hero.bagGear = [];
+    if (!hero.equipment) hero.equipment = { weapon: null, armor: null, helm: null, boots: null, accessory: null, pickaxe: null };
+
+    const itemIdx = hero.bagGear.findIndex(function(it) { return it.uid === payload.itemUid; });
+    if (itemIdx === -1) return reject('Item not found in hero pack');
+    const item = hero.bagGear.splice(itemIdx, 1)[0];
+    const slot = item.slot;
+    if (!slot || !(slot in hero.equipment)) {
+      hero.bagGear.push(item);
+      return reject('Unsupported equipment slot: ' + slot);
+    }
+
+    const prev = hero.equipment[slot];
+    if (prev) {
+      hero.bagGear.push(prev);
+    }
+    hero.equipment[slot] = item;
+    return accept({ heroId: hero.id, slot: slot, equipped: item, swappedOut: prev || null });
+  }
+
+  if (cmdType === COMMAND_TYPES.UNEQUIP_HERO_ITEM) {
+    const hero = (world.heroes || []).find(function(h) { return h.id === payload.heroId; });
+    if (!hero) return reject('Hero not found');
+    const slot = payload.slot;
+    if (slot === 'pickaxe') return reject('Pickaxe cannot be unequipped directly');
+    if (!hero.equipment || !hero.equipment[slot]) return reject('No item equipped in ' + slot);
+    if (!Array.isArray(hero.bagGear)) hero.bagGear = [];
+
+    const removed = hero.equipment[slot];
+    hero.equipment[slot] = null;
+    hero.bagGear.push(removed);
+    return accept({ heroId: hero.id, slot: slot, unequipped: removed });
+  }
+
+  // ---------------------------------------------------------------------------
   // 9C. MARCH TO DUNGEON (Quick-Order Hero Party to a Discovered Vault POI)
   // ---------------------------------------------------------------------------
   if (cmdType === COMMAND_TYPES.MARCH_TO_DUNGEON) {
@@ -957,7 +997,9 @@ export function dispatchWargameCommand(commandEnvelope, state, scheduler, eventS
         name: hero.name,
         classId: hero.classId,
         level: hero.level,
-        xp: hero.xp
+        xp: hero.xp,
+        equipment: hero.equipment || null,
+        cosmetics: hero.cosmetics || null
       } : {
         id: unit.leaderHeroId || 'hero_1',
         name: unit.shortName,

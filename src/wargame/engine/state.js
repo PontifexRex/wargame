@@ -298,6 +298,20 @@ export function loadWargameState(scheduler = null) {
         }
       }
     }
+    if (Array.isArray(parsed.world.heroes)) {
+      for (let hi = 0; hi < parsed.world.heroes.length; hi++) {
+        const hh = parsed.world.heroes[hi];
+        if (!hh.equipment) {
+          hh.equipment = { weapon: null, armor: null, helm: null, boots: null, accessory: null, pickaxe: null };
+        }
+        if (!hh.cosmetics) {
+          hh.cosmetics = { cloak: null, aura: null, banner_crest: null, weapon_glow: null };
+        }
+        if (!Array.isArray(hh.bagGear)) {
+          hh.bagGear = [];
+        }
+      }
+    }
     if (parsed.world.cities) {
       Object.keys(parsed.world.cities).forEach(function(cid) {
         const c = parsed.world.cities[cid];

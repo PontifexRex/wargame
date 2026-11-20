@@ -112,6 +112,8 @@ const COMMAND_TYPES = {
   DEMOLISH_BUILDING:  'CMD_DEMOLISH_BUILDING',
   RECRUIT_HERO:          'CMD_RECRUIT_HERO',
   CANCEL_RECRUITMENT:    'CMD_CANCEL_RECRUITMENT',
+  EQUIP_HERO_ITEM:       'CMD_EQUIP_HERO_ITEM',
+  UNEQUIP_HERO_ITEM:     'CMD_UNEQUIP_HERO_ITEM',
   MARCH_TO_DUNGEON:      'CMD_MARCH_TO_DUNGEON',
   ENTER_DUNGEON:         'CMD_ENTER_DUNGEON',
   RESOLVE_DUNGEON_RETURN:'CMD_RESOLVE_DUNGEON_RETURN',
@@ -2240,6 +2242,20 @@ function loadWargameState(scheduler = null) {
         }
       }
     }
+    if (Array.isArray(parsed.world.heroes)) {
+      for (let hi = 0; hi < parsed.world.heroes.length; hi++) {
+        const hh = parsed.world.heroes[hi];
+        if (!hh.equipment) {
+          hh.equipment = { weapon: null, armor: null, helm: null, boots: null, accessory: null, pickaxe: null };
+        }
+        if (!hh.cosmetics) {
+          hh.cosmetics = { cloak: null, aura: null, banner_crest: null, weapon_glow: null };
+        }
+        if (!Array.isArray(hh.bagGear)) {
+          hh.bagGear = [];
+        }
+      }
+    }
     if (parsed.world.cities) {
       Object.keys(parsed.world.cities).forEach(function(cid) {
         const c = parsed.world.cities[cid];
@@ -2923,6 +2939,14 @@ function resolveRecruitHeroJob(job, state, scheduler, eventStream) {
 
   const heroIndex = (world.heroes || []).length + 1;
   const heroName = String(p.heroName || (classDef.name + ' #' + heroIndex)).trim();
+  const starterEq = {
+    weapon:    { uid: 'eq_w_' + heroIndex, slot: 'weapon',    name: 'Guild Iron Blade',     rarity: 'common', atk: 6, def: 0, value: 25 },
+    armor:     { uid: 'eq_a_' + heroIndex, slot: 'armor',     name: 'Vanguard Cuirass',     rarity: 'common', atk: 0, def: 5, value: 25 },
+    helm:      { uid: 'eq_h_' + heroIndex, slot: 'helm',      name: 'Scout Steel Helm',     rarity: 'common', atk: 0, def: 2, value: 15 },
+    boots:     { uid: 'eq_b_' + heroIndex, slot: 'boots',     name: 'Frontier Greaves',     rarity: 'common', atk: 0, def: 2, value: 15 },
+    accessory: null,
+    pickaxe:   { uid: 'eq_p_' + heroIndex, slot: 'pickaxe',   name: 'Copper Miner Pickaxe', rarity: 'common', tier: 1, maxDurability: 25, durability: 25, value: 20 }
+  };
   const heroObj = {
     id: 'hero_' + heroIndex + '_' + classDef.classId,
     name: heroName,
@@ -2934,6 +2958,11 @@ function resolveRecruitHeroJob(job, state, scheduler, eventStream) {
     level: 1,
     xp: 0,
     stats: Object.assign({}, classDef.baseStats),
+    equipment: starterEq,
+    cosmetics: { cloak: null, aura: null, banner_crest: null, weapon_glow: null },
+    bagGear: [
+      { uid: 'bag_ring_' + heroIndex, slot: 'accessory', name: 'Aethelgard Signet', rarity: 'uncommon', atk: 3, def: 2, value: 45 }
+    ],
     recruitedAtSimMs: job.dueSimTimeMs
   };
 
@@ -3235,7 +3264,9 @@ function createDungeonEntryEnvelope(data) {
       name: src.hero.name || 'Vanguard Hero',
       classId: src.hero.classId || 'fighter',
       level: typeof src.hero.level === 'number' ? src.hero.level : 1,
-      xp: typeof src.hero.xp === 'number' ? src.hero.xp : 0
+      xp: typeof src.hero.xp === 'number' ? src.hero.xp : 0,
+      equipment: src.hero.equipment ? JSON.parse(JSON.stringify(src.hero.equipment)) : null,
+      cosmetics: src.hero.cosmetics ? JSON.parse(JSON.stringify(src.hero.cosmetics)) : null
     } : null,
     dungeon: src.dungeon ? {
       poiId: src.dungeon.poiId || null,
@@ -4155,6 +4186,46 @@ function dispatchWargameCommand(commandEnvelope, state, scheduler, eventStream) 
   }
 
   // ---------------------------------------------------------------------------
+  // 9B2. EQUIP / UNEQUIP HERO EQUIPMENT (Shared Character Sheet Operations)
+  // ---------------------------------------------------------------------------
+  if (cmdType === COMMAND_TYPES.EQUIP_HERO_ITEM) {
+    const hero = (world.heroes || []).find(function(h) { return h.id === payload.heroId; });
+    if (!hero) return reject('Hero not found');
+    if (!Array.isArray(hero.bagGear)) hero.bagGear = [];
+    if (!hero.equipment) hero.equipment = { weapon: null, armor: null, helm: null, boots: null, accessory: null, pickaxe: null };
+
+    const itemIdx = hero.bagGear.findIndex(function(it) { return it.uid === payload.itemUid; });
+    if (itemIdx === -1) return reject('Item not found in hero pack');
+    const item = hero.bagGear.splice(itemIdx, 1)[0];
+    const slot = item.slot;
+    if (!slot || !(slot in hero.equipment)) {
+      hero.bagGear.push(item);
+      return reject('Unsupported equipment slot: ' + slot);
+    }
+
+    const prev = hero.equipment[slot];
+    if (prev) {
+      hero.bagGear.push(prev);
+    }
+    hero.equipment[slot] = item;
+    return accept({ heroId: hero.id, slot: slot, equipped: item, swappedOut: prev || null });
+  }
+
+  if (cmdType === COMMAND_TYPES.UNEQUIP_HERO_ITEM) {
+    const hero = (world.heroes || []).find(function(h) { return h.id === payload.heroId; });
+    if (!hero) return reject('Hero not found');
+    const slot = payload.slot;
+    if (slot === 'pickaxe') return reject('Pickaxe cannot be unequipped directly');
+    if (!hero.equipment || !hero.equipment[slot]) return reject('No item equipped in ' + slot);
+    if (!Array.isArray(hero.bagGear)) hero.bagGear = [];
+
+    const removed = hero.equipment[slot];
+    hero.equipment[slot] = null;
+    hero.bagGear.push(removed);
+    return accept({ heroId: hero.id, slot: slot, unequipped: removed });
+  }
+
+  // ---------------------------------------------------------------------------
   // 9C. MARCH TO DUNGEON (Quick-Order Hero Party to a Discovered Vault POI)
   // ---------------------------------------------------------------------------
   if (cmdType === COMMAND_TYPES.MARCH_TO_DUNGEON) {
@@ -4244,7 +4315,9 @@ function dispatchWargameCommand(commandEnvelope, state, scheduler, eventStream) 
         name: hero.name,
         classId: hero.classId,
         level: hero.level,
-        xp: hero.xp
+        xp: hero.xp,
+        equipment: hero.equipment || null,
+        cosmetics: hero.cosmetics || null
       } : {
         id: unit.leaderHeroId || 'hero_1',
         name: unit.shortName,
@@ -4971,8 +5044,698 @@ function renderWargameOverworldCanvas(simHost) {
   }
 }
 
+  // --- Module: src/constants.js ---
+// Core constants, viewport dimensions, map scale presets, tile IDs, and rarity definitions
+
+const SCHEMA_VERSION = 'v0.5.0-inc5';
+const STORAGE_KEY = 'aethelgard_save_v6';
+
+const TILE_SIZE = 32;
+const VIEWPORT_WIDTH = 21;
+const VIEWPORT_HEIGHT = 15;
+
+// Legacy viewport aliases + new exploration-scale default floor dimensions
+const GRID_W = VIEWPORT_WIDTH;
+const GRID_H = VIEWPORT_HEIGHT;
+const DEFAULT_MAP_W = 80;
+const DEFAULT_MAP_H = 60;
+
+// Soft configurable cap on simultaneously chartered custom expeditions (not a structural limit; can be raised to 500+)
+const DEFAULT_MAX_CHARTERED_DUNGEONS = 12;
+
+// Bestiary & Codex Mastery Constants
+const CODEX_MASTERY_KILLS = 5;
+const CODEX_MASTERY_DMG_MULT = 1.08;
+
+const MAP_SIZE_PRESETS = {
+  small:     { id: 'small',     name: 'Small Outpost',        width: 48,  height: 36,  desc: '48x36 (~5.5x classic) • 14–18 chambers' },
+  standard:  { id: 'standard',  name: 'Standard Delve',       width: 80,  height: 60,  desc: '80x60 (~15x classic) • Multi-wing halls & vaults' },
+  sprawling: { id: 'sprawling', name: 'Sprawling Labyrinth',  width: 128, height: 96,  desc: '128x96 (~39x classic) • Deep avenues & caverns' },
+  colossal:  { id: 'colossal',  name: 'Colossal Megadungeon', width: 192, height: 144, desc: '192x144 (~88x classic) • Massive subterranean expanse' }
+};
+
+// Tile Constants
+const TILE_WALL = 0;
+const TILE_FLOOR = 1;
+const TILE_STAIRS_UP = 2;
+const TILE_STAIRS_DOWN = 3;
+const TILE_CHEST = 4;
+const TILE_CHEST_OPEN = 5;
+const TILE_SHRINE = 6;
+const TILE_SHRINE_USED = 7;
+const TILE_TRAP_HIDDEN = 8;
+const TILE_TRAP_VISIBLE = 9;
+const TILE_ORE_COPPER = 10;
+const TILE_ORE_IRON = 11;
+const TILE_ORE_MITHRIL = 12;
+const TILE_ORE_STAR = 13;
+const TILE_ORE_ASTRAL = 14;
+const TILE_ORE_GEODE = 15;
+const TILE_TRAP_DISARMED = 16;
+
+// Economy Constants
+const LAPIDARY_UNSOCKET_COST = 15;
+const BOUNTY_REROLL_COST = 25;
+
+// Rarity Definitions
+const RARITY = {
+  common:   { id: 'common',   name: 'Common',            color: '#94a3b8', mult: 1.0, affixes: 0 },
+  uncommon: { id: 'uncommon', name: 'Uncommon',          color: '#4ade80', mult: 1.4, affixes: 1 },
+  rare:     { id: 'rare',     name: 'Rare',              color: '#60a5fa', mult: 2.0, affixes: 2 },
+  epic:     { id: 'epic',     name: 'Epic',              color: '#c084fc', mult: 3.2, affixes: 3 },
+  relic:    { id: 'relic',    name: 'Star-Forged Relic', color: '#fbbf24', mult: 5.5, affixes: 4 }
+};
+
+  // --- Module: src/data/classes.js ---
+// Complete 5 Playable Classes Registry (Fighter, Thief, Mage, Ranger, Paladin)
+
+const CLASSES = {
+  fighter: {
+    id: 'fighter',
+    name: 'Fighter',
+    title: 'Iron Vanguard',
+    color: '#f87171',
+    baseStats: { str: 15, dex: 10, int: 8, vit: 14 },
+    hpBase: 120,
+    mpBase: 35,
+    vision: 5,
+    starterGear: {
+      weapon:    { uid: 'w_start_f', name: 'Iron Broadsword', slot: 'weapon', rarity: 'common', atk: 8, str: 2, value: 20, affixes: [] },
+      armor:     { uid: 'a_start_f', name: 'Riveted Mail', slot: 'armor', rarity: 'common', def: 6, vit: 1, value: 20, affixes: [] },
+      helm:      { uid: 'h_start_f', name: 'Iron Coif', slot: 'helm', rarity: 'common', def: 2, value: 12, affixes: [] },
+      boots:     { uid: 'b_start_f', name: 'Heavy Sabatons', slot: 'boots', rarity: 'common', def: 2, value: 12, affixes: [] },
+      accessory: { uid: 'acc_start_f', name: 'Vanguard Signet', slot: 'accessory', rarity: 'common', atk: 1, crit: 2, value: 15, affixes: [] },
+      pickaxe:   { uid: 'pick_start_f', name: 'Iron Pickaxe', slot: 'pickaxe', rarity: 'common', curDur: 30, maxDur: 30, value: 25, affixes: [] }
+    },
+    passiveName: 'Unstoppable Stride',
+    passiveDesc: '+10 Max HP & reduces incoming physical damage by 15%.',
+    skillName: 'Whirlwind Cleave',
+    skillCost: 10,
+    skillRange: 1,
+    skillDesc: 'Cleaves all adjacent foes for 150% weapon damage and stuns them for 1 turn.'
+  },
+  thief: {
+    id: 'thief',
+    name: 'Thief',
+    title: 'Shadow Strider',
+    color: '#c084fc',
+    baseStats: { str: 9, dex: 16, int: 11, vit: 10 },
+    hpBase: 90,
+    mpBase: 45,
+    vision: 6,
+    starterGear: {
+      weapon:    { uid: 'w_start_t', name: 'Obsidian Stiletto', slot: 'weapon', rarity: 'common', atk: 7, crit: 8, value: 20, affixes: [] },
+      armor:     { uid: 'a_start_t', name: 'Shadow Leather', slot: 'armor', rarity: 'common', def: 3, dodge: 6, value: 20, affixes: [] },
+      helm:      { uid: 'h_start_t', name: 'Nightblade Cowl', slot: 'helm', rarity: 'common', def: 1, crit: 3, value: 12, affixes: [] },
+      boots:     { uid: 'b_start_t', name: 'Silent Footwraps', slot: 'boots', rarity: 'common', def: 1, dodge: 5, value: 12, affixes: [] },
+      accessory: { uid: 'acc_start_t', name: 'Prospector Die', slot: 'accessory', rarity: 'common', crit: 4, value: 15, affixes: [] },
+      pickaxe:   { uid: 'pick_start_t', name: 'Iron Pickaxe', slot: 'pickaxe', rarity: 'common', curDur: 28, maxDur: 28, value: 25, affixes: [] }
+    },
+    passiveName: 'Opportunist',
+    passiveDesc: '+15% Critical Strike chance & +25% gold found in chests.',
+    skillName: 'Shadowstep Strike',
+    skillCost: 12,
+    skillRange: 3,
+    skillDesc: 'Teleports to a free floor tile adjacent to a target within 3 tiles and strikes for 220% Crit damage.'
+  },
+  mage: {
+    id: 'mage',
+    name: 'Mage',
+    title: 'Starweaver Adept',
+    color: '#60a5fa',
+    baseStats: { str: 7, dex: 10, int: 17, vit: 10 },
+    hpBase: 82,
+    mpBase: 80,
+    vision: 6,
+    starterGear: {
+      weapon:    { uid: 'w_start_m', name: 'Astral Runestaff', slot: 'weapon', rarity: 'common', atk: 5, int: 3, value: 20, affixes: [] },
+      armor:     { uid: 'a_start_m', name: 'Starweaver Robes', slot: 'armor', rarity: 'common', def: 2, maxMp: 15, value: 20, affixes: [] },
+      helm:      { uid: 'h_start_m', name: 'Circlet of Will', slot: 'helm', rarity: 'common', def: 1, int: 2, value: 12, affixes: [] },
+      boots:     { uid: 'b_start_m', name: 'Leyline Slippers', slot: 'boots', rarity: 'common', def: 1, maxMp: 10, value: 12, affixes: [] },
+      accessory: { uid: 'acc_start_m', name: 'Vespera Shard', slot: 'accessory', rarity: 'common', maxMp: 15, value: 15, affixes: [] },
+      pickaxe:   { uid: 'pick_start_m', name: 'Iron Pickaxe', slot: 'pickaxe', rarity: 'common', curDur: 25, maxDur: 25, value: 25, affixes: [] }
+    },
+    passiveName: 'Arcane Surge',
+    passiveDesc: 'Regenerates +2 MP each turn and adds INT scaling to basic attacks.',
+    skillName: 'Starfall Nova',
+    skillCost: 16,
+    skillRange: 4,
+    skillDesc: 'Unleashes an astral detonation hitting all visible enemies within 4 tiles for 200% spell damage + Burn.'
+  },
+  ranger: {
+    id: 'ranger',
+    name: 'Ranger',
+    title: 'Deepwood Pathfinder',
+    color: '#34d399',
+    baseStats: { str: 12, dex: 15, int: 11, vit: 11 },
+    hpBase: 95,
+    mpBase: 45,
+    vision: 7,
+    starterGear: {
+      weapon:    { uid: 'w_start_r', name: 'Recurve Shortbow', slot: 'weapon', rarity: 'common', atk: 6, dex: 2, value: 20, affixes: [] },
+      armor:     { uid: 'a_start_r', name: 'Scout Gambeson', slot: 'armor', rarity: 'common', def: 4, dodge: 4, value: 20, affixes: [] },
+      helm:      { uid: 'h_start_r', name: 'Falconer Cap', slot: 'helm', rarity: 'common', def: 1, visionBonus: 1, value: 12, affixes: [] },
+      boots:     { uid: 'b_start_r', name: 'Trailrunner Boots', slot: 'boots', rarity: 'common', def: 1, dodge: 5, value: 12, affixes: [] },
+      accessory: { uid: 'acc_start_r', name: 'Quiver Trinket', slot: 'accessory', rarity: 'common', crit: 5, value: 15, affixes: [] },
+      pickaxe:   { uid: 'pick_start_r', name: 'Iron Pickaxe', slot: 'pickaxe', rarity: 'common', curDur: 25, maxDur: 25, value: 25, affixes: [] }
+    },
+    passiveName: 'Eagle Eye',
+    passiveDesc: '7-tile Torchlight vision & +15% Evasion.',
+    skillName: 'Starfall Volley',
+    skillCost: 14,
+    skillRange: 5,
+    skillDesc: 'Looses a piercing astral salvo striking up to 3 visible foes within 5 tiles for 180% weapon damage.'
+  },
+  paladin: {
+    id: 'paladin',
+    name: 'Paladin',
+    title: 'Dawn Warden',
+    color: '#fbbf24',
+    baseStats: { str: 14, dex: 9, int: 12, vit: 15 },
+    hpBase: 125,
+    mpBase: 50,
+    vision: 5,
+    starterGear: {
+      weapon:    { uid: 'w_start_p', name: 'Blessed Mace', slot: 'weapon', rarity: 'common', atk: 7, str: 1, value: 20, affixes: [] },
+      armor:     { uid: 'a_start_p', name: 'Crusader Hauberk', slot: 'armor', rarity: 'common', def: 7, vit: 1, value: 22, affixes: [] },
+      helm:      { uid: 'h_start_p', name: 'Steel Sallet', slot: 'helm', rarity: 'common', def: 3, value: 14, affixes: [] },
+      boots:     { uid: 'b_start_p', name: 'Plated Greaves', slot: 'boots', rarity: 'common', def: 2, value: 14, affixes: [] },
+      accessory: { uid: 'acc_start_p', name: 'Solar Medallion', slot: 'accessory', rarity: 'common', maxHp: 12, value: 18, affixes: [] },
+      pickaxe:   { uid: 'pick_start_p', name: 'Iron Pickaxe', slot: 'pickaxe', rarity: 'common', curDur: 28, maxDur: 28, value: 25, affixes: [] }
+    },
+    passiveName: 'Aura of Radiance',
+    passiveDesc: '+10 Armor & regenerates +1 HP every 3 turns.',
+    skillName: 'Holy Smite',
+    skillCost: 16,
+    skillRange: 1,
+    skillDesc: 'Strikes an adjacent foe for 240% holy damage and restores 15% of your Max HP.'
+  }
+};
+
+  // --- Module: src/data/items.js ---
+// Equipment Affix Pools, Quartermaster Shop Catalog, and Elite Monster Affixes
+
+
+const AFFIX_POOL = [
+  { id: 'atk',   label: 'of Ferocity',    stat: 'atk',   min: 2,  max: 6,  slots: ['weapon', 'accessory'] },
+  { id: 'def',   label: 'of the Bulwark', stat: 'def',   min: 2,  max: 6,  slots: ['armor', 'helm', 'boots'] },
+  { id: 'str',   label: 'of Might',       stat: 'str',   min: 1,  max: 4,  slots: ['weapon', 'armor', 'helm'] },
+  { id: 'dex',   label: 'of Precision',   stat: 'dex',   min: 1,  max: 4,  slots: ['weapon', 'boots', 'accessory'] },
+  { id: 'int',   label: 'of Astral Lore', stat: 'int',   min: 1,  max: 4,  slots: ['weapon', 'helm', 'accessory'] },
+  { id: 'vit',   label: 'of Fortitude',   stat: 'vit',   min: 1,  max: 4,  slots: ['armor', 'helm', 'boots'] },
+  { id: 'crit',  label: 'of Keen Sight',  stat: 'crit',  min: 3,  max: 9,  slots: ['weapon', 'accessory', 'helm'] },
+  { id: 'dodge', label: 'of the Zephyr',  stat: 'dodge', min: 3,  max: 8,  slots: ['boots', 'armor', 'accessory'] },
+  { id: 'maxHp', label: 'of Lifeblood',   stat: 'maxHp', min: 12, max: 35, slots: ['armor', 'helm', 'accessory'] },
+  { id: 'maxMp', label: 'of the Leyline', stat: 'maxMp', min: 10, max: 28, slots: ['helm', 'accessory', 'weapon'] },
+  { id: 'thorns', label: 'of Retaliation', stat: 'thorns', min: 3, max: 8, slots: ['armor', 'helm', 'boots'] },
+  { id: 'leech', label: 'of the Blood Drinker', stat: 'leech', min: 2, max: 6, slots: ['weapon', 'accessory'] },
+  { id: 'ward', label: 'of Astral Warding', stat: 'ward', min: 2, max: 5, slots: ['armor', 'helm', 'accessory'] }
+];
+
+const BASE_GEAR_NAMES = {
+  weapon:    ['Star-Shard Blade', 'Runed Broadsword', 'Astral Longbow', 'Vespera Halberd', 'Obsidian Cleaver'],
+  armor:     ['Astral Hauberk', 'Deepwood Brigandine', 'Star-Forged Plate', 'Shadowalker Coat', 'Runed Cuirass'],
+  helm:      ['Visor of the Deep', 'Starweaver Hood', 'Ironbound Sallet', 'Astral Crown', 'Stalker Mask'],
+  boots:     ['Greaves of Striding', 'Silent Sabatons', 'Starlight Treads', 'Dwarven Marchers', 'Windrunner Boots'],
+  accessory: ['Vespera Signet', 'Astral Lens Charm', 'Pendant of Dawn', 'Bloodstone Ring', 'Star-Core Amulet']
+};
+
+const SHOP_ITEMS = [
+  { id: 'buy_heal',   name: 'Healing Tonic',             type: 'consumable', cost: 18,  reqQM: 0, desc: 'Restores 45% Max HP & cures Bleed/Poison.' },
+  { id: 'buy_recall', name: 'Astral Recall Scroll',      type: 'consumable', cost: 30,  reqQM: 0, desc: 'Safely extracts you & your pack from any floor.' },
+  { id: 'buy_pick_1', name: 'Dwarven Steel Pickaxe',     type: 'gear', slot: 'pickaxe',   rarity: 'uncommon', maxDur: 50,  cost: 65,  reqQM: 0, desc: '50 Base Durability.' },
+  { id: 'buy_wep_1',  name: 'Vespera Runeblade',         type: 'gear', slot: 'weapon',    rarity: 'rare',     atk: 14, crit: 6, cost: 115, reqQM: 1, desc: '+14 ATK, +6% Crit.' },
+  { id: 'buy_arm_1',  name: 'Carapace of the Deep',      type: 'gear', slot: 'armor',     rarity: 'rare',     def: 11, maxHp: 25, cost: 115, reqQM: 1, desc: '+11 DEF, +25 Max HP.' },
+  { id: 'buy_pick_2', name: 'Mithril Star-Pickaxe',      type: 'gear', slot: 'pickaxe',   rarity: 'rare',     maxDur: 85,  cost: 145, reqQM: 1, desc: '85 Base Durability.' },
+  { id: 'buy_acc_2',  name: 'Amulet of the Fallen Star', type: 'gear', slot: 'accessory', rarity: 'epic',     atk: 6, maxHp: 35, crit: 8, cost: 240, reqQM: 2, desc: '+6 ATK, +35 HP, +8% Crit.' },
+  { id: 'buy_pick_3', name: 'Titanium Master Pick',      type: 'gear', slot: 'pickaxe',   rarity: 'epic',     maxDur: 140, cost: 260, reqQM: 2, desc: '140 Base Durability.' },
+  { id: 'buy_wep_3',  name: 'Eclipse, Blade of Vespera', type: 'gear', slot: 'weapon',    rarity: 'relic',    atk: 28, str: 5, crit: 14, cost: 520, reqQM: 3, desc: '+28 ATK, +5 STR, +14% Crit.' },
+  { id: 'buy_pick_4', name: 'Void Astralite Drill',      type: 'gear', slot: 'pickaxe',   rarity: 'relic',    maxDur: 240, cost: 450, reqQM: 3, desc: '240 Base Durability.' }
+];
+
+const ELITE_AFFIXES = [
+  { id: 'vampiric',   name: 'Vampiric',      color: '#f87171', desc: 'Heals for 40% of damage dealt' },
+  { id: 'molten',     name: 'Molten',        color: '#fb923c', desc: 'Inflicts Burn on hit' },
+  { id: 'venomous',   name: 'Venomous',      color: '#4ade80', desc: 'Inflicts Poison on hit' },
+  { id: 'fortified',  name: 'Fortified',     color: '#60a5fa', desc: '+35% Defense & HP' },
+  { id: 'reflective', name: 'Reflective',    color: '#ec4899', desc: 'Reflects 25% thorns damage back to attacker' },
+  { id: 'chilling',   name: 'Chilling',      color: '#38bdf8', desc: 'Inflicts Chilled on hit (-15% Dodge, +2 Skill MP)' },
+  { id: 'temporal',   name: 'Temporal Warp', color: '#a855f7', desc: '40% chance on damage to phase-shift away' },
+  { id: 'volatile',   name: 'Volatile',      color: '#ef4444', desc: 'Detonates upon defeat for 150% ATK damage in 1-tile radius' }
+];
+
+function computeItemPowerScore(item) {
+  if (!item) return 0;
+  const atk = (item.atk || 0) * 2;
+  const def = (item.def || 0) * 2;
+  const hp = (item.maxHp || 0) * 0.25;
+  const mp = (item.maxMp || 0) * 0.25;
+  const crit = (item.crit || 0) * 1.5;
+  const dodge = (item.dodge || 0) * 1.5;
+  const stats = ((item.str || 0) + (item.dex || 0) + (item.int || 0) + (item.vit || 0)) * 1.2;
+  const affExtra = ((item.thorns || 0) * 1.5) + ((item.leech || 0) * 2) + ((item.ward || 0) * 2);
+  const sockets = ((item.maxSockets || 0) * 4) + (Array.isArray(item.sockets) ? item.sockets.length * 4 : 0);
+  const dur = (item.maxDur || 0) * 0.5;
+  return Math.round(atk + def + hp + mp + crit + dodge + stats + affExtra + sockets + dur);
+}
+
+function isItemUpgrade(candidateItem, equipment) {
+  if (!candidateItem || !candidateItem.slot) return false;
+  if (!equipment) return true;
+  const curEq = equipment[candidateItem.slot];
+  if (!curEq) return true;
+  return computeItemPowerScore(candidateItem) > computeItemPowerScore(curEq);
+}
+
+const SLOT_METADATA = {
+  helm:      { id: 'helm',      label: 'Head / Helm',         icon: '🪖', placeholder: 'Helm' },
+  armor:     { id: 'armor',     label: 'Chest / Body Armor',  icon: '🦺', placeholder: 'Armor' },
+  weapon:    { id: 'weapon',    label: 'Main Hand / Weapon',  icon: '⚔️', placeholder: 'Weapon' },
+  boots:     { id: 'boots',     label: 'Feet / Boots',        icon: '👢', placeholder: 'Boots' },
+  accessory: { id: 'accessory', label: 'Neck / Accessory',    icon: '💍', placeholder: 'Trinket' },
+  pickaxe:   { id: 'pickaxe',   label: 'Off-Hand / Pickaxe',  icon: '⛏️', placeholder: 'Pickaxe' },
+  shield:    { id: 'shield',    label: 'Off-Hand / Shield',   icon: '🛡️', placeholder: 'Shield' },
+  gloves:    { id: 'gloves',    label: 'Hands / Gauntlets',   icon: '🧤', placeholder: 'Gloves' },
+  amulet:    { id: 'amulet',    label: 'Necklace / Amulet',   icon: '📿', placeholder: 'Amulet' },
+  ring:      { id: 'ring',      label: 'Finger / Ring',       icon: '💍', placeholder: 'Ring' },
+  belt:      { id: 'belt',      label: 'Waist / Belt',        icon: '🎗️', placeholder: 'Belt' }
+};
+
+function getItemTypeIcon(itemOrSlot) {
+  if (!itemOrSlot) return '📦';
+  if (typeof itemOrSlot === 'string') {
+    const meta = SLOT_METADATA[itemOrSlot];
+    return meta ? meta.icon : '📦';
+  }
+  if (itemOrSlot.slot && SLOT_METADATA[itemOrSlot.slot]) {
+    return SLOT_METADATA[itemOrSlot.slot].icon;
+  }
+  const idStr = String(itemOrSlot.id || '');
+  if (idStr === 'healing_tonic' || idStr === 'buy_heal' || idStr === 'potions') return '🧪';
+  if (idStr === 'recall_scroll' || idStr === 'buy_recall' || idStr === 'recalls') return '📜';
+  if (itemOrSlot.type === 'Gem') return '◆';
+  if (itemOrSlot.type === 'Ore' || ['copper', 'iron', 'mithril', 'geode', 'starcrystal', 'astralite'].includes(idStr) || idStr.indexOf('ore') !== -1) return '🪨';
+  return '📦';
+}
+
+  // --- Module: src/ui/shared/characterSheet.js ---
+// Shared Cross-Engine Character Sheet, Anatomical Paper-Doll & Prestige Cosmetic Showcase
+// Used natively by BOTH the Turn-Based Dungeon Engine (index.html) and Macro Wargame (wargame.html).
+
+
+
+
+const SHARED_PAPER_DOLL_SLOTS = [
+  // Row 1: Head & Neck
+  { id: 'accessory', label: 'Trinket',  left: '10px',  top: '10px',  width: '84px', height: '64px', active: true },
+  { id: 'helm',      label: 'Helm',     left: '128px', top: '10px',  width: '84px', height: '64px', active: true },
+  { id: 'amulet',    label: 'Amulet',   right: '10px', top: '10px',  width: '84px', height: '64px', active: false, tier: 'Tier 2 Expansion' },
+
+  // Row 2: Torso & Weapons
+  { id: 'weapon',    label: 'Weapon',   left: '10px',  top: '86px',  width: '84px', height: '70px', active: true },
+  { id: 'armor',     label: 'Armor',    left: '128px', top: '86px',  width: '84px', height: '70px', active: true },
+  { id: 'pickaxe',   label: 'Off-Hand', right: '10px', top: '86px',  width: '84px', height: '70px', active: true },
+
+  // Row 3: Hands, Waist, Rings (Reserved for Track A Inc 8.7)
+  { id: 'gloves',    label: 'Gloves',   left: '10px',  top: '168px', width: '84px', height: '64px', active: false, tier: 'Tier 2 Expansion' },
+  { id: 'belt',      label: 'Belt',     left: '128px', top: '168px', width: '84px', height: '64px', active: false, tier: 'Tier 3 Expansion' },
+  { id: 'ring',      label: 'Ring',     right: '10px', top: '168px', width: '84px', height: '64px', active: false, tier: 'Tier 2 Expansion' },
+
+  // Row 4: Feet
+  { id: 'boots',     label: 'Boots',    left: '128px', top: '254px', width: '84px', height: '64px', active: true }
+];
+
+// Tier 1 Prestige Cosmetic Showcase Slots (Stage E.1 Art Direction — Fair Non-P2W Cosmetic System)
+const COSMETIC_SLOTS = [
+  { id: 'cloak',        label: 'Mantle / Cloak',  icon: '🧣' },
+  { id: 'aura',         label: 'Astral Aura',     icon: '✨' },
+  { id: 'banner_crest', label: 'Heraldic Crest',  icon: '🛡️' },
+  { id: 'weapon_glow',  label: 'Weapon Enchant',  icon: '⚔️' }
+];
+
+function drawSharedSafeEllipse(ctx, cx, cy, rx, ry) {
+  if (typeof ctx.ellipse === 'function') {
+    ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
+  } else {
+    ctx.arc(cx, cy, Math.max(rx, ry), 0, Math.PI * 2);
+  }
+}
+
+function normalizeSharedHeroProfile(hero) {
+  const h = hero || {};
+  const classId = h.classId || 'fighter';
+  const cls = CLASSES[classId] || CLASSES.fighter;
+  const st = h.stats || {};
+
+  const str = h.computedStr !== undefined ? h.computedStr : (st.str || (cls.baseStats && cls.baseStats.str) || 10);
+  const dex = h.computedDex !== undefined ? h.computedDex : (st.dex || (cls.baseStats && cls.baseStats.dex) || 10);
+  const intel = h.computedInt !== undefined ? h.computedInt : (st.int || (cls.baseStats && cls.baseStats.int) || 10);
+  const vit = h.computedVit !== undefined ? h.computedVit : (st.vit || (cls.baseStats && cls.baseStats.vit) || 10);
+
+  const eq = h.equipment || {};
+  let eqAtk = 0;
+  let eqDef = 0;
+  let eqHp = 0;
+  let eqMp = 0;
+  const eqKeys = Object.keys(eq);
+  for (let i = 0; i < eqKeys.length; i++) {
+    const it = eq[eqKeys[i]];
+    if (!it) continue;
+    eqAtk += (it.atk || 0);
+    eqDef += (it.def || 0);
+    eqHp  += (it.hp  || 0);
+    eqMp  += (it.mp  || 0);
+  }
+
+  const baseMaxHp = h.maxHp !== undefined ? h.maxHp : ((st.hp || 140) + eqHp);
+  const baseMaxMp = h.maxMp !== undefined ? h.maxMp : ((st.mp || 60) + eqMp);
+  const atk = h.atk !== undefined ? h.atk : ((st.atk || 22) + eqAtk);
+  const def = h.def !== undefined ? h.def : ((st.def || 10) + eqDef);
+  const crit = h.crit !== undefined ? h.crit : Math.min(60, 8 + Math.floor(dex * 0.6));
+  const dodge = h.dodge !== undefined ? h.dodge : Math.min(45, 5 + Math.floor(dex * 0.5));
+
+  return {
+    id: h.id || 'hero_active',
+    name: h.name || cls.name,
+    classId: classId,
+    className: h.className || cls.name,
+    title: h.title || cls.title || 'Guild Vanguard',
+    color: h.color || cls.color || '#fbbf24',
+    level: h.level || 1,
+    xp: h.xp || 0,
+    hp: h.hp !== undefined ? h.hp : baseMaxHp,
+    maxHp: baseMaxHp,
+    mp: h.mp !== undefined ? h.mp : baseMaxMp,
+    maxMp: baseMaxMp,
+    stats: {
+      str: str,
+      dex: dex,
+      int: intel,
+      vit: vit,
+      atk: atk,
+      def: def,
+      crit: crit,
+      dodge: dodge
+    },
+    equipment: eq,
+    cosmetics: h.cosmetics || { cloak: null, aura: null, banner_crest: null, weapon_glow: null },
+    bagGear: Array.isArray(h.bagGear) ? h.bagGear : []
+  };
+}
+
+function renderSharedPaperDollMannequin(canvas, hero) {
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+
+  const w = canvas.width;
+  const h = canvas.height;
+  ctx.clearRect(0, 0, w, h);
+
+  const classId = hero ? hero.classId : 'fighter';
+  const cls = CLASSES[classId] || CLASSES.fighter;
+  const cosmeticAura = hero && hero.cosmetics && hero.cosmetics.aura ? hero.cosmetics.aura.color : null;
+  const themeColor = cosmeticAura || cls.color || '#fbbf24';
+
+  ctx.save();
+
+  const cx = Math.floor(w / 2);
+  const cy = Math.floor(h / 2);
+
+  // Radial celestial aura behind chest
+  if (typeof ctx.createRadialGradient === 'function') {
+    const grad = ctx.createRadialGradient(cx, cy - 20, 10, cx, cy - 20, 120);
+    if (grad && typeof grad.addColorStop === 'function') {
+      grad.addColorStop(0, themeColor + '22');
+      grad.addColorStop(0.6, themeColor + '08');
+      grad.addColorStop(1, 'transparent');
+      ctx.fillStyle = grad;
+    }
+  } else {
+    ctx.fillStyle = themeColor + '15';
+  }
+  ctx.beginPath();
+  ctx.arc(cx, cy - 20, 120, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Pedestal / Dais ellipse at feet
+  ctx.fillStyle = '#0f172a';
+  ctx.beginPath();
+  drawSharedSafeEllipse(ctx, cx, h - 35, 75, 18);
+  ctx.fill();
+  ctx.strokeStyle = themeColor + '44';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+
+  // Runic floor circle rings
+  ctx.strokeStyle = '#283347';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  drawSharedSafeEllipse(ctx, cx, h - 35, 60, 14);
+  ctx.stroke();
+
+  // Body shadow
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
+  ctx.beginPath();
+  drawSharedSafeEllipse(ctx, cx, h - 34, 45, 10);
+  ctx.fill();
+
+  // Class-specific silhouette cape & back ornaments
+  if (classId === 'fighter') {
+    ctx.fillStyle = 'rgba(185, 28, 28, 0.45)';
+    ctx.beginPath();
+    ctx.moveTo(cx - 36, 100);
+    ctx.lineTo(cx - 65, 235);
+    ctx.lineTo(cx + 65, 235);
+    ctx.lineTo(cx + 36, 100);
+    ctx.closePath();
+    ctx.fill();
+  } else if (classId === 'thief') {
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.65)';
+    ctx.beginPath();
+    ctx.moveTo(cx - 36, 100);
+    ctx.lineTo(cx - 72, 235);
+    ctx.lineTo(cx - 15, 235);
+    ctx.lineTo(cx - 20, 100);
+    ctx.closePath();
+    ctx.fill();
+  } else if (classId === 'paladin') {
+    ctx.fillStyle = 'rgba(248, 250, 252, 0.35)';
+    ctx.beginPath();
+    ctx.moveTo(cx - 36, 100);
+    ctx.lineTo(cx - 65, 235);
+    ctx.lineTo(cx + 65, 235);
+    ctx.lineTo(cx + 36, 100);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = '#f59e0b';
+    ctx.fillRect(cx - 65, 230, 130, 5);
+  } else if (classId === 'ranger') {
+    ctx.fillStyle = 'rgba(22, 101, 52, 0.45)';
+    ctx.beginPath();
+    ctx.moveTo(cx - 36, 100);
+    ctx.lineTo(cx - 60, 225);
+    ctx.lineTo(cx + 40, 225);
+    ctx.lineTo(cx + 30, 100);
+    ctx.closePath();
+    ctx.fill();
+  } else if (classId === 'mage') {
+    ctx.fillStyle = 'rgba(30, 58, 138, 0.45)';
+    ctx.beginPath();
+    ctx.moveTo(cx - 36, 105);
+    ctx.lineTo(cx - 56, 265);
+    ctx.lineTo(cx + 56, 265);
+    ctx.lineTo(cx + 36, 105);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  // Legs & Boots
+  ctx.fillStyle = '#1e293b';
+  ctx.strokeStyle = '#334155';
+  ctx.lineWidth = 2;
+  ctx.fillRect(cx - 24, 185, 18, 90);
+  ctx.strokeRect(cx - 24, 185, 18, 90);
+  ctx.fillRect(cx + 6, 185, 18, 90);
+  ctx.strokeRect(cx + 6, 185, 18, 90);
+
+  // Arms
+  ctx.fillStyle = '#1e293b';
+  ctx.fillRect(cx - 52, 108, 16, 75);
+  ctx.strokeRect(cx - 52, 108, 16, 75);
+  ctx.fillRect(cx + 36, 108, 16, 75);
+  ctx.strokeRect(cx + 36, 108, 16, 75);
+
+  // Torso / Cuirass
+  ctx.fillStyle = '#253247';
+  ctx.beginPath();
+  ctx.moveTo(cx - 38, 100);
+  ctx.lineTo(cx + 38, 100);
+  ctx.lineTo(cx + 28, 186);
+  ctx.lineTo(cx - 28, 186);
+  ctx.closePath();
+  ctx.fill();
+  ctx.strokeStyle = themeColor + '66';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  // Class chest emblem
+  if (classId === 'paladin') {
+    ctx.fillStyle = '#fbbf24';
+    ctx.fillRect(cx - 3, 114, 6, 36);
+    ctx.fillRect(cx - 14, 126, 28, 6);
+  } else if (classId === 'mage') {
+    ctx.fillStyle = '#38bdf8';
+    ctx.beginPath();
+    ctx.arc(cx, 132, 9, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Head / Helm
+  ctx.fillStyle = '#1e293b';
+  ctx.beginPath();
+  ctx.arc(cx, 72, 22, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = themeColor;
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  // Class head crest / visor
+  if (classId === 'fighter') {
+    ctx.fillStyle = '#fbbf24';
+    ctx.fillRect(cx - 12, 70, 24, 4);
+  } else if (classId === 'mage') {
+    ctx.fillStyle = '#1e3a8a';
+    ctx.beginPath();
+    ctx.moveTo(cx, 26);
+    ctx.lineTo(cx + 26, 62);
+    ctx.lineTo(cx - 26, 62);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = '#fbbf24';
+    ctx.stroke();
+  } else if (classId === 'paladin') {
+    ctx.strokeStyle = '#fde047';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(cx, 38, 16, 0, Math.PI * 2);
+    ctx.stroke();
+  } else if (classId === 'thief') {
+    ctx.fillStyle = '#34d399';
+    ctx.fillRect(cx - 10, 68, 6, 3);
+    ctx.fillRect(cx + 4, 68, 6, 3);
+  } else if (classId === 'ranger') {
+    ctx.fillStyle = '#4ade80';
+    ctx.fillRect(cx - 10, 68, 6, 3);
+    ctx.fillRect(cx + 4, 68, 6, 3);
+  }
+
+  ctx.restore();
+}
+
+function buildSharedPaperDollGridHtml(hero, options = {}) {
+  const eq = (hero && hero.equipment) ? hero.equipment : {};
+  const mode = options.mode || 'wargame';
+  const heroId = (hero && hero.id) || '';
+
+  return SHARED_PAPER_DOLL_SLOTS.map(function(cfg) {
+    const posStyle = 'top:' + cfg.top + ';width:' + cfg.width + ';height:' + cfg.height + ';' +
+      (cfg.left ? ('left:' + cfg.left + ';') : ('right:' + cfg.right + ';'));
+
+    if (!cfg.active) {
+      const icon = getItemTypeIcon(cfg.id);
+      return `
+        <div class="pointer-events-auto absolute p-1.5 rounded-lg bg-[#05080e]/80 backdrop-blur-sm border border-[#1e293b]/60 flex flex-col justify-between items-center text-center opacity-60 cursor-not-allowed select-none"
+             style="${posStyle}"
+             title="${cfg.label} Slot (${cfg.tier}) — Reserved for Track A Inc 8.7">
+          <div class="w-full flex items-center justify-between text-[9px] text-[#475569]">
+            <span class="uppercase tracking-wider font-semibold">${cfg.label}</span>
+            <span>🔒</span>
+          </div>
+          <div class="text-base opacity-30">${icon}</div>
+          <div class="text-[8px] font-mono text-[#475569]">Locked</div>
+        </div>
+      `;
+    }
+
+    const it = eq[cfg.id] || null;
+    const typeIcon = getItemTypeIcon(cfg.id);
+
+    if (!it) {
+      return `
+        <div class="pointer-events-auto absolute p-1.5 rounded-lg bg-[#080b11]/75 backdrop-blur-sm border border-dashed border-[#283347]/80 flex flex-col justify-between items-center text-center select-none"
+             style="${posStyle}">
+          <div class="w-full flex items-center justify-between text-[9px] text-[#64748b]">
+            <span class="uppercase tracking-wider font-semibold">${cfg.label}</span>
+          </div>
+          <div class="text-base opacity-25">${typeIcon}</div>
+          <div class="text-[8px] font-mono text-[#475569]">Empty</div>
+        </div>
+      `;
+    }
+
+    const rInfo = RARITY[it.rarity] || RARITY.common;
+    const statTag = it.atk ? ('+' + it.atk + ' ATK') : (it.def ? ('+' + it.def + ' DEF') : (it.maxDurability ? ('Tier ' + (it.tier || 1)) : 'Equipped'));
+    const canUnequip = cfg.id !== 'pickaxe';
+    const unequipAction = mode === 'wargame'
+      ? `window.WargameApp.handleUnequipHeroItem('${heroId}', '${cfg.id}')`
+      : `window.Aethelgard.handleInventoryUnequip('${cfg.id}')`;
+
+    return `
+      <div class="pointer-events-auto absolute p-1.5 rounded-lg bg-[#0e1524]/90 backdrop-blur-sm border flex flex-col justify-between text-left select-none shadow-md"
+           style="${posStyle}border-color:${rInfo.color}88;"
+           title="${it.name} (${rInfo.label})">
+        <div class="w-full flex items-center justify-between text-[9px]">
+          <span class="uppercase tracking-wider font-semibold text-[#8b949e]">${cfg.label}</span>
+          ${canUnequip ? `<button onclick="${unequipAction}" class="text-[#f87171] hover:text-white font-bold text-[10px] leading-none cursor-pointer" title="Unequip">✕</button>` : ''}
+        </div>
+        <div class="text-[10px] font-bold truncate" style="color:${rInfo.color}">${typeIcon} ${it.name}</div>
+        <div class="text-[9px] font-mono text-[#34d399]">${statTag}</div>
+      </div>
+    `;
+  }).join('');
+}
+
+function buildSharedHeroStatsHtml(profile) {
+  const s = profile.stats;
+  const cells = [
+    { label: 'STR', val: s.str, color: '#f87171' },
+    { label: 'DEX', val: s.dex, color: '#34d399' },
+    { label: 'INT', val: s.int, color: '#60a5fa' },
+    { label: 'VIT', val: s.vit, color: '#fbbf24' },
+    { label: 'ATK', val: s.atk, color: '#fb923c' },
+    { label: 'DEF', val: s.def, color: '#38bdf8' },
+    { label: 'CRIT', val: s.crit + '%', color: '#facc15' },
+    { label: 'DODGE', val: s.dodge + '%', color: '#a78bfa' }
+  ];
+  return cells.map(function(c) {
+    return `
+      <div class="p-1.5 rounded bg-[#080b11] border border-[#283347] text-center">
+        <div class="text-[9px] font-mono text-[#8b949e] uppercase">${c.label}</div>
+        <div class="text-xs font-mono font-bold" style="color:${c.color}">${c.val}</div>
+      </div>
+    `;
+  }).join('');
+}
+
+function buildSharedCosmeticsPreviewHtml(profile) {
+  const cos = profile.cosmetics || {};
+  return COSMETIC_SLOTS.map(function(slot) {
+    const equipped = cos[slot.id];
+    return `
+      <div class="p-2 rounded bg-[#080b11] border border-[#fbbf24]/30 flex items-center justify-between text-[10px] font-mono">
+        <span class="text-[#8b949e]">${slot.icon} ${slot.label}</span>
+        <span class="${equipped ? 'text-[#fbbf24] font-bold' : 'text-[#475569]'}">${equipped ? equipped.name : 'Default'}</span>
+      </div>
+    `;
+  }).join('');
+}
+
   // --- Module: src/wargame/ui/wargameUiSync.js ---
 // Wargame DOM Synchronizer — Start Screen, Pioneer Overworld HUD, Real-Time City Builder, Guild Recruitment & Event Feed
+
+
+
 
 
 
@@ -5172,6 +5935,84 @@ function syncWargameUI(simHost) {
 
   // 6. Sync Right Sidebar: Reactive Task DAG & Live Streaming Event Feed
   renderRightTasksAndStreamSidebar(simHost);
+
+  // 7. Sync Shared Character Sheet Modal if open
+  renderWargameCharacterSheetModal(simHost);
+}
+
+function renderWargameCharacterSheetModal(simHost) {
+  if (typeof document === 'undefined' || !simHost || !simHost.state || !simHost.state.world) return;
+  const modal = document.getElementById('wgCharacterSheetModal');
+  if (!modal) return;
+
+  const openHeroId = simHost.state._openHeroSheetId || null;
+  if (!openHeroId) {
+    modal.classList.add('hidden');
+    return;
+  }
+
+  const heroes = simHost.state.world.heroes || [];
+  const rawHero = heroes.find(function(h) { return h.id === openHeroId; }) || heroes[0];
+  if (!rawHero) {
+    modal.classList.add('hidden');
+    return;
+  }
+
+  modal.classList.remove('hidden');
+  const profile = normalizeSharedHeroProfile(rawHero);
+
+  const nameEl = document.getElementById('wgSheetHeroName');
+  const titleEl = document.getElementById('wgSheetHeroTitle');
+  if (nameEl) nameEl.textContent = profile.name + ' — ' + profile.className;
+  if (titleEl) titleEl.textContent = 'Level ' + profile.level + ' ' + profile.title + ' • HP ' + profile.hp + '/' + profile.maxHp + ' • MP ' + profile.mp + '/' + profile.maxMp;
+
+  const canvas = document.getElementById('wgSheetPaperDollCanvas');
+  if (canvas) {
+    renderSharedPaperDollMannequin(canvas, rawHero);
+  }
+
+  const gridEl = document.getElementById('wgSheetPaperDollGrid');
+  if (gridEl) {
+    setHtmlIfChanged(gridEl, buildSharedPaperDollGridHtml(rawHero, { mode: 'wargame' }));
+  }
+
+  const statsEl = document.getElementById('wgSheetStatsGrid');
+  if (statsEl) {
+    setHtmlIfChanged(statsEl, buildSharedHeroStatsHtml(profile));
+  }
+
+  const cosEl = document.getElementById('wgSheetCosmeticsStrip');
+  if (cosEl) {
+    setHtmlIfChanged(cosEl, buildSharedCosmeticsPreviewHtml(profile));
+  }
+
+  const bagEl = document.getElementById('wgSheetBagList');
+  if (bagEl) {
+    const bag = profile.bagGear || [];
+    if (bag.length === 0) {
+      setHtmlIfChanged(bagEl, `<div class="text-[11px] text-[#64748b] italic py-2 text-center">No unequipped gear in pack. Unequip worn gear or forge items at the City Blacksmith!</div>`);
+    } else {
+      const bagHtml = bag.map(function(it) {
+        const rInfo = RARITY[it.rarity] || RARITY.common;
+        const icon = getItemTypeIcon(it.slot);
+        const statTxt = [
+          it.atk ? ('+' + it.atk + ' ATK') : '',
+          it.def ? ('+' + it.def + ' DEF') : '',
+          it.hp  ? ('+' + it.hp  + ' HP')  : ''
+        ].filter(Boolean).join(' • ') || 'Equipment';
+        return `
+          <div class="p-2 rounded bg-[#111722] border border-[#283347] flex items-center justify-between gap-2 text-xs">
+            <div class="min-w-0">
+              <div class="font-bold truncate" style="color:${rInfo.color}">${icon} ${it.name}</div>
+              <div class="text-[10px] font-mono text-[#8b949e]">${it.slot.toUpperCase()} • ${rInfo.label} • <span class="text-[#34d399]">${statTxt}</span></div>
+            </div>
+            <button onclick="window.WargameApp.handleEquipHeroItem('${rawHero.id}', '${it.uid}')" class="px-2.5 py-1 rounded bg-[#fbbf24] hover:bg-[#f59e0b] text-[#080b11] font-bold text-[10px] uppercase cursor-pointer">Equip</button>
+          </div>
+        `;
+      }).join('');
+      setHtmlIfChanged(bagEl, bagHtml);
+    }
+  }
 }
 
 function renderTitleScreenSummary(simHost) {
@@ -5471,7 +6312,10 @@ function renderLeftCommandSidebar(simHost) {
                 <div class="text-[10px] font-mono text-[#8b949e]">Lv ${h.level} ${h.className} • HP ${h.stats.hp} • ATK ${h.stats.atk}</div>
               </div>
             </div>
-            <button data-action="select-party" data-hero-id="${h.id}" onclick="window.WargameApp.handleSelectPartyByHero('${h.id}')" class="px-2 py-1 rounded bg-[#1a2232] hover:bg-[#283347] text-[#60a5fa] text-[10px] font-mono font-bold cursor-pointer">Select Party</button>
+            <div class="flex items-center gap-1">
+              <button data-action="open-hero-sheet" data-hero-id="${h.id}" onclick="window.WargameApp.handleOpenHeroSheet('${h.id}')" class="px-2 py-1 rounded bg-[#1a2232] hover:bg-[#283347] text-[#fbbf24] border border-[#fbbf24]/30 text-[10px] font-mono font-bold cursor-pointer" title="Open Shared Character Sheet">👤 Sheet</button>
+              <button data-action="select-party" data-hero-id="${h.id}" onclick="window.WargameApp.handleSelectPartyByHero('${h.id}')" class="px-2 py-1 rounded bg-[#1a2232] hover:bg-[#283347] text-[#60a5fa] text-[10px] font-mono font-bold cursor-pointer">Select</button>
+            </div>
           </div>
         `;
       }).join('');
@@ -6049,6 +6893,7 @@ function formatEventSummary(ev) {
 
   // --- Module: src/wargame/test/wargameSelfTest.js ---
 // Headless & In-Browser Verification Suite for the Standalone Macro Wargame & Real-Time Simulation Engine
+
 
 
 
@@ -6821,6 +7666,75 @@ function evaluateWargameSelfTests() {
       : 'Failed checks: ' + failed8.join(', ')
   });
 
+  // =========================================================================
+  // Test 9: Shared Cross-Engine Character Sheet, Paper-Doll & Hero Equipment (Inc 9.4)
+  // =========================================================================
+  const hero9 = host7.state.world.heroes[0];
+  const hasStarterEq9 = Boolean(hero9 && hero9.equipment && hero9.equipment.weapon && hero9.equipment.pickaxe);
+  const hasCosmetics9 = Boolean(hero9 && hero9.cosmetics && COSMETIC_SLOTS.length === 4 && SHARED_PAPER_DOLL_SLOTS.length === 10);
+
+  const profBefore9 = normalizeSharedHeroProfile(hero9);
+  const bagSignet = (hero9.bagGear || []).find(function(it) { return it.slot === 'accessory'; });
+  const eqRes9 = bagSignet ? host7.dispatch({
+    type: COMMAND_TYPES.EQUIP_HERO_ITEM,
+    payload: { heroId: hero9.id, itemUid: bagSignet.uid }
+  }) : { ok: false };
+  const profAfterEq9 = normalizeSharedHeroProfile(hero9);
+  const equipBoostedStats9 = Boolean(
+    eqRes9.ok &&
+    hero9.equipment.accessory &&
+    hero9.equipment.accessory.uid === bagSignet.uid &&
+    profAfterEq9.stats.atk === profBefore9.stats.atk + (bagSignet.atk || 0)
+  );
+
+  // Unequip helm -> moves back to bagGear; unequip pickaxe -> strictly rejected
+  const uneqHelm9 = host7.dispatch({
+    type: COMMAND_TYPES.UNEQUIP_HERO_ITEM,
+    payload: { heroId: hero9.id, slot: 'helm' }
+  });
+  const uneqPickBlocked9 = !host7.dispatch({
+    type: COMMAND_TYPES.UNEQUIP_HERO_ITEM,
+    payload: { heroId: hero9.id, slot: 'pickaxe' }
+  }).ok;
+  const unequipVerified9 = Boolean(uneqHelm9.ok && hero9.equipment.helm === null && uneqPickBlocked9);
+
+  // Verify shared paper-doll canvas rendering on mock context
+  let drawCalls9 = 0;
+  const mockCanvas9 = {
+    width: 340,
+    height: 330,
+    getContext: function() {
+      return {
+        fillStyle: '', strokeStyle: '', lineWidth: 1,
+        save: function(){}, restore: function(){}, clearRect: function(){},
+        beginPath: function(){}, closePath: function(){}, moveTo: function(){}, lineTo: function(){},
+        arc: function(){ drawCalls9++; }, ellipse: function(){ drawCalls9++; },
+        fill: function(){ drawCalls9++; }, stroke: function(){ drawCalls9++; },
+        fillRect: function(){ drawCalls9++; }, strokeRect: function(){ drawCalls9++; }
+      };
+    }
+  };
+  renderSharedPaperDollMannequin(mockCanvas9, hero9);
+  const mannequinRendered9 = drawCalls9 > 5;
+
+  const t9Checks = {
+    hasStarterEq9: hasStarterEq9,
+    hasCosmetics9: hasCosmetics9,
+    equipBoostedStats9: equipBoostedStats9,
+    unequipVerified9: unequipVerified9,
+    mannequinRendered9: mannequinRendered9
+  };
+  const failed9 = Object.keys(t9Checks).filter(function(k) { return !t9Checks[k]; });
+  const t9Pass = failed9.length === 0;
+
+  results.push({
+    name: '9. Shared Cross-Engine Character Sheet, Paper-Doll & Hero Equipment (Inc 9.4)',
+    pass: t9Pass,
+    detail: t9Pass
+      ? 'Shared 10-slot paper-doll, 4 prestige cosmetic slots, CMD_EQUIP/UNEQUIP_HERO_ITEM stat recomputation, pickaxe guard, and canvas render verified'
+      : 'Failed checks: ' + failed9.join(', ')
+  });
+
   return results;
 }
 
@@ -7037,6 +7951,48 @@ function handleClaimTask(taskId) {
   simHost.dispatch({
     type: COMMAND_TYPES.CLAIM_TASK_REWARD,
     payload: { taskId: taskId }
+  });
+  simHost.state._dirty = true;
+  simHost.save();
+  syncWargameUI(simHost);
+}
+
+function handleOpenHeroSheet(heroId) {
+  if (!simHost.state || !simHost.state.world) return;
+  const heroes = simHost.state.world.heroes || [];
+  let targetId = heroId || null;
+  if (!targetId) {
+    const sel = getSelectedOverworldUnit(simHost.state);
+    if (sel && sel.leaderHeroId) targetId = sel.leaderHeroId;
+    else if (heroes.length > 0) targetId = heroes[0].id;
+  }
+  if (!targetId) return;
+  simHost.state._openHeroSheetId = targetId;
+  simHost.state._dirty = true;
+  syncWargameUI(simHost);
+}
+
+function handleCloseHeroSheet() {
+  if (!simHost.state) return;
+  delete simHost.state._openHeroSheetId;
+  simHost.state._dirty = true;
+  syncWargameUI(simHost);
+}
+
+function handleEquipHeroItem(heroId, itemUid) {
+  simHost.dispatch({
+    type: COMMAND_TYPES.EQUIP_HERO_ITEM,
+    payload: { heroId: heroId, itemUid: itemUid }
+  });
+  simHost.state._dirty = true;
+  simHost.save();
+  syncWargameUI(simHost);
+}
+
+function handleUnequipHeroItem(heroId, slot) {
+  simHost.dispatch({
+    type: COMMAND_TYPES.UNEQUIP_HERO_ITEM,
+    payload: { heroId: heroId, slot: slot }
   });
   simHost.state._dirty = true;
   simHost.save();
@@ -7281,6 +8237,11 @@ function setupWargameListeners() {
       handleSetSimSpeed(2);
     } else if (e.key === '5') {
       handleSetSimSpeed(5);
+    } else if (e.key === 'i' || e.key === 'I' || e.key === 'c' || e.key === 'C') {
+      if (simHost.state._openHeroSheetId) handleCloseHeroSheet();
+      else handleOpenHeroSheet();
+    } else if (e.key === 'Escape' && simHost.state._openHeroSheetId) {
+      handleCloseHeroSheet();
     }
   });
 }
@@ -7344,6 +8305,10 @@ const WargameApp = {
   handleCancelRecruitment: handleCancelRecruitment,
   handleClaimTask: handleClaimTask,
   handleSelectPartyByHero: handleSelectPartyByHero,
+  handleOpenHeroSheet: handleOpenHeroSheet,
+  handleCloseHeroSheet: handleCloseHeroSheet,
+  handleEquipHeroItem: handleEquipHeroItem,
+  handleUnequipHeroItem: handleUnequipHeroItem,
   handleMarchToDungeon: handleMarchToDungeon,
   handleReturnToCity: handleReturnToCity,
   handleEnterDungeon: handleEnterDungeon,

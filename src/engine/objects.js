@@ -522,3 +522,195 @@ export function getDiscoveredWaypoints(state) {
   list.sort((a, b) => a.depth - b.depth);
   return list;
 }
+
+// =========================================================================
+// Increment 8.3: Mechanisms, Destructible Props & Environmental Hazards
+// =========================================================================
+
+export function createMechanismInstance(defId = 'mech_wall_lever', x = 0, y = 0, options = {}) {
+  const inst = createWorldObjectInstance(defId, Object.assign({}, options, {
+    x: x,
+    y: y,
+    objectType: WORLD_OBJECT_TYPES.MECHANISM
+  }));
+  if (inst && options.linkedTargetIds && Array.isArray(options.linkedTargetIds)) {
+    if (!inst.components) inst.components = {};
+    if (!inst.components.mechanism) inst.components.mechanism = { mechanismType: 'lever', linkedTargetIds: [] };
+    inst.components.mechanism.linkedTargetIds = options.linkedTargetIds.slice();
+  }
+  return inst;
+}
+
+export function createPropInstance(defId = 'prop_supply_crate', x = 0, y = 0, options = {}) {
+  return createWorldObjectInstance(defId, Object.assign({}, options, {
+    x: x,
+    y: y,
+    objectType: WORLD_OBJECT_TYPES.PROP
+  }));
+}
+
+export function createHazardInstance(defId = 'hazard_slag_vent', x = 0, y = 0, options = {}) {
+  return createWorldObjectInstance(defId, Object.assign({}, options, {
+    x: x,
+    y: y,
+    objectType: WORLD_OBJECT_TYPES.HAZARD
+  }));
+}
+
+export function isMechanism(obj) {
+  return Boolean(obj && obj.objectType === WORLD_OBJECT_TYPES.MECHANISM);
+}
+
+export function isDestructibleProp(obj) {
+  return Boolean(obj && obj.objectType === WORLD_OBJECT_TYPES.PROP && obj.runtimeState && obj.runtimeState.structural !== 'destroyed');
+}
+
+export function isEnvironmentalHazard(obj) {
+  return Boolean(obj && obj.objectType === WORLD_OBJECT_TYPES.HAZARD && obj.runtimeState && obj.runtimeState.mechanical === 'active');
+}
+
+export function toggleLinkedMechanisms(mechObj, floor) {
+  if (!mechObj || !isMechanism(mechObj) || !floor || !Array.isArray(floor.objects)) {
+    return { toggled: 0, targetIds: [] };
+  }
+  const st = mechObj.runtimeState || {};
+  const nextMechState = st.mechanical === 'pulled' ? 'idle' : 'pulled';
+  st.mechanical = nextMechState;
+
+  const linkIds = (mechObj.components && mechObj.components.mechanism && Array.isArray(mechObj.components.mechanism.linkedTargetIds))
+    ? mechObj.components.mechanism.linkedTargetIds
+    : [];
+  const affected = [];
+
+  for (let i = 0; i < linkIds.length; i++) {
+    const tid = linkIds[i];
+    const target = floor.objects.find(function(o) { return o.instanceId === tid; });
+    if (!target) continue;
+    if (!target.runtimeState) target.runtimeState = {};
+    if (!target.permeability) target.permeability = {};
+
+    const opening = nextMechState === 'pulled';
+    if (target.runtimeState.discovery === 'unknown') {
+      target.runtimeState.discovery = 'revealed';
+    }
+    if (opening) {
+      target.runtimeState.security = 'unlocked';
+      target.runtimeState.mechanical = 'open';
+      target.permeability.movement = true;
+      target.permeability.lineOfSight = true;
+      target.permeability.light = true;
+      target.permeability.projectiles = true;
+      target.permeability.magic = true;
+    } else {
+      target.runtimeState.mechanical = 'closed';
+      target.permeability.movement = false;
+      if (target.definitionId !== 'door_iron_portcullis') {
+        target.permeability.lineOfSight = false;
+        target.permeability.light = false;
+      }
+    }
+    affected.push(tid);
+  }
+
+  return { toggled: affected.length, state: nextMechState, targetIds: affected };
+}
+
+export function damageDestructibleProp(propObj, rawDamage, floor, state) {
+  if (!propObj || !isDestructibleProp(propObj)) return { destroyed: false, damage: 0 };
+  const dur = (propObj.components && propObj.components.durability) || { hp: 15, maxHp: 15, armor: 0 };
+  const dmg = Math.max(1, Math.round(rawDamage || 10) - (dur.armor || 0));
+  dur.hp = Math.max(0, (dur.hp || 0) - dmg);
+
+  if (dur.hp > 0) {
+    if (propObj.runtimeState) propObj.runtimeState.structural = 'damaged';
+    return { destroyed: false, damage: dmg, remainingHp: dur.hp };
+  }
+
+  if (!propObj.runtimeState) propObj.runtimeState = {};
+  propObj.runtimeState.structural = 'destroyed';
+  propObj.runtimeState.mechanical = 'open';
+  if (!propObj.permeability) propObj.permeability = {};
+  propObj.permeability.movement = true;
+  propObj.permeability.lineOfSight = true;
+  propObj.permeability.light = true;
+  propObj.permeability.projectiles = true;
+  propObj.permeability.magic = true;
+
+  const propCfg = (propObj.components && propObj.components.prop) || {};
+  let spawnedHazards = 0;
+  let goldLooted = 0;
+
+  if (propCfg.goldDrop && state && state.guildVault) {
+    goldLooted = propCfg.goldDrop;
+    state.guildVault.gold = (state.guildVault.gold || 0) + goldLooted;
+  }
+
+  if (propCfg.spawnsHazard && floor && Array.isArray(floor.objects)) {
+    const offsets = [
+      { dx: 0, dy: 0 }, { dx: 1, dy: 0 }, { dx: -1, dy: 0 }, { dx: 0, dy: 1 }, { dx: 0, dy: -1 }
+    ];
+    for (let i = 0; i < offsets.length; i++) {
+      const hx = propObj.x + offsets[i].dx;
+      const hy = propObj.y + offsets[i].dy;
+      if (floor.tiles && floor.tiles[hy] && floor.tiles[hy][hx] !== 0) {
+        const exists = floor.objects.some(function(o) {
+          return o.x === hx && o.y === hy && o.definitionId === propCfg.spawnsHazard;
+        });
+        if (!exists) {
+          floor.objects.push(createHazardInstance(propCfg.spawnsHazard, hx, hy));
+          spawnedHazards++;
+        }
+      }
+    }
+  }
+
+  return {
+    destroyed: true,
+    damage: dmg,
+    goldLooted: goldLooted,
+    spawnedHazards: spawnedHazards
+  };
+}
+
+export function resolveHazardStepEffects(actor, x, y, floor) {
+  if (!actor || !floor || !Array.isArray(floor.objects)) return { triggered: false, damage: 0, statuses: [] };
+  const hazards = floor.objects.filter(function(o) {
+    return o.x === x && o.y === y && isEnvironmentalHazard(o);
+  });
+  if (hazards.length === 0) return { triggered: false, damage: 0, statuses: [] };
+
+  let totalDmg = 0;
+  const appliedStatuses = [];
+
+  for (let i = 0; i < hazards.length; i++) {
+    const hz = hazards[i];
+    const hCfg = (hz.components && hz.components.hazard) || {};
+    let dmg = hCfg.damage || 0;
+
+    // If actor is burning and steps into an oil slick, ignite for burst fire damage!
+    const actorStatuses = Array.isArray(actor.statuses) ? actor.statuses : [];
+    const isBurning = actorStatuses.some(function(s) { return s.id === 'burn'; });
+    if (hCfg.hazardType === 'oil' && isBurning) {
+      dmg += (hCfg.igniteDamage || 18);
+      hz.runtimeState.mechanical = 'spent';
+    }
+
+    if (dmg > 0) {
+      actor.hp = Math.max(0, (actor.hp || 0) - dmg);
+      totalDmg += dmg;
+    }
+
+    if (hCfg.statusId) {
+      if (!Array.isArray(actor.statuses)) actor.statuses = [];
+      const existing = actor.statuses.find(function(s) { return s.id === hCfg.statusId; });
+      if (existing) {
+        existing.turns = Math.max(existing.turns || 0, hCfg.statusTurns || 2);
+      } else {
+        actor.statuses.push({ id: hCfg.statusId, turns: hCfg.statusTurns || 2 });
+      }
+      appliedStatuses.push(hCfg.statusId);
+    }
+  }
+
+  return { triggered: true, damage: totalDmg, statuses: appliedStatuses };
+}

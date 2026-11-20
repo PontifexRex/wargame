@@ -24,7 +24,9 @@ export const WORLD_OBJECT_TYPES = {
   CONTAINER: 'container',
   MECHANISM: 'mechanism',
   DEVICE:    'device',
-  PICKUP:    'pickup'
+  PICKUP:    'pickup',
+  PROP:      'prop',
+  HAZARD:    'hazard'
 };
 
 export const OBJECT_DEFINITIONS = {};
@@ -966,5 +968,288 @@ registerObjectDefinition({
         }
       }
     }
+  }
+});
+
+// =========================================================================
+// Increment 8.3: Linked Mechanisms, Destructible Props & Environmental Hazards
+// =========================================================================
+
+registerObjectDefinition({
+  definitionId: 'mech_wall_lever',
+  category: OBJECT_CATEGORIES.WORLD_OBJECT,
+  objectType: WORLD_OBJECT_TYPES.MECHANISM,
+  name: 'Iron Wall Lever',
+  description: 'A heavy dwarven counterweight lever linked by hidden chains to nearby portcullises or secret vaults.',
+  tags: ['mechanism', 'lever', 'interactive'],
+  defaultState: {
+    mechanical: 'idle',
+    security: 'unlocked',
+    discovery: 'revealed',
+    structural: 'intact',
+    power: 'unpowered'
+  },
+  defaultPermeability: {
+    movement: true,
+    lineOfSight: true,
+    light: true,
+    sound: true,
+    projectiles: true,
+    magic: true
+  },
+  defaultComponents: {
+    mechanism: { mechanismType: 'lever', linkedTargetIds: [] },
+    interactable: {
+      prompt: 'Pull Lever',
+      actions: {
+        pull: {
+          id: 'pull',
+          name: 'Pull Iron Lever',
+          requirements: null,
+          costs: null,
+          effects: [{ type: 'toggleLinked' }]
+        }
+      }
+    }
+  }
+});
+
+registerObjectDefinition({
+  definitionId: 'mech_pressure_plate',
+  category: OBJECT_CATEGORIES.WORLD_OBJECT,
+  objectType: WORLD_OBJECT_TYPES.MECHANISM,
+  name: 'Dwarven Pressure Plate',
+  description: 'A recessed flagstone trigger plate that actuates linked dungeon gates when stepped on.',
+  tags: ['mechanism', 'pressure_plate', 'trigger'],
+  defaultState: {
+    mechanical: 'idle',
+    security: 'unlocked',
+    discovery: 'revealed',
+    structural: 'intact',
+    power: 'unpowered'
+  },
+  defaultPermeability: {
+    movement: true,
+    lineOfSight: true,
+    light: true,
+    sound: true,
+    projectiles: true,
+    magic: true
+  },
+  defaultComponents: {
+    mechanism: { mechanismType: 'pressure_plate', linkedTargetIds: [] },
+    interactable: {
+      prompt: 'Step on Plate',
+      actions: {
+        trigger: {
+          id: 'trigger',
+          name: 'Depress Pressure Plate',
+          requirements: null,
+          costs: null,
+          effects: [{ type: 'toggleLinked' }]
+        }
+      }
+    }
+  }
+});
+
+registerObjectDefinition({
+  definitionId: 'prop_supply_crate',
+  category: OBJECT_CATEGORIES.WORLD_OBJECT,
+  objectType: WORLD_OBJECT_TYPES.PROP,
+  name: 'Iron-Bound Supply Crate',
+  description: 'A sturdy dwarven supply crate that blocks footsteps but can be smashed open for salvage.',
+  tags: ['prop', 'destructible', 'wood', 'lootable'],
+  defaultState: {
+    mechanical: 'closed',
+    security: 'unlocked',
+    discovery: 'revealed',
+    structural: 'intact',
+    power: 'unpowered'
+  },
+  defaultPermeability: {
+    movement: false,
+    lineOfSight: true,
+    light: true,
+    sound: true,
+    projectiles: true,
+    magic: true
+  },
+  defaultComponents: {
+    durability: { hp: 18, maxHp: 18, armor: 1, canBeForced: true },
+    prop: { propType: 'crate', goldDrop: 12 },
+    interactable: {
+      prompt: 'Smash Crate',
+      actions: {
+        bash: {
+          id: 'bash',
+          name: 'Smash Supply Crate',
+          requirements: null,
+          costs: null,
+          effects: [{ type: 'damageProp' }]
+        }
+      }
+    }
+  }
+});
+
+registerObjectDefinition({
+  definitionId: 'prop_oil_barrel',
+  category: OBJECT_CATEGORIES.WORLD_OBJECT,
+  objectType: WORLD_OBJECT_TYPES.PROP,
+  name: 'Volatile Oil Barrel',
+  description: 'A pitch-sealed lantern-oil cask. Smashing it ruptures flammable oil across adjacent tiles.',
+  tags: ['prop', 'destructible', 'volatile', 'oil'],
+  defaultState: {
+    mechanical: 'closed',
+    security: 'unlocked',
+    discovery: 'revealed',
+    structural: 'intact',
+    power: 'unpowered'
+  },
+  defaultPermeability: {
+    movement: false,
+    lineOfSight: true,
+    light: true,
+    sound: true,
+    projectiles: true,
+    magic: true
+  },
+  defaultComponents: {
+    durability: { hp: 12, maxHp: 12, armor: 0, canBeForced: true },
+    prop: { propType: 'oil_barrel', spawnsHazard: 'hazard_oil_slick' },
+    interactable: {
+      prompt: 'Rupture Oil Barrel',
+      actions: {
+        bash: {
+          id: 'bash',
+          name: 'Smash Oil Barrel',
+          requirements: null,
+          costs: null,
+          effects: [{ type: 'damageProp' }]
+        }
+      }
+    }
+  }
+});
+
+registerObjectDefinition({
+  definitionId: 'prop_wood_barricade',
+  category: OBJECT_CATEGORIES.WORLD_OBJECT,
+  objectType: WORLD_OBJECT_TYPES.PROP,
+  name: 'Splintered Barricade',
+  description: 'A hastily nailed timber barricade blocking passage while allowing ranged fire over the top.',
+  tags: ['prop', 'destructible', 'cover', 'wood'],
+  defaultState: {
+    mechanical: 'closed',
+    security: 'unlocked',
+    discovery: 'revealed',
+    structural: 'intact',
+    power: 'unpowered'
+  },
+  defaultPermeability: {
+    movement: false,
+    lineOfSight: true,
+    light: true,
+    sound: true,
+    projectiles: true,
+    magic: true
+  },
+  defaultComponents: {
+    durability: { hp: 26, maxHp: 26, armor: 2, canBeForced: true },
+    prop: { propType: 'barricade' },
+    interactable: {
+      prompt: 'Break Barricade',
+      actions: {
+        bash: {
+          id: 'bash',
+          name: 'Break Barricade',
+          requirements: null,
+          costs: null,
+          effects: [{ type: 'damageProp' }]
+        }
+      }
+    }
+  }
+});
+
+registerObjectDefinition({
+  definitionId: 'hazard_oil_slick',
+  category: OBJECT_CATEGORIES.WORLD_OBJECT,
+  objectType: WORLD_OBJECT_TYPES.HAZARD,
+  name: 'Flammable Oil Slick',
+  description: 'A viscous pool of lamp oil. Footing is treacherous, and any flame ignites it violently.',
+  tags: ['hazard', 'oil', 'flammable'],
+  defaultState: {
+    mechanical: 'active',
+    security: 'unlocked',
+    discovery: 'revealed',
+    structural: 'intact',
+    power: 'unpowered'
+  },
+  defaultPermeability: {
+    movement: true,
+    lineOfSight: true,
+    light: true,
+    sound: true,
+    projectiles: true,
+    magic: true
+  },
+  defaultComponents: {
+    hazard: { hazardType: 'oil', damage: 0, statusId: 'weakened', statusTurns: 2, igniteDamage: 18 }
+  }
+});
+
+registerObjectDefinition({
+  definitionId: 'hazard_slag_vent',
+  category: OBJECT_CATEGORIES.WORLD_OBJECT,
+  objectType: WORLD_OBJECT_TYPES.HAZARD,
+  name: 'Molten Slag Vent',
+  description: 'A glowing geothermal grate searing any hero or monster that steps across it.',
+  tags: ['hazard', 'fire', 'molten'],
+  defaultState: {
+    mechanical: 'active',
+    security: 'unlocked',
+    discovery: 'revealed',
+    structural: 'intact',
+    power: 'powered'
+  },
+  defaultPermeability: {
+    movement: true,
+    lineOfSight: true,
+    light: true,
+    sound: true,
+    projectiles: true,
+    magic: true
+  },
+  defaultComponents: {
+    hazard: { hazardType: 'fire', damage: 10, statusId: 'burn', statusTurns: 3 }
+  }
+});
+
+registerObjectDefinition({
+  definitionId: 'hazard_spore_cloud',
+  category: OBJECT_CATEGORIES.WORLD_OBJECT,
+  objectType: WORLD_OBJECT_TYPES.HAZARD,
+  name: 'Toxic Spore Cloud',
+  description: 'A swirling patch of subterranean fungal spores poisoning any creature that moves through it.',
+  tags: ['hazard', 'poison', 'fungal'],
+  defaultState: {
+    mechanical: 'active',
+    security: 'unlocked',
+    discovery: 'revealed',
+    structural: 'intact',
+    power: 'unpowered'
+  },
+  defaultPermeability: {
+    movement: true,
+    lineOfSight: true,
+    light: true,
+    sound: true,
+    projectiles: true,
+    magic: true
+  },
+  defaultComponents: {
+    hazard: { hazardType: 'poison', damage: 7, statusId: 'poison', statusTurns: 3 }
   }
 });

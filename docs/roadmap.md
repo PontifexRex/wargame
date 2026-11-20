@@ -1,7 +1,7 @@
 # Aethelgard: Project Roadmap & Strategic Horizons
 
-> **Current Baseline**: `v0.9.3-dungeon-march`  
-> **Verification Status**: 30/30 Roguelike Baseline Tests PASS + 8/8 Wargame Simulation Tests PASS  
+> **Current Baseline**: `v0.9.4-shared-hero-sheet` / `v0.8.3-hazards` / `Stage E.1`  
+> **Verification Status**: 31/31 Roguelike Baseline Tests PASS + 9/9 Wargame Simulation Tests PASS  
 > **Historical Release Notes**: For completed increment release logs, detailed feature breakdowns, and verification gates, refer to [CHANGELOG.md](../CHANGELOG.md).
 
 ---
@@ -63,12 +63,8 @@ Track E (Art Direction & Graphics) ──► Stage E.1 (Pillars) ──► E.2 (
 *Preceding Increments:*  
 - **Increment 8.0 (`v0.8.0-objects`)**: Foundational Game Object Model, interaction pipeline, item stacking, and ground pickups. *(Verified)*  
 - **Increment 8.1 (`v0.8.1-doors`)**: Multi-state door system, permeability matrix, lock-and-key generation, lockpicking, and bashing. *(Verified)*  
-- **Increment 8.2 (`v0.8.2-portals`)**: Shared traversal engine, Ancient Waypoint networks, Astral Rifts, and Boss Extraction Gateways. *(Verified)*
-
-#### Increment 8.3 (`v0.8.3-hazards`) — Interactive Dungeon Props, Mechanisms & Environmental Hazards
-- **Linked Mechanisms**: Authorable **Levers, Pull-Chains & Pressure Plates** controlling Iron Portcullises and concealed Secret Vaults.
-- **Destructible Props & Cover**: Barrels, supply crates, and wooden barricades that interact with combat, movement, and line-of-sight.
-- **Tactical Terrain Hazards**: Oil slicks, molten slag vents, and toxic spore clouds that affect both heroes and monsters equally.
+- **Increment 8.2 (`v0.8.2-portals`)**: Shared traversal engine, Ancient Waypoint networks, Astral Rifts, and Boss Extraction Gateways. *(Verified)*  
+- **Increment 8.3 (`v0.8.3-hazards`)**: Interactive dungeon props (crates, oil barrels, barricades), linked mechanisms (levers -> portcullises, pressure plates -> secret doors), and symmetric hero/monster environmental hazards (oil slicks, molten slag vents, toxic spore clouds). *(Verified)*
 
 #### Increment 8.4 (`v0.8.4-triggers`) — Dungeon Trigger & Event Graph Engine (`Trigger -> Condition -> Action`)
 - **Event Graph Framework**: Authorable dungeon triggers (`onEnterRoom`, `onOpenContainer`, `onPullMechanism`, `onEntitySlain`, `onTurnElapsed`) bound to composable boolean conditions and atomic world actions.
@@ -95,11 +91,8 @@ Track E (Art Direction & Graphics) ──► Stage E.1 (Pillars) ──► E.2 (
 - **Increment 9.0 (`v0.9.0-wargame`)**: Real-time simulation engine, min-heap scheduler, Settler-first onboarding, A* marching, and WorldEventStream. *(Verified)*  
 - **Increment 9.1 (`v0.9.1-city-grid`)**: 8x8 spatial city grid, plot selection, timed relocation, demolition salvage, and 3-slot queues. *(Verified)*  
 - **Increment 9.2 (`v0.9.2-city-progression`)**: Tier 1 building catalog, prerequisite unlocks, doubling times, citizen sustenance, and 60s Hero Recruitment queue. *(Verified)*  
-- **Increment 9.3 (`v0.9.3-dungeon-march`)**: Multi-dungeon Overworld discovery, wandering hostile skirmishes, real-time march to vaults, cross-engine `wargameBridge` handoff (`wargame.html` ↔ `index.html`), extraction return march + cargo banking, Recall Scroll express return, and defeat recovery. *(Verified)*
-
-#### Increment 9.4 (`v0.9.4-shared-hero-sheet`) — Shared Cross-Engine Character Sheet & Paper-Doll Module
-- **Unified Character View**: Extract the anatomical Paper-Doll, inventory, floating stat comparison tooltips, and talent sheet into a shared UI/engine module usable natively inside **both** `wargame.html` (Overworld, City, Guild, Blacksmith, Lapidary) and `index.html` (Dungeon).
-- **Synchronized Hero State**: Equip, unequip, inspect, and manage Hero loadouts seamlessly before marching out to a vault or while delving inside one.
+- **Increment 9.3 (`v0.9.3-dungeon-march`)**: Multi-dungeon Overworld discovery, wandering hostile skirmishes, real-time march to vaults, cross-engine `wargameBridge` handoff (`wargame.html` ↔ `index.html`), extraction return march + cargo banking, Recall Scroll express return, and defeat recovery. *(Verified)*  
+- **Increment 9.4 (`v0.9.4-shared-hero-sheet`)**: Shared cross-engine Character Sheet & Paper-Doll module (`src/ui/shared/characterSheet.js`), Tier 1 Prestige Cosmetic slots, `#wgCharacterSheetModal` in `wargame.html`, `CMD_EQUIP/UNEQUIP_HERO_ITEM`, and bridge equipment sync. *(Verified)*
 
 #### Increment 9.5 (`v0.9.5-city-industry`) — Tier 2 City Industry: Smeltery, Warehouse & Apothecary
 - **Smeltery** *(Enterable City Construct)*: Refines raw dungeon ores (`Copper`, `Iron`, `Mithril`, `Astralite`) into forged ingots/alloys required for Tier 2 buildings and crafted equipment.
@@ -162,9 +155,8 @@ Track E (Art Direction & Graphics) ──► Stage E.1 (Pillars) ──► E.2 (
 
 *Starts from a blank slate using studio best practices—defining visual pillars, art governance, asset management, and rendering engine selection **before** investing in scaled asset production.*
 
-#### Stage E.1 — Visual Pillars, Aesthetic Exploration & Reference Direction
-- Conduct structured art-direction discovery independent of current prototype visuals.
-- Define core visual pillars, tone/atmosphere, camera projection & perspective (e.g., painterly top-down, 2.5D oblique, isometric, or HD-2D), silhouette readability rules across zoom levels, and target benchmark references.
+*Preceding Stages:*  
+- **Stage E.1 — Visual Pillars & Art Direction Brief (`docs/art_direction_brief.md`)**: Locked in **Grounded High-Craft Fantasy Realism**, **Dynamic Light-to-Dark Tone**, and **Tiered Visual Fidelity** (Tier 1 Prestige Realism for Hero Profiles & Cosmetics, Tier 2 Modular Tactical Realism for Cities/Dungeons, Tier 3 Elevated Strategic Cartography for Overworld). *(Verified)*
 
 #### Stage E.2 — Formal Art Bible & UI/UX Design System (`docs/art_bible.md`, `docs/ui_design_system.md`)
 - Author the single source of truth for visual craft: color theory & biome palettes, value/contrast separation (terrain vs. props vs. units vs. VFX), lighting/shadow grammar, material language (stone, timber, brass, starlight), typography hierarchy, HUD ergonomics, and shared component design tokens.

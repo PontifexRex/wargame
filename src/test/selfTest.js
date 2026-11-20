@@ -109,7 +109,13 @@ import {
   isPortal,
   isPortalActive,
   registerDiscoveredWaypoint,
-  getDiscoveredWaypoints
+  getDiscoveredWaypoints,
+  createMechanismInstance,
+  createPropInstance,
+  createHazardInstance,
+  toggleLinkedMechanisms,
+  damageDestructibleProp,
+  resolveHazardStepEffects
 } from '../engine/objects.js';
 import {
   createInteractionRequest,
@@ -1927,6 +1933,87 @@ export function evaluateSelfTests() {
     detail: t30Pass
       ? 'Wargame-to-Dungeon entry sync, Extraction return envelope, Golden Rule #2 Defeat return envelope, and v1 migration backfill verified'
       : 'Failed wargame bridge handoff or return envelope verification'
+  });
+
+  // -------------------------------------------------------------
+  // Test 31: Interactive Dungeon Props, Linked Mechanisms & Environmental Hazards (Inc 8.3)
+  // -------------------------------------------------------------
+  const sandbox31 = createDefaultGameState();
+  selectAdventurerClass('fighter', sandbox31);
+  const fl31 = ensureDungeonFloorHydrated(sandbox31.dungeon, 1);
+  sandbox31.inGuild = false;
+
+  const inc83DefsExist = Boolean(
+    getObjectDefinition('mech_wall_lever') &&
+    getObjectDefinition('mech_pressure_plate') &&
+    getObjectDefinition('prop_supply_crate') &&
+    getObjectDefinition('prop_oil_barrel') &&
+    getObjectDefinition('prop_wood_barricade') &&
+    getObjectDefinition('hazard_oil_slick') &&
+    getObjectDefinition('hazard_slag_vent') &&
+    getObjectDefinition('hazard_spore_cloud')
+  );
+
+  // Linked Iron Wall Lever -> Iron Portcullis
+  const portcullis31 = createDoorInstance('door_iron_portcullis', 10, 10);
+  const lever31 = createMechanismInstance('mech_wall_lever', 9, 10, { linkedTargetIds: [portcullis31.instanceId] });
+  fl31.objects.push(portcullis31, lever31);
+  const portcullisClosedInitially = !isDoorWalkable(portcullis31);
+  const leverToggleRes = toggleLinkedMechanisms(lever31, fl31);
+  const portcullisOpenedByLever = leverToggleRes.toggled === 1 && isDoorWalkable(portcullis31);
+
+  // Linked Pressure Plate -> Secret Stone Door
+  const secret31 = createDoorInstance('door_secret_stone', 12, 10);
+  const plate31 = createMechanismInstance('mech_pressure_plate', 11, 10, { linkedTargetIds: [secret31.instanceId] });
+  fl31.objects.push(secret31, plate31);
+  const plateToggleRes = toggleLinkedMechanisms(plate31, fl31);
+  const secretRevealedByPlate = plateToggleRes.toggled === 1 &&
+    secret31.runtimeState.discovery === 'revealed' &&
+    isDoorWalkable(secret31);
+
+  // Destructible Oil Barrel -> spawns flammable oil slicks on destruction; Supply Crate -> drops gold & clears path
+  const barrel31 = createPropInstance('prop_oil_barrel', fl31.upPos.x, fl31.upPos.y);
+  const crate31 = createPropInstance('prop_supply_crate', fl31.upPos.x, fl31.upPos.y);
+  fl31.objects.push(barrel31, crate31);
+  const goldBefore31 = sandbox31.guildVault.gold;
+  const barrelRes31 = damageDestructibleProp(barrel31, 25, fl31, sandbox31);
+  const crateRes31 = damageDestructibleProp(crate31, 30, fl31, sandbox31);
+  const propsDestroyedCleanly = Boolean(
+    barrelRes31.destroyed && barrelRes31.spawnedHazards >= 1 &&
+    crateRes31.destroyed && sandbox31.guildVault.gold === goldBefore31 + 12 &&
+    crate31.permeability.movement === true
+  );
+
+  // Environmental Hazards affect BOTH Hero and Monsters symmetrically
+  const slag31 = createHazardInstance('hazard_slag_vent', 15, 15);
+  const spore31 = createHazardInstance('hazard_spore_cloud', 16, 15);
+  fl31.objects.push(slag31, spore31);
+  const heroHpBefore31 = sandbox31.hero.hp;
+  const heroSlagRes = resolveHazardStepEffects(sandbox31.hero, 15, 15, fl31);
+  const mockMonster31 = { id: 'm_test', hp: 50, maxHp: 50, statuses: [] };
+  const monSporeRes = resolveHazardStepEffects(mockMonster31, 16, 15, fl31);
+  const hazardsAffectBoth = Boolean(
+    heroSlagRes.triggered && sandbox31.hero.hp < heroHpBefore31 &&
+    heroSlagRes.statuses.indexOf('burn') !== -1 &&
+    monSporeRes.triggered && mockMonster31.hp < 50 &&
+    monSporeRes.statuses.indexOf('poison') !== -1
+  );
+
+  const t31Pass = Boolean(
+    inc83DefsExist &&
+    portcullisClosedInitially &&
+    portcullisOpenedByLever &&
+    secretRevealedByPlate &&
+    propsDestroyedCleanly &&
+    hazardsAffectBoth
+  );
+
+  results.push({
+    name: '31. Interactive Dungeon Props, Linked Mechanisms & Environmental Hazards (Inc 8.3)',
+    pass: t31Pass,
+    detail: t31Pass
+      ? '8 Inc 8.3 object definitions, lever->portcullis & pressure-plate->secret-door links, destructible oil barrel/crate, and symmetric hero/monster hazards verified'
+      : 'Failed Inc 8.3 interactive props, linked mechanisms, or environmental hazard checks'
   });
 
   return results;

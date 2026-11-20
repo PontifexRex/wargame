@@ -10,6 +10,12 @@ import { createWargameSimHost } from '../engine/simHost.js';
 import { createMinHeapPriorityQueue } from '../engine/scheduler.js';
 import { getPrimaryCity, getSelectedOverworldUnit, computeCityPopulation } from '../engine/state.js';
 import { computeBuildingDurationMs, isBuildingPrerequisiteMet } from '../data/buildings.js';
+import {
+  normalizeSharedHeroProfile,
+  renderSharedPaperDollMannequin,
+  SHARED_PAPER_DOLL_SLOTS,
+  COSMETIC_SLOTS
+} from '../../ui/shared/characterSheet.js';
 
 export function evaluateWargameSelfTests() {
   const results = [];
@@ -775,6 +781,75 @@ export function evaluateWargameSelfTests() {
     detail: t8Pass
       ? 'Floor 1 extraction return march & cargo banking, Astral Recall Scroll express teleport, and Golden Rule #2 defeat rescue verified'
       : 'Failed checks: ' + failed8.join(', ')
+  });
+
+  // =========================================================================
+  // Test 9: Shared Cross-Engine Character Sheet, Paper-Doll & Hero Equipment (Inc 9.4)
+  // =========================================================================
+  const hero9 = host7.state.world.heroes[0];
+  const hasStarterEq9 = Boolean(hero9 && hero9.equipment && hero9.equipment.weapon && hero9.equipment.pickaxe);
+  const hasCosmetics9 = Boolean(hero9 && hero9.cosmetics && COSMETIC_SLOTS.length === 4 && SHARED_PAPER_DOLL_SLOTS.length === 10);
+
+  const profBefore9 = normalizeSharedHeroProfile(hero9);
+  const bagSignet = (hero9.bagGear || []).find(function(it) { return it.slot === 'accessory'; });
+  const eqRes9 = bagSignet ? host7.dispatch({
+    type: COMMAND_TYPES.EQUIP_HERO_ITEM,
+    payload: { heroId: hero9.id, itemUid: bagSignet.uid }
+  }) : { ok: false };
+  const profAfterEq9 = normalizeSharedHeroProfile(hero9);
+  const equipBoostedStats9 = Boolean(
+    eqRes9.ok &&
+    hero9.equipment.accessory &&
+    hero9.equipment.accessory.uid === bagSignet.uid &&
+    profAfterEq9.stats.atk === profBefore9.stats.atk + (bagSignet.atk || 0)
+  );
+
+  // Unequip helm -> moves back to bagGear; unequip pickaxe -> strictly rejected
+  const uneqHelm9 = host7.dispatch({
+    type: COMMAND_TYPES.UNEQUIP_HERO_ITEM,
+    payload: { heroId: hero9.id, slot: 'helm' }
+  });
+  const uneqPickBlocked9 = !host7.dispatch({
+    type: COMMAND_TYPES.UNEQUIP_HERO_ITEM,
+    payload: { heroId: hero9.id, slot: 'pickaxe' }
+  }).ok;
+  const unequipVerified9 = Boolean(uneqHelm9.ok && hero9.equipment.helm === null && uneqPickBlocked9);
+
+  // Verify shared paper-doll canvas rendering on mock context
+  let drawCalls9 = 0;
+  const mockCanvas9 = {
+    width: 340,
+    height: 330,
+    getContext: function() {
+      return {
+        fillStyle: '', strokeStyle: '', lineWidth: 1,
+        save: function(){}, restore: function(){}, clearRect: function(){},
+        beginPath: function(){}, closePath: function(){}, moveTo: function(){}, lineTo: function(){},
+        arc: function(){ drawCalls9++; }, ellipse: function(){ drawCalls9++; },
+        fill: function(){ drawCalls9++; }, stroke: function(){ drawCalls9++; },
+        fillRect: function(){ drawCalls9++; }, strokeRect: function(){ drawCalls9++; }
+      };
+    }
+  };
+  renderSharedPaperDollMannequin(mockCanvas9, hero9);
+  const mannequinRendered9 = drawCalls9 > 5;
+
+  const t9Checks = {
+    hasStarterEq9: hasStarterEq9,
+    hasCosmetics9: hasCosmetics9,
+    equipBoostedStats9: equipBoostedStats9,
+    unequipVerified9: unequipVerified9,
+    mannequinRendered9: mannequinRendered9
+  };
+  const failed9 = Object.keys(t9Checks).filter(function(k) { return !t9Checks[k]; });
+  const t9Pass = failed9.length === 0;
+
+  results.push({
+    name: '9. Shared Cross-Engine Character Sheet, Paper-Doll & Hero Equipment (Inc 9.4)',
+    pass: t9Pass,
+    detail: t9Pass
+      ? 'Shared 10-slot paper-doll, 4 prestige cosmetic slots, CMD_EQUIP/UNEQUIP_HERO_ITEM stat recomputation, pickaxe guard, and canvas render verified'
+      : 'Failed checks: ' + failed9.join(', ')
   });
 
   return results;

@@ -31,7 +31,18 @@ import {
 import { generateFloor, generateProceduralEquipment } from './procedural.js';
 import { playSound } from './audio.js';
 import { ENGINE_EVENTS, emitEngineEvent } from './events.js';
-import { isDoorWalkable, isDoorOpaque, createPortalInstance, addWorldObject, removeWorldObject } from './objects.js';
+import {
+  isDoorWalkable,
+  isDoorOpaque,
+  createPortalInstance,
+  addWorldObject,
+  removeWorldObject,
+  isMechanism,
+  isDestructibleProp,
+  toggleLinkedMechanisms,
+  damageDestructibleProp,
+  resolveHazardStepEffects
+} from './objects.js';
 import { executeInteraction } from './interactions.js';
 import {
   registerActionCallbacks,
@@ -885,6 +896,7 @@ export function processTurn(state = gameState) {
             ) {
               m.x = tx;
               m.y = ty;
+              resolveHazardStepEffects(m, tx, ty, floor);
               break;
             }
           }
@@ -1406,12 +1418,54 @@ export function handlePlayerAction(dx, dy, state = gameState) {
     }
   }
 
+  // 6.6. Destructible Prop Bump-Bash (Inc 8.3: Crates, Oil Barrels, Barricades)
+  const propAtTarget = (floor.objects && floor.objects.length > 0)
+    ? floor.objects.find(function(o) { return o.x === nx && o.y === ny && isDestructibleProp(o); })
+    : null;
+  if (propAtTarget) {
+    const pRes = damageDestructibleProp(propAtTarget, (state.hero && state.hero.atk) || 12, floor, state);
+    if (state === gameState) {
+      playSound('hit');
+      ui.floatingText(nx, ny, pRes.destroyed ? 'Smashed!' : ('-' + pRes.damage), '#fb923c');
+      if (pRes.destroyed) {
+        ui.log('Smashed ' + propAtTarget.name + (pRes.goldLooted ? (' (+' + pRes.goldLooted + 'g)') : '') + (pRes.spawnedHazards ? ' — Oil spilled!' : '!'), 'gold');
+      }
+    }
+    processTurn(state);
+    return;
+  }
+
   // 7. Step onto Walkable Tile
   if (targetTile !== TILE_WALL) {
     state.hero.x = nx;
     state.hero.y = ny;
     pickupGroundObjectsAt(nx, ny, state);
     detectNearbyTraps(floor, state);
+
+    // Inc 8.3: Trigger Mechanisms (Levers / Pressure Plates) & Environmental Hazards on step
+    if (floor.objects && floor.objects.length > 0) {
+      const mechAtTile = floor.objects.find(function(o) { return o.x === nx && o.y === ny && isMechanism(o); });
+      if (mechAtTile) {
+        const mRes = toggleLinkedMechanisms(mechAtTile, floor);
+        if (state === gameState && mRes.toggled > 0) {
+          playSound('chest');
+          ui.floatingText(nx, ny, mechAtTile.name + ' Activated!', '#fbbf24');
+          ui.log(mechAtTile.name + ' actuated ' + mRes.toggled + ' linked dungeon mechanism(s)!', 'gold');
+        }
+      }
+      const hzRes = resolveHazardStepEffects(state.hero, nx, ny, floor);
+      if (hzRes.triggered && state === gameState) {
+        if (hzRes.damage > 0) {
+          playSound('hit');
+          ui.floatingText(nx, ny, '-' + hzRes.damage + ' Hazard!', '#f87171');
+          ui.log('Environmental hazard seared you for ' + hzRes.damage + ' damage!', 'bad');
+        }
+        if (state.hero.hp <= 0) {
+          handleHeroDefeat('Environmental Hazard', state);
+          return;
+        }
+      }
+    }
 
     // Auto-discover waypoint if stepping onto it
     if (floor.objects && floor.objects.length > 0) {

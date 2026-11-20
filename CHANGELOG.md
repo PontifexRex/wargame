@@ -10,10 +10,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Planned
-- **Track A (`v0.8.3`–`v0.8.7`)**: Interactive dungeon props & hazards, `Trigger -> Condition -> Action` event graph, environmental storytelling & handcrafted set-pieces, dungeon ecology & acoustic alerts, 10-slot paper-doll & vault modifiers.
-- **Track B (`v0.9.4`–`v0.9.10`)**: Shared cross-engine Character Sheet & Paper-Doll module, Tier 2 City Industry (Smeltery, Warehouse, Apothecary), City Blacksmith & Lapidary Workshop, Arcane Academy & Market, Frontier Outposts, Multi-City expansion, and City Defense / Temple of War.
+- **Track A (`v0.8.4`–`v0.8.7`)**: `Trigger -> Condition -> Action` event graph, environmental storytelling & handcrafted set-pieces, dungeon ecology & acoustic alerts, 10-slot paper-doll & vault modifiers.
+- **Track B (`v0.9.5`–`v0.9.10`)**: Tier 2 City Industry (Smeltery, Warehouse, Apothecary), City Blacksmith & Lapidary Workshop, Arcane Academy & Market, Frontier Outposts, Multi-City expansion, and City Defense / Temple of War.
 - **Track D (`v0.9.x-sim`)**: Headless progression simulator ("ChronoSim"), time-to-finish calculator, and 1-year pacing engine.
-- **Track E (Art Direction & Graphics Foundation)**: Visual pillars discovery, formal Art Bible & UI Design System, Asset Taxonomy & Management Pipeline, Graphics Engine Evaluation (`ADR-0012`), Golden Vertical Slice, and scaled visual migration.
+- **Track E (Stages E.2–E.6)**: Formal Art Bible & UI Design System, Asset Taxonomy & Management Pipeline, Graphics Engine Evaluation (`ADR-0012`), Golden Vertical Slice, and scaled visual migration.
+
+---
+
+## [v0.9.4-shared-hero-sheet] - 2026-11-19
+
+### Added
+- **Stage E.1 — Formal Art Direction Brief (`docs/art_direction_brief.md`)**:
+  - Locked in **Grounded High-Craft Fantasy Realism** with **Dynamic Light-to-Dark Tone** (warm, sunlit, inviting Overworld & Cities contrasting against atmospheric chiaroscuro Starfall Vaults) and **Tiered Visual Fidelity** (Tier 1 Prestige Realism for Hero Profiles & Cosmetics, Tier 2 Modular Tactical Realism for Cities/Dungeons, Tier 3 Elevated Strategic Cartography for Overworld).
+- **Shared Cross-Engine Character Sheet & Paper-Doll Module (`src/ui/shared/characterSheet.js`)**:
+  - Extracted canonical 10-slot anatomical paper-doll layout (`SHARED_PAPER_DOLL_SLOTS`), 4 Tier-1 Prestige Cosmetic Showcase slots (`COSMETIC_SLOTS`: Cloak, Astral Aura, Heraldic Crest, Weapon Enchant), unified `normalizeSharedHeroProfile`, and `renderSharedPaperDollMannequin`.
+  - Mounted `#wgCharacterSheetModal` inside `wargame.html` (accessible via Hero roster **👤 Sheet** button or `[I]`/`[C]` hotkeys) alongside `CMD_EQUIP_HERO_ITEM` and `CMD_UNEQUIP_HERO_ITEM`.
+  - Starter 6-slot equipment & cosmetics initialized on recruited heroes and carried across `wargameBridge.js`.
+- **Increment 8.3 (`v0.8.3-hazards`) — Interactive Dungeon Props, Linked Mechanisms & Environmental Hazards**:
+  - Registered 8 new `ObjectDefinition` templates in `src/data/definitions.js`: `mech_wall_lever`, `mech_pressure_plate`, `prop_supply_crate`, `prop_oil_barrel`, `prop_wood_barricade`, `hazard_oil_slick`, `hazard_slag_vent`, `hazard_spore_cloud`.
+  - Added `toggleLinkedMechanisms`, `damageDestructibleProp`, and `resolveHazardStepEffects` in `src/engine/objects.js`, wired into `interactions.js`, `combat.js` (symmetric hero & monster hazard effects + bump-bash props + step triggers), and `renderer.js`.
+
+### Verification
+- Added **Test 9** in `src/wargame/test/wargameSelfTest.js` verifying Shared Character Sheet, `CMD_EQUIP_HERO_ITEM` / `CMD_UNEQUIP_HERO_ITEM`, pickaxe protection, and mock paper-doll rendering.
+- Added **Test 31** in `src/test/selfTest.js` verifying all 8 Inc 8.3 object definitions, lever->portcullis & pressure-plate->secret-door links, destructible oil barrel/crate, and symmetric hero/monster environmental hazards.
+- Suite status: **31/31 Roguelike Tests PASS** + **9/9 Wargame Tests PASS** + Headless UI Smoke Suites (`./scripts/test.ps1` and `./scripts/test-wargame.ps1`).
 
 ---
 

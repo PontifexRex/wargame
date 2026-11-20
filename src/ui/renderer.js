@@ -18,6 +18,7 @@ import {
   RARITY
 } from '../constants.js';
 import { CLASSES } from '../data/classes.js';
+import { renderSharedPaperDollMannequin } from './shared/characterSheet.js';
 import { ORE_CATALOG } from '../data/ores.js';
 import { getItemTypeIcon } from '../data/items.js';
 import { SHRINE_CATALOG, TRAP_CATALOG } from '../data/gems.js';
@@ -668,6 +669,10 @@ export function drawHeroSprite(ctx, px, py, classId, size = TILE_SIZE) {
 }
 
 export function drawPaperDollMannequin(canvas, hero) {
+  return renderSharedPaperDollMannequin(canvas, hero);
+}
+
+function __legacyPaperDollUnused(canvas, hero) {
   if (!canvas) return;
   const ctx = canvas.getContext('2d');
   if (!ctx) return;
@@ -1893,6 +1898,62 @@ export function renderDungeonCanvas() {
               break;
             } else if (obj.objectType === 'portal') {
               renderPortalTile(ctx, px, py, obj, biome, inSight);
+            } else if (obj.objectType === 'mechanism') {
+              const isPulled = obj.runtimeState && obj.runtimeState.mechanical === 'pulled';
+              ctx.save();
+              ctx.fillStyle = isPulled ? '#34d399' : '#fbbf24';
+              if (obj.definitionId === 'mech_pressure_plate') {
+                ctx.fillStyle = isPulled ? '#1e293b' : '#475569';
+                ctx.fillRect(px + 6, py + 6, 20, 20);
+                ctx.strokeStyle = isPulled ? '#34d399' : '#fbbf24';
+                ctx.lineWidth = 1.5;
+                ctx.strokeRect(px + 6, py + 6, 20, 20);
+              } else {
+                ctx.fillStyle = '#475569';
+                ctx.fillRect(px + 10, py + 20, 12, 6);
+                ctx.strokeStyle = isPulled ? '#34d399' : '#fbbf24';
+                ctx.lineWidth = 3;
+                ctx.beginPath();
+                ctx.moveTo(px + 16, py + 21);
+                ctx.lineTo(px + (isPulled ? 23 : 9), py + 8);
+                ctx.stroke();
+              }
+              ctx.restore();
+            } else if (obj.objectType === 'prop' && (!obj.runtimeState || obj.runtimeState.structural !== 'destroyed')) {
+              ctx.save();
+              if (obj.definitionId === 'prop_oil_barrel') {
+                ctx.fillStyle = '#451a03';
+                ctx.beginPath();
+                ctx.arc(px + 16, py + 16, 10, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.strokeStyle = '#f97316';
+                ctx.lineWidth = 2;
+                ctx.stroke();
+              } else {
+                ctx.fillStyle = '#78350f';
+                ctx.fillRect(px + 6, py + 6, 20, 20);
+                ctx.strokeStyle = '#d97706';
+                ctx.lineWidth = 1.5;
+                ctx.strokeRect(px + 6, py + 6, 20, 20);
+              }
+              ctx.restore();
+            } else if (obj.objectType === 'hazard' && obj.runtimeState && obj.runtimeState.mechanical === 'active') {
+              ctx.save();
+              if (obj.definitionId === 'hazard_slag_vent') {
+                ctx.fillStyle = 'rgba(249, 115, 22, 0.55)';
+                ctx.fillRect(px + 4, py + 4, 24, 24);
+              } else if (obj.definitionId === 'hazard_spore_cloud') {
+                ctx.fillStyle = 'rgba(52, 211, 153, 0.35)';
+                ctx.beginPath();
+                ctx.arc(px + 16, py + 16, 12, 0, Math.PI * 2);
+                ctx.fill();
+              } else {
+                ctx.fillStyle = 'rgba(30, 41, 59, 0.85)';
+                ctx.beginPath();
+                ctx.arc(px + 16, py + 16, 12, 0, Math.PI * 2);
+                ctx.fill();
+              }
+              ctx.restore();
               break;
             }
           }

@@ -232,6 +232,48 @@ export function handleClaimTask(taskId) {
   syncWargameUI(simHost);
 }
 
+export function handleOpenHeroSheet(heroId) {
+  if (!simHost.state || !simHost.state.world) return;
+  const heroes = simHost.state.world.heroes || [];
+  let targetId = heroId || null;
+  if (!targetId) {
+    const sel = getSelectedOverworldUnit(simHost.state);
+    if (sel && sel.leaderHeroId) targetId = sel.leaderHeroId;
+    else if (heroes.length > 0) targetId = heroes[0].id;
+  }
+  if (!targetId) return;
+  simHost.state._openHeroSheetId = targetId;
+  simHost.state._dirty = true;
+  syncWargameUI(simHost);
+}
+
+export function handleCloseHeroSheet() {
+  if (!simHost.state) return;
+  delete simHost.state._openHeroSheetId;
+  simHost.state._dirty = true;
+  syncWargameUI(simHost);
+}
+
+export function handleEquipHeroItem(heroId, itemUid) {
+  simHost.dispatch({
+    type: COMMAND_TYPES.EQUIP_HERO_ITEM,
+    payload: { heroId: heroId, itemUid: itemUid }
+  });
+  simHost.state._dirty = true;
+  simHost.save();
+  syncWargameUI(simHost);
+}
+
+export function handleUnequipHeroItem(heroId, slot) {
+  simHost.dispatch({
+    type: COMMAND_TYPES.UNEQUIP_HERO_ITEM,
+    payload: { heroId: heroId, slot: slot }
+  });
+  simHost.state._dirty = true;
+  simHost.save();
+  syncWargameUI(simHost);
+}
+
 export function handleSelectPartyByHero(heroId) {
   if (!simHost.state.world || !simHost.state.world.overworld) return;
   const ow = simHost.state.world.overworld;
@@ -470,6 +512,11 @@ function setupWargameListeners() {
       handleSetSimSpeed(2);
     } else if (e.key === '5') {
       handleSetSimSpeed(5);
+    } else if (e.key === 'i' || e.key === 'I' || e.key === 'c' || e.key === 'C') {
+      if (simHost.state._openHeroSheetId) handleCloseHeroSheet();
+      else handleOpenHeroSheet();
+    } else if (e.key === 'Escape' && simHost.state._openHeroSheetId) {
+      handleCloseHeroSheet();
     }
   });
 }
@@ -533,6 +580,10 @@ export const WargameApp = {
   handleCancelRecruitment: handleCancelRecruitment,
   handleClaimTask: handleClaimTask,
   handleSelectPartyByHero: handleSelectPartyByHero,
+  handleOpenHeroSheet: handleOpenHeroSheet,
+  handleCloseHeroSheet: handleCloseHeroSheet,
+  handleEquipHeroItem: handleEquipHeroItem,
+  handleUnequipHeroItem: handleUnequipHeroItem,
   handleMarchToDungeon: handleMarchToDungeon,
   handleReturnToCity: handleReturnToCity,
   handleEnterDungeon: handleEnterDungeon,

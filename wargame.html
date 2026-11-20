@@ -323,6 +323,46 @@
     </main>
   </div>
 
+  <!-- Shared Cross-Engine Character Sheet & Prestige Paper-Doll Modal (Inc 9.4) -->
+  <div id="wgCharacterSheetModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+    <div class="w-full max-w-4xl bg-[#0e1524] border border-[#fbbf24]/50 rounded-xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+      <div class="flex items-center justify-between px-4 py-3 bg-[#080b11] border-b border-[#283347]">
+        <div>
+          <h2 id="wgSheetHeroName" class="text-base font-bold text-[#fbbf24]">Hero Profile</h2>
+          <div id="wgSheetHeroTitle" class="text-[11px] font-mono text-[#8b949e]">Level 1 Vanguard</div>
+        </div>
+        <button id="wgSheetCloseBtn" onclick="window.WargameApp.handleCloseHeroSheet()" class="px-3 py-1 rounded bg-[#1a2232] hover:bg-[#283347] text-xs font-mono font-bold text-[#e6edf3] cursor-pointer">✕ Close [Esc]</button>
+      </div>
+      <div class="p-4 grid grid-cols-1 md:grid-cols-12 gap-4 overflow-y-auto">
+        <!-- Left Column: Prestige Paper-Doll Stage & Stats -->
+        <div class="md:col-span-6 space-y-3">
+          <div class="relative mx-auto w-[340px] h-[330px] rounded-xl bg-[#06090f] border border-[#283347] overflow-hidden shadow-inner">
+            <canvas id="wgSheetPaperDollCanvas" width="340" height="330" class="w-full h-full"></canvas>
+            <div id="wgSheetPaperDollGrid" class="absolute inset-0 pointer-events-none"></div>
+          </div>
+          <div id="wgSheetStatsGrid" class="grid grid-cols-4 gap-1.5"></div>
+        </div>
+        <!-- Right Column: Prestige Cosmetics & Hero Pack Equipment -->
+        <div class="md:col-span-6 flex flex-col gap-3">
+          <div class="p-3 rounded-lg bg-[#080b11] border border-[#fbbf24]/30 space-y-2">
+            <div class="flex items-center justify-between">
+              <span class="text-[11px] font-mono uppercase tracking-wider text-[#fbbf24] font-bold">✨ Prestige Cosmetics Showcase</span>
+              <span class="text-[10px] font-mono text-[#8b949e]">Tier 1 Profile</span>
+            </div>
+            <div id="wgSheetCosmeticsStrip" class="grid grid-cols-2 gap-1.5"></div>
+          </div>
+          <div class="p-3 rounded-lg bg-[#080b11] border border-[#283347] flex-1 space-y-2">
+            <div class="flex items-center justify-between">
+              <span class="text-[11px] font-mono uppercase tracking-wider text-[#38bdf8] font-bold">🎒 Hero Equipment Pack</span>
+              <span class="text-[10px] font-mono text-[#8b949e]">Click Equip to Swap</span>
+            </div>
+            <div id="wgSheetBagList" class="space-y-1.5 max-h-[260px] overflow-y-auto pr-1"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Modular ES6 Entrypoint (auto-falls back to compiled dist/wargame-bundle.js on file:// protocol) -->
   <script>
     (function () {

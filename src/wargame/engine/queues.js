@@ -637,6 +637,14 @@ export function resolveRecruitHeroJob(job, state, scheduler, eventStream) {
 
   const heroIndex = (world.heroes || []).length + 1;
   const heroName = String(p.heroName || (classDef.name + ' #' + heroIndex)).trim();
+  const starterEq = {
+    weapon:    { uid: 'eq_w_' + heroIndex, slot: 'weapon',    name: 'Guild Iron Blade',     rarity: 'common', atk: 6, def: 0, value: 25 },
+    armor:     { uid: 'eq_a_' + heroIndex, slot: 'armor',     name: 'Vanguard Cuirass',     rarity: 'common', atk: 0, def: 5, value: 25 },
+    helm:      { uid: 'eq_h_' + heroIndex, slot: 'helm',      name: 'Scout Steel Helm',     rarity: 'common', atk: 0, def: 2, value: 15 },
+    boots:     { uid: 'eq_b_' + heroIndex, slot: 'boots',     name: 'Frontier Greaves',     rarity: 'common', atk: 0, def: 2, value: 15 },
+    accessory: null,
+    pickaxe:   { uid: 'eq_p_' + heroIndex, slot: 'pickaxe',   name: 'Copper Miner Pickaxe', rarity: 'common', tier: 1, maxDurability: 25, durability: 25, value: 20 }
+  };
   const heroObj = {
     id: 'hero_' + heroIndex + '_' + classDef.classId,
     name: heroName,
@@ -648,6 +656,11 @@ export function resolveRecruitHeroJob(job, state, scheduler, eventStream) {
     level: 1,
     xp: 0,
     stats: Object.assign({}, classDef.baseStats),
+    equipment: starterEq,
+    cosmetics: { cloak: null, aura: null, banner_crest: null, weapon_glow: null },
+    bagGear: [
+      { uid: 'bag_ring_' + heroIndex, slot: 'accessory', name: 'Aethelgard Signet', rarity: 'uncommon', atk: 3, def: 2, value: 45 }
+    ],
     recruitedAtSimMs: job.dueSimTimeMs
   };
 

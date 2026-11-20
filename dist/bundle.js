@@ -1147,7 +1147,9 @@ const WORLD_OBJECT_TYPES = {
   CONTAINER: 'container',
   MECHANISM: 'mechanism',
   DEVICE:    'device',
-  PICKUP:    'pickup'
+  PICKUP:    'pickup',
+  PROP:      'prop',
+  HAZARD:    'hazard'
 };
 
 const OBJECT_DEFINITIONS = {};
@@ -2092,6 +2094,289 @@ registerObjectDefinition({
   }
 });
 
+// =========================================================================
+// Increment 8.3: Linked Mechanisms, Destructible Props & Environmental Hazards
+// =========================================================================
+
+registerObjectDefinition({
+  definitionId: 'mech_wall_lever',
+  category: OBJECT_CATEGORIES.WORLD_OBJECT,
+  objectType: WORLD_OBJECT_TYPES.MECHANISM,
+  name: 'Iron Wall Lever',
+  description: 'A heavy dwarven counterweight lever linked by hidden chains to nearby portcullises or secret vaults.',
+  tags: ['mechanism', 'lever', 'interactive'],
+  defaultState: {
+    mechanical: 'idle',
+    security: 'unlocked',
+    discovery: 'revealed',
+    structural: 'intact',
+    power: 'unpowered'
+  },
+  defaultPermeability: {
+    movement: true,
+    lineOfSight: true,
+    light: true,
+    sound: true,
+    projectiles: true,
+    magic: true
+  },
+  defaultComponents: {
+    mechanism: { mechanismType: 'lever', linkedTargetIds: [] },
+    interactable: {
+      prompt: 'Pull Lever',
+      actions: {
+        pull: {
+          id: 'pull',
+          name: 'Pull Iron Lever',
+          requirements: null,
+          costs: null,
+          effects: [{ type: 'toggleLinked' }]
+        }
+      }
+    }
+  }
+});
+
+registerObjectDefinition({
+  definitionId: 'mech_pressure_plate',
+  category: OBJECT_CATEGORIES.WORLD_OBJECT,
+  objectType: WORLD_OBJECT_TYPES.MECHANISM,
+  name: 'Dwarven Pressure Plate',
+  description: 'A recessed flagstone trigger plate that actuates linked dungeon gates when stepped on.',
+  tags: ['mechanism', 'pressure_plate', 'trigger'],
+  defaultState: {
+    mechanical: 'idle',
+    security: 'unlocked',
+    discovery: 'revealed',
+    structural: 'intact',
+    power: 'unpowered'
+  },
+  defaultPermeability: {
+    movement: true,
+    lineOfSight: true,
+    light: true,
+    sound: true,
+    projectiles: true,
+    magic: true
+  },
+  defaultComponents: {
+    mechanism: { mechanismType: 'pressure_plate', linkedTargetIds: [] },
+    interactable: {
+      prompt: 'Step on Plate',
+      actions: {
+        trigger: {
+          id: 'trigger',
+          name: 'Depress Pressure Plate',
+          requirements: null,
+          costs: null,
+          effects: [{ type: 'toggleLinked' }]
+        }
+      }
+    }
+  }
+});
+
+registerObjectDefinition({
+  definitionId: 'prop_supply_crate',
+  category: OBJECT_CATEGORIES.WORLD_OBJECT,
+  objectType: WORLD_OBJECT_TYPES.PROP,
+  name: 'Iron-Bound Supply Crate',
+  description: 'A sturdy dwarven supply crate that blocks footsteps but can be smashed open for salvage.',
+  tags: ['prop', 'destructible', 'wood', 'lootable'],
+  defaultState: {
+    mechanical: 'closed',
+    security: 'unlocked',
+    discovery: 'revealed',
+    structural: 'intact',
+    power: 'unpowered'
+  },
+  defaultPermeability: {
+    movement: false,
+    lineOfSight: true,
+    light: true,
+    sound: true,
+    projectiles: true,
+    magic: true
+  },
+  defaultComponents: {
+    durability: { hp: 18, maxHp: 18, armor: 1, canBeForced: true },
+    prop: { propType: 'crate', goldDrop: 12 },
+    interactable: {
+      prompt: 'Smash Crate',
+      actions: {
+        bash: {
+          id: 'bash',
+          name: 'Smash Supply Crate',
+          requirements: null,
+          costs: null,
+          effects: [{ type: 'damageProp' }]
+        }
+      }
+    }
+  }
+});
+
+registerObjectDefinition({
+  definitionId: 'prop_oil_barrel',
+  category: OBJECT_CATEGORIES.WORLD_OBJECT,
+  objectType: WORLD_OBJECT_TYPES.PROP,
+  name: 'Volatile Oil Barrel',
+  description: 'A pitch-sealed lantern-oil cask. Smashing it ruptures flammable oil across adjacent tiles.',
+  tags: ['prop', 'destructible', 'volatile', 'oil'],
+  defaultState: {
+    mechanical: 'closed',
+    security: 'unlocked',
+    discovery: 'revealed',
+    structural: 'intact',
+    power: 'unpowered'
+  },
+  defaultPermeability: {
+    movement: false,
+    lineOfSight: true,
+    light: true,
+    sound: true,
+    projectiles: true,
+    magic: true
+  },
+  defaultComponents: {
+    durability: { hp: 12, maxHp: 12, armor: 0, canBeForced: true },
+    prop: { propType: 'oil_barrel', spawnsHazard: 'hazard_oil_slick' },
+    interactable: {
+      prompt: 'Rupture Oil Barrel',
+      actions: {
+        bash: {
+          id: 'bash',
+          name: 'Smash Oil Barrel',
+          requirements: null,
+          costs: null,
+          effects: [{ type: 'damageProp' }]
+        }
+      }
+    }
+  }
+});
+
+registerObjectDefinition({
+  definitionId: 'prop_wood_barricade',
+  category: OBJECT_CATEGORIES.WORLD_OBJECT,
+  objectType: WORLD_OBJECT_TYPES.PROP,
+  name: 'Splintered Barricade',
+  description: 'A hastily nailed timber barricade blocking passage while allowing ranged fire over the top.',
+  tags: ['prop', 'destructible', 'cover', 'wood'],
+  defaultState: {
+    mechanical: 'closed',
+    security: 'unlocked',
+    discovery: 'revealed',
+    structural: 'intact',
+    power: 'unpowered'
+  },
+  defaultPermeability: {
+    movement: false,
+    lineOfSight: true,
+    light: true,
+    sound: true,
+    projectiles: true,
+    magic: true
+  },
+  defaultComponents: {
+    durability: { hp: 26, maxHp: 26, armor: 2, canBeForced: true },
+    prop: { propType: 'barricade' },
+    interactable: {
+      prompt: 'Break Barricade',
+      actions: {
+        bash: {
+          id: 'bash',
+          name: 'Break Barricade',
+          requirements: null,
+          costs: null,
+          effects: [{ type: 'damageProp' }]
+        }
+      }
+    }
+  }
+});
+
+registerObjectDefinition({
+  definitionId: 'hazard_oil_slick',
+  category: OBJECT_CATEGORIES.WORLD_OBJECT,
+  objectType: WORLD_OBJECT_TYPES.HAZARD,
+  name: 'Flammable Oil Slick',
+  description: 'A viscous pool of lamp oil. Footing is treacherous, and any flame ignites it violently.',
+  tags: ['hazard', 'oil', 'flammable'],
+  defaultState: {
+    mechanical: 'active',
+    security: 'unlocked',
+    discovery: 'revealed',
+    structural: 'intact',
+    power: 'unpowered'
+  },
+  defaultPermeability: {
+    movement: true,
+    lineOfSight: true,
+    light: true,
+    sound: true,
+    projectiles: true,
+    magic: true
+  },
+  defaultComponents: {
+    hazard: { hazardType: 'oil', damage: 0, statusId: 'weakened', statusTurns: 2, igniteDamage: 18 }
+  }
+});
+
+registerObjectDefinition({
+  definitionId: 'hazard_slag_vent',
+  category: OBJECT_CATEGORIES.WORLD_OBJECT,
+  objectType: WORLD_OBJECT_TYPES.HAZARD,
+  name: 'Molten Slag Vent',
+  description: 'A glowing geothermal grate searing any hero or monster that steps across it.',
+  tags: ['hazard', 'fire', 'molten'],
+  defaultState: {
+    mechanical: 'active',
+    security: 'unlocked',
+    discovery: 'revealed',
+    structural: 'intact',
+    power: 'powered'
+  },
+  defaultPermeability: {
+    movement: true,
+    lineOfSight: true,
+    light: true,
+    sound: true,
+    projectiles: true,
+    magic: true
+  },
+  defaultComponents: {
+    hazard: { hazardType: 'fire', damage: 10, statusId: 'burn', statusTurns: 3 }
+  }
+});
+
+registerObjectDefinition({
+  definitionId: 'hazard_spore_cloud',
+  category: OBJECT_CATEGORIES.WORLD_OBJECT,
+  objectType: WORLD_OBJECT_TYPES.HAZARD,
+  name: 'Toxic Spore Cloud',
+  description: 'A swirling patch of subterranean fungal spores poisoning any creature that moves through it.',
+  tags: ['hazard', 'poison', 'fungal'],
+  defaultState: {
+    mechanical: 'active',
+    security: 'unlocked',
+    discovery: 'revealed',
+    structural: 'intact',
+    power: 'unpowered'
+  },
+  defaultPermeability: {
+    movement: true,
+    lineOfSight: true,
+    light: true,
+    sound: true,
+    projectiles: true,
+    magic: true
+  },
+  defaultComponents: {
+    hazard: { hazardType: 'poison', damage: 7, statusId: 'poison', statusTurns: 3 }
+  }
+});
+
   // --- Module: src/engine/objects.js ---
 // Foundational Game Object & Runtime Instance Engine (ADR-0010)
 // Manages object instances, spatial floor queries, item pickups, and the ItemStack stacking engine.
@@ -2602,6 +2887,198 @@ function getDiscoveredWaypoints(state) {
   }
   list.sort((a, b) => a.depth - b.depth);
   return list;
+}
+
+// =========================================================================
+// Increment 8.3: Mechanisms, Destructible Props & Environmental Hazards
+// =========================================================================
+
+function createMechanismInstance(defId = 'mech_wall_lever', x = 0, y = 0, options = {}) {
+  const inst = createWorldObjectInstance(defId, Object.assign({}, options, {
+    x: x,
+    y: y,
+    objectType: WORLD_OBJECT_TYPES.MECHANISM
+  }));
+  if (inst && options.linkedTargetIds && Array.isArray(options.linkedTargetIds)) {
+    if (!inst.components) inst.components = {};
+    if (!inst.components.mechanism) inst.components.mechanism = { mechanismType: 'lever', linkedTargetIds: [] };
+    inst.components.mechanism.linkedTargetIds = options.linkedTargetIds.slice();
+  }
+  return inst;
+}
+
+function createPropInstance(defId = 'prop_supply_crate', x = 0, y = 0, options = {}) {
+  return createWorldObjectInstance(defId, Object.assign({}, options, {
+    x: x,
+    y: y,
+    objectType: WORLD_OBJECT_TYPES.PROP
+  }));
+}
+
+function createHazardInstance(defId = 'hazard_slag_vent', x = 0, y = 0, options = {}) {
+  return createWorldObjectInstance(defId, Object.assign({}, options, {
+    x: x,
+    y: y,
+    objectType: WORLD_OBJECT_TYPES.HAZARD
+  }));
+}
+
+function isMechanism(obj) {
+  return Boolean(obj && obj.objectType === WORLD_OBJECT_TYPES.MECHANISM);
+}
+
+function isDestructibleProp(obj) {
+  return Boolean(obj && obj.objectType === WORLD_OBJECT_TYPES.PROP && obj.runtimeState && obj.runtimeState.structural !== 'destroyed');
+}
+
+function isEnvironmentalHazard(obj) {
+  return Boolean(obj && obj.objectType === WORLD_OBJECT_TYPES.HAZARD && obj.runtimeState && obj.runtimeState.mechanical === 'active');
+}
+
+function toggleLinkedMechanisms(mechObj, floor) {
+  if (!mechObj || !isMechanism(mechObj) || !floor || !Array.isArray(floor.objects)) {
+    return { toggled: 0, targetIds: [] };
+  }
+  const st = mechObj.runtimeState || {};
+  const nextMechState = st.mechanical === 'pulled' ? 'idle' : 'pulled';
+  st.mechanical = nextMechState;
+
+  const linkIds = (mechObj.components && mechObj.components.mechanism && Array.isArray(mechObj.components.mechanism.linkedTargetIds))
+    ? mechObj.components.mechanism.linkedTargetIds
+    : [];
+  const affected = [];
+
+  for (let i = 0; i < linkIds.length; i++) {
+    const tid = linkIds[i];
+    const target = floor.objects.find(function(o) { return o.instanceId === tid; });
+    if (!target) continue;
+    if (!target.runtimeState) target.runtimeState = {};
+    if (!target.permeability) target.permeability = {};
+
+    const opening = nextMechState === 'pulled';
+    if (target.runtimeState.discovery === 'unknown') {
+      target.runtimeState.discovery = 'revealed';
+    }
+    if (opening) {
+      target.runtimeState.security = 'unlocked';
+      target.runtimeState.mechanical = 'open';
+      target.permeability.movement = true;
+      target.permeability.lineOfSight = true;
+      target.permeability.light = true;
+      target.permeability.projectiles = true;
+      target.permeability.magic = true;
+    } else {
+      target.runtimeState.mechanical = 'closed';
+      target.permeability.movement = false;
+      if (target.definitionId !== 'door_iron_portcullis') {
+        target.permeability.lineOfSight = false;
+        target.permeability.light = false;
+      }
+    }
+    affected.push(tid);
+  }
+
+  return { toggled: affected.length, state: nextMechState, targetIds: affected };
+}
+
+function damageDestructibleProp(propObj, rawDamage, floor, state) {
+  if (!propObj || !isDestructibleProp(propObj)) return { destroyed: false, damage: 0 };
+  const dur = (propObj.components && propObj.components.durability) || { hp: 15, maxHp: 15, armor: 0 };
+  const dmg = Math.max(1, Math.round(rawDamage || 10) - (dur.armor || 0));
+  dur.hp = Math.max(0, (dur.hp || 0) - dmg);
+
+  if (dur.hp > 0) {
+    if (propObj.runtimeState) propObj.runtimeState.structural = 'damaged';
+    return { destroyed: false, damage: dmg, remainingHp: dur.hp };
+  }
+
+  if (!propObj.runtimeState) propObj.runtimeState = {};
+  propObj.runtimeState.structural = 'destroyed';
+  propObj.runtimeState.mechanical = 'open';
+  if (!propObj.permeability) propObj.permeability = {};
+  propObj.permeability.movement = true;
+  propObj.permeability.lineOfSight = true;
+  propObj.permeability.light = true;
+  propObj.permeability.projectiles = true;
+  propObj.permeability.magic = true;
+
+  const propCfg = (propObj.components && propObj.components.prop) || {};
+  let spawnedHazards = 0;
+  let goldLooted = 0;
+
+  if (propCfg.goldDrop && state && state.guildVault) {
+    goldLooted = propCfg.goldDrop;
+    state.guildVault.gold = (state.guildVault.gold || 0) + goldLooted;
+  }
+
+  if (propCfg.spawnsHazard && floor && Array.isArray(floor.objects)) {
+    const offsets = [
+      { dx: 0, dy: 0 }, { dx: 1, dy: 0 }, { dx: -1, dy: 0 }, { dx: 0, dy: 1 }, { dx: 0, dy: -1 }
+    ];
+    for (let i = 0; i < offsets.length; i++) {
+      const hx = propObj.x + offsets[i].dx;
+      const hy = propObj.y + offsets[i].dy;
+      if (floor.tiles && floor.tiles[hy] && floor.tiles[hy][hx] !== 0) {
+        const exists = floor.objects.some(function(o) {
+          return o.x === hx && o.y === hy && o.definitionId === propCfg.spawnsHazard;
+        });
+        if (!exists) {
+          floor.objects.push(createHazardInstance(propCfg.spawnsHazard, hx, hy));
+          spawnedHazards++;
+        }
+      }
+    }
+  }
+
+  return {
+    destroyed: true,
+    damage: dmg,
+    goldLooted: goldLooted,
+    spawnedHazards: spawnedHazards
+  };
+}
+
+function resolveHazardStepEffects(actor, x, y, floor) {
+  if (!actor || !floor || !Array.isArray(floor.objects)) return { triggered: false, damage: 0, statuses: [] };
+  const hazards = floor.objects.filter(function(o) {
+    return o.x === x && o.y === y && isEnvironmentalHazard(o);
+  });
+  if (hazards.length === 0) return { triggered: false, damage: 0, statuses: [] };
+
+  let totalDmg = 0;
+  const appliedStatuses = [];
+
+  for (let i = 0; i < hazards.length; i++) {
+    const hz = hazards[i];
+    const hCfg = (hz.components && hz.components.hazard) || {};
+    let dmg = hCfg.damage || 0;
+
+    // If actor is burning and steps into an oil slick, ignite for burst fire damage!
+    const actorStatuses = Array.isArray(actor.statuses) ? actor.statuses : [];
+    const isBurning = actorStatuses.some(function(s) { return s.id === 'burn'; });
+    if (hCfg.hazardType === 'oil' && isBurning) {
+      dmg += (hCfg.igniteDamage || 18);
+      hz.runtimeState.mechanical = 'spent';
+    }
+
+    if (dmg > 0) {
+      actor.hp = Math.max(0, (actor.hp || 0) - dmg);
+      totalDmg += dmg;
+    }
+
+    if (hCfg.statusId) {
+      if (!Array.isArray(actor.statuses)) actor.statuses = [];
+      const existing = actor.statuses.find(function(s) { return s.id === hCfg.statusId; });
+      if (existing) {
+        existing.turns = Math.max(existing.turns || 0, hCfg.statusTurns || 2);
+      } else {
+        actor.statuses.push({ id: hCfg.statusId, turns: hCfg.statusTurns || 2 });
+      }
+      appliedStatuses.push(hCfg.statusId);
+    }
+  }
+
+  return { triggered: true, damage: totalDmg, statuses: appliedStatuses };
 }
 
   // --- Module: src/engine/state.js ---
@@ -3407,7 +3884,9 @@ function createDungeonEntryEnvelope(data) {
       name: src.hero.name || 'Vanguard Hero',
       classId: src.hero.classId || 'fighter',
       level: typeof src.hero.level === 'number' ? src.hero.level : 1,
-      xp: typeof src.hero.xp === 'number' ? src.hero.xp : 0
+      xp: typeof src.hero.xp === 'number' ? src.hero.xp : 0,
+      equipment: src.hero.equipment ? JSON.parse(JSON.stringify(src.hero.equipment)) : null,
+      cosmetics: src.hero.cosmetics ? JSON.parse(JSON.stringify(src.hero.cosmetics)) : null
     } : null,
     dungeon: src.dungeon ? {
       poiId: src.dungeon.poiId || null,
@@ -6961,6 +7440,13 @@ function applyInteractionEffects(effects, context = {}, state = gameState) {
     } else if (eff.type === 'traverseRift') {
       const travRes = traversePortal(target, state);
       applied.push(Object.assign({}, eff, { result: travRes }));
+    } else if (eff.type === 'toggleLinked' && target && floor) {
+      const linkRes = toggleLinkedMechanisms(target, floor);
+      applied.push(Object.assign({}, eff, { result: linkRes }));
+    } else if (eff.type === 'damageProp' && target && floor) {
+      const propDmg = (actor && actor.atk) ? actor.atk : 12;
+      const dmgRes = damageDestructibleProp(target, propDmg, floor, state);
+      applied.push(Object.assign({}, eff, { result: dmgRes }));
     } else if (eff.type === 'extractHero') {
       extractToGuild(eff.reason || 'Astral Portal', state);
       emitEngineEvent(ENGINE_EVENTS.PORTAL_TRAVERSED, {
@@ -7905,6 +8391,7 @@ function processTurn(state = gameState) {
             ) {
               m.x = tx;
               m.y = ty;
+              resolveHazardStepEffects(m, tx, ty, floor);
               break;
             }
           }
@@ -8426,12 +8913,54 @@ function handlePlayerAction(dx, dy, state = gameState) {
     }
   }
 
+  // 6.6. Destructible Prop Bump-Bash (Inc 8.3: Crates, Oil Barrels, Barricades)
+  const propAtTarget = (floor.objects && floor.objects.length > 0)
+    ? floor.objects.find(function(o) { return o.x === nx && o.y === ny && isDestructibleProp(o); })
+    : null;
+  if (propAtTarget) {
+    const pRes = damageDestructibleProp(propAtTarget, (state.hero && state.hero.atk) || 12, floor, state);
+    if (state === gameState) {
+      playSound('hit');
+      ui.floatingText(nx, ny, pRes.destroyed ? 'Smashed!' : ('-' + pRes.damage), '#fb923c');
+      if (pRes.destroyed) {
+        ui.log('Smashed ' + propAtTarget.name + (pRes.goldLooted ? (' (+' + pRes.goldLooted + 'g)') : '') + (pRes.spawnedHazards ? ' — Oil spilled!' : '!'), 'gold');
+      }
+    }
+    processTurn(state);
+    return;
+  }
+
   // 7. Step onto Walkable Tile
   if (targetTile !== TILE_WALL) {
     state.hero.x = nx;
     state.hero.y = ny;
     pickupGroundObjectsAt(nx, ny, state);
     detectNearbyTraps(floor, state);
+
+    // Inc 8.3: Trigger Mechanisms (Levers / Pressure Plates) & Environmental Hazards on step
+    if (floor.objects && floor.objects.length > 0) {
+      const mechAtTile = floor.objects.find(function(o) { return o.x === nx && o.y === ny && isMechanism(o); });
+      if (mechAtTile) {
+        const mRes = toggleLinkedMechanisms(mechAtTile, floor);
+        if (state === gameState && mRes.toggled > 0) {
+          playSound('chest');
+          ui.floatingText(nx, ny, mechAtTile.name + ' Activated!', '#fbbf24');
+          ui.log(mechAtTile.name + ' actuated ' + mRes.toggled + ' linked dungeon mechanism(s)!', 'gold');
+        }
+      }
+      const hzRes = resolveHazardStepEffects(state.hero, nx, ny, floor);
+      if (hzRes.triggered && state === gameState) {
+        if (hzRes.damage > 0) {
+          playSound('hit');
+          ui.floatingText(nx, ny, '-' + hzRes.damage + ' Hazard!', '#f87171');
+          ui.log('Environmental hazard seared you for ' + hzRes.damage + ' damage!', 'bad');
+        }
+        if (state.hero.hp <= 0) {
+          handleHeroDefeat('Environmental Hazard', state);
+          return;
+        }
+      }
+    }
 
     // Auto-discover waypoint if stepping onto it
     if (floor.objects && floor.objects.length > 0) {
@@ -8739,6 +9268,399 @@ function runCorridor(dx, dy, state = gameState) {
   scheduleNextAutoWalkTick(autoWalkInterval);
 
   return { ok: true, stepsTaken: path.length, stopReason };
+}
+
+  // --- Module: src/ui/shared/characterSheet.js ---
+// Shared Cross-Engine Character Sheet, Anatomical Paper-Doll & Prestige Cosmetic Showcase
+// Used natively by BOTH the Turn-Based Dungeon Engine (index.html) and Macro Wargame (wargame.html).
+
+
+
+
+const SHARED_PAPER_DOLL_SLOTS = [
+  // Row 1: Head & Neck
+  { id: 'accessory', label: 'Trinket',  left: '10px',  top: '10px',  width: '84px', height: '64px', active: true },
+  { id: 'helm',      label: 'Helm',     left: '128px', top: '10px',  width: '84px', height: '64px', active: true },
+  { id: 'amulet',    label: 'Amulet',   right: '10px', top: '10px',  width: '84px', height: '64px', active: false, tier: 'Tier 2 Expansion' },
+
+  // Row 2: Torso & Weapons
+  { id: 'weapon',    label: 'Weapon',   left: '10px',  top: '86px',  width: '84px', height: '70px', active: true },
+  { id: 'armor',     label: 'Armor',    left: '128px', top: '86px',  width: '84px', height: '70px', active: true },
+  { id: 'pickaxe',   label: 'Off-Hand', right: '10px', top: '86px',  width: '84px', height: '70px', active: true },
+
+  // Row 3: Hands, Waist, Rings (Reserved for Track A Inc 8.7)
+  { id: 'gloves',    label: 'Gloves',   left: '10px',  top: '168px', width: '84px', height: '64px', active: false, tier: 'Tier 2 Expansion' },
+  { id: 'belt',      label: 'Belt',     left: '128px', top: '168px', width: '84px', height: '64px', active: false, tier: 'Tier 3 Expansion' },
+  { id: 'ring',      label: 'Ring',     right: '10px', top: '168px', width: '84px', height: '64px', active: false, tier: 'Tier 2 Expansion' },
+
+  // Row 4: Feet
+  { id: 'boots',     label: 'Boots',    left: '128px', top: '254px', width: '84px', height: '64px', active: true }
+];
+
+// Tier 1 Prestige Cosmetic Showcase Slots (Stage E.1 Art Direction — Fair Non-P2W Cosmetic System)
+const COSMETIC_SLOTS = [
+  { id: 'cloak',        label: 'Mantle / Cloak',  icon: '🧣' },
+  { id: 'aura',         label: 'Astral Aura',     icon: '✨' },
+  { id: 'banner_crest', label: 'Heraldic Crest',  icon: '🛡️' },
+  { id: 'weapon_glow',  label: 'Weapon Enchant',  icon: '⚔️' }
+];
+
+function drawSharedSafeEllipse(ctx, cx, cy, rx, ry) {
+  if (typeof ctx.ellipse === 'function') {
+    ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
+  } else {
+    ctx.arc(cx, cy, Math.max(rx, ry), 0, Math.PI * 2);
+  }
+}
+
+function normalizeSharedHeroProfile(hero) {
+  const h = hero || {};
+  const classId = h.classId || 'fighter';
+  const cls = CLASSES[classId] || CLASSES.fighter;
+  const st = h.stats || {};
+
+  const str = h.computedStr !== undefined ? h.computedStr : (st.str || (cls.baseStats && cls.baseStats.str) || 10);
+  const dex = h.computedDex !== undefined ? h.computedDex : (st.dex || (cls.baseStats && cls.baseStats.dex) || 10);
+  const intel = h.computedInt !== undefined ? h.computedInt : (st.int || (cls.baseStats && cls.baseStats.int) || 10);
+  const vit = h.computedVit !== undefined ? h.computedVit : (st.vit || (cls.baseStats && cls.baseStats.vit) || 10);
+
+  const eq = h.equipment || {};
+  let eqAtk = 0;
+  let eqDef = 0;
+  let eqHp = 0;
+  let eqMp = 0;
+  const eqKeys = Object.keys(eq);
+  for (let i = 0; i < eqKeys.length; i++) {
+    const it = eq[eqKeys[i]];
+    if (!it) continue;
+    eqAtk += (it.atk || 0);
+    eqDef += (it.def || 0);
+    eqHp  += (it.hp  || 0);
+    eqMp  += (it.mp  || 0);
+  }
+
+  const baseMaxHp = h.maxHp !== undefined ? h.maxHp : ((st.hp || 140) + eqHp);
+  const baseMaxMp = h.maxMp !== undefined ? h.maxMp : ((st.mp || 60) + eqMp);
+  const atk = h.atk !== undefined ? h.atk : ((st.atk || 22) + eqAtk);
+  const def = h.def !== undefined ? h.def : ((st.def || 10) + eqDef);
+  const crit = h.crit !== undefined ? h.crit : Math.min(60, 8 + Math.floor(dex * 0.6));
+  const dodge = h.dodge !== undefined ? h.dodge : Math.min(45, 5 + Math.floor(dex * 0.5));
+
+  return {
+    id: h.id || 'hero_active',
+    name: h.name || cls.name,
+    classId: classId,
+    className: h.className || cls.name,
+    title: h.title || cls.title || 'Guild Vanguard',
+    color: h.color || cls.color || '#fbbf24',
+    level: h.level || 1,
+    xp: h.xp || 0,
+    hp: h.hp !== undefined ? h.hp : baseMaxHp,
+    maxHp: baseMaxHp,
+    mp: h.mp !== undefined ? h.mp : baseMaxMp,
+    maxMp: baseMaxMp,
+    stats: {
+      str: str,
+      dex: dex,
+      int: intel,
+      vit: vit,
+      atk: atk,
+      def: def,
+      crit: crit,
+      dodge: dodge
+    },
+    equipment: eq,
+    cosmetics: h.cosmetics || { cloak: null, aura: null, banner_crest: null, weapon_glow: null },
+    bagGear: Array.isArray(h.bagGear) ? h.bagGear : []
+  };
+}
+
+function renderSharedPaperDollMannequin(canvas, hero) {
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+
+  const w = canvas.width;
+  const h = canvas.height;
+  ctx.clearRect(0, 0, w, h);
+
+  const classId = hero ? hero.classId : 'fighter';
+  const cls = CLASSES[classId] || CLASSES.fighter;
+  const cosmeticAura = hero && hero.cosmetics && hero.cosmetics.aura ? hero.cosmetics.aura.color : null;
+  const themeColor = cosmeticAura || cls.color || '#fbbf24';
+
+  ctx.save();
+
+  const cx = Math.floor(w / 2);
+  const cy = Math.floor(h / 2);
+
+  // Radial celestial aura behind chest
+  if (typeof ctx.createRadialGradient === 'function') {
+    const grad = ctx.createRadialGradient(cx, cy - 20, 10, cx, cy - 20, 120);
+    if (grad && typeof grad.addColorStop === 'function') {
+      grad.addColorStop(0, themeColor + '22');
+      grad.addColorStop(0.6, themeColor + '08');
+      grad.addColorStop(1, 'transparent');
+      ctx.fillStyle = grad;
+    }
+  } else {
+    ctx.fillStyle = themeColor + '15';
+  }
+  ctx.beginPath();
+  ctx.arc(cx, cy - 20, 120, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Pedestal / Dais ellipse at feet
+  ctx.fillStyle = '#0f172a';
+  ctx.beginPath();
+  drawSharedSafeEllipse(ctx, cx, h - 35, 75, 18);
+  ctx.fill();
+  ctx.strokeStyle = themeColor + '44';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+
+  // Runic floor circle rings
+  ctx.strokeStyle = '#283347';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  drawSharedSafeEllipse(ctx, cx, h - 35, 60, 14);
+  ctx.stroke();
+
+  // Body shadow
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
+  ctx.beginPath();
+  drawSharedSafeEllipse(ctx, cx, h - 34, 45, 10);
+  ctx.fill();
+
+  // Class-specific silhouette cape & back ornaments
+  if (classId === 'fighter') {
+    ctx.fillStyle = 'rgba(185, 28, 28, 0.45)';
+    ctx.beginPath();
+    ctx.moveTo(cx - 36, 100);
+    ctx.lineTo(cx - 65, 235);
+    ctx.lineTo(cx + 65, 235);
+    ctx.lineTo(cx + 36, 100);
+    ctx.closePath();
+    ctx.fill();
+  } else if (classId === 'thief') {
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.65)';
+    ctx.beginPath();
+    ctx.moveTo(cx - 36, 100);
+    ctx.lineTo(cx - 72, 235);
+    ctx.lineTo(cx - 15, 235);
+    ctx.lineTo(cx - 20, 100);
+    ctx.closePath();
+    ctx.fill();
+  } else if (classId === 'paladin') {
+    ctx.fillStyle = 'rgba(248, 250, 252, 0.35)';
+    ctx.beginPath();
+    ctx.moveTo(cx - 36, 100);
+    ctx.lineTo(cx - 65, 235);
+    ctx.lineTo(cx + 65, 235);
+    ctx.lineTo(cx + 36, 100);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = '#f59e0b';
+    ctx.fillRect(cx - 65, 230, 130, 5);
+  } else if (classId === 'ranger') {
+    ctx.fillStyle = 'rgba(22, 101, 52, 0.45)';
+    ctx.beginPath();
+    ctx.moveTo(cx - 36, 100);
+    ctx.lineTo(cx - 60, 225);
+    ctx.lineTo(cx + 40, 225);
+    ctx.lineTo(cx + 30, 100);
+    ctx.closePath();
+    ctx.fill();
+  } else if (classId === 'mage') {
+    ctx.fillStyle = 'rgba(30, 58, 138, 0.45)';
+    ctx.beginPath();
+    ctx.moveTo(cx - 36, 105);
+    ctx.lineTo(cx - 56, 265);
+    ctx.lineTo(cx + 56, 265);
+    ctx.lineTo(cx + 36, 105);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  // Legs & Boots
+  ctx.fillStyle = '#1e293b';
+  ctx.strokeStyle = '#334155';
+  ctx.lineWidth = 2;
+  ctx.fillRect(cx - 24, 185, 18, 90);
+  ctx.strokeRect(cx - 24, 185, 18, 90);
+  ctx.fillRect(cx + 6, 185, 18, 90);
+  ctx.strokeRect(cx + 6, 185, 18, 90);
+
+  // Arms
+  ctx.fillStyle = '#1e293b';
+  ctx.fillRect(cx - 52, 108, 16, 75);
+  ctx.strokeRect(cx - 52, 108, 16, 75);
+  ctx.fillRect(cx + 36, 108, 16, 75);
+  ctx.strokeRect(cx + 36, 108, 16, 75);
+
+  // Torso / Cuirass
+  ctx.fillStyle = '#253247';
+  ctx.beginPath();
+  ctx.moveTo(cx - 38, 100);
+  ctx.lineTo(cx + 38, 100);
+  ctx.lineTo(cx + 28, 186);
+  ctx.lineTo(cx - 28, 186);
+  ctx.closePath();
+  ctx.fill();
+  ctx.strokeStyle = themeColor + '66';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  // Class chest emblem
+  if (classId === 'paladin') {
+    ctx.fillStyle = '#fbbf24';
+    ctx.fillRect(cx - 3, 114, 6, 36);
+    ctx.fillRect(cx - 14, 126, 28, 6);
+  } else if (classId === 'mage') {
+    ctx.fillStyle = '#38bdf8';
+    ctx.beginPath();
+    ctx.arc(cx, 132, 9, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Head / Helm
+  ctx.fillStyle = '#1e293b';
+  ctx.beginPath();
+  ctx.arc(cx, 72, 22, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = themeColor;
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  // Class head crest / visor
+  if (classId === 'fighter') {
+    ctx.fillStyle = '#fbbf24';
+    ctx.fillRect(cx - 12, 70, 24, 4);
+  } else if (classId === 'mage') {
+    ctx.fillStyle = '#1e3a8a';
+    ctx.beginPath();
+    ctx.moveTo(cx, 26);
+    ctx.lineTo(cx + 26, 62);
+    ctx.lineTo(cx - 26, 62);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = '#fbbf24';
+    ctx.stroke();
+  } else if (classId === 'paladin') {
+    ctx.strokeStyle = '#fde047';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(cx, 38, 16, 0, Math.PI * 2);
+    ctx.stroke();
+  } else if (classId === 'thief') {
+    ctx.fillStyle = '#34d399';
+    ctx.fillRect(cx - 10, 68, 6, 3);
+    ctx.fillRect(cx + 4, 68, 6, 3);
+  } else if (classId === 'ranger') {
+    ctx.fillStyle = '#4ade80';
+    ctx.fillRect(cx - 10, 68, 6, 3);
+    ctx.fillRect(cx + 4, 68, 6, 3);
+  }
+
+  ctx.restore();
+}
+
+function buildSharedPaperDollGridHtml(hero, options = {}) {
+  const eq = (hero && hero.equipment) ? hero.equipment : {};
+  const mode = options.mode || 'wargame';
+  const heroId = (hero && hero.id) || '';
+
+  return SHARED_PAPER_DOLL_SLOTS.map(function(cfg) {
+    const posStyle = 'top:' + cfg.top + ';width:' + cfg.width + ';height:' + cfg.height + ';' +
+      (cfg.left ? ('left:' + cfg.left + ';') : ('right:' + cfg.right + ';'));
+
+    if (!cfg.active) {
+      const icon = getItemTypeIcon(cfg.id);
+      return `
+        <div class="pointer-events-auto absolute p-1.5 rounded-lg bg-[#05080e]/80 backdrop-blur-sm border border-[#1e293b]/60 flex flex-col justify-between items-center text-center opacity-60 cursor-not-allowed select-none"
+             style="${posStyle}"
+             title="${cfg.label} Slot (${cfg.tier}) — Reserved for Track A Inc 8.7">
+          <div class="w-full flex items-center justify-between text-[9px] text-[#475569]">
+            <span class="uppercase tracking-wider font-semibold">${cfg.label}</span>
+            <span>🔒</span>
+          </div>
+          <div class="text-base opacity-30">${icon}</div>
+          <div class="text-[8px] font-mono text-[#475569]">Locked</div>
+        </div>
+      `;
+    }
+
+    const it = eq[cfg.id] || null;
+    const typeIcon = getItemTypeIcon(cfg.id);
+
+    if (!it) {
+      return `
+        <div class="pointer-events-auto absolute p-1.5 rounded-lg bg-[#080b11]/75 backdrop-blur-sm border border-dashed border-[#283347]/80 flex flex-col justify-between items-center text-center select-none"
+             style="${posStyle}">
+          <div class="w-full flex items-center justify-between text-[9px] text-[#64748b]">
+            <span class="uppercase tracking-wider font-semibold">${cfg.label}</span>
+          </div>
+          <div class="text-base opacity-25">${typeIcon}</div>
+          <div class="text-[8px] font-mono text-[#475569]">Empty</div>
+        </div>
+      `;
+    }
+
+    const rInfo = RARITY[it.rarity] || RARITY.common;
+    const statTag = it.atk ? ('+' + it.atk + ' ATK') : (it.def ? ('+' + it.def + ' DEF') : (it.maxDurability ? ('Tier ' + (it.tier || 1)) : 'Equipped'));
+    const canUnequip = cfg.id !== 'pickaxe';
+    const unequipAction = mode === 'wargame'
+      ? `window.WargameApp.handleUnequipHeroItem('${heroId}', '${cfg.id}')`
+      : `window.Aethelgard.handleInventoryUnequip('${cfg.id}')`;
+
+    return `
+      <div class="pointer-events-auto absolute p-1.5 rounded-lg bg-[#0e1524]/90 backdrop-blur-sm border flex flex-col justify-between text-left select-none shadow-md"
+           style="${posStyle}border-color:${rInfo.color}88;"
+           title="${it.name} (${rInfo.label})">
+        <div class="w-full flex items-center justify-between text-[9px]">
+          <span class="uppercase tracking-wider font-semibold text-[#8b949e]">${cfg.label}</span>
+          ${canUnequip ? `<button onclick="${unequipAction}" class="text-[#f87171] hover:text-white font-bold text-[10px] leading-none cursor-pointer" title="Unequip">✕</button>` : ''}
+        </div>
+        <div class="text-[10px] font-bold truncate" style="color:${rInfo.color}">${typeIcon} ${it.name}</div>
+        <div class="text-[9px] font-mono text-[#34d399]">${statTag}</div>
+      </div>
+    `;
+  }).join('');
+}
+
+function buildSharedHeroStatsHtml(profile) {
+  const s = profile.stats;
+  const cells = [
+    { label: 'STR', val: s.str, color: '#f87171' },
+    { label: 'DEX', val: s.dex, color: '#34d399' },
+    { label: 'INT', val: s.int, color: '#60a5fa' },
+    { label: 'VIT', val: s.vit, color: '#fbbf24' },
+    { label: 'ATK', val: s.atk, color: '#fb923c' },
+    { label: 'DEF', val: s.def, color: '#38bdf8' },
+    { label: 'CRIT', val: s.crit + '%', color: '#facc15' },
+    { label: 'DODGE', val: s.dodge + '%', color: '#a78bfa' }
+  ];
+  return cells.map(function(c) {
+    return `
+      <div class="p-1.5 rounded bg-[#080b11] border border-[#283347] text-center">
+        <div class="text-[9px] font-mono text-[#8b949e] uppercase">${c.label}</div>
+        <div class="text-xs font-mono font-bold" style="color:${c.color}">${c.val}</div>
+      </div>
+    `;
+  }).join('');
+}
+
+function buildSharedCosmeticsPreviewHtml(profile) {
+  const cos = profile.cosmetics || {};
+  return COSMETIC_SLOTS.map(function(slot) {
+    const equipped = cos[slot.id];
+    return `
+      <div class="p-2 rounded bg-[#080b11] border border-[#fbbf24]/30 flex items-center justify-between text-[10px] font-mono">
+        <span class="text-[#8b949e]">${slot.icon} ${slot.label}</span>
+        <span class="${equipped ? 'text-[#fbbf24] font-bold' : 'text-[#475569]'}">${equipped ? equipped.name : 'Default'}</span>
+      </div>
+    `;
+  }).join('');
 }
 
   // --- Module: src/ui/renderer.js ---
@@ -9385,6 +10307,10 @@ function drawHeroSprite(ctx, px, py, classId, size = TILE_SIZE) {
 }
 
 function drawPaperDollMannequin(canvas, hero) {
+  return renderSharedPaperDollMannequin(canvas, hero);
+}
+
+function __legacyPaperDollUnused(canvas, hero) {
   if (!canvas) return;
   const ctx = canvas.getContext('2d');
   if (!ctx) return;
@@ -10610,6 +11536,62 @@ function renderDungeonCanvas() {
               break;
             } else if (obj.objectType === 'portal') {
               renderPortalTile(ctx, px, py, obj, biome, inSight);
+            } else if (obj.objectType === 'mechanism') {
+              const isPulled = obj.runtimeState && obj.runtimeState.mechanical === 'pulled';
+              ctx.save();
+              ctx.fillStyle = isPulled ? '#34d399' : '#fbbf24';
+              if (obj.definitionId === 'mech_pressure_plate') {
+                ctx.fillStyle = isPulled ? '#1e293b' : '#475569';
+                ctx.fillRect(px + 6, py + 6, 20, 20);
+                ctx.strokeStyle = isPulled ? '#34d399' : '#fbbf24';
+                ctx.lineWidth = 1.5;
+                ctx.strokeRect(px + 6, py + 6, 20, 20);
+              } else {
+                ctx.fillStyle = '#475569';
+                ctx.fillRect(px + 10, py + 20, 12, 6);
+                ctx.strokeStyle = isPulled ? '#34d399' : '#fbbf24';
+                ctx.lineWidth = 3;
+                ctx.beginPath();
+                ctx.moveTo(px + 16, py + 21);
+                ctx.lineTo(px + (isPulled ? 23 : 9), py + 8);
+                ctx.stroke();
+              }
+              ctx.restore();
+            } else if (obj.objectType === 'prop' && (!obj.runtimeState || obj.runtimeState.structural !== 'destroyed')) {
+              ctx.save();
+              if (obj.definitionId === 'prop_oil_barrel') {
+                ctx.fillStyle = '#451a03';
+                ctx.beginPath();
+                ctx.arc(px + 16, py + 16, 10, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.strokeStyle = '#f97316';
+                ctx.lineWidth = 2;
+                ctx.stroke();
+              } else {
+                ctx.fillStyle = '#78350f';
+                ctx.fillRect(px + 6, py + 6, 20, 20);
+                ctx.strokeStyle = '#d97706';
+                ctx.lineWidth = 1.5;
+                ctx.strokeRect(px + 6, py + 6, 20, 20);
+              }
+              ctx.restore();
+            } else if (obj.objectType === 'hazard' && obj.runtimeState && obj.runtimeState.mechanical === 'active') {
+              ctx.save();
+              if (obj.definitionId === 'hazard_slag_vent') {
+                ctx.fillStyle = 'rgba(249, 115, 22, 0.55)';
+                ctx.fillRect(px + 4, py + 4, 24, 24);
+              } else if (obj.definitionId === 'hazard_spore_cloud') {
+                ctx.fillStyle = 'rgba(52, 211, 153, 0.35)';
+                ctx.beginPath();
+                ctx.arc(px + 16, py + 16, 12, 0, Math.PI * 2);
+                ctx.fill();
+              } else {
+                ctx.fillStyle = 'rgba(30, 41, 59, 0.85)';
+                ctx.beginPath();
+                ctx.arc(px + 16, py + 16, 12, 0, Math.PI * 2);
+                ctx.fill();
+              }
+              ctx.restore();
               break;
             }
           }
@@ -16061,6 +17043,87 @@ function evaluateSelfTests() {
     detail: t30Pass
       ? 'Wargame-to-Dungeon entry sync, Extraction return envelope, Golden Rule #2 Defeat return envelope, and v1 migration backfill verified'
       : 'Failed wargame bridge handoff or return envelope verification'
+  });
+
+  // -------------------------------------------------------------
+  // Test 31: Interactive Dungeon Props, Linked Mechanisms & Environmental Hazards (Inc 8.3)
+  // -------------------------------------------------------------
+  const sandbox31 = createDefaultGameState();
+  selectAdventurerClass('fighter', sandbox31);
+  const fl31 = ensureDungeonFloorHydrated(sandbox31.dungeon, 1);
+  sandbox31.inGuild = false;
+
+  const inc83DefsExist = Boolean(
+    getObjectDefinition('mech_wall_lever') &&
+    getObjectDefinition('mech_pressure_plate') &&
+    getObjectDefinition('prop_supply_crate') &&
+    getObjectDefinition('prop_oil_barrel') &&
+    getObjectDefinition('prop_wood_barricade') &&
+    getObjectDefinition('hazard_oil_slick') &&
+    getObjectDefinition('hazard_slag_vent') &&
+    getObjectDefinition('hazard_spore_cloud')
+  );
+
+  // Linked Iron Wall Lever -> Iron Portcullis
+  const portcullis31 = createDoorInstance('door_iron_portcullis', 10, 10);
+  const lever31 = createMechanismInstance('mech_wall_lever', 9, 10, { linkedTargetIds: [portcullis31.instanceId] });
+  fl31.objects.push(portcullis31, lever31);
+  const portcullisClosedInitially = !isDoorWalkable(portcullis31);
+  const leverToggleRes = toggleLinkedMechanisms(lever31, fl31);
+  const portcullisOpenedByLever = leverToggleRes.toggled === 1 && isDoorWalkable(portcullis31);
+
+  // Linked Pressure Plate -> Secret Stone Door
+  const secret31 = createDoorInstance('door_secret_stone', 12, 10);
+  const plate31 = createMechanismInstance('mech_pressure_plate', 11, 10, { linkedTargetIds: [secret31.instanceId] });
+  fl31.objects.push(secret31, plate31);
+  const plateToggleRes = toggleLinkedMechanisms(plate31, fl31);
+  const secretRevealedByPlate = plateToggleRes.toggled === 1 &&
+    secret31.runtimeState.discovery === 'revealed' &&
+    isDoorWalkable(secret31);
+
+  // Destructible Oil Barrel -> spawns flammable oil slicks on destruction; Supply Crate -> drops gold & clears path
+  const barrel31 = createPropInstance('prop_oil_barrel', fl31.upPos.x, fl31.upPos.y);
+  const crate31 = createPropInstance('prop_supply_crate', fl31.upPos.x, fl31.upPos.y);
+  fl31.objects.push(barrel31, crate31);
+  const goldBefore31 = sandbox31.guildVault.gold;
+  const barrelRes31 = damageDestructibleProp(barrel31, 25, fl31, sandbox31);
+  const crateRes31 = damageDestructibleProp(crate31, 30, fl31, sandbox31);
+  const propsDestroyedCleanly = Boolean(
+    barrelRes31.destroyed && barrelRes31.spawnedHazards >= 1 &&
+    crateRes31.destroyed && sandbox31.guildVault.gold === goldBefore31 + 12 &&
+    crate31.permeability.movement === true
+  );
+
+  // Environmental Hazards affect BOTH Hero and Monsters symmetrically
+  const slag31 = createHazardInstance('hazard_slag_vent', 15, 15);
+  const spore31 = createHazardInstance('hazard_spore_cloud', 16, 15);
+  fl31.objects.push(slag31, spore31);
+  const heroHpBefore31 = sandbox31.hero.hp;
+  const heroSlagRes = resolveHazardStepEffects(sandbox31.hero, 15, 15, fl31);
+  const mockMonster31 = { id: 'm_test', hp: 50, maxHp: 50, statuses: [] };
+  const monSporeRes = resolveHazardStepEffects(mockMonster31, 16, 15, fl31);
+  const hazardsAffectBoth = Boolean(
+    heroSlagRes.triggered && sandbox31.hero.hp < heroHpBefore31 &&
+    heroSlagRes.statuses.indexOf('burn') !== -1 &&
+    monSporeRes.triggered && mockMonster31.hp < 50 &&
+    monSporeRes.statuses.indexOf('poison') !== -1
+  );
+
+  const t31Pass = Boolean(
+    inc83DefsExist &&
+    portcullisClosedInitially &&
+    portcullisOpenedByLever &&
+    secretRevealedByPlate &&
+    propsDestroyedCleanly &&
+    hazardsAffectBoth
+  );
+
+  results.push({
+    name: '31. Interactive Dungeon Props, Linked Mechanisms & Environmental Hazards (Inc 8.3)',
+    pass: t31Pass,
+    detail: t31Pass
+      ? '8 Inc 8.3 object definitions, lever->portcullis & pressure-plate->secret-door links, destructible oil barrel/crate, and symmetric hero/monster hazards verified'
+      : 'Failed Inc 8.3 interactive props, linked mechanisms, or environmental hazard checks'
   });
 
   return results;

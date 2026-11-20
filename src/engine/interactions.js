@@ -3,7 +3,7 @@
 
 import { gameState } from './state.js';
 import { ENGINE_EVENTS, emitEngineEvent } from './events.js';
-import { findObjectById, removeWorldObject, registerDiscoveredWaypoint } from './objects.js';
+import { findObjectById, removeWorldObject, registerDiscoveredWaypoint, toggleLinkedMechanisms, damageDestructibleProp } from './objects.js';
 import { extractToGuild, traversePortal } from './actions.js';
 
 let interactionSeq = 1000;
@@ -284,6 +284,13 @@ export function applyInteractionEffects(effects, context = {}, state = gameState
     } else if (eff.type === 'traverseRift') {
       const travRes = traversePortal(target, state);
       applied.push(Object.assign({}, eff, { result: travRes }));
+    } else if (eff.type === 'toggleLinked' && target && floor) {
+      const linkRes = toggleLinkedMechanisms(target, floor);
+      applied.push(Object.assign({}, eff, { result: linkRes }));
+    } else if (eff.type === 'damageProp' && target && floor) {
+      const propDmg = (actor && actor.atk) ? actor.atk : 12;
+      const dmgRes = damageDestructibleProp(target, propDmg, floor, state);
+      applied.push(Object.assign({}, eff, { result: dmgRes }));
     } else if (eff.type === 'extractHero') {
       extractToGuild(eff.reason || 'Astral Portal', state);
       emitEngineEvent(ENGINE_EVENTS.PORTAL_TRAVERSED, {

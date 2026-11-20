@@ -24,6 +24,15 @@ import {
   computeCityPopulation
 } from '../engine/state.js';
 import { getFormattedTasksList } from '../engine/taskEngine.js';
+import {
+  normalizeSharedHeroProfile,
+  renderSharedPaperDollMannequin,
+  buildSharedPaperDollGridHtml,
+  buildSharedHeroStatsHtml,
+  buildSharedCosmeticsPreviewHtml
+} from '../../ui/shared/characterSheet.js';
+import { RARITY } from '../../constants.js';
+import { getItemTypeIcon } from '../../data/items.js';
 
 function setHtmlIfChanged(el, newHtml) {
   if (!el) return;
@@ -218,6 +227,84 @@ export function syncWargameUI(simHost) {
 
   // 6. Sync Right Sidebar: Reactive Task DAG & Live Streaming Event Feed
   renderRightTasksAndStreamSidebar(simHost);
+
+  // 7. Sync Shared Character Sheet Modal if open
+  renderWargameCharacterSheetModal(simHost);
+}
+
+export function renderWargameCharacterSheetModal(simHost) {
+  if (typeof document === 'undefined' || !simHost || !simHost.state || !simHost.state.world) return;
+  const modal = document.getElementById('wgCharacterSheetModal');
+  if (!modal) return;
+
+  const openHeroId = simHost.state._openHeroSheetId || null;
+  if (!openHeroId) {
+    modal.classList.add('hidden');
+    return;
+  }
+
+  const heroes = simHost.state.world.heroes || [];
+  const rawHero = heroes.find(function(h) { return h.id === openHeroId; }) || heroes[0];
+  if (!rawHero) {
+    modal.classList.add('hidden');
+    return;
+  }
+
+  modal.classList.remove('hidden');
+  const profile = normalizeSharedHeroProfile(rawHero);
+
+  const nameEl = document.getElementById('wgSheetHeroName');
+  const titleEl = document.getElementById('wgSheetHeroTitle');
+  if (nameEl) nameEl.textContent = profile.name + ' — ' + profile.className;
+  if (titleEl) titleEl.textContent = 'Level ' + profile.level + ' ' + profile.title + ' • HP ' + profile.hp + '/' + profile.maxHp + ' • MP ' + profile.mp + '/' + profile.maxMp;
+
+  const canvas = document.getElementById('wgSheetPaperDollCanvas');
+  if (canvas) {
+    renderSharedPaperDollMannequin(canvas, rawHero);
+  }
+
+  const gridEl = document.getElementById('wgSheetPaperDollGrid');
+  if (gridEl) {
+    setHtmlIfChanged(gridEl, buildSharedPaperDollGridHtml(rawHero, { mode: 'wargame' }));
+  }
+
+  const statsEl = document.getElementById('wgSheetStatsGrid');
+  if (statsEl) {
+    setHtmlIfChanged(statsEl, buildSharedHeroStatsHtml(profile));
+  }
+
+  const cosEl = document.getElementById('wgSheetCosmeticsStrip');
+  if (cosEl) {
+    setHtmlIfChanged(cosEl, buildSharedCosmeticsPreviewHtml(profile));
+  }
+
+  const bagEl = document.getElementById('wgSheetBagList');
+  if (bagEl) {
+    const bag = profile.bagGear || [];
+    if (bag.length === 0) {
+      setHtmlIfChanged(bagEl, `<div class="text-[11px] text-[#64748b] italic py-2 text-center">No unequipped gear in pack. Unequip worn gear or forge items at the City Blacksmith!</div>`);
+    } else {
+      const bagHtml = bag.map(function(it) {
+        const rInfo = RARITY[it.rarity] || RARITY.common;
+        const icon = getItemTypeIcon(it.slot);
+        const statTxt = [
+          it.atk ? ('+' + it.atk + ' ATK') : '',
+          it.def ? ('+' + it.def + ' DEF') : '',
+          it.hp  ? ('+' + it.hp  + ' HP')  : ''
+        ].filter(Boolean).join(' • ') || 'Equipment';
+        return `
+          <div class="p-2 rounded bg-[#111722] border border-[#283347] flex items-center justify-between gap-2 text-xs">
+            <div class="min-w-0">
+              <div class="font-bold truncate" style="color:${rInfo.color}">${icon} ${it.name}</div>
+              <div class="text-[10px] font-mono text-[#8b949e]">${it.slot.toUpperCase()} • ${rInfo.label} • <span class="text-[#34d399]">${statTxt}</span></div>
+            </div>
+            <button onclick="window.WargameApp.handleEquipHeroItem('${rawHero.id}', '${it.uid}')" class="px-2.5 py-1 rounded bg-[#fbbf24] hover:bg-[#f59e0b] text-[#080b11] font-bold text-[10px] uppercase cursor-pointer">Equip</button>
+          </div>
+        `;
+      }).join('');
+      setHtmlIfChanged(bagEl, bagHtml);
+    }
+  }
 }
 
 export function renderTitleScreenSummary(simHost) {
@@ -517,7 +604,10 @@ export function renderLeftCommandSidebar(simHost) {
                 <div class="text-[10px] font-mono text-[#8b949e]">Lv ${h.level} ${h.className} • HP ${h.stats.hp} • ATK ${h.stats.atk}</div>
               </div>
             </div>
-            <button data-action="select-party" data-hero-id="${h.id}" onclick="window.WargameApp.handleSelectPartyByHero('${h.id}')" class="px-2 py-1 rounded bg-[#1a2232] hover:bg-[#283347] text-[#60a5fa] text-[10px] font-mono font-bold cursor-pointer">Select Party</button>
+            <div class="flex items-center gap-1">
+              <button data-action="open-hero-sheet" data-hero-id="${h.id}" onclick="window.WargameApp.handleOpenHeroSheet('${h.id}')" class="px-2 py-1 rounded bg-[#1a2232] hover:bg-[#283347] text-[#fbbf24] border border-[#fbbf24]/30 text-[10px] font-mono font-bold cursor-pointer" title="Open Shared Character Sheet">👤 Sheet</button>
+              <button data-action="select-party" data-hero-id="${h.id}" onclick="window.WargameApp.handleSelectPartyByHero('${h.id}')" class="px-2 py-1 rounded bg-[#1a2232] hover:bg-[#283347] text-[#60a5fa] text-[10px] font-mono font-bold cursor-pointer">Select</button>
+            </div>
           </div>
         `;
       }).join('');
