@@ -1006,5 +1006,56 @@ export function evaluateWargameSelfTests() {
       : 'Failed checks: ' + failed11.join(', ')
   });
 
+  // =========================================================================
+  // Test 12: City Blacksmith (Star-Forge) & Lapidary Workshop (Inc 9.7)
+  // =========================================================================
+  const forgeBlocked12 = !host7.dispatch({ type: COMMAND_TYPES.FORGE_EQUIPMENT, payload: { slot: 'weapon' } }).ok;
+  city7.buildings.blacksmith = 2;
+  city7.stockpile.ingots = 30;
+  city7.stockpile.gold = 300;
+  const forgeRes12 = host7.dispatch({ type: COMMAND_TYPES.FORGE_EQUIPMENT, payload: { slot: 'weapon' } });
+  const forgedItem12 = forgeRes12.ok ? forgeRes12.data.item : null;
+  const forgedVerified12 = Boolean(
+    forgeBlocked12 &&
+    forgedItem12 &&
+    forgedItem12.rarity === 'rare' &&
+    forgedItem12.sockets === 1
+  );
+
+  // Temper forged weapon (+2 ATK, temperRank = 1)
+  const atkBeforeTemper12 = forgedItem12 ? forgedItem12.atk : 0;
+  const temperRes12 = forgedItem12 ? host7.dispatch({ type: COMMAND_TYPES.TEMPER_EQUIPMENT, payload: { itemUid: forgedItem12.uid } }) : { ok: false };
+  const temperVerified12 = Boolean(temperRes12.ok && forgedItem12.temperRank === 1 && forgedItem12.atk === atkBeforeTemper12 + 2);
+
+  // Lapidary: Punch 2nd socket -> Socket Ruby (+4 ATK) -> Extract Ruby back to city.gems
+  const lapBlocked12 = !host7.dispatch({ type: COMMAND_TYPES.PUNCH_SOCKET, payload: { itemUid: forgedItem12.uid } }).ok;
+  city7.buildings.lapidary = 1;
+  city7.gems = { ruby: 2, emerald: 1, sapphire: 0, topaz: 0, void_diamond: 0 };
+  const punchRes12 = host7.dispatch({ type: COMMAND_TYPES.PUNCH_SOCKET, payload: { itemUid: forgedItem12.uid } });
+  const atkBeforeGem12 = forgedItem12.atk;
+  const socketRes12 = host7.dispatch({ type: COMMAND_TYPES.SOCKET_CITY_GEM, payload: { itemUid: forgedItem12.uid, gemId: 'ruby' } });
+  const gemSocketed12 = Boolean(socketRes12.ok && forgedItem12.atk === atkBeforeGem12 + 4 && city7.gems.ruby === 1);
+  const unsocketRes12 = host7.dispatch({ type: COMMAND_TYPES.UNSOCKET_CITY_GEM, payload: { itemUid: forgedItem12.uid } });
+  const gemExtracted12 = Boolean(unsocketRes12.ok && forgedItem12.atk === atkBeforeGem12 && city7.gems.ruby === 2);
+
+  const t12Checks = {
+    forgedVerified12: forgedVerified12,
+    temperVerified12: temperVerified12,
+    lapBlocked12: lapBlocked12,
+    punchOk: Boolean(punchRes12.ok && forgedItem12.sockets === 2),
+    gemSocketed12: gemSocketed12,
+    gemExtracted12: gemExtracted12
+  };
+  const failed12 = Object.keys(t12Checks).filter(function(k) { return !t12Checks[k]; });
+  const t12Pass = failed12.length === 0;
+
+  results.push({
+    name: '12. City Blacksmith (Star-Forge) & Lapidary Workshop (Inc 9.7)',
+    pass: t12Pass,
+    detail: t12Pass
+      ? 'Blacksmith forging & tempering, Lapidary socket punching, Ruby socketing (+4 ATK), and safe gem extraction verified'
+      : 'Failed checks: ' + failed12.join(', ')
+  });
+
   return results;
 }

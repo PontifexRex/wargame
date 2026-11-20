@@ -1,7 +1,7 @@
 # Aethelgard: Project Roadmap & Strategic Horizons
 
-> **Current Baseline**: `v0.9.6-city-industry` / `v0.8.3-hazards` / `Stage E.1`  
-> **Verification Status**: 31/31 Roguelike Baseline Tests PASS + 11/11 Wargame Simulation Tests PASS  
+> **Current Baseline**: `v0.9.7-city-crafting` / `v0.8.3-hazards` / `Stage E.1`  
+> **Verification Status**: 31/31 Roguelike Baseline Tests PASS + 12/12 Wargame Simulation Tests PASS  
 > **Historical Release Notes**: For completed increment release logs, detailed feature breakdowns, and verification gates, refer to [CHANGELOG.md](../CHANGELOG.md).
 
 ---
@@ -94,14 +94,10 @@ Track E (Art Direction & Graphics) ──► Stage E.1 (Pillars) ──► E.2 (
 - **Increment 9.3 (`v0.9.3-dungeon-march`)**: Multi-dungeon Overworld discovery, wandering hostile skirmishes, real-time march to vaults, cross-engine `wargameBridge` handoff (`wargame.html` ↔ `index.html`), extraction return march + cargo banking, Recall Scroll express return, and defeat recovery. *(Verified)*  
 - **Increment 9.4 (`v0.9.4-shared-hero-sheet`)**: Shared cross-engine Character Sheet & Paper-Doll module (`src/ui/shared/characterSheet.js`), Tier 1 Prestige Cosmetic slots, `#wgCharacterSheetModal` in `wargame.html`, `CMD_EQUIP/UNEQUIP_HERO_ITEM`, and bridge equipment sync. *(Verified)*  
 - **Increment 9.5 (`v0.9.5-class-guilds`)**: `ADR-0012` modular building `facilities`, Temple Chapterhouse (`Cleric` Lv 1 → `Paladin` Lv 2+), specialized Class Guilds, City Garrison (`1 + Lv` party size), 3-Hero Roster Cap + Dismiss + Overall Leader, and 200-slot City Vault Storage Container. *(Verified)*  
-- **Increment 9.6 (`v0.9.6-city-industry`)**: Tier 2 City Industry — Dwarven Smeltery (`CMD_SMELT_INGOTS`), Alchemist Apothecary (`CMD_BREW_PROVISION`), Warehouse `+50/lv` City Vault slot expansion, and interactive enterable `#wgFacilityModal` interiors for all facility constructs. *(Verified)*
+- **Increment 9.6 (`v0.9.6-city-industry`)**: Tier 2 City Industry — Dwarven Smeltery (`CMD_SMELT_INGOTS`), Alchemist Apothecary (`CMD_BREW_PROVISION`), Warehouse `+50/lv` City Vault slot expansion, and interactive enterable `#wgFacilityModal` interiors for all facility constructs. *(Verified)*  
+- **Increment 9.7 (`v0.9.7-city-crafting`)**: City Blacksmith & Star-Forge (`CMD_FORGE_EQUIPMENT`, `CMD_TEMPER_EQUIPMENT`) and Lapidary Workshop (`CMD_PUNCH_SOCKET`, `CMD_SOCKET_CITY_GEM`, `CMD_UNSOCKET_CITY_GEM`) decoupled from Guilds into enterable City Constructs. *(Verified)*
 
-#### Increment 9.7 (`v0.9.7-city-crafting`) — City Blacksmith (Star-Forge) & Lapidary Workshop
-- **Blacksmith / Star-Forge** *(Enterable City Construct)*: Forge weapons, armor, helms, boots, and upgraded pickaxes from smelted ingots; reforge affixes and repair gear.
-- **Lapidary Workshop** *(Enterable City Construct)*: Cut raw Astral Gems, punch Gem Sockets into Rare/Epic/Relic equipment, and socket/extract gems.
-- **Architectural Separation**: Decouples equipment forging and gem socketing out of the Adventurers Guild (which remains focused on Hero recruitment, parties, bounties, and Bestiary Codex) into dedicated upgradeable City Constructs.
-
-#### Increment 9.7 (`v0.9.7-city-academy`) — Arcane Academy (Research) & Market Trade Post
+#### Increment 9.8 (`v0.9.8-city-academy`) — Arcane Academy (Research) & Market Trade Post
 - **Arcane Academy / Library** *(Enterable City Construct)*: Hosts dual-cost City & Expedition Research trees (Cartography, Geology, Metallurgy, Logistics, Construction Efficiency).
 - **Market / Trade Post** *(Enterable City Construct)*: Appraise/liquidate dungeon relics and surplus ores for Gold, and convert surplus city resources at dynamic exchange rates.
 

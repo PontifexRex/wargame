@@ -290,6 +290,13 @@ export function dispatchWargameCommand(commandEnvelope, state, scheduler, eventS
         potions: 2,
         recalls: 1
       },
+      gems: {
+        ruby: 1,
+        emerald: 1,
+        sapphire: 0,
+        topaz: 0,
+        void_diamond: 0
+      },
       // IMPORTANT: Only town_hall / meeting_hall starts at level 1!
       buildings: {
         town_hall: 1,
@@ -1185,6 +1192,211 @@ export function dispatchWargameCommand(commandEnvelope, state, scheduler, eventS
       }, simTimeMs);
     }
     return accept({ kind: kind, provisions: Object.assign({}, city.provisions) });
+  }
+
+  // ---------------------------------------------------------------------------
+  // 9B6. CITY BLACKSMITH (Star-Forge) & LAPIDARY WORKSHOP (Inc 9.7)
+  // ---------------------------------------------------------------------------
+  if (cmdType === COMMAND_TYPES.FORGE_EQUIPMENT) {
+    const city = getPrimaryCity(state);
+    if (!city) return reject('No City founded');
+    const bsLvl = (city.buildings && city.buildings.blacksmith) || 0;
+    if (bsLvl < 1) return reject('Construct a Blacksmith & Star-Forge before forging equipment');
+    if (!city.storage || !Array.isArray(city.storage.items)) {
+      city.storage = createInventoryContainer('city_storage_' + city.id, city.name + ' Vault Storage', CITY_STORAGE_BASE_CAPACITY || 200);
+    }
+
+    const slot = payload.slot || 'weapon';
+    const validSlots = ['weapon', 'armor', 'helm', 'boots', 'accessory', 'pickaxe'];
+    if (validSlots.indexOf(slot) === -1) return reject('Invalid equipment slot: ' + slot);
+
+    const ingotCost = 3 + bsLvl;
+    const goldCost = 20 + bsLvl * 10;
+    if ((city.stockpile.ingots || 0) < ingotCost || (city.stockpile.gold || 0) < goldCost) {
+      return reject('Need ' + ingotCost + ' Forged Ingots and ' + goldCost + ' Gold to forge ' + slot);
+    }
+    city.stockpile.ingots -= ingotCost;
+    city.stockpile.gold -= goldCost;
+
+    const rarity = bsLvl >= 3 ? 'epic' : (bsLvl >= 2 ? 'rare' : 'uncommon');
+    const socketCount = bsLvl >= 3 ? 2 : (bsLvl >= 2 ? 1 : 0);
+    const tierName = bsLvl >= 3 ? 'Star-Forged' : (bsLvl >= 2 ? 'Tempered' : 'Forged');
+    const slotNames = {
+      weapon: 'Greatsword',
+      armor: 'Plate Cuirass',
+      helm: 'Greathelm',
+      boots: 'War Greaves',
+      accessory: 'Runic Signet',
+      pickaxe: 'Mithril Pickaxe'
+    };
+
+    const forged = {
+      uid: 'forge_' + slot + '_' + Date.now() + '_' + Math.floor(Math.random() * 10000),
+      slot: slot,
+      name: tierName + ' ' + slotNames[slot],
+      rarity: rarity,
+      atk: slot === 'weapon' ? (10 + bsLvl * 4) : (slot === 'accessory' ? (3 + bsLvl * 2) : 0),
+      def: (slot === 'armor' || slot === 'helm' || slot === 'boots') ? (5 + bsLvl * 3) : (slot === 'accessory' ? (2 + bsLvl) : 0),
+      hp: slot === 'armor' ? (10 + bsLvl * 6) : 0,
+      tier: slot === 'pickaxe' ? Math.min(4, 1 + bsLvl) : undefined,
+      maxDurability: slot === 'pickaxe' ? (30 + bsLvl * 10) : undefined,
+      durability: slot === 'pickaxe' ? (30 + bsLvl * 10) : undefined,
+      sockets: socketCount,
+      gems: [],
+      temperRank: 0,
+      value: 45 + bsLvl * 30
+    };
+
+    city.storage.items.push(forged);
+    if (eventStream) {
+      eventStream.publish(STREAM_TOPICS.CRAFTING_COMPLETED, {
+        cityId: city.id,
+        facility: 'blacksmith',
+        itemName: forged.name,
+        qty: 1
+      }, simTimeMs);
+    }
+    return accept({ item: forged, storageCount: city.storage.items.length });
+  }
+
+  if (cmdType === COMMAND_TYPES.TEMPER_EQUIPMENT) {
+    const city = getPrimaryCity(state);
+    if (!city || !city.storage || !Array.isArray(city.storage.items)) return reject('City Vault Storage unavailable');
+    const bsLvl = (city.buildings && city.buildings.blacksmith) || 0;
+    if (bsLvl < 1) return reject('Requires Blacksmith & Star-Forge');
+
+    const item = city.storage.items.find(function(it) { return it.uid === payload.itemUid; });
+    if (!item) return reject('Item not found in City Vault Storage');
+    const curRank = item.temperRank || 0;
+    if (curRank >= 3) return reject(item.name + ' is already at maximum Temper Rank (+3)');
+
+    if ((city.stockpile.ingots || 0) < 2 || (city.stockpile.gold || 0) < 20) {
+      return reject('Need 2 Forged Ingots and 20 Gold to temper equipment');
+    }
+    city.stockpile.ingots -= 2;
+    city.stockpile.gold -= 20;
+
+    item.temperRank = curRank + 1;
+    if (item.slot === 'weapon' || item.slot === 'accessory') {
+      item.atk = (item.atk || 0) + 2;
+    } else {
+      item.def = (item.def || 0) + 2;
+    }
+    item.value = (item.value || 30) + 25;
+
+    if (eventStream) {
+      eventStream.publish(STREAM_TOPICS.CRAFTING_COMPLETED, {
+        cityId: city.id,
+        facility: 'blacksmith',
+        itemName: item.name + ' (+' + item.temperRank + ')',
+        qty: 1
+      }, simTimeMs);
+    }
+    return accept({ item: item, temperRank: item.temperRank });
+  }
+
+  if (cmdType === COMMAND_TYPES.PUNCH_SOCKET) {
+    const city = getPrimaryCity(state);
+    if (!city || !city.storage || !Array.isArray(city.storage.items)) return reject('City Vault Storage unavailable');
+    const lapLvl = (city.buildings && city.buildings.lapidary) || 0;
+    if (lapLvl < 1) return reject('Construct a Lapidary Workshop before punching gem sockets');
+
+    const item = city.storage.items.find(function(it) { return it.uid === payload.itemUid; });
+    if (!item) return reject('Item not found in City Vault Storage');
+    const curSockets = item.sockets || 0;
+    if (curSockets >= 2) return reject(item.name + ' already has the maximum 2 Gem Sockets');
+
+    if ((city.stockpile.ingots || 0) < 2 || (city.stockpile.gold || 0) < 35) {
+      return reject('Need 2 Forged Ingots and 35 Gold to punch a Gem Socket');
+    }
+    city.stockpile.ingots -= 2;
+    city.stockpile.gold -= 35;
+
+    item.sockets = curSockets + 1;
+    if (!Array.isArray(item.gems)) item.gems = [];
+    if (eventStream) {
+      eventStream.publish(STREAM_TOPICS.CRAFTING_COMPLETED, {
+        cityId: city.id,
+        facility: 'lapidary',
+        itemName: 'Gem Socket on ' + item.name,
+        qty: 1
+      }, simTimeMs);
+    }
+    return accept({ item: item, sockets: item.sockets });
+  }
+
+  if (cmdType === COMMAND_TYPES.SOCKET_CITY_GEM) {
+    const city = getPrimaryCity(state);
+    if (!city || !city.storage || !Array.isArray(city.storage.items)) return reject('City Vault Storage unavailable');
+    const lapLvl = (city.buildings && city.buildings.lapidary) || 0;
+    if (lapLvl < 1) return reject('Construct a Lapidary Workshop before socketing Astral Gems');
+    if (!city.gems) city.gems = { ruby: 0, emerald: 0, sapphire: 0, topaz: 0, void_diamond: 0 };
+
+    const item = city.storage.items.find(function(it) { return it.uid === payload.itemUid; });
+    if (!item) return reject('Item not found in City Vault Storage');
+    if (!Array.isArray(item.gems)) item.gems = [];
+    if (item.gems.length >= (item.sockets || 0)) return reject('No open Gem Sockets on ' + item.name);
+
+    const gemId = payload.gemId || 'ruby';
+    const gemBonuses = {
+      ruby:         { name: 'Ruby of Might',     atk: 4, def: 0, hp: 0,  mp: 0 },
+      emerald:      { name: 'Emerald of Wind',   atk: 1, def: 3, hp: 0,  mp: 0 },
+      sapphire:     { name: 'Sapphire of Will',  atk: 2, def: 0, hp: 0,  mp: 15 },
+      topaz:        { name: 'Topaz of Dawn',     atk: 0, def: 2, hp: 20, mp: 0 },
+      void_diamond: { name: 'Void Diamond',      atk: 6, def: 4, hp: 10, mp: 10 }
+    };
+    const gDef = gemBonuses[gemId];
+    if (!gDef) return reject('Unknown gem type: ' + gemId);
+    if ((city.gems[gemId] || 0) < 1) return reject('No ' + gDef.name + ' available in City Gems');
+
+    city.gems[gemId] -= 1;
+    item.gems.push(gemId);
+    item.atk = (item.atk || 0) + gDef.atk;
+    item.def = (item.def || 0) + gDef.def;
+    item.hp  = (item.hp  || 0) + gDef.hp;
+    item.mp  = (item.mp  || 0) + gDef.mp;
+
+    if (eventStream) {
+      eventStream.publish(STREAM_TOPICS.CRAFTING_COMPLETED, {
+        cityId: city.id,
+        facility: 'lapidary',
+        itemName: gDef.name + ' into ' + item.name,
+        qty: 1
+      }, simTimeMs);
+    }
+    return accept({ item: item, gemId: gemId, remainingGems: city.gems[gemId] });
+  }
+
+  if (cmdType === COMMAND_TYPES.UNSOCKET_CITY_GEM) {
+    const city = getPrimaryCity(state);
+    if (!city || !city.storage || !Array.isArray(city.storage.items)) return reject('City Vault Storage unavailable');
+    const lapLvl = (city.buildings && city.buildings.lapidary) || 0;
+    if (lapLvl < 1) return reject('Construct a Lapidary Workshop before extracting gems');
+    if (!city.gems) city.gems = { ruby: 0, emerald: 0, sapphire: 0, topaz: 0, void_diamond: 0 };
+
+    const item = city.storage.items.find(function(it) { return it.uid === payload.itemUid; });
+    if (!item || !Array.isArray(item.gems) || item.gems.length === 0) return reject('No socketed gems to extract');
+    if ((city.stockpile.gold || 0) < 20) return reject('Need 20 Gold to safely extract a gem');
+
+    city.stockpile.gold -= 20;
+    const removedGemId = item.gems.pop();
+    const gemBonuses = {
+      ruby:         { atk: 4, def: 0, hp: 0,  mp: 0 },
+      emerald:      { atk: 1, def: 3, hp: 0,  mp: 0 },
+      sapphire:     { atk: 2, def: 0, hp: 0,  mp: 15 },
+      topaz:        { atk: 0, def: 2, hp: 20, mp: 0 },
+      void_diamond: { atk: 6, def: 4, hp: 10, mp: 10 }
+    };
+    const gDef = gemBonuses[removedGemId];
+    if (gDef) {
+      item.atk = Math.max(0, (item.atk || 0) - gDef.atk);
+      item.def = Math.max(0, (item.def || 0) - gDef.def);
+      item.hp  = Math.max(0, (item.hp  || 0) - gDef.hp);
+      item.mp  = Math.max(0, (item.mp  || 0) - gDef.mp);
+    }
+    city.gems[removedGemId] = (city.gems[removedGemId] || 0) + 1;
+
+    return accept({ item: item, extractedGemId: removedGemId, cityGemCount: city.gems[removedGemId] });
   }
 
   // ---------------------------------------------------------------------------

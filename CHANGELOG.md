@@ -11,9 +11,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Planned
 - **Track A (`v0.8.4`–`v0.8.7`)**: `Trigger -> Condition -> Action` event graph, environmental storytelling & handcrafted set-pieces, dungeon ecology & acoustic alerts, 10-slot paper-doll & vault modifiers.
-- **Track B (`v0.9.7`–`v0.9.10`)**: City Blacksmith (Star-Forge) & Lapidary Workshop, Arcane Academy & Market, Frontier Outposts, Multi-City expansion, and City Defense / Temple of War.
+- **Track B (`v0.9.8`–`v0.9.10`)**: Arcane Academy & Market Trade Post, Claimable Overworld Outposts & Scouts, Settler Training & Multi-City Caravans, and City Defense / Temple of War.
 - **Track D (`v0.9.x-sim`)**: Headless progression simulator ("ChronoSim"), time-to-finish calculator, and 1-year pacing engine.
 - **Track E (Stages E.2–E.6)**: Formal Art Bible & UI Design System, Asset Taxonomy & Management Pipeline, Graphics Engine Evaluation (`ADR-0012`), Golden Vertical Slice, and scaled visual migration.
+
+---
+
+## [v0.9.7-city-crafting] - 2026-11-19
+
+### Added
+- **City Blacksmith & Star-Forge (`blacksmith`, enterable City Construct)**:
+  - `CMD_FORGE_EQUIPMENT`: Forge weapons, armor, helms, boots, accessories, and upgraded pickaxes from Forged Ingots + Gold directly into City Vault Storage (`city.storage.items`). Rarity and initial Gem Sockets scale with Blacksmith level (`Lv 1` Uncommon, `Lv 2` Rare with 1 Socket, `Lv 3+` Epic with 2 Sockets).
+  - `CMD_TEMPER_EQUIPMENT`: Spend `2 Ingots + 20 Gold` to temper City Vault gear (`+2 ATK` or `+2 DEF` per rank, up to `+3`).
+- **City Lapidary Workshop (`lapidary`, enterable City Construct)**:
+  - Added City Astral Gem reserves (`city.gems`: `ruby`, `emerald`, `sapphire`, `topaz`, `void_diamond`) synced with dungeon extractions and backfilled on legacy saves.
+  - `CMD_PUNCH_SOCKET`: Spend `2 Ingots + 35 Gold` to punch a Gem Socket (up to max `2`) into City Vault gear.
+  - `CMD_SOCKET_CITY_GEM` & `CMD_UNSOCKET_CITY_GEM`: Inlay Astral Gems for direct stat bonuses (`Ruby` +4 ATK, `Emerald` +3 DEF/+1 ATK, `Sapphire` +15 MP/+2 ATK, `Topaz` +20 HP/+2 DEF, `Void Diamond` +6 ATK/+4 DEF/+10 HP/+10 MP) or safely extract them back into `city.gems` for `20 Gold`.
+- **Interactive Facility Interiors (`wargameUiSync.js`, `main.js`)**:
+  - Entering the **Blacksmith & Star-Forge** or **Lapidary Workshop** in `#wgFacilityModal` exposes live forging blueprints, tempering anvil, gem reserves, socket punching, and gem inlay/extraction controls.
+
+### Verification
+- Added **Test 12** in `src/wargame/test/wargameSelfTest.js` verifying Blacksmith forging & tempering, Lapidary socket punching, Ruby socketing (+4 ATK), and safe gem extraction.
+- Suite status: **31/31 Roguelike Tests PASS** + **12/12 Wargame Tests PASS** + Headless UI Smoke Suites.
 
 ---
 

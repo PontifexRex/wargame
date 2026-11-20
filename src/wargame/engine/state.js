@@ -358,6 +358,9 @@ export function loadWargameState(scheduler = null) {
         if (!c.provisions || typeof c.provisions !== 'object') {
           c.provisions = { potions: 2, recalls: 1 };
         }
+        if (!c.gems || typeof c.gems !== 'object') {
+          c.gems = { ruby: 1, emerald: 1, sapphire: 0, topaz: 0, void_diamond: 0 };
+        }
         if (!c.buildings) c.buildings = {};
         if (c.buildings.town_hall && !c.buildings.meeting_hall) {
           c.buildings.meeting_hall = c.buildings.town_hall;

@@ -88,6 +88,10 @@ export function depositUnitCargoAtCity(unit, city, state, simTimeMs, eventStream
 
   city.stockpile.gold = (city.stockpile.gold || 0) + gold;
   city.stockpile.ore  = (city.stockpile.ore  || 0) + ore;
+  if (gems > 0) {
+    if (!city.gems) city.gems = { ruby: 0, emerald: 0, sapphire: 0, topaz: 0, void_diamond: 0 };
+    city.gems.ruby = (city.gems.ruby || 0) + gems;
+  }
 
   // Deposit looted dungeon equipment items into the party leader Hero's bagGear!
   if (gearItems.length > 0 && state && state.world && Array.isArray(state.world.heroes)) {

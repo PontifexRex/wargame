@@ -375,6 +375,41 @@ export function handleBrewProvision(kind) {
   syncWargameUI(simHost);
 }
 
+export function handleForgeEquipment(slot) {
+  simHost.dispatch({ type: COMMAND_TYPES.FORGE_EQUIPMENT, payload: { slot: slot || 'weapon' } });
+  simHost.state._dirty = true;
+  simHost.save();
+  syncWargameUI(simHost);
+}
+
+export function handleTemperEquipment(itemUid) {
+  simHost.dispatch({ type: COMMAND_TYPES.TEMPER_EQUIPMENT, payload: { itemUid: itemUid } });
+  simHost.state._dirty = true;
+  simHost.save();
+  syncWargameUI(simHost);
+}
+
+export function handlePunchSocket(itemUid) {
+  simHost.dispatch({ type: COMMAND_TYPES.PUNCH_SOCKET, payload: { itemUid: itemUid } });
+  simHost.state._dirty = true;
+  simHost.save();
+  syncWargameUI(simHost);
+}
+
+export function handleSocketCityGem(itemUid, gemId) {
+  simHost.dispatch({ type: COMMAND_TYPES.SOCKET_CITY_GEM, payload: { itemUid: itemUid, gemId: gemId || 'ruby' } });
+  simHost.state._dirty = true;
+  simHost.save();
+  syncWargameUI(simHost);
+}
+
+export function handleUnsocketCityGem(itemUid) {
+  simHost.dispatch({ type: COMMAND_TYPES.UNSOCKET_CITY_GEM, payload: { itemUid: itemUid } });
+  simHost.state._dirty = true;
+  simHost.save();
+  syncWargameUI(simHost);
+}
+
 export function handleAssignHeroToParty(partyId, heroId) {
   simHost.dispatch({
     type: COMMAND_TYPES.ASSIGN_HERO_TO_PARTY,
@@ -705,6 +740,11 @@ export const WargameApp = {
   handleCloseFacilityModal: handleCloseFacilityModal,
   handleSmeltIngots: handleSmeltIngots,
   handleBrewProvision: handleBrewProvision,
+  handleForgeEquipment: handleForgeEquipment,
+  handleTemperEquipment: handleTemperEquipment,
+  handlePunchSocket: handlePunchSocket,
+  handleSocketCityGem: handleSocketCityGem,
+  handleUnsocketCityGem: handleUnsocketCityGem,
   handleAssignHeroToParty: handleAssignHeroToParty,
   handleMarchToDungeon: handleMarchToDungeon,
   handleReturnToCity: handleReturnToCity,

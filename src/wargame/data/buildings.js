@@ -213,6 +213,36 @@ export const CITY_BUILDINGS_CATALOG = {
     },
     desc: 'Alchemical workshop brewing Healing Tonics and scribing Astral Recall Scrolls to provision Hero Parties.'
   },
+  blacksmith: {
+    id: 'blacksmith',
+    name: 'Blacksmith & Star-Forge',
+    icon: '🔨',
+    category: 'military',
+    color: '#fb923c',
+    maxLevel: 5,
+    baseBuildTimeMs: 6000,
+    baseCost: { wood: 40, stone: 50, gold: 30 },
+    requires: { meeting_hall: 1, smeltery: 1 },
+    facilities: {
+      blacksmithing: true
+    },
+    desc: 'Master forge crafting weapons, armor, and pickaxes from Forged Ingots and tempering gear affixes. Higher levels forge rarer socketed gear.'
+  },
+  lapidary: {
+    id: 'lapidary',
+    name: 'Lapidary Workshop',
+    icon: '💎',
+    category: 'arcane',
+    color: '#a78bfa',
+    maxLevel: 5,
+    baseBuildTimeMs: 6000,
+    baseCost: { wood: 35, stone: 45, gold: 35 },
+    requires: { meeting_hall: 1, quarry: 1 },
+    facilities: {
+      lapidary: true
+    },
+    desc: 'Jewelcrafter bench for punching Gem Sockets into equipment and socketing or extracting Astral Gems.'
+  },
 
   // ---------------------------------------------------------------------------
   // 4. SYNERGY STRUCTURES

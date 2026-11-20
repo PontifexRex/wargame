@@ -130,6 +130,11 @@ const COMMAND_TYPES = {
   DUMP_HERO_BAG_TO_CITY:      'CMD_DUMP_HERO_BAG_TO_CITY',
   SMELT_INGOTS:               'CMD_SMELT_INGOTS',
   BREW_PROVISION:             'CMD_BREW_PROVISION',
+  FORGE_EQUIPMENT:            'CMD_FORGE_EQUIPMENT',
+  TEMPER_EQUIPMENT:           'CMD_TEMPER_EQUIPMENT',
+  PUNCH_SOCKET:               'CMD_PUNCH_SOCKET',
+  SOCKET_CITY_GEM:            'CMD_SOCKET_CITY_GEM',
+  UNSOCKET_CITY_GEM:          'CMD_UNSOCKET_CITY_GEM',
   MARCH_TO_DUNGEON:           'CMD_MARCH_TO_DUNGEON',
   ENTER_DUNGEON:         'CMD_ENTER_DUNGEON',
   RESOLVE_DUNGEON_RETURN:'CMD_RESOLVE_DUNGEON_RETURN',
@@ -1776,6 +1781,36 @@ const CITY_BUILDINGS_CATALOG = {
     },
     desc: 'Alchemical workshop brewing Healing Tonics and scribing Astral Recall Scrolls to provision Hero Parties.'
   },
+  blacksmith: {
+    id: 'blacksmith',
+    name: 'Blacksmith & Star-Forge',
+    icon: '🔨',
+    category: 'military',
+    color: '#fb923c',
+    maxLevel: 5,
+    baseBuildTimeMs: 6000,
+    baseCost: { wood: 40, stone: 50, gold: 30 },
+    requires: { meeting_hall: 1, smeltery: 1 },
+    facilities: {
+      blacksmithing: true
+    },
+    desc: 'Master forge crafting weapons, armor, and pickaxes from Forged Ingots and tempering gear affixes. Higher levels forge rarer socketed gear.'
+  },
+  lapidary: {
+    id: 'lapidary',
+    name: 'Lapidary Workshop',
+    icon: '💎',
+    category: 'arcane',
+    color: '#a78bfa',
+    maxLevel: 5,
+    baseBuildTimeMs: 6000,
+    baseCost: { wood: 35, stone: 45, gold: 35 },
+    requires: { meeting_hall: 1, quarry: 1 },
+    facilities: {
+      lapidary: true
+    },
+    desc: 'Jewelcrafter bench for punching Gem Sockets into equipment and socketing or extracting Astral Gems.'
+  },
 
   // ---------------------------------------------------------------------------
   // 4. SYNERGY STRUCTURES
@@ -2509,6 +2544,9 @@ function loadWargameState(scheduler = null) {
         if (!c.provisions || typeof c.provisions !== 'object') {
           c.provisions = { potions: 2, recalls: 1 };
         }
+        if (!c.gems || typeof c.gems !== 'object') {
+          c.gems = { ruby: 1, emerald: 1, sapphire: 0, topaz: 0, void_diamond: 0 };
+        }
         if (!c.buildings) c.buildings = {};
         if (c.buildings.town_hall && !c.buildings.meeting_hall) {
           c.buildings.meeting_hall = c.buildings.town_hall;
@@ -2640,6 +2678,10 @@ function depositUnitCargoAtCity(unit, city, state, simTimeMs, eventStream) {
 
   city.stockpile.gold = (city.stockpile.gold || 0) + gold;
   city.stockpile.ore  = (city.stockpile.ore  || 0) + ore;
+  if (gems > 0) {
+    if (!city.gems) city.gems = { ruby: 0, emerald: 0, sapphire: 0, topaz: 0, void_diamond: 0 };
+    city.gems.ruby = (city.gems.ruby || 0) + gems;
+  }
 
   // Deposit looted dungeon equipment items into the party leader Hero's bagGear!
   if (gearItems.length > 0 && state && state.world && Array.isArray(state.world.heroes)) {
@@ -3872,6 +3914,13 @@ function dispatchWargameCommand(commandEnvelope, state, scheduler, eventStream) 
         potions: 2,
         recalls: 1
       },
+      gems: {
+        ruby: 1,
+        emerald: 1,
+        sapphire: 0,
+        topaz: 0,
+        void_diamond: 0
+      },
       // IMPORTANT: Only town_hall / meeting_hall starts at level 1!
       buildings: {
         town_hall: 1,
@@ -4767,6 +4816,211 @@ function dispatchWargameCommand(commandEnvelope, state, scheduler, eventStream) 
       }, simTimeMs);
     }
     return accept({ kind: kind, provisions: Object.assign({}, city.provisions) });
+  }
+
+  // ---------------------------------------------------------------------------
+  // 9B6. CITY BLACKSMITH (Star-Forge) & LAPIDARY WORKSHOP (Inc 9.7)
+  // ---------------------------------------------------------------------------
+  if (cmdType === COMMAND_TYPES.FORGE_EQUIPMENT) {
+    const city = getPrimaryCity(state);
+    if (!city) return reject('No City founded');
+    const bsLvl = (city.buildings && city.buildings.blacksmith) || 0;
+    if (bsLvl < 1) return reject('Construct a Blacksmith & Star-Forge before forging equipment');
+    if (!city.storage || !Array.isArray(city.storage.items)) {
+      city.storage = createInventoryContainer('city_storage_' + city.id, city.name + ' Vault Storage', CITY_STORAGE_BASE_CAPACITY || 200);
+    }
+
+    const slot = payload.slot || 'weapon';
+    const validSlots = ['weapon', 'armor', 'helm', 'boots', 'accessory', 'pickaxe'];
+    if (validSlots.indexOf(slot) === -1) return reject('Invalid equipment slot: ' + slot);
+
+    const ingotCost = 3 + bsLvl;
+    const goldCost = 20 + bsLvl * 10;
+    if ((city.stockpile.ingots || 0) < ingotCost || (city.stockpile.gold || 0) < goldCost) {
+      return reject('Need ' + ingotCost + ' Forged Ingots and ' + goldCost + ' Gold to forge ' + slot);
+    }
+    city.stockpile.ingots -= ingotCost;
+    city.stockpile.gold -= goldCost;
+
+    const rarity = bsLvl >= 3 ? 'epic' : (bsLvl >= 2 ? 'rare' : 'uncommon');
+    const socketCount = bsLvl >= 3 ? 2 : (bsLvl >= 2 ? 1 : 0);
+    const tierName = bsLvl >= 3 ? 'Star-Forged' : (bsLvl >= 2 ? 'Tempered' : 'Forged');
+    const slotNames = {
+      weapon: 'Greatsword',
+      armor: 'Plate Cuirass',
+      helm: 'Greathelm',
+      boots: 'War Greaves',
+      accessory: 'Runic Signet',
+      pickaxe: 'Mithril Pickaxe'
+    };
+
+    const forged = {
+      uid: 'forge_' + slot + '_' + Date.now() + '_' + Math.floor(Math.random() * 10000),
+      slot: slot,
+      name: tierName + ' ' + slotNames[slot],
+      rarity: rarity,
+      atk: slot === 'weapon' ? (10 + bsLvl * 4) : (slot === 'accessory' ? (3 + bsLvl * 2) : 0),
+      def: (slot === 'armor' || slot === 'helm' || slot === 'boots') ? (5 + bsLvl * 3) : (slot === 'accessory' ? (2 + bsLvl) : 0),
+      hp: slot === 'armor' ? (10 + bsLvl * 6) : 0,
+      tier: slot === 'pickaxe' ? Math.min(4, 1 + bsLvl) : undefined,
+      maxDurability: slot === 'pickaxe' ? (30 + bsLvl * 10) : undefined,
+      durability: slot === 'pickaxe' ? (30 + bsLvl * 10) : undefined,
+      sockets: socketCount,
+      gems: [],
+      temperRank: 0,
+      value: 45 + bsLvl * 30
+    };
+
+    city.storage.items.push(forged);
+    if (eventStream) {
+      eventStream.publish(STREAM_TOPICS.CRAFTING_COMPLETED, {
+        cityId: city.id,
+        facility: 'blacksmith',
+        itemName: forged.name,
+        qty: 1
+      }, simTimeMs);
+    }
+    return accept({ item: forged, storageCount: city.storage.items.length });
+  }
+
+  if (cmdType === COMMAND_TYPES.TEMPER_EQUIPMENT) {
+    const city = getPrimaryCity(state);
+    if (!city || !city.storage || !Array.isArray(city.storage.items)) return reject('City Vault Storage unavailable');
+    const bsLvl = (city.buildings && city.buildings.blacksmith) || 0;
+    if (bsLvl < 1) return reject('Requires Blacksmith & Star-Forge');
+
+    const item = city.storage.items.find(function(it) { return it.uid === payload.itemUid; });
+    if (!item) return reject('Item not found in City Vault Storage');
+    const curRank = item.temperRank || 0;
+    if (curRank >= 3) return reject(item.name + ' is already at maximum Temper Rank (+3)');
+
+    if ((city.stockpile.ingots || 0) < 2 || (city.stockpile.gold || 0) < 20) {
+      return reject('Need 2 Forged Ingots and 20 Gold to temper equipment');
+    }
+    city.stockpile.ingots -= 2;
+    city.stockpile.gold -= 20;
+
+    item.temperRank = curRank + 1;
+    if (item.slot === 'weapon' || item.slot === 'accessory') {
+      item.atk = (item.atk || 0) + 2;
+    } else {
+      item.def = (item.def || 0) + 2;
+    }
+    item.value = (item.value || 30) + 25;
+
+    if (eventStream) {
+      eventStream.publish(STREAM_TOPICS.CRAFTING_COMPLETED, {
+        cityId: city.id,
+        facility: 'blacksmith',
+        itemName: item.name + ' (+' + item.temperRank + ')',
+        qty: 1
+      }, simTimeMs);
+    }
+    return accept({ item: item, temperRank: item.temperRank });
+  }
+
+  if (cmdType === COMMAND_TYPES.PUNCH_SOCKET) {
+    const city = getPrimaryCity(state);
+    if (!city || !city.storage || !Array.isArray(city.storage.items)) return reject('City Vault Storage unavailable');
+    const lapLvl = (city.buildings && city.buildings.lapidary) || 0;
+    if (lapLvl < 1) return reject('Construct a Lapidary Workshop before punching gem sockets');
+
+    const item = city.storage.items.find(function(it) { return it.uid === payload.itemUid; });
+    if (!item) return reject('Item not found in City Vault Storage');
+    const curSockets = item.sockets || 0;
+    if (curSockets >= 2) return reject(item.name + ' already has the maximum 2 Gem Sockets');
+
+    if ((city.stockpile.ingots || 0) < 2 || (city.stockpile.gold || 0) < 35) {
+      return reject('Need 2 Forged Ingots and 35 Gold to punch a Gem Socket');
+    }
+    city.stockpile.ingots -= 2;
+    city.stockpile.gold -= 35;
+
+    item.sockets = curSockets + 1;
+    if (!Array.isArray(item.gems)) item.gems = [];
+    if (eventStream) {
+      eventStream.publish(STREAM_TOPICS.CRAFTING_COMPLETED, {
+        cityId: city.id,
+        facility: 'lapidary',
+        itemName: 'Gem Socket on ' + item.name,
+        qty: 1
+      }, simTimeMs);
+    }
+    return accept({ item: item, sockets: item.sockets });
+  }
+
+  if (cmdType === COMMAND_TYPES.SOCKET_CITY_GEM) {
+    const city = getPrimaryCity(state);
+    if (!city || !city.storage || !Array.isArray(city.storage.items)) return reject('City Vault Storage unavailable');
+    const lapLvl = (city.buildings && city.buildings.lapidary) || 0;
+    if (lapLvl < 1) return reject('Construct a Lapidary Workshop before socketing Astral Gems');
+    if (!city.gems) city.gems = { ruby: 0, emerald: 0, sapphire: 0, topaz: 0, void_diamond: 0 };
+
+    const item = city.storage.items.find(function(it) { return it.uid === payload.itemUid; });
+    if (!item) return reject('Item not found in City Vault Storage');
+    if (!Array.isArray(item.gems)) item.gems = [];
+    if (item.gems.length >= (item.sockets || 0)) return reject('No open Gem Sockets on ' + item.name);
+
+    const gemId = payload.gemId || 'ruby';
+    const gemBonuses = {
+      ruby:         { name: 'Ruby of Might',     atk: 4, def: 0, hp: 0,  mp: 0 },
+      emerald:      { name: 'Emerald of Wind',   atk: 1, def: 3, hp: 0,  mp: 0 },
+      sapphire:     { name: 'Sapphire of Will',  atk: 2, def: 0, hp: 0,  mp: 15 },
+      topaz:        { name: 'Topaz of Dawn',     atk: 0, def: 2, hp: 20, mp: 0 },
+      void_diamond: { name: 'Void Diamond',      atk: 6, def: 4, hp: 10, mp: 10 }
+    };
+    const gDef = gemBonuses[gemId];
+    if (!gDef) return reject('Unknown gem type: ' + gemId);
+    if ((city.gems[gemId] || 0) < 1) return reject('No ' + gDef.name + ' available in City Gems');
+
+    city.gems[gemId] -= 1;
+    item.gems.push(gemId);
+    item.atk = (item.atk || 0) + gDef.atk;
+    item.def = (item.def || 0) + gDef.def;
+    item.hp  = (item.hp  || 0) + gDef.hp;
+    item.mp  = (item.mp  || 0) + gDef.mp;
+
+    if (eventStream) {
+      eventStream.publish(STREAM_TOPICS.CRAFTING_COMPLETED, {
+        cityId: city.id,
+        facility: 'lapidary',
+        itemName: gDef.name + ' into ' + item.name,
+        qty: 1
+      }, simTimeMs);
+    }
+    return accept({ item: item, gemId: gemId, remainingGems: city.gems[gemId] });
+  }
+
+  if (cmdType === COMMAND_TYPES.UNSOCKET_CITY_GEM) {
+    const city = getPrimaryCity(state);
+    if (!city || !city.storage || !Array.isArray(city.storage.items)) return reject('City Vault Storage unavailable');
+    const lapLvl = (city.buildings && city.buildings.lapidary) || 0;
+    if (lapLvl < 1) return reject('Construct a Lapidary Workshop before extracting gems');
+    if (!city.gems) city.gems = { ruby: 0, emerald: 0, sapphire: 0, topaz: 0, void_diamond: 0 };
+
+    const item = city.storage.items.find(function(it) { return it.uid === payload.itemUid; });
+    if (!item || !Array.isArray(item.gems) || item.gems.length === 0) return reject('No socketed gems to extract');
+    if ((city.stockpile.gold || 0) < 20) return reject('Need 20 Gold to safely extract a gem');
+
+    city.stockpile.gold -= 20;
+    const removedGemId = item.gems.pop();
+    const gemBonuses = {
+      ruby:         { atk: 4, def: 0, hp: 0,  mp: 0 },
+      emerald:      { atk: 1, def: 3, hp: 0,  mp: 0 },
+      sapphire:     { atk: 2, def: 0, hp: 0,  mp: 15 },
+      topaz:        { atk: 0, def: 2, hp: 20, mp: 0 },
+      void_diamond: { atk: 6, def: 4, hp: 10, mp: 10 }
+    };
+    const gDef = gemBonuses[removedGemId];
+    if (gDef) {
+      item.atk = Math.max(0, (item.atk || 0) - gDef.atk);
+      item.def = Math.max(0, (item.def || 0) - gDef.def);
+      item.hp  = Math.max(0, (item.hp  || 0) - gDef.hp);
+      item.mp  = Math.max(0, (item.mp  || 0) - gDef.mp);
+    }
+    city.gems[removedGemId] = (city.gems[removedGemId] || 0) + 1;
+
+    return accept({ item: item, extractedGemId: removedGemId, cityGemCount: city.gems[removedGemId] });
   }
 
   // ---------------------------------------------------------------------------
@@ -6664,6 +6918,70 @@ function renderWargameFacilityModal(simHost) {
             <div class="text-[10px] font-mono text-[#8b949e]">Cost: 25 Gold • 5 Ore</div>
           </button>
         </div>
+      </div>
+    `);
+  }
+
+  if (fac.blacksmithing) {
+    const ingCost = 3 + lvl;
+    const gCost = 20 + lvl * 10;
+    const tierLbl = lvl >= 3 ? 'Epic (2 Sockets)' : (lvl >= 2 ? 'Rare (1 Socket)' : 'Uncommon');
+    const slots = ['weapon', 'armor', 'helm', 'boots', 'accessory', 'pickaxe'];
+    const forgeBtns = slots.map(function(sl) {
+      return `<button onclick="window.WargameApp.handleForgeEquipment('${sl}')" class="p-2 rounded bg-[#111722] hover:bg-[#1a2232] border border-[#fb923c]/40 text-left text-xs cursor-pointer"><div class="font-bold text-[#fb923c]">${getItemTypeIcon(sl)} Forge ${sl.toUpperCase()}</div><div class="text-[10px] font-mono text-[#8b949e]">${ingCost} Ingots • ${gCost}g</div></button>`;
+    }).join('');
+    const stItems = (city.storage && Array.isArray(city.storage.items)) ? city.storage.items.slice(0, 6) : [];
+    const temperList = stItems.length === 0
+      ? `<div class="text-[11px] text-[#64748b] italic">Forge or deposit gear into City Vault Storage to temper it here.</div>`
+      : stItems.map(function(it) {
+          const rk = it.temperRank || 0;
+          return `<div class="p-1.5 rounded bg-[#111722] border border-[#283347] flex items-center justify-between text-xs"><span class="font-bold text-[#e6edf3]">${getItemTypeIcon(it.slot)} ${it.name}${rk > 0 ? (' +' + rk) : ''}</span><button onclick="window.WargameApp.handleTemperEquipment('${it.uid}')" ${rk >= 3 ? 'disabled' : ''} class="px-2 py-0.5 rounded text-[10px] font-mono font-bold ${rk >= 3 ? 'bg-[#1a2232] text-[#64748b]' : 'bg-[#fb923c] text-[#080b11] cursor-pointer'}">${rk >= 3 ? 'MAX' : 'Temper (2 Ingots, 20g)'}</button></div>`;
+        }).join('');
+    sections.push(`
+      <div class="p-3 rounded-lg bg-[#080b11] border border-[#fb923c]/40 space-y-2.5">
+        <div class="flex items-center justify-between text-xs font-mono">
+          <span class="text-[#fb923c] font-bold">🔨 Star-Forge Blueprints (${tierLbl})</span>
+          <span class="text-[#e6edf3]">Ingots: <strong class="text-[#fbbf24]">${city.stockpile.ingots || 0}</strong> • Gold: <strong class="text-[#fbbf24]">${city.stockpile.gold || 0}</strong></span>
+        </div>
+        <div class="grid grid-cols-2 sm:grid-cols-3 gap-1.5">${forgeBtns}</div>
+        <div class="pt-2 border-t border-[#1e293b] space-y-1.5">
+          <div class="text-[10px] font-mono uppercase text-[#fb923c] font-bold">🔥 Tempering Anvil (City Vault Gear)</div>
+          ${temperList}
+        </div>
+      </div>
+    `);
+  }
+
+  if (fac.lapidary) {
+    const cg = city.gems || { ruby: 0, emerald: 0, sapphire: 0, topaz: 0, void_diamond: 0 };
+    const stItems = (city.storage && Array.isArray(city.storage.items)) ? city.storage.items.slice(0, 6) : [];
+    const sockList = stItems.length === 0
+      ? `<div class="text-[11px] text-[#64748b] italic">Deposit or forge gear into City Vault Storage to punch sockets and inlay Astral Gems.</div>`
+      : stItems.map(function(it) {
+          const maxS = it.sockets || 0;
+          const usedS = Array.isArray(it.gems) ? it.gems.length : 0;
+          return `
+            <div class="p-2 rounded bg-[#111722] border border-[#283347] flex flex-wrap items-center justify-between gap-2 text-xs">
+              <div>
+                <div class="font-bold text-[#e6edf3]">${getItemTypeIcon(it.slot)} ${it.name}</div>
+                <div class="text-[10px] font-mono text-[#a78bfa]">Sockets: ${usedS}/${maxS} ${usedS > 0 ? ('[' + it.gems.join(', ') + ']') : ''}</div>
+              </div>
+              <div class="flex items-center gap-1">
+                ${maxS < 2 ? `<button onclick="window.WargameApp.handlePunchSocket('${it.uid}')" class="px-2 py-0.5 rounded bg-[#1a2232] hover:bg-[#283347] text-[#fbbf24] border border-[#fbbf24]/40 text-[10px] font-mono cursor-pointer">+ Socket (2 Ing, 35g)</button>` : ''}
+                ${usedS < maxS && (cg.ruby || 0) > 0 ? `<button onclick="window.WargameApp.handleSocketCityGem('${it.uid}', 'ruby')" class="px-2 py-0.5 rounded bg-[#f87171] text-[#080b11] font-bold text-[10px] font-mono cursor-pointer">Socket Ruby</button>` : ''}
+                ${usedS < maxS && (cg.emerald || 0) > 0 ? `<button onclick="window.WargameApp.handleSocketCityGem('${it.uid}', 'emerald')" class="px-2 py-0.5 rounded bg-[#34d399] text-[#080b11] font-bold text-[10px] font-mono cursor-pointer">Socket Emerald</button>` : ''}
+                ${usedS > 0 ? `<button onclick="window.WargameApp.handleUnsocketCityGem('${it.uid}')" class="px-2 py-0.5 rounded bg-[#1a2232] text-[#38bdf8] border border-[#38bdf8]/40 text-[10px] font-mono cursor-pointer">Extract (20g)</button>` : ''}
+              </div>
+            </div>
+          `;
+        }).join('');
+    sections.push(`
+      <div class="p-3 rounded-lg bg-[#080b11] border border-[#a78bfa]/40 space-y-2.5">
+        <div class="flex flex-wrap items-center justify-between gap-2 text-xs font-mono">
+          <span class="text-[#a78bfa] font-bold">💎 Astral Lapidary Bench</span>
+          <span class="text-[10px] text-[#cbd5e1]">🔴 Ruby:${cg.ruby || 0} • 🟢 Emr:${cg.emerald || 0} • 🔵 Sap:${cg.sapphire || 0} • 🟡 Top:${cg.topaz || 0} • 🟣 Void:${cg.void_diamond || 0}</span>
+        </div>
+        <div class="space-y-1.5">${sockList}</div>
       </div>
     `);
   }
@@ -8638,6 +8956,57 @@ function evaluateWargameSelfTests() {
       : 'Failed checks: ' + failed11.join(', ')
   });
 
+  // =========================================================================
+  // Test 12: City Blacksmith (Star-Forge) & Lapidary Workshop (Inc 9.7)
+  // =========================================================================
+  const forgeBlocked12 = !host7.dispatch({ type: COMMAND_TYPES.FORGE_EQUIPMENT, payload: { slot: 'weapon' } }).ok;
+  city7.buildings.blacksmith = 2;
+  city7.stockpile.ingots = 30;
+  city7.stockpile.gold = 300;
+  const forgeRes12 = host7.dispatch({ type: COMMAND_TYPES.FORGE_EQUIPMENT, payload: { slot: 'weapon' } });
+  const forgedItem12 = forgeRes12.ok ? forgeRes12.data.item : null;
+  const forgedVerified12 = Boolean(
+    forgeBlocked12 &&
+    forgedItem12 &&
+    forgedItem12.rarity === 'rare' &&
+    forgedItem12.sockets === 1
+  );
+
+  // Temper forged weapon (+2 ATK, temperRank = 1)
+  const atkBeforeTemper12 = forgedItem12 ? forgedItem12.atk : 0;
+  const temperRes12 = forgedItem12 ? host7.dispatch({ type: COMMAND_TYPES.TEMPER_EQUIPMENT, payload: { itemUid: forgedItem12.uid } }) : { ok: false };
+  const temperVerified12 = Boolean(temperRes12.ok && forgedItem12.temperRank === 1 && forgedItem12.atk === atkBeforeTemper12 + 2);
+
+  // Lapidary: Punch 2nd socket -> Socket Ruby (+4 ATK) -> Extract Ruby back to city.gems
+  const lapBlocked12 = !host7.dispatch({ type: COMMAND_TYPES.PUNCH_SOCKET, payload: { itemUid: forgedItem12.uid } }).ok;
+  city7.buildings.lapidary = 1;
+  city7.gems = { ruby: 2, emerald: 1, sapphire: 0, topaz: 0, void_diamond: 0 };
+  const punchRes12 = host7.dispatch({ type: COMMAND_TYPES.PUNCH_SOCKET, payload: { itemUid: forgedItem12.uid } });
+  const atkBeforeGem12 = forgedItem12.atk;
+  const socketRes12 = host7.dispatch({ type: COMMAND_TYPES.SOCKET_CITY_GEM, payload: { itemUid: forgedItem12.uid, gemId: 'ruby' } });
+  const gemSocketed12 = Boolean(socketRes12.ok && forgedItem12.atk === atkBeforeGem12 + 4 && city7.gems.ruby === 1);
+  const unsocketRes12 = host7.dispatch({ type: COMMAND_TYPES.UNSOCKET_CITY_GEM, payload: { itemUid: forgedItem12.uid } });
+  const gemExtracted12 = Boolean(unsocketRes12.ok && forgedItem12.atk === atkBeforeGem12 && city7.gems.ruby === 2);
+
+  const t12Checks = {
+    forgedVerified12: forgedVerified12,
+    temperVerified12: temperVerified12,
+    lapBlocked12: lapBlocked12,
+    punchOk: Boolean(punchRes12.ok && forgedItem12.sockets === 2),
+    gemSocketed12: gemSocketed12,
+    gemExtracted12: gemExtracted12
+  };
+  const failed12 = Object.keys(t12Checks).filter(function(k) { return !t12Checks[k]; });
+  const t12Pass = failed12.length === 0;
+
+  results.push({
+    name: '12. City Blacksmith (Star-Forge) & Lapidary Workshop (Inc 9.7)',
+    pass: t12Pass,
+    detail: t12Pass
+      ? 'Blacksmith forging & tempering, Lapidary socket punching, Ruby socketing (+4 ATK), and safe gem extraction verified'
+      : 'Failed checks: ' + failed12.join(', ')
+  });
+
   return results;
 }
 
@@ -9003,6 +9372,41 @@ function handleBrewProvision(kind) {
   syncWargameUI(simHost);
 }
 
+function handleForgeEquipment(slot) {
+  simHost.dispatch({ type: COMMAND_TYPES.FORGE_EQUIPMENT, payload: { slot: slot || 'weapon' } });
+  simHost.state._dirty = true;
+  simHost.save();
+  syncWargameUI(simHost);
+}
+
+function handleTemperEquipment(itemUid) {
+  simHost.dispatch({ type: COMMAND_TYPES.TEMPER_EQUIPMENT, payload: { itemUid: itemUid } });
+  simHost.state._dirty = true;
+  simHost.save();
+  syncWargameUI(simHost);
+}
+
+function handlePunchSocket(itemUid) {
+  simHost.dispatch({ type: COMMAND_TYPES.PUNCH_SOCKET, payload: { itemUid: itemUid } });
+  simHost.state._dirty = true;
+  simHost.save();
+  syncWargameUI(simHost);
+}
+
+function handleSocketCityGem(itemUid, gemId) {
+  simHost.dispatch({ type: COMMAND_TYPES.SOCKET_CITY_GEM, payload: { itemUid: itemUid, gemId: gemId || 'ruby' } });
+  simHost.state._dirty = true;
+  simHost.save();
+  syncWargameUI(simHost);
+}
+
+function handleUnsocketCityGem(itemUid) {
+  simHost.dispatch({ type: COMMAND_TYPES.UNSOCKET_CITY_GEM, payload: { itemUid: itemUid } });
+  simHost.state._dirty = true;
+  simHost.save();
+  syncWargameUI(simHost);
+}
+
 function handleAssignHeroToParty(partyId, heroId) {
   simHost.dispatch({
     type: COMMAND_TYPES.ASSIGN_HERO_TO_PARTY,
@@ -9333,6 +9737,11 @@ const WargameApp = {
   handleCloseFacilityModal: handleCloseFacilityModal,
   handleSmeltIngots: handleSmeltIngots,
   handleBrewProvision: handleBrewProvision,
+  handleForgeEquipment: handleForgeEquipment,
+  handleTemperEquipment: handleTemperEquipment,
+  handlePunchSocket: handlePunchSocket,
+  handleSocketCityGem: handleSocketCityGem,
+  handleUnsocketCityGem: handleUnsocketCityGem,
   handleAssignHeroToParty: handleAssignHeroToParty,
   handleMarchToDungeon: handleMarchToDungeon,
   handleReturnToCity: handleReturnToCity,
