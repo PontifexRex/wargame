@@ -341,9 +341,10 @@ export function handleDismissHero(heroId) {
   syncWargameUI(simHost);
 }
 
-export function handleOpenFacilityModal(buildingId) {
+export function handleOpenFacilityModal(buildingId, plotIndex) {
   if (!simHost.state) return;
   simHost.state._openFacilityId = buildingId;
+  simHost.state._openFacilityPlotIndex = (typeof plotIndex === 'number' && !isNaN(plotIndex)) ? plotIndex : null;
   simHost.state._facilityTab = null;
   simHost.state._showFacilityInfo = false;
   simHost.state._dirty = true;

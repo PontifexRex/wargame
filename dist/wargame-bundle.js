@@ -7741,7 +7741,12 @@ function renderWargameFacilityModal(simHost) {
   }
 
   modal.classList.remove('hidden');
-  const lvl = (city.buildings && city.buildings[bId]) || 1;
+  const plots = Array.isArray(city.plots) ? city.plots : [];
+  const targetPlotIdx = simHost.state._openFacilityPlotIndex;
+  const activePlot = (typeof targetPlotIdx === 'number'
+    ? plots.find(function(p) { return p.plotIndex === targetPlotIdx && p.buildingId === bId; })
+    : null) || plots.find(function(p) { return p.buildingId === bId; }) || null;
+  const lvl = (activePlot && activePlot.level) || (city.buildings && city.buildings[bId]) || 1;
   const titleEl = document.getElementById('wgFacilityTitle');
   const subEl = document.getElementById('wgFacilitySubtitle');
   const bodyEl = document.getElementById('wgFacilityBody');
@@ -7916,6 +7921,76 @@ function renderWargameFacilityModal(simHost) {
     sections.push(guildServicesHtml);
   }
 
+  // Universal Production, Consumption & Upgrade Statistics Panel (works identically for Farms, Wells, Huts, Mines, Guilds, etc.)
+  const prodLines = [];
+  if (bDef.productionPerTick) {
+    Object.entries(bDef.productionPerTick).forEach(function(e) {
+      if (e[1] > 0) prodLines.push('+' + (e[1] * lvl) + ' ' + e[0] + ' / tick');
+    });
+  }
+  if (bDef.providesPopulation) prodLines.push('+' + (bDef.providesPopulation * lvl) + ' Max Population');
+  if (bDef.storageBonus) {
+    Object.entries(bDef.storageBonus).forEach(function(e) {
+      prodLines.push('+' + (e[1] * lvl) + ' ' + e[0] + ' Cap');
+    });
+  }
+  if (bDef.adjacencyBonus) prodLines.push('+20% Adjacent Food/Wood/Stone/Water Output');
+
+  const consumeLines = [];
+  if (bDef.consumptionPerTick) {
+    Object.entries(bDef.consumptionPerTick).forEach(function(e) {
+      if (e[1] > 0) consumeLines.push('-' + (e[1] * lvl) + ' ' + e[0] + ' / tick');
+    });
+  } else if (bDef.providesPopulation) {
+    consumeLines.push('Citizens consume Food & Water per tick');
+  } else {
+    consumeLines.push('None (Zero passive upkeep)');
+  }
+
+  const nextLvl = lvl + 1;
+  const isMaxLvl = nextLvl > (bDef.maxLevel || 5);
+  const upgCost = !isMaxLvl ? computeBuildingUpgradeCost(bId, nextLvl) : null;
+  const upgDur = !isMaxLvl ? computeBuildingDurationMs(bId, nextLvl) : 0;
+  const mhLvl = (city.buildings && (city.buildings.meeting_hall || city.buildings.town_hall)) || 1;
+  const isMH = (bId === 'meeting_hall' || bId === 'town_hall');
+  const cappedByMH = !isMH && nextLvl > mhLvl;
+  const canAffordUpg = Boolean(
+    !isMaxLvl && !cappedByMH && activePlot && !activePlot.underConstruction &&
+    (city.stockpile.wood  || 0) >= (upgCost.wood  || 0) &&
+    (city.stockpile.stone || 0) >= (upgCost.stone || 0) &&
+    (city.stockpile.gold  || 0) >= (upgCost.gold  || 0) &&
+    (city.stockpile.water || 0) >= (upgCost.water || 0) &&
+    (city.stockpile.ore   || 0) >= (upgCost.ore   || 0)
+  );
+
+  if (sections.length === 0 || bDef.productionPerTick || bDef.providesPopulation || bDef.adjacencyBonus) {
+    sections.push(`
+      <div class="p-3 rounded-lg bg-[#080b11] border border-[#38bdf8]/40 space-y-2.5">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+          <div class="p-2 rounded bg-[#111722]/90 border border-[#283347]">
+            <div class="text-[10px] font-mono uppercase text-[#34d399] font-bold">📈 Producing / Providing</div>
+            <div class="text-[11px] font-mono text-[#e6edf3] mt-1">${prodLines.length > 0 ? prodLines.join(' • ') : 'Civic / Operational Support'}</div>
+          </div>
+          <div class="p-2 rounded bg-[#111722]/90 border border-[#283347]">
+            <div class="text-[10px] font-mono uppercase text-[#fb923c] font-bold">📉 Consuming / Upkeep</div>
+            <div class="text-[11px] font-mono text-[#94a3b8] mt-1">${consumeLines.join(' • ')}</div>
+          </div>
+        </div>
+        ${!isMaxLvl && activePlot ? `
+          <div class="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-[#1e293b]">
+            <div class="text-[10px] font-mono text-[#cbd5e1]">
+              Upgrade Lv ${nextLvl}: <span class="text-[#fbbf24]">${upgCost.wood}W • ${upgCost.stone}S${upgCost.gold ? (' • ' + upgCost.gold + 'G') : ''}${upgCost.water ? (' • ' + upgCost.water + '💧') : ''}${upgCost.ore ? (' • ' + upgCost.ore + '⛏️') : ''}</span> • ⏱ ${formatSimDuration(upgDur)}
+              ${cappedByMH ? '<span class="text-[#f87171] ml-1">(Requires Meeting Hall Lv ' + nextLvl + ')</span>' : ''}
+            </div>
+            <button onclick="window.WargameApp.handleQueueBuilding(${activePlot.plotIndex}, '${bId}')" ${!canAffordUpg ? 'disabled' : ''} class="px-3 py-1.5 rounded text-[10px] font-mono font-bold uppercase ${canAffordUpg ? 'bg-[#fbbf24] hover:bg-[#f59e0b] text-[#080b11] cursor-pointer' : 'bg-[#1a2232] text-[#64748b] cursor-not-allowed'}">
+              ⬆️ Upgrade to Lv ${nextLvl}
+            </button>
+          </div>
+        ` : (isMaxLvl ? `<div class="text-[10px] font-mono text-[#fbbf24] text-right">★ Maximum Level Reached</div>` : '')}
+      </div>
+    `);
+  }
+
   const innerHtml = sections.join('') || `<div class="text-xs text-[#8b949e]">Facility operational.</div>`;
   const showInfo = Boolean(simHost.state && simHost.state._showFacilityInfo);
   const infoPopoverHtml = showInfo ? `
@@ -7928,41 +8003,24 @@ function renderWargameFacilityModal(simHost) {
     </div>
   ` : '';
 
-  if (interiorSrc) {
-    const immersiveStageHtml = `
-      <div class="relative min-h-[480px] rounded-xl overflow-hidden border border-[#fbbf24]/50 bg-[#080b11] shadow-2xl flex flex-col justify-between">
-        <img src="${interiorSrc}" alt="${bDef.name} Interior" class="absolute inset-0 w-full h-full object-cover object-center" />
-        <div class="absolute inset-0 bg-gradient-to-b from-[#080b11]/55 via-[#080b11]/20 to-[#080b11]/92"></div>
-        <div class="relative z-10 p-3.5 flex items-center justify-between gap-2">
-          <div class="px-3 py-1.5 rounded-lg bg-[#080b11]/70 backdrop-blur-md border border-[#fbbf24]/40">
-            <div class="text-xs font-display font-bold text-[#fbbf24]">${bDef.icon || '🏛️'} ${bDef.name} <span class="text-[10px] font-mono text-[#e6edf3]/80">• Lv ${lvl} (${city.name})</span></div>
-          </div>
-          <button onclick="window.WargameApp.handleToggleFacilityInfo()" title="Building Info" class="w-8 h-8 rounded-full bg-[#080b11]/80 hover:bg-[#fbbf24] hover:text-[#080b11] backdrop-blur-md border border-[#fbbf24]/50 text-[#fbbf24] font-bold text-xs flex items-center justify-center cursor-pointer transition">ⓘ</button>
+  const unifiedStageHtml = `
+    <div class="relative min-h-[460px] rounded-xl overflow-hidden border border-[#fbbf24]/50 bg-gradient-to-br from-[#161e2e] via-[#0f1520] to-[#080b11] shadow-2xl flex flex-col justify-between">
+      ${interiorSrc ? `<img src="${interiorSrc}" alt="${bDef.name} Interior" class="absolute inset-0 w-full h-full object-cover object-center" />` : `<div class="absolute inset-0 flex items-center justify-center opacity-10 text-[140px] select-none pointer-events-none">${bDef.icon || '🏛️'}</div>`}
+      <div class="absolute inset-0 bg-gradient-to-b from-[#080b11]/55 via-[#080b11]/20 to-[#080b11]/92"></div>
+      <div class="relative z-10 p-3.5 flex items-center justify-between gap-2">
+        <div class="px-3 py-1.5 rounded-lg bg-[#080b11]/70 backdrop-blur-md border border-[#fbbf24]/40">
+          <div class="text-xs font-display font-bold text-[#fbbf24]">${bDef.icon || '🏛️'} ${bDef.name} <span class="text-[10px] font-mono text-[#e6edf3]/80">• Lv ${lvl} (${city.name})</span></div>
         </div>
-        ${infoPopoverHtml ? `<div class="relative z-20">${infoPopoverHtml}</div>` : ''}
-        <div class="relative z-10 flex-1 min-h-[120px]"></div>
-        <div class="relative z-10 p-3.5 space-y-2.5 [&_>div]:bg-[#080b11]/78 [&_>div]:backdrop-blur-md">
-          ${innerHtml}
-        </div>
+        <button onclick="window.WargameApp.handleToggleFacilityInfo()" title="Building Info" class="w-8 h-8 rounded-full bg-[#080b11]/80 hover:bg-[#fbbf24] hover:text-[#080b11] backdrop-blur-md border border-[#fbbf24]/50 text-[#fbbf24] font-bold text-xs flex items-center justify-center cursor-pointer transition">ⓘ</button>
       </div>
-    `;
-    setHtmlIfChanged(bodyEl, immersiveStageHtml);
-  } else {
-    const fallbackStageHtml = `
-      <div class="p-3 rounded-lg bg-gradient-to-r from-[#161e2e] via-[#0f1520] to-[#080b11] border border-[#283347] flex items-center justify-between gap-3">
-        <div class="flex items-center gap-3">
-          <div class="w-10 h-10 rounded-lg bg-[#080b11] border border-[#fbbf24]/30 flex items-center justify-center text-xl">${bDef.icon || '🏛️'}</div>
-          <div>
-            <div class="text-xs font-bold text-[#e6edf3]">${bDef.name} — Level ${lvl}</div>
-            <div class="text-[11px] text-[#8b949e]">${bDef.desc || ''}</div>
-          </div>
-        </div>
-        <span class="px-2 py-0.5 rounded bg-[#080b11] border border-[#283347] text-[9px] font-mono text-[#64748b] uppercase whitespace-nowrap">${getActiveRenderAdapter().backend}</span>
+      ${infoPopoverHtml ? `<div class="relative z-20">${infoPopoverHtml}</div>` : ''}
+      <div class="relative z-10 flex-1 min-h-[120px]"></div>
+      <div class="relative z-10 p-3.5 space-y-2.5 [&_>div]:bg-[#080b11]/78 [&_>div]:backdrop-blur-md">
+        ${innerHtml}
       </div>
-      ${innerHtml}
-    `;
-    setHtmlIfChanged(bodyEl, fallbackStageHtml);
-  }
+    </div>
+  `;
+  setHtmlIfChanged(bodyEl, unifiedStageHtml);
 }
 
 function renderTitleScreenSummary(simHost) {
@@ -8545,11 +8603,9 @@ function renderCityBuilderPanel(simHost) {
         </div>
 
         <div class="space-y-2 pt-2 border-t border-[#1e293b]">
-          ${curBDef.facilities ? `
-            <button data-action="enter-facility" onclick="window.WargameApp.handleOpenFacilityModal('${curBId}')" class="w-full py-2 rounded-lg font-bold text-xs uppercase tracking-wider shadow bg-[#60a5fa] hover:bg-[#3b82f6] text-[#080b11] cursor-pointer">
-              🚪 Enter ${curBDef.name}
-            </button>
-          ` : ''}
+          <button data-action="enter-facility" onclick="window.WargameApp.handleOpenFacilityModal('${curBId}', ${selPlot.plotIndex})" class="w-full py-2 rounded-lg font-bold text-xs uppercase tracking-wider shadow bg-[#60a5fa] hover:bg-[#3b82f6] text-[#080b11] cursor-pointer">
+            🚪 Enter ${curBDef.name}
+          </button>
           <!-- Upgrade Action -->
           ${!isMax ? `
             <div class="p-2.5 rounded bg-[#111722] border border-[#283347] space-y-1.5">
@@ -10333,9 +10389,10 @@ function handleDismissHero(heroId) {
   syncWargameUI(simHost);
 }
 
-function handleOpenFacilityModal(buildingId) {
+function handleOpenFacilityModal(buildingId, plotIndex) {
   if (!simHost.state) return;
   simHost.state._openFacilityId = buildingId;
+  simHost.state._openFacilityPlotIndex = (typeof plotIndex === 'number' && !isNaN(plotIndex)) ? plotIndex : null;
   simHost.state._facilityTab = null;
   simHost.state._showFacilityInfo = false;
   simHost.state._dirty = true;
