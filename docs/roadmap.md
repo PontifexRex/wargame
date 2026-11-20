@@ -1,7 +1,7 @@
 # Aethelgard: Project Roadmap & Strategic Horizons
 
-> **Current Baseline**: `v0.9.7-city-crafting` / `v0.8.3-hazards` / `Stage E.1`  
-> **Verification Status**: 31/31 Roguelike Baseline Tests PASS + 12/12 Wargame Simulation Tests PASS  
+> **Current Baseline**: `v0.9.7.10-hex-overworld` / `v0.8.3-hazards` / `ADR-0014` (`Stage E.5.5`)  
+> **Verification Status**: 33/33 Roguelike Baseline Tests PASS + 16/16 Wargame Simulation Tests PASS  
 > **Historical Release Notes**: For completed increment release logs, detailed feature breakdowns, and verification gates, refer to [CHANGELOG.md](../CHANGELOG.md).
 
 ---
@@ -49,12 +49,63 @@
 ## 2. Active & Upcoming Increment Roadmap
 
 ```text
-Track A (Dungeons & Storytelling)  ──► Inc 8.3 (Hazards) ──► Inc 8.4 (Triggers) ──► Inc 8.5 (Storytelling) ──► Inc 8.6–8.7
-Track B (Overworld & City Builder) ──► Inc 9.4 (Shared Hero Sheet) ──► Inc 9.5 (Industry) ──► Inc 9.6 (Crafting) ──► Inc 9.7–9.10
-Track C (Parties & Grand Warfare)  ──► Multi-Hero Parties, Guild Archetypes, Alliances & Campaign Victory Arc (v1.1.x+)
-Track D (Tooling & Pacing)         ──► ChronoSim Headless Progression Simulator & 1-Year Balance Calculator (v0.9.x-sim)
-Track E (Art Direction & Graphics) ──► Stage E.1 (Pillars) ──► E.2 (Art Bible) ──► E.3 (Asset Pipeline) ──► E.4 (Engine Eval) ──► E.5–E.6
+Track F (Priority 1 — Progression Core) ──► Inc 10.1 (Currency/Prereq) ──► 10.2 (Accrual/Queues) ──► 10.3 (Guild/Alliance) ──► 10.4 (Effects/Training) ──► 10.5 (UI/Titles)
+Track A (Dungeons & Storytelling)       ──► Inc 8.4 (Triggers) ──► Inc 8.5 (Storytelling) ──► Inc 8.6 (Ecology) ──► Inc 8.7 (10-Slot & Sets)
+Track B (City, Pantheon & Overworld)    ──► Inc 9.8 (Market/Academy) ──► 9.8.5 (Pantheon/Gods) ──► 9.8b (Outposts) ──► 9.9 (Multi-City) ──► 9.10 (Defense)
+Track C (Multiplayer, Alliances & War)  ──► Authoritative Server, Multi-Hero Parties, Guild/Alliance Projects & §23 Long-Term Progression Backlog (v1.1.x+)
+Track D (Tooling & 12-18m Pacing)       ──► ChronoSim 12–18 Month Progression Simulator, RP Economy Forecasting & Balance Calculator
+Track E (Art Direction & Mobile UX)     ──► Stage E.6 (Painted Tier 2 Iso/Hex Sprites & Hotspots) ──► Stage E.7 (Research-Backed Mobile UX)
 ```
+
+---
+
+### Track F *(Immediate Priority 1)*: Unified Progression Core — Currency Ledger, Prerequisite Engine, Effects Framework & Research/Training Prototype (`v0.10.x` Series — [`research_and_training_spec.md`](specs/research_and_training_spec.md) / `ADR-0015`)
+
+*Promoted ahead of Increment 9.8+ so Market, Pantheon/Divine Alignment, Quests, Achievements/Titles, and Multi-City all consume these shared, server-ready foundational services natively. Implemented locally first in pure deterministic JS with server-ready idempotent interfaces.*
+
+#### Increment 10.1 (`v0.10.1-prog-foundation`) — Phase 1: Fixed-Precision Currency Ledger, Nested Prerequisites & Versioned Catalog
+- **Generic Currency & Transaction Ledger (`CurrencyService`)**:
+  - Data-driven `CurrencyDefinition` (supporting fixed decimal precision / scaled integers—never imprecise floats), multi-owner `CurrencyAccount` (`Player`, `Guild`, `Alliance`, future entities), and auditable `CurrencyTransaction` ledger with `IdempotencyKey` and balance reconstruction.
+  - **Unified Atomic Payment Interface**: All-or-nothing payment validation combining fungible currencies (RP, Gold) with physical inventory/stockpile resources (Wood, Stone, Ore, Ingots, Items).
+- **Generic Nested Prerequisite & Eligibility Engine (`ResearchEligibilityService`)**:
+  - Evaluates arbitrary nested `AND` / `OR` / `NOT` condition trees across `Visibility`, `Eligibility`, `Start`, `Completion`, and `Bonus` categories; returns rich status codes (`Available`, `Locked`, `Hidden`, `Unaffordable`, `Queue full`, `Restricted by guild/alliance/alignment`, `Subject unavailable`) with exact unmet condition explanations.
+- **Versioned Research & Training Catalog (`ResearchCatalogService`, `TrainingCatalogService`)**:
+  - Clean separation of Definitions (`Domain -> Tree -> Branch -> Item -> Level -> Milestone`) vs. Runtime Instances (`ResearchProgressInstance`, `TrainingInstance`) with immutable definition versioning.
+  - Seed the **5 Representative Prototype Trees**: **General Knowledge**, **Adventurer Basics**, **Weapon Proficiency** (including `WAR_WEAPON_HEAVY_001` 3-level heavy weapon unlock), **City Development**, and **Divine Knowledge**.
+
+#### Increment 10.2 (`v0.10.2-prog-accrual-queues`) — Phase 2: Passive & Activity Fractional Accrual, Configurable Queues & Offline Progress
+- **Passive & Event-Driven Fractional Accrual (`ResearchAccrualService`)**:
+  - Continuous passive general RP accrual (configurable base rate, e.g. `0.00001/sec`, with authoritative elapsed-time **offline catch-up**).
+  - Event-driven fractional awards for qualifying dungeon/city/overworld activities (e.g. `0.001` movement, `0.005` monster defeated, `0.002` chest opened, `0.010` discovery, `0.050` dungeon clear) governed by data-driven award rules with **anti-abuse controls** (duplicate event detection, idempotency, cooldowns, caps, diminishing returns).
+  - Strictly separates **RP generation modifiers** from **research/training speed modifiers**.
+- **Configurable Research Queues (`ResearchQueueService`, `ResearchProgressService`)**:
+  - Initial baseline: 1 standard free Research Queue + 1 subscriber Research Queue (configurable).
+  - Supports add, remove pending, pause, resume, cancel (configurable refund policies), reorder, auto-start next, ETA, and atomic start with **definition version snapshots** so content edits never corrupt active progress.
+
+#### Increment 10.3 (`v0.10.3-prog-ownership`) — Phase 3: 4-Tier Ownership, Guild/Alliance Research & Terminology Alignment
+- **City Hall vs. Player Guild vs. Alliance Terminology Clarity**:
+  - Establish clear, non-overlapping naming between **Local City Class Halls/Chapters** (city buildings that recruit heroes and host local services) and **Multiplayer Player Guilds** (*Adventurers Guild*, *War Guild*, *Artisan Guild*) and **Alliances**.
+- **Guild-Owned Research**: Guild-specific RP currencies, guild-owned trees, guild progression history, and activity-driven guild RP awards (distinct from personal research).
+- **Alliance-Owned Research & Shared Contribution Pool (`ResearchContributionService`)**:
+  - Alliance-owned trees funded from a shared alliance balance via direct member contributions and alliance activities (research only—**no training at the alliance level**).
+  - Auditable `ResearchContributionInstance` ledger recording contributor attribution, source, and timestamps; prototype demonstrates multi-member contributions funding a shared alliance research item plus configurable leave/dissolve lifecycle rules.
+
+#### Increment 10.4 (`v0.10.4-prog-effects-training`) — Phase 4: Generic Effects Framework & Separate Hero Training Queue
+- **Generic Benefits & Effects Engine (`BenefitService`)**:
+  - Data-driven effects (`Capability unlock`, `Attribute/Skill/Production/Capacity/Probability/Limit modifier`, `Ability/Access/Recipe unlock`) with deterministic `Additive`, `Multiplicative`, `Set`, `Unlock`, `Disable`, and `Replace` operations and explicit stacking/scope/expiration rules.
+  - Strictly separates **Unlocks** (e.g., Personal Research unlocks Heavy Weapon Training) from **Modifiers**.
+- **Subject-Specific Hero Training (Separate Training Queue)**:
+  - Dedicated **Hero Training Queue** independent of the Personal Research Queue.
+  - Individual `TrainingInstance` scoped to `SubjectID` (`Hero A` trains Heavy Weapon Proficiency Lv 1–3 independently of `Hero B`), with clean extensibility for future training subjects (Cities, Units, Constructs).
+
+#### Increment 10.5 (`v0.10.5-prog-ui-milestones`) — Phase 5: Research & Training Hub UI, Milestones, Provenance Titles, Quests & Analytics
+- **Dual-Entry Prototype UI (`§18`)**:
+  - Top-level **Research & Training Hub** (accessible from main navigation) PLUS contextual shortcuts directly inside town buildings (Class Halls, Academy, Temple).
+  - Required views: **Research Overview** (balances, accrual rates, active queues, recent achievements), **Visual Research Tree** (branches, prerequisites, milestones, tree archiving), **Research Detail**, **Research Queue Manager**, **Hero Training Screen**, and **Research History & Analytics**.
+- **Milestones, Achievements, Provenance Titles & Trophies (`§16`)**:
+  - Intermediate & tree/branch completion milestones; Common, Rare, Unique, World-First, Guild/Alliance, and Humorous/Unusual titles with provenance, world association, and player display control.
+- **Tutorial, Quest & Telemetry Integration (`§17`, `§19`)**:
+  - 12-step incremental tutorial hooks, recurring research/training quest triggers, 17+ idempotent domain events, and `ResearchAnalyticsService` player/game metrics.
 
 ---
 
@@ -98,12 +149,15 @@ Track E (Art Direction & Graphics) ──► Stage E.1 (Pillars) ──► E.2 (
 - **Increment 9.7 (`v0.9.7-city-crafting`)**: City Blacksmith & Star-Forge (`CMD_FORGE_EQUIPMENT`, `CMD_TEMPER_EQUIPMENT`) and Lapidary Workshop (`CMD_PUNCH_SOCKET`, `CMD_SOCKET_CITY_GEM`, `CMD_UNSOCKET_CITY_GEM`) decoupled from Guilds into enterable City Constructs. *(Verified)*
 - **Increment 9.7.5 (`v0.9.7.5-guild-parity`)**: Unified Adventurers Guild with all other Class Guilds via the same enterable Building Interior & modular `facilities` pipeline, introduced the dedicated **Adventurer** class (`Torch Flare` skill), and gated specialist class recruitment strictly behind each class's Guild / Temple Chapterhouse. *(Verified)*
 
-#### Increment 9.8 (`v0.9.8-city-academy`) — Arcane Academy (Research Tech Trees), Deep Training System & Market Trade Post
-- **Research & Training Architecture Design (`ADR-0015`)**: Design a rich, scalable, visual approach for extensive Research and Class Training options—replacing flat lists with structured **Branching Tech Trees / Starlight Constellations** (tiered prerequisites, domain branches, real-time research queues, dual-cost investments, and visual dependency paths) and **Guild Training Curriculums / Mastery Tracks** per class.
-- **Arcane Academy / Library** *(Enterable City Construct)*: Hosts multi-branch City & Expedition Research trees (Cartography, Geology, Metallurgy, Logistics, Construction Efficiency, Military Doctrine).
-- **Market / Trade Post** *(Enterable City Construct)*: Appraise/liquidate dungeon relics and surplus ores for Gold, and convert surplus city resources at dynamic exchange rates.
+#### Increment 9.8 (`v0.9.8-city-academy`) — Arcane Academy & Market Trade Post *(Consumes Track F Engines)*
+- **Arcane Academy / Library** *(Enterable City Construct)*: Contextual city gateway into the Track F **Personal Research Trees**, plus local library buildings that apply `BenefitService` RP generation & research speed modifiers.
+- **Market / Trade Post** *(Enterable City Construct)*: Appraise/liquidate dungeon relics and surplus ores for Gold, and convert surplus city resources through the Track F **Unified Atomic Payment Interface**.
 
-#### Increment 9.8 (`v0.9.8-overworld-frontiers`) — Claimable Overworld Outposts, Scouts & Dynamic Patrols
+#### Increment 9.8.5 (`v0.9.8.5-pantheon-alignment`) — Pantheon of Gods, Multi-Tag Divine Alignment & Favor *(Dependent System from `research_and_training_spec.md` §9.3)*
+- **Multi-Tag Pantheon Registry**: Define Aethelgard's Pantheon where each God supports multiple flexible categories/tags (never a single hardcoded category), unique domains, and **Divine Favor** currency accounts (`CurrencyService`).
+- **Alignment-Driven Eligibility, Modifiers & Blessings**: Wire Divine Alignment into `ResearchEligibilityService` and `BenefitService` so gods unlock exclusive paths (e.g., *Divine Knowledge* & *Priesthood* trees), modify research costs/speeds/accrual, grant active Blessings, and obey configurable alignment-change rules for in-progress research.
+
+#### Increment 9.8b (`v0.9.8b-overworld-frontiers`) — Claimable Overworld Outposts, Scouts & Dynamic Patrols
 - **Frontier Outposts**: Claim and fortify Overworld resource nodes (Timber Groves, Mason Quarries, Astral Monoliths) for passive regional yield.
 - **Reconnaissance**: Train **Outrider Scouts** for rapid fog-of-war exploration and construct **Watchtowers** for permanent vision radii.
 - **Living Frontier**: Dynamic hostile patrol routes with territory aggro and respawn timers.
@@ -118,20 +172,27 @@ Track E (Art Direction & Graphics) ──► Stage E.1 (Pillars) ──► E.2 (
 
 ---
 
-### Track C: Multi-Hero Parties, Guild Playstyles & Tactical Warfare (`v1.1.x+` Series)
+### Track C: Multiplayer Backend, Multi-Hero Parties, Guild/Alliance Organizations & Tactical Warfare (`v1.1.x+` Series)
 
+- **Authoritative Multiplayer Backend & Server-Time Sync**: Migrate Track F's server-ready services (`CurrencyService` ledger, offline RP accrual, `ResearchQueueService`, `ResearchContributionService`) and Overworld simulation from local client storage to an authoritative multiplayer server with concurrent/idempotent transaction safety.
 - **Multi-Member Hero Parties**: Parties led by a Hero with multiple class members entering dungeons and tactical battles together.
-- **Guild Archetype Specializations**: Distinct configurations and perks for **Adventurers Guilds**, **War Guilds**, and **Social Guilds**.
-- **Tactical Overworld Warfare, Alliances & World Victory Arc**: Timed marches, feints/fog-of-war intel, city defense, Divine War Reimbursement, and endgame Alliance victory objectives.
+- **Multiplayer Guild Archetypes & Alliances**: Distinct Player Guild organizations (**Adventurers Guilds**, **War Guilds**, **Artisan Guilds**, **Social Guilds**) owning Guild Research, plus **Alliances** owning Alliance Research (no Alliance training) and endgame Alliance victory objectives.
+- **Tactical Overworld Warfare**: Timed marches, feints/fog-of-war intel, city defense, and Divine War Reimbursement.
+- **Longer-Term Research & Training Backlog (`research_and_training_spec.md` §23)**:
+  - *Advanced Research Discovery*: Hidden trees, clue-based & dungeon/NPC/world-event discovery, knowledge fragments, and shared player discovery.
+  - *Cooperative Guild & Alliance Projects*: Multi-stage cooperative research, cross-alliance projects, research competitions, and research-linked World Wonders.
+  - *Advanced Queue Automation*: Conditional scheduling, priority rules, queue templates, and cross-subject training plans.
+  - *Expanded Training Subjects*: Extend the `TrainingInstance` engine beyond Heroes to train **Cities**, **Military Units**, and **Constructs**, plus hero specialization synergies.
+  - *Advanced Progression & Authoring Tools*: Repeatable mastery & world-to-world prestige, mutually exclusive/branching decision paths, and a **Visual Research Tree Editor & Content Validator**.
 
 ---
 
-### Track D: Game Simulation, Macro Balance Calculator & Pacing Engine (`v0.9.x-sim` / Tooling Series)
+### Track D: Game Simulation, 12–18 Month Macro Balance Calculator & Pacing Engine (`v0.9.x-sim` / Tooling Series)
 
-#### ChronoSim — Headless Progression Simulator, Time-to-Finish Calculator & Balance Modeling Tools
+#### ChronoSim — Headless Progression Simulator, 12–18 Month World Calculator & Balance Modeling Tools
 - **Headless Progression Simulator ("ChronoSim" Engine)**:
-  - Deterministic discrete-event simulation engine that runs days, weeks, months, or an entire 1-year campaign in milliseconds without rendering UI or waiting for real-time clocks.
-  - Simulates the full game loop: population growth, food/water consumption, resource production ticks, build queues (1–3 slots, subscription boosts), tech research, and overworld travel times.
+  - Deterministic discrete-event simulation engine that runs days, weeks, months, or an entire **12–18 month world lifecycle** in milliseconds without rendering UI or waiting for real-time clocks.
+  - Simulates the full game loop: population growth, food/water consumption, resource production ticks, build queues, **passive + activity fractional RP accrual, currency inflation, free vs. subscriber research queues, hero training, and guild/alliance contribution dynamics** (`research_and_training_spec.md` §19.2 & §19.4).
 - **Configurable Player Playstyle Archetypes**:
   - *Casual / Low-Activity*: 1–2 check-ins per day, modest queue utilization, natural idle gaps between orders.
   - *Active / Standard*: 3–5 check-ins per day, disciplined queue queuing, balanced focus between city building and dungeon runs.
@@ -159,7 +220,8 @@ Track E (Art Direction & Graphics) ──► Stage E.1 (Pillars) ──► E.2 (
 - **Stage E.5.5 — Cross-Platform Navigation Architecture (Screens vs. Popups) & Mobile-First Responsive UX (`wargame.html`, `src/wargame/ui/wargameUiSync.js`, `docs/ui_design_system.md`)**: Implemented universal top-bar **`ⓘ` Screen Info Popup**, unified full-bleed Building Screen for every town structure, Mobile Bottom Thumb-Zone Navigation Bar (`≥ 44×44px` touch targets), collapsible mobile drawers, and responsive Bottom-Sheet modals. *(Verified)*
 - **Map Architecture Decision (`docs/adr/ADR-0014-unified-map-architecture-and-grid-projections.md`)**: Locked in **Path A — Shared `MapViewportEngine` (`pixi-viewport` + `@pixi/tilemap`) + Best-in-Class Domain Grid Projections**: **Hexagonal Overworld** (pointy-top axial/cube), **2:1 Isometric City** (rotated square 8×8 plots), and **2.5D Oblique Dungeon** (crisp `90°` masonry). *(Verified)*
 
-#### Stage E.6 — Scaled Asset Production, Diegetic Scene Hotspots & Full Visual Migration
+#### Stage E.6 — Scaled Asset Production, Painted Isometric Sprites, Diegetic Hotspots & Full Visual Migration
+- **Painted Tier 2 Isometric City Building Sprites & Hex Overworld Tiles**: Replace temporary procedural Canvas 2D city/overworld geometry with real painted/rendered Tier 2 isometric building sprites (`city_bldg_<id>_lv<N>_idle`) and Tier 3 hex terrain tiles loaded through `assets/manifest.json` and `PixiJS v8` (`ADR-0013` / `ADR-0014`), plus remaining Tier 1 Hero Portraits (`Mage`, `Cleric`, `Adventurer`).
 - Roll out full asset sets (all biomes, Lv 1–5 building visual evolutions, full monster/boss rosters, dynamic lighting/shaders, particle VFX, and unified UI chrome) through the validated asset pipeline.
 - **Guild & City Building Interior Artwork**: Add bespoke atmospheric interior backdrop illustrations to every Guild and City Facility screen (Adventurers Guild, Fighters Guild, Thieves Guild, Mages Guild, Rangers Lodge, Temple Chapterhouse, Garrison, Dwarven Smeltery, Alchemist Apothecary, Blacksmith & Star-Forge, Lapidary Workshop, Warehouse) following our `docs/art_direction_brief.md` standards (Grounded High-Craft Fantasy Realism, dynamic warm/whimsical-to-dark lighting).
 - **Diegetic Interactive Interior Hotspots (Post-Feature-Freeze)**: Once building functionality is finalized, replace on-screen button grids inside building interiors with clean, immersive **clickable/tappable scene regions** (e.g., tap the Forge in the Smithy to open Weapon Forging, tap the Anvil to Temper, tap the Quest Board for Contracts, tap the Vault Door for Storage) with subtle luminous highlights and mobile-friendly touch targets.
@@ -181,4 +243,4 @@ Track E (Art Direction & Graphics) ──► Stage E.1 (Pillars) ──► E.2 (
 - **Unified Save Hydration**:
   - Schema migration contract strictly preserves legacy saves back to `v0.1.0-inc1` with automatic backfilling in `migrateSaveData()`.
 - **Quality Gates**:
-  - Headless CLI verification runs: `./scripts/test.ps1` (32 roguelike tests) and `./scripts/test-wargame.ps1` (13 simulation tests).
+  - Headless CLI verification runs: `./scripts/test.ps1` (33 roguelike tests) and `./scripts/test-wargame.ps1` (16 simulation tests).
