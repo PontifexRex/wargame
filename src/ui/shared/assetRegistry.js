@@ -31,6 +31,19 @@ export const DEFAULT_ASSET_MANIFEST = {
   pipelineRef: 'docs/asset_pipeline.md',
   cdnBaseUrl: '',
   assets: {
+    char_portrait_adventurer_default_idle: {
+      id: 'char_portrait_adventurer_default_idle',
+      tier: 1,
+      domain: 'char',
+      category: 'portrait',
+      status: 'procedural_fallback',
+      src: 'assets/runtime/tier1/portraits/char_portrait_adventurer_default_idle.jpg',
+      atlasFrame: null,
+      width: 512,
+      height: 512,
+      anchor: [0.5, 0.5],
+      fallback: 'procedural_class_badge'
+    },
     char_portrait_fighter_default_idle: {
       id: 'char_portrait_fighter_default_idle',
       tier: 1,

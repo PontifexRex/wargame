@@ -187,6 +187,30 @@ const CLASSES = {
     skillCost: 16,
     skillRange: 1,
     skillDesc: 'Strikes an adjacent foe for 240% holy damage and restores 15% of your Max HP.'
+  },
+  adventurer: {
+    id: 'adventurer',
+    name: 'Adventurer',
+    title: 'Starfall Delver',
+    color: '#38bdf8',
+    baseStats: { str: 12, dex: 12, int: 11, vit: 13 },
+    hpBase: 108,
+    mpBase: 50,
+    vision: 6,
+    starterGear: {
+      weapon:    { uid: 'w_start_a', name: 'Delver Shortsword', slot: 'weapon', rarity: 'common', atk: 7, dex: 1, value: 20, affixes: [] },
+      armor:     { uid: 'a_start_a', name: 'Expedition Brigandine', slot: 'armor', rarity: 'common', def: 5, vit: 1, value: 20, affixes: [] },
+      helm:      { uid: 'h_start_a', name: 'Lantern Cap', slot: 'helm', rarity: 'common', def: 2, visionBonus: 1, value: 12, affixes: [] },
+      boots:     { uid: 'b_start_a', name: 'Wayfarer Boots', slot: 'boots', rarity: 'common', def: 2, value: 12, affixes: [] },
+      accessory: { uid: 'acc_start_a', name: 'Guild Compass', slot: 'accessory', rarity: 'common', crit: 3, value: 15, affixes: [] },
+      pickaxe:   { uid: 'pick_start_a', name: 'Reinforced Pickaxe', slot: 'pickaxe', rarity: 'common', curDur: 34, maxDur: 34, value: 25, affixes: [] }
+    },
+    passiveName: 'Delver Grit',
+    passiveDesc: 'Balanced dungeon explorer with +1 Torchlight vision and durable mining pickaxe.',
+    skillName: 'Torch Flare',
+    skillCost: 11,
+    skillRange: 1,
+    skillDesc: 'Blasts an adjacent foe with searing torchlight for 180% damage and stuns them for 1 turn.'
   }
 };
 
@@ -8808,7 +8832,7 @@ function getSkillTargetingInfo(state = gameState) {
       .filter(m => m.hp > 0 && Math.hypot(m.x - h.x, m.y - h.y) <= 5.2 && hasLineOfSight(floor, h.x, h.y, m.x, m.y))
       .sort((a, b) => Math.hypot(a.x - h.x, a.y - h.y) - Math.hypot(b.x - h.x, b.y - h.y))
       .slice(0, maxTargets);
-  } else if (h.classId === 'paladin') {
+  } else if (h.classId === 'paladin' || h.classId === 'adventurer') {
     reachRadius = 1.5;
     const t = floor.monsters.find(m => m.hp > 0 && Math.hypot(m.x - h.x, m.y - h.y) <= 1.5);
     if (t) targets.push(t);
@@ -9071,6 +9095,33 @@ function executeClassSkill(state = gameState) {
     if (target.hp <= 0) killMonster(target, state);
     if (state === gameState) processTurn(state);
     return { ok: true, skill: 'smite', dmg, healAmt };
+  }
+
+  // 6. ADVENTURER: Torch Flare (Requires adjacent enemy before deducting MP; deals 180% dmg + 1-turn stun)
+  if (h.classId === 'adventurer') {
+    const target = floor.monsters.find(m => Math.hypot(m.x - h.x, m.y - h.y) <= 1.5);
+    if (!target) {
+      if (state === gameState) {
+        ui.floatingText(h.x, h.y, 'No Adjacent Foe!', '#38bdf8');
+        ui.log('Torch Flare requires an adjacent monster target.', 'bad');
+      }
+      return { ok: false, reason: 'no_adjacent_target' };
+    }
+
+    h.mp -= effectiveCost;
+    const masteryMult = getCodexMasteryMultiplier(target.id, state);
+    const dmg = Math.max(4, Math.round(h.atk * 1.8 * masteryMult) - Math.floor(target.def * 0.5));
+    target.hp -= dmg;
+    target.stunned = Math.max(target.stunned || 0, 1);
+
+    if (state === gameState) {
+      playSound('spell');
+      ui.floatingText(target.x, target.y, `-${dmg} FLARE!`, '#38bdf8');
+      ui.log(`Torch Flare sears ${target.name} for ${dmg} damage and stuns it!`, 'gold');
+    }
+    if (target.hp <= 0) killMonster(target, state);
+    if (state === gameState) processTurn(state);
+    return { ok: true, skill: 'torch_flare', dmg };
   }
 
   return { ok: false };
@@ -9652,6 +9703,19 @@ const DEFAULT_ASSET_MANIFEST = {
   pipelineRef: 'docs/asset_pipeline.md',
   cdnBaseUrl: '',
   assets: {
+    char_portrait_adventurer_default_idle: {
+      id: 'char_portrait_adventurer_default_idle',
+      tier: 1,
+      domain: 'char',
+      category: 'portrait',
+      status: 'procedural_fallback',
+      src: 'assets/runtime/tier1/portraits/char_portrait_adventurer_default_idle.jpg',
+      atlasFrame: null,
+      width: 512,
+      height: 512,
+      anchor: [0.5, 0.5],
+      fallback: 'procedural_class_badge'
+    },
     char_portrait_fighter_default_idle: {
       id: 'char_portrait_fighter_default_idle',
       tier: 1,
@@ -14519,7 +14583,7 @@ function unsocketFromInspect(targetRef, socketIdx, isEquippedSlot) {
 function openClassSelectModal(allowCancel = false) {
   if (typeof document === 'undefined') return;
   document.getElementById('btnCloseClassModal').classList.toggle('hidden', !allowCancel);
-  const classList = Object.values(CLASSES);
+  const classList = ['fighter', 'thief', 'mage', 'ranger', 'paladin'].map(function(id) { return CLASSES[id]; }).filter(Boolean);
   for (let i = 0; i < classList.length; i++) {
     const c = classList[i];
     const cardCanvas = document.getElementById('classCardCanvas_' + c.id);

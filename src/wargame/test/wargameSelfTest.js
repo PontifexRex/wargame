@@ -355,36 +355,36 @@ export function evaluateWargameSelfTests() {
     payload: { taskId: 'task_build_guild_hall' }
   });
 
-  // Start training a Ranger Hero (60,000ms training queue)
+  // Start training an Adventurer Hero at the Adventurers Guild (60,000ms training queue)
   const recruitRanger = host5.dispatch({
     type: COMMAND_TYPES.RECRUIT_HERO,
-    payload: { classId: 'ranger', heroName: 'Sylvanas Pathfinder' }
+    payload: { classId: 'adventurer', heroName: 'Sylvanas Delver' }
   });
   const rangerQueued = recruitRanger.ok && city5.recruitmentQueue.length === 1 && city5.recruitmentQueue[0].status === 'training';
   const heroNotInstantlySpawned = host5.state.world.heroes.length === 0;
 
-  // Queue a 2nd trainee (Fighter) and test recruitment cancel prorated refund
+  // Queue a 2nd trainee (Adventurer) and test recruitment cancel prorated refund
   const goldBeforeFighter = city5.stockpile.gold;
   const recruitFighter = host5.dispatch({
     type: COMMAND_TYPES.RECRUIT_HERO,
-    payload: { classId: 'fighter', heroName: 'Garrick Ironheart' }
+    payload: { classId: 'adventurer', heroName: 'Garrick Delver' }
   });
   const fighterQueued = recruitFighter.ok && city5.recruitmentQueue.length === 2 && city5.recruitmentQueue[1].status === 'queued';
 
-  // Cancel queued fighter -> 100% full refund
+  // Cancel queued trainee -> 100% full refund
   const cancelFighter = host5.dispatch({
     type: COMMAND_TYPES.CANCEL_RECRUITMENT,
     payload: { queueItemId: recruitFighter.data.queueItem.queueItemId }
   });
   const fighterRefundVerified = cancelFighter.ok && city5.stockpile.gold === goldBeforeFighter && city5.recruitmentQueue.length === 1;
 
-  // Advance clock by 30,000ms -> Ranger still in training!
+  // Advance clock by 30,000ms -> Trainee still in training!
   host5.stepClock(30000);
   const stillTrainingAt30s = host5.state.world.heroes.length === 0 && city5.recruitmentQueue.length === 1;
 
-  // Advance clock by remaining 30,000ms (total 60,000ms elapsed) -> Ranger training finishes!
+  // Advance clock by remaining 30,000ms (total 60,000ms elapsed) -> Training finishes!
   host5.stepClock(30000);
-  const rangerCompleted = city5.recruitmentQueue.length === 0 && host5.state.world.heroes.length === 1 && host5.state.world.heroes[0].classId === 'ranger';
+  const rangerCompleted = city5.recruitmentQueue.length === 0 && host5.state.world.heroes.length === 1 && host5.state.world.heroes[0].classId === 'adventurer';
   const partySpawnedOnOverworld = host5.state.world.overworld.units.some(function(u) {
     return u.unitType === 'hero_party' && u.canEnterDungeon === true && u.alive === true;
   });
@@ -576,10 +576,10 @@ export function evaluateWargameSelfTests() {
   const starfallPoi = dungeonPois7.find(function(p) { return p.id === 'poi_dungeon_starfall'; });
   const starfallRevealedByGuild = Boolean(starfallPoi && starfallPoi.discovered === true);
 
-  // Recruit Fighter Hero & advance 60s
+  // Recruit Adventurer Hero at Adventurers Guild & advance 60s
   host7.dispatch({
     type: COMMAND_TYPES.RECRUIT_HERO,
-    payload: { classId: 'fighter', heroName: 'Aldric Vanguard' }
+    payload: { classId: 'adventurer', heroName: 'Aldric Delver' }
   });
   host7.stepClock(60000);
   const party7 = ow7.units.find(function(u) { return u.unitType === 'hero_party' && u.alive; });
@@ -914,6 +914,8 @@ export function evaluateWargameSelfTests() {
   // 10C. Hero Roster Cap of 3, Overall Leader Reassignment & Dismiss Hero (Gear preserved in City Storage)
   city7.stockpile.gold = 500;
   city7.stockpile.food = 500;
+  city7.buildings.mages_guild = 1;
+  city7.buildings.thieves_guild = 1;
   const rec2 = host7.dispatch({ type: COMMAND_TYPES.RECRUIT_HERO, payload: { classId: 'cleric', heroName: 'Brother Aldous' } });
   const rec3 = host7.dispatch({ type: COMMAND_TYPES.RECRUIT_HERO, payload: { classId: 'mage', heroName: 'Lyra Starweaver' } });
   const rec4Blocked = !host7.dispatch({ type: COMMAND_TYPES.RECRUIT_HERO, payload: { classId: 'thief', heroName: 'Vex Shadow' } }).ok;
@@ -1097,6 +1099,44 @@ export function evaluateWargameSelfTests() {
     detail: t13Pass
       ? 'Manifest schema valid (' + manifestCheck13.total + ' entries, ' + manifestCheck13.productionCount + ' production Golden Slice assets), Tier 1 interior/portrait resolution & Canvas2D fallback verified'
       : 'Failed checks: ' + failed13.join(', ')
+  });
+
+  // =========================================================================
+  // Test 14: Unified Adventurers Guild Parity & Dedicated Adventurer Class (Inc 9.7.5)
+  // =========================================================================
+  const host14 = createWargameSimHost();
+  host14.dispatch({ type: COMMAND_TYPES.START_NEW_CAMPAIGN, payload: { houseName: 'House Parity', seedCode: 'STAR-9750' } });
+  host14.dispatch({ type: COMMAND_TYPES.FOUND_CITY, payload: { cityName: 'Parity Bastion' } });
+  const city14 = getPrimaryCity(host14.state);
+  city14.stockpile.gold = 500;
+  city14.stockpile.food = 500;
+  city14.buildings.guild_hall = 1;
+
+  const guildOnlyClasses = getCityRecruitableClasses(city14);
+  const onlyAdventurerUnlocked = guildOnlyClasses.length === 1 && guildOnlyClasses[0] === 'adventurer';
+  const fighterBlockedWithoutGuild = !host14.dispatch({ type: COMMAND_TYPES.RECRUIT_HERO, payload: { classId: 'fighter' } }).ok;
+  const rangerBlockedWithoutLodge = !host14.dispatch({ type: COMMAND_TYPES.RECRUIT_HERO, payload: { classId: 'ranger' } }).ok;
+  const adventurerAllowed = host14.dispatch({ type: COMMAND_TYPES.RECRUIT_HERO, payload: { classId: 'adventurer', heroName: 'Rowan Delver' } }).ok;
+
+  city14.buildings.fighters_guild = 1;
+  const fighterUnlockedWithGuild = host14.dispatch({ type: COMMAND_TYPES.RECRUIT_HERO, payload: { classId: 'fighter', heroName: 'Bram Vanguard' } }).ok;
+
+  const t14Checks = {
+    onlyAdventurerUnlocked: onlyAdventurerUnlocked,
+    fighterBlockedWithoutGuild: fighterBlockedWithoutGuild,
+    rangerBlockedWithoutLodge: rangerBlockedWithoutLodge,
+    adventurerAllowed: adventurerAllowed,
+    fighterUnlockedWithGuild: fighterUnlockedWithGuild
+  };
+  const failed14 = Object.keys(t14Checks).filter(function(k) { return !t14Checks[k]; });
+  const t14Pass = failed14.length === 0;
+
+  results.push({
+    name: '14. Unified Adventurers Guild Parity & Dedicated Adventurer Class (Inc 9.7.5)',
+    pass: t14Pass,
+    detail: t14Pass
+      ? 'Adventurers Guild strictly unlocks Adventurer class only; specialist classes gated behind their respective Guilds'
+      : 'Failed checks: ' + failed14.join(', ')
   });
 
   return results;

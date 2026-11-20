@@ -525,21 +525,29 @@ export function renderWargameFacilityModal(simHost) {
       const cDef = RECRUITABLE_HERO_CLASSES.find(function(c) { return c.classId === entry.classId; });
       if (!cDef) return '';
       const unlocked = lvl >= (entry.minLevel || 1);
+      const portraitSrc = getProductionImageSrc(getHeroPortraitAssetId(cDef.classId));
+      const portraitHtml = portraitSrc
+        ? `<img src="${portraitSrc}" alt="${cDef.name}" class="w-12 h-12 rounded-lg object-cover border border-[#fbbf24]/50 shadow shrink-0 bg-[#080b11]" />`
+        : `<div class="w-12 h-12 rounded-lg bg-[#080b11] border border-[#283347] flex items-center justify-center text-xl shrink-0">${cDef.icon}</div>`;
       return `
-        <div class="p-2.5 rounded bg-[#111722] border border-[#283347] flex items-center justify-between gap-2 text-xs">
-          <div>
-            <div class="font-bold" style="color:${cDef.color}">${cDef.icon} ${cDef.name}</div>
-            <div class="text-[10px] font-mono text-[#8b949e]">${unlocked ? ('Cost: ' + cDef.costGold + 'g • ' + cDef.costFood + ' Food') : ('Unlocks at ' + bDef.name + ' Lv ' + entry.minLevel)}</div>
+        <div class="p-2.5 rounded-lg bg-[#111722]/90 border border-[#283347] flex items-center justify-between gap-3 text-xs">
+          <div class="flex items-center gap-2.5 min-w-0">
+            ${portraitHtml}
+            <div class="min-w-0">
+              <div class="font-bold truncate" style="color:${cDef.color}">${cDef.icon} ${cDef.name} <span class="text-[9px] font-mono text-[#fbbf24]">• ${cDef.title}</span></div>
+              <div class="text-[10px] text-[#94a3b8] truncate">${cDef.specialty || ''}</div>
+              <div class="text-[10px] font-mono text-[#fbbf24] mt-0.5">${unlocked ? ('Oath Cost: ' + cDef.costGold + 'g • ' + cDef.costFood + ' Food') : ('Unlocks at ' + bDef.name + ' Lv ' + entry.minLevel)}</div>
+            </div>
           </div>
-          <button onclick="window.WargameApp.handleRecruitHero('${cDef.classId}')" ${!unlocked ? 'disabled' : ''} class="px-2.5 py-1 rounded text-[10px] font-mono font-bold uppercase ${unlocked ? 'bg-[#fbbf24] hover:bg-[#f59e0b] text-[#080b11] cursor-pointer' : 'bg-[#1a2232] text-[#64748b] cursor-not-allowed'}">
-            ${unlocked ? 'Recruit' : ('Lv ' + entry.minLevel)}
+          <button onclick="window.WargameApp.handleRecruitHero('${cDef.classId}')" ${!unlocked ? 'disabled' : ''} class="px-3 py-1.5 rounded text-[10px] font-mono font-bold uppercase whitespace-nowrap ${unlocked ? 'bg-[#fbbf24] hover:bg-[#f59e0b] text-[#080b11] cursor-pointer' : 'bg-[#1a2232] text-[#64748b] cursor-not-allowed'}">
+            ${unlocked ? '⚔️ Train (60s)' : ('Lv ' + entry.minLevel)}
           </button>
         </div>
       `;
     }).join('');
     sections.push(`
       <div class="p-3 rounded-lg bg-[#080b11] border border-[#60a5fa]/40 space-y-2">
-        <div class="text-xs font-mono font-bold text-[#60a5fa]">⚔️ Guild Recruitment Roster</div>
+        <div class="text-xs font-mono font-bold text-[#60a5fa]">⚔️ ${bDef.name} Recruitment Roster</div>
         <div class="space-y-1.5">${classCards}</div>
       </div>
     `);
@@ -1180,15 +1188,11 @@ export function renderCityBuilderPanel(simHost) {
         </div>
 
         <div class="space-y-2 pt-2 border-t border-[#1e293b]">
-          ${curBId === 'guild_hall' ? `
-            <button data-action="enter-guild" onclick="window.WargameApp.handleSwitchView('guild')" class="w-full py-2 rounded-lg font-bold text-xs uppercase tracking-wider shadow bg-[#60a5fa] hover:bg-[#3b82f6] text-[#080b11] cursor-pointer">
-              ⚔️ Enter Adventurers Guild
-            </button>
-          ` : (curBDef.facilities ? `
+          ${curBDef.facilities ? `
             <button data-action="enter-facility" onclick="window.WargameApp.handleOpenFacilityModal('${curBId}')" class="w-full py-2 rounded-lg font-bold text-xs uppercase tracking-wider shadow bg-[#60a5fa] hover:bg-[#3b82f6] text-[#080b11] cursor-pointer">
               🚪 Enter ${curBDef.name}
             </button>
-          ` : '')}
+          ` : ''}
           <!-- Upgrade Action -->
           ${!isMax ? `
             <div class="p-2.5 rounded bg-[#111722] border border-[#283347] space-y-1.5">
@@ -1331,7 +1335,16 @@ export function renderGuildRecruitmentPanel(simHost) {
   const gridEl = document.getElementById('wgGuildClassesGrid');
   if (!city || !gridEl) return;
 
-  const newGuildHtml = RECRUITABLE_HERO_CLASSES.map(function(cls) {
+  // Inc 9.7.5: Adventurers Guild recruits strictly the Adventurer class (other classes belong to their specialist Guilds)
+  const guildDef = CITY_BUILDINGS_CATALOG.guild_hall;
+  const allowedIds = (guildDef && guildDef.facilities && guildDef.facilities.recruitment && Array.isArray(guildDef.facilities.recruitment.classes))
+    ? guildDef.facilities.recruitment.classes.map(function(e) { return e.classId; })
+    : ['adventurer'];
+  const guildClasses = RECRUITABLE_HERO_CLASSES.filter(function(cls) {
+    return allowedIds.indexOf(cls.classId) !== -1;
+  });
+
+  const newGuildHtml = guildClasses.map(function(cls) {
     const canAfford = (city.stockpile.gold || 0) >= cls.costGold && (city.stockpile.food || 0) >= cls.costFood;
     const portraitSrc = getProductionImageSrc(getHeroPortraitAssetId(cls.classId));
     const portraitHtml = portraitSrc

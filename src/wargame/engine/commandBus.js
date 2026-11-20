@@ -770,15 +770,15 @@ export function dispatchWargameCommand(commandEnvelope, state, scheduler, eventS
       return reject('You must found a Bastion City before recruiting heroes');
     }
 
-    const guildLvl = (city.buildings && city.buildings.guild_hall) || 0;
-    if (guildLvl < 1) {
-      return reject('Requires an Adventurers Guild Hall in your city before heroes can be recruited');
-    }
-
-    const classId = payload.classId || 'fighter';
+    const classId = payload.classId || 'adventurer';
     const classDef = RECRUITABLE_HERO_CLASSES.find(function(c) { return c.classId === classId; });
     if (!classDef) {
       return reject('Unknown hero class: ' + classId);
+    }
+
+    const unlockedClasses = getCityRecruitableClasses(city);
+    if (unlockedClasses.indexOf(classId) === -1) {
+      return reject('Build or upgrade the required Guild Hall / Chapterhouse to recruit ' + classDef.name);
     }
 
     if (!Array.isArray(city.recruitmentQueue)) {

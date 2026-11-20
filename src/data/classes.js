@@ -120,5 +120,29 @@ export const CLASSES = {
     skillCost: 16,
     skillRange: 1,
     skillDesc: 'Strikes an adjacent foe for 240% holy damage and restores 15% of your Max HP.'
+  },
+  adventurer: {
+    id: 'adventurer',
+    name: 'Adventurer',
+    title: 'Starfall Delver',
+    color: '#38bdf8',
+    baseStats: { str: 12, dex: 12, int: 11, vit: 13 },
+    hpBase: 108,
+    mpBase: 50,
+    vision: 6,
+    starterGear: {
+      weapon:    { uid: 'w_start_a', name: 'Delver Shortsword', slot: 'weapon', rarity: 'common', atk: 7, dex: 1, value: 20, affixes: [] },
+      armor:     { uid: 'a_start_a', name: 'Expedition Brigandine', slot: 'armor', rarity: 'common', def: 5, vit: 1, value: 20, affixes: [] },
+      helm:      { uid: 'h_start_a', name: 'Lantern Cap', slot: 'helm', rarity: 'common', def: 2, visionBonus: 1, value: 12, affixes: [] },
+      boots:     { uid: 'b_start_a', name: 'Wayfarer Boots', slot: 'boots', rarity: 'common', def: 2, value: 12, affixes: [] },
+      accessory: { uid: 'acc_start_a', name: 'Guild Compass', slot: 'accessory', rarity: 'common', crit: 3, value: 15, affixes: [] },
+      pickaxe:   { uid: 'pick_start_a', name: 'Reinforced Pickaxe', slot: 'pickaxe', rarity: 'common', curDur: 34, maxDur: 34, value: 25, affixes: [] }
+    },
+    passiveName: 'Delver Grit',
+    passiveDesc: 'Balanced dungeon explorer with +1 Torchlight vision and durable mining pickaxe.',
+    skillName: 'Torch Flare',
+    skillCost: 11,
+    skillRange: 1,
+    skillDesc: 'Blasts an adjacent foe with searing torchlight for 180% damage and stuns them for 1 turn.'
   }
 };

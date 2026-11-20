@@ -96,10 +96,7 @@ Track E (Art Direction & Graphics) ──► Stage E.1 (Pillars) ──► E.2 (
 - **Increment 9.5 (`v0.9.5-class-guilds`)**: `ADR-0012` modular building `facilities`, Temple Chapterhouse (`Cleric` Lv 1 → `Paladin` Lv 2+), specialized Class Guilds, City Garrison (`1 + Lv` party size), 3-Hero Roster Cap + Dismiss + Overall Leader, and 200-slot City Vault Storage Container. *(Verified)*  
 - **Increment 9.6 (`v0.9.6-city-industry`)**: Tier 2 City Industry — Dwarven Smeltery (`CMD_SMELT_INGOTS`), Alchemist Apothecary (`CMD_BREW_PROVISION`), Warehouse `+50/lv` City Vault slot expansion, and interactive enterable `#wgFacilityModal` interiors for all facility constructs. *(Verified)*  
 - **Increment 9.7 (`v0.9.7-city-crafting`)**: City Blacksmith & Star-Forge (`CMD_FORGE_EQUIPMENT`, `CMD_TEMPER_EQUIPMENT`) and Lapidary Workshop (`CMD_PUNCH_SOCKET`, `CMD_SOCKET_CITY_GEM`, `CMD_UNSOCKET_CITY_GEM`) decoupled from Guilds into enterable City Constructs. *(Verified)*
-
-#### Increment 9.7.5 (`v0.9.7.5-guild-parity`) — Unified Adventurers Guild Parity & Dedicated Adventurer Class
-- **Unified Guild Architecture**: Refactor the **Adventurers Guild** (`guild_hall`) so it uses the exact same unified Building Interior Screen & modular `facilities` pipeline as Fighters Guild, Thieves Guild, Mages Guild, Rangers Lodge, and Temple Chapterhouse—eliminating special-case legacy view handling.
-- **Dedicated Adventurer Class**: Introduce the **Adventurer** starter/delver class and scope the Adventurers Guild's recruitment strictly to the **Adventurer** class (with Fighter, Thief, Mage, Ranger, Cleric, and Paladin recruited exclusively at their respective Class Guilds & Temple Chapterhouse).
+- **Increment 9.7.5 (`v0.9.7.5-guild-parity`)**: Unified Adventurers Guild with all other Class Guilds via the same enterable Building Interior & modular `facilities` pipeline, introduced the dedicated **Adventurer** class (`Torch Flare` skill), and gated specialist class recruitment strictly behind each class's Guild / Temple Chapterhouse. *(Verified)*
 
 #### Increment 9.8 (`v0.9.8-city-academy`) — Arcane Academy (Research) & Market Trade Post
 - **Arcane Academy / Library** *(Enterable City Construct)*: Hosts dual-cost City & Expedition Research trees (Cartography, Geology, Metallurgy, Logistics, Construction Efficiency).

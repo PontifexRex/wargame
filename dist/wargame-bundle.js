@@ -626,6 +626,17 @@ const UNIT_ARCHETYPES = {
 
 const RECRUITABLE_HERO_CLASSES = [
   {
+    classId: 'adventurer',
+    name: 'Guild Adventurer',
+    title: 'Starfall Delver',
+    icon: '🧭',
+    color: '#38bdf8',
+    costGold: 35,
+    costFood: 20,
+    baseStats: { str: 12, dex: 12, int: 11, vit: 13, hp: 160, mp: 68, atk: 24, def: 14 },
+    specialty: 'Versatile dungeon delver trained at the Adventurers Guild: Torch Flare stun, extra vision, and reinforced mining.'
+  },
+  {
     classId: 'fighter',
     name: 'Ironclad Fighter',
     title: 'Vanguard Commander',
@@ -1875,15 +1886,15 @@ const CITY_BUILDINGS_CATALOG = {
     productionPerTick: { gold: 2 },
     requires: { meeting_hall: 1, quarry: 1 },
     requiredPopulation: 20,
-    recruits: ['fighter', 'ranger', 'thief'],
+    recruits: ['adventurer'],
     facilities: {
-      recruitment: { classes: [{ classId: 'fighter', minLevel: 1 }, { classId: 'ranger', minLevel: 1 }, { classId: 'thief', minLevel: 1 }] },
+      recruitment: { classes: [{ classId: 'adventurer', minLevel: 1 }] },
       questBoard: { domain: 'adventurers' },
       training: { domain: 'adventurers' },
       research: { domain: 'adventurers' },
       shop: { catalogId: 'shop_adventurers' }
     },
-    desc: 'Guild dedicated to Adventurers & dungeon delving: dungeon quests, training, research, and delve-gear shop.'
+    desc: 'Guild dedicated to the Adventurer class & dungeon delving: recruits Adventurers, hosts dungeon quests, training, research, and delve-gear shop.'
   },
   garrison: {
     id: 'garrison',
@@ -4395,15 +4406,15 @@ function dispatchWargameCommand(commandEnvelope, state, scheduler, eventStream) 
       return reject('You must found a Bastion City before recruiting heroes');
     }
 
-    const guildLvl = (city.buildings && city.buildings.guild_hall) || 0;
-    if (guildLvl < 1) {
-      return reject('Requires an Adventurers Guild Hall in your city before heroes can be recruited');
-    }
-
-    const classId = payload.classId || 'fighter';
+    const classId = payload.classId || 'adventurer';
     const classDef = RECRUITABLE_HERO_CLASSES.find(function(c) { return c.classId === classId; });
     if (!classDef) {
       return reject('Unknown hero class: ' + classId);
+    }
+
+    const unlockedClasses = getCityRecruitableClasses(city);
+    if (unlockedClasses.indexOf(classId) === -1) {
+      return reject('Build or upgrade the required Guild Hall / Chapterhouse to recruit ' + classDef.name);
     }
 
     if (!Array.isArray(city.recruitmentQueue)) {
@@ -6057,6 +6068,30 @@ const CLASSES = {
     skillCost: 16,
     skillRange: 1,
     skillDesc: 'Strikes an adjacent foe for 240% holy damage and restores 15% of your Max HP.'
+  },
+  adventurer: {
+    id: 'adventurer',
+    name: 'Adventurer',
+    title: 'Starfall Delver',
+    color: '#38bdf8',
+    baseStats: { str: 12, dex: 12, int: 11, vit: 13 },
+    hpBase: 108,
+    mpBase: 50,
+    vision: 6,
+    starterGear: {
+      weapon:    { uid: 'w_start_a', name: 'Delver Shortsword', slot: 'weapon', rarity: 'common', atk: 7, dex: 1, value: 20, affixes: [] },
+      armor:     { uid: 'a_start_a', name: 'Expedition Brigandine', slot: 'armor', rarity: 'common', def: 5, vit: 1, value: 20, affixes: [] },
+      helm:      { uid: 'h_start_a', name: 'Lantern Cap', slot: 'helm', rarity: 'common', def: 2, visionBonus: 1, value: 12, affixes: [] },
+      boots:     { uid: 'b_start_a', name: 'Wayfarer Boots', slot: 'boots', rarity: 'common', def: 2, value: 12, affixes: [] },
+      accessory: { uid: 'acc_start_a', name: 'Guild Compass', slot: 'accessory', rarity: 'common', crit: 3, value: 15, affixes: [] },
+      pickaxe:   { uid: 'pick_start_a', name: 'Reinforced Pickaxe', slot: 'pickaxe', rarity: 'common', curDur: 34, maxDur: 34, value: 25, affixes: [] }
+    },
+    passiveName: 'Delver Grit',
+    passiveDesc: 'Balanced dungeon explorer with +1 Torchlight vision and durable mining pickaxe.',
+    skillName: 'Torch Flare',
+    skillCost: 11,
+    skillRange: 1,
+    skillDesc: 'Blasts an adjacent foe with searing torchlight for 180% damage and stuns them for 1 turn.'
   }
 };
 
@@ -6200,6 +6235,19 @@ const DEFAULT_ASSET_MANIFEST = {
   pipelineRef: 'docs/asset_pipeline.md',
   cdnBaseUrl: '',
   assets: {
+    char_portrait_adventurer_default_idle: {
+      id: 'char_portrait_adventurer_default_idle',
+      tier: 1,
+      domain: 'char',
+      category: 'portrait',
+      status: 'procedural_fallback',
+      src: 'assets/runtime/tier1/portraits/char_portrait_adventurer_default_idle.jpg',
+      atlasFrame: null,
+      width: 512,
+      height: 512,
+      anchor: [0.5, 0.5],
+      fallback: 'procedural_class_badge'
+    },
     char_portrait_fighter_default_idle: {
       id: 'char_portrait_fighter_default_idle',
       tier: 1,
@@ -7627,21 +7675,29 @@ function renderWargameFacilityModal(simHost) {
       const cDef = RECRUITABLE_HERO_CLASSES.find(function(c) { return c.classId === entry.classId; });
       if (!cDef) return '';
       const unlocked = lvl >= (entry.minLevel || 1);
+      const portraitSrc = getProductionImageSrc(getHeroPortraitAssetId(cDef.classId));
+      const portraitHtml = portraitSrc
+        ? `<img src="${portraitSrc}" alt="${cDef.name}" class="w-12 h-12 rounded-lg object-cover border border-[#fbbf24]/50 shadow shrink-0 bg-[#080b11]" />`
+        : `<div class="w-12 h-12 rounded-lg bg-[#080b11] border border-[#283347] flex items-center justify-center text-xl shrink-0">${cDef.icon}</div>`;
       return `
-        <div class="p-2.5 rounded bg-[#111722] border border-[#283347] flex items-center justify-between gap-2 text-xs">
-          <div>
-            <div class="font-bold" style="color:${cDef.color}">${cDef.icon} ${cDef.name}</div>
-            <div class="text-[10px] font-mono text-[#8b949e]">${unlocked ? ('Cost: ' + cDef.costGold + 'g • ' + cDef.costFood + ' Food') : ('Unlocks at ' + bDef.name + ' Lv ' + entry.minLevel)}</div>
+        <div class="p-2.5 rounded-lg bg-[#111722]/90 border border-[#283347] flex items-center justify-between gap-3 text-xs">
+          <div class="flex items-center gap-2.5 min-w-0">
+            ${portraitHtml}
+            <div class="min-w-0">
+              <div class="font-bold truncate" style="color:${cDef.color}">${cDef.icon} ${cDef.name} <span class="text-[9px] font-mono text-[#fbbf24]">• ${cDef.title}</span></div>
+              <div class="text-[10px] text-[#94a3b8] truncate">${cDef.specialty || ''}</div>
+              <div class="text-[10px] font-mono text-[#fbbf24] mt-0.5">${unlocked ? ('Oath Cost: ' + cDef.costGold + 'g • ' + cDef.costFood + ' Food') : ('Unlocks at ' + bDef.name + ' Lv ' + entry.minLevel)}</div>
+            </div>
           </div>
-          <button onclick="window.WargameApp.handleRecruitHero('${cDef.classId}')" ${!unlocked ? 'disabled' : ''} class="px-2.5 py-1 rounded text-[10px] font-mono font-bold uppercase ${unlocked ? 'bg-[#fbbf24] hover:bg-[#f59e0b] text-[#080b11] cursor-pointer' : 'bg-[#1a2232] text-[#64748b] cursor-not-allowed'}">
-            ${unlocked ? 'Recruit' : ('Lv ' + entry.minLevel)}
+          <button onclick="window.WargameApp.handleRecruitHero('${cDef.classId}')" ${!unlocked ? 'disabled' : ''} class="px-3 py-1.5 rounded text-[10px] font-mono font-bold uppercase whitespace-nowrap ${unlocked ? 'bg-[#fbbf24] hover:bg-[#f59e0b] text-[#080b11] cursor-pointer' : 'bg-[#1a2232] text-[#64748b] cursor-not-allowed'}">
+            ${unlocked ? '⚔️ Train (60s)' : ('Lv ' + entry.minLevel)}
           </button>
         </div>
       `;
     }).join('');
     sections.push(`
       <div class="p-3 rounded-lg bg-[#080b11] border border-[#60a5fa]/40 space-y-2">
-        <div class="text-xs font-mono font-bold text-[#60a5fa]">⚔️ Guild Recruitment Roster</div>
+        <div class="text-xs font-mono font-bold text-[#60a5fa]">⚔️ ${bDef.name} Recruitment Roster</div>
         <div class="space-y-1.5">${classCards}</div>
       </div>
     `);
@@ -8282,15 +8338,11 @@ function renderCityBuilderPanel(simHost) {
         </div>
 
         <div class="space-y-2 pt-2 border-t border-[#1e293b]">
-          ${curBId === 'guild_hall' ? `
-            <button data-action="enter-guild" onclick="window.WargameApp.handleSwitchView('guild')" class="w-full py-2 rounded-lg font-bold text-xs uppercase tracking-wider shadow bg-[#60a5fa] hover:bg-[#3b82f6] text-[#080b11] cursor-pointer">
-              ⚔️ Enter Adventurers Guild
-            </button>
-          ` : (curBDef.facilities ? `
+          ${curBDef.facilities ? `
             <button data-action="enter-facility" onclick="window.WargameApp.handleOpenFacilityModal('${curBId}')" class="w-full py-2 rounded-lg font-bold text-xs uppercase tracking-wider shadow bg-[#60a5fa] hover:bg-[#3b82f6] text-[#080b11] cursor-pointer">
               🚪 Enter ${curBDef.name}
             </button>
-          ` : '')}
+          ` : ''}
           <!-- Upgrade Action -->
           ${!isMax ? `
             <div class="p-2.5 rounded bg-[#111722] border border-[#283347] space-y-1.5">
@@ -8433,7 +8485,16 @@ function renderGuildRecruitmentPanel(simHost) {
   const gridEl = document.getElementById('wgGuildClassesGrid');
   if (!city || !gridEl) return;
 
-  const newGuildHtml = RECRUITABLE_HERO_CLASSES.map(function(cls) {
+  // Inc 9.7.5: Adventurers Guild recruits strictly the Adventurer class (other classes belong to their specialist Guilds)
+  const guildDef = CITY_BUILDINGS_CATALOG.guild_hall;
+  const allowedIds = (guildDef && guildDef.facilities && guildDef.facilities.recruitment && Array.isArray(guildDef.facilities.recruitment.classes))
+    ? guildDef.facilities.recruitment.classes.map(function(e) { return e.classId; })
+    : ['adventurer'];
+  const guildClasses = RECRUITABLE_HERO_CLASSES.filter(function(cls) {
+    return allowedIds.indexOf(cls.classId) !== -1;
+  });
+
+  const newGuildHtml = guildClasses.map(function(cls) {
     const canAfford = (city.stockpile.gold || 0) >= cls.costGold && (city.stockpile.food || 0) >= cls.costFood;
     const portraitSrc = getProductionImageSrc(getHeroPortraitAssetId(cls.classId));
     const portraitHtml = portraitSrc
@@ -8947,36 +9008,36 @@ function evaluateWargameSelfTests() {
     payload: { taskId: 'task_build_guild_hall' }
   });
 
-  // Start training a Ranger Hero (60,000ms training queue)
+  // Start training an Adventurer Hero at the Adventurers Guild (60,000ms training queue)
   const recruitRanger = host5.dispatch({
     type: COMMAND_TYPES.RECRUIT_HERO,
-    payload: { classId: 'ranger', heroName: 'Sylvanas Pathfinder' }
+    payload: { classId: 'adventurer', heroName: 'Sylvanas Delver' }
   });
   const rangerQueued = recruitRanger.ok && city5.recruitmentQueue.length === 1 && city5.recruitmentQueue[0].status === 'training';
   const heroNotInstantlySpawned = host5.state.world.heroes.length === 0;
 
-  // Queue a 2nd trainee (Fighter) and test recruitment cancel prorated refund
+  // Queue a 2nd trainee (Adventurer) and test recruitment cancel prorated refund
   const goldBeforeFighter = city5.stockpile.gold;
   const recruitFighter = host5.dispatch({
     type: COMMAND_TYPES.RECRUIT_HERO,
-    payload: { classId: 'fighter', heroName: 'Garrick Ironheart' }
+    payload: { classId: 'adventurer', heroName: 'Garrick Delver' }
   });
   const fighterQueued = recruitFighter.ok && city5.recruitmentQueue.length === 2 && city5.recruitmentQueue[1].status === 'queued';
 
-  // Cancel queued fighter -> 100% full refund
+  // Cancel queued trainee -> 100% full refund
   const cancelFighter = host5.dispatch({
     type: COMMAND_TYPES.CANCEL_RECRUITMENT,
     payload: { queueItemId: recruitFighter.data.queueItem.queueItemId }
   });
   const fighterRefundVerified = cancelFighter.ok && city5.stockpile.gold === goldBeforeFighter && city5.recruitmentQueue.length === 1;
 
-  // Advance clock by 30,000ms -> Ranger still in training!
+  // Advance clock by 30,000ms -> Trainee still in training!
   host5.stepClock(30000);
   const stillTrainingAt30s = host5.state.world.heroes.length === 0 && city5.recruitmentQueue.length === 1;
 
-  // Advance clock by remaining 30,000ms (total 60,000ms elapsed) -> Ranger training finishes!
+  // Advance clock by remaining 30,000ms (total 60,000ms elapsed) -> Training finishes!
   host5.stepClock(30000);
-  const rangerCompleted = city5.recruitmentQueue.length === 0 && host5.state.world.heroes.length === 1 && host5.state.world.heroes[0].classId === 'ranger';
+  const rangerCompleted = city5.recruitmentQueue.length === 0 && host5.state.world.heroes.length === 1 && host5.state.world.heroes[0].classId === 'adventurer';
   const partySpawnedOnOverworld = host5.state.world.overworld.units.some(function(u) {
     return u.unitType === 'hero_party' && u.canEnterDungeon === true && u.alive === true;
   });
@@ -9168,10 +9229,10 @@ function evaluateWargameSelfTests() {
   const starfallPoi = dungeonPois7.find(function(p) { return p.id === 'poi_dungeon_starfall'; });
   const starfallRevealedByGuild = Boolean(starfallPoi && starfallPoi.discovered === true);
 
-  // Recruit Fighter Hero & advance 60s
+  // Recruit Adventurer Hero at Adventurers Guild & advance 60s
   host7.dispatch({
     type: COMMAND_TYPES.RECRUIT_HERO,
-    payload: { classId: 'fighter', heroName: 'Aldric Vanguard' }
+    payload: { classId: 'adventurer', heroName: 'Aldric Delver' }
   });
   host7.stepClock(60000);
   const party7 = ow7.units.find(function(u) { return u.unitType === 'hero_party' && u.alive; });
@@ -9506,6 +9567,8 @@ function evaluateWargameSelfTests() {
   // 10C. Hero Roster Cap of 3, Overall Leader Reassignment & Dismiss Hero (Gear preserved in City Storage)
   city7.stockpile.gold = 500;
   city7.stockpile.food = 500;
+  city7.buildings.mages_guild = 1;
+  city7.buildings.thieves_guild = 1;
   const rec2 = host7.dispatch({ type: COMMAND_TYPES.RECRUIT_HERO, payload: { classId: 'cleric', heroName: 'Brother Aldous' } });
   const rec3 = host7.dispatch({ type: COMMAND_TYPES.RECRUIT_HERO, payload: { classId: 'mage', heroName: 'Lyra Starweaver' } });
   const rec4Blocked = !host7.dispatch({ type: COMMAND_TYPES.RECRUIT_HERO, payload: { classId: 'thief', heroName: 'Vex Shadow' } }).ok;
@@ -9689,6 +9752,44 @@ function evaluateWargameSelfTests() {
     detail: t13Pass
       ? 'Manifest schema valid (' + manifestCheck13.total + ' entries, ' + manifestCheck13.productionCount + ' production Golden Slice assets), Tier 1 interior/portrait resolution & Canvas2D fallback verified'
       : 'Failed checks: ' + failed13.join(', ')
+  });
+
+  // =========================================================================
+  // Test 14: Unified Adventurers Guild Parity & Dedicated Adventurer Class (Inc 9.7.5)
+  // =========================================================================
+  const host14 = createWargameSimHost();
+  host14.dispatch({ type: COMMAND_TYPES.START_NEW_CAMPAIGN, payload: { houseName: 'House Parity', seedCode: 'STAR-9750' } });
+  host14.dispatch({ type: COMMAND_TYPES.FOUND_CITY, payload: { cityName: 'Parity Bastion' } });
+  const city14 = getPrimaryCity(host14.state);
+  city14.stockpile.gold = 500;
+  city14.stockpile.food = 500;
+  city14.buildings.guild_hall = 1;
+
+  const guildOnlyClasses = getCityRecruitableClasses(city14);
+  const onlyAdventurerUnlocked = guildOnlyClasses.length === 1 && guildOnlyClasses[0] === 'adventurer';
+  const fighterBlockedWithoutGuild = !host14.dispatch({ type: COMMAND_TYPES.RECRUIT_HERO, payload: { classId: 'fighter' } }).ok;
+  const rangerBlockedWithoutLodge = !host14.dispatch({ type: COMMAND_TYPES.RECRUIT_HERO, payload: { classId: 'ranger' } }).ok;
+  const adventurerAllowed = host14.dispatch({ type: COMMAND_TYPES.RECRUIT_HERO, payload: { classId: 'adventurer', heroName: 'Rowan Delver' } }).ok;
+
+  city14.buildings.fighters_guild = 1;
+  const fighterUnlockedWithGuild = host14.dispatch({ type: COMMAND_TYPES.RECRUIT_HERO, payload: { classId: 'fighter', heroName: 'Bram Vanguard' } }).ok;
+
+  const t14Checks = {
+    onlyAdventurerUnlocked: onlyAdventurerUnlocked,
+    fighterBlockedWithoutGuild: fighterBlockedWithoutGuild,
+    rangerBlockedWithoutLodge: rangerBlockedWithoutLodge,
+    adventurerAllowed: adventurerAllowed,
+    fighterUnlockedWithGuild: fighterUnlockedWithGuild
+  };
+  const failed14 = Object.keys(t14Checks).filter(function(k) { return !t14Checks[k]; });
+  const t14Pass = failed14.length === 0;
+
+  results.push({
+    name: '14. Unified Adventurers Guild Parity & Dedicated Adventurer Class (Inc 9.7.5)',
+    pass: t14Pass,
+    detail: t14Pass
+      ? 'Adventurers Guild strictly unlocks Adventurer class only; specialist classes gated behind their respective Guilds'
+      : 'Failed checks: ' + failed14.join(', ')
   });
 
   return results;

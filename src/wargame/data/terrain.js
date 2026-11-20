@@ -170,6 +170,17 @@ export const UNIT_ARCHETYPES = {
 
 export const RECRUITABLE_HERO_CLASSES = [
   {
+    classId: 'adventurer',
+    name: 'Guild Adventurer',
+    title: 'Starfall Delver',
+    icon: '🧭',
+    color: '#38bdf8',
+    costGold: 35,
+    costFood: 20,
+    baseStats: { str: 12, dex: 12, int: 11, vit: 13, hp: 160, mp: 68, atk: 24, def: 14 },
+    specialty: 'Versatile dungeon delver trained at the Adventurers Guild: Torch Flare stun, extra vision, and reinforced mining.'
+  },
+  {
     classId: 'fighter',
     name: 'Ironclad Fighter',
     title: 'Vanguard Commander',

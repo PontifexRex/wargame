@@ -306,15 +306,15 @@ export const CITY_BUILDINGS_CATALOG = {
     productionPerTick: { gold: 2 },
     requires: { meeting_hall: 1, quarry: 1 },
     requiredPopulation: 20,
-    recruits: ['fighter', 'ranger', 'thief'],
+    recruits: ['adventurer'],
     facilities: {
-      recruitment: { classes: [{ classId: 'fighter', minLevel: 1 }, { classId: 'ranger', minLevel: 1 }, { classId: 'thief', minLevel: 1 }] },
+      recruitment: { classes: [{ classId: 'adventurer', minLevel: 1 }] },
       questBoard: { domain: 'adventurers' },
       training: { domain: 'adventurers' },
       research: { domain: 'adventurers' },
       shop: { catalogId: 'shop_adventurers' }
     },
-    desc: 'Guild dedicated to Adventurers & dungeon delving: dungeon quests, training, research, and delve-gear shop.'
+    desc: 'Guild dedicated to the Adventurer class & dungeon delving: recruits Adventurers, hosts dungeon quests, training, research, and delve-gear shop.'
   },
   garrison: {
     id: 'garrison',

@@ -712,7 +712,7 @@ export function unsocketFromInspect(targetRef, socketIdx, isEquippedSlot) {
 export function openClassSelectModal(allowCancel = false) {
   if (typeof document === 'undefined') return;
   document.getElementById('btnCloseClassModal').classList.toggle('hidden', !allowCancel);
-  const classList = Object.values(CLASSES);
+  const classList = ['fighter', 'thief', 'mage', 'ranger', 'paladin'].map(function(id) { return CLASSES[id]; }).filter(Boolean);
   for (let i = 0; i < classList.length; i++) {
     const c = classList[i];
     const cardCanvas = document.getElementById('classCardCanvas_' + c.id);

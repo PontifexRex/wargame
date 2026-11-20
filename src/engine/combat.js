@@ -984,7 +984,7 @@ export function getSkillTargetingInfo(state = gameState) {
       .filter(m => m.hp > 0 && Math.hypot(m.x - h.x, m.y - h.y) <= 5.2 && hasLineOfSight(floor, h.x, h.y, m.x, m.y))
       .sort((a, b) => Math.hypot(a.x - h.x, a.y - h.y) - Math.hypot(b.x - h.x, b.y - h.y))
       .slice(0, maxTargets);
-  } else if (h.classId === 'paladin') {
+  } else if (h.classId === 'paladin' || h.classId === 'adventurer') {
     reachRadius = 1.5;
     const t = floor.monsters.find(m => m.hp > 0 && Math.hypot(m.x - h.x, m.y - h.y) <= 1.5);
     if (t) targets.push(t);
@@ -1247,6 +1247,33 @@ export function executeClassSkill(state = gameState) {
     if (target.hp <= 0) killMonster(target, state);
     if (state === gameState) processTurn(state);
     return { ok: true, skill: 'smite', dmg, healAmt };
+  }
+
+  // 6. ADVENTURER: Torch Flare (Requires adjacent enemy before deducting MP; deals 180% dmg + 1-turn stun)
+  if (h.classId === 'adventurer') {
+    const target = floor.monsters.find(m => Math.hypot(m.x - h.x, m.y - h.y) <= 1.5);
+    if (!target) {
+      if (state === gameState) {
+        ui.floatingText(h.x, h.y, 'No Adjacent Foe!', '#38bdf8');
+        ui.log('Torch Flare requires an adjacent monster target.', 'bad');
+      }
+      return { ok: false, reason: 'no_adjacent_target' };
+    }
+
+    h.mp -= effectiveCost;
+    const masteryMult = getCodexMasteryMultiplier(target.id, state);
+    const dmg = Math.max(4, Math.round(h.atk * 1.8 * masteryMult) - Math.floor(target.def * 0.5));
+    target.hp -= dmg;
+    target.stunned = Math.max(target.stunned || 0, 1);
+
+    if (state === gameState) {
+      playSound('spell');
+      ui.floatingText(target.x, target.y, `-${dmg} FLARE!`, '#38bdf8');
+      ui.log(`Torch Flare sears ${target.name} for ${dmg} damage and stuns it!`, 'gold');
+    }
+    if (target.hp <= 0) killMonster(target, state);
+    if (state === gameState) processTurn(state);
+    return { ok: true, skill: 'torch_flare', dmg };
   }
 
   return { ok: false };
