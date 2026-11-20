@@ -274,6 +274,18 @@ export function handleUnequipHeroItem(heroId, slot) {
   syncWargameUI(simHost);
 }
 
+export function handleAutoEquipHero() {
+  const heroId = simHost.state && simHost.state._openHeroSheetId;
+  if (!heroId) return;
+  simHost.dispatch({
+    type: COMMAND_TYPES.AUTO_EQUIP_HERO,
+    payload: { heroId: heroId }
+  });
+  simHost.state._dirty = true;
+  simHost.save();
+  syncWargameUI(simHost);
+}
+
 export function handleSelectPartyByHero(heroId) {
   if (!simHost.state.world || !simHost.state.world.overworld) return;
   const ow = simHost.state.world.overworld;
@@ -584,6 +596,7 @@ export const WargameApp = {
   handleCloseHeroSheet: handleCloseHeroSheet,
   handleEquipHeroItem: handleEquipHeroItem,
   handleUnequipHeroItem: handleUnequipHeroItem,
+  handleAutoEquipHero: handleAutoEquipHero,
   handleMarchToDungeon: handleMarchToDungeon,
   handleReturnToCity: handleReturnToCity,
   handleEnterDungeon: handleEnterDungeon,

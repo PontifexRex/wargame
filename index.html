@@ -89,7 +89,7 @@
               </div>
             </div>
           </div>
-          <button onclick="window.Aethelgard.openClassSelectModal(true)" class="text-[11px] px-2 py-1 rounded bg-[#1a2232] hover:bg-[#283347] text-[#8b949e] hover:text-[#e6edf3] border border-[#283347] btn-tactical">
+          <button onclick="window.Aethelgard.openClassSelectModal(true)" class="hidden text-[11px] px-2 py-1 rounded bg-[#1a2232] hover:bg-[#283347] text-[#8b949e] hover:text-[#e6edf3] border border-[#283347] btn-tactical">
             New Hero
           </button>
         </div>
@@ -1378,6 +1378,9 @@
             <option value="door">Door</option>
             <option value="key">Key</option>
             <option value="monster">Monster</option>
+            <option value="mechanism">Mechanism</option>
+            <option value="prop">Prop</option>
+            <option value="hazard">Hazard</option>
           </select>
           <select id="devSpawnSubIdSelect" class="flex-1 min-w-[200px] bg-[#111722] border border-[#283347] rounded px-2 py-1 text-xs text-[#e6edf3] font-mono-num">
             <option value="waypoint">Ancient Celestial Waypoint</option>
@@ -1400,6 +1403,11 @@
           <button id="btnDevQuickIronKey" onclick="window.Aethelgard.handleDevQuickSpawn('key', 'iron')" class="px-2 py-0.5 rounded bg-[#1a2232] hover:bg-[#283347] text-[#e2e8f0] border border-[#e2e8f0]/30 text-[10px] font-mono-num btn-tactical">+ Iron Key</button>
           <button id="btnDevQuickVaultKey" onclick="window.Aethelgard.handleDevQuickSpawn('key', 'vault')" class="px-2 py-0.5 rounded bg-[#1a2232] hover:bg-[#283347] text-[#fbbf24] border border-[#fbbf24]/30 text-[10px] font-mono-num btn-tactical">+ Vault Key</button>
           <button id="btnDevQuickBoss" onclick="window.Aethelgard.handleDevQuickSpawn('monster', 'boss_colossus')" class="px-2 py-0.5 rounded bg-[#1a2232] hover:bg-[#283347] text-[#f87171] border border-[#f87171]/30 text-[10px] font-mono-num btn-tactical">+ Colossus</button>
+          <button id="btnDevQuickLever" onclick="window.Aethelgard.handleDevQuickSpawn('mechanism', 'lever')" class="px-2 py-0.5 rounded bg-[#1a2232] hover:bg-[#283347] text-[#fbbf24] border border-[#fbbf24]/30 text-[10px] font-mono-num btn-tactical">+ Lever</button>
+          <button id="btnDevQuickCrate" onclick="window.Aethelgard.handleDevQuickSpawn('prop', 'crate')" class="px-2 py-0.5 rounded bg-[#1a2232] hover:bg-[#283347] text-[#d97706] border border-[#d97706]/30 text-[10px] font-mono-num btn-tactical">+ Crate</button>
+          <button id="btnDevQuickOilBarrel" onclick="window.Aethelgard.handleDevQuickSpawn('prop', 'barrel')" class="px-2 py-0.5 rounded bg-[#1a2232] hover:bg-[#283347] text-[#f97316] border border-[#f97316]/30 text-[10px] font-mono-num btn-tactical">+ Oil Barrel</button>
+          <button id="btnDevQuickSlagVent" onclick="window.Aethelgard.handleDevQuickSpawn('hazard', 'slag')" class="px-2 py-0.5 rounded bg-[#1a2232] hover:bg-[#283347] text-[#ef4444] border border-[#ef4444]/30 text-[10px] font-mono-num btn-tactical">+ Slag Vent</button>
+          <button id="btnDevQuickSporeCloud" onclick="window.Aethelgard.handleDevQuickSpawn('hazard', 'spore')" class="px-2 py-0.5 rounded bg-[#1a2232] hover:bg-[#283347] text-[#34d399] border border-[#34d399]/30 text-[10px] font-mono-num btn-tactical">+ Spore Cloud</button>
         </div>
       </div>
 

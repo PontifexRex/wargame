@@ -114,6 +114,7 @@ const COMMAND_TYPES = {
   CANCEL_RECRUITMENT:    'CMD_CANCEL_RECRUITMENT',
   EQUIP_HERO_ITEM:       'CMD_EQUIP_HERO_ITEM',
   UNEQUIP_HERO_ITEM:     'CMD_UNEQUIP_HERO_ITEM',
+  AUTO_EQUIP_HERO:       'CMD_AUTO_EQUIP_HERO',
   MARCH_TO_DUNGEON:      'CMD_MARCH_TO_DUNGEON',
   ENTER_DUNGEON:         'CMD_ENTER_DUNGEON',
   RESOLVE_DUNGEON_RETURN:'CMD_RESOLVE_DUNGEON_RETURN',
@@ -2381,7 +2382,8 @@ function depositUnitCargoAtCity(unit, city, state, simTimeMs, eventStream) {
   const gold = c.gold || 0;
   const ore = c.ore || 0;
   const gems = c.gems || 0;
-  const gearCount = c.gearCount || 0;
+  const gearItems = Array.isArray(c.gearItems) ? c.gearItems : [];
+  const gearCount = Math.max(c.gearCount || 0, gearItems.length);
   if (gold <= 0 && ore <= 0 && gems <= 0 && gearCount <= 0) {
     unit.cargo = null;
     return false;
@@ -2389,6 +2391,17 @@ function depositUnitCargoAtCity(unit, city, state, simTimeMs, eventStream) {
 
   city.stockpile.gold = (city.stockpile.gold || 0) + gold;
   city.stockpile.ore  = (city.stockpile.ore  || 0) + ore;
+
+  // Deposit looted dungeon equipment items into the party leader Hero's bagGear!
+  if (gearItems.length > 0 && state && state.world && Array.isArray(state.world.heroes)) {
+    const leaderHero = state.world.heroes.find(function(h) { return h.id === unit.leaderHeroId; }) || state.world.heroes[0];
+    if (leaderHero) {
+      if (!Array.isArray(leaderHero.bagGear)) leaderHero.bagGear = [];
+      for (let gi = 0; gi < gearItems.length; gi++) {
+        leaderHero.bagGear.push(gearItems[gi]);
+      }
+    }
+  }
   unit.cargo = null;
   if (state && state.world && state.world.stats) {
     state.world.stats.expeditionsBanked = (state.world.stats.expeditionsBanked || 0) + 1;
@@ -3301,7 +3314,9 @@ function createDungeonReturnEnvelope(data) {
       gems: typeof loot.gems === 'number' ? loot.gems : 0,
       gearCount: typeof loot.gearCount === 'number' ? loot.gearCount : 0,
       salvagedGold: typeof loot.salvagedGold === 'number' ? loot.salvagedGold : 0
-    }
+    },
+    extractedGear: Array.isArray(src.extractedGear) ? JSON.parse(JSON.stringify(src.extractedGear)) : [],
+    heroEquipment: src.heroEquipment ? JSON.parse(JSON.stringify(src.heroEquipment)) : null
   };
 }
 
@@ -4225,6 +4240,37 @@ function dispatchWargameCommand(commandEnvelope, state, scheduler, eventStream) 
     return accept({ heroId: hero.id, slot: slot, unequipped: removed });
   }
 
+  if (cmdType === COMMAND_TYPES.AUTO_EQUIP_HERO) {
+    const hero = (world.heroes || []).find(function(h) { return h.id === payload.heroId; });
+    if (!hero) return reject('Hero not found');
+    if (!Array.isArray(hero.bagGear)) hero.bagGear = [];
+    if (!hero.equipment) hero.equipment = { weapon: null, armor: null, helm: null, boots: null, accessory: null, pickaxe: null };
+
+    function scoreGear(it) {
+      if (!it) return -1;
+      return (it.atk || 0) * 3 + (it.def || 0) * 2.5 + (it.hp || 0) * 0.4 + (it.mp || 0) * 0.3 + (it.tier || 0) * 15;
+    }
+
+    const slots = ['weapon', 'armor', 'helm', 'boots', 'accessory', 'pickaxe'];
+    let equippedCount = 0;
+    for (let s = 0; s < slots.length; s++) {
+      const sl = slots[s];
+      const candidates = hero.bagGear.filter(function(g) { return g && g.slot === sl; });
+      if (candidates.length === 0) continue;
+      candidates.sort(function(a, b) { return scoreGear(b) - scoreGear(a); });
+      const best = candidates[0];
+      const cur = hero.equipment[sl];
+      if (scoreGear(best) > scoreGear(cur)) {
+        const idx = hero.bagGear.indexOf(best);
+        if (idx !== -1) hero.bagGear.splice(idx, 1);
+        hero.equipment[sl] = best;
+        if (cur) hero.bagGear.push(cur);
+        equippedCount++;
+      }
+    }
+    return accept({ heroId: hero.id, equippedCount: equippedCount });
+  }
+
   // ---------------------------------------------------------------------------
   // 9C. MARCH TO DUNGEON (Quick-Order Hero Party to a Discovered Vault POI)
   // ---------------------------------------------------------------------------
@@ -4387,6 +4433,9 @@ function dispatchWargameCommand(commandEnvelope, state, scheduler, eventStream) 
       if (typeof payload.heroXp === 'number' && payload.heroXp > (hero.xp || 0)) {
         hero.xp = payload.heroXp;
       }
+      if (payload.heroEquipment && typeof payload.heroEquipment === 'object') {
+        hero.equipment = Object.assign({}, hero.equipment || {}, payload.heroEquipment);
+      }
     }
 
     const poiId = payload.dungeonPoiId || unit.activeDungeonPoiId;
@@ -4437,12 +4486,17 @@ function dispatchWargameCommand(commandEnvelope, state, scheduler, eventStream) 
     unit.marchPlan = null;
 
     if (!unit.cargo) {
-      unit.cargo = { gold: 0, ore: 0, gems: 0, gearCount: 0 };
+      unit.cargo = { gold: 0, ore: 0, gems: 0, gearCount: 0, gearItems: [] };
+    }
+    if (!Array.isArray(unit.cargo.gearItems)) unit.cargo.gearItems = [];
+    const incomingGear = Array.isArray(payload.extractedGear) ? payload.extractedGear : [];
+    for (let gi = 0; gi < incomingGear.length; gi++) {
+      unit.cargo.gearItems.push(incomingGear[gi]);
     }
     unit.cargo.gold      = (unit.cargo.gold      || 0) + (loot.gold      || 0);
     unit.cargo.ore       = (unit.cargo.ore       || 0) + (loot.ore       || 0);
     unit.cargo.gems      = (unit.cargo.gems      || 0) + (loot.gems      || 0);
-    unit.cargo.gearCount = (unit.cargo.gearCount || 0) + (loot.gearCount || 0);
+    unit.cargo.gearCount = (unit.cargo.gearCount || 0) + Math.max(loot.gearCount || 0, incomingGear.length);
 
     const isRecallScroll = String(method).indexOf('Recall Scroll') !== -1;
     let returnMarchStarted = false;
@@ -7717,11 +7771,20 @@ function evaluateWargameSelfTests() {
   renderSharedPaperDollMannequin(mockCanvas9, hero9);
   const mannequinRendered9 = drawCalls9 > 5;
 
+  // Verify CMD_AUTO_EQUIP_HERO equips superior gear from hero.bagGear
+  hero9.bagGear.push({ uid: 'upg_w_9', slot: 'weapon', name: 'Star-Forged Greatsword', rarity: 'epic', atk: 24, def: 2, value: 200 });
+  const autoEqRes9 = host7.dispatch({
+    type: COMMAND_TYPES.AUTO_EQUIP_HERO,
+    payload: { heroId: hero9.id }
+  });
+  const autoEquipVerified9 = Boolean(autoEqRes9.ok && hero9.equipment.weapon && hero9.equipment.weapon.uid === 'upg_w_9');
+
   const t9Checks = {
     hasStarterEq9: hasStarterEq9,
     hasCosmetics9: hasCosmetics9,
     equipBoostedStats9: equipBoostedStats9,
     unequipVerified9: unequipVerified9,
+    autoEquipVerified9: autoEquipVerified9,
     mannequinRendered9: mannequinRendered9
   };
   const failed9 = Object.keys(t9Checks).filter(function(k) { return !t9Checks[k]; });
@@ -7993,6 +8056,18 @@ function handleUnequipHeroItem(heroId, slot) {
   simHost.dispatch({
     type: COMMAND_TYPES.UNEQUIP_HERO_ITEM,
     payload: { heroId: heroId, slot: slot }
+  });
+  simHost.state._dirty = true;
+  simHost.save();
+  syncWargameUI(simHost);
+}
+
+function handleAutoEquipHero() {
+  const heroId = simHost.state && simHost.state._openHeroSheetId;
+  if (!heroId) return;
+  simHost.dispatch({
+    type: COMMAND_TYPES.AUTO_EQUIP_HERO,
+    payload: { heroId: heroId }
   });
   simHost.state._dirty = true;
   simHost.save();
@@ -8309,6 +8384,7 @@ const WargameApp = {
   handleCloseHeroSheet: handleCloseHeroSheet,
   handleEquipHeroItem: handleEquipHeroItem,
   handleUnequipHeroItem: handleUnequipHeroItem,
+  handleAutoEquipHero: handleAutoEquipHero,
   handleMarchToDungeon: handleMarchToDungeon,
   handleReturnToCity: handleReturnToCity,
   handleEnterDungeon: handleEnterDungeon,

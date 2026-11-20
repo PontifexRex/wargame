@@ -40,6 +40,20 @@ export const SPAWN_SUB_OPTIONS = {
     { value: 'boss_weaver', label: 'Abyssal Weaver (Boss F10)' },
     { value: 'boss_ignis', label: 'Molten Ignis (Boss F15)' },
     { value: 'boss_vespera', label: 'Matron Vespera (Boss F20)' }
+  ],
+  mechanism: [
+    { value: 'lever', label: 'Iron Wall Lever (Links Nearest Door)' },
+    { value: 'plate', label: 'Dwarven Pressure Plate (Step Trigger)' }
+  ],
+  prop: [
+    { value: 'crate', label: 'Iron-Bound Supply Crate (Smash for Gold)' },
+    { value: 'barrel', label: 'Volatile Oil Barrel (Spills Oil Slicks)' },
+    { value: 'barricade', label: 'Splintered Wood Barricade (Destructible)' }
+  ],
+  hazard: [
+    { value: 'slag', label: 'Molten Slag Vent (Fire + Burn)' },
+    { value: 'spore', label: 'Toxic Spore Cloud (Poison)' },
+    { value: 'oil', label: 'Flammable Oil Slick (Ignites on Burn)' }
   ]
 };
 

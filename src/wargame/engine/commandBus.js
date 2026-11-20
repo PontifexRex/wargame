@@ -907,6 +907,37 @@ export function dispatchWargameCommand(commandEnvelope, state, scheduler, eventS
     return accept({ heroId: hero.id, slot: slot, unequipped: removed });
   }
 
+  if (cmdType === COMMAND_TYPES.AUTO_EQUIP_HERO) {
+    const hero = (world.heroes || []).find(function(h) { return h.id === payload.heroId; });
+    if (!hero) return reject('Hero not found');
+    if (!Array.isArray(hero.bagGear)) hero.bagGear = [];
+    if (!hero.equipment) hero.equipment = { weapon: null, armor: null, helm: null, boots: null, accessory: null, pickaxe: null };
+
+    function scoreGear(it) {
+      if (!it) return -1;
+      return (it.atk || 0) * 3 + (it.def || 0) * 2.5 + (it.hp || 0) * 0.4 + (it.mp || 0) * 0.3 + (it.tier || 0) * 15;
+    }
+
+    const slots = ['weapon', 'armor', 'helm', 'boots', 'accessory', 'pickaxe'];
+    let equippedCount = 0;
+    for (let s = 0; s < slots.length; s++) {
+      const sl = slots[s];
+      const candidates = hero.bagGear.filter(function(g) { return g && g.slot === sl; });
+      if (candidates.length === 0) continue;
+      candidates.sort(function(a, b) { return scoreGear(b) - scoreGear(a); });
+      const best = candidates[0];
+      const cur = hero.equipment[sl];
+      if (scoreGear(best) > scoreGear(cur)) {
+        const idx = hero.bagGear.indexOf(best);
+        if (idx !== -1) hero.bagGear.splice(idx, 1);
+        hero.equipment[sl] = best;
+        if (cur) hero.bagGear.push(cur);
+        equippedCount++;
+      }
+    }
+    return accept({ heroId: hero.id, equippedCount: equippedCount });
+  }
+
   // ---------------------------------------------------------------------------
   // 9C. MARCH TO DUNGEON (Quick-Order Hero Party to a Discovered Vault POI)
   // ---------------------------------------------------------------------------
@@ -1069,6 +1100,9 @@ export function dispatchWargameCommand(commandEnvelope, state, scheduler, eventS
       if (typeof payload.heroXp === 'number' && payload.heroXp > (hero.xp || 0)) {
         hero.xp = payload.heroXp;
       }
+      if (payload.heroEquipment && typeof payload.heroEquipment === 'object') {
+        hero.equipment = Object.assign({}, hero.equipment || {}, payload.heroEquipment);
+      }
     }
 
     const poiId = payload.dungeonPoiId || unit.activeDungeonPoiId;
@@ -1119,12 +1153,17 @@ export function dispatchWargameCommand(commandEnvelope, state, scheduler, eventS
     unit.marchPlan = null;
 
     if (!unit.cargo) {
-      unit.cargo = { gold: 0, ore: 0, gems: 0, gearCount: 0 };
+      unit.cargo = { gold: 0, ore: 0, gems: 0, gearCount: 0, gearItems: [] };
+    }
+    if (!Array.isArray(unit.cargo.gearItems)) unit.cargo.gearItems = [];
+    const incomingGear = Array.isArray(payload.extractedGear) ? payload.extractedGear : [];
+    for (let gi = 0; gi < incomingGear.length; gi++) {
+      unit.cargo.gearItems.push(incomingGear[gi]);
     }
     unit.cargo.gold      = (unit.cargo.gold      || 0) + (loot.gold      || 0);
     unit.cargo.ore       = (unit.cargo.ore       || 0) + (loot.ore       || 0);
     unit.cargo.gems      = (unit.cargo.gems      || 0) + (loot.gems      || 0);
-    unit.cargo.gearCount = (unit.cargo.gearCount || 0) + (loot.gearCount || 0);
+    unit.cargo.gearCount = (unit.cargo.gearCount || 0) + Math.max(loot.gearCount || 0, incomingGear.length);
 
     const isRecallScroll = String(method).indexOf('Recall Scroll') !== -1;
     let returnMarchStarted = false;

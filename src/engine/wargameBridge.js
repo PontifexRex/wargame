@@ -63,7 +63,9 @@ export function createDungeonReturnEnvelope(data) {
       gems: typeof loot.gems === 'number' ? loot.gems : 0,
       gearCount: typeof loot.gearCount === 'number' ? loot.gearCount : 0,
       salvagedGold: typeof loot.salvagedGold === 'number' ? loot.salvagedGold : 0
-    }
+    },
+    extractedGear: Array.isArray(src.extractedGear) ? JSON.parse(JSON.stringify(src.extractedGear)) : [],
+    heroEquipment: src.heroEquipment ? JSON.parse(JSON.stringify(src.heroEquipment)) : null
   };
 }
 

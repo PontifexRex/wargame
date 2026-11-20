@@ -852,6 +852,7 @@ export function extractToGuild(method = 'Floor 1 Ascending Stairs (<)', state = 
     }
   }
 
+  const extractedGearSnapshot = h.expeditionGear.map(gear => normalizeEquipmentSockets(gear));
   for (const gear of h.expeditionGear) {
     state.guildVault.armory.push(normalizeEquipmentSockets(gear));
   }
@@ -914,7 +915,9 @@ export function extractToGuild(method = 'Floor 1 Ascending Stairs (<)', state = 
         gems: gemsBanked,
         gearCount: gearBanked,
         salvagedGold: 0
-      }
+      },
+      extractedGear: extractedGearSnapshot,
+      heroEquipment: h.equipment || null
     });
   }
 
@@ -1082,6 +1085,16 @@ export function applyWargameEntryHandoff(handoff, state = gameState) {
   if (state.hero) {
     if (handoff.hero && handoff.hero.name) {
       state.hero.name = handoff.hero.name;
+    }
+    if (handoff.hero && handoff.hero.equipment && typeof handoff.hero.equipment === 'object') {
+      const eqSlots = ['weapon', 'armor', 'helm', 'boots', 'accessory', 'pickaxe'];
+      for (let i = 0; i < eqSlots.length; i++) {
+        const sl = eqSlots[i];
+        if (handoff.hero.equipment[sl]) {
+          state.hero.equipment[sl] = normalizeEquipmentSockets(Object.assign({}, handoff.hero.equipment[sl]));
+        }
+      }
+      recomputeHeroDerivedStats(true, state);
     }
     state.inGuild = false;
     state.dungeon.currentFloor = 1;
@@ -1305,7 +1318,7 @@ export function autoEquipBestGear(state = gameState) {
     h.equipment = { weapon: null, armor: null, helm: null, boots: null, accessory: null, pickaxe: null };
   }
 
-  const armory = state.guildVault.armory || [];
+  const armory = state.inGuild ? (state.guildVault.armory || []) : (h.expeditionGear || []);
   const slots = ['weapon', 'armor', 'helm', 'boots', 'accessory', 'pickaxe'];
   let equippedCount = 0;
   const equippedNames = [];

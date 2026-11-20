@@ -94,7 +94,16 @@ Track E (Art Direction & Graphics) ──► Stage E.1 (Pillars) ──► E.2 (
 - **Increment 9.3 (`v0.9.3-dungeon-march`)**: Multi-dungeon Overworld discovery, wandering hostile skirmishes, real-time march to vaults, cross-engine `wargameBridge` handoff (`wargame.html` ↔ `index.html`), extraction return march + cargo banking, Recall Scroll express return, and defeat recovery. *(Verified)*  
 - **Increment 9.4 (`v0.9.4-shared-hero-sheet`)**: Shared cross-engine Character Sheet & Paper-Doll module (`src/ui/shared/characterSheet.js`), Tier 1 Prestige Cosmetic slots, `#wgCharacterSheetModal` in `wargame.html`, `CMD_EQUIP/UNEQUIP_HERO_ITEM`, and bridge equipment sync. *(Verified)*
 
-#### Increment 9.5 (`v0.9.5-city-industry`) — Tier 2 City Industry: Smeltery, Warehouse & Apothecary
+#### Increment 9.5 (`v0.9.5-class-guilds`) — Specialized Class Guild Halls & Hero Recruitment
+- **Dedicated Class Recruitment Constructs**: Split hero recruitment across specialized enterable City Guild Halls so city planning directly shapes your roster:
+  - **Fighters Guild / Warrior Hall**: Recruits **Ironclad Fighters**.
+  - **Thieves Guild / Shadow Den**: Recruits **Shadowblade Rogues**.
+  - **Mages Guild / Arcane Spire**: Recruits **Astral Elementalists**.
+  - **Rangers Lodge / Pathfinders Outpost**: Recruits **Deepwood Rangers**.
+  - **Paladin Chapterhouse / Radiant Sanctum**: Recruits **Radiant Crusaders**.
+- **Adventurers Guild Hall Role**: Evolves into the central Expedition HQ (Party Assembly, Notice Board Bounties, and Bestiary Codex).
+
+#### Increment 9.6 (`v0.9.6-city-industry`) — Tier 2 City Industry: Smeltery, Warehouse & Apothecary
 - **Smeltery** *(Enterable City Construct)*: Refines raw dungeon ores (`Copper`, `Iron`, `Mithril`, `Astralite`) into forged ingots/alloys required for Tier 2 buildings and crafted equipment.
 - **Warehouse**: Substantially expands City resource storage caps per level and safeguards stockpiles.
 - **Apothecary** *(Enterable City Construct)*: Brews **Healing Tonics**, **Antidotes**, and scribes **Astral Recall Scrolls** using city provisions and dungeon reagents to stock Hero Parties before expeditions.

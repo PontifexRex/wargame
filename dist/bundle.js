@@ -3921,7 +3921,9 @@ function createDungeonReturnEnvelope(data) {
       gems: typeof loot.gems === 'number' ? loot.gems : 0,
       gearCount: typeof loot.gearCount === 'number' ? loot.gearCount : 0,
       salvagedGold: typeof loot.salvagedGold === 'number' ? loot.salvagedGold : 0
-    }
+    },
+    extractedGear: Array.isArray(src.extractedGear) ? JSON.parse(JSON.stringify(src.extractedGear)) : [],
+    heroEquipment: src.heroEquipment ? JSON.parse(JSON.stringify(src.heroEquipment)) : null
   };
 }
 
@@ -5210,6 +5212,57 @@ function generateFloor(depth, dungeonConfig = null, dungeonSeed = null) {
   const occupied = new Uint8Array(w * h);
   occupied[upPos.y * w + upPos.x] = 1;
 
+  // 0.5. Increment 8.3: Procedural Destructible Props, Linked Levers & Environmental Hazards
+  if (rooms.length >= 2) {
+    const propTypes = ['prop_supply_crate', 'prop_oil_barrel', 'prop_wood_barricade'];
+    const flBiome = (floorObj && floorObj.biomeId) || (cfg && cfg.biomeId) || 'dwarven_catacombs';
+    const hazardDefId = flBiome === 'molten_forgeworks'
+      ? 'hazard_slag_vent'
+      : (flBiome === 'crystalline_caverns' ? 'hazard_spore_cloud' : 'hazard_oil_slick');
+
+    let propsPlaced = 0;
+    let hazardsPlaced = 0;
+    for (let ri = 0; ri < rooms.length && (propsPlaced < 4 || hazardsPlaced < 2); ri++) {
+      const rm = rooms[ri];
+      if (rm === upRoom || rm === downRoom) continue;
+      const px = rm.rx + 1;
+      const py = rm.ry + 1;
+      if (tiles[py] && tiles[py][px] === TILE_FLOOR && !occupied[py * w + px]) {
+        const hasObj = floorObj.objects.some(function(o) { return o.x === px && o.y === py; });
+        if (!hasObj) {
+          if (propsPlaced < 4) {
+            const pDef = propTypes[propsPlaced % propTypes.length];
+            floorObj.objects.push(createPropInstance(pDef, px, py));
+            occupied[py * w + px] = 1;
+            propsPlaced++;
+          } else if (hazardsPlaced < 2) {
+            floorObj.objects.push(createHazardInstance(hazardDefId, px, py));
+            hazardsPlaced++;
+          }
+        }
+      }
+    }
+
+    // Link an Iron Wall Lever near any generated Iron Portcullis
+    const portcullis = floorObj.objects.find(function(o) { return o.definitionId === 'door_iron_portcullis'; });
+    if (portcullis) {
+      const adjDirs = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+      for (let ad = 0; ad < adjDirs.length; ad++) {
+        const lx = portcullis.x + adjDirs[ad][0];
+        const ly = portcullis.y + adjDirs[ad][1];
+        if (tiles[ly] && tiles[ly][lx] === TILE_FLOOR && !(lx === upPos.x && ly === upPos.y)) {
+          const hasObj = floorObj.objects.some(function(o) { return o.x === lx && o.y === ly; });
+          if (!hasObj) {
+            floorObj.objects.push(createMechanismInstance('mech_wall_lever', lx, ly, {
+              linkedTargetIds: [portcullis.instanceId]
+            }));
+            break;
+          }
+        }
+      }
+    }
+  }
+
   // 1. Spawn Scheduled Boss (if configured for this floor depth or recurring in endless mode)
   let scheduledBossId = cfg.bossSchedule && cfg.bossSchedule[depth];
   if (!scheduledBossId && cfg.maxDepth >= 999 && depth % 5 === 0 && depth > 20) {
@@ -6121,6 +6174,7 @@ function extractToGuild(method = 'Floor 1 Ascending Stairs (<)', state = gameSta
     }
   }
 
+  const extractedGearSnapshot = h.expeditionGear.map(gear => normalizeEquipmentSockets(gear));
   for (const gear of h.expeditionGear) {
     state.guildVault.armory.push(normalizeEquipmentSockets(gear));
   }
@@ -6183,7 +6237,9 @@ function extractToGuild(method = 'Floor 1 Ascending Stairs (<)', state = gameSta
         gems: gemsBanked,
         gearCount: gearBanked,
         salvagedGold: 0
-      }
+      },
+      extractedGear: extractedGearSnapshot,
+      heroEquipment: h.equipment || null
     });
   }
 
@@ -6351,6 +6407,16 @@ function applyWargameEntryHandoff(handoff, state = gameState) {
   if (state.hero) {
     if (handoff.hero && handoff.hero.name) {
       state.hero.name = handoff.hero.name;
+    }
+    if (handoff.hero && handoff.hero.equipment && typeof handoff.hero.equipment === 'object') {
+      const eqSlots = ['weapon', 'armor', 'helm', 'boots', 'accessory', 'pickaxe'];
+      for (let i = 0; i < eqSlots.length; i++) {
+        const sl = eqSlots[i];
+        if (handoff.hero.equipment[sl]) {
+          state.hero.equipment[sl] = normalizeEquipmentSockets(Object.assign({}, handoff.hero.equipment[sl]));
+        }
+      }
+      recomputeHeroDerivedStats(true, state);
     }
     state.inGuild = false;
     state.dungeon.currentFloor = 1;
@@ -6574,7 +6640,7 @@ function autoEquipBestGear(state = gameState) {
     h.equipment = { weapon: null, armor: null, helm: null, boots: null, accessory: null, pickaxe: null };
   }
 
-  const armory = state.guildVault.armory || [];
+  const armory = state.inGuild ? (state.guildVault.armory || []) : (h.expeditionGear || []);
   const slots = ['weapon', 'armor', 'helm', 'boots', 'accessory', 'pickaxe'];
   let equippedCount = 0;
   const equippedNames = [];
@@ -14625,7 +14691,50 @@ function spawnEntity(type, subId = null, x = null, y = null, state = gameState) 
     return { ok: true, entity: monster, type: 'monster', x: sx, y: sy };
   }
 
-  return { ok: false, reason: `Unknown spawn type "${type}". Valid: door, portal, key, monster` };
+  if (tLower === 'mechanism' || tLower === 'mech') {
+    const defId = (subLower === 'plate' || subLower === 'pressure_plate') ? 'mech_pressure_plate' : 'mech_wall_lever';
+    // Automatically link to nearest door/portcullis on the floor if one exists!
+    const nearestDoor = (floor.objects || []).find(function(o) {
+      return o && o.objectType === 'door' && Math.hypot(o.x - sx, o.y - sy) <= 8;
+    });
+    const mech = createMechanismInstance(defId, sx, sy, {
+      linkedTargetIds: nearestDoor ? [nearestDoor.instanceId] : []
+    });
+    addWorldObject(floor, mech);
+    if (state === gameState) {
+      emitEngineEvent(ENGINE_EVENTS.FOV_SYNC, {}, state);
+      emitEngineEvent(ENGINE_EVENTS.LOG, { msg: `[DEV] Spawned ${mech.name} at (${sx}, ${sy})${nearestDoor ? (' linked to ' + nearestDoor.name) : ''}.`, tone: 'gold' }, state);
+    }
+    return { ok: true, entity: mech, type: 'mechanism', x: sx, y: sy };
+  }
+
+  if (tLower === 'prop') {
+    let defId = 'prop_supply_crate';
+    if (subLower === 'barrel' || subLower === 'oil' || subLower === 'oil_barrel') defId = 'prop_oil_barrel';
+    else if (subLower === 'barricade' || subLower === 'wood_barricade') defId = 'prop_wood_barricade';
+    const prop = createPropInstance(defId, sx, sy);
+    addWorldObject(floor, prop);
+    if (state === gameState) {
+      emitEngineEvent(ENGINE_EVENTS.FOV_SYNC, {}, state);
+      emitEngineEvent(ENGINE_EVENTS.LOG, { msg: `[DEV] Spawned ${prop.name} at (${sx}, ${sy}).`, tone: 'gold' }, state);
+    }
+    return { ok: true, entity: prop, type: 'prop', x: sx, y: sy };
+  }
+
+  if (tLower === 'hazard') {
+    let defId = 'hazard_slag_vent';
+    if (subLower === 'oil' || subLower === 'oil_slick') defId = 'hazard_oil_slick';
+    else if (subLower === 'spore' || subLower === 'spore_cloud') defId = 'hazard_spore_cloud';
+    const hz = createHazardInstance(defId, sx, sy);
+    addWorldObject(floor, hz);
+    if (state === gameState) {
+      emitEngineEvent(ENGINE_EVENTS.FOV_SYNC, {}, state);
+      emitEngineEvent(ENGINE_EVENTS.LOG, { msg: `[DEV] Spawned ${hz.name} at (${sx}, ${sy}).`, tone: 'gold' }, state);
+    }
+    return { ok: true, entity: hz, type: 'hazard', x: sx, y: sy };
+  }
+
+  return { ok: false, reason: `Unknown spawn type "${type}". Valid: door, portal, key, monster, mechanism, prop, hazard` };
 }
 
   // --- Module: src/ui/devConsole.js ---
@@ -14662,6 +14771,20 @@ const SPAWN_SUB_OPTIONS = {
     { value: 'boss_weaver', label: 'Abyssal Weaver (Boss F10)' },
     { value: 'boss_ignis', label: 'Molten Ignis (Boss F15)' },
     { value: 'boss_vespera', label: 'Matron Vespera (Boss F20)' }
+  ],
+  mechanism: [
+    { value: 'lever', label: 'Iron Wall Lever (Links Nearest Door)' },
+    { value: 'plate', label: 'Dwarven Pressure Plate (Step Trigger)' }
+  ],
+  prop: [
+    { value: 'crate', label: 'Iron-Bound Supply Crate (Smash for Gold)' },
+    { value: 'barrel', label: 'Volatile Oil Barrel (Spills Oil Slicks)' },
+    { value: 'barricade', label: 'Splintered Wood Barricade (Destructible)' }
+  ],
+  hazard: [
+    { value: 'slag', label: 'Molten Slag Vent (Fire + Burn)' },
+    { value: 'spore', label: 'Toxic Spore Cloud (Poison)' },
+    { value: 'oil', label: 'Flammable Oil Slick (Ignites on Burn)' }
   ]
 };
 

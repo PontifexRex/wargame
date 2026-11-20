@@ -834,11 +834,20 @@ export function evaluateWargameSelfTests() {
   renderSharedPaperDollMannequin(mockCanvas9, hero9);
   const mannequinRendered9 = drawCalls9 > 5;
 
+  // Verify CMD_AUTO_EQUIP_HERO equips superior gear from hero.bagGear
+  hero9.bagGear.push({ uid: 'upg_w_9', slot: 'weapon', name: 'Star-Forged Greatsword', rarity: 'epic', atk: 24, def: 2, value: 200 });
+  const autoEqRes9 = host7.dispatch({
+    type: COMMAND_TYPES.AUTO_EQUIP_HERO,
+    payload: { heroId: hero9.id }
+  });
+  const autoEquipVerified9 = Boolean(autoEqRes9.ok && hero9.equipment.weapon && hero9.equipment.weapon.uid === 'upg_w_9');
+
   const t9Checks = {
     hasStarterEq9: hasStarterEq9,
     hasCosmetics9: hasCosmetics9,
     equipBoostedStats9: equipBoostedStats9,
     unequipVerified9: unequipVerified9,
+    autoEquipVerified9: autoEquipVerified9,
     mannequinRendered9: mannequinRendered9
   };
   const failed9 = Object.keys(t9Checks).filter(function(k) { return !t9Checks[k]; });

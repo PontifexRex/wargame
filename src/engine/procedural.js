@@ -22,7 +22,7 @@ import { normalizeDungeonConfig, resolveFloorBiome } from '../data/dungeons.js';
 import { createSeededRng } from './rng.js';
 import { createUint8Grid } from './compression.js';
 import { nextItemUid } from './state.js';
-import { createDoorInstance, createPortalInstance, spawnGroundItem } from './objects.js';
+import { createDoorInstance, createPortalInstance, createMechanismInstance, createPropInstance, createHazardInstance, spawnGroundItem } from './objects.js';
 
 export function rollSocketCountForRarity(rarityKey, slot) {
   if (slot === 'pickaxe') return 0;
@@ -771,6 +771,57 @@ export function generateFloor(depth, dungeonConfig = null, dungeonSeed = null) {
   // Occupancy bitmap for fast O(1) monster placement collision checks on huge floors
   const occupied = new Uint8Array(w * h);
   occupied[upPos.y * w + upPos.x] = 1;
+
+  // 0.5. Increment 8.3: Procedural Destructible Props, Linked Levers & Environmental Hazards
+  if (rooms.length >= 2) {
+    const propTypes = ['prop_supply_crate', 'prop_oil_barrel', 'prop_wood_barricade'];
+    const flBiome = (floorObj && floorObj.biomeId) || (cfg && cfg.biomeId) || 'dwarven_catacombs';
+    const hazardDefId = flBiome === 'molten_forgeworks'
+      ? 'hazard_slag_vent'
+      : (flBiome === 'crystalline_caverns' ? 'hazard_spore_cloud' : 'hazard_oil_slick');
+
+    let propsPlaced = 0;
+    let hazardsPlaced = 0;
+    for (let ri = 0; ri < rooms.length && (propsPlaced < 4 || hazardsPlaced < 2); ri++) {
+      const rm = rooms[ri];
+      if (rm === upRoom || rm === downRoom) continue;
+      const px = rm.rx + 1;
+      const py = rm.ry + 1;
+      if (tiles[py] && tiles[py][px] === TILE_FLOOR && !occupied[py * w + px]) {
+        const hasObj = floorObj.objects.some(function(o) { return o.x === px && o.y === py; });
+        if (!hasObj) {
+          if (propsPlaced < 4) {
+            const pDef = propTypes[propsPlaced % propTypes.length];
+            floorObj.objects.push(createPropInstance(pDef, px, py));
+            occupied[py * w + px] = 1;
+            propsPlaced++;
+          } else if (hazardsPlaced < 2) {
+            floorObj.objects.push(createHazardInstance(hazardDefId, px, py));
+            hazardsPlaced++;
+          }
+        }
+      }
+    }
+
+    // Link an Iron Wall Lever near any generated Iron Portcullis
+    const portcullis = floorObj.objects.find(function(o) { return o.definitionId === 'door_iron_portcullis'; });
+    if (portcullis) {
+      const adjDirs = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+      for (let ad = 0; ad < adjDirs.length; ad++) {
+        const lx = portcullis.x + adjDirs[ad][0];
+        const ly = portcullis.y + adjDirs[ad][1];
+        if (tiles[ly] && tiles[ly][lx] === TILE_FLOOR && !(lx === upPos.x && ly === upPos.y)) {
+          const hasObj = floorObj.objects.some(function(o) { return o.x === lx && o.y === ly; });
+          if (!hasObj) {
+            floorObj.objects.push(createMechanismInstance('mech_wall_lever', lx, ly, {
+              linkedTargetIds: [portcullis.instanceId]
+            }));
+            break;
+          }
+        }
+      }
+    }
+  }
 
   // 1. Spawn Scheduled Boss (if configured for this floor depth or recurring in endless mode)
   let scheduledBossId = cfg.bossSchedule && cfg.bossSchedule[depth];

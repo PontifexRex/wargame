@@ -19,6 +19,9 @@ import { ENGINE_EVENTS, emitEngineEvent } from './events.js';
 import {
   createDoorInstance,
   createPortalInstance,
+  createMechanismInstance,
+  createPropInstance,
+  createHazardInstance,
   spawnGroundItem,
   addWorldObject
 } from './objects.js';
@@ -402,5 +405,48 @@ export function spawnEntity(type, subId = null, x = null, y = null, state = game
     return { ok: true, entity: monster, type: 'monster', x: sx, y: sy };
   }
 
-  return { ok: false, reason: `Unknown spawn type "${type}". Valid: door, portal, key, monster` };
+  if (tLower === 'mechanism' || tLower === 'mech') {
+    const defId = (subLower === 'plate' || subLower === 'pressure_plate') ? 'mech_pressure_plate' : 'mech_wall_lever';
+    // Automatically link to nearest door/portcullis on the floor if one exists!
+    const nearestDoor = (floor.objects || []).find(function(o) {
+      return o && o.objectType === 'door' && Math.hypot(o.x - sx, o.y - sy) <= 8;
+    });
+    const mech = createMechanismInstance(defId, sx, sy, {
+      linkedTargetIds: nearestDoor ? [nearestDoor.instanceId] : []
+    });
+    addWorldObject(floor, mech);
+    if (state === gameState) {
+      emitEngineEvent(ENGINE_EVENTS.FOV_SYNC, {}, state);
+      emitEngineEvent(ENGINE_EVENTS.LOG, { msg: `[DEV] Spawned ${mech.name} at (${sx}, ${sy})${nearestDoor ? (' linked to ' + nearestDoor.name) : ''}.`, tone: 'gold' }, state);
+    }
+    return { ok: true, entity: mech, type: 'mechanism', x: sx, y: sy };
+  }
+
+  if (tLower === 'prop') {
+    let defId = 'prop_supply_crate';
+    if (subLower === 'barrel' || subLower === 'oil' || subLower === 'oil_barrel') defId = 'prop_oil_barrel';
+    else if (subLower === 'barricade' || subLower === 'wood_barricade') defId = 'prop_wood_barricade';
+    const prop = createPropInstance(defId, sx, sy);
+    addWorldObject(floor, prop);
+    if (state === gameState) {
+      emitEngineEvent(ENGINE_EVENTS.FOV_SYNC, {}, state);
+      emitEngineEvent(ENGINE_EVENTS.LOG, { msg: `[DEV] Spawned ${prop.name} at (${sx}, ${sy}).`, tone: 'gold' }, state);
+    }
+    return { ok: true, entity: prop, type: 'prop', x: sx, y: sy };
+  }
+
+  if (tLower === 'hazard') {
+    let defId = 'hazard_slag_vent';
+    if (subLower === 'oil' || subLower === 'oil_slick') defId = 'hazard_oil_slick';
+    else if (subLower === 'spore' || subLower === 'spore_cloud') defId = 'hazard_spore_cloud';
+    const hz = createHazardInstance(defId, sx, sy);
+    addWorldObject(floor, hz);
+    if (state === gameState) {
+      emitEngineEvent(ENGINE_EVENTS.FOV_SYNC, {}, state);
+      emitEngineEvent(ENGINE_EVENTS.LOG, { msg: `[DEV] Spawned ${hz.name} at (${sx}, ${sy}).`, tone: 'gold' }, state);
+    }
+    return { ok: true, entity: hz, type: 'hazard', x: sx, y: sy };
+  }
+
+  return { ok: false, reason: `Unknown spawn type "${type}". Valid: door, portal, key, monster, mechanism, prop, hazard` };
 }

@@ -79,7 +79,8 @@ export function depositUnitCargoAtCity(unit, city, state, simTimeMs, eventStream
   const gold = c.gold || 0;
   const ore = c.ore || 0;
   const gems = c.gems || 0;
-  const gearCount = c.gearCount || 0;
+  const gearItems = Array.isArray(c.gearItems) ? c.gearItems : [];
+  const gearCount = Math.max(c.gearCount || 0, gearItems.length);
   if (gold <= 0 && ore <= 0 && gems <= 0 && gearCount <= 0) {
     unit.cargo = null;
     return false;
@@ -87,6 +88,17 @@ export function depositUnitCargoAtCity(unit, city, state, simTimeMs, eventStream
 
   city.stockpile.gold = (city.stockpile.gold || 0) + gold;
   city.stockpile.ore  = (city.stockpile.ore  || 0) + ore;
+
+  // Deposit looted dungeon equipment items into the party leader Hero's bagGear!
+  if (gearItems.length > 0 && state && state.world && Array.isArray(state.world.heroes)) {
+    const leaderHero = state.world.heroes.find(function(h) { return h.id === unit.leaderHeroId; }) || state.world.heroes[0];
+    if (leaderHero) {
+      if (!Array.isArray(leaderHero.bagGear)) leaderHero.bagGear = [];
+      for (let gi = 0; gi < gearItems.length; gi++) {
+        leaderHero.bagGear.push(gearItems[gi]);
+      }
+    }
+  }
   unit.cargo = null;
   if (state && state.world && state.world.stats) {
     state.world.stats.expeditionsBanked = (state.world.stats.expeditionsBanked || 0) + 1;
