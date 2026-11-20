@@ -24,6 +24,7 @@ import {
   getProductionImageSrc
 } from '../../ui/shared/assetRegistry.js';
 import { createRenderAdapter, RENDER_BACKENDS } from '../../ui/shared/renderAdapter.js';
+import { getScreenInfoContent } from '../ui/wargameUiSync.js';
 
 export function evaluateWargameSelfTests() {
   const results = [];
@@ -1147,6 +1148,26 @@ export function evaluateWargameSelfTests() {
     detail: t14Pass
       ? 'Adventurers Guild strictly unlocks Adventurer class only; specialist classes gated behind their respective Guilds'
       : 'Failed checks: ' + failed14.join(', ')
+  });
+
+  // =========================================================================
+  // Test 15: Cross-Platform Screen Info (i) & Navigation Architecture (Stage E.5.5)
+  // =========================================================================
+  const infoOw = getScreenInfoContent(WARGAME_VIEWS.OVERWORLD, host14.state);
+  const infoCity = getScreenInfoContent(WARGAME_VIEWS.CITY, host14.state);
+  const infoGuild = getScreenInfoContent(WARGAME_VIEWS.GUILD, host14.state);
+  const t15Pass = Boolean(
+    infoOw && infoOw.title && Array.isArray(infoOw.tips) && infoOw.tips.length >= 2 &&
+    infoCity && infoCity.title && Array.isArray(infoCity.tips) && infoCity.tips.length >= 2 &&
+    infoGuild && infoGuild.title && Array.isArray(infoGuild.tips) && infoGuild.tips.length >= 2
+  );
+
+  results.push({
+    name: '15. Cross-Platform Screen Info (i) & Mobile Navigation Architecture (Stage E.5.5)',
+    pass: t15Pass,
+    detail: t15Pass
+      ? 'Contextual Screen Info (i) content verified for Overworld, City, and Guild screens'
+      : 'Failed Stage E.5.5 screen info checks'
   });
 
   return results;

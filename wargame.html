@@ -81,8 +81,8 @@
   <!-- ===================================================================== -->
   <div id="wgCampaignWorkspace" class="flex-1 flex flex-col hidden">
 
-    <!-- TOP HEADER BAR -->
-    <header class="h-14 border-b border-[#283347] bg-[#111722]/95 backdrop-blur px-3 md:px-5 flex items-center justify-between sticky top-0 z-30">
+    <!-- TOP HEADER BAR (Responsive Cross-Platform HUD) -->
+    <header class="min-h-14 border-b border-[#283347] bg-[#111722]/95 backdrop-blur px-3 md:px-5 py-1.5 flex flex-wrap items-center justify-between gap-2 sticky top-0 z-30">
       <div class="flex items-center gap-3">
         <div class="w-9 h-9 rounded-lg bg-[#1a2232] border border-[#fbbf24]/50 flex items-center justify-center shadow-inner">
           <span class="text-base">🏛️</span>
@@ -98,8 +98,8 @@
         </div>
       </div>
 
-      <!-- VIEW SWITCHER TABS -->
-      <div class="flex items-center gap-1 bg-[#080b11] p-1 rounded-lg border border-[#283347]">
+      <!-- VIEW SWITCHER TABS (Desktop/Tablet; Mobile uses Bottom Thumb-Zone Bar) -->
+      <div class="hidden md:flex items-center gap-1 bg-[#080b11] p-1 rounded-lg border border-[#283347]">
         <button id="wgBtnViewOverworld" onclick="window.WargameApp.handleSwitchView('overworld')" class="px-3 py-1.5 text-xs font-bold rounded bg-[#fbbf24] text-[#080b11] shadow btn-tactical">
           🗺️ World Map
         </button>
@@ -127,7 +127,7 @@
       </div>
 
       <!-- RESOURCE STOCKPILES STRIP -->
-      <div class="flex items-center gap-3 bg-[#080b11] px-3 py-1.5 rounded-lg border border-[#283347] text-xs font-mono">
+      <div class="flex items-center gap-2.5 md:gap-3 bg-[#080b11] px-2.5 md:px-3 py-1.5 rounded-lg border border-[#283347] text-[11px] md:text-xs font-mono overflow-x-auto max-w-full">
         <span title="Wood (Timber)" class="flex items-center gap-1 text-[#4ade80]">
           <span>♠</span> <strong id="wgStockWood">50</strong>
         </span>
@@ -152,21 +152,24 @@
       </div>
 
       <!-- RIGHT UTILITY BUTTONS -->
-      <div class="flex items-center gap-2">
-        <button data-action="reset-title" onclick="window.WargameApp.handleResetToTitle()" class="px-2.5 py-1.5 rounded-md bg-[#1a2232] hover:bg-[#283347] border border-[#283347] text-xs font-medium text-[#8b949e] hover:text-[#e6edf3] btn-tactical cursor-pointer">
-          Main Menu
+      <div class="flex items-center gap-1.5 md:gap-2">
+        <button id="wgBtnScreenInfo" onclick="window.WargameApp.handleOpenScreenInfo()" title="Screen Information &amp; Controls" class="w-9 h-9 rounded-full bg-[#1a2232] hover:bg-[#fbbf24] hover:text-[#080b11] border border-[#fbbf24]/50 text-[#fbbf24] font-bold text-sm flex items-center justify-center cursor-pointer transition">
+          ⓘ
         </button>
-        <button data-action="enter-dungeon" onclick="window.WargameApp.handleEnterDungeon()" class="px-3 py-1.5 rounded-md bg-[#f87171]/20 hover:bg-[#f87171]/30 border border-[#f87171]/50 text-xs font-mono font-bold text-[#f87171] btn-tactical cursor-pointer">
-          ⚔️ Dungeon Mode
+        <button data-action="reset-title" onclick="window.WargameApp.handleResetToTitle()" class="px-2.5 py-1.5 rounded-md bg-[#1a2232] hover:bg-[#283347] border border-[#283347] text-xs font-medium text-[#8b949e] hover:text-[#e6edf3] btn-tactical cursor-pointer">
+          Menu
+        </button>
+        <button data-action="enter-dungeon" onclick="window.WargameApp.handleEnterDungeon()" class="px-2.5 md:px-3 py-1.5 rounded-md bg-[#f87171]/20 hover:bg-[#f87171]/30 border border-[#f87171]/50 text-xs font-mono font-bold text-[#f87171] btn-tactical cursor-pointer">
+          ⚔️ Dungeon
         </button>
       </div>
     </header>
 
-    <!-- MAIN 3-COLUMN WORKSPACE GRID -->
-    <main class="flex-1 max-w-[1740px] w-full mx-auto p-3 md:p-4 grid grid-cols-1 lg:grid-cols-12 gap-3.5 items-start">
+    <!-- MAIN 3-COLUMN WORKSPACE GRID (Desktop 3-col; Mobile 1-col + Collapsible Drawers) -->
+    <main class="flex-1 max-w-[1740px] w-full mx-auto p-2.5 md:p-4 pb-20 md:pb-4 grid grid-cols-1 lg:grid-cols-12 gap-3.5 items-start">
 
       <!-- LEFT SIDEBAR: EXPEDITION COMMAND & QUEUES (3 COLS) -->
-      <aside class="lg:col-span-3 flex flex-col gap-3">
+      <aside id="wgLeftSidebar" class="hidden lg:flex lg:col-span-3 flex-col gap-3">
         <!-- SELECTED UNIT CARD -->
         <div class="card-surface p-3.5 space-y-2">
           <div class="flex items-center justify-between border-b border-[#283347] pb-2">
@@ -288,7 +291,7 @@
       </section>
 
       <!-- RIGHT SIDEBAR: GUIDED TASKS DAG & EVENT STREAM (3 COLS) -->
-      <aside class="lg:col-span-3 flex flex-col gap-3">
+      <aside id="wgRightSidebar" class="hidden lg:flex lg:col-span-3 flex-col gap-3">
         <!-- GUIDED CAMPAIGN TASKS DAG CARD -->
         <div class="card-surface p-3.5 space-y-2">
           <div class="flex items-center justify-between border-b border-[#283347] pb-2">
@@ -313,6 +316,39 @@
       </aside>
 
     </main>
+
+    <!-- MOBILE BOTTOM THUMB-ZONE NAVIGATION BAR (Stage E.5.5) -->
+    <nav id="wgMobileNavBar" class="md:hidden fixed bottom-0 inset-x-0 z-40 bg-[#0b101a]/95 backdrop-blur-md border-t border-[#283347] px-2 py-1.5 grid grid-cols-5 gap-1">
+      <button onclick="window.WargameApp.handleSwitchView('overworld')" class="min-h-[44px] rounded-lg bg-[#111722] active:bg-[#fbbf24] active:text-[#080b11] border border-[#283347] flex flex-col items-center justify-center text-[10px] font-mono text-[#e6edf3]">
+        <span class="text-sm leading-none">🗺️</span><span>World</span>
+      </button>
+      <button onclick="window.WargameApp.handleSwitchView('city')" class="min-h-[44px] rounded-lg bg-[#111722] active:bg-[#fbbf24] active:text-[#080b11] border border-[#283347] flex flex-col items-center justify-center text-[10px] font-mono text-[#e6edf3]">
+        <span class="text-sm leading-none">🏛️</span><span>City</span>
+      </button>
+      <button onclick="window.WargameApp.handleToggleMobileDrawer('left')" class="min-h-[44px] rounded-lg bg-[#111722] active:bg-[#38bdf8] active:text-[#080b11] border border-[#283347] flex flex-col items-center justify-center text-[10px] font-mono text-[#38bdf8]">
+        <span class="text-sm leading-none">👥</span><span>Units</span>
+      </button>
+      <button onclick="window.WargameApp.handleToggleMobileDrawer('right')" class="min-h-[44px] rounded-lg bg-[#111722] active:bg-[#34d399] active:text-[#080b11] border border-[#283347] flex flex-col items-center justify-center text-[10px] font-mono text-[#34d399]">
+        <span class="text-sm leading-none">📜</span><span>Tasks</span>
+      </button>
+      <button onclick="window.WargameApp.handleOpenScreenInfo()" class="min-h-[44px] rounded-lg bg-[#111722] active:bg-[#fbbf24] active:text-[#080b11] border border-[#fbbf24]/40 flex flex-col items-center justify-center text-[10px] font-mono text-[#fbbf24]">
+        <span class="text-sm leading-none">ⓘ</span><span>Info</span>
+      </button>
+    </nav>
+  </div>
+
+  <!-- Universal Screen Info Popup / Mobile Bottom Sheet (Stage E.5.5) -->
+  <div id="wgScreenInfoModal" class="hidden fixed inset-0 z-50 flex items-end md:items-center justify-center bg-black/80 backdrop-blur-sm p-0 md:p-4">
+    <div class="w-full md:max-w-lg bg-[#0e1524] border-t md:border border-[#fbbf24]/50 rounded-t-2xl md:rounded-xl shadow-2xl overflow-hidden flex flex-col max-h-[85dvh]">
+      <div class="flex items-center justify-between px-4 py-3 bg-[#080b11] border-b border-[#283347]">
+        <div>
+          <h2 id="wgScreenInfoTitle" class="text-base font-display font-bold text-[#fbbf24]">Screen Information</h2>
+          <div id="wgScreenInfoSubtitle" class="text-[11px] font-mono text-[#8b949e]">Guide &amp; Controls</div>
+        </div>
+        <button id="wgScreenInfoCloseBtn" onclick="window.WargameApp.handleCloseScreenInfo()" class="min-w-[36px] min-h-[36px] px-3 py-1 rounded bg-[#1a2232] hover:bg-[#283347] text-xs font-mono font-bold text-[#e6edf3] cursor-pointer">✕ Close</button>
+      </div>
+      <div id="wgScreenInfoBody" class="p-4 space-y-3 overflow-y-auto text-xs text-[#e6edf3]"></div>
+    </div>
   </div>
 
   <!-- Shared Cross-Engine Character Sheet & Prestige Paper-Doll Modal (Inc 9.4) -->
@@ -366,9 +402,9 @@
     </div>
   </div>
 
-  <!-- Enterable City Construct Facility Modal (Garrison, Smeltery, Apothecary, Class Guilds — Inc 9.6) -->
-  <div id="wgFacilityModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-    <div class="w-full max-w-2xl bg-[#0e1524] border border-[#fbbf24]/50 rounded-xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh]">
+  <!-- Enterable City Construct Facility Modal (Desktop Centered / Mobile Bottom Sheet — Stage E.5.5) -->
+  <div id="wgFacilityModal" class="hidden fixed inset-0 z-50 flex items-end md:items-center justify-center bg-black/80 backdrop-blur-sm p-0 md:p-4">
+    <div class="w-full md:max-w-2xl bg-[#0e1524] border-t md:border border-[#fbbf24]/50 rounded-t-2xl md:rounded-xl shadow-2xl overflow-hidden flex flex-col max-h-[90dvh]">
       <div class="flex items-center justify-between px-4 py-3 bg-[#080b11] border-b border-[#283347]">
         <div>
           <h2 id="wgFacilityTitle" class="text-base font-bold text-[#fbbf24]">City Facility</h2>

@@ -7493,9 +7493,91 @@ function syncWargameUI(simHost) {
   // 6. Sync Right Sidebar: Reactive Task DAG & Live Streaming Event Feed
   renderRightTasksAndStreamSidebar(simHost);
 
-  // 7. Sync Shared Character Sheet Modal & Enterable Facility Modal if open
+  // 7. Sync Shared Character Sheet Modal, Enterable Facility Modal, Screen Info Popup & Mobile Drawers
   renderWargameCharacterSheetModal(simHost);
   renderWargameFacilityModal(simHost);
+  renderScreenInfoModal(simHost);
+  syncMobileDrawers(simHost);
+}
+
+function getScreenInfoContent(activeView, state) {
+  if (activeView === WARGAME_VIEWS.CITY) {
+    return {
+      title: '🏛️ Settlement & City Builder',
+      subtitle: '8×8 Spatial Grid • All Buildings Unified',
+      summary: 'Construct and upgrade your Bastion City across 64 spatial plots. Every built structure—from Farms and Wells to Guilds and Forges—can be entered for statistics, upgrades, and specialized services.',
+      tips: [
+        'Click any empty plot to construct unlocked facilities; upgrade your Meeting Hall to raise the city level cap.',
+        'Click any active building and press Enter to open its full-bleed interior screen.',
+        'Place Windmills adjacent to Food/Wood/Stone/Water producers for a +20% production synergy bonus.'
+      ]
+    };
+  }
+  if (activeView === WARGAME_VIEWS.GUILD) {
+    return {
+      title: '⚔️ Adventurers Guild Hall',
+      subtitle: 'Adventurer Class • Quests, Training, Research & Shop',
+      summary: 'The Adventurers Guild recruits versatile Adventurer delvers and coordinates subterranean Starfall expeditions. Specialist classes (Fighter, Thief, Mage, Ranger, Cleric, Paladin) are recruited at their own Class Guilds and Temple Chapterhouse.',
+      tips: [
+        'Switch between Recruit, Quests, Training, Research, and Shop tabs along the bottom of the hall.',
+        'Exiting any Guild always returns you directly to your Bastion City.'
+      ]
+    };
+  }
+  return {
+    title: '🗺️ Overworld Strategic Map',
+    subtitle: 'Real-Time Marching • Dungeons & Frontier Exploration',
+    summary: 'Command your Pioneer Settlers and Hero Vanguard Parties across the uncharted frontier in real time. Discover subterranean vaults, clear wandering hostiles, and return extracted loot to your city.',
+    tips: [
+      'Click any passable tile to march your selected unit, or use WASD to step tile-by-tile.',
+      'March a Hero Party onto a discovered Dungeon POI and press Enter Vault to launch the tactical delve.',
+      'Using an Astral Recall Scroll inside a dungeon surfaces your party at the dungeon entrance so you can choose which city to march back to.'
+    ]
+  };
+}
+
+function renderScreenInfoModal(simHost) {
+  if (typeof document === 'undefined' || !simHost || !simHost.state) return;
+  const modal = document.getElementById('wgScreenInfoModal');
+  if (!modal) return;
+  if (!simHost.state._showScreenInfo) {
+    modal.classList.add('hidden');
+    return;
+  }
+  modal.classList.remove('hidden');
+  const info = getScreenInfoContent(simHost.state.activeView || WARGAME_VIEWS.OVERWORLD, simHost.state);
+  const titleEl = document.getElementById('wgScreenInfoTitle');
+  const subEl = document.getElementById('wgScreenInfoSubtitle');
+  const bodyEl = document.getElementById('wgScreenInfoBody');
+  if (titleEl) titleEl.textContent = info.title;
+  if (subEl) subEl.textContent = info.subtitle;
+  if (bodyEl) {
+    const tipsHtml = (info.tips || []).map(function(t) {
+      return `<li class="flex items-start gap-2"><span class="text-[#fbbf24]">•</span><span>${t}</span></li>`;
+    }).join('');
+    setHtmlIfChanged(bodyEl, `
+      <p class="text-xs text-[#e6edf3]/90 leading-relaxed">${info.summary}</p>
+      <div class="p-3 rounded-lg bg-[#080b11] border border-[#283347] space-y-1.5">
+        <div class="text-[10px] font-mono uppercase text-[#38bdf8] font-bold">Key Actions &amp; Tips</div>
+        <ul class="space-y-1.5 text-[11px] text-[#cbd5e1]">${tipsHtml}</ul>
+      </div>
+    `);
+  }
+}
+
+function syncMobileDrawers(simHost) {
+  if (typeof document === 'undefined' || !simHost || !simHost.state) return;
+  const drawer = simHost.state._mobileDrawer || null;
+  const leftEl = document.getElementById('wgLeftSidebar');
+  const rightEl = document.getElementById('wgRightSidebar');
+  if (leftEl) {
+    leftEl.classList.toggle('hidden', drawer !== 'left');
+    leftEl.classList.toggle('flex', drawer === 'left');
+  }
+  if (rightEl) {
+    rightEl.classList.toggle('hidden', drawer !== 'right');
+    rightEl.classList.toggle('flex', drawer === 'right');
+  }
 }
 
 function renderWargameCharacterSheetModal(simHost) {
@@ -8934,6 +9016,7 @@ function formatEventSummary(ev) {
 
 
 
+
 function evaluateWargameSelfTests() {
   const results = [];
 
@@ -10058,6 +10141,26 @@ function evaluateWargameSelfTests() {
       : 'Failed checks: ' + failed14.join(', ')
   });
 
+  // =========================================================================
+  // Test 15: Cross-Platform Screen Info (i) & Navigation Architecture (Stage E.5.5)
+  // =========================================================================
+  const infoOw = getScreenInfoContent(WARGAME_VIEWS.OVERWORLD, host14.state);
+  const infoCity = getScreenInfoContent(WARGAME_VIEWS.CITY, host14.state);
+  const infoGuild = getScreenInfoContent(WARGAME_VIEWS.GUILD, host14.state);
+  const t15Pass = Boolean(
+    infoOw && infoOw.title && Array.isArray(infoOw.tips) && infoOw.tips.length >= 2 &&
+    infoCity && infoCity.title && Array.isArray(infoCity.tips) && infoCity.tips.length >= 2 &&
+    infoGuild && infoGuild.title && Array.isArray(infoGuild.tips) && infoGuild.tips.length >= 2
+  );
+
+  results.push({
+    name: '15. Cross-Platform Screen Info (i) & Mobile Navigation Architecture (Stage E.5.5)',
+    pass: t15Pass,
+    detail: t15Pass
+      ? 'Contextual Screen Info (i) content verified for Overworld, City, and Guild screens'
+      : 'Failed Stage E.5.5 screen info checks'
+  });
+
   return results;
 }
 
@@ -10408,6 +10511,24 @@ function handleSwitchFacilityTab(tabId) {
 function handleToggleFacilityInfo() {
   if (!simHost.state) return;
   simHost.state._showFacilityInfo = !simHost.state._showFacilityInfo;
+  syncWargameUI(simHost);
+}
+
+function handleOpenScreenInfo() {
+  if (!simHost.state) return;
+  simHost.state._showScreenInfo = true;
+  syncWargameUI(simHost);
+}
+
+function handleCloseScreenInfo() {
+  if (!simHost.state) return;
+  simHost.state._showScreenInfo = false;
+  syncWargameUI(simHost);
+}
+
+function handleToggleMobileDrawer(side) {
+  if (!simHost.state) return;
+  simHost.state._mobileDrawer = (simHost.state._mobileDrawer === side) ? null : side;
   syncWargameUI(simHost);
 }
 
@@ -10812,6 +10933,9 @@ const WargameApp = {
   handleOpenFacilityModal: handleOpenFacilityModal,
   handleSwitchFacilityTab: handleSwitchFacilityTab,
   handleToggleFacilityInfo: handleToggleFacilityInfo,
+  handleOpenScreenInfo: handleOpenScreenInfo,
+  handleCloseScreenInfo: handleCloseScreenInfo,
+  handleToggleMobileDrawer: handleToggleMobileDrawer,
   handleCloseFacilityModal: handleCloseFacilityModal,
   handleSmeltIngots: handleSmeltIngots,
   handleBrewProvision: handleBrewProvision,

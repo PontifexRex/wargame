@@ -363,6 +363,24 @@ export function handleToggleFacilityInfo() {
   syncWargameUI(simHost);
 }
 
+export function handleOpenScreenInfo() {
+  if (!simHost.state) return;
+  simHost.state._showScreenInfo = true;
+  syncWargameUI(simHost);
+}
+
+export function handleCloseScreenInfo() {
+  if (!simHost.state) return;
+  simHost.state._showScreenInfo = false;
+  syncWargameUI(simHost);
+}
+
+export function handleToggleMobileDrawer(side) {
+  if (!simHost.state) return;
+  simHost.state._mobileDrawer = (simHost.state._mobileDrawer === side) ? null : side;
+  syncWargameUI(simHost);
+}
+
 export function handleCloseFacilityModal() {
   if (!simHost.state) return;
   delete simHost.state._openFacilityId;
@@ -764,6 +782,9 @@ export const WargameApp = {
   handleOpenFacilityModal: handleOpenFacilityModal,
   handleSwitchFacilityTab: handleSwitchFacilityTab,
   handleToggleFacilityInfo: handleToggleFacilityInfo,
+  handleOpenScreenInfo: handleOpenScreenInfo,
+  handleCloseScreenInfo: handleCloseScreenInfo,
+  handleToggleMobileDrawer: handleToggleMobileDrawer,
   handleCloseFacilityModal: handleCloseFacilityModal,
   handleSmeltIngots: handleSmeltIngots,
   handleBrewProvision: handleBrewProvision,
