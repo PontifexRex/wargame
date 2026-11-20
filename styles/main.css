@@ -79,3 +79,65 @@ canvas {
 .relic-glow {
   animation: relic-pulse 2.2s infinite ease-in-out;
 }
+
+/* ========================================================================= */
+/* STAGE E.5.5: ONE-CLICK MOBILE PREVIEW SIMULATOR MODE                      */
+/* ========================================================================= */
+body.wg-mobile-preview {
+  background: radial-gradient(circle at top, #131c2e 0%, #05070c 70%);
+}
+
+body.wg-mobile-preview #wgCampaignWorkspace {
+  width: 100%;
+  max-width: 430px;
+  min-height: 844px;
+  margin: 12px auto;
+  border: 2px solid rgba(251, 191, 36, 0.55);
+  border-radius: 26px;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.85);
+  overflow-x: hidden;
+  background-color: #080b11;
+  position: relative;
+}
+
+body.wg-mobile-preview .wg-desktop-view-tabs,
+body.wg-mobile-preview .wg-desktop-clock {
+  display: none !important;
+}
+
+body.wg-mobile-preview main {
+  grid-template-columns: minmax(0, 1fr) !important;
+  padding-bottom: 16px !important;
+}
+
+body.wg-mobile-preview #wgLeftSidebar,
+body.wg-mobile-preview #wgRightSidebar {
+  grid-column: span 1 / span 1 !important;
+}
+
+body.wg-mobile-preview #wgLeftSidebar.hidden,
+body.wg-mobile-preview #wgRightSidebar.hidden {
+  display: none !important;
+}
+
+body.wg-mobile-preview #wgMobileNavBar {
+  display: grid !important;
+  position: sticky !important;
+  bottom: 0;
+  left: 0;
+  right: 0;
+}
+
+body.wg-mobile-preview #wgFacilityModal,
+body.wg-mobile-preview #wgScreenInfoModal,
+body.wg-mobile-preview #wgCharacterSheetModal {
+  align-items: flex-end !important;
+  padding: 0 !important;
+}
+
+body.wg-mobile-preview #wgFacilityModal > div,
+body.wg-mobile-preview #wgScreenInfoModal > div,
+body.wg-mobile-preview #wgCharacterSheetModal > div {
+  max-width: 430px !important;
+  border-radius: 18px 18px 0 0 !important;
+}

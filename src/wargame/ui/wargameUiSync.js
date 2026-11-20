@@ -311,6 +311,18 @@ export function renderScreenInfoModal(simHost) {
 
 export function syncMobileDrawers(simHost) {
   if (typeof document === 'undefined' || !simHost || !simHost.state) return;
+  const isMobilePreview = Boolean(simHost.state._mobilePreview);
+  if (document.body && document.body.classList) {
+    document.body.classList.toggle('wg-mobile-preview', isMobilePreview);
+  }
+  const previewBtn = document.getElementById('wgBtnMobilePreview');
+  if (previewBtn && previewBtn.classList) {
+    previewBtn.classList.toggle('bg-[#fbbf24]', isMobilePreview);
+    previewBtn.classList.toggle('text-[#080b11]', isMobilePreview);
+    previewBtn.classList.toggle('bg-[#1a2232]', !isMobilePreview);
+    previewBtn.classList.toggle('text-[#38bdf8]', !isMobilePreview);
+  }
+
   const drawer = simHost.state._mobileDrawer || null;
   const leftEl = document.getElementById('wgLeftSidebar');
   const rightEl = document.getElementById('wgRightSidebar');

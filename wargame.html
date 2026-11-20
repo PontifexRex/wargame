@@ -99,7 +99,7 @@
       </div>
 
       <!-- VIEW SWITCHER TABS (Desktop/Tablet; Mobile uses Bottom Thumb-Zone Bar) -->
-      <div class="hidden md:flex items-center gap-1 bg-[#080b11] p-1 rounded-lg border border-[#283347]">
+      <div class="wg-desktop-view-tabs hidden md:flex items-center gap-1 bg-[#080b11] p-1 rounded-lg border border-[#283347]">
         <button id="wgBtnViewOverworld" onclick="window.WargameApp.handleSwitchView('overworld')" class="px-3 py-1.5 text-xs font-bold rounded bg-[#fbbf24] text-[#080b11] shadow btn-tactical">
           🗺️ World Map
         </button>
@@ -112,7 +112,7 @@
       </div>
 
       <!-- REAL-TIME CLOCK & SPEED CONTROLS -->
-      <div class="hidden lg:flex items-center gap-2 bg-[#080b11] px-3 py-1.5 rounded-lg border border-[#283347]">
+      <div class="wg-desktop-clock hidden lg:flex items-center gap-2 bg-[#080b11] px-3 py-1.5 rounded-lg border border-[#283347]">
         <div class="flex items-center gap-1.5 text-xs font-mono font-bold text-[#e6edf3]">
           <span class="w-2 h-2 rounded-full bg-[#34d399] animate-pulse"></span>
           <span id="wgHeaderClockText">Day 1 • 00s</span>
@@ -153,6 +153,9 @@
 
       <!-- RIGHT UTILITY BUTTONS -->
       <div class="flex items-center gap-1.5 md:gap-2">
+        <button id="wgBtnMobilePreview" onclick="window.WargameApp.handleToggleMobilePreview()" title="Toggle Mobile Phone Preview Mode (430px)" class="h-9 px-2.5 rounded-lg bg-[#1a2232] hover:bg-[#38bdf8] hover:text-[#080b11] border border-[#38bdf8]/50 text-[#38bdf8] font-mono font-bold text-xs flex items-center gap-1 cursor-pointer transition">
+          <span>📱</span><span class="hidden sm:inline">Mobile</span>
+        </button>
         <button id="wgBtnScreenInfo" onclick="window.WargameApp.handleOpenScreenInfo()" title="Screen Information &amp; Controls" class="w-9 h-9 rounded-full bg-[#1a2232] hover:bg-[#fbbf24] hover:text-[#080b11] border border-[#fbbf24]/50 text-[#fbbf24] font-bold text-sm flex items-center justify-center cursor-pointer transition">
           ⓘ
         </button>

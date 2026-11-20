@@ -381,6 +381,15 @@ export function handleToggleMobileDrawer(side) {
   syncWargameUI(simHost);
 }
 
+export function handleToggleMobilePreview() {
+  if (!simHost.state) return;
+  simHost.state._mobilePreview = !simHost.state._mobilePreview;
+  if (!simHost.state._mobilePreview) {
+    simHost.state._mobileDrawer = null;
+  }
+  syncWargameUI(simHost);
+}
+
 export function handleCloseFacilityModal() {
   if (!simHost.state) return;
   delete simHost.state._openFacilityId;
@@ -785,6 +794,7 @@ export const WargameApp = {
   handleOpenScreenInfo: handleOpenScreenInfo,
   handleCloseScreenInfo: handleCloseScreenInfo,
   handleToggleMobileDrawer: handleToggleMobileDrawer,
+  handleToggleMobilePreview: handleToggleMobilePreview,
   handleCloseFacilityModal: handleCloseFacilityModal,
   handleSmeltIngots: handleSmeltIngots,
   handleBrewProvision: handleBrewProvision,
