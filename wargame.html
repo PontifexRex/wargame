@@ -374,6 +374,20 @@
     </div>
   </div>
 
+  <!-- Enterable City Construct Facility Modal (Garrison, Smeltery, Apothecary, Class Guilds — Inc 9.6) -->
+  <div id="wgFacilityModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+    <div class="w-full max-w-2xl bg-[#0e1524] border border-[#fbbf24]/50 rounded-xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh]">
+      <div class="flex items-center justify-between px-4 py-3 bg-[#080b11] border-b border-[#283347]">
+        <div>
+          <h2 id="wgFacilityTitle" class="text-base font-bold text-[#fbbf24]">City Facility</h2>
+          <div id="wgFacilitySubtitle" class="text-[11px] font-mono text-[#8b949e]">Level 1 Structure</div>
+        </div>
+        <button id="wgFacilityCloseBtn" onclick="window.WargameApp.handleCloseFacilityModal()" class="px-3 py-1 rounded bg-[#1a2232] hover:bg-[#283347] text-xs font-mono font-bold text-[#e6edf3] cursor-pointer">✕ Close</button>
+      </div>
+      <div id="wgFacilityBody" class="p-4 space-y-3 overflow-y-auto"></div>
+    </div>
+  </div>
+
   <!-- Modular ES6 Entrypoint (auto-falls back to compiled dist/wargame-bundle.js on file:// protocol) -->
   <script>
     (function () {

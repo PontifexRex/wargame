@@ -11,9 +11,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Planned
 - **Track A (`v0.8.4`–`v0.8.7`)**: `Trigger -> Condition -> Action` event graph, environmental storytelling & handcrafted set-pieces, dungeon ecology & acoustic alerts, 10-slot paper-doll & vault modifiers.
-- **Track B (`v0.9.6`–`v0.9.10`)**: Tier 2 City Industry (Smeltery, Warehouse, Apothecary), City Blacksmith & Lapidary Workshop, Arcane Academy & Market, Frontier Outposts, Multi-City expansion, and City Defense / Temple of War.
+- **Track B (`v0.9.7`–`v0.9.10`)**: City Blacksmith (Star-Forge) & Lapidary Workshop, Arcane Academy & Market, Frontier Outposts, Multi-City expansion, and City Defense / Temple of War.
 - **Track D (`v0.9.x-sim`)**: Headless progression simulator ("ChronoSim"), time-to-finish calculator, and 1-year pacing engine.
 - **Track E (Stages E.2–E.6)**: Formal Art Bible & UI Design System, Asset Taxonomy & Management Pipeline, Graphics Engine Evaluation (`ADR-0012`), Golden Vertical Slice, and scaled visual migration.
+
+---
+
+## [v0.9.6-city-industry] - 2026-11-19
+
+### Added
+- **Tier 2 City Industry Constructs (`src/wargame/data/buildings.js`, `src/wargame/engine/commandBus.js`)**:
+  - **Dwarven Smeltery (`smeltery`)**: Added `CMD_SMELT_INGOTS` refining `5 Ore + 5 Wood -> 2 Forged Ingots` into `city.stockpile.ingots`.
+  - **Alchemist Apothecary (`apothecary`)**: Added `CMD_BREW_PROVISION` brewing **Healing Tonics** (`10 Food + 10 Water + 10 Gold`) and scribing **Astral Recall Scrolls** (`25 Gold + 5 Ore`) into `city.provisions`.
+  - **Warehouse Vault Expansion (`computeCityStorageSlotCapacity`)**: Each Warehouse level expands the City Vault Storage container by `+50` item slots (on top of the 200-slot base) and expands `ingots` resource caps.
+- **Interactive Enterable City Facility Modal (`#wgFacilityModal` in `wargame.html`, `wargameUiSync.js`, `main.js`)**:
+  - Selecting any established building with declared `facilities` (Smeltery, Apothecary, Garrison, Temple Chapterhouse, Fighters/Thieves/Mages/Rangers Guilds) in the 8x8 City Grid now offers a **🚪 Enter [Building]** button.
+  - Dynamically renders the facility's interior workspace: Ore Smelting Furnace, Apothecary Brewing Bench, Garrison Party Command (`1 + Lv` party assignment), and Class-Specific Guild Recruitment rosters with level-gated unlocks (e.g., Temple Chapterhouse `Cleric` Lv 1 → `Paladin` Lv 2).
+
+### Verification
+- Added **Test 11** in `src/wargame/test/wargameSelfTest.js` verifying Smeltery ingot refining, Apothecary potion/scroll brewing, and Warehouse `+50/lv` City Vault slot expansion.
+- Suite status: **31/31 Roguelike Tests PASS** + **11/11 Wargame Tests PASS** + Headless UI Smoke Suites.
 
 ---
 

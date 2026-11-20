@@ -178,9 +178,40 @@ export const CITY_BUILDINGS_CATALOG = {
     maxLevel: 5,
     baseBuildTimeMs: 4500,
     baseCost: { wood: 30, stone: 30, gold: 0 },
-    storageBonus: { wood: 200, stone: 200, ore: 200 },
+    storageBonus: { wood: 200, stone: 200, ore: 200, ingots: 100 },
+    inventorySlotBonus: 50,
     requires: { meeting_hall: 1, lumber_camp: 1, quarry: 1 },
-    desc: 'Dry storage depot that expands wood, stone, and ore storage limits by +200 each per level.'
+    desc: 'Dry storage depot that expands wood/stone/ore caps by +200 and City Vault Storage by +50 item slots per level.'
+  },
+  smeltery: {
+    id: 'smeltery',
+    name: 'Dwarven Smeltery',
+    icon: '🔥',
+    category: 'resource',
+    color: '#f97316',
+    maxLevel: 5,
+    baseBuildTimeMs: 5500,
+    baseCost: { wood: 35, stone: 45, gold: 20 },
+    requires: { meeting_hall: 1, quarry: 1 },
+    facilities: {
+      smelting: { oreCost: 5, woodCost: 5, ingotYield: 2 }
+    },
+    desc: 'High-heat furnace refining raw dungeon ores and timber into Forged Ingots for Tier 2 gear and buildings.'
+  },
+  apothecary: {
+    id: 'apothecary',
+    name: 'Alchemist Apothecary',
+    icon: '🧪',
+    category: 'civic',
+    color: '#34d399',
+    maxLevel: 5,
+    baseBuildTimeMs: 5000,
+    baseCost: { wood: 35, stone: 30, gold: 25 },
+    requires: { meeting_hall: 1, garden: 1, well: 1 },
+    facilities: {
+      brewing: true
+    },
+    desc: 'Alchemical workshop brewing Healing Tonics and scribing Astral Recall Scrolls to provision Hero Parties.'
   },
 
   // ---------------------------------------------------------------------------

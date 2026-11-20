@@ -14,13 +14,15 @@ import {
   CITY_PLOT_SLOTS,
   computeBuildingUpgradeCost,
   computeBuildingDurationMs,
-  isBuildingPrerequisiteMet
+  isBuildingPrerequisiteMet,
+  computeMaxPartySize
 } from '../data/buildings.js';
 import {
   getPrimaryCity,
   getSelectedOverworldUnit,
   getEffectiveStockpile,
   computeCityStorageCaps,
+  computeCityStorageSlotCapacity,
   computeCityPopulation
 } from '../engine/state.js';
 import { getFormattedTasksList } from '../engine/taskEngine.js';
@@ -228,8 +230,9 @@ export function syncWargameUI(simHost) {
   // 6. Sync Right Sidebar: Reactive Task DAG & Live Streaming Event Feed
   renderRightTasksAndStreamSidebar(simHost);
 
-  // 7. Sync Shared Character Sheet Modal if open
+  // 7. Sync Shared Character Sheet Modal & Enterable Facility Modal if open
   renderWargameCharacterSheetModal(simHost);
+  renderWargameFacilityModal(simHost);
 }
 
 export function renderWargameCharacterSheetModal(simHost) {
@@ -320,7 +323,7 @@ export function renderWargameCharacterSheetModal(simHost) {
     } else {
       storageSection.classList.remove('hidden');
       const items = (city.storage && Array.isArray(city.storage.items)) ? city.storage.items : [];
-      const cap = (city.storage && city.storage.capacity) ? city.storage.capacity : 200;
+      const cap = computeCityStorageSlotCapacity(city);
       if (storageCountEl) storageCountEl.textContent = items.length + ' / ' + cap + ' slots';
       if (items.length === 0) {
         setHtmlIfChanged(storageListEl, `<div class="text-[11px] text-[#64748b] italic py-2 text-center">City Vault Storage is empty. Click "📦 Dump to City" to offload loot from your Hero's pack!</div>`);
@@ -342,6 +345,150 @@ export function renderWargameCharacterSheetModal(simHost) {
       }
     }
   }
+}
+
+export function renderWargameFacilityModal(simHost) {
+  if (typeof document === 'undefined' || !simHost || !simHost.state || !simHost.state.world) return;
+  const modal = document.getElementById('wgFacilityModal');
+  if (!modal) return;
+
+  const bId = simHost.state._openFacilityId || null;
+  const city = getPrimaryCity(simHost.state);
+  const bDef = bId ? CITY_BUILDINGS_CATALOG[bId] : null;
+  if (!bId || !city || !bDef) {
+    modal.classList.add('hidden');
+    return;
+  }
+
+  modal.classList.remove('hidden');
+  const lvl = (city.buildings && city.buildings[bId]) || 1;
+  const titleEl = document.getElementById('wgFacilityTitle');
+  const subEl = document.getElementById('wgFacilitySubtitle');
+  const bodyEl = document.getElementById('wgFacilityBody');
+  if (titleEl) titleEl.textContent = (bDef.icon || '🏛️') + ' ' + bDef.name;
+  if (subEl) subEl.textContent = 'Level ' + lvl + ' • ' + city.name;
+
+  if (!bodyEl) return;
+  const fac = bDef.facilities || {};
+  const sections = [];
+
+  if (fac.smelting) {
+    sections.push(`
+      <div class="p-3 rounded-lg bg-[#080b11] border border-[#f97316]/40 space-y-2">
+        <div class="flex items-center justify-between text-xs font-mono">
+          <span class="text-[#f97316] font-bold">🔥 Ore Refining Furnace</span>
+          <span class="text-[#e6edf3]">Ore: ${city.stockpile.ore || 0} • Wood: ${city.stockpile.wood || 0} • <strong class="text-[#fbbf24]">Ingots: ${city.stockpile.ingots || 0}</strong></span>
+        </div>
+        <p class="text-[11px] text-[#8b949e]">Refine 5 raw Dungeon Ore + 5 Wood fuel into 2 Forged Ingots.</p>
+        <div class="flex gap-2">
+          <button onclick="window.WargameApp.handleSmeltIngots(1)" class="px-3 py-1.5 rounded bg-[#f97316] hover:bg-[#ea580c] text-[#080b11] font-bold text-xs uppercase cursor-pointer">🔥 Smelt 2 Ingots</button>
+          <button onclick="window.WargameApp.handleSmeltIngots(5)" class="px-3 py-1.5 rounded bg-[#1a2232] hover:bg-[#283347] text-[#f97316] border border-[#f97316]/40 font-bold text-xs uppercase cursor-pointer">🔥 Smelt 10 Ingots</button>
+        </div>
+      </div>
+    `);
+  }
+
+  if (fac.brewing) {
+    const prov = city.provisions || { potions: 0, recalls: 0 };
+    sections.push(`
+      <div class="p-3 rounded-lg bg-[#080b11] border border-[#34d399]/40 space-y-2">
+        <div class="flex items-center justify-between text-xs font-mono">
+          <span class="text-[#34d399] font-bold">🧪 Apothecary Provisions</span>
+          <span class="text-[#e6edf3]">Tonics: <strong class="text-[#34d399]">${prov.potions || 0}</strong> • Recall Scrolls: <strong class="text-[#38bdf8]">${prov.recalls || 0}</strong></span>
+        </div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          <button onclick="window.WargameApp.handleBrewProvision('potions')" class="p-2 rounded bg-[#111722] hover:bg-[#1a2232] border border-[#34d399]/40 text-left text-xs cursor-pointer">
+            <div class="font-bold text-[#34d399]">🧪 Brew Healing Tonic</div>
+            <div class="text-[10px] font-mono text-[#8b949e]">Cost: 10 Food • 10 Water • 10 Gold</div>
+          </button>
+          <button onclick="window.WargameApp.handleBrewProvision('recalls')" class="p-2 rounded bg-[#111722] hover:bg-[#1a2232] border border-[#38bdf8]/40 text-left text-xs cursor-pointer">
+            <div class="font-bold text-[#38bdf8]">📜 Scribe Recall Scroll</div>
+            <div class="text-[10px] font-mono text-[#8b949e]">Cost: 25 Gold • 5 Ore</div>
+          </button>
+        </div>
+      </div>
+    `);
+  }
+
+  if (fac.partyManagement) {
+    const maxSize = computeMaxPartySize(city);
+    const parties = simHost.state.world.parties || [];
+    const heroes = simHost.state.world.heroes || [];
+    const partiesHtml = parties.length === 0
+      ? `<div class="text-xs text-[#64748b] italic">No active parties yet. Recruit Heroes at a Guild Hall first.</div>`
+      : parties.map(function(pt) {
+          const members = Array.isArray(pt.memberIds) ? pt.memberIds : [];
+          const unassigned = heroes.filter(function(h) { return members.indexOf(h.id) === -1; });
+          return `
+            <div class="p-2.5 rounded bg-[#111722] border border-[#283347] space-y-1.5 text-xs">
+              <div class="flex items-center justify-between font-mono">
+                <span class="font-bold text-[#fbbf24]">⚔️ Party ${pt.id}</span>
+                <span class="text-[#38bdf8]">${members.length} / ${maxSize} Heroes</span>
+              </div>
+              ${unassigned.length > 0 && members.length < maxSize ? `
+                <div class="flex flex-wrap gap-1 pt-1">
+                  ${unassigned.map(function(uh) {
+                    return `<button onclick="window.WargameApp.handleAssignHeroToParty('${pt.id}', '${uh.id}')" class="px-2 py-0.5 rounded bg-[#1a2232] hover:bg-[#283347] text-[#34d399] border border-[#34d399]/40 text-[10px] font-mono cursor-pointer">+ Add ${uh.name}</button>`;
+                  }).join('')}
+                </div>
+              ` : ''}
+            </div>
+          `;
+        }).join('');
+    sections.push(`
+      <div class="p-3 rounded-lg bg-[#080b11] border border-[#fb923c]/40 space-y-2">
+        <div class="flex items-center justify-between text-xs font-mono">
+          <span class="text-[#fb923c] font-bold">🏰 Garrison Party Command</span>
+          <span class="text-[#fbbf24]">Max Party Size: ${maxSize} Heroes</span>
+        </div>
+        ${partiesHtml}
+      </div>
+    `);
+  }
+
+  if (fac.recruitment && Array.isArray(fac.recruitment.classes)) {
+    const classCards = fac.recruitment.classes.map(function(entry) {
+      const cDef = RECRUITABLE_HERO_CLASSES.find(function(c) { return c.classId === entry.classId; });
+      if (!cDef) return '';
+      const unlocked = lvl >= (entry.minLevel || 1);
+      return `
+        <div class="p-2.5 rounded bg-[#111722] border border-[#283347] flex items-center justify-between gap-2 text-xs">
+          <div>
+            <div class="font-bold" style="color:${cDef.color}">${cDef.icon} ${cDef.name}</div>
+            <div class="text-[10px] font-mono text-[#8b949e]">${unlocked ? ('Cost: ' + cDef.costGold + 'g • ' + cDef.costFood + ' Food') : ('Unlocks at ' + bDef.name + ' Lv ' + entry.minLevel)}</div>
+          </div>
+          <button onclick="window.WargameApp.handleRecruitHero('${cDef.classId}')" ${!unlocked ? 'disabled' : ''} class="px-2.5 py-1 rounded text-[10px] font-mono font-bold uppercase ${unlocked ? 'bg-[#fbbf24] hover:bg-[#f59e0b] text-[#080b11] cursor-pointer' : 'bg-[#1a2232] text-[#64748b] cursor-not-allowed'}">
+            ${unlocked ? 'Recruit' : ('Lv ' + entry.minLevel)}
+          </button>
+        </div>
+      `;
+    }).join('');
+    sections.push(`
+      <div class="p-3 rounded-lg bg-[#080b11] border border-[#60a5fa]/40 space-y-2">
+        <div class="text-xs font-mono font-bold text-[#60a5fa]">⚔️ Guild Recruitment Roster</div>
+        <div class="space-y-1.5">${classCards}</div>
+      </div>
+    `);
+  }
+
+  if (fac.questBoard || fac.training || fac.research || fac.shop) {
+    const badges = [
+      fac.questBoard ? '📜 Guild Quest Board' : '',
+      fac.training ? '🎯 Class Training' : '',
+      fac.research ? '📚 Guild Research' : '',
+      fac.shop ? '🛒 Class-Exclusive Armory Shop' : ''
+    ].filter(Boolean).map(function(b) {
+      return `<span class="px-2 py-1 rounded bg-[#111722] border border-[#283347] text-[10px] font-mono text-[#cbd5e1]">${b}</span>`;
+    }).join('');
+    sections.push(`
+      <div class="p-2.5 rounded bg-[#080b11] border border-[#283347] space-y-1.5">
+        <div class="text-[10px] font-mono uppercase text-[#8b949e]">Declared Guild Services (ADR-0012)</div>
+        <div class="flex flex-wrap gap-1.5">${badges}</div>
+      </div>
+    `);
+  }
+
+  setHtmlIfChanged(bodyEl, sections.join('') || `<div class="text-xs text-[#8b949e]">Facility operational.</div>`);
 }
 
 export function renderTitleScreenSummary(simHost) {
@@ -924,7 +1071,11 @@ export function renderCityBuilderPanel(simHost) {
             <button data-action="enter-guild" onclick="window.WargameApp.handleSwitchView('guild')" class="w-full py-2 rounded-lg font-bold text-xs uppercase tracking-wider shadow bg-[#60a5fa] hover:bg-[#3b82f6] text-[#080b11] cursor-pointer">
               ⚔️ Enter Adventurers Guild
             </button>
-          ` : ''}
+          ` : (curBDef.facilities ? `
+            <button data-action="enter-facility" onclick="window.WargameApp.handleOpenFacilityModal('${curBId}')" class="w-full py-2 rounded-lg font-bold text-xs uppercase tracking-wider shadow bg-[#60a5fa] hover:bg-[#3b82f6] text-[#080b11] cursor-pointer">
+              🚪 Enter ${curBDef.name}
+            </button>
+          ` : '')}
           <!-- Upgrade Action -->
           ${!isMax ? `
             <div class="p-2.5 rounded bg-[#111722] border border-[#283347] space-y-1.5">
@@ -1209,6 +1360,15 @@ export function formatEventSummary(ev) {
       return '— ' + p.unitName + ' defeated ' + p.hostileName + ' (+' + (p.rewardGold || 0) + 'g, +' + (p.rewardOre || 0) + ' Ore)';
     }
     return '— ' + p.unitName + ' retreated from ' + p.hostileName + ' to ' + p.retreatedToCity;
+  }
+  if (ev.topic === STREAM_TOPICS.CRAFTING_COMPLETED) {
+    return '— Crafted ' + (p.qty || 1) + 'x ' + p.itemName + ' at ' + p.facility + '!';
+  }
+  if (ev.topic === STREAM_TOPICS.HERO_DISMISSED) {
+    return '— Dismissed ' + p.heroName + ' (gear secured in City Vault)';
+  }
+  if (ev.topic === STREAM_TOPICS.LEADER_CHANGED) {
+    return '— Designated ' + p.heroName + ' as Overall Leader 👑';
   }
   if (ev.topic === STREAM_TOPICS.TASK_COMPLETED) {
     return '— Milestone Ready: ' + p.title;

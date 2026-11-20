@@ -283,7 +283,12 @@ export function dispatchWargameCommand(commandEnvelope, state, scheduler, eventS
         food:  (baseStock.food  || 0) + 50,
         gold:  (baseStock.gold  || 0) + 25,
         water: (baseStock.water || 0) + 30,
-        ore:   (baseStock.ore   || 0) + 15
+        ore:   (baseStock.ore   || 0) + 15,
+        ingots: 0
+      },
+      provisions: {
+        potions: 2,
+        recalls: 1
       },
       // IMPORTANT: Only town_hall / meeting_hall starts at level 1!
       buildings: {
@@ -1112,6 +1117,74 @@ export function dispatchWargameCommand(commandEnvelope, state, scheduler, eventS
       eventStream.publish(STREAM_TOPICS.STORAGE_UPDATED, { cityId: city.id, action: 'dump', count: movedCount }, simTimeMs);
     }
     return accept({ movedCount: movedCount, storageCount: city.storage.items.length });
+  }
+
+  // ---------------------------------------------------------------------------
+  // 9B5. TIER 2 CITY INDUSTRY (Smeltery Ingots & Apothecary Provisions — Inc 9.6)
+  // ---------------------------------------------------------------------------
+  if (cmdType === COMMAND_TYPES.SMELT_INGOTS) {
+    const city = getPrimaryCity(state);
+    if (!city) return reject('No City founded');
+    const smelteryLvl = (city.buildings && city.buildings.smeltery) || 0;
+    if (smelteryLvl < 1) return reject('Construct a Dwarven Smeltery before smelting ingots');
+
+    const batches = Math.max(1, Math.min(10, Math.round(Number(payload.batches) || 1)));
+    const oreCost = 5 * batches;
+    const woodCost = 5 * batches;
+    const yieldIngots = 2 * batches;
+
+    if ((city.stockpile.ore || 0) < oreCost || (city.stockpile.wood || 0) < woodCost) {
+      return reject('Insufficient materials (Need ' + oreCost + ' Ore and ' + woodCost + ' Wood)');
+    }
+    city.stockpile.ore -= oreCost;
+    city.stockpile.wood -= woodCost;
+    city.stockpile.ingots = (city.stockpile.ingots || 0) + yieldIngots;
+
+    if (eventStream) {
+      eventStream.publish(STREAM_TOPICS.CRAFTING_COMPLETED, {
+        cityId: city.id,
+        facility: 'smeltery',
+        itemName: 'Forged Ingots',
+        qty: yieldIngots
+      }, simTimeMs);
+    }
+    return accept({ ingotsAdded: yieldIngots, totalIngots: city.stockpile.ingots });
+  }
+
+  if (cmdType === COMMAND_TYPES.BREW_PROVISION) {
+    const city = getPrimaryCity(state);
+    if (!city) return reject('No City founded');
+    const apothLvl = (city.buildings && city.buildings.apothecary) || 0;
+    if (apothLvl < 1) return reject('Construct an Alchemist Apothecary before brewing provisions');
+    if (!city.provisions) city.provisions = { potions: 0, recalls: 0 };
+
+    const kind = payload.kind === 'recalls' ? 'recalls' : 'potions';
+    if (kind === 'potions') {
+      if ((city.stockpile.food || 0) < 10 || (city.stockpile.water || 0) < 10 || (city.stockpile.gold || 0) < 10) {
+        return reject('Need 10 Food, 10 Water, and 10 Gold to brew a Healing Tonic');
+      }
+      city.stockpile.food -= 10;
+      city.stockpile.water -= 10;
+      city.stockpile.gold -= 10;
+      city.provisions.potions = (city.provisions.potions || 0) + 1;
+    } else {
+      if ((city.stockpile.gold || 0) < 25 || (city.stockpile.ore || 0) < 5) {
+        return reject('Need 25 Gold and 5 Ore to scribe an Astral Recall Scroll');
+      }
+      city.stockpile.gold -= 25;
+      city.stockpile.ore -= 5;
+      city.provisions.recalls = (city.provisions.recalls || 0) + 1;
+    }
+
+    if (eventStream) {
+      eventStream.publish(STREAM_TOPICS.CRAFTING_COMPLETED, {
+        cityId: city.id,
+        facility: 'apothecary',
+        itemName: kind === 'potions' ? 'Healing Tonic' : 'Astral Recall Scroll',
+        qty: 1
+      }, simTimeMs);
+    }
+    return accept({ kind: kind, provisions: Object.assign({}, city.provisions) });
   }
 
   // ---------------------------------------------------------------------------

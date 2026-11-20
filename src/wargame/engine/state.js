@@ -142,6 +142,20 @@ export function createInventoryContainer(id, name, capacity) {
   };
 }
 
+export function computeCityStorageSlotCapacity(city) {
+  let cap = CITY_STORAGE_BASE_CAPACITY || 200;
+  if (!city || !Array.isArray(city.plots)) return cap;
+  for (let i = 0; i < city.plots.length; i++) {
+    const p = city.plots[i];
+    if (!p.buildingId || (p.level || 0) <= 0 || p.underConstruction || p.demolishing) continue;
+    const bDef = CITY_BUILDINGS_CATALOG[p.buildingId];
+    if (bDef && bDef.inventorySlotBonus) {
+      cap += bDef.inventorySlotBonus * (p.level || 1);
+    }
+  }
+  return cap;
+}
+
 export function getPrimaryCity(state) {
   if (!state || !state.world || !state.world.cities) return null;
   if (state.world.activeCityId && state.world.cities[state.world.activeCityId]) {
@@ -340,6 +354,10 @@ export function loadWargameState(scheduler = null) {
         if (!c.stockpile) c.stockpile = {};
         if (typeof c.stockpile.water !== 'number') c.stockpile.water = 50;
         if (typeof c.stockpile.ore !== 'number')   c.stockpile.ore = 20;
+        if (typeof c.stockpile.ingots !== 'number') c.stockpile.ingots = 0;
+        if (!c.provisions || typeof c.provisions !== 'object') {
+          c.provisions = { potions: 2, recalls: 1 };
+        }
         if (!c.buildings) c.buildings = {};
         if (c.buildings.town_hall && !c.buildings.meeting_hall) {
           c.buildings.meeting_hall = c.buildings.town_hall;

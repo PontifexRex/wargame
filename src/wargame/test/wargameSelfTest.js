@@ -8,7 +8,7 @@ import {
 } from '../constants.js';
 import { createWargameSimHost } from '../engine/simHost.js';
 import { createMinHeapPriorityQueue } from '../engine/scheduler.js';
-import { getPrimaryCity, getSelectedOverworldUnit, computeCityPopulation } from '../engine/state.js';
+import { getPrimaryCity, getSelectedOverworldUnit, computeCityPopulation, computeCityStorageSlotCapacity } from '../engine/state.js';
 import { computeBuildingDurationMs, isBuildingPrerequisiteMet, computeMaxPartySize, getCityRecruitableClasses } from '../data/buildings.js';
 import {
   normalizeSharedHeroProfile,
@@ -946,6 +946,64 @@ export function evaluateWargameSelfTests() {
     detail: t10Pass
       ? '200-slot City Storage dump/withdraw, Garrison party scaling, Temple Chapterhouse Cleric->Paladin gating, 3-Hero cap, Overall Leader, and Dismiss gear rescue verified'
       : 'Failed checks: ' + failed10.join(', ')
+  });
+
+  // =========================================================================
+  // Test 11: Tier 2 City Industry — Smeltery Ingots, Apothecary Provisions & Warehouse Storage Expansion (Inc 9.6)
+  // =========================================================================
+  // Smeltery blocked before building -> succeeds after building
+  const smeltBlocked11 = !host7.dispatch({ type: COMMAND_TYPES.SMELT_INGOTS, payload: { batches: 1 } }).ok;
+  city7.buildings.smeltery = 1;
+  city7.stockpile.ore = 50;
+  city7.stockpile.wood = 50;
+  const smeltRes11 = host7.dispatch({ type: COMMAND_TYPES.SMELT_INGOTS, payload: { batches: 2 } });
+  const smelteryVerified11 = Boolean(
+    smeltBlocked11 &&
+    smeltRes11.ok &&
+    city7.stockpile.ingots === 4 &&
+    city7.stockpile.ore === 40 &&
+    city7.stockpile.wood === 40
+  );
+
+  // Apothecary blocked before building -> brews Healing Tonic & scribes Recall Scroll after building
+  const brewBlocked11 = !host7.dispatch({ type: COMMAND_TYPES.BREW_PROVISION, payload: { kind: 'potions' } }).ok;
+  city7.buildings.apothecary = 1;
+  city7.stockpile.food = 100;
+  city7.stockpile.water = 100;
+  city7.stockpile.gold = 200;
+  const potBefore11 = city7.provisions.potions || 0;
+  const recBefore11 = city7.provisions.recalls || 0;
+  const brewPot11 = host7.dispatch({ type: COMMAND_TYPES.BREW_PROVISION, payload: { kind: 'potions' } });
+  const brewRec11 = host7.dispatch({ type: COMMAND_TYPES.BREW_PROVISION, payload: { kind: 'recalls' } });
+  const apothecaryVerified11 = Boolean(
+    brewBlocked11 &&
+    brewPot11.ok &&
+    brewRec11.ok &&
+    city7.provisions.potions === potBefore11 + 1 &&
+    city7.provisions.recalls === recBefore11 + 1
+  );
+
+  // Warehouse expands City Vault Storage slot capacity (+50 per level)
+  const capBeforeWh11 = computeCityStorageSlotCapacity(city7);
+  city7.plots[5].buildingId = 'warehouse';
+  city7.plots[5].level = 2;
+  const capAfterWh11 = computeCityStorageSlotCapacity(city7);
+  const warehouseSlotsVerified11 = capAfterWh11 === capBeforeWh11 + 100;
+
+  const t11Checks = {
+    smelteryVerified11: smelteryVerified11,
+    apothecaryVerified11: apothecaryVerified11,
+    warehouseSlotsVerified11: warehouseSlotsVerified11
+  };
+  const failed11 = Object.keys(t11Checks).filter(function(k) { return !t11Checks[k]; });
+  const t11Pass = failed11.length === 0;
+
+  results.push({
+    name: '11. Tier 2 City Industry — Smeltery Ingots, Apothecary Provisions & Warehouse Storage Expansion (Inc 9.6)',
+    pass: t11Pass,
+    detail: t11Pass
+      ? 'Smeltery ore->ingot refining, Apothecary potion/scroll brewing, and Warehouse +50/lv City Vault slot expansion verified'
+      : 'Failed checks: ' + failed11.join(', ')
   });
 
   return results;

@@ -1,7 +1,7 @@
 # Aethelgard: Project Roadmap & Strategic Horizons
 
-> **Current Baseline**: `v0.9.4-shared-hero-sheet` / `v0.8.3-hazards` / `Stage E.1`  
-> **Verification Status**: 31/31 Roguelike Baseline Tests PASS + 9/9 Wargame Simulation Tests PASS  
+> **Current Baseline**: `v0.9.6-city-industry` / `v0.8.3-hazards` / `Stage E.1`  
+> **Verification Status**: 31/31 Roguelike Baseline Tests PASS + 11/11 Wargame Simulation Tests PASS  
 > **Historical Release Notes**: For completed increment release logs, detailed feature breakdowns, and verification gates, refer to [CHANGELOG.md](../CHANGELOG.md).
 
 ---
@@ -92,23 +92,11 @@ Track E (Art Direction & Graphics) ──► Stage E.1 (Pillars) ──► E.2 (
 - **Increment 9.1 (`v0.9.1-city-grid`)**: 8x8 spatial city grid, plot selection, timed relocation, demolition salvage, and 3-slot queues. *(Verified)*  
 - **Increment 9.2 (`v0.9.2-city-progression`)**: Tier 1 building catalog, prerequisite unlocks, doubling times, citizen sustenance, and 60s Hero Recruitment queue. *(Verified)*  
 - **Increment 9.3 (`v0.9.3-dungeon-march`)**: Multi-dungeon Overworld discovery, wandering hostile skirmishes, real-time march to vaults, cross-engine `wargameBridge` handoff (`wargame.html` ↔ `index.html`), extraction return march + cargo banking, Recall Scroll express return, and defeat recovery. *(Verified)*  
-- **Increment 9.4 (`v0.9.4-shared-hero-sheet`)**: Shared cross-engine Character Sheet & Paper-Doll module (`src/ui/shared/characterSheet.js`), Tier 1 Prestige Cosmetic slots, `#wgCharacterSheetModal` in `wargame.html`, `CMD_EQUIP/UNEQUIP_HERO_ITEM`, and bridge equipment sync. *(Verified)*
+- **Increment 9.4 (`v0.9.4-shared-hero-sheet`)**: Shared cross-engine Character Sheet & Paper-Doll module (`src/ui/shared/characterSheet.js`), Tier 1 Prestige Cosmetic slots, `#wgCharacterSheetModal` in `wargame.html`, `CMD_EQUIP/UNEQUIP_HERO_ITEM`, and bridge equipment sync. *(Verified)*  
+- **Increment 9.5 (`v0.9.5-class-guilds`)**: `ADR-0012` modular building `facilities`, Temple Chapterhouse (`Cleric` Lv 1 → `Paladin` Lv 2+), specialized Class Guilds, City Garrison (`1 + Lv` party size), 3-Hero Roster Cap + Dismiss + Overall Leader, and 200-slot City Vault Storage Container. *(Verified)*  
+- **Increment 9.6 (`v0.9.6-city-industry`)**: Tier 2 City Industry — Dwarven Smeltery (`CMD_SMELT_INGOTS`), Alchemist Apothecary (`CMD_BREW_PROVISION`), Warehouse `+50/lv` City Vault slot expansion, and interactive enterable `#wgFacilityModal` interiors for all facility constructs. *(Verified)*
 
-#### Increment 9.5 (`v0.9.5-class-guilds`) — Modular Class Guilds, Garrison Parties, Roster Cap & City Storage Container (`ADR-0012`)
-- **Declarative Building `facilities` Architecture**: Every enterable guild declares composable `recruitment`, `questBoard`, `training`, `research`, and class-exclusive `shop` capabilities:
-  - **Temple Chapterhouse**: Religious classes — **Cleric** (entry-level, Lv 1) → **Paladin** (Lv 2+) and future religious archetypes.
-  - **Fighters Guild**, **Thieves Guild**, **Mages Guild**, **Rangers Lodge**: Dedicated martial, stealth, arcane, and wilderness class guilds.
-  - **Adventurers Guild**: Dedicated to the Adventurer/Delver class and dungeon-specific exploration quests, training, research, and gear.
-- **Hero Roster Cap, Dismissal & Overall Leader**: Starting global cap of `3` Heroes (expandable later), `CMD_DISMISS_HERO` (returning gear safely to City Storage), and `CMD_SET_OVERALL_LEADER` (reassignable at any time).
-- **Garrison (Party Formation & Scaling)**: Build and upgrade the **Garrison** to form multi-hero parties (`maxPartySize = 1 + garrisonLevel`; solo 1-hero parties allowed pre-Garrison).
-- **Unified Inventory Containers & City Storage Vault**: 200-slot City Storage Container accessible whenever a Hero is in Town, with 1-click **"Dump Bag to City Vault"** and bidirectional item transfers.
-
-#### Increment 9.6 (`v0.9.6-city-industry`) — Tier 2 City Industry: Smeltery, Warehouse & Apothecary
-- **Smeltery** *(Enterable City Construct)*: Refines raw dungeon ores (`Copper`, `Iron`, `Mithril`, `Astralite`) into forged ingots/alloys required for Tier 2 buildings and crafted equipment.
-- **Warehouse**: Substantially expands City resource storage caps per level and safeguards stockpiles.
-- **Apothecary** *(Enterable City Construct)*: Brews **Healing Tonics**, **Antidotes**, and scribes **Astral Recall Scrolls** using city provisions and dungeon reagents to stock Hero Parties before expeditions.
-
-#### Increment 9.6 (`v0.9.6-city-crafting`) — City Blacksmith (Star-Forge) & Lapidary Workshop
+#### Increment 9.7 (`v0.9.7-city-crafting`) — City Blacksmith (Star-Forge) & Lapidary Workshop
 - **Blacksmith / Star-Forge** *(Enterable City Construct)*: Forge weapons, armor, helms, boots, and upgraded pickaxes from smelted ingots; reforge affixes and repair gear.
 - **Lapidary Workshop** *(Enterable City Construct)*: Cut raw Astral Gems, punch Gem Sockets into Rare/Epic/Relic equipment, and socket/extract gems.
 - **Architectural Separation**: Decouples equipment forging and gem socketing out of the Adventurers Guild (which remains focused on Hero recruitment, parties, bounties, and Bestiary Codex) into dedicated upgradeable City Constructs.

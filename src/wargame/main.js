@@ -341,6 +341,50 @@ export function handleDismissHero(heroId) {
   syncWargameUI(simHost);
 }
 
+export function handleOpenFacilityModal(buildingId) {
+  if (!simHost.state) return;
+  simHost.state._openFacilityId = buildingId;
+  simHost.state._dirty = true;
+  syncWargameUI(simHost);
+}
+
+export function handleCloseFacilityModal() {
+  if (!simHost.state) return;
+  delete simHost.state._openFacilityId;
+  simHost.state._dirty = true;
+  syncWargameUI(simHost);
+}
+
+export function handleSmeltIngots(batches) {
+  simHost.dispatch({
+    type: COMMAND_TYPES.SMELT_INGOTS,
+    payload: { batches: batches || 1 }
+  });
+  simHost.state._dirty = true;
+  simHost.save();
+  syncWargameUI(simHost);
+}
+
+export function handleBrewProvision(kind) {
+  simHost.dispatch({
+    type: COMMAND_TYPES.BREW_PROVISION,
+    payload: { kind: kind || 'potions' }
+  });
+  simHost.state._dirty = true;
+  simHost.save();
+  syncWargameUI(simHost);
+}
+
+export function handleAssignHeroToParty(partyId, heroId) {
+  simHost.dispatch({
+    type: COMMAND_TYPES.ASSIGN_HERO_TO_PARTY,
+    payload: { partyId: partyId, heroId: heroId }
+  });
+  simHost.state._dirty = true;
+  simHost.save();
+  syncWargameUI(simHost);
+}
+
 export function handleSelectPartyByHero(heroId) {
   if (!simHost.state.world || !simHost.state.world.overworld) return;
   const ow = simHost.state.world.overworld;
@@ -657,6 +701,11 @@ export const WargameApp = {
   handleDumpHeroBagToCity: handleDumpHeroBagToCity,
   handleSetOverallLeader: handleSetOverallLeader,
   handleDismissHero: handleDismissHero,
+  handleOpenFacilityModal: handleOpenFacilityModal,
+  handleCloseFacilityModal: handleCloseFacilityModal,
+  handleSmeltIngots: handleSmeltIngots,
+  handleBrewProvision: handleBrewProvision,
+  handleAssignHeroToParty: handleAssignHeroToParty,
   handleMarchToDungeon: handleMarchToDungeon,
   handleReturnToCity: handleReturnToCity,
   handleEnterDungeon: handleEnterDungeon,

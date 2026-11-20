@@ -43,12 +43,13 @@ export const BASE_MOVE_BUILDING_DURATION_MS = 2500; // 2.5s base duration to rel
 
 // Base Resource Storage Limits & Population Capacities
 export const DEFAULT_STORAGE_CAPS = {
-  food:  200,
-  wood:  200,
-  stone: 200,
-  ore:   100,
-  water: 200,
-  gold:  300
+  food:   200,
+  wood:   200,
+  stone:  200,
+  ore:    100,
+  ingots: 100,
+  water:  200,
+  gold:   300
 };
 export const BASE_POPULATION_CAP = 10;
 export const HUT_POPULATION_PER_LEVEL = 5;
@@ -84,6 +85,7 @@ export const STREAM_TOPICS = {
   HERO_DISMISSED:       'guild.heroDismissed',
   LEADER_CHANGED:       'guild.leaderChanged',
   STORAGE_UPDATED:      'city.storageUpdated',
+  CRAFTING_COMPLETED:   'city.craftingCompleted',
   PARTY_FORMED:         'guild.partyFormed',
   DUNGEON_DISCOVERED:   'dungeon.discovered',
   DUNGEON_ENTERED:      'dungeon.entered',
@@ -121,7 +123,9 @@ export const COMMAND_TYPES = {
   DEPOSIT_TO_CITY_STORAGE:    'CMD_DEPOSIT_TO_CITY_STORAGE',
   WITHDRAW_FROM_CITY_STORAGE: 'CMD_WITHDRAW_FROM_CITY_STORAGE',
   DUMP_HERO_BAG_TO_CITY:      'CMD_DUMP_HERO_BAG_TO_CITY',
-  MARCH_TO_DUNGEON:      'CMD_MARCH_TO_DUNGEON',
+  SMELT_INGOTS:               'CMD_SMELT_INGOTS',
+  BREW_PROVISION:             'CMD_BREW_PROVISION',
+  MARCH_TO_DUNGEON:           'CMD_MARCH_TO_DUNGEON',
   ENTER_DUNGEON:         'CMD_ENTER_DUNGEON',
   RESOLVE_DUNGEON_RETURN:'CMD_RESOLVE_DUNGEON_RETURN',
   CLAIM_TASK_REWARD:     'CMD_CLAIM_TASK_REWARD',

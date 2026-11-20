@@ -48,12 +48,13 @@ const BASE_MOVE_BUILDING_DURATION_MS = 2500; // 2.5s base duration to relocate a
 
 // Base Resource Storage Limits & Population Capacities
 const DEFAULT_STORAGE_CAPS = {
-  food:  200,
-  wood:  200,
-  stone: 200,
-  ore:   100,
-  water: 200,
-  gold:  300
+  food:   200,
+  wood:   200,
+  stone:  200,
+  ore:    100,
+  ingots: 100,
+  water:  200,
+  gold:   300
 };
 const BASE_POPULATION_CAP = 10;
 const HUT_POPULATION_PER_LEVEL = 5;
@@ -89,6 +90,7 @@ const STREAM_TOPICS = {
   HERO_DISMISSED:       'guild.heroDismissed',
   LEADER_CHANGED:       'guild.leaderChanged',
   STORAGE_UPDATED:      'city.storageUpdated',
+  CRAFTING_COMPLETED:   'city.craftingCompleted',
   PARTY_FORMED:         'guild.partyFormed',
   DUNGEON_DISCOVERED:   'dungeon.discovered',
   DUNGEON_ENTERED:      'dungeon.entered',
@@ -126,7 +128,9 @@ const COMMAND_TYPES = {
   DEPOSIT_TO_CITY_STORAGE:    'CMD_DEPOSIT_TO_CITY_STORAGE',
   WITHDRAW_FROM_CITY_STORAGE: 'CMD_WITHDRAW_FROM_CITY_STORAGE',
   DUMP_HERO_BAG_TO_CITY:      'CMD_DUMP_HERO_BAG_TO_CITY',
-  MARCH_TO_DUNGEON:      'CMD_MARCH_TO_DUNGEON',
+  SMELT_INGOTS:               'CMD_SMELT_INGOTS',
+  BREW_PROVISION:             'CMD_BREW_PROVISION',
+  MARCH_TO_DUNGEON:           'CMD_MARCH_TO_DUNGEON',
   ENTER_DUNGEON:         'CMD_ENTER_DUNGEON',
   RESOLVE_DUNGEON_RETURN:'CMD_RESOLVE_DUNGEON_RETURN',
   CLAIM_TASK_REWARD:     'CMD_CLAIM_TASK_REWARD',
@@ -1737,9 +1741,40 @@ const CITY_BUILDINGS_CATALOG = {
     maxLevel: 5,
     baseBuildTimeMs: 4500,
     baseCost: { wood: 30, stone: 30, gold: 0 },
-    storageBonus: { wood: 200, stone: 200, ore: 200 },
+    storageBonus: { wood: 200, stone: 200, ore: 200, ingots: 100 },
+    inventorySlotBonus: 50,
     requires: { meeting_hall: 1, lumber_camp: 1, quarry: 1 },
-    desc: 'Dry storage depot that expands wood, stone, and ore storage limits by +200 each per level.'
+    desc: 'Dry storage depot that expands wood/stone/ore caps by +200 and City Vault Storage by +50 item slots per level.'
+  },
+  smeltery: {
+    id: 'smeltery',
+    name: 'Dwarven Smeltery',
+    icon: '🔥',
+    category: 'resource',
+    color: '#f97316',
+    maxLevel: 5,
+    baseBuildTimeMs: 5500,
+    baseCost: { wood: 35, stone: 45, gold: 20 },
+    requires: { meeting_hall: 1, quarry: 1 },
+    facilities: {
+      smelting: { oreCost: 5, woodCost: 5, ingotYield: 2 }
+    },
+    desc: 'High-heat furnace refining raw dungeon ores and timber into Forged Ingots for Tier 2 gear and buildings.'
+  },
+  apothecary: {
+    id: 'apothecary',
+    name: 'Alchemist Apothecary',
+    icon: '🧪',
+    category: 'civic',
+    color: '#34d399',
+    maxLevel: 5,
+    baseBuildTimeMs: 5000,
+    baseCost: { wood: 35, stone: 30, gold: 25 },
+    requires: { meeting_hall: 1, garden: 1, well: 1 },
+    facilities: {
+      brewing: true
+    },
+    desc: 'Alchemical workshop brewing Healing Tonics and scribing Astral Recall Scrolls to provision Hero Parties.'
   },
 
   // ---------------------------------------------------------------------------
@@ -2258,6 +2293,20 @@ function createInventoryContainer(id, name, capacity) {
   };
 }
 
+function computeCityStorageSlotCapacity(city) {
+  let cap = CITY_STORAGE_BASE_CAPACITY || 200;
+  if (!city || !Array.isArray(city.plots)) return cap;
+  for (let i = 0; i < city.plots.length; i++) {
+    const p = city.plots[i];
+    if (!p.buildingId || (p.level || 0) <= 0 || p.underConstruction || p.demolishing) continue;
+    const bDef = CITY_BUILDINGS_CATALOG[p.buildingId];
+    if (bDef && bDef.inventorySlotBonus) {
+      cap += bDef.inventorySlotBonus * (p.level || 1);
+    }
+  }
+  return cap;
+}
+
 function getPrimaryCity(state) {
   if (!state || !state.world || !state.world.cities) return null;
   if (state.world.activeCityId && state.world.cities[state.world.activeCityId]) {
@@ -2456,6 +2505,10 @@ function loadWargameState(scheduler = null) {
         if (!c.stockpile) c.stockpile = {};
         if (typeof c.stockpile.water !== 'number') c.stockpile.water = 50;
         if (typeof c.stockpile.ore !== 'number')   c.stockpile.ore = 20;
+        if (typeof c.stockpile.ingots !== 'number') c.stockpile.ingots = 0;
+        if (!c.provisions || typeof c.provisions !== 'object') {
+          c.provisions = { potions: 2, recalls: 1 };
+        }
         if (!c.buildings) c.buildings = {};
         if (c.buildings.town_hall && !c.buildings.meeting_hall) {
           c.buildings.meeting_hall = c.buildings.town_hall;
@@ -3812,7 +3865,12 @@ function dispatchWargameCommand(commandEnvelope, state, scheduler, eventStream) 
         food:  (baseStock.food  || 0) + 50,
         gold:  (baseStock.gold  || 0) + 25,
         water: (baseStock.water || 0) + 30,
-        ore:   (baseStock.ore   || 0) + 15
+        ore:   (baseStock.ore   || 0) + 15,
+        ingots: 0
+      },
+      provisions: {
+        potions: 2,
+        recalls: 1
       },
       // IMPORTANT: Only town_hall / meeting_hall starts at level 1!
       buildings: {
@@ -4641,6 +4699,74 @@ function dispatchWargameCommand(commandEnvelope, state, scheduler, eventStream) 
       eventStream.publish(STREAM_TOPICS.STORAGE_UPDATED, { cityId: city.id, action: 'dump', count: movedCount }, simTimeMs);
     }
     return accept({ movedCount: movedCount, storageCount: city.storage.items.length });
+  }
+
+  // ---------------------------------------------------------------------------
+  // 9B5. TIER 2 CITY INDUSTRY (Smeltery Ingots & Apothecary Provisions — Inc 9.6)
+  // ---------------------------------------------------------------------------
+  if (cmdType === COMMAND_TYPES.SMELT_INGOTS) {
+    const city = getPrimaryCity(state);
+    if (!city) return reject('No City founded');
+    const smelteryLvl = (city.buildings && city.buildings.smeltery) || 0;
+    if (smelteryLvl < 1) return reject('Construct a Dwarven Smeltery before smelting ingots');
+
+    const batches = Math.max(1, Math.min(10, Math.round(Number(payload.batches) || 1)));
+    const oreCost = 5 * batches;
+    const woodCost = 5 * batches;
+    const yieldIngots = 2 * batches;
+
+    if ((city.stockpile.ore || 0) < oreCost || (city.stockpile.wood || 0) < woodCost) {
+      return reject('Insufficient materials (Need ' + oreCost + ' Ore and ' + woodCost + ' Wood)');
+    }
+    city.stockpile.ore -= oreCost;
+    city.stockpile.wood -= woodCost;
+    city.stockpile.ingots = (city.stockpile.ingots || 0) + yieldIngots;
+
+    if (eventStream) {
+      eventStream.publish(STREAM_TOPICS.CRAFTING_COMPLETED, {
+        cityId: city.id,
+        facility: 'smeltery',
+        itemName: 'Forged Ingots',
+        qty: yieldIngots
+      }, simTimeMs);
+    }
+    return accept({ ingotsAdded: yieldIngots, totalIngots: city.stockpile.ingots });
+  }
+
+  if (cmdType === COMMAND_TYPES.BREW_PROVISION) {
+    const city = getPrimaryCity(state);
+    if (!city) return reject('No City founded');
+    const apothLvl = (city.buildings && city.buildings.apothecary) || 0;
+    if (apothLvl < 1) return reject('Construct an Alchemist Apothecary before brewing provisions');
+    if (!city.provisions) city.provisions = { potions: 0, recalls: 0 };
+
+    const kind = payload.kind === 'recalls' ? 'recalls' : 'potions';
+    if (kind === 'potions') {
+      if ((city.stockpile.food || 0) < 10 || (city.stockpile.water || 0) < 10 || (city.stockpile.gold || 0) < 10) {
+        return reject('Need 10 Food, 10 Water, and 10 Gold to brew a Healing Tonic');
+      }
+      city.stockpile.food -= 10;
+      city.stockpile.water -= 10;
+      city.stockpile.gold -= 10;
+      city.provisions.potions = (city.provisions.potions || 0) + 1;
+    } else {
+      if ((city.stockpile.gold || 0) < 25 || (city.stockpile.ore || 0) < 5) {
+        return reject('Need 25 Gold and 5 Ore to scribe an Astral Recall Scroll');
+      }
+      city.stockpile.gold -= 25;
+      city.stockpile.ore -= 5;
+      city.provisions.recalls = (city.provisions.recalls || 0) + 1;
+    }
+
+    if (eventStream) {
+      eventStream.publish(STREAM_TOPICS.CRAFTING_COMPLETED, {
+        cityId: city.id,
+        facility: 'apothecary',
+        itemName: kind === 'potions' ? 'Healing Tonic' : 'Astral Recall Scroll',
+        qty: 1
+      }, simTimeMs);
+    }
+    return accept({ kind: kind, provisions: Object.assign({}, city.provisions) });
   }
 
   // ---------------------------------------------------------------------------
@@ -6362,8 +6488,9 @@ function syncWargameUI(simHost) {
   // 6. Sync Right Sidebar: Reactive Task DAG & Live Streaming Event Feed
   renderRightTasksAndStreamSidebar(simHost);
 
-  // 7. Sync Shared Character Sheet Modal if open
+  // 7. Sync Shared Character Sheet Modal & Enterable Facility Modal if open
   renderWargameCharacterSheetModal(simHost);
+  renderWargameFacilityModal(simHost);
 }
 
 function renderWargameCharacterSheetModal(simHost) {
@@ -6454,7 +6581,7 @@ function renderWargameCharacterSheetModal(simHost) {
     } else {
       storageSection.classList.remove('hidden');
       const items = (city.storage && Array.isArray(city.storage.items)) ? city.storage.items : [];
-      const cap = (city.storage && city.storage.capacity) ? city.storage.capacity : 200;
+      const cap = computeCityStorageSlotCapacity(city);
       if (storageCountEl) storageCountEl.textContent = items.length + ' / ' + cap + ' slots';
       if (items.length === 0) {
         setHtmlIfChanged(storageListEl, `<div class="text-[11px] text-[#64748b] italic py-2 text-center">City Vault Storage is empty. Click "📦 Dump to City" to offload loot from your Hero's pack!</div>`);
@@ -6476,6 +6603,150 @@ function renderWargameCharacterSheetModal(simHost) {
       }
     }
   }
+}
+
+function renderWargameFacilityModal(simHost) {
+  if (typeof document === 'undefined' || !simHost || !simHost.state || !simHost.state.world) return;
+  const modal = document.getElementById('wgFacilityModal');
+  if (!modal) return;
+
+  const bId = simHost.state._openFacilityId || null;
+  const city = getPrimaryCity(simHost.state);
+  const bDef = bId ? CITY_BUILDINGS_CATALOG[bId] : null;
+  if (!bId || !city || !bDef) {
+    modal.classList.add('hidden');
+    return;
+  }
+
+  modal.classList.remove('hidden');
+  const lvl = (city.buildings && city.buildings[bId]) || 1;
+  const titleEl = document.getElementById('wgFacilityTitle');
+  const subEl = document.getElementById('wgFacilitySubtitle');
+  const bodyEl = document.getElementById('wgFacilityBody');
+  if (titleEl) titleEl.textContent = (bDef.icon || '🏛️') + ' ' + bDef.name;
+  if (subEl) subEl.textContent = 'Level ' + lvl + ' • ' + city.name;
+
+  if (!bodyEl) return;
+  const fac = bDef.facilities || {};
+  const sections = [];
+
+  if (fac.smelting) {
+    sections.push(`
+      <div class="p-3 rounded-lg bg-[#080b11] border border-[#f97316]/40 space-y-2">
+        <div class="flex items-center justify-between text-xs font-mono">
+          <span class="text-[#f97316] font-bold">🔥 Ore Refining Furnace</span>
+          <span class="text-[#e6edf3]">Ore: ${city.stockpile.ore || 0} • Wood: ${city.stockpile.wood || 0} • <strong class="text-[#fbbf24]">Ingots: ${city.stockpile.ingots || 0}</strong></span>
+        </div>
+        <p class="text-[11px] text-[#8b949e]">Refine 5 raw Dungeon Ore + 5 Wood fuel into 2 Forged Ingots.</p>
+        <div class="flex gap-2">
+          <button onclick="window.WargameApp.handleSmeltIngots(1)" class="px-3 py-1.5 rounded bg-[#f97316] hover:bg-[#ea580c] text-[#080b11] font-bold text-xs uppercase cursor-pointer">🔥 Smelt 2 Ingots</button>
+          <button onclick="window.WargameApp.handleSmeltIngots(5)" class="px-3 py-1.5 rounded bg-[#1a2232] hover:bg-[#283347] text-[#f97316] border border-[#f97316]/40 font-bold text-xs uppercase cursor-pointer">🔥 Smelt 10 Ingots</button>
+        </div>
+      </div>
+    `);
+  }
+
+  if (fac.brewing) {
+    const prov = city.provisions || { potions: 0, recalls: 0 };
+    sections.push(`
+      <div class="p-3 rounded-lg bg-[#080b11] border border-[#34d399]/40 space-y-2">
+        <div class="flex items-center justify-between text-xs font-mono">
+          <span class="text-[#34d399] font-bold">🧪 Apothecary Provisions</span>
+          <span class="text-[#e6edf3]">Tonics: <strong class="text-[#34d399]">${prov.potions || 0}</strong> • Recall Scrolls: <strong class="text-[#38bdf8]">${prov.recalls || 0}</strong></span>
+        </div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          <button onclick="window.WargameApp.handleBrewProvision('potions')" class="p-2 rounded bg-[#111722] hover:bg-[#1a2232] border border-[#34d399]/40 text-left text-xs cursor-pointer">
+            <div class="font-bold text-[#34d399]">🧪 Brew Healing Tonic</div>
+            <div class="text-[10px] font-mono text-[#8b949e]">Cost: 10 Food • 10 Water • 10 Gold</div>
+          </button>
+          <button onclick="window.WargameApp.handleBrewProvision('recalls')" class="p-2 rounded bg-[#111722] hover:bg-[#1a2232] border border-[#38bdf8]/40 text-left text-xs cursor-pointer">
+            <div class="font-bold text-[#38bdf8]">📜 Scribe Recall Scroll</div>
+            <div class="text-[10px] font-mono text-[#8b949e]">Cost: 25 Gold • 5 Ore</div>
+          </button>
+        </div>
+      </div>
+    `);
+  }
+
+  if (fac.partyManagement) {
+    const maxSize = computeMaxPartySize(city);
+    const parties = simHost.state.world.parties || [];
+    const heroes = simHost.state.world.heroes || [];
+    const partiesHtml = parties.length === 0
+      ? `<div class="text-xs text-[#64748b] italic">No active parties yet. Recruit Heroes at a Guild Hall first.</div>`
+      : parties.map(function(pt) {
+          const members = Array.isArray(pt.memberIds) ? pt.memberIds : [];
+          const unassigned = heroes.filter(function(h) { return members.indexOf(h.id) === -1; });
+          return `
+            <div class="p-2.5 rounded bg-[#111722] border border-[#283347] space-y-1.5 text-xs">
+              <div class="flex items-center justify-between font-mono">
+                <span class="font-bold text-[#fbbf24]">⚔️ Party ${pt.id}</span>
+                <span class="text-[#38bdf8]">${members.length} / ${maxSize} Heroes</span>
+              </div>
+              ${unassigned.length > 0 && members.length < maxSize ? `
+                <div class="flex flex-wrap gap-1 pt-1">
+                  ${unassigned.map(function(uh) {
+                    return `<button onclick="window.WargameApp.handleAssignHeroToParty('${pt.id}', '${uh.id}')" class="px-2 py-0.5 rounded bg-[#1a2232] hover:bg-[#283347] text-[#34d399] border border-[#34d399]/40 text-[10px] font-mono cursor-pointer">+ Add ${uh.name}</button>`;
+                  }).join('')}
+                </div>
+              ` : ''}
+            </div>
+          `;
+        }).join('');
+    sections.push(`
+      <div class="p-3 rounded-lg bg-[#080b11] border border-[#fb923c]/40 space-y-2">
+        <div class="flex items-center justify-between text-xs font-mono">
+          <span class="text-[#fb923c] font-bold">🏰 Garrison Party Command</span>
+          <span class="text-[#fbbf24]">Max Party Size: ${maxSize} Heroes</span>
+        </div>
+        ${partiesHtml}
+      </div>
+    `);
+  }
+
+  if (fac.recruitment && Array.isArray(fac.recruitment.classes)) {
+    const classCards = fac.recruitment.classes.map(function(entry) {
+      const cDef = RECRUITABLE_HERO_CLASSES.find(function(c) { return c.classId === entry.classId; });
+      if (!cDef) return '';
+      const unlocked = lvl >= (entry.minLevel || 1);
+      return `
+        <div class="p-2.5 rounded bg-[#111722] border border-[#283347] flex items-center justify-between gap-2 text-xs">
+          <div>
+            <div class="font-bold" style="color:${cDef.color}">${cDef.icon} ${cDef.name}</div>
+            <div class="text-[10px] font-mono text-[#8b949e]">${unlocked ? ('Cost: ' + cDef.costGold + 'g • ' + cDef.costFood + ' Food') : ('Unlocks at ' + bDef.name + ' Lv ' + entry.minLevel)}</div>
+          </div>
+          <button onclick="window.WargameApp.handleRecruitHero('${cDef.classId}')" ${!unlocked ? 'disabled' : ''} class="px-2.5 py-1 rounded text-[10px] font-mono font-bold uppercase ${unlocked ? 'bg-[#fbbf24] hover:bg-[#f59e0b] text-[#080b11] cursor-pointer' : 'bg-[#1a2232] text-[#64748b] cursor-not-allowed'}">
+            ${unlocked ? 'Recruit' : ('Lv ' + entry.minLevel)}
+          </button>
+        </div>
+      `;
+    }).join('');
+    sections.push(`
+      <div class="p-3 rounded-lg bg-[#080b11] border border-[#60a5fa]/40 space-y-2">
+        <div class="text-xs font-mono font-bold text-[#60a5fa]">⚔️ Guild Recruitment Roster</div>
+        <div class="space-y-1.5">${classCards}</div>
+      </div>
+    `);
+  }
+
+  if (fac.questBoard || fac.training || fac.research || fac.shop) {
+    const badges = [
+      fac.questBoard ? '📜 Guild Quest Board' : '',
+      fac.training ? '🎯 Class Training' : '',
+      fac.research ? '📚 Guild Research' : '',
+      fac.shop ? '🛒 Class-Exclusive Armory Shop' : ''
+    ].filter(Boolean).map(function(b) {
+      return `<span class="px-2 py-1 rounded bg-[#111722] border border-[#283347] text-[10px] font-mono text-[#cbd5e1]">${b}</span>`;
+    }).join('');
+    sections.push(`
+      <div class="p-2.5 rounded bg-[#080b11] border border-[#283347] space-y-1.5">
+        <div class="text-[10px] font-mono uppercase text-[#8b949e]">Declared Guild Services (ADR-0012)</div>
+        <div class="flex flex-wrap gap-1.5">${badges}</div>
+      </div>
+    `);
+  }
+
+  setHtmlIfChanged(bodyEl, sections.join('') || `<div class="text-xs text-[#8b949e]">Facility operational.</div>`);
 }
 
 function renderTitleScreenSummary(simHost) {
@@ -7058,7 +7329,11 @@ function renderCityBuilderPanel(simHost) {
             <button data-action="enter-guild" onclick="window.WargameApp.handleSwitchView('guild')" class="w-full py-2 rounded-lg font-bold text-xs uppercase tracking-wider shadow bg-[#60a5fa] hover:bg-[#3b82f6] text-[#080b11] cursor-pointer">
               ⚔️ Enter Adventurers Guild
             </button>
-          ` : ''}
+          ` : (curBDef.facilities ? `
+            <button data-action="enter-facility" onclick="window.WargameApp.handleOpenFacilityModal('${curBId}')" class="w-full py-2 rounded-lg font-bold text-xs uppercase tracking-wider shadow bg-[#60a5fa] hover:bg-[#3b82f6] text-[#080b11] cursor-pointer">
+              🚪 Enter ${curBDef.name}
+            </button>
+          ` : '')}
           <!-- Upgrade Action -->
           ${!isMax ? `
             <div class="p-2.5 rounded bg-[#111722] border border-[#283347] space-y-1.5">
@@ -7343,6 +7618,15 @@ function formatEventSummary(ev) {
       return '— ' + p.unitName + ' defeated ' + p.hostileName + ' (+' + (p.rewardGold || 0) + 'g, +' + (p.rewardOre || 0) + ' Ore)';
     }
     return '— ' + p.unitName + ' retreated from ' + p.hostileName + ' to ' + p.retreatedToCity;
+  }
+  if (ev.topic === STREAM_TOPICS.CRAFTING_COMPLETED) {
+    return '— Crafted ' + (p.qty || 1) + 'x ' + p.itemName + ' at ' + p.facility + '!';
+  }
+  if (ev.topic === STREAM_TOPICS.HERO_DISMISSED) {
+    return '— Dismissed ' + p.heroName + ' (gear secured in City Vault)';
+  }
+  if (ev.topic === STREAM_TOPICS.LEADER_CHANGED) {
+    return '— Designated ' + p.heroName + ' as Overall Leader 👑';
   }
   if (ev.topic === STREAM_TOPICS.TASK_COMPLETED) {
     return '— Milestone Ready: ' + p.title;
@@ -8296,6 +8580,64 @@ function evaluateWargameSelfTests() {
       : 'Failed checks: ' + failed10.join(', ')
   });
 
+  // =========================================================================
+  // Test 11: Tier 2 City Industry — Smeltery Ingots, Apothecary Provisions & Warehouse Storage Expansion (Inc 9.6)
+  // =========================================================================
+  // Smeltery blocked before building -> succeeds after building
+  const smeltBlocked11 = !host7.dispatch({ type: COMMAND_TYPES.SMELT_INGOTS, payload: { batches: 1 } }).ok;
+  city7.buildings.smeltery = 1;
+  city7.stockpile.ore = 50;
+  city7.stockpile.wood = 50;
+  const smeltRes11 = host7.dispatch({ type: COMMAND_TYPES.SMELT_INGOTS, payload: { batches: 2 } });
+  const smelteryVerified11 = Boolean(
+    smeltBlocked11 &&
+    smeltRes11.ok &&
+    city7.stockpile.ingots === 4 &&
+    city7.stockpile.ore === 40 &&
+    city7.stockpile.wood === 40
+  );
+
+  // Apothecary blocked before building -> brews Healing Tonic & scribes Recall Scroll after building
+  const brewBlocked11 = !host7.dispatch({ type: COMMAND_TYPES.BREW_PROVISION, payload: { kind: 'potions' } }).ok;
+  city7.buildings.apothecary = 1;
+  city7.stockpile.food = 100;
+  city7.stockpile.water = 100;
+  city7.stockpile.gold = 200;
+  const potBefore11 = city7.provisions.potions || 0;
+  const recBefore11 = city7.provisions.recalls || 0;
+  const brewPot11 = host7.dispatch({ type: COMMAND_TYPES.BREW_PROVISION, payload: { kind: 'potions' } });
+  const brewRec11 = host7.dispatch({ type: COMMAND_TYPES.BREW_PROVISION, payload: { kind: 'recalls' } });
+  const apothecaryVerified11 = Boolean(
+    brewBlocked11 &&
+    brewPot11.ok &&
+    brewRec11.ok &&
+    city7.provisions.potions === potBefore11 + 1 &&
+    city7.provisions.recalls === recBefore11 + 1
+  );
+
+  // Warehouse expands City Vault Storage slot capacity (+50 per level)
+  const capBeforeWh11 = computeCityStorageSlotCapacity(city7);
+  city7.plots[5].buildingId = 'warehouse';
+  city7.plots[5].level = 2;
+  const capAfterWh11 = computeCityStorageSlotCapacity(city7);
+  const warehouseSlotsVerified11 = capAfterWh11 === capBeforeWh11 + 100;
+
+  const t11Checks = {
+    smelteryVerified11: smelteryVerified11,
+    apothecaryVerified11: apothecaryVerified11,
+    warehouseSlotsVerified11: warehouseSlotsVerified11
+  };
+  const failed11 = Object.keys(t11Checks).filter(function(k) { return !t11Checks[k]; });
+  const t11Pass = failed11.length === 0;
+
+  results.push({
+    name: '11. Tier 2 City Industry — Smeltery Ingots, Apothecary Provisions & Warehouse Storage Expansion (Inc 9.6)',
+    pass: t11Pass,
+    detail: t11Pass
+      ? 'Smeltery ore->ingot refining, Apothecary potion/scroll brewing, and Warehouse +50/lv City Vault slot expansion verified'
+      : 'Failed checks: ' + failed11.join(', ')
+  });
+
   return results;
 }
 
@@ -8627,6 +8969,50 @@ function handleDismissHero(heroId) {
   syncWargameUI(simHost);
 }
 
+function handleOpenFacilityModal(buildingId) {
+  if (!simHost.state) return;
+  simHost.state._openFacilityId = buildingId;
+  simHost.state._dirty = true;
+  syncWargameUI(simHost);
+}
+
+function handleCloseFacilityModal() {
+  if (!simHost.state) return;
+  delete simHost.state._openFacilityId;
+  simHost.state._dirty = true;
+  syncWargameUI(simHost);
+}
+
+function handleSmeltIngots(batches) {
+  simHost.dispatch({
+    type: COMMAND_TYPES.SMELT_INGOTS,
+    payload: { batches: batches || 1 }
+  });
+  simHost.state._dirty = true;
+  simHost.save();
+  syncWargameUI(simHost);
+}
+
+function handleBrewProvision(kind) {
+  simHost.dispatch({
+    type: COMMAND_TYPES.BREW_PROVISION,
+    payload: { kind: kind || 'potions' }
+  });
+  simHost.state._dirty = true;
+  simHost.save();
+  syncWargameUI(simHost);
+}
+
+function handleAssignHeroToParty(partyId, heroId) {
+  simHost.dispatch({
+    type: COMMAND_TYPES.ASSIGN_HERO_TO_PARTY,
+    payload: { partyId: partyId, heroId: heroId }
+  });
+  simHost.state._dirty = true;
+  simHost.save();
+  syncWargameUI(simHost);
+}
+
 function handleSelectPartyByHero(heroId) {
   if (!simHost.state.world || !simHost.state.world.overworld) return;
   const ow = simHost.state.world.overworld;
@@ -8943,6 +9329,11 @@ const WargameApp = {
   handleDumpHeroBagToCity: handleDumpHeroBagToCity,
   handleSetOverallLeader: handleSetOverallLeader,
   handleDismissHero: handleDismissHero,
+  handleOpenFacilityModal: handleOpenFacilityModal,
+  handleCloseFacilityModal: handleCloseFacilityModal,
+  handleSmeltIngots: handleSmeltIngots,
+  handleBrewProvision: handleBrewProvision,
+  handleAssignHeroToParty: handleAssignHeroToParty,
   handleMarchToDungeon: handleMarchToDungeon,
   handleReturnToCity: handleReturnToCity,
   handleEnterDungeon: handleEnterDungeon,
