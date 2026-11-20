@@ -540,6 +540,36 @@ export function handleExitDungeonToSurface(unitId) {
   syncWargameUI(simHost);
 }
 
+export function handleMarketTrade(resourceId, side) {
+  simHost.dispatch({
+    type: COMMAND_TYPES.MARKET_TRADE,
+    payload: { resourceId: resourceId, side: side }
+  });
+  simHost.state._dirty = true;
+  simHost.save();
+  syncWargameUI(simHost);
+}
+
+export function handleMarketLiquidateItem(itemUid) {
+  simHost.dispatch({
+    type: COMMAND_TYPES.MARKET_LIQUIDATE_ITEM,
+    payload: { itemUid: itemUid }
+  });
+  simHost.state._dirty = true;
+  simHost.save();
+  syncWargameUI(simHost);
+}
+
+export function handleAcademyStudySession() {
+  simHost.dispatch({
+    type: COMMAND_TYPES.ACADEMY_STUDY_SESSION,
+    payload: {}
+  });
+  simHost.state._dirty = true;
+  simHost.save();
+  syncWargameUI(simHost);
+}
+
 export function handleEnterDungeon(poiId) {
   const selUnit = getSelectedOverworldUnit(simHost.state);
   if (simHost && simHost.state && simHost.state.world && selUnit) {
@@ -826,6 +856,9 @@ export const WargameApp = {
   handlePunchSocket: handlePunchSocket,
   handleSocketCityGem: handleSocketCityGem,
   handleUnsocketCityGem: handleUnsocketCityGem,
+  handleMarketTrade: handleMarketTrade,
+  handleMarketLiquidateItem: handleMarketLiquidateItem,
+  handleAcademyStudySession: handleAcademyStudySession,
   handleAssignHeroToParty: handleAssignHeroToParty,
   handleMarchToDungeon: handleMarchToDungeon,
   handleReturnToCity: handleReturnToCity,

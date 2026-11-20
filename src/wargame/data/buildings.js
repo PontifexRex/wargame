@@ -251,6 +251,38 @@ export const CITY_BUILDINGS_CATALOG = {
     },
     desc: 'Jewelcrafter bench for punching Gem Sockets into equipment and socketing or extracting Astral Gems.'
   },
+  arcane_academy: {
+    id: 'arcane_academy',
+    name: 'Arcane Academy & Library',
+    icon: '🎓',
+    category: 'arcane',
+    color: '#c084fc',
+    maxLevel: 5,
+    baseBuildTimeMs: 6000,
+    baseCost: { wood: 40, stone: 50, gold: 40 },
+    requires: { meeting_hall: 1, quarry: 1 },
+    interiorAssetId: 'city_interior_mages_guild_default_static',
+    facilities: {
+      academy: true
+    },
+    desc: 'Scholarly archive & city gateway into Personal Research Trees. Boosts passive General RP accrual (+25%/lv) and Personal Research speed (+10%/lv) via BenefitService.'
+  },
+  market_post: {
+    id: 'market_post',
+    name: 'Market & Trade Post',
+    icon: '⚖️',
+    category: 'civic',
+    color: '#fbbf24',
+    maxLevel: 5,
+    baseBuildTimeMs: 5500,
+    baseCost: { wood: 45, stone: 35, gold: 25 },
+    requires: { meeting_hall: 1, lumber_camp: 1 },
+    interiorAssetId: 'city_interior_warehouse_default_static',
+    facilities: {
+      market: true
+    },
+    desc: 'Trade exchange for liquidating dungeon relics and converting surplus city resources into Gold through the Unified Atomic Payment Interface (+5% sell yield per level).'
+  },
 
   // ---------------------------------------------------------------------------
   // 4. SYNERGY STRUCTURES
@@ -739,3 +771,47 @@ export const GUILD_SERVICE_CATALOGS = {
     ]
   }
 };
+
+// Market Trade Post exchange rates (Inc 9.8 — Unified Atomic Payment Interface)
+export const MARKET_EXCHANGE_RATES = {
+  wood:   { label: 'Timber',        icon: '♠',  lotSize: 20, sellGold: 12, buyGold: 22 },
+  stone:  { label: 'Granite',       icon: '■',  lotSize: 20, sellGold: 14, buyGold: 25 },
+  food:   { label: 'Food',          icon: '🌾', lotSize: 20, sellGold: 10, buyGold: 20 },
+  water:  { label: 'Water',         icon: '💧', lotSize: 20, sellGold: 10, buyGold: 20 },
+  ore:    { label: 'Dungeon Ore',   icon: '⛏️', lotSize: 10, sellGold: 25, buyGold: 45 },
+  ingots: { label: 'Forged Ingots', icon: '🔥', lotSize: 5,  sellGold: 40, buyGold: 70 }
+};
+
+export const MARKET_RARITY_BASE_VALUES = {
+  common: 25,
+  uncommon: 55,
+  rare: 110,
+  epic: 220,
+  legendary: 450
+};
+
+// Returns BenefitService-compatible modifier descriptors contributed by a City's Arcane Academy
+export function getCityAcademyBenefitEffects(city) {
+  const lvl = (city && city.buildings && city.buildings.arcane_academy) ? Number(city.buildings.arcane_academy) : 0;
+  if (lvl <= 0) return [];
+  return [
+    {
+      sourceType: 'city_building',
+      sourceId: 'arcane_academy',
+      sourceLevel: lvl,
+      effectType: 'accrual_modifier',
+      target: 'rp_general',
+      op: 'additive',
+      value: 0.25 * lvl
+    },
+    {
+      sourceType: 'city_building',
+      sourceId: 'arcane_academy',
+      sourceLevel: lvl,
+      effectType: 'research_speed_modifier',
+      target: 'personal',
+      op: 'additive',
+      value: 0.10 * lvl
+    }
+  ];
+}

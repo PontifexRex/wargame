@@ -25,6 +25,8 @@ import {
 } from '../data/terrain.js';
 import {
   CITY_BUILDINGS_CATALOG,
+  MARKET_EXCHANGE_RATES,
+  MARKET_RARITY_BASE_VALUES,
   computeBuildingUpgradeCost,
   computeBuildingDurationMs,
   isBuildingPrerequisiteMet,
@@ -32,6 +34,14 @@ import {
   computeMaxPartySize,
   getCityRecruitableClasses
 } from '../data/buildings.js';
+import { ensureProgressionState } from '../../progression/progressionState.js';
+import {
+  OWNER_TYPES,
+  TRANSACTION_TYPES,
+  executeAtomicPayment,
+  recordCurrencyTransaction
+} from '../../progression/currencyService.js';
+import { collectActiveEffects, resolveNumericStat } from '../../progression/benefitService.js';
 import { CAMPAIGN_TASKS_DAG } from '../data/tasks.js';
 import {
   findOverworldPath,
@@ -1397,6 +1407,179 @@ export function dispatchWargameCommand(commandEnvelope, state, scheduler, eventS
     city.gems[removedGemId] = (city.gems[removedGemId] || 0) + 1;
 
     return accept({ item: item, extractedGemId: removedGemId, cityGemCount: city.gems[removedGemId] });
+  }
+
+  // ---------------------------------------------------------------------------
+  // 9B7. ARCANE ACADEMY & MARKET TRADE POST (Inc 9.8 — Consumes Track F Engines)
+  // ---------------------------------------------------------------------------
+  if (cmdType === COMMAND_TYPES.MARKET_TRADE) {
+    const city = getPrimaryCity(state);
+    if (!city) return reject('No City founded');
+    const mktLvl = (city.buildings && city.buildings.market_post) || 0;
+    if (mktLvl < 1) return reject('Construct a Market & Trade Post before trading resources');
+
+    const resId = String(payload.resourceId || '');
+    const rate = MARKET_EXCHANGE_RATES[resId];
+    if (!rate) return reject('Unsupported market resource: ' + resId);
+
+    const side = payload.side === 'buy' ? 'buy' : 'sell';
+    const prog = ensureProgressionState(world);
+    const pid = 'player_1';
+
+    if (side === 'sell') {
+      const payRes = executeAtomicPayment(prog.currencyLedger, [
+        { kind: 'stockpile', resourceId: resId, amount: rate.lotSize }
+      ], {
+        ownerId: pid,
+        ownerType: OWNER_TYPES.PLAYER,
+        stockpile: city.stockpile,
+        nowMs: simTimeMs,
+        source: 'market_sell:' + resId,
+        referenceId: city.id
+      });
+      if (!payRes.ok) {
+        return reject('Need at least ' + rate.lotSize + ' ' + rate.label + ' to sell at the Market');
+      }
+      const levelMult = 1 + (Math.max(0, mktLvl - 1) * 0.05);
+      const goldEarned = Math.round(rate.sellGold * levelMult);
+      city.stockpile.gold = (city.stockpile.gold || 0) + goldEarned;
+      recordCurrencyTransaction(prog.currencyLedger, {
+        ownerId: pid,
+        ownerType: OWNER_TYPES.PLAYER,
+        currencyId: 'gold',
+        amount: goldEarned,
+        transactionType: TRANSACTION_TYPES.AWARD,
+        source: 'market_sell:' + resId,
+        referenceId: city.id,
+        nowMs: simTimeMs
+      });
+      if (eventStream) {
+        eventStream.publish(STREAM_TOPICS.MARKET_TRADE, {
+          cityId: city.id,
+          side: 'sell',
+          resourceId: resId,
+          qty: rate.lotSize,
+          goldDelta: goldEarned
+        }, simTimeMs);
+      }
+      return accept({ side: 'sell', resourceId: resId, qty: rate.lotSize, goldEarned: goldEarned });
+    }
+
+    // Buy resource lot with City Gold through atomic payment validation
+    const buyPayRes = executeAtomicPayment(prog.currencyLedger, [
+      { kind: 'stockpile', resourceId: 'gold', amount: rate.buyGold }
+    ], {
+      ownerId: pid,
+      ownerType: OWNER_TYPES.PLAYER,
+      stockpile: city.stockpile,
+      nowMs: simTimeMs,
+      source: 'market_buy:' + resId,
+      referenceId: city.id
+    });
+    if (!buyPayRes.ok) {
+      return reject('Need ' + rate.buyGold + ' Gold to purchase ' + rate.lotSize + ' ' + rate.label);
+    }
+    city.stockpile[resId] = (city.stockpile[resId] || 0) + rate.lotSize;
+    if (eventStream) {
+      eventStream.publish(STREAM_TOPICS.MARKET_TRADE, {
+        cityId: city.id,
+        side: 'buy',
+        resourceId: resId,
+        qty: rate.lotSize,
+        goldDelta: -rate.buyGold
+      }, simTimeMs);
+    }
+    return accept({ side: 'buy', resourceId: resId, qty: rate.lotSize, goldSpent: rate.buyGold });
+  }
+
+  if (cmdType === COMMAND_TYPES.MARKET_LIQUIDATE_ITEM) {
+    const city = getPrimaryCity(state);
+    if (!city || !city.storage || !Array.isArray(city.storage.items)) return reject('City Vault Storage unavailable');
+    const mktLvl = (city.buildings && city.buildings.market_post) || 0;
+    if (mktLvl < 1) return reject('Construct a Market & Trade Post before appraising relics');
+
+    const idx = city.storage.items.findIndex(function(it) { return it.uid === payload.itemUid; });
+    if (idx === -1) return reject('Item not found in City Vault Storage');
+    const item = city.storage.items.splice(idx, 1)[0];
+
+    const prog = ensureProgressionState(world);
+    const pid = 'player_1';
+    const baseVal = MARKET_RARITY_BASE_VALUES[item.rarity || 'common'] || 25;
+    const temperBonus = (item.temperRank || 0) * 20;
+    const gemBonus = Array.isArray(item.gems) ? item.gems.length * 30 : 0;
+
+    // Consume Track F BenefitService relic_gold_mult (e.g. ADV_TREASURE_001) + Market level bonus
+    const activeEffs = collectActiveEffects(prog, { playerId: pid });
+    const appraisalMult = resolveNumericStat(1 + (Math.max(0, mktLvl - 1) * 0.05), 'relic_gold_mult', activeEffs.modifiers).finalValue;
+    const payoutGold = Math.max(1, Math.round((baseVal + temperBonus + gemBonus) * appraisalMult));
+
+    city.stockpile.gold = (city.stockpile.gold || 0) + payoutGold;
+    recordCurrencyTransaction(prog.currencyLedger, {
+      ownerId: pid,
+      ownerType: OWNER_TYPES.PLAYER,
+      currencyId: 'gold',
+      amount: payoutGold,
+      transactionType: TRANSACTION_TYPES.AWARD,
+      source: 'market_liquidate:' + item.uid,
+      referenceId: item.name,
+      nowMs: simTimeMs
+    });
+
+    if (eventStream) {
+      eventStream.publish(STREAM_TOPICS.MARKET_TRADE, {
+        cityId: city.id,
+        side: 'liquidate',
+        itemName: item.name,
+        goldDelta: payoutGold,
+        appraisalMult: appraisalMult
+      }, simTimeMs);
+    }
+    return accept({ item: item, payoutGold: payoutGold, appraisalMult: appraisalMult });
+  }
+
+  if (cmdType === COMMAND_TYPES.ACADEMY_STUDY_SESSION) {
+    const city = getPrimaryCity(state);
+    if (!city) return reject('No City founded');
+    const acadLvl = (city.buildings && city.buildings.arcane_academy) || 0;
+    if (acadLvl < 1) return reject('Construct an Arcane Academy & Library before funding study sessions');
+
+    const prog = ensureProgressionState(world);
+    const pid = 'player_1';
+    const payRes = executeAtomicPayment(prog.currencyLedger, [
+      { kind: 'stockpile', resourceId: 'gold', amount: 25 },
+      { kind: 'stockpile', resourceId: 'food', amount: 10 }
+    ], {
+      ownerId: pid,
+      ownerType: OWNER_TYPES.PLAYER,
+      stockpile: city.stockpile,
+      nowMs: simTimeMs,
+      source: 'academy_study_session',
+      referenceId: city.id
+    });
+    if (!payRes.ok) {
+      return reject('Need 25 Gold and 10 Food to fund an Arcane Academy Study Session');
+    }
+
+    const rpAward = Math.round((0.05 * acadLvl) * 100000) / 100000;
+    recordCurrencyTransaction(prog.currencyLedger, {
+      ownerId: pid,
+      ownerType: OWNER_TYPES.PLAYER,
+      currencyId: 'rp_general',
+      amount: rpAward,
+      transactionType: TRANSACTION_TYPES.AWARD,
+      source: 'academy_study_session',
+      referenceId: city.id + ':L' + acadLvl,
+      nowMs: simTimeMs
+    });
+
+    if (eventStream) {
+      eventStream.publish(STREAM_TOPICS.ACADEMY_STUDY, {
+        cityId: city.id,
+        academyLevel: acadLvl,
+        rpAwarded: rpAward
+      }, simTimeMs);
+    }
+    return accept({ academyLevel: acadLvl, rpAwarded: rpAward });
   }
 
   // ---------------------------------------------------------------------------

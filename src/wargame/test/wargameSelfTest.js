@@ -9,7 +9,7 @@ import {
 import { createWargameSimHost } from '../engine/simHost.js';
 import { createMinHeapPriorityQueue } from '../engine/scheduler.js';
 import { getPrimaryCity, getSelectedOverworldUnit, computeCityPopulation, computeCityStorageSlotCapacity } from '../engine/state.js';
-import { CITY_BUILDINGS_CATALOG, computeBuildingDurationMs, isBuildingPrerequisiteMet, computeMaxPartySize, getCityRecruitableClasses } from '../data/buildings.js';
+import { CITY_BUILDINGS_CATALOG, computeBuildingDurationMs, isBuildingPrerequisiteMet, computeMaxPartySize, getCityRecruitableClasses, getCityAcademyBenefitEffects } from '../data/buildings.js';
 import {
   normalizeSharedHeroProfile,
   renderSharedPaperDollMannequin,
@@ -1669,6 +1669,78 @@ export function evaluateWargameSelfTests() {
     detail: t21Pass
       ? 'Idempotent tree milestones, Provenance Titles + display selector, lossless tree archiving, 12-step tutorial, analytics & 6-tab Research/Training Hub verified'
       : 'Failed checks: ' + failed21.join(', ')
+  });
+
+  // =========================================================================
+  // Test 22: Track B Inc 9.8 — Arcane Academy & Market Trade Post (Consumes Track F Engines)
+  // =========================================================================
+  const host22 = createWargameSimHost();
+  host22.dispatch({ type: COMMAND_TYPES.START_NEW_CAMPAIGN, payload: { houseName: 'House Meridian', seedCode: 'STAR-9800' } });
+  host22.dispatch({ type: COMMAND_TYPES.FOUND_CITY, payload: { cityName: 'Meridian Exchange' } });
+  const city22 = getPrimaryCity(host22.state);
+
+  const catalogHas98 = Boolean(
+    CITY_BUILDINGS_CATALOG.arcane_academy && CITY_BUILDINGS_CATALOG.arcane_academy.facilities.academy &&
+    CITY_BUILDINGS_CATALOG.market_post && CITY_BUILDINGS_CATALOG.market_post.facilities.market
+  );
+
+  // Blocked before buildings exist
+  const blockedBefore98 = !host22.dispatch({ type: COMMAND_TYPES.ACADEMY_STUDY_SESSION, payload: {} }).ok &&
+    !host22.dispatch({ type: COMMAND_TYPES.MARKET_TRADE, payload: { resourceId: 'wood', side: 'sell' } }).ok;
+
+  // Establish Lv 2 Arcane Academy & Lv 2 Market Trade Post
+  city22.buildings.arcane_academy = 2;
+  city22.buildings.market_post = 2;
+  city22.stockpile.wood = 100;
+  city22.stockpile.food = 100;
+  city22.stockpile.gold = 200;
+  city22.stockpile.ore = 10;
+
+  // 1. Arcane Academy BenefitService modifiers (+50% rp_general accrual, +20% personal research speed)
+  const acadEff22 = getCityAcademyBenefitEffects(city22);
+  const acadAccrualBonus = resolveNumericStat(0, 'rp_general', acadEff22, { effectType: EFFECT_TYPES.ACCRUAL_MODIFIER }).finalValue;
+  const acadSpeedBonus = resolveNumericStat(0, 'personal', acadEff22, { effectType: EFFECT_TYPES.RESEARCH_SPEED_MODIFIER }).finalValue;
+  const studyRes22 = host22.dispatch({ type: COMMAND_TYPES.ACADEMY_STUDY_SESSION, payload: {} });
+  const studyRpBal = getCurrencyBalance(host22.state.world.progression.currencyLedger, 'player_1', OWNER_TYPES.PLAYER, 'rp_general').available;
+  const academyOk = acadAccrualBonus === 0.5 && acadSpeedBonus === 0.2 &&
+    studyRes22.ok && studyRes22.data.rpAwarded === 0.1 &&
+    studyRpBal === 0.1 && city22.stockpile.gold === 175 && city22.stockpile.food === 90;
+
+  // 2. Market Sell & Buy via Unified Atomic Payment Interface
+  const sellWoodRes = host22.dispatch({ type: COMMAND_TYPES.MARKET_TRADE, payload: { resourceId: 'wood', side: 'sell' } });
+  const buyOreRes = host22.dispatch({ type: COMMAND_TYPES.MARKET_TRADE, payload: { resourceId: 'ore', side: 'buy' } });
+  const marketTradeOk = sellWoodRes.ok && sellWoodRes.data.goldEarned === 13 && city22.stockpile.wood === 80 &&
+    buyOreRes.ok && buyOreRes.data.goldSpent === 45 && city22.stockpile.ore === 20 && city22.stockpile.gold === 143;
+
+  // 3. Market Relic Liquidation consuming Track F BenefitService (ADV_TREASURE_001 Lv 1 = +12% relic_gold_mult + 5% Market Lv 2 = 1.17x)
+  host22.state.world.progression.researchProgress['player:player_1:ADV_TREASURE_001'] = {
+    researchItemId: 'ADV_TREASURE_001',
+    ownerId: 'player_1',
+    ownerType: OWNER_TYPES.PLAYER,
+    currentLevel: 1,
+    status: 'completed'
+  };
+  city22.storage.items.push({ uid: 'relic_test_98', name: 'Starfall Astrolabe', slot: 'accessory', rarity: 'rare' });
+  const liqRes22 = host22.dispatch({ type: COMMAND_TYPES.MARKET_LIQUIDATE_ITEM, payload: { itemUid: 'relic_test_98' } });
+  // 110 * (1.05 + 0.12) = 128.7 -> 129g
+  const liquidateOk = liqRes22.ok && liqRes22.data.payoutGold === 129 && city22.storage.items.length === 0 && city22.stockpile.gold === 272;
+
+  const t22Checks = {
+    catalogHas98: catalogHas98,
+    blockedBefore98: blockedBefore98,
+    academyOk: academyOk,
+    marketTradeOk: marketTradeOk,
+    liquidateOk: liquidateOk
+  };
+  const failed22 = Object.keys(t22Checks).filter(function(k) { return !t22Checks[k]; });
+  const t22Pass = failed22.length === 0;
+
+  results.push({
+    name: '22. Track B Inc 9.8: Arcane Academy & Market Trade Post (Consumes Track F Engines)',
+    pass: t22Pass,
+    detail: t22Pass
+      ? 'Arcane Academy BenefitService modifiers/study sessions & Market atomic trades/ADV_TREASURE_001 relic liquidation verified'
+      : 'Failed checks: ' + failed22.join(', ')
   });
 
   return results;

@@ -13,6 +13,7 @@ import {
   CITY_BUILDINGS_CATALOG,
   CITY_PLOT_SLOTS,
   GUILD_SERVICE_CATALOGS,
+  MARKET_EXCHANGE_RATES,
   computeBuildingUpgradeCost,
   computeBuildingDurationMs,
   isBuildingPrerequisiteMet,
@@ -731,6 +732,74 @@ export function renderWargameFacilityModal(simHost) {
           <span class="text-[10px] text-[#cbd5e1]">🔴 Ruby:${cg.ruby || 0} • 🟢 Emr:${cg.emerald || 0} • 🔵 Sap:${cg.sapphire || 0} • 🟡 Top:${cg.topaz || 0} • 🟣 Void:${cg.void_diamond || 0}</span>
         </div>
         <div class="space-y-1.5">${sockList}</div>
+      </div>
+    `);
+  }
+
+  if (fac.academy) {
+    const rpBonusPct = lvl * 25;
+    const speedBonusPct = lvl * 10;
+    const studyYield = (0.05 * lvl).toFixed(2);
+    sections.push(`
+      <div class="p-3 rounded-lg bg-[#080b11] border border-[#c084fc]/50 space-y-2.5">
+        <div class="flex flex-wrap items-center justify-between gap-2 text-xs font-mono">
+          <span class="text-[#c084fc] font-bold">🎓 Arcane Academy &amp; Library (Lv ${lvl})</span>
+          <span class="text-[#34d399]">+${rpBonusPct}% General RP • +${speedBonusPct}% Research Speed</span>
+        </div>
+        <p class="text-[11px] text-[#94a3b8]">Direct civic gateway into your Personal Research Trees. Academy modifiers stack automatically via BenefitService.</p>
+        <div class="flex flex-wrap gap-2">
+          <button onclick="window.WargameApp.handleCloseFacilityModal(); window.WargameApp.handleOpenProgressionHub('trees')" class="px-3 py-1.5 rounded-lg bg-[#c084fc] hover:bg-[#a855f7] text-[#080b11] font-mono font-bold text-xs uppercase cursor-pointer">📚 Open Research Trees →</button>
+          <button onclick="window.WargameApp.handleCloseFacilityModal(); window.WargameApp.handleOpenProgressionHub('queues')" class="px-3 py-1.5 rounded-lg bg-[#1a2232] hover:bg-[#283347] text-[#38bdf8] border border-[#38bdf8]/40 font-mono font-bold text-xs uppercase cursor-pointer">⏳ Queue Manager</button>
+          <button onclick="window.WargameApp.handleAcademyStudySession()" class="px-3 py-1.5 rounded-lg bg-[#fbbf24] hover:bg-[#f59e0b] text-[#080b11] font-mono font-bold text-xs uppercase cursor-pointer">📘 Fund Study (+${studyYield} RP • 25g, 10 Food)</button>
+        </div>
+      </div>
+    `);
+  }
+
+  if (fac.market) {
+    const sellBonusPct = Math.max(0, lvl - 1) * 5;
+    const resKeys = Object.keys(MARKET_EXCHANGE_RATES);
+    const tradeRows = resKeys.map(function(rk) {
+      const r = MARKET_EXCHANGE_RATES[rk];
+      const sellVal = Math.round(r.sellGold * (1 + (sellBonusPct / 100)));
+      const owned = city.stockpile[rk] || 0;
+      return `
+        <div class="p-2 rounded bg-[#111722] border border-[#283347] flex items-center justify-between gap-2 text-xs font-mono">
+          <div>
+            <span class="font-bold text-[#e6edf3]">${r.icon} ${r.label}</span>
+            <span class="text-[10px] text-[#94a3b8] ml-1.5">(Have: ${owned})</span>
+          </div>
+          <div class="flex items-center gap-1.5">
+            <button onclick="window.WargameApp.handleMarketTrade('${rk}', 'sell')" class="px-2 py-1 rounded bg-[#34d399]/20 hover:bg-[#34d399] hover:text-[#080b11] text-[#34d399] border border-[#34d399]/40 text-[10px] font-bold cursor-pointer">Sell ${r.lotSize} → +${sellVal}g</button>
+            <button onclick="window.WargameApp.handleMarketTrade('${rk}', 'buy')" class="px-2 py-1 rounded bg-[#fbbf24]/20 hover:bg-[#fbbf24] hover:text-[#080b11] text-[#fbbf24] border border-[#fbbf24]/40 text-[10px] font-bold cursor-pointer">Buy ${r.lotSize} (-${r.buyGold}g)</button>
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    const vaultItems = (city.storage && Array.isArray(city.storage.items)) ? city.storage.items.slice(0, 6) : [];
+    const liqHtml = vaultItems.length === 0
+      ? `<div class="text-[11px] text-[#64748b] italic">Deposit dungeon relics or gear into City Vault Storage to appraise &amp; liquidate them here.</div>`
+      : vaultItems.map(function(it) {
+          return `
+            <div class="p-1.5 rounded bg-[#111722] border border-[#283347] flex items-center justify-between text-xs">
+              <span class="font-bold text-[#e6edf3]">${getItemTypeIcon(it.slot)} ${it.name} <span class="text-[10px] font-mono text-[#94a3b8]">(${it.rarity || 'common'})</span></span>
+              <button onclick="window.WargameApp.handleMarketLiquidateItem('${it.uid}')" class="px-2 py-0.5 rounded bg-[#fbbf24] hover:bg-[#f59e0b] text-[#080b11] text-[10px] font-mono font-bold cursor-pointer">💰 Appraise &amp; Sell</button>
+            </div>
+          `;
+        }).join('');
+
+    sections.push(`
+      <div class="p-3 rounded-lg bg-[#080b11] border border-[#fbbf24]/50 space-y-2.5">
+        <div class="flex flex-wrap items-center justify-between gap-2 text-xs font-mono">
+          <span class="text-[#fbbf24] font-bold">⚖️ Market &amp; Trade Exchange (Lv ${lvl})</span>
+          <span class="text-[#34d399]">Gold: <strong>${city.stockpile.gold || 0}g</strong> • Sell Bonus: +${sellBonusPct}%</span>
+        </div>
+        <div class="space-y-1.5">${tradeRows}</div>
+        <div class="pt-2 border-t border-[#1e293b] space-y-1.5">
+          <div class="text-[10px] font-mono uppercase text-[#fbbf24] font-bold">💎 Relic Appraisal &amp; Liquidation (City Vault)</div>
+          ${liqHtml}
+        </div>
       </div>
     `);
   }
@@ -1771,6 +1840,13 @@ export function formatEventSummary(ev) {
   }
   if (ev.topic === STREAM_TOPICS.CRAFTING_COMPLETED) {
     return '— Crafted ' + (p.qty || 1) + 'x ' + p.itemName + ' at ' + p.facility + '!';
+  }
+  if (ev.topic === STREAM_TOPICS.MARKET_TRADE) {
+    if (p.side === 'liquidate') return '— Liquidated ' + p.itemName + ' at Market (+' + p.goldDelta + 'g)';
+    return '— Market ' + p.side + ' ' + p.qty + ' ' + p.resourceId + ' (' + (p.goldDelta >= 0 ? ('+' + p.goldDelta) : p.goldDelta) + 'g)';
+  }
+  if (ev.topic === STREAM_TOPICS.ACADEMY_STUDY) {
+    return '— Arcane Academy Study Session granted +' + p.rpAwarded + ' General RP!';
   }
   if (ev.topic === STREAM_TOPICS.HERO_DISMISSED) {
     return '— Dismissed ' + p.heroName + ' (gear secured in City Vault)';

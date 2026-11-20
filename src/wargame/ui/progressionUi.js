@@ -40,6 +40,8 @@ import {
   computeProgressionAnalytics
 } from '../../progression/milestonesAndAnalytics.js';
 import { getPrimaryCity } from '../engine/state.js';
+import { getCityAcademyBenefitEffects } from '../data/buildings.js';
+import { collectActiveEffects, resolveNumericStat, EFFECT_TYPES } from '../../progression/benefitService.js';
 
 export const PROGRESSION_HUB_TABS = [
   { id: 'overview',  label: '📊 Overview' },
@@ -89,9 +91,14 @@ export function tickWorldProgression(simHost) {
   const prog = ensureProgressionState(world);
   const nowMs = getNowMs(simHost);
   const pid = getPlayerId();
+  const city = getPrimaryCity(simHost.state);
+  const acadEffects = getCityAcademyBenefitEffects(city);
+  const activeEffs = collectActiveEffects(prog, { playerId: pid, extraEffects: acadEffects });
+  const genRpBonus = resolveNumericStat(0, 'rp_general', activeEffs.modifiers, { effectType: EFFECT_TYPES.ACCRUAL_MODIFIER }).finalValue;
+  const speedBonus = resolveNumericStat(0, 'personal', activeEffs.modifiers, { effectType: EFFECT_TYPES.RESEARCH_SPEED_MODIFIER }).finalValue;
 
-  processPassiveAccrual(prog, pid, nowMs);
-  advanceResearchProgress(prog, nowMs);
+  processPassiveAccrual(prog, pid, nowMs, { generationModifiers: { additiveBonus: genRpBonus } });
+  advanceResearchProgress(prog, nowMs, { speedBonus: speedBonus });
   advanceTrainingProgress(prog, nowMs);
   evaluateTreeMilestones(prog, pid, { nowMs: nowMs, worldId: world.meta ? world.meta.worldName : 'aethelgard_prime' });
 }
@@ -512,12 +519,17 @@ export function handleStartResearchAction(simHost, itemId) {
   const city = getPrimaryCity(simHost.state);
   syncGoldToLedger(world, prog, nowMs);
 
+  const acadEffects = getCityAcademyBenefitEffects(city);
+  const activeEffs = collectActiveEffects(prog, { playerId: getPlayerId(), extraEffects: acadEffects });
+  const speedBonus = resolveNumericStat(0, 'personal', activeEffs.modifiers, { effectType: EFFECT_TYPES.RESEARCH_SPEED_MODIFIER }).finalValue;
+
   const res = startOrEnqueueResearch(prog, {
     ownerId: getPlayerId(),
     researchItemId: itemId,
     nowMs: nowMs,
     stockpile: city ? city.stockpile : null,
-    eligibilityCtx: { city: city }
+    eligibilityCtx: { city: city },
+    speedBonus: speedBonus
   });
   simHost.save();
   renderProgressionHubModal(simHost);
