@@ -344,7 +344,14 @@ export function handleDismissHero(heroId) {
 export function handleOpenFacilityModal(buildingId) {
   if (!simHost.state) return;
   simHost.state._openFacilityId = buildingId;
+  simHost.state._facilityTab = null;
   simHost.state._dirty = true;
+  syncWargameUI(simHost);
+}
+
+export function handleSwitchFacilityTab(tabId) {
+  if (!simHost.state) return;
+  simHost.state._facilityTab = tabId || null;
   syncWargameUI(simHost);
 }
 
@@ -747,6 +754,7 @@ export const WargameApp = {
   handleSetOverallLeader: handleSetOverallLeader,
   handleDismissHero: handleDismissHero,
   handleOpenFacilityModal: handleOpenFacilityModal,
+  handleSwitchFacilityTab: handleSwitchFacilityTab,
   handleCloseFacilityModal: handleCloseFacilityModal,
   handleSmeltIngots: handleSmeltIngots,
   handleBrewProvision: handleBrewProvision,

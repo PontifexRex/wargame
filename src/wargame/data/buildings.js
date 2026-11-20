@@ -632,3 +632,95 @@ export function getCityRecruitableClasses(city) {
   }
   return Object.keys(unlocked);
 }
+
+// Declarative Guild Service Catalogs (Config-driven single Guild Screen per ADR-0012)
+export const GUILD_SERVICE_CATALOGS = {
+  adventurers: {
+    quests: [
+      { id: 'q_adv_delve1', name: 'Chart Starfall Floor 1', desc: 'Map the outer masonry vaults and extract safely.', reward: '60g • 25 XP' },
+      { id: 'q_adv_ore',    name: 'Subterranean Ore Assay', desc: 'Mine 10 raw ore seams and return them to the surface.', reward: '80g • 5 Ingots' }
+    ],
+    training: [
+      { id: 'tr_adv_stride', name: 'Delver Conditioning', desc: '+10% Torchlight duration & reduced fatigue on deep floors.', cost: '40g' },
+      { id: 'tr_adv_mine',   name: 'Reinforced Pickcraft', desc: '+4 Pickaxe durability for Adventurer delves.', cost: '35g • 4 Ingots' }
+    ],
+    research: [
+      { id: 'rs_adv_geo',    name: 'Subterranean Geology', desc: 'Unlocks mining of dense Iron, Mithril, and Astral ore seams.', cost: '75g • 15 Ore' },
+      { id: 'rs_adv_pact',   name: 'Vanguard Recovery Pact', desc: 'Increases gold salvaged by Guild Scouts upon expedition defeat.', cost: '90g • 10 Ore' }
+    ],
+    shop: [
+      { id: 'sh_adv_compass', name: 'Brass Delver Compass', desc: 'Accessory • +1 Vision, +3% Crit', cost: '45g' },
+      { id: 'sh_adv_pick',    name: 'Tempered Star-Pick', desc: 'Pickaxe • 45 Durability', cost: '60g' }
+    ]
+  },
+  fighters: {
+    quests: [
+      { id: 'q_fgt_clear', name: 'Break the Vanguard Line', desc: 'Defeat 12 subterranean monsters in melee combat.', reward: '75g • 35 XP' }
+    ],
+    training: [
+      { id: 'tr_fgt_cleave', name: 'Heavy Shield Drills', desc: '+2 Base DEF for sworn Fighters.', cost: '50g' }
+    ],
+    research: [
+      { id: 'rs_fgt_plate', name: 'Riveted Plate Forging', desc: 'Improves heavy armor mitigation across the roster.', cost: '85g • 8 Ingots' }
+    ],
+    shop: [
+      { id: 'sh_fgt_blade', name: 'Guildmaster Greatsword', desc: 'Weapon • +12 ATK, +2 STR', cost: '80g' }
+    ]
+  },
+  thieves: {
+    quests: [
+      { id: 'q_thf_chest', name: 'Silent Vault Recovery', desc: 'Open 3 gilded dungeon chests without triggering traps.', reward: '90g • 30 XP' }
+    ],
+    training: [
+      { id: 'tr_thf_lock', name: 'Master Lockpicking', desc: '+10% Crit & improved chest disarming.', cost: '50g' }
+    ],
+    research: [
+      { id: 'rs_thf_map', name: 'Hidden Passage Cipher', desc: 'Increases chance to detect secret doors and levers.', cost: '80g' }
+    ],
+    shop: [
+      { id: 'sh_thf_dagger', name: 'Nightshade Stiletto', desc: 'Weapon • +10 ATK, +12% Crit', cost: '75g' }
+    ]
+  },
+  mages: {
+    quests: [
+      { id: 'q_mag_rune', name: 'Astral Leyline Resonance', desc: 'Harvest 5 Astral Gems from deep crystalline chambers.', reward: '110g • 40 XP' }
+    ],
+    training: [
+      { id: 'tr_mag_focus', name: 'Mana Conduit Meditation', desc: '+15 Max MP & faster arcane regeneration.', cost: '55g' }
+    ],
+    research: [
+      { id: 'rs_mag_star', name: 'Starlight Amplification', desc: 'Boosts spell damage and elemental hazard mastery.', cost: '100g • 12 Ore' }
+    ],
+    shop: [
+      { id: 'sh_mag_staff', name: 'Vespera Runestaff', desc: 'Weapon • +8 ATK, +5 INT, +20 MP', cost: '90g' }
+    ]
+  },
+  rangers: {
+    quests: [
+      { id: 'q_rng_scout', name: 'Frontier Patrol Sweep', desc: 'Defeat 2 wandering Overworld hostile bands.', reward: '85g • 30 XP' }
+    ],
+    training: [
+      { id: 'tr_rng_eye', name: 'Hawkeye Marksmanship', desc: '+1 Overworld Vision & +8% Dodge.', cost: '50g' }
+    ],
+    research: [
+      { id: 'rs_rng_trail', name: 'Pathfinder Logistics', desc: 'Reduces Overworld march times across forests and hills.', cost: '85g • 20 Wood' }
+    ],
+    shop: [
+      { id: 'sh_rng_bow', name: 'Heartwood Longbow', desc: 'Weapon • +11 ATK, +3 DEX', cost: '80g' }
+    ]
+  },
+  temple: {
+    quests: [
+      { id: 'q_tmp_ward', name: 'Sanctify the Deep Crypts', desc: 'Vanquish undead guardians beneath the Starfall Vaults.', reward: '95g • 40 XP' }
+    ],
+    training: [
+      { id: 'tr_tmp_vow', name: 'Vow of Radiance', desc: '+15 Max HP & stronger healing blessings.', cost: '55g' }
+    ],
+    research: [
+      { id: 'rs_tmp_sanct', name: 'Chapterhouse Reliquary', desc: 'Enhances divine wards and Paladin aura potency.', cost: '95g • 10 Ingots' }
+    ],
+    shop: [
+      { id: 'sh_tmp_mace', name: 'Sunburst Morningstar', desc: 'Weapon • +11 ATK, +3 VIT', cost: '85g' }
+    ]
+  }
+};

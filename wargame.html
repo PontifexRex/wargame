@@ -277,31 +277,11 @@
           </div>
         </div>
 
-        <!-- VIEW 3: ADVENTURERS GUILD RECRUITMENT PANEL (Immersive Full-Bleed Interior Stage) -->
-        <div id="wgPanelGuild" class="relative rounded-xl overflow-hidden border border-[#fbbf24]/50 shadow-2xl min-h-[560px] flex flex-col justify-between hidden bg-[#080b11]">
-          <img src="assets/runtime/tier1/interiors/city_interior_adventurers_guild_default_static.jpg" alt="Adventurers Guild Hall Interior" class="absolute inset-0 w-full h-full object-cover object-center" />
-          <div class="absolute inset-0 bg-gradient-to-b from-[#080b11]/65 via-[#080b11]/25 to-[#080b11]/90"></div>
-
-          <!-- Top Scene Header Overlay -->
-          <div id="wgGuildInteriorBanner" class="relative z-10 p-4 md:p-5 flex flex-wrap items-start justify-between gap-3">
-            <div class="px-3.5 py-2 rounded-lg bg-[#080b11]/70 backdrop-blur-md border border-[#fbbf24]/40">
-              <h2 class="font-display text-lg md:text-xl font-bold text-[#fbbf24] drop-shadow">Adventurers Guild Hall — Oath of Sworn Blades</h2>
-              <p class="text-xs text-[#e6edf3]/90 mt-0.5">Step inside the hall to swear in Hero leaders and chart subterranean Starfall expeditions.</p>
-            </div>
-            <div class="flex flex-wrap items-center gap-2">
-              <button onclick="window.WargameApp.handleSwitchView('overworld')" class="px-3 py-1.5 rounded-lg bg-[#080b11]/75 hover:bg-[#38bdf8] hover:text-[#080b11] backdrop-blur-md text-[#38bdf8] border border-[#38bdf8]/50 text-[11px] font-mono font-bold uppercase cursor-pointer transition">🗺️ Overworld Map</button>
-              <button onclick="window.WargameApp.handleSwitchView('city')" class="px-3 py-1.5 rounded-lg bg-[#080b11]/75 hover:bg-[#fbbf24] hover:text-[#080b11] backdrop-blur-md text-[#fbbf24] border border-[#fbbf24]/50 text-[11px] font-mono font-bold uppercase cursor-pointer transition">🏰 Return to City</button>
-            </div>
-          </div>
-
-          <!-- Spacer lets the central fireplace, map table & quest board breathe -->
-          <div class="relative z-10 flex-1 min-h-[120px]"></div>
-
-          <!-- Bottom On-Scene Frosted-Glass Recruitment Overlay -->
-          <div class="relative z-10 p-4 md:p-5 pt-2">
-            <div id="wgGuildClassesGrid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 max-h-[360px] overflow-y-auto pr-1">
-              <!-- Dynamically populated hero recruitment cards -->
-            </div>
+        <!-- VIEW 3: UNIFIED GUILD INTERIOR SCREEN (Config-Driven Stage) -->
+        <div id="wgPanelGuild" class="flex flex-col gap-3 hidden">
+          <div id="wgGuildInteriorBanner" class="hidden"></div>
+          <div id="wgGuildClassesGrid">
+            <!-- Dynamically populated by unified config-driven Guild Interior Stage -->
           </div>
         </div>
 

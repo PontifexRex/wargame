@@ -12,6 +12,7 @@ import {
 import {
   CITY_BUILDINGS_CATALOG,
   CITY_PLOT_SLOTS,
+  GUILD_SERVICE_CATALOGS,
   computeBuildingUpgradeCost,
   computeBuildingDurationMs,
   isBuildingPrerequisiteMet,
@@ -353,6 +354,123 @@ export function renderWargameCharacterSheetModal(simHost) {
   }
 }
 
+export function buildUnifiedGuildServicesHtml(simHost, bId, city, bDef, lvl) {
+  const fac = (bDef && bDef.facilities) || {};
+  const tabs = [];
+  if (fac.recruitment && Array.isArray(fac.recruitment.classes)) {
+    tabs.push({ id: 'recruit', label: '⚔️ Recruit' });
+  }
+  if (fac.questBoard) tabs.push({ id: 'quests', label: '📜 Quests' });
+  if (fac.training)   tabs.push({ id: 'training', label: '🎯 Training' });
+  if (fac.research)   tabs.push({ id: 'research', label: '📚 Research' });
+  if (fac.shop)       tabs.push({ id: 'shop', label: '🛒 Shop' });
+
+  if (tabs.length === 0) return '';
+
+  const requestedTab = simHost && simHost.state ? simHost.state._facilityTab : null;
+  const activeTab = tabs.some(function(t) { return t.id === requestedTab; }) ? requestedTab : tabs[0].id;
+
+  const domain = (fac.questBoard && fac.questBoard.domain)
+    || (fac.training && fac.training.domain)
+    || (fac.research && fac.research.domain)
+    || 'adventurers';
+  const catalog = GUILD_SERVICE_CATALOGS[domain] || GUILD_SERVICE_CATALOGS.adventurers;
+
+  const tabBarHtml = tabs.map(function(t) {
+    const isAct = t.id === activeTab;
+    return `<button onclick="window.WargameApp.handleSwitchFacilityTab('${t.id}')" class="px-3 py-1.5 rounded-lg text-[11px] font-mono font-bold uppercase cursor-pointer transition ${isAct ? 'bg-[#fbbf24] text-[#080b11] shadow' : 'bg-[#080b11]/75 hover:bg-[#1a2232] text-[#cbd5e1] border border-[#283347]'}">${t.label}</button>`;
+  }).join('');
+
+  let panelHtml = '';
+  if (activeTab === 'recruit') {
+    const classCards = fac.recruitment.classes.map(function(entry) {
+      const cDef = RECRUITABLE_HERO_CLASSES.find(function(c) { return c.classId === entry.classId; });
+      if (!cDef) return '';
+      const unlocked = lvl >= (entry.minLevel || 1);
+      const canAfford = unlocked && (city.stockpile.gold || 0) >= cDef.costGold && (city.stockpile.food || 0) >= cDef.costFood;
+      const portraitSrc = getProductionImageSrc(getHeroPortraitAssetId(cDef.classId));
+      const portraitHtml = portraitSrc
+        ? `<img src="${portraitSrc}" alt="${cDef.name}" class="w-12 h-12 rounded-lg object-cover border border-[#fbbf24]/50 shadow shrink-0 bg-[#080b11]" />`
+        : `<div class="w-12 h-12 rounded-lg bg-[#080b11] border border-[#283347] flex items-center justify-center text-xl shrink-0">${cDef.icon}</div>`;
+      return `
+        <div class="p-2.5 rounded-lg bg-[#111722]/90 border border-[#283347] flex items-center justify-between gap-3 text-xs">
+          <div class="flex items-center gap-2.5 min-w-0">
+            ${portraitHtml}
+            <div class="min-w-0">
+              <div class="font-bold truncate" style="color:${cDef.color}">${cDef.icon} ${cDef.name} <span class="text-[9px] font-mono text-[#fbbf24]">• ${cDef.title}</span></div>
+              <div class="text-[10px] text-[#94a3b8] truncate">${cDef.specialty || ''}</div>
+              <div class="text-[10px] font-mono text-[#fbbf24] mt-0.5">${unlocked ? ('Oath Cost: ' + cDef.costGold + 'g • ' + cDef.costFood + ' Food') : ('Unlocks at ' + bDef.name + ' Lv ' + entry.minLevel)}</div>
+            </div>
+          </div>
+          <button onclick="window.WargameApp.handleRecruitHero('${cDef.classId}')" ${!canAfford ? 'disabled' : ''} class="px-3 py-1.5 rounded text-[10px] font-mono font-bold uppercase whitespace-nowrap ${canAfford ? 'bg-[#fbbf24] hover:bg-[#f59e0b] text-[#080b11] cursor-pointer' : 'bg-[#1a2232] text-[#64748b] cursor-not-allowed'}">
+            ${unlocked ? '⚔️ Train (60s)' : ('Lv ' + entry.minLevel)}
+          </button>
+        </div>
+      `;
+    }).join('');
+    panelHtml = `<div class="space-y-1.5">${classCards}</div>`;
+  } else if (activeTab === 'quests') {
+    const qList = (catalog.quests || []).map(function(q) {
+      return `
+        <div class="p-2.5 rounded-lg bg-[#111722]/90 border border-[#283347] flex items-center justify-between gap-2 text-xs">
+          <div>
+            <div class="font-bold text-[#fbbf24]">📜 ${q.name}</div>
+            <div class="text-[10px] text-[#94a3b8]">${q.desc}</div>
+          </div>
+          <span class="px-2 py-1 rounded bg-[#080b11] border border-[#34d399]/40 text-[10px] font-mono text-[#34d399] whitespace-nowrap">${q.reward}</span>
+        </div>
+      `;
+    }).join('');
+    panelHtml = `<div class="space-y-1.5">${qList}</div>`;
+  } else if (activeTab === 'training') {
+    const tList = (catalog.training || []).map(function(tr) {
+      return `
+        <div class="p-2.5 rounded-lg bg-[#111722]/90 border border-[#283347] flex items-center justify-between gap-2 text-xs">
+          <div>
+            <div class="font-bold text-[#38bdf8]">🎯 ${tr.name}</div>
+            <div class="text-[10px] text-[#94a3b8]">${tr.desc}</div>
+          </div>
+          <span class="px-2 py-1 rounded bg-[#080b11] border border-[#fbbf24]/40 text-[10px] font-mono text-[#fbbf24] whitespace-nowrap">${tr.cost}</span>
+        </div>
+      `;
+    }).join('');
+    panelHtml = `<div class="space-y-1.5">${tList}</div>`;
+  } else if (activeTab === 'research') {
+    const rList = (catalog.research || []).map(function(rs) {
+      return `
+        <div class="p-2.5 rounded-lg bg-[#111722]/90 border border-[#283347] flex items-center justify-between gap-2 text-xs">
+          <div>
+            <div class="font-bold text-[#c084fc]">📚 ${rs.name}</div>
+            <div class="text-[10px] text-[#94a3b8]">${rs.desc}</div>
+          </div>
+          <span class="px-2 py-1 rounded bg-[#080b11] border border-[#c084fc]/40 text-[10px] font-mono text-[#c084fc] whitespace-nowrap">${rs.cost}</span>
+        </div>
+      `;
+    }).join('');
+    panelHtml = `<div class="space-y-1.5">${rList}</div>`;
+  } else if (activeTab === 'shop') {
+    const sList = (catalog.shop || []).map(function(sh) {
+      return `
+        <div class="p-2.5 rounded-lg bg-[#111722]/90 border border-[#283347] flex items-center justify-between gap-2 text-xs">
+          <div>
+            <div class="font-bold text-[#34d399]">🛒 ${sh.name}</div>
+            <div class="text-[10px] text-[#94a3b8]">${sh.desc}</div>
+          </div>
+          <span class="px-2 py-1 rounded bg-[#080b11] border border-[#fbbf24]/40 text-[10px] font-mono text-[#fbbf24] whitespace-nowrap">${sh.cost}</span>
+        </div>
+      `;
+    }).join('');
+    panelHtml = `<div class="space-y-1.5">${sList}</div>`;
+  }
+
+  return `
+    <div class="p-3 rounded-lg bg-[#080b11] border border-[#fbbf24]/40 space-y-2.5">
+      <div class="flex flex-wrap items-center gap-1.5">${tabBarHtml}</div>
+      ${panelHtml}
+    </div>
+  `;
+}
+
 export function renderWargameFacilityModal(simHost) {
   if (typeof document === 'undefined' || !simHost || !simHost.state || !simHost.state.world) return;
   const modal = document.getElementById('wgFacilityModal');
@@ -520,54 +638,9 @@ export function renderWargameFacilityModal(simHost) {
     `);
   }
 
-  if (fac.recruitment && Array.isArray(fac.recruitment.classes)) {
-    const classCards = fac.recruitment.classes.map(function(entry) {
-      const cDef = RECRUITABLE_HERO_CLASSES.find(function(c) { return c.classId === entry.classId; });
-      if (!cDef) return '';
-      const unlocked = lvl >= (entry.minLevel || 1);
-      const portraitSrc = getProductionImageSrc(getHeroPortraitAssetId(cDef.classId));
-      const portraitHtml = portraitSrc
-        ? `<img src="${portraitSrc}" alt="${cDef.name}" class="w-12 h-12 rounded-lg object-cover border border-[#fbbf24]/50 shadow shrink-0 bg-[#080b11]" />`
-        : `<div class="w-12 h-12 rounded-lg bg-[#080b11] border border-[#283347] flex items-center justify-center text-xl shrink-0">${cDef.icon}</div>`;
-      return `
-        <div class="p-2.5 rounded-lg bg-[#111722]/90 border border-[#283347] flex items-center justify-between gap-3 text-xs">
-          <div class="flex items-center gap-2.5 min-w-0">
-            ${portraitHtml}
-            <div class="min-w-0">
-              <div class="font-bold truncate" style="color:${cDef.color}">${cDef.icon} ${cDef.name} <span class="text-[9px] font-mono text-[#fbbf24]">• ${cDef.title}</span></div>
-              <div class="text-[10px] text-[#94a3b8] truncate">${cDef.specialty || ''}</div>
-              <div class="text-[10px] font-mono text-[#fbbf24] mt-0.5">${unlocked ? ('Oath Cost: ' + cDef.costGold + 'g • ' + cDef.costFood + ' Food') : ('Unlocks at ' + bDef.name + ' Lv ' + entry.minLevel)}</div>
-            </div>
-          </div>
-          <button onclick="window.WargameApp.handleRecruitHero('${cDef.classId}')" ${!unlocked ? 'disabled' : ''} class="px-3 py-1.5 rounded text-[10px] font-mono font-bold uppercase whitespace-nowrap ${unlocked ? 'bg-[#fbbf24] hover:bg-[#f59e0b] text-[#080b11] cursor-pointer' : 'bg-[#1a2232] text-[#64748b] cursor-not-allowed'}">
-            ${unlocked ? '⚔️ Train (60s)' : ('Lv ' + entry.minLevel)}
-          </button>
-        </div>
-      `;
-    }).join('');
-    sections.push(`
-      <div class="p-3 rounded-lg bg-[#080b11] border border-[#60a5fa]/40 space-y-2">
-        <div class="text-xs font-mono font-bold text-[#60a5fa]">⚔️ ${bDef.name} Recruitment Roster</div>
-        <div class="space-y-1.5">${classCards}</div>
-      </div>
-    `);
-  }
-
-  if (fac.questBoard || fac.training || fac.research || fac.shop) {
-    const badges = [
-      fac.questBoard ? '📜 Guild Quest Board' : '',
-      fac.training ? '🎯 Class Training' : '',
-      fac.research ? '📚 Guild Research' : '',
-      fac.shop ? '🛒 Class-Exclusive Armory Shop' : ''
-    ].filter(Boolean).map(function(b) {
-      return `<span class="px-2 py-1 rounded bg-[#111722] border border-[#283347] text-[10px] font-mono text-[#cbd5e1]">${b}</span>`;
-    }).join('');
-    sections.push(`
-      <div class="p-2.5 rounded bg-[#080b11] border border-[#283347] space-y-1.5">
-        <div class="text-[10px] font-mono uppercase text-[#8b949e]">Declared Guild Services (ADR-0012)</div>
-        <div class="flex flex-wrap gap-1.5">${badges}</div>
-      </div>
-    `);
+  const guildServicesHtml = buildUnifiedGuildServicesHtml(simHost, bId, city, bDef, lvl);
+  if (guildServicesHtml) {
+    sections.push(guildServicesHtml);
   }
 
   const innerHtml = sections.join('') || `<div class="text-xs text-[#8b949e]">Facility operational.</div>`;
@@ -1335,52 +1408,32 @@ export function renderGuildRecruitmentPanel(simHost) {
   const gridEl = document.getElementById('wgGuildClassesGrid');
   if (!city || !gridEl) return;
 
-  // Inc 9.7.5: Adventurers Guild recruits strictly the Adventurer class (other classes belong to their specialist Guilds)
-  const guildDef = CITY_BUILDINGS_CATALOG.guild_hall;
-  const allowedIds = (guildDef && guildDef.facilities && guildDef.facilities.recruitment && Array.isArray(guildDef.facilities.recruitment.classes))
-    ? guildDef.facilities.recruitment.classes.map(function(e) { return e.classId; })
-    : ['adventurer'];
-  const guildClasses = RECRUITABLE_HERO_CLASSES.filter(function(cls) {
-    return allowedIds.indexOf(cls.classId) !== -1;
-  });
+  // Single config-driven Guild Screen (pulls image, title & services directly from CITY_BUILDINGS_CATALOG.guild_hall)
+  const bId = 'guild_hall';
+  const bDef = CITY_BUILDINGS_CATALOG[bId];
+  const lvl = (city.buildings && city.buildings[bId]) || 1;
+  const interiorSrc = getProductionImageSrc(getFacilityInteriorAssetId(bId));
+  const servicesHtml = buildUnifiedGuildServicesHtml(simHost, bId, city, bDef, lvl);
 
-  const newGuildHtml = guildClasses.map(function(cls) {
-    const canAfford = (city.stockpile.gold || 0) >= cls.costGold && (city.stockpile.food || 0) >= cls.costFood;
-    const portraitSrc = getProductionImageSrc(getHeroPortraitAssetId(cls.classId));
-    const portraitHtml = portraitSrc
-      ? `<img src="${portraitSrc}" alt="${cls.name}" class="w-14 h-14 rounded-lg object-cover border border-[#fbbf24]/50 shadow shrink-0 bg-[#111722]" />`
-      : `<div class="w-14 h-14 rounded-lg bg-[#111722] border border-[#283347] flex items-center justify-center text-2xl shrink-0">${cls.icon}</div>`;
-    return `
-      <div class="p-3 rounded-lg bg-[#080b11]/78 backdrop-blur-md border border-[#fbbf24]/35 hover:border-[#fbbf24]/75 transition flex flex-col justify-between gap-2.5 shadow-lg">
-        <div>
-          <div class="flex items-start gap-3">
-            ${portraitHtml}
-            <div class="min-w-0 flex-1">
-              <div class="flex items-center justify-between gap-1">
-                <span class="text-base font-bold truncate" style="color:${cls.color}">${cls.icon} ${cls.name}</span>
-                <span class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-[#1a2232] text-[#fbbf24] whitespace-nowrap">${cls.title}</span>
-              </div>
-              <p class="text-[11px] text-[#8b949e] mt-1">${cls.specialty}</p>
-            </div>
-          </div>
-          <div class="grid grid-cols-4 gap-1 text-center font-mono text-[10px] mt-2.5 bg-[#111722] p-1.5 rounded border border-[#283347]">
-            <div>STR <strong>${cls.baseStats.str}</strong></div>
-            <div>DEX <strong>${cls.baseStats.dex}</strong></div>
-            <div>INT <strong>${cls.baseStats.int}</strong></div>
-            <div>VIT <strong>${cls.baseStats.vit}</strong></div>
-          </div>
+  const unifiedHtml = `
+    <div class="relative min-h-[540px] rounded-xl overflow-hidden border border-[#fbbf24]/50 bg-[#080b11] shadow-2xl flex flex-col justify-between">
+      ${interiorSrc ? `<img src="${interiorSrc}" alt="${bDef.name} Interior" class="absolute inset-0 w-full h-full object-cover object-center" />` : ''}
+      <div class="absolute inset-0 bg-gradient-to-b from-[#080b11]/60 via-[#080b11]/25 to-[#080b11]/92"></div>
+      <div class="relative z-10 p-4 flex items-start justify-between gap-3">
+        <div class="px-3.5 py-2 rounded-lg bg-[#080b11]/70 backdrop-blur-md border border-[#fbbf24]/40">
+          <div class="text-[10px] font-mono uppercase tracking-wider text-[#fbbf24]">${city.name} • ${bDef.name} Lv ${lvl}</div>
+          <div class="text-xs text-[#e6edf3]/90 mt-0.5">${bDef.desc || ''}</div>
         </div>
-        <div class="space-y-1.5 pt-2 border-t border-[#1e293b]">
-          <div class="text-[11px] font-mono text-[#fbbf24]">Oath Cost: <strong>${cls.costGold} Gold</strong> • <strong>${cls.costFood} Food</strong></div>
-          <button data-action="recruit-hero" data-class-id="${cls.classId}" onclick="window.WargameApp.handleRecruitHero('${cls.classId}')" ${!canAfford ? 'disabled' : ''} class="w-full py-1.5 rounded font-bold text-xs uppercase ${canAfford ? 'bg-[#60a5fa] hover:bg-[#3b82f6] text-[#080b11] cursor-pointer' : 'bg-[#1a2232] text-[#64748b] cursor-not-allowed'}">
-            ⚔️ Train ${cls.name} (60s)
-          </button>
-        </div>
+        <button onclick="window.WargameApp.handleSwitchView('city')" class="px-3 py-1.5 rounded-lg bg-[#080b11]/75 hover:bg-[#fbbf24] hover:text-[#080b11] backdrop-blur-md text-[#fbbf24] border border-[#fbbf24]/50 text-[11px] font-mono font-bold uppercase cursor-pointer transition whitespace-nowrap">🏰 Exit to City</button>
       </div>
-    `;
-  }).join('');
+      <div class="relative z-10 flex-1 min-h-[140px]"></div>
+      <div class="relative z-10 p-4 [&_>div]:bg-[#080b11]/78 [&_>div]:backdrop-blur-md">
+        ${servicesHtml}
+      </div>
+    </div>
+  `;
 
-  setHtmlIfChanged(gridEl, newGuildHtml);
+  setHtmlIfChanged(gridEl, unifiedHtml);
 }
 
 export function renderRightTasksAndStreamSidebar(simHost) {
