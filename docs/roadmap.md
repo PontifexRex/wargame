@@ -163,6 +163,11 @@ Track E (Art Direction & Graphics) ──► Stage E.1 (Pillars) ──► E.2 (
 - **Guild & City Building Interior Artwork**: Add bespoke atmospheric interior backdrop illustrations to every Guild and City Facility screen (Adventurers Guild, Fighters Guild, Thieves Guild, Mages Guild, Rangers Lodge, Temple Chapterhouse, Garrison, Dwarven Smeltery, Alchemist Apothecary, Blacksmith & Star-Forge, Lapidary Workshop, Warehouse) following our `docs/art_direction_brief.md` standards (Grounded High-Craft Fantasy Realism, dynamic warm/whimsical-to-dark lighting).
 - **Diegetic Interactive Interior Hotspots (Post-Feature-Freeze)**: Once building functionality is finalized, replace on-screen button grids inside building interiors with clean, immersive **clickable/tappable scene regions** (e.g., tap the Forge in the Smithy to open Weapon Forging, tap the Anvil to Temper, tap the Quest Board for Contracts, tap the Vault Door for Storage) with subtle luminous highlights and mobile-friendly touch targets.
 
+#### Stage E.7 — Target-State Cross-Platform Experience Research & Purpose-Built Mobile UI *(Post Main-Screen Graphics)*
+- **Deep Industry UX Research**: Conduct thorough research into best practices for cross-platform and mobile-first strategy/city-builder and tactical roguelike RPGs (touch ergonomics, gesture pan/zoom, compact HUD density, portrait vs. landscape workflows, and screen-vs-popup flows) rather than shrinking desktop layouts.
+- **End-to-End Target-State Experience Design**: Once core main-screen graphics (Overworld, City, Dungeon, and Interiors) are more defined, design the complete target-state player experience across every screen so mobile and desktop each feel native, legible, and uncluttered with zero box overflow.
+- **Purpose-Built Mobile Implementation**: Rebuild mobile views, touch controls, and responsive modals against the researched target-state blueprint.
+
 ---
 
 ## 3. Technical Debt & Architecture Memory
