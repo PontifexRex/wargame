@@ -107,12 +107,21 @@ Strict **4px base rhythm**: `4px` (`gap-1`), `8px` (`gap-2`), `12px` (`gap-3`), 
   - **Center Tactical / Strategic Canvas (Flexible `1fr`)**: Unobstructed viewport for the Overworld map, 8×8 City grid, or 21×15 Dungeon viewport.
   - **Right Intel & Chronicle Sidebar (`280px–320px`)**: Active Tasks/Quests, City Vault/Pack quick-view, scrollable Chronicle / Event Feed.
 
-### 4.3 Modal Sizing Tiers
-| Modal Tier | Max Width | Backdrop | Examples |
+### 4.3 Modal Sizing Tiers (Desktop Popups ↔ Mobile Bottom Sheets)
+| Modal Tier | Desktop Max Width | Mobile Behavior (`< 768px`) | Backdrop | Examples |
+| :--- | :--- | :--- | :--- | :--- |
+| **Compact** | `440px` | Centered card or compact bottom sheet | `rgba(5, 8, 15, 0.78)` + `blur(4px)` | Extraction/Defeat Outcome, Confirmations, Inspect Tile |
+| **Standard** | `680px–780px` | Full-width **Bottom Sheet Drawer** (`max-h-[85vh]`, drag/tap-out close) | `rgba(5, 8, 15, 0.82)` + `blur(6px)` | Sub-action popups (Forge Blueprints, Tempering, Recruit Confirm, Save Sync) |
+| **Prestige Showcase** | `960px–1080px` | Full-Screen stacked view with Back bar | `rgba(5, 8, 15, 0.88)` + `blur(8px)` | Shared Character Sheet & Paper-Doll, Cosmetic Wardrobe |
+
+### 4.4 Cross-Platform Navigation Taxonomy (Full Screens vs. Popups & Mobile-First UX)
+Because Aethelgard is a **cross-platform game with Mobile as a first-class target**, every view is strictly classified to prevent screen clutter and awkward nested modals:
+
+| Surface Type | Role & Navigation Behavior | Examples | Mobile-First Ergonomics |
 | :--- | :--- | :--- | :--- |
-| **Compact** | `440px` | `rgba(5, 8, 15, 0.78)` + `blur(4px)` | Extraction/Defeat Outcome, Confirmations, Inspect Tile |
-| **Standard** | `680px–780px` | `rgba(5, 8, 15, 0.82)` + `blur(6px)` | Guild & City Facility Modals (`#wgFacilityModal`), Save Sync, Atlas |
-| **Prestige Showcase** | `960px–1080px` | `rgba(5, 8, 15, 0.88)` + `blur(8px)` | Shared Character Sheet & Paper-Doll (`#wgCharacterSheetModal`), Cosmetic Wardrobe |
+| **Full Screen** | Primary gameplay destination with a clear top Back/Breadcrumb bar and uncluttered viewport. Never opens as a tiny popup. | Overworld Map, City View, Dungeon Tactical View, **Enterable Building Interior Scenes** (all Guilds, Smithy, Smeltery, Apothecary, Garrison, Temple), Character Profile & Wardrobe | Full-bleed viewport (`100dvh`), bottom thumb-zone nav bar (`≥ 44×44px` touch targets), collapsible HUD drawers |
+| **Contextual Popup / Bottom Sheet** | Focused single-purpose interaction triggered *from* a Full Screen (or by tapping an in-scene hotspot). Always dismissible in 1 tap. | Forge Weapon Picker, Tempering Anvil, Gem Socketing Bench, Hero Recruit Confirmation, Quest Contract Detail, Extraction Outcome | Slides up as a **Bottom Sheet** on mobile (`< 768px`) or compact centered modal on desktop |
+| **Minimal Persistent HUD** | Glanceable resources & primary mode switcher; hides secondary stats/logs behind drawers on smaller screens. | Top compact resource strip, collapsible Tasks/Chronicle drawer, Dungeon quick-action bar | Never obscures `> 20%` of the playable canvas or interior scene |
 
 ---
 
@@ -130,7 +139,9 @@ Every interactive button has explicit `default`, `hover`, `active`, `focus-visib
 All enterable City buildings and Guilds use a **Full-Bleed Interactive Interior Stage** (`min-h-[460px]` to `min-h-[560px]`):
 1. **Full-Bleed Tier 1 Interior Backdrop**: The building's atmospheric interior illustration (see [`docs/art_bible.md` §2.4](art_bible.md#24-guild--city-building-interior-artwork-tier-1-banner-illustrations)) fills the entire stage (`object-cover`) with a balanced vertical vignette scrim (`from-[#080b11]/60 via-[#080b11]/25 to-[#080b11]/90`) that keeps the central architectural focal point (hearth, anvil, altar, quest board) open and unobstructed.
 2. **Floating Scene Header Overlay**: Translucent frosted-obsidian title badge (`bg-[#080b11]/70 backdrop-blur-md border border-[#fbbf24]/40`) and navigation/close actions anchored at the top edge of the scene.
-3. **On-Scene Interactive Action Controls**: Recruitment cards, forging buttons, smelting/brewing controls, and vault actions float directly **over the interior artwork** in frosted-obsidian glass (`bg-[#080b11]/75 backdrop-blur-md`) with brushed-gold borders so players feel immersed *inside* the building while taking action.
+3. **On-Scene Interactive Action Controls (Two-Phase Evolution)**:
+   - *Phase 1 (Feature Build-Out)*: Minimal frosted-obsidian glass controls (`bg-[#080b11]/75 backdrop-blur-md`) overlaid cleanly over the interior artwork while building mechanics are still being finalized.
+   - *Phase 2 (Post-Feature-Freeze Diegetic Scene Hotspots)*: Once all building features are locked, replace on-screen button grids with **clickable/tappable architectural hotspots** directly on the interior artwork (e.g., tap the **Forge** in the Smithy → Forging popup; tap the **Anvil** → Tempering popup; tap the **Quest Board** → Guild Contracts; tap the **Oath Table** → Hero Recruitment), keeping the interior artwork uncluttered and effortlessly playable on mobile touchscreens.
 
 ### 5.3 Shared Character Sheet & Paper-Doll Layout
 Consistent across both `wargame.html` and `index.html`:

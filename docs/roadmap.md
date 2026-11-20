@@ -97,6 +97,10 @@ Track E (Art Direction & Graphics) ──► Stage E.1 (Pillars) ──► E.2 (
 - **Increment 9.6 (`v0.9.6-city-industry`)**: Tier 2 City Industry — Dwarven Smeltery (`CMD_SMELT_INGOTS`), Alchemist Apothecary (`CMD_BREW_PROVISION`), Warehouse `+50/lv` City Vault slot expansion, and interactive enterable `#wgFacilityModal` interiors for all facility constructs. *(Verified)*  
 - **Increment 9.7 (`v0.9.7-city-crafting`)**: City Blacksmith & Star-Forge (`CMD_FORGE_EQUIPMENT`, `CMD_TEMPER_EQUIPMENT`) and Lapidary Workshop (`CMD_PUNCH_SOCKET`, `CMD_SOCKET_CITY_GEM`, `CMD_UNSOCKET_CITY_GEM`) decoupled from Guilds into enterable City Constructs. *(Verified)*
 
+#### Increment 9.7.5 (`v0.9.7.5-guild-parity`) — Unified Adventurers Guild Parity & Dedicated Adventurer Class
+- **Unified Guild Architecture**: Refactor the **Adventurers Guild** (`guild_hall`) so it uses the exact same unified Building Interior Screen & modular `facilities` pipeline as Fighters Guild, Thieves Guild, Mages Guild, Rangers Lodge, and Temple Chapterhouse—eliminating special-case legacy view handling.
+- **Dedicated Adventurer Class**: Introduce the **Adventurer** starter/delver class and scope the Adventurers Guild's recruitment strictly to the **Adventurer** class (with Fighter, Thief, Mage, Ranger, Cleric, and Paladin recruited exclusively at their respective Class Guilds & Temple Chapterhouse).
+
 #### Increment 9.8 (`v0.9.8-city-academy`) — Arcane Academy (Research) & Market Trade Post
 - **Arcane Academy / Library** *(Enterable City Construct)*: Hosts dual-cost City & Expedition Research trees (Cartography, Geology, Metallurgy, Logistics, Construction Efficiency).
 - **Market / Trade Post** *(Enterable City Construct)*: Appraise/liquidate dungeon relics and surplus ores for Gold, and convert surplus city resources at dynamic exchange rates.
@@ -155,9 +159,14 @@ Track E (Art Direction & Graphics) ──► Stage E.1 (Pillars) ──► E.2 (
 - **Stage E.4 — Graphics Library & Rendering Engine Evaluation (`docs/adr/ADR-0013-graphics-library-and-rendering-architecture.md`)**: Evaluated PixiJS v8, Phaser 3, Three.js, Godot 4, and Canvas 2D; locked in **PixiJS v8 (WebGL2/WebGPU)** behind a decoupled `RenderAdapter` + `AssetRegistry` boundary, preserving HTML/Tailwind UI chrome and Canvas 2D zero-dependency fallback. *(Verified)*
 - **Stage E.5 — "Golden Slice" Visual Vertical Slice (`src/ui/shared/assetRegistry.js`, `src/ui/shared/renderAdapter.js`, `assets/runtime/tier1/`)**: Built semantic `AssetRegistry` + `RenderAdapter`, generated and wired live Tier 1 Golden Slice art (Adventurers Guild & Blacksmith/Star-Forge interior banners + Fighter & Paladin prestige portraits) through `assets/manifest.json` with graceful procedural fallback and automated manifest validation tests (32/32 Roguelike + 13/13 Wargame). *(Verified)*
 
-#### Stage E.6 — Scaled Asset Production & Full Visual Migration
+#### Stage E.5.5 — Cross-Platform Navigation Architecture (Screens vs. Popups) & Mobile-First Responsive UX
+- **Screen vs. Popup Taxonomy (`docs/ui_design_system.md` §4.4)**: Formalize full-screen destinations (Overworld, City, Dungeon, Building Interiors, Character Profile) vs. focused contextual Popups / Mobile Bottom Sheets (Forging, Tempering, Recruitment Confirm, Inspect, Extraction).
+- **Mobile-First & Reactive Layout**: Refactor HUD and panels for seamless portrait/landscape mobile play (`≥ 44×44px` touch targets, thumb-zone bottom navigation bar, collapsible Tasks/Chronicle drawers, reduced on-screen text/button density by splitting crowded controls into focused sub-screens or bottom sheets).
+
+#### Stage E.6 — Scaled Asset Production, Diegetic Scene Hotspots & Full Visual Migration
 - Roll out full asset sets (all biomes, Lv 1–5 building visual evolutions, full monster/boss rosters, dynamic lighting/shaders, particle VFX, and unified UI chrome) through the validated asset pipeline.
-- **Guild & City Building Interior Artwork**: Add bespoke atmospheric interior header/backdrop illustrations to every Guild and City Facility screen (Adventurers Guild, Fighters Guild, Thieves Guild, Mages Guild, Rangers Lodge, Temple Chapterhouse, Garrison, Dwarven Smeltery, Alchemist Apothecary, Blacksmith & Star-Forge, Lapidary Workshop, Warehouse) following our `docs/art_direction_brief.md` standards (Grounded High-Craft Fantasy Realism, dynamic warm/whimsical-to-dark lighting).
+- **Guild & City Building Interior Artwork**: Add bespoke atmospheric interior backdrop illustrations to every Guild and City Facility screen (Adventurers Guild, Fighters Guild, Thieves Guild, Mages Guild, Rangers Lodge, Temple Chapterhouse, Garrison, Dwarven Smeltery, Alchemist Apothecary, Blacksmith & Star-Forge, Lapidary Workshop, Warehouse) following our `docs/art_direction_brief.md` standards (Grounded High-Craft Fantasy Realism, dynamic warm/whimsical-to-dark lighting).
+- **Diegetic Interactive Interior Hotspots (Post-Feature-Freeze)**: Once building functionality is finalized, replace on-screen button grids inside building interiors with clean, immersive **clickable/tappable scene regions** (e.g., tap the Forge in the Smithy to open Weapon Forging, tap the Anvil to Temper, tap the Quest Board for Contracts, tap the Vault Door for Storage) with subtle luminous highlights and mobile-friendly touch targets.
 
 ---
 
@@ -171,4 +180,4 @@ Track E (Art Direction & Graphics) ──► Stage E.1 (Pillars) ──► E.2 (
 - **Unified Save Hydration**:
   - Schema migration contract strictly preserves legacy saves back to `v0.1.0-inc1` with automatic backfilling in `migrateSaveData()`.
 - **Quality Gates**:
-  - Headless CLI verification runs: `./scripts/test.ps1` (30 roguelike tests) and `./scripts/test-wargame.ps1` (8 simulation tests).
+  - Headless CLI verification runs: `./scripts/test.ps1` (32 roguelike tests) and `./scripts/test-wargame.ps1` (13 simulation tests).
