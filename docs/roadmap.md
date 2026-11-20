@@ -66,14 +66,7 @@ Track E (Art Direction & Mobile UX)     ──► Stage E.6 (Painted Tier 2 Iso/
 *Preceding Increments:*  
 - **Increment 10.1 (`v0.10.1-prog-foundation` / `ADR-0015`) — Phase 1 Foundation**: Implemented scaled-integer fixed-precision `CurrencyService` (`0.00001` precision, idempotent auditable ledger, balance reconstruction, unified atomic currency+stockpile payments), nested `AND`/`OR`/`NOT` `ResearchEligibilityService` (with guild/alliance/alignment restriction codes), versioned `ResearchCatalogService` (15 domains, 5 representative prototype trees incl. `WAR_WEAPON_HEAVY_001` & hero training definitions), and `world.progression` state backfill. *(Verified)*
 - **Increment 10.2 (`v0.10.2-prog-accrual-queues`) — Phase 2 Accrual & Queues**: Implemented `ResearchAccrualService` (passive offline elapsed-time accrual + event-driven fractional activity awards with idempotency, cooldowns, caps & diminishing returns) and `ResearchQueueService` (configurable free/subscriber queues, definition version snapshots, pause/resume, pending auto-promotion without upfront cost deduction, and configurable cancel refund policies). *(Verified)*
-
-#### Increment 10.3 (`v0.10.3-prog-ownership`) — Phase 3: 4-Tier Ownership, Guild/Alliance Research & Terminology Alignment
-- **City Hall vs. Player Guild vs. Alliance Terminology Clarity**:
-  - Establish clear, non-overlapping naming between **Local City Class Halls/Chapters** (city buildings that recruit heroes and host local services) and **Multiplayer Player Guilds** (*Adventurers Guild*, *War Guild*, *Artisan Guild*) and **Alliances**.
-- **Guild-Owned Research**: Guild-specific RP currencies, guild-owned trees, guild progression history, and activity-driven guild RP awards (distinct from personal research).
-- **Alliance-Owned Research & Shared Contribution Pool (`ResearchContributionService`)**:
-  - Alliance-owned trees funded from a shared alliance balance via direct member contributions and alliance activities (research only—**no training at the alliance level**).
-  - Auditable `ResearchContributionInstance` ledger recording contributor attribution, source, and timestamps; prototype demonstrates multi-member contributions funding a shared alliance research item plus configurable leave/dissolve lifecycle rules.
+- **Increment 10.3 (`v0.10.3-prog-ownership`) — Phase 3 Guild/Alliance Ownership & Contributions**: Implemented `organizationService.js` cleanly separating Multiplayer Player Guilds (*Adventurers*, *War*, *Artisan*) and Alliances from local City Class Halls, Guild-owned RP accounts & research, multi-member attributed Alliance Research Pools (strictly research-only—no Alliance training), and member departure ownership rules. *(Verified)*
 
 #### Increment 10.4 (`v0.10.4-prog-effects-training`) — Phase 4: Generic Effects Framework & Separate Hero Training Queue
 - **Generic Benefits & Effects Engine (`BenefitService`)**:

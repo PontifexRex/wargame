@@ -30,6 +30,12 @@ export function createDefaultProgressionState(nowMs) {
       enabled: true
     },
     contributions: [],        // ResearchContributionInstance[]
+    organizations: {
+      guilds: {},
+      alliances: {},
+      playerGuildId: null,
+      playerAllianceId: null
+    },
     completedMilestones: {},  // milestoneId -> { completedAt, rewards }
     earnedTitles: [],         // { titleId, name, rarity, provenance, earnedAt }
     activeTitleId: null,
@@ -57,6 +63,9 @@ export function ensureProgressionState(world) {
   if (!p.researchQueue) p.researchQueue = createDefaultProgressionState().researchQueue;
   if (!p.trainingQueue) p.trainingQueue = createDefaultProgressionState().trainingQueue;
   if (!Array.isArray(p.contributions)) p.contributions = [];
+  if (!p.organizations) p.organizations = { guilds: {}, alliances: {}, playerGuildId: null, playerAllianceId: null };
+  if (!p.organizations.guilds) p.organizations.guilds = {};
+  if (!p.organizations.alliances) p.organizations.alliances = {};
   if (!p.completedMilestones) p.completedMilestones = {};
   if (!Array.isArray(p.earnedTitles)) p.earnedTitles = [];
   if (!Array.isArray(p.archivedTreeIds)) p.archivedTreeIds = [];

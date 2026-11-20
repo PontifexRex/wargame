@@ -48,6 +48,18 @@ import {
   advanceResearchProgress,
   REFUND_POLICIES
 } from '../../progression/queueService.js';
+import {
+  createPlayerGuild,
+  createAlliance,
+  joinOrganization,
+  leaveOrganization,
+  isPlayerEligibleForOrgBenefits,
+  recordGuildActivityContribution,
+  contributeToAlliancePool,
+  getContributionReport,
+  startOrganizationResearch,
+  getOrganizationResearchBalance
+} from '../../progression/organizationService.js';
 
 export function evaluateWargameSelfTests() {
   const results = [];
@@ -1364,6 +1376,61 @@ export function evaluateWargameSelfTests() {
     detail: t18Pass
       ? 'Offline passive accrual, activity anti-abuse (idempotency/cooldown), pending queue auto-promotion, pause/resume, snapshots & cancel refund verified'
       : 'Failed checks: ' + failed18.join(', ')
+  });
+
+  // =========================================================================
+  // Test 19: Track F Phase 3 — Guild/Alliance Research Ownership, Shared Contribution Pool & Lifecycle (Inc 10.3)
+  // =========================================================================
+  const prog19 = createDefaultProgressionState(0);
+  const gCreate = createPlayerGuild(prog19, { guildId: 'g_starfall', name: 'Order of Starfall', specialization: 'adventurer', founderPlayerId: 'player_1', nowMs: 1000 });
+  const aCreate = createAlliance(prog19, { allianceId: 'a_bastion', name: 'Bastion Concord', founderPlayerId: 'player_1', nowMs: 1000 });
+  joinOrganization(aCreate.alliance, 'player_2');
+  joinOrganization(aCreate.alliance, 'player_3');
+
+  // 1. Guild activity awards guild-owned RP independent of player personal RP & funds Guild Research
+  recordGuildActivityContribution(prog19, { guildId: 'g_starfall', contributorPlayerId: 'player_1', amount: 2.5, source: 'dungeon_clear', eventId: 'gc1', nowMs: 2000 });
+  const guildBalBefore = getOrganizationResearchBalance(prog19, OWNER_TYPES.GUILD, 'g_starfall').available;
+  const startGuildRes = startOrganizationResearch(prog19, { orgType: OWNER_TYPES.GUILD, orgId: 'g_starfall', researchItemId: 'GLD_ADV_MAP_001', nowMs: 3000 });
+  const guildFundedOk = startGuildRes.ok && guildBalBefore === 2.5 && getOrganizationResearchBalance(prog19, OWNER_TYPES.GUILD, 'g_starfall').available === 0.5;
+
+  // 2. Multi-member Alliance Contributions (player_1: 4, player_2: 3.5, player_3: 2.5 => 10.0 rp_alliance)
+  contributeToAlliancePool(prog19, { allianceId: 'a_bastion', contributorPlayerId: 'player_1', amount: 4.0, eventId: 'ac1', nowMs: 4000 });
+  contributeToAlliancePool(prog19, { allianceId: 'a_bastion', contributorPlayerId: 'player_2', amount: 3.5, eventId: 'ac2', nowMs: 4100 });
+  contributeToAlliancePool(prog19, { allianceId: 'a_bastion', contributorPlayerId: 'player_3', amount: 2.5, eventId: 'ac3', nowMs: 4200 });
+  const aReport = getContributionReport(prog19, { targetOwnerType: OWNER_TYPES.ALLIANCE, targetOwnerId: 'a_bastion' });
+  const multiContribOk = aReport.count === 3 && aReport.total === 10 &&
+    aReport.byMemberScaled.player_1 === 400000 && aReport.byMemberScaled.player_2 === 350000 && aReport.byMemberScaled.player_3 === 250000;
+
+  // 3. Alliance Research paid from shared Alliance pool; Alliance Training strictly rejected!
+  const allianceTrainingBlocked = !startOrganizationResearch(prog19, { orgType: OWNER_TYPES.ALLIANCE, orgId: 'a_bastion', researchItemId: 'ALL_CITADEL_001', isTraining: true, nowMs: 5000 }).ok;
+  const startAllianceRes = startOrganizationResearch(prog19, { orgType: OWNER_TYPES.ALLIANCE, orgId: 'a_bastion', researchItemId: 'ALL_CITADEL_001', nowMs: 5000 });
+  const advAlliance = advanceResearchProgress(prog19, 100000, { queue: aCreate.alliance.researchQueue });
+  const allianceCompletedOk = startAllianceRes.ok && advAlliance.completedItems.length === 1 &&
+    getOrganizationResearchBalance(prog19, OWNER_TYPES.ALLIANCE, 'a_bastion').available === 0;
+
+  // 4. Member leaves Alliance -> departing member loses benefit eligibility while Alliance retains completed research
+  leaveOrganization(aCreate.alliance, 'player_3');
+  const leaveRuleOk = !isPlayerEligibleForOrgBenefits(aCreate.alliance, 'player_3') &&
+    isPlayerEligibleForOrgBenefits(aCreate.alliance, 'player_1') &&
+    prog19.researchProgress['alliance:a_bastion:ALL_CITADEL_001'].currentLevel === 1;
+
+  const t19Checks = {
+    orgsCreated: Boolean(gCreate.ok && aCreate.ok),
+    guildFundedOk: guildFundedOk,
+    multiContribOk: multiContribOk,
+    allianceTrainingBlocked: allianceTrainingBlocked,
+    allianceCompletedOk: allianceCompletedOk,
+    leaveRuleOk: leaveRuleOk
+  };
+  const failed19 = Object.keys(t19Checks).filter(function(k) { return !t19Checks[k]; });
+  const t19Pass = failed19.length === 0;
+
+  results.push({
+    name: '19. Track F Phase 3: Guild/Alliance Research Ownership, Shared Contribution Pool & Lifecycle (Inc 10.3)',
+    pass: t19Pass,
+    detail: t19Pass
+      ? 'Guild-owned RP/research, 3-member attributed Alliance pool funding, no-alliance-training rule & departure ownership persistence verified'
+      : 'Failed checks: ' + failed19.join(', ')
   });
 
   return results;
