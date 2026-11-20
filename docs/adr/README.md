@@ -16,7 +16,9 @@ This directory records the foundational architectural decisions, runtime constra
 | [ADR-0008](./ADR-0008-abyssal-modifiers-and-endless-delve.md) | Abyssal Elite Affixes, Combat Reactive Modifiers & Endless Strata Delve | **Accepted** | `v0.6.0-inc6` |
 | [ADR-0009](./ADR-0009-developer-and-tester-console.md) | Developer & Tester Console Architecture & Isolation Protocols | **Accepted** | `v0.6.5-dev` |
 | [ADR-0010](./ADR-0010-foundational-game-object-and-traversal-model.md) | Foundational Game Object Model, Interaction Pipeline & Traversal Systems | **Proposed** | `v0.8.0` – `v0.9.0` |
-| [ADR-0011](./ADR-0011-macro-world-city-party-hierarchy.md) | Macro Wargame Hierarchy — Universe, Real-Time Overworld, Cities & Parties | **Proposed** | `v0.9.0` – `v1.0.0+` |
+| [ADR-0011](./ADR-0011-macro-world-city-party-hierarchy.md) | Macro Wargame Hierarchy — Universe, Real-Time Overworld, Cities & Parties | **Accepted** | `v0.9.0` – `v1.0.0+` |
+| [ADR-0012](./ADR-0012-modular-guilds-garrison-containers-and-loot-tables.md) | Modular Guild Facilities, Garrison Parties, Unified Inventory Containers & Declarative Loot Tables | **Accepted** | `v0.8.3.1` & `v0.9.5+` |
+| [ADR-0013](./ADR-0013-graphics-library-and-rendering-architecture.md) | Graphics Library & Rendering Engine Architecture (PixiJS v8 + RenderAdapter + Canvas 2D Fallback) | **Accepted** | `Track E (Stage E.4)` |
 
 ## When to Add or Supersede an ADR
 
