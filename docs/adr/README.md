@@ -19,6 +19,7 @@ This directory records the foundational architectural decisions, runtime constra
 | [ADR-0011](./ADR-0011-macro-world-city-party-hierarchy.md) | Macro Wargame Hierarchy — Universe, Real-Time Overworld, Cities & Parties | **Accepted** | `v0.9.0` – `v1.0.0+` |
 | [ADR-0012](./ADR-0012-modular-guilds-garrison-containers-and-loot-tables.md) | Modular Guild Facilities, Garrison Parties, Unified Inventory Containers & Declarative Loot Tables | **Accepted** | `v0.8.3.1` & `v0.9.5+` |
 | [ADR-0013](./ADR-0013-graphics-library-and-rendering-architecture.md) | Graphics Library & Rendering Engine Architecture (PixiJS v8 + RenderAdapter + Canvas 2D Fallback) | **Accepted** | `Track E (Stage E.4)` |
+| [ADR-0014](./ADR-0014-unified-map-architecture-and-grid-projections.md) | Unified Map Viewport Architecture & Best-in-Class Domain Grid Projections (Hex Overworld, Iso City, 2.5D Dungeon) | **Accepted** | `Track E (Map Arch)` |
 
 ## When to Add or Supersede an ADR
 
