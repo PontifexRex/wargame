@@ -40,6 +40,7 @@ import {
   getProductionImageSrc
 } from '../../ui/shared/assetRegistry.js';
 import { getActiveRenderAdapter } from '../../ui/shared/renderAdapter.js';
+import { renderCityIsoCanvas } from './cityIsoCanvas.js';
 import { RARITY } from '../../constants.js';
 import { getItemTypeIcon } from '../../data/items.js';
 
@@ -1305,6 +1306,18 @@ export function renderCityBuilderPanel(simHost) {
     `);
   }
   setHtmlIfChanged(gridEl, tilesHtml.join(''));
+
+  // Toggle 2:1 Isometric City Canvas (ADR-0014 default) vs. Flat Grid fallback
+  const isFlatMode = simHost.state._cityViewMode === 'flat';
+  const isoContainer = document.getElementById('wgCityIsoContainer');
+  const flatContainer = document.getElementById('wgCityFlatContainer');
+  const projBtn = document.getElementById('wgBtnCityProjectionToggle');
+  if (isoContainer) isoContainer.classList.toggle('hidden', isFlatMode);
+  if (flatContainer) flatContainer.classList.toggle('hidden', !isFlatMode);
+  if (projBtn) projBtn.textContent = isFlatMode ? '⊞ Flat Grid' : '◇ Isometric View';
+  if (!isFlatMode) {
+    renderCityIsoCanvas(simHost);
+  }
 
   // 2. Render Plot Inspector & Action Operations Hub
   if (!inspectorEl) return;

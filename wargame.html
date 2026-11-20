@@ -255,6 +255,9 @@
               <p class="text-xs text-[#8b949e] mt-0.5">Select any plot on the 8x8 city grid to construct facilities, upgrade structures, relocate buildings, or demolish.</p>
             </div>
             <div class="flex items-center gap-2">
+              <button id="wgBtnCityProjectionToggle" onclick="window.WargameApp.handleToggleCityProjection()" class="px-2.5 py-1 rounded bg-[#1a2232] hover:bg-[#fbbf24] hover:text-[#080b11] text-[#fbbf24] border border-[#fbbf24]/40 text-xs font-mono font-bold cursor-pointer transition">
+                ◇ Isometric View
+              </button>
               <span id="wgCityGridDistrictBadge" class="px-2.5 py-1 rounded bg-[#fbbf24]/15 text-[#fbbf24] border border-[#fbbf24]/40 text-xs font-mono font-bold">
                 Central Bastion District (8x8)
               </span>
@@ -269,7 +272,17 @@
                 <span class="font-semibold">↔ Move Mode: Click an empty plot on the grid to relocate your building.</span>
                 <button data-action="cancel-move-mode" onclick="window.WargameApp.handleCancelMoveMode()" class="px-2.5 py-1 rounded bg-[#1a2232] hover:bg-[#283347] text-xs font-mono font-bold text-[#e6edf3] cursor-pointer">Cancel</button>
               </div>
-              <div class="p-3 bg-[#080b11] rounded-xl border border-[#283347] shadow-inner max-w-[560px] w-full mx-auto">
+              <!-- 2:1 Isometric City Canvas (ADR-0014 Step 2 — Default View) -->
+              <div id="wgCityIsoContainer" class="relative w-full bg-[#182b20] rounded-xl border border-[#fbbf24]/40 overflow-hidden shadow-inner">
+                <canvas id="wgCityIsoCanvas" width="660" height="400" class="w-full h-auto cursor-pointer"></canvas>
+                <div class="absolute bottom-2 left-2 pointer-events-none bg-[#080b11]/80 backdrop-blur px-2.5 py-1 rounded border border-[#283347] text-[10px] font-mono text-[#cbd5e1] hidden sm:flex items-center gap-2.5">
+                  <span><strong class="text-[#fbbf24]">Click Plot:</strong> Select</span>
+                  <span><strong class="text-[#38bdf8]">Click Selected Building:</strong> Enter</span>
+                  <span><strong class="text-[#34d399]">Drag / Wheel:</strong> Pan &amp; Zoom</span>
+                </div>
+              </div>
+              <!-- Legacy Flat 8x8 Grid Fallback (Toggleable via Isometric/Flat button) -->
+              <div id="wgCityFlatContainer" class="hidden p-3 bg-[#080b11] rounded-xl border border-[#283347] shadow-inner max-w-[560px] w-full mx-auto">
                 <div id="wgCityPlotsGrid" class="grid grid-cols-8 gap-1.5 aspect-square">
                   <!-- 64 Spatial Plot Tiles dynamically populated -->
                 </div>

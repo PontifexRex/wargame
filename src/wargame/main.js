@@ -15,6 +15,7 @@ import {
   getWargameCameraOrigin
 } from './ui/overworldView.js';
 import { syncWargameUI, updateHeaderFastTick } from './ui/wargameUiSync.js';
+import { attachCityIsoControls, renderCityIsoCanvas } from './ui/cityIsoCanvas.js';
 import { findOverworldPath, isOverworldTilePassable } from './engine/pathfinding.js';
 import { getSelectedOverworldUnit, getPrimaryCity } from './engine/state.js';
 import { evaluateWargameSelfTests } from './test/wargameSelfTest.js';
@@ -390,6 +391,12 @@ export function handleToggleMobilePreview() {
   syncWargameUI(simHost);
 }
 
+export function handleToggleCityProjection() {
+  if (!simHost.state) return;
+  simHost.state._cityViewMode = (simHost.state._cityViewMode === 'flat') ? 'iso' : 'flat';
+  syncWargameUI(simHost);
+}
+
 export function handleCloseFacilityModal() {
   if (!simHost.state) return;
   delete simHost.state._openFacilityId;
@@ -539,6 +546,25 @@ export function handleEnterDungeon(poiId) {
 // ---------------------------------------------------------------------------
 function setupWargameListeners() {
   if (typeof document === 'undefined') return;
+
+  const isoCanvas = document.getElementById('wgCityIsoCanvas');
+  if (isoCanvas) {
+    attachCityIsoControls(isoCanvas, {
+      onRepaint: function() {
+        renderCityIsoCanvas(simHost);
+      },
+      onSelectPlot: function(plotIndex) {
+        const city = getPrimaryCity(simHost.state);
+        const plot = city && Array.isArray(city.plots) ? city.plots[plotIndex] : null;
+        const alreadySelected = simHost.state.selectedPlotIndex === plotIndex;
+        if (alreadySelected && plot && plot.buildingId && !plot.underConstruction && !plot.demolishing && !plot.relocating && simHost.state.moveSourcePlotIndex === null) {
+          handleOpenFacilityModal(plot.buildingId, plotIndex);
+          return;
+        }
+        handleSelectCityPlot(plotIndex);
+      }
+    });
+  }
 
   const canvas = document.getElementById('wgOverworldCanvas');
   if (canvas) {
@@ -795,6 +821,7 @@ export const WargameApp = {
   handleCloseScreenInfo: handleCloseScreenInfo,
   handleToggleMobileDrawer: handleToggleMobileDrawer,
   handleToggleMobilePreview: handleToggleMobilePreview,
+  handleToggleCityProjection: handleToggleCityProjection,
   handleCloseFacilityModal: handleCloseFacilityModal,
   handleSmeltIngots: handleSmeltIngots,
   handleBrewProvision: handleBrewProvision,

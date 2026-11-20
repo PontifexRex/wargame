@@ -7286,8 +7286,870 @@ function getActiveRenderAdapter() {
   return sharedAdapter;
 }
 
+  // --- Module: src/ui/shared/gridAdapters.js ---
+// =============================================================================
+// UNIFIED GRID ADAPTERS (ADR-0014 — Path A: Best-in-Class Domain Projections)
+// Pure, deterministic, zero-DOM ES2017 coordinate & topology math shared across:
+//   1. OrthoGridAdapter (Dungeon 2.5D Oblique Square Grid)
+//   2. IsoGridAdapter   (Bastion City 2:1 Rotated Square Isometric Diamond Grid)
+//   3. HexGridAdapter   (Overworld Pointy-Top Hexagonal Axial/Cube Grid)
+// =============================================================================
+
+const SQRT3 = Math.sqrt(3);
+
+const GRID_TYPES = {
+  ORTHO: 'ortho',
+  ISO: 'iso',
+  HEX_POINTY: 'hex_pointy'
+};
+
+// ---------------------------------------------------------------------------
+// 1. ORTHOGONAL SQUARE GRID ADAPTER (Starfall Vaults — 2.5D Oblique Dungeon)
+// ---------------------------------------------------------------------------
+function createOrthoGridAdapter(options) {
+  const opts = options || {};
+  const tw = opts.tileWidth || 32;
+  const th = opts.tileHeight || 32;
+
+  return {
+    type: GRID_TYPES.ORTHO,
+    tileWidth: tw,
+    tileHeight: th,
+
+    tileToWorld: function(coord) {
+      return {
+        wx: (coord.x + 0.5) * tw,
+        wy: (coord.y + 0.5) * th
+      };
+    },
+
+    worldToTile: function(wx, wy) {
+      return {
+        x: Math.floor(wx / tw),
+        y: Math.floor(wy / th)
+      };
+    },
+
+    getNeighbors: function(coord, includeDiagonals) {
+      const x = coord.x;
+      const y = coord.y;
+      const list = [
+        { x: x, y: y - 1 },
+        { x: x + 1, y: y },
+        { x: x, y: y + 1 },
+        { x: x - 1, y: y }
+      ];
+      if (includeDiagonals) {
+        list.push(
+          { x: x + 1, y: y - 1 },
+          { x: x + 1, y: y + 1 },
+          { x: x - 1, y: y + 1 },
+          { x: x - 1, y: y - 1 }
+        );
+      }
+      return list;
+    },
+
+    getDistance: function(a, b) {
+      return Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
+    },
+
+    getTilePolygon: function(coord) {
+      const x0 = coord.x * tw;
+      const y0 = coord.y * th;
+      return [
+        { wx: x0, wy: y0 },
+        { wx: x0 + tw, wy: y0 },
+        { wx: x0 + tw, wy: y0 + th },
+        { wx: x0, wy: y0 + th }
+      ];
+    }
+  };
+}
+
+// ---------------------------------------------------------------------------
+// 2. ROTATED SQUARE (2:1 ISOMETRIC DIAMOND) ADAPTER (Bastion City 8x8 Plots)
+// ---------------------------------------------------------------------------
+function createIsoGridAdapter(options) {
+  const opts = options || {};
+  const tw = opts.tileWidth || 96;
+  const th = opts.tileHeight || 48;
+  const halfW = tw / 2;
+  const halfH = th / 2;
+
+  return {
+    type: GRID_TYPES.ISO,
+    tileWidth: tw,
+    tileHeight: th,
+
+    tileToWorld: function(coord) {
+      return {
+        wx: (coord.x - coord.y) * halfW,
+        wy: (coord.x + coord.y) * halfH
+      };
+    },
+
+    worldToTile: function(wx, wy) {
+      const fx = (wx / halfW + wy / halfH) * 0.5;
+      const fy = (wy / halfH - wx / halfW) * 0.5;
+      return {
+        x: Math.round(fx),
+        y: Math.round(fy)
+      };
+    },
+
+    getNeighbors: function(coord) {
+      const x = coord.x;
+      const y = coord.y;
+      return [
+        { x: x, y: y - 1 },
+        { x: x + 1, y: y },
+        { x: x, y: y + 1 },
+        { x: x - 1, y: y }
+      ];
+    },
+
+    getDistance: function(a, b) {
+      return Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
+    },
+
+    getTilePolygon: function(coord) {
+      const c = this.tileToWorld(coord);
+      return [
+        { wx: c.wx, wy: c.wy - halfH },
+        { wx: c.wx + halfW, wy: c.wy },
+        { wx: c.wx, wy: c.wy + halfH },
+        { wx: c.wx - halfW, wy: c.wy }
+      ];
+    },
+
+    // Back-to-front painter's sort order for isometric 3D building overlap
+    getDrawOrder: function(cols, rows) {
+      const order = [];
+      for (let sum = 0; sum <= (cols - 1) + (rows - 1); sum++) {
+        for (let x = 0; x < cols; x++) {
+          const y = sum - x;
+          if (y >= 0 && y < rows) {
+            order.push({ x: x, y: y, plotIndex: y * cols + x });
+          }
+        }
+      }
+      return order;
+    }
+  };
+}
+
+// ---------------------------------------------------------------------------
+// 3. POINTY-TOP HEXAGONAL GRID ADAPTER (Overworld Macro Strategy — Axial/Cube)
+// Implements Red Blob Games canonical axial (q, r) & cube (q, r, s) math.
+// ---------------------------------------------------------------------------
+const HEX_DIRECTIONS = [
+  { q: 1, r: 0 },
+  { q: 1, r: -1 },
+  { q: 0, r: -1 },
+  { q: -1, r: 0 },
+  { q: -1, r: 1 },
+  { q: 0, r: 1 }
+];
+
+function cubeRound(fq, fr) {
+  const fs = -fq - fr;
+  let rq = Math.round(fq);
+  let rr = Math.round(fr);
+  const rs = Math.round(fs);
+
+  const qDiff = Math.abs(rq - fq);
+  const rDiff = Math.abs(rr - fr);
+  const sDiff = Math.abs(rs - fs);
+
+  if (qDiff > rDiff && qDiff > sDiff) {
+    rq = -rr - rs;
+  } else if (rDiff > sDiff) {
+    rr = -rq - rs;
+  }
+  return { q: rq === 0 ? 0 : rq, r: rr === 0 ? 0 : rr };
+}
+
+function createHexGridAdapter(options) {
+  const opts = options || {};
+  const size = opts.hexSize || 28;
+
+  return {
+    type: GRID_TYPES.HEX_POINTY,
+    hexSize: size,
+    tileWidth: SQRT3 * size,
+    tileHeight: 2 * size,
+
+    tileToWorld: function(coord) {
+      const q = coord.q;
+      const r = coord.r;
+      return {
+        wx: size * (SQRT3 * q + (SQRT3 * 0.5) * r),
+        wy: size * (1.5 * r)
+      };
+    },
+
+    worldToTile: function(wx, wy) {
+      const fq = ((SQRT3 / 3) * wx - (1 / 3) * wy) / size;
+      const fr = ((2 / 3) * wy) / size;
+      return cubeRound(fq, fr);
+    },
+
+    getNeighbors: function(coord) {
+      const out = [];
+      for (let i = 0; i < HEX_DIRECTIONS.length; i++) {
+        out.push({
+          q: coord.q + HEX_DIRECTIONS[i].q,
+          r: coord.r + HEX_DIRECTIONS[i].r
+        });
+      }
+      return out;
+    },
+
+    getDistance: function(a, b) {
+      const dq = a.q - b.q;
+      const dr = a.r - b.r;
+      return (Math.abs(dq) + Math.abs(dq + dr) + Math.abs(dr)) * 0.5;
+    },
+
+    getRing: function(center, radius) {
+      if (radius <= 0) return [{ q: center.q, r: center.r }];
+      const results = [];
+      let curQ = center.q + HEX_DIRECTIONS[4].q * radius;
+      let curR = center.r + HEX_DIRECTIONS[4].r * radius;
+      for (let side = 0; side < 6; side++) {
+        for (let step = 0; step < radius; step++) {
+          results.push({ q: curQ, r: curR });
+          curQ += HEX_DIRECTIONS[side].q;
+          curR += HEX_DIRECTIONS[side].r;
+        }
+      }
+      return results;
+    },
+
+    getSpiral: function(center, maxRadius) {
+      const results = [{ q: center.q, r: center.r }];
+      for (let rad = 1; rad <= maxRadius; rad++) {
+        const ring = this.getRing(center, rad);
+        for (let i = 0; i < ring.length; i++) {
+          results.push(ring[i]);
+        }
+      }
+      return results;
+    },
+
+    // Odd-r offset (col, row) <-> Axial (q, r) for lossless legacy Overworld coordinate migration
+    offsetToAxial: function(col, row) {
+      const q = col - Math.floor((row - (row & 1)) / 2);
+      return { q: q, r: row };
+    },
+
+    axialToOffset: function(q, r) {
+      const col = q + Math.floor((r - (r & 1)) / 2);
+      return { col: col, row: r };
+    },
+
+    getTilePolygon: function(coord) {
+      const c = this.tileToWorld(coord);
+      const pts = [];
+      for (let i = 0; i < 6; i++) {
+        const angleRad = (Math.PI / 180) * (60 * i - 30);
+        pts.push({
+          wx: c.wx + size * Math.cos(angleRad),
+          wy: c.wy + size * Math.sin(angleRad)
+        });
+      }
+      return pts;
+    }
+  };
+}
+
+  // --- Module: src/ui/shared/mapViewport.js ---
+// =============================================================================
+// SHARED MAP VIEWPORT ENGINE (ADR-0014 §3)
+// Unified camera pan, zoom-toward-cursor/pinch, frustum culling, pointer/touch
+// tap-vs-drag disambiguation, and 6-layer render pipeline contract.
+// Works seamlessly with PixiJS v8 (pixi-viewport) or Canvas 2D fallback.
+// =============================================================================
+
+const MAP_RENDER_LAYERS = {
+  TERRAIN: 0,
+  DECALS: 1,
+  PROPS: 2,
+  ACTORS: 3,
+  LIGHTING: 4,
+  OVERLAYS: 5
+};
+
+function createMapViewport(options) {
+  const opts = options || {};
+  const gridAdapter = opts.gridAdapter || null;
+  const minZoom = typeof opts.minZoom === 'number' ? opts.minZoom : 0.45;
+  const maxZoom = typeof opts.maxZoom === 'number' ? opts.maxZoom : 2.5;
+  const bounds = opts.bounds || null; // { minX, maxX, minY, maxY }
+
+  const camera = {
+    x: typeof opts.x === 'number' ? opts.x : 0, // World X at viewport center
+    y: typeof opts.y === 'number' ? opts.y : 0, // World Y at viewport center
+    zoom: typeof opts.zoom === 'number' ? opts.zoom : 1.0,
+    width: opts.viewportWidth || 672,
+    height: opts.viewportHeight || 480
+  };
+
+  function clampCamera() {
+    if (camera.zoom < minZoom) camera.zoom = minZoom;
+    if (camera.zoom > maxZoom) camera.zoom = maxZoom;
+    if (bounds) {
+      if (typeof bounds.minX === 'number' && camera.x < bounds.minX) camera.x = bounds.minX;
+      if (typeof bounds.maxX === 'number' && camera.x > bounds.maxX) camera.x = bounds.maxX;
+      if (typeof bounds.minY === 'number' && camera.y < bounds.minY) camera.y = bounds.minY;
+      if (typeof bounds.maxY === 'number' && camera.y > bounds.maxY) camera.y = bounds.maxY;
+    }
+  }
+
+  function screenToWorld(sx, sy) {
+    return {
+      wx: camera.x + (sx - camera.width * 0.5) / camera.zoom,
+      wy: camera.y + (sy - camera.height * 0.5) / camera.zoom
+    };
+  }
+
+  function worldToScreen(wx, wy) {
+    return {
+      sx: (wx - camera.x) * camera.zoom + camera.width * 0.5,
+      sy: (wy - camera.y) * camera.zoom + camera.height * 0.5
+    };
+  }
+
+  function setZoom(nextZoom, anchorSx, anchorSy) {
+    const clamped = Math.max(minZoom, Math.min(maxZoom, nextZoom));
+    if (typeof anchorSx === 'number' && typeof anchorSy === 'number') {
+      const before = screenToWorld(anchorSx, anchorSy);
+      camera.zoom = clamped;
+      const after = screenToWorld(anchorSx, anchorSy);
+      camera.x += (before.wx - after.wx);
+      camera.y += (before.wy - after.wy);
+    } else {
+      camera.zoom = clamped;
+    }
+    clampCamera();
+    return camera.zoom;
+  }
+
+  function panByScreenDelta(dsx, dsy) {
+    camera.x -= dsx / camera.zoom;
+    camera.y -= dsy / camera.zoom;
+    clampCamera();
+  }
+
+  function centerOnWorld(wx, wy) {
+    camera.x = wx;
+    camera.y = wy;
+    clampCamera();
+  }
+
+  function centerOnTile(coord) {
+    if (!gridAdapter || typeof gridAdapter.tileToWorld !== 'function') return;
+    const w = gridAdapter.tileToWorld(coord);
+    centerOnWorld(w.wx, w.wy);
+  }
+
+  function screenToTile(sx, sy) {
+    if (!gridAdapter || typeof gridAdapter.worldToTile !== 'function') return null;
+    const w = screenToWorld(sx, sy);
+    return gridAdapter.worldToTile(w.wx, w.wy);
+  }
+
+  function tileToScreen(coord) {
+    if (!gridAdapter || typeof gridAdapter.tileToWorld !== 'function') return null;
+    const w = gridAdapter.tileToWorld(coord);
+    return worldToScreen(w.wx, w.wy);
+  }
+
+  function getVisibleWorldRect(margin) {
+    const pad = typeof margin === 'number' ? margin : 64;
+    const tl = screenToWorld(-pad, -pad);
+    const br = screenToWorld(camera.width + pad, camera.height + pad);
+    return {
+      minX: tl.wx,
+      minY: tl.wy,
+      maxX: br.wx,
+      maxY: br.wy
+    };
+  }
+
+  function resize(width, height) {
+    if (width > 0) camera.width = width;
+    if (height > 0) camera.height = height;
+    clampCamera();
+  }
+
+  // Unified Mouse + Touch Pointer Controller (Tap-vs-Drag disambiguation + Pinch-Zoom)
+  function attachPointerControls(canvasEl, handlers) {
+    if (!canvasEl || typeof canvasEl.addEventListener !== 'function') return function() {};
+    const cb = handlers || {};
+    const dragThresholdPx = 8;
+
+    let isDown = false;
+    let dragged = false;
+    let startX = 0;
+    let startY = 0;
+    let lastX = 0;
+    let lastY = 0;
+    let lastPinchDist = 0;
+
+    function getLocalPos(clientX, clientY) {
+      const rect = canvasEl.getBoundingClientRect();
+      const scaleX = rect.width > 0 ? (camera.width / rect.width) : 1;
+      const scaleY = rect.height > 0 ? (camera.height / rect.height) : 1;
+      return {
+        sx: (clientX - rect.left) * scaleX,
+        sy: (clientY - rect.top) * scaleY
+      };
+    }
+
+    function onMouseDown(e) {
+      isDown = true;
+      dragged = false;
+      startX = lastX = e.clientX;
+      startY = lastY = e.clientY;
+    }
+
+    function onMouseMove(e) {
+      const pos = getLocalPos(e.clientX, e.clientY);
+      if (isDown) {
+        const dx = e.clientX - lastX;
+        const dy = e.clientY - lastY;
+        if (Math.hypot(e.clientX - startX, e.clientY - startY) >= dragThresholdPx) {
+          dragged = true;
+        }
+        if (dragged) {
+          panByScreenDelta(dx, dy);
+          if (typeof cb.onCameraChange === 'function') cb.onCameraChange(camera);
+        }
+        lastX = e.clientX;
+        lastY = e.clientY;
+      } else if (typeof cb.onHoverTile === 'function') {
+        cb.onHoverTile(screenToTile(pos.sx, pos.sy), pos);
+      }
+    }
+
+    function onMouseUp(e) {
+      if (!isDown) return;
+      isDown = false;
+      if (!dragged && typeof cb.onTapTile === 'function') {
+        const pos = getLocalPos(e.clientX, e.clientY);
+        cb.onTapTile(screenToTile(pos.sx, pos.sy), pos);
+      }
+    }
+
+    function onWheel(e) {
+      if (typeof e.preventDefault === 'function') e.preventDefault();
+      const pos = getLocalPos(e.clientX, e.clientY);
+      const factor = e.deltaY < 0 ? 1.12 : 0.89;
+      setZoom(camera.zoom * factor, pos.sx, pos.sy);
+      if (typeof cb.onCameraChange === 'function') cb.onCameraChange(camera);
+    }
+
+    function onTouchStart(e) {
+      if (!e.touches || e.touches.length === 0) return;
+      if (e.touches.length === 1) {
+        isDown = true;
+        dragged = false;
+        startX = lastX = e.touches[0].clientX;
+        startY = lastY = e.touches[0].clientY;
+      } else if (e.touches.length === 2) {
+        isDown = false;
+        dragged = true;
+        lastPinchDist = Math.hypot(
+          e.touches[0].clientX - e.touches[1].clientX,
+          e.touches[0].clientY - e.touches[1].clientY
+        );
+      }
+    }
+
+    function onTouchMove(e) {
+      if (!e.touches || e.touches.length === 0) return;
+      if (e.touches.length === 1 && isDown) {
+        const t = e.touches[0];
+        if (Math.hypot(t.clientX - startX, t.clientY - startY) >= dragThresholdPx) {
+          dragged = true;
+        }
+        if (dragged) {
+          if (typeof e.preventDefault === 'function') e.preventDefault();
+          panByScreenDelta(t.clientX - lastX, t.clientY - lastY);
+          if (typeof cb.onCameraChange === 'function') cb.onCameraChange(camera);
+        }
+        lastX = t.clientX;
+        lastY = t.clientY;
+      } else if (e.touches.length === 2) {
+        if (typeof e.preventDefault === 'function') e.preventDefault();
+        const dist = Math.hypot(
+          e.touches[0].clientX - e.touches[1].clientX,
+          e.touches[0].clientY - e.touches[1].clientY
+        );
+        if (lastPinchDist > 0 && dist > 0) {
+          const midX = (e.touches[0].clientX + e.touches[1].clientX) * 0.5;
+          const midY = (e.touches[0].clientY + e.touches[1].clientY) * 0.5;
+          const pos = getLocalPos(midX, midY);
+          setZoom(camera.zoom * (dist / lastPinchDist), pos.sx, pos.sy);
+          if (typeof cb.onCameraChange === 'function') cb.onCameraChange(camera);
+        }
+        lastPinchDist = dist;
+      }
+    }
+
+    function onTouchEnd(e) {
+      if (isDown && !dragged && typeof cb.onTapTile === 'function' && e.changedTouches && e.changedTouches[0]) {
+        const pos = getLocalPos(e.changedTouches[0].clientX, e.changedTouches[0].clientY);
+        cb.onTapTile(screenToTile(pos.sx, pos.sy), pos);
+      }
+      isDown = false;
+      lastPinchDist = 0;
+    }
+
+    canvasEl.addEventListener('mousedown', onMouseDown);
+    canvasEl.addEventListener('mousemove', onMouseMove);
+    canvasEl.addEventListener('mouseup', onMouseUp);
+    canvasEl.addEventListener('wheel', onWheel, { passive: false });
+    canvasEl.addEventListener('touchstart', onTouchStart, { passive: true });
+    canvasEl.addEventListener('touchmove', onTouchMove, { passive: false });
+    canvasEl.addEventListener('touchend', onTouchEnd, { passive: true });
+
+    return function detach() {
+      canvasEl.removeEventListener('mousedown', onMouseDown);
+      canvasEl.removeEventListener('mousemove', onMouseMove);
+      canvasEl.removeEventListener('mouseup', onMouseUp);
+      canvasEl.removeEventListener('wheel', onWheel);
+      canvasEl.removeEventListener('touchstart', onTouchStart);
+      canvasEl.removeEventListener('touchmove', onTouchMove);
+      canvasEl.removeEventListener('touchend', onTouchEnd);
+    };
+  }
+
+  clampCamera();
+
+  return {
+    camera: camera,
+    gridAdapter: gridAdapter,
+    screenToWorld: screenToWorld,
+    worldToScreen: worldToScreen,
+    setZoom: setZoom,
+    panByScreenDelta: panByScreenDelta,
+    centerOnWorld: centerOnWorld,
+    centerOnTile: centerOnTile,
+    screenToTile: screenToTile,
+    tileToScreen: tileToScreen,
+    getVisibleWorldRect: getVisibleWorldRect,
+    resize: resize,
+    attachPointerControls: attachPointerControls
+  };
+}
+
+  // --- Module: src/wargame/ui/cityIsoCanvas.js ---
+// =============================================================================
+// 2:1 ISOMETRIC BASTION CITY CANVAS RENDERER (ADR-0014 Step 2)
+// Uses shared IsoGridAdapter + MapViewportEngine to render the 8x8 Bastion City
+// in sunlit Golden-Hour 2:1 Isometric projection with Lv 1-5 3D height scaling,
+// back-to-front painter's sort, drag-pan, wheel/pinch zoom, and exact diamond picking.
+// =============================================================================
+
+
+
+
+
+let cityIsoAdapter = null;
+let cityViewport = null;
+let hoveredPlotCoord = null;
+let attachedCanvas = null;
+
+function ensureCityIsoViewport(canvas) {
+  if (!cityIsoAdapter) {
+    cityIsoAdapter = createIsoGridAdapter({ tileWidth: 74, tileHeight: 37 });
+  }
+  const w = canvas ? canvas.width : 660;
+  const h = canvas ? canvas.height : 400;
+  if (!cityViewport) {
+    cityViewport = createMapViewport({
+      gridAdapter: cityIsoAdapter,
+      viewportWidth: w,
+      viewportHeight: h,
+      minZoom: 0.65,
+      maxZoom: 2.0,
+      zoom: 1.0,
+      bounds: { minX: -420, maxX: 420, minY: -80, maxY: 420 }
+    });
+    cityViewport.centerOnTile({ x: 3.5, y: 3.5 });
+  } else if (canvas && (cityViewport.camera.width !== w || cityViewport.camera.height !== h)) {
+    cityViewport.resize(w, h);
+  }
+  return cityViewport;
+}
+
+function attachCityIsoControls(canvas, callbacks) {
+  if (!canvas || attachedCanvas === canvas) return;
+  attachedCanvas = canvas;
+  const vp = ensureCityIsoViewport(canvas);
+  const cb = callbacks || {};
+
+  vp.attachPointerControls(canvas, {
+    onHoverTile: function(coord) {
+      if (coord && coord.x >= 0 && coord.x < 8 && coord.y >= 0 && coord.y < 8) {
+        hoveredPlotCoord = coord;
+      } else {
+        hoveredPlotCoord = null;
+      }
+      if (typeof cb.onRepaint === 'function') cb.onRepaint();
+    },
+    onTapTile: function(coord) {
+      if (!coord || coord.x < 0 || coord.x >= 8 || coord.y < 0 || coord.y >= 8) return;
+      const plotIndex = coord.y * 8 + coord.x;
+      if (typeof cb.onSelectPlot === 'function') cb.onSelectPlot(plotIndex);
+    },
+    onCameraChange: function() {
+      if (typeof cb.onRepaint === 'function') cb.onRepaint();
+    }
+  });
+}
+
+function drawIsoDiamond(ctx, pts, fill, stroke, lineWidth) {
+  ctx.beginPath();
+  ctx.moveTo(pts[0].sx, pts[0].sy);
+  ctx.lineTo(pts[1].sx, pts[1].sy);
+  ctx.lineTo(pts[2].sx, pts[2].sy);
+  ctx.lineTo(pts[3].sx, pts[3].sy);
+  ctx.closePath();
+  if (fill) {
+    ctx.fillStyle = fill;
+    ctx.fill();
+  }
+  if (stroke) {
+    ctx.strokeStyle = stroke;
+    ctx.lineWidth = lineWidth || 1;
+    ctx.stroke();
+  }
+}
+
+function getBuildingRoofColor(bDef) {
+  if (!bDef) return '#b85a3a';
+  if (bDef.id === 'meeting_hall' || bDef.id === 'town_hall') return '#d97706';
+  if (bDef.category === 'military') return '#4a5568';
+  if (bDef.category === 'arcane') return '#5b21b6';
+  if (bDef.category === 'resource') return '#9a3412';
+  if (bDef.category === 'storage') return '#64748b';
+  return '#b85a3a';
+}
+
+function drawExtrudedIsoBuilding(ctx, vp, coord, bDef, plot) {
+  const lvl = plot.level || 1;
+  const z = vp.camera.zoom;
+  const polyWorld = cityIsoAdapter.getTilePolygon(coord);
+  const pts = polyWorld.map(function(p) { return vp.worldToScreen(p.wx, p.wy); });
+  const center = vp.tileToScreen(coord);
+
+  // Shrink footprint slightly inside tile for crisp streets/courtyards
+  const inset = 0.78;
+  const basePts = pts.map(function(p) {
+    return {
+      sx: center.sx + (p.sx - center.sx) * inset,
+      sy: center.sy + (p.sy - center.sy) * inset
+    };
+  });
+
+  // Soft 135-degree daylight contact shadow (bottom-right)
+  ctx.fillStyle = 'rgba(10, 14, 22, 0.38)';
+  ctx.beginPath();
+  ctx.moveTo(basePts[0].sx + 6 * z, basePts[0].sy + 4 * z);
+  ctx.lineTo(basePts[1].sx + 8 * z, basePts[1].sy + 5 * z);
+  ctx.lineTo(basePts[2].sx + 6 * z, basePts[2].sy + 5 * z);
+  ctx.lineTo(basePts[3].sx + 4 * z, basePts[3].sy + 4 * z);
+  ctx.closePath();
+  ctx.fill();
+
+  // Height scales visibly with Level 1 -> 5
+  const isCenterSeat = (bDef.id === 'meeting_hall' || bDef.id === 'town_hall');
+  const wallH = ((isCenterSeat ? 22 : 12) + lvl * 5) * z;
+  const roofPeakH = ((isCenterSeat ? 14 : 9) + lvl * 2) * z;
+
+  const topPts = basePts.map(function(p) {
+    return { sx: p.sx, sy: p.sy - wallH };
+  });
+
+  // Wall colors: sunlit top-left warm limestone/timber vs. cool shaded right face
+  const leftWallFill = plot.underConstruction ? '#92623a' : (lvl >= 2 ? '#b8b0a4' : '#a47148');
+  const rightWallFill = plot.underConstruction ? '#6b4423' : (lvl >= 2 ? '#7c756c' : '#7c5233');
+
+  // Left visible face (pts[3] -> pts[2])
+  ctx.beginPath();
+  ctx.moveTo(basePts[3].sx, basePts[3].sy);
+  ctx.lineTo(basePts[2].sx, basePts[2].sy);
+  ctx.lineTo(topPts[2].sx, topPts[2].sy);
+  ctx.lineTo(topPts[3].sx, topPts[3].sy);
+  ctx.closePath();
+  ctx.fillStyle = leftWallFill;
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(15, 23, 42, 0.45)';
+  ctx.lineWidth = 1;
+  ctx.stroke();
+
+  // Right visible face (pts[2] -> pts[1])
+  ctx.beginPath();
+  ctx.moveTo(basePts[2].sx, basePts[2].sy);
+  ctx.lineTo(basePts[1].sx, basePts[1].sy);
+  ctx.lineTo(topPts[1].sx, topPts[1].sy);
+  ctx.lineTo(topPts[2].sx, topPts[2].sy);
+  ctx.closePath();
+  ctx.fillStyle = rightWallFill;
+  ctx.fill();
+  ctx.stroke();
+
+  // Pitched 4-facet isometric roof
+  const roofBase = getBuildingRoofColor(bDef);
+  const apex = { sx: center.sx, sy: center.sy - wallH - roofPeakH };
+
+  // Sunlit front-left roof facet
+  ctx.beginPath();
+  ctx.moveTo(topPts[3].sx, topPts[3].sy);
+  ctx.lineTo(topPts[2].sx, topPts[2].sy);
+  ctx.lineTo(apex.sx, apex.sy);
+  ctx.closePath();
+  ctx.fillStyle = roofBase;
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(255, 244, 214, 0.25)';
+  ctx.stroke();
+
+  // Shaded front-right roof facet
+  ctx.beginPath();
+  ctx.moveTo(topPts[2].sx, topPts[2].sy);
+  ctx.lineTo(topPts[1].sx, topPts[1].sy);
+  ctx.lineTo(apex.sx, apex.sy);
+  ctx.closePath();
+  ctx.fillStyle = roofBase;
+  ctx.fill();
+  ctx.fillStyle = 'rgba(10, 15, 30, 0.30)';
+  ctx.fill();
+
+  // Back roof facets for solid silhouette
+  ctx.beginPath();
+  ctx.moveTo(topPts[0].sx, topPts[0].sy);
+  ctx.lineTo(topPts[3].sx, topPts[3].sy);
+  ctx.lineTo(apex.sx, apex.sy);
+  ctx.closePath();
+  ctx.fillStyle = roofBase;
+  ctx.fill();
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.14)';
+  ctx.fill();
+
+  ctx.beginPath();
+  ctx.moveTo(topPts[0].sx, topPts[0].sy);
+  ctx.lineTo(topPts[1].sx, topPts[1].sy);
+  ctx.lineTo(apex.sx, apex.sy);
+  ctx.closePath();
+  ctx.fillStyle = roofBase;
+  ctx.fill();
+  ctx.fillStyle = 'rgba(10, 15, 30, 0.18)';
+  ctx.fill();
+
+  // Level 3+ Celestial Gold Finial / Crest
+  if (lvl >= 3 || isCenterSeat) {
+    ctx.fillStyle = '#fbbf24';
+    ctx.beginPath();
+    ctx.arc(apex.sx, apex.sy - 2 * z, 2.5 * z, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Crisp building icon & Level pill floating cleanly above roof
+  ctx.font = Math.max(10, Math.round(13 * z)) + 'px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(plot.underConstruction ? '🔨' : (bDef.icon || '🏛️'), apex.sx, apex.sy - 10 * z);
+
+  ctx.font = 'bold ' + Math.max(8, Math.round(9 * z)) + 'px monospace';
+  ctx.fillStyle = '#080b11';
+  ctx.fillRect(apex.sx - 13 * z, basePts[2].sy - 9 * z, 26 * z, 11 * z);
+  ctx.fillStyle = '#fbbf24';
+  ctx.fillText('L' + lvl, apex.sx, basePts[2].sy - 3 * z);
+}
+
+function renderCityIsoCanvas(simHost) {
+  if (typeof document === 'undefined' || !simHost || !simHost.state || !simHost.state.world) return;
+  const canvas = document.getElementById('wgCityIsoCanvas');
+  if (!canvas || typeof canvas.getContext !== 'function') return;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+
+  const city = getPrimaryCity(simHost.state);
+  if (!city || !Array.isArray(city.plots)) return;
+
+  const vp = ensureCityIsoViewport(canvas);
+  const w = canvas.width;
+  const h = canvas.height;
+
+  // 1. Sunlit Golden-Hour Meadow Backdrop (Art Bible §2.1 & §2.2)
+  if (typeof ctx.createRadialGradient === 'function') {
+    const bgGrad = ctx.createRadialGradient(w * 0.35, h * 0.25, 40, w * 0.5, h * 0.5, w * 0.75);
+    bgGrad.addColorStop(0, '#4f7d52');
+    bgGrad.addColorStop(0.65, '#335739');
+    bgGrad.addColorStop(1, '#182b20');
+    ctx.fillStyle = bgGrad;
+  } else {
+    ctx.fillStyle = '#335739';
+  }
+  ctx.fillRect(0, 0, w, h);
+
+  const selectedIdx = typeof simHost.state.selectedPlotIndex === 'number' ? simHost.state.selectedPlotIndex : 27;
+  const moveSourceIdx = typeof simHost.state.moveSourcePlotIndex === 'number' ? simHost.state.moveSourcePlotIndex : null;
+
+  // 2. Back-to-Front Painter's Order across all 64 (8x8) Spatial Plots
+  const drawOrder = cityIsoAdapter.getDrawOrder(8, 8);
+  for (let i = 0; i < drawOrder.length; i++) {
+    const cell = drawOrder[i];
+    const plot = city.plots[cell.plotIndex];
+    if (!plot) continue;
+
+    const polyWorld = cityIsoAdapter.getTilePolygon(cell);
+    const pts = polyWorld.map(function(p) { return vp.worldToScreen(p.wx, p.wy); });
+
+    const isSelected = plot.plotIndex === selectedIdx;
+    const isMoveSource = plot.plotIndex === moveSourceIdx;
+    const isHovered = Boolean(hoveredPlotCoord && hoveredPlotCoord.x === cell.x && hoveredPlotCoord.y === cell.y);
+    const bDef = plot.buildingId ? CITY_BUILDINGS_CATALOG[plot.buildingId] : null;
+
+    // Ground tile fill: cobblestone plaza if built, sunlit meadow turf if empty
+    let tileFill = bDef ? '#8c857b' : (((cell.x + cell.y) % 2 === 0) ? '#5a8756' : '#4f7a4c');
+    if (plot.underConstruction) tileFill = '#786852';
+    if (isHovered && !isSelected) tileFill = bDef ? '#a59e93' : '#6ea069';
+
+    let strokeColor = 'rgba(15, 23, 42, 0.35)';
+    let strokeW = 1;
+    if (isSelected) {
+      strokeColor = '#fbbf24';
+      strokeW = 2.5;
+    } else if (isMoveSource) {
+      strokeColor = '#38bdf8';
+      strokeW = 2.5;
+    } else if (isHovered) {
+      strokeColor = '#e2e8f0';
+      strokeW = 1.5;
+    }
+
+    drawIsoDiamond(ctx, pts, tileFill, strokeColor, strokeW);
+
+    // Subtle highlight overlay on selected plot
+    if (isSelected) {
+      drawIsoDiamond(ctx, pts, 'rgba(251, 191, 36, 0.22)', '#fbbf24', 2.5);
+    }
+
+    // 3D Extruded Isometric Building
+    if (bDef) {
+      drawExtrudedIsoBuilding(ctx, vp, cell, bDef, plot);
+    }
+  }
+}
+
   // --- Module: src/wargame/ui/wargameUiSync.js ---
 // Wargame DOM Synchronizer — Start Screen, Pioneer Overworld HUD, Real-Time City Builder, Guild Recruitment & Event Feed
+
 
 
 
@@ -8562,6 +9424,18 @@ function renderCityBuilderPanel(simHost) {
   }
   setHtmlIfChanged(gridEl, tilesHtml.join(''));
 
+  // Toggle 2:1 Isometric City Canvas (ADR-0014 default) vs. Flat Grid fallback
+  const isFlatMode = simHost.state._cityViewMode === 'flat';
+  const isoContainer = document.getElementById('wgCityIsoContainer');
+  const flatContainer = document.getElementById('wgCityFlatContainer');
+  const projBtn = document.getElementById('wgBtnCityProjectionToggle');
+  if (isoContainer) isoContainer.classList.toggle('hidden', isFlatMode);
+  if (flatContainer) flatContainer.classList.toggle('hidden', !isFlatMode);
+  if (projBtn) projBtn.textContent = isFlatMode ? '⊞ Flat Grid' : '◇ Isometric View';
+  if (!isFlatMode) {
+    renderCityIsoCanvas(simHost);
+  }
+
   // 2. Render Plot Inspector & Action Operations Hub
   if (!inspectorEl) return;
   const selPlot = plots.find(function(p) { return p.plotIndex === selectedIdx; }) || plots[27] || plots[0];
@@ -9015,566 +9889,6 @@ function formatEventSummary(ev) {
     return '— [Blocked] ' + p.reason;
   }
   return '';
-}
-
-  // --- Module: src/ui/shared/gridAdapters.js ---
-// =============================================================================
-// UNIFIED GRID ADAPTERS (ADR-0014 — Path A: Best-in-Class Domain Projections)
-// Pure, deterministic, zero-DOM ES2017 coordinate & topology math shared across:
-//   1. OrthoGridAdapter (Dungeon 2.5D Oblique Square Grid)
-//   2. IsoGridAdapter   (Bastion City 2:1 Rotated Square Isometric Diamond Grid)
-//   3. HexGridAdapter   (Overworld Pointy-Top Hexagonal Axial/Cube Grid)
-// =============================================================================
-
-const SQRT3 = Math.sqrt(3);
-
-const GRID_TYPES = {
-  ORTHO: 'ortho',
-  ISO: 'iso',
-  HEX_POINTY: 'hex_pointy'
-};
-
-// ---------------------------------------------------------------------------
-// 1. ORTHOGONAL SQUARE GRID ADAPTER (Starfall Vaults — 2.5D Oblique Dungeon)
-// ---------------------------------------------------------------------------
-function createOrthoGridAdapter(options) {
-  const opts = options || {};
-  const tw = opts.tileWidth || 32;
-  const th = opts.tileHeight || 32;
-
-  return {
-    type: GRID_TYPES.ORTHO,
-    tileWidth: tw,
-    tileHeight: th,
-
-    tileToWorld: function(coord) {
-      return {
-        wx: (coord.x + 0.5) * tw,
-        wy: (coord.y + 0.5) * th
-      };
-    },
-
-    worldToTile: function(wx, wy) {
-      return {
-        x: Math.floor(wx / tw),
-        y: Math.floor(wy / th)
-      };
-    },
-
-    getNeighbors: function(coord, includeDiagonals) {
-      const x = coord.x;
-      const y = coord.y;
-      const list = [
-        { x: x, y: y - 1 },
-        { x: x + 1, y: y },
-        { x: x, y: y + 1 },
-        { x: x - 1, y: y }
-      ];
-      if (includeDiagonals) {
-        list.push(
-          { x: x + 1, y: y - 1 },
-          { x: x + 1, y: y + 1 },
-          { x: x - 1, y: y + 1 },
-          { x: x - 1, y: y - 1 }
-        );
-      }
-      return list;
-    },
-
-    getDistance: function(a, b) {
-      return Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
-    },
-
-    getTilePolygon: function(coord) {
-      const x0 = coord.x * tw;
-      const y0 = coord.y * th;
-      return [
-        { wx: x0, wy: y0 },
-        { wx: x0 + tw, wy: y0 },
-        { wx: x0 + tw, wy: y0 + th },
-        { wx: x0, wy: y0 + th }
-      ];
-    }
-  };
-}
-
-// ---------------------------------------------------------------------------
-// 2. ROTATED SQUARE (2:1 ISOMETRIC DIAMOND) ADAPTER (Bastion City 8x8 Plots)
-// ---------------------------------------------------------------------------
-function createIsoGridAdapter(options) {
-  const opts = options || {};
-  const tw = opts.tileWidth || 96;
-  const th = opts.tileHeight || 48;
-  const halfW = tw / 2;
-  const halfH = th / 2;
-
-  return {
-    type: GRID_TYPES.ISO,
-    tileWidth: tw,
-    tileHeight: th,
-
-    tileToWorld: function(coord) {
-      return {
-        wx: (coord.x - coord.y) * halfW,
-        wy: (coord.x + coord.y) * halfH
-      };
-    },
-
-    worldToTile: function(wx, wy) {
-      const fx = (wx / halfW + wy / halfH) * 0.5;
-      const fy = (wy / halfH - wx / halfW) * 0.5;
-      return {
-        x: Math.round(fx),
-        y: Math.round(fy)
-      };
-    },
-
-    getNeighbors: function(coord) {
-      const x = coord.x;
-      const y = coord.y;
-      return [
-        { x: x, y: y - 1 },
-        { x: x + 1, y: y },
-        { x: x, y: y + 1 },
-        { x: x - 1, y: y }
-      ];
-    },
-
-    getDistance: function(a, b) {
-      return Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
-    },
-
-    getTilePolygon: function(coord) {
-      const c = this.tileToWorld(coord);
-      return [
-        { wx: c.wx, wy: c.wy - halfH },
-        { wx: c.wx + halfW, wy: c.wy },
-        { wx: c.wx, wy: c.wy + halfH },
-        { wx: c.wx - halfW, wy: c.wy }
-      ];
-    },
-
-    // Back-to-front painter's sort order for isometric 3D building overlap
-    getDrawOrder: function(cols, rows) {
-      const order = [];
-      for (let sum = 0; sum <= (cols - 1) + (rows - 1); sum++) {
-        for (let x = 0; x < cols; x++) {
-          const y = sum - x;
-          if (y >= 0 && y < rows) {
-            order.push({ x: x, y: y, plotIndex: y * cols + x });
-          }
-        }
-      }
-      return order;
-    }
-  };
-}
-
-// ---------------------------------------------------------------------------
-// 3. POINTY-TOP HEXAGONAL GRID ADAPTER (Overworld Macro Strategy — Axial/Cube)
-// Implements Red Blob Games canonical axial (q, r) & cube (q, r, s) math.
-// ---------------------------------------------------------------------------
-const HEX_DIRECTIONS = [
-  { q: 1, r: 0 },
-  { q: 1, r: -1 },
-  { q: 0, r: -1 },
-  { q: -1, r: 0 },
-  { q: -1, r: 1 },
-  { q: 0, r: 1 }
-];
-
-function cubeRound(fq, fr) {
-  const fs = -fq - fr;
-  let rq = Math.round(fq);
-  let rr = Math.round(fr);
-  const rs = Math.round(fs);
-
-  const qDiff = Math.abs(rq - fq);
-  const rDiff = Math.abs(rr - fr);
-  const sDiff = Math.abs(rs - fs);
-
-  if (qDiff > rDiff && qDiff > sDiff) {
-    rq = -rr - rs;
-  } else if (rDiff > sDiff) {
-    rr = -rq - rs;
-  }
-  return { q: rq === 0 ? 0 : rq, r: rr === 0 ? 0 : rr };
-}
-
-function createHexGridAdapter(options) {
-  const opts = options || {};
-  const size = opts.hexSize || 28;
-
-  return {
-    type: GRID_TYPES.HEX_POINTY,
-    hexSize: size,
-    tileWidth: SQRT3 * size,
-    tileHeight: 2 * size,
-
-    tileToWorld: function(coord) {
-      const q = coord.q;
-      const r = coord.r;
-      return {
-        wx: size * (SQRT3 * q + (SQRT3 * 0.5) * r),
-        wy: size * (1.5 * r)
-      };
-    },
-
-    worldToTile: function(wx, wy) {
-      const fq = ((SQRT3 / 3) * wx - (1 / 3) * wy) / size;
-      const fr = ((2 / 3) * wy) / size;
-      return cubeRound(fq, fr);
-    },
-
-    getNeighbors: function(coord) {
-      const out = [];
-      for (let i = 0; i < HEX_DIRECTIONS.length; i++) {
-        out.push({
-          q: coord.q + HEX_DIRECTIONS[i].q,
-          r: coord.r + HEX_DIRECTIONS[i].r
-        });
-      }
-      return out;
-    },
-
-    getDistance: function(a, b) {
-      const dq = a.q - b.q;
-      const dr = a.r - b.r;
-      return (Math.abs(dq) + Math.abs(dq + dr) + Math.abs(dr)) * 0.5;
-    },
-
-    getRing: function(center, radius) {
-      if (radius <= 0) return [{ q: center.q, r: center.r }];
-      const results = [];
-      let curQ = center.q + HEX_DIRECTIONS[4].q * radius;
-      let curR = center.r + HEX_DIRECTIONS[4].r * radius;
-      for (let side = 0; side < 6; side++) {
-        for (let step = 0; step < radius; step++) {
-          results.push({ q: curQ, r: curR });
-          curQ += HEX_DIRECTIONS[side].q;
-          curR += HEX_DIRECTIONS[side].r;
-        }
-      }
-      return results;
-    },
-
-    getSpiral: function(center, maxRadius) {
-      const results = [{ q: center.q, r: center.r }];
-      for (let rad = 1; rad <= maxRadius; rad++) {
-        const ring = this.getRing(center, rad);
-        for (let i = 0; i < ring.length; i++) {
-          results.push(ring[i]);
-        }
-      }
-      return results;
-    },
-
-    // Odd-r offset (col, row) <-> Axial (q, r) for lossless legacy Overworld coordinate migration
-    offsetToAxial: function(col, row) {
-      const q = col - Math.floor((row - (row & 1)) / 2);
-      return { q: q, r: row };
-    },
-
-    axialToOffset: function(q, r) {
-      const col = q + Math.floor((r - (r & 1)) / 2);
-      return { col: col, row: r };
-    },
-
-    getTilePolygon: function(coord) {
-      const c = this.tileToWorld(coord);
-      const pts = [];
-      for (let i = 0; i < 6; i++) {
-        const angleRad = (Math.PI / 180) * (60 * i - 30);
-        pts.push({
-          wx: c.wx + size * Math.cos(angleRad),
-          wy: c.wy + size * Math.sin(angleRad)
-        });
-      }
-      return pts;
-    }
-  };
-}
-
-  // --- Module: src/ui/shared/mapViewport.js ---
-// =============================================================================
-// SHARED MAP VIEWPORT ENGINE (ADR-0014 §3)
-// Unified camera pan, zoom-toward-cursor/pinch, frustum culling, pointer/touch
-// tap-vs-drag disambiguation, and 6-layer render pipeline contract.
-// Works seamlessly with PixiJS v8 (pixi-viewport) or Canvas 2D fallback.
-// =============================================================================
-
-const MAP_RENDER_LAYERS = {
-  TERRAIN: 0,
-  DECALS: 1,
-  PROPS: 2,
-  ACTORS: 3,
-  LIGHTING: 4,
-  OVERLAYS: 5
-};
-
-function createMapViewport(options) {
-  const opts = options || {};
-  const gridAdapter = opts.gridAdapter || null;
-  const minZoom = typeof opts.minZoom === 'number' ? opts.minZoom : 0.45;
-  const maxZoom = typeof opts.maxZoom === 'number' ? opts.maxZoom : 2.5;
-  const bounds = opts.bounds || null; // { minX, maxX, minY, maxY }
-
-  const camera = {
-    x: typeof opts.x === 'number' ? opts.x : 0, // World X at viewport center
-    y: typeof opts.y === 'number' ? opts.y : 0, // World Y at viewport center
-    zoom: typeof opts.zoom === 'number' ? opts.zoom : 1.0,
-    width: opts.viewportWidth || 672,
-    height: opts.viewportHeight || 480
-  };
-
-  function clampCamera() {
-    if (camera.zoom < minZoom) camera.zoom = minZoom;
-    if (camera.zoom > maxZoom) camera.zoom = maxZoom;
-    if (bounds) {
-      if (typeof bounds.minX === 'number' && camera.x < bounds.minX) camera.x = bounds.minX;
-      if (typeof bounds.maxX === 'number' && camera.x > bounds.maxX) camera.x = bounds.maxX;
-      if (typeof bounds.minY === 'number' && camera.y < bounds.minY) camera.y = bounds.minY;
-      if (typeof bounds.maxY === 'number' && camera.y > bounds.maxY) camera.y = bounds.maxY;
-    }
-  }
-
-  function screenToWorld(sx, sy) {
-    return {
-      wx: camera.x + (sx - camera.width * 0.5) / camera.zoom,
-      wy: camera.y + (sy - camera.height * 0.5) / camera.zoom
-    };
-  }
-
-  function worldToScreen(wx, wy) {
-    return {
-      sx: (wx - camera.x) * camera.zoom + camera.width * 0.5,
-      sy: (wy - camera.y) * camera.zoom + camera.height * 0.5
-    };
-  }
-
-  function setZoom(nextZoom, anchorSx, anchorSy) {
-    const clamped = Math.max(minZoom, Math.min(maxZoom, nextZoom));
-    if (typeof anchorSx === 'number' && typeof anchorSy === 'number') {
-      const before = screenToWorld(anchorSx, anchorSy);
-      camera.zoom = clamped;
-      const after = screenToWorld(anchorSx, anchorSy);
-      camera.x += (before.wx - after.wx);
-      camera.y += (before.wy - after.wy);
-    } else {
-      camera.zoom = clamped;
-    }
-    clampCamera();
-    return camera.zoom;
-  }
-
-  function panByScreenDelta(dsx, dsy) {
-    camera.x -= dsx / camera.zoom;
-    camera.y -= dsy / camera.zoom;
-    clampCamera();
-  }
-
-  function centerOnWorld(wx, wy) {
-    camera.x = wx;
-    camera.y = wy;
-    clampCamera();
-  }
-
-  function centerOnTile(coord) {
-    if (!gridAdapter || typeof gridAdapter.tileToWorld !== 'function') return;
-    const w = gridAdapter.tileToWorld(coord);
-    centerOnWorld(w.wx, w.wy);
-  }
-
-  function screenToTile(sx, sy) {
-    if (!gridAdapter || typeof gridAdapter.worldToTile !== 'function') return null;
-    const w = screenToWorld(sx, sy);
-    return gridAdapter.worldToTile(w.wx, w.wy);
-  }
-
-  function tileToScreen(coord) {
-    if (!gridAdapter || typeof gridAdapter.tileToWorld !== 'function') return null;
-    const w = gridAdapter.tileToWorld(coord);
-    return worldToScreen(w.wx, w.wy);
-  }
-
-  function getVisibleWorldRect(margin) {
-    const pad = typeof margin === 'number' ? margin : 64;
-    const tl = screenToWorld(-pad, -pad);
-    const br = screenToWorld(camera.width + pad, camera.height + pad);
-    return {
-      minX: tl.wx,
-      minY: tl.wy,
-      maxX: br.wx,
-      maxY: br.wy
-    };
-  }
-
-  function resize(width, height) {
-    if (width > 0) camera.width = width;
-    if (height > 0) camera.height = height;
-    clampCamera();
-  }
-
-  // Unified Mouse + Touch Pointer Controller (Tap-vs-Drag disambiguation + Pinch-Zoom)
-  function attachPointerControls(canvasEl, handlers) {
-    if (!canvasEl || typeof canvasEl.addEventListener !== 'function') return function() {};
-    const cb = handlers || {};
-    const dragThresholdPx = 8;
-
-    let isDown = false;
-    let dragged = false;
-    let startX = 0;
-    let startY = 0;
-    let lastX = 0;
-    let lastY = 0;
-    let lastPinchDist = 0;
-
-    function getLocalPos(clientX, clientY) {
-      const rect = canvasEl.getBoundingClientRect();
-      const scaleX = rect.width > 0 ? (camera.width / rect.width) : 1;
-      const scaleY = rect.height > 0 ? (camera.height / rect.height) : 1;
-      return {
-        sx: (clientX - rect.left) * scaleX,
-        sy: (clientY - rect.top) * scaleY
-      };
-    }
-
-    function onMouseDown(e) {
-      isDown = true;
-      dragged = false;
-      startX = lastX = e.clientX;
-      startY = lastY = e.clientY;
-    }
-
-    function onMouseMove(e) {
-      const pos = getLocalPos(e.clientX, e.clientY);
-      if (isDown) {
-        const dx = e.clientX - lastX;
-        const dy = e.clientY - lastY;
-        if (Math.hypot(e.clientX - startX, e.clientY - startY) >= dragThresholdPx) {
-          dragged = true;
-        }
-        if (dragged) {
-          panByScreenDelta(dx, dy);
-          if (typeof cb.onCameraChange === 'function') cb.onCameraChange(camera);
-        }
-        lastX = e.clientX;
-        lastY = e.clientY;
-      } else if (typeof cb.onHoverTile === 'function') {
-        cb.onHoverTile(screenToTile(pos.sx, pos.sy), pos);
-      }
-    }
-
-    function onMouseUp(e) {
-      if (!isDown) return;
-      isDown = false;
-      if (!dragged && typeof cb.onTapTile === 'function') {
-        const pos = getLocalPos(e.clientX, e.clientY);
-        cb.onTapTile(screenToTile(pos.sx, pos.sy), pos);
-      }
-    }
-
-    function onWheel(e) {
-      if (typeof e.preventDefault === 'function') e.preventDefault();
-      const pos = getLocalPos(e.clientX, e.clientY);
-      const factor = e.deltaY < 0 ? 1.12 : 0.89;
-      setZoom(camera.zoom * factor, pos.sx, pos.sy);
-      if (typeof cb.onCameraChange === 'function') cb.onCameraChange(camera);
-    }
-
-    function onTouchStart(e) {
-      if (!e.touches || e.touches.length === 0) return;
-      if (e.touches.length === 1) {
-        isDown = true;
-        dragged = false;
-        startX = lastX = e.touches[0].clientX;
-        startY = lastY = e.touches[0].clientY;
-      } else if (e.touches.length === 2) {
-        isDown = false;
-        dragged = true;
-        lastPinchDist = Math.hypot(
-          e.touches[0].clientX - e.touches[1].clientX,
-          e.touches[0].clientY - e.touches[1].clientY
-        );
-      }
-    }
-
-    function onTouchMove(e) {
-      if (!e.touches || e.touches.length === 0) return;
-      if (e.touches.length === 1 && isDown) {
-        const t = e.touches[0];
-        if (Math.hypot(t.clientX - startX, t.clientY - startY) >= dragThresholdPx) {
-          dragged = true;
-        }
-        if (dragged) {
-          if (typeof e.preventDefault === 'function') e.preventDefault();
-          panByScreenDelta(t.clientX - lastX, t.clientY - lastY);
-          if (typeof cb.onCameraChange === 'function') cb.onCameraChange(camera);
-        }
-        lastX = t.clientX;
-        lastY = t.clientY;
-      } else if (e.touches.length === 2) {
-        if (typeof e.preventDefault === 'function') e.preventDefault();
-        const dist = Math.hypot(
-          e.touches[0].clientX - e.touches[1].clientX,
-          e.touches[0].clientY - e.touches[1].clientY
-        );
-        if (lastPinchDist > 0 && dist > 0) {
-          const midX = (e.touches[0].clientX + e.touches[1].clientX) * 0.5;
-          const midY = (e.touches[0].clientY + e.touches[1].clientY) * 0.5;
-          const pos = getLocalPos(midX, midY);
-          setZoom(camera.zoom * (dist / lastPinchDist), pos.sx, pos.sy);
-          if (typeof cb.onCameraChange === 'function') cb.onCameraChange(camera);
-        }
-        lastPinchDist = dist;
-      }
-    }
-
-    function onTouchEnd(e) {
-      if (isDown && !dragged && typeof cb.onTapTile === 'function' && e.changedTouches && e.changedTouches[0]) {
-        const pos = getLocalPos(e.changedTouches[0].clientX, e.changedTouches[0].clientY);
-        cb.onTapTile(screenToTile(pos.sx, pos.sy), pos);
-      }
-      isDown = false;
-      lastPinchDist = 0;
-    }
-
-    canvasEl.addEventListener('mousedown', onMouseDown);
-    canvasEl.addEventListener('mousemove', onMouseMove);
-    canvasEl.addEventListener('mouseup', onMouseUp);
-    canvasEl.addEventListener('wheel', onWheel, { passive: false });
-    canvasEl.addEventListener('touchstart', onTouchStart, { passive: true });
-    canvasEl.addEventListener('touchmove', onTouchMove, { passive: false });
-    canvasEl.addEventListener('touchend', onTouchEnd, { passive: true });
-
-    return function detach() {
-      canvasEl.removeEventListener('mousedown', onMouseDown);
-      canvasEl.removeEventListener('mousemove', onMouseMove);
-      canvasEl.removeEventListener('mouseup', onMouseUp);
-      canvasEl.removeEventListener('wheel', onWheel);
-      canvasEl.removeEventListener('touchstart', onTouchStart);
-      canvasEl.removeEventListener('touchmove', onTouchMove);
-      canvasEl.removeEventListener('touchend', onTouchEnd);
-    };
-  }
-
-  clampCamera();
-
-  return {
-    camera: camera,
-    gridAdapter: gridAdapter,
-    screenToWorld: screenToWorld,
-    worldToScreen: worldToScreen,
-    setZoom: setZoom,
-    panByScreenDelta: panByScreenDelta,
-    centerOnWorld: centerOnWorld,
-    centerOnTile: centerOnTile,
-    screenToTile: screenToTile,
-    tileToScreen: tileToScreen,
-    getVisibleWorldRect: getVisibleWorldRect,
-    resize: resize,
-    attachPointerControls: attachPointerControls
-  };
 }
 
   // --- Module: src/wargame/test/wargameSelfTest.js ---
@@ -10780,6 +11094,7 @@ function evaluateWargameSelfTests() {
 
 
 
+
 const simHost = createWargameSimHost();
 
 let lastFrameTimestamp = null;
@@ -11146,6 +11461,12 @@ function handleToggleMobilePreview() {
   syncWargameUI(simHost);
 }
 
+function handleToggleCityProjection() {
+  if (!simHost.state) return;
+  simHost.state._cityViewMode = (simHost.state._cityViewMode === 'flat') ? 'iso' : 'flat';
+  syncWargameUI(simHost);
+}
+
 function handleCloseFacilityModal() {
   if (!simHost.state) return;
   delete simHost.state._openFacilityId;
@@ -11295,6 +11616,25 @@ function handleEnterDungeon(poiId) {
 // ---------------------------------------------------------------------------
 function setupWargameListeners() {
   if (typeof document === 'undefined') return;
+
+  const isoCanvas = document.getElementById('wgCityIsoCanvas');
+  if (isoCanvas) {
+    attachCityIsoControls(isoCanvas, {
+      onRepaint: function() {
+        renderCityIsoCanvas(simHost);
+      },
+      onSelectPlot: function(plotIndex) {
+        const city = getPrimaryCity(simHost.state);
+        const plot = city && Array.isArray(city.plots) ? city.plots[plotIndex] : null;
+        const alreadySelected = simHost.state.selectedPlotIndex === plotIndex;
+        if (alreadySelected && plot && plot.buildingId && !plot.underConstruction && !plot.demolishing && !plot.relocating && simHost.state.moveSourcePlotIndex === null) {
+          handleOpenFacilityModal(plot.buildingId, plotIndex);
+          return;
+        }
+        handleSelectCityPlot(plotIndex);
+      }
+    });
+  }
 
   const canvas = document.getElementById('wgOverworldCanvas');
   if (canvas) {
@@ -11551,6 +11891,7 @@ const WargameApp = {
   handleCloseScreenInfo: handleCloseScreenInfo,
   handleToggleMobileDrawer: handleToggleMobileDrawer,
   handleToggleMobilePreview: handleToggleMobilePreview,
+  handleToggleCityProjection: handleToggleCityProjection,
   handleCloseFacilityModal: handleCloseFacilityModal,
   handleSmeltIngots: handleSmeltIngots,
   handleBrewProvision: handleBrewProvision,
