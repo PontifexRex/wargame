@@ -12308,8 +12308,834 @@ function getOrganizationResearchBalance(progression, orgType, orgId) {
   return getCurrencyBalance(progression.currencyLedger, org.id, orgType, org.currencyId);
 }
 
+  // --- Module: src/progression/benefitService.js ---
+// =============================================================================
+// GENERIC EFFECTS & BENEFITS FRAMEWORK (Inc 10.4 / ADR-0015 / Spec §12)
+// Data-driven effect aggregation and deterministic stacking across Personal,
+// Guild, Alliance, and Subject-Specific (Hero/City/Unit/Construct) progression.
+// Explicitly separates Unlocks from Modifiers.
+// =============================================================================
+
+
+
+
+const EFFECT_TYPES = {
+  CAPABILITY_UNLOCK: 'capability_unlock',
+  UNLOCK_TRAINING: 'unlock_training',
+  ABILITY_UNLOCK: 'ability_unlock',
+  RECIPE_UNLOCK: 'recipe_unlock',
+  ACCESS_UNLOCK: 'access_unlock',
+  ATTRIBUTE_MODIFIER: 'attribute_modifier',
+  SKILL_MODIFIER: 'skill_modifier',
+  PRODUCTION_MODIFIER: 'production_modifier',
+  ACCRUAL_MODIFIER: 'accrual_modifier',
+  RESEARCH_SPEED_MODIFIER: 'research_speed_modifier',
+  TRAINING_SPEED_MODIFIER: 'training_speed_modifier',
+  CAPACITY_MODIFIER: 'capacity_modifier',
+  PROBABILITY_MODIFIER: 'probability_modifier',
+  EFFICIENCY_MODIFIER: 'efficiency_modifier',
+  LIMIT_MODIFIER: 'limit_modifier',
+  BEHAVIOR_MODIFICATION: 'behavior_modification',
+  SPECIAL_EFFECT: 'special_effect'
+};
+
+const EFFECT_OPS = {
+  ADDITIVE: 'additive',
+  MULTIPLICATIVE: 'multiplicative',
+  SET: 'set',
+  MINIMUM: 'minimum',
+  MAXIMUM: 'maximum',
+  UNLOCK: 'unlock',
+  DISABLE: 'disable',
+  REPLACE: 'replace',
+  CUSTOM: 'custom'
+};
+
+const UNLOCK_OPS = {
+  unlock: true,
+  disable: true,
+  replace: true
+};
+
+const UNLOCK_EFFECT_TYPES = {
+  capability_unlock: true,
+  unlock_training: true,
+  ability_unlock: true,
+  recipe_unlock: true,
+  access_unlock: true
+};
+
+const MODIFIER_OPS = {
+  additive: true,
+  multiplicative: true,
+  set: true,
+  minimum: true,
+  maximum: true
+};
+
+const _customEffectHandlers = {};
+
+function registerCustomEffectHandler(handlerId, fn) {
+  if (!handlerId || typeof fn !== 'function') return false;
+  _customEffectHandlers[String(handlerId)] = fn;
+  return true;
+}
+
+function evaluateCustomEffect(handlerId, payload) {
+  const fn = _customEffectHandlers[String(handlerId)];
+  if (!fn) return { ok: false, reason: 'unknown_custom_handler' };
+  return { ok: true, result: fn(payload) };
+}
+
+function isUnlockEffect(effect) {
+  if (!effect) return false;
+  return Boolean(UNLOCK_OPS[effect.op] || UNLOCK_EFFECT_TYPES[effect.effectType]);
+}
+
+function isModifierEffect(effect) {
+  if (!effect) return false;
+  return Boolean(MODIFIER_OPS[effect.op] && !isUnlockEffect(effect));
+}
+
+function collectResearchBenefitsForOwner(progression, ownerType, ownerId, catalog, sourceType, outList) {
+  const prefix = String(ownerType) + ':' + String(ownerId) + ':';
+  const progressMap = (progression && progression.researchProgress) ? progression.researchProgress : {};
+  const keys = Object.keys(progressMap);
+
+  for (let i = 0; i < keys.length; i++) {
+    const key = keys[i];
+    if (key.indexOf(prefix) !== 0) continue;
+    const prog = progressMap[key];
+    if (!prog || !prog.currentLevel || prog.currentLevel <= 0) continue;
+
+    const itemDef = catalog[prog.researchItemId];
+    if (!itemDef || !Array.isArray(itemDef.levelDefinitions)) continue;
+
+    for (let li = 0; li < itemDef.levelDefinitions.length; li++) {
+      const lvlDef = itemDef.levelDefinitions[li];
+      if (lvlDef.level > prog.currentLevel) continue;
+      const benefits = Array.isArray(lvlDef.benefits) ? lvlDef.benefits : [];
+      for (let bi = 0; bi < benefits.length; bi++) {
+        const b = benefits[bi];
+        outList.push({
+          sourceType: sourceType,
+          sourceOwnerType: ownerType,
+          sourceOwnerId: String(ownerId),
+          sourceId: prog.researchItemId,
+          sourceLevel: lvlDef.level,
+          effectType: b.effectType,
+          target: b.target,
+          op: b.op,
+          value: b.value,
+          priority: typeof b.priority === 'number' ? b.priority : 0
+        });
+      }
+    }
+  }
+}
+
+function collectSubjectTrainingBenefits(progression, subjectType, subjectId, trainingCatalog, outList) {
+  if (!subjectType || !subjectId) return;
+  const prefix = String(subjectType) + ':' + String(subjectId) + ':';
+  const instMap = (progression && progression.trainingInstances) ? progression.trainingInstances : {};
+  const keys = Object.keys(instMap);
+
+  for (let i = 0; i < keys.length; i++) {
+    const key = keys[i];
+    if (key.indexOf(prefix) !== 0) continue;
+    const inst = instMap[key];
+    if (!inst || !inst.currentLevel || inst.currentLevel <= 0) continue;
+
+    const def = trainingCatalog[inst.trainingDefinitionId];
+    if (!def || !Array.isArray(def.levels)) continue;
+
+    for (let li = 0; li < def.levels.length; li++) {
+      const lvlDef = def.levels[li];
+      if (lvlDef.level > inst.currentLevel) continue;
+      const benefits = Array.isArray(lvlDef.benefits) ? lvlDef.benefits : [];
+      for (let bi = 0; bi < benefits.length; bi++) {
+        const b = benefits[bi];
+        outList.push({
+          sourceType: 'training',
+          subjectType: String(subjectType),
+          subjectId: String(subjectId),
+          sourceId: inst.trainingDefinitionId,
+          sourceLevel: lvlDef.level,
+          effectType: b.effectType,
+          target: b.target,
+          op: b.op,
+          value: b.value,
+          priority: typeof b.priority === 'number' ? b.priority : 0
+        });
+      }
+    }
+  }
+}
+
+// Collect all active effects for a player (and optionally a specific subject like a Hero)
+// Explicitly returns separated { allEffects, unlocks, modifiers }.
+function collectActiveEffects(progression, context) {
+  const ctx = context || {};
+  const playerId = String(ctx.playerId || ctx.ownerId || 'player_1');
+  const researchCatalog = Object.assign({}, PROTOTYPE_RESEARCH_ITEMS, ctx.researchCatalog || {});
+  const orgCatalog = Object.assign({}, PROTOTYPE_ORG_RESEARCH_ITEMS, ctx.orgCatalog || {});
+  const trainingCatalog = Object.assign({}, PROTOTYPE_TRAINING_DEFINITIONS, ctx.trainingCatalog || {});
+
+  const allEffects = [];
+
+  if (progression) {
+    // 1. Personal Research
+    collectResearchBenefitsForOwner(progression, OWNER_TYPES.PLAYER, playerId, researchCatalog, 'personal_research', allEffects);
+
+    // 2. Guild Research (only if player is an eligible member)
+    const orgs = progression.organizations || {};
+    const guildId = ctx.guildId !== undefined ? ctx.guildId : orgs.playerGuildId;
+    if (guildId && orgs.guilds && orgs.guilds[guildId]) {
+      const guild = orgs.guilds[guildId];
+      if (isPlayerEligibleForOrgBenefits(guild, playerId)) {
+        collectResearchBenefitsForOwner(progression, OWNER_TYPES.GUILD, guildId, orgCatalog, 'guild_research', allEffects);
+      }
+    }
+
+    // 3. Alliance Research (only if player is an eligible member)
+    const allianceId = ctx.allianceId !== undefined ? ctx.allianceId : orgs.playerAllianceId;
+    if (allianceId && orgs.alliances && orgs.alliances[allianceId]) {
+      const alliance = orgs.alliances[allianceId];
+      if (isPlayerEligibleForOrgBenefits(alliance, playerId)) {
+        collectResearchBenefitsForOwner(progression, OWNER_TYPES.ALLIANCE, allianceId, orgCatalog, 'alliance_research', allEffects);
+      }
+    }
+
+    // 4. Subject-Specific Training (strictly scoped to subjectType + subjectId)
+    if (ctx.subjectType && ctx.subjectId) {
+      collectSubjectTrainingBenefits(progression, ctx.subjectType, ctx.subjectId, trainingCatalog, allEffects);
+    }
+  }
+
+  // 5. Optional transient / external effects (alignment, buffs, buildings, tests)
+  if (Array.isArray(ctx.extraEffects)) {
+    for (let ei = 0; ei < ctx.extraEffects.length; ei++) {
+      const ex = ctx.extraEffects[ei];
+      if (!ex) continue;
+      allEffects.push({
+        sourceType: ex.sourceType || 'external',
+        sourceId: ex.sourceId || ('ext_' + ei),
+        sourceLevel: ex.sourceLevel || 1,
+        effectType: ex.effectType,
+        target: ex.target,
+        op: ex.op,
+        value: ex.value,
+        priority: typeof ex.priority === 'number' ? ex.priority : 0
+      });
+    }
+  }
+
+  const unlocks = [];
+  const modifiers = [];
+  for (let i = 0; i < allEffects.length; i++) {
+    const eff = allEffects[i];
+    if (isUnlockEffect(eff)) {
+      unlocks.push(eff);
+    } else if (isModifierEffect(eff)) {
+      modifiers.push(eff);
+    }
+  }
+
+  return {
+    allEffects: allEffects,
+    unlocks: unlocks,
+    modifiers: modifiers
+  };
+}
+
+// Deterministic stacking order (Spec §12):
+// 1. Set (highest priority wins) -> replaces baseValue
+// 2. Additive -> sum all additive values onto base
+// 3. Multiplicative -> multiply by product of multiplicative factors
+// 4. Minimum -> clamp lower bound (highest minimum wins)
+// 5. Maximum -> clamp upper bound (lowest maximum wins)
+function resolveNumericStat(baseValue, target, effects, options) {
+  const opts = options || {};
+  const effectTypeFilter = opts.effectType || null;
+  const list = Array.isArray(effects) ? effects : [];
+
+  const matching = [];
+  for (let i = 0; i < list.length; i++) {
+    const eff = list[i];
+    if (!eff || eff.target !== target) continue;
+    if (effectTypeFilter && eff.effectType !== effectTypeFilter) continue;
+    if (!isModifierEffect(eff)) continue;
+    matching.push(eff);
+  }
+
+  let setEffect = null;
+  let additiveSum = 0;
+  let multiplicativeFactor = 1;
+  let minBound = null;
+  let maxBound = null;
+
+  for (let j = 0; j < matching.length; j++) {
+    const m = matching[j];
+    const numVal = Number(m.value);
+    if (!isFinite(numVal)) continue;
+
+    if (m.op === EFFECT_OPS.SET) {
+      if (!setEffect || (m.priority || 0) >= (setEffect.priority || 0)) {
+        setEffect = m;
+      }
+    } else if (m.op === EFFECT_OPS.ADDITIVE) {
+      additiveSum += numVal;
+    } else if (m.op === EFFECT_OPS.MULTIPLICATIVE) {
+      multiplicativeFactor *= numVal;
+    } else if (m.op === EFFECT_OPS.MINIMUM) {
+      if (minBound === null || numVal > minBound) minBound = numVal;
+    } else if (m.op === EFFECT_OPS.MAXIMUM) {
+      if (maxBound === null || numVal < maxBound) maxBound = numVal;
+    }
+  }
+
+  let val = setEffect ? Number(setEffect.value) : Number(baseValue || 0);
+  val = (val + additiveSum) * multiplicativeFactor;
+  if (minBound !== null && val < minBound) val = minBound;
+  if (maxBound !== null && val > maxBound) val = maxBound;
+
+  // Clean minor floating-point representation noise (e.g. 12.000000000000002 -> 12)
+  const cleanVal = Math.round(val * 1000000) / 1000000;
+
+  return {
+    target: target,
+    baseValue: Number(baseValue || 0),
+    finalValue: cleanVal,
+    setApplied: setEffect ? Number(setEffect.value) : null,
+    additiveSum: Math.round(additiveSum * 1000000) / 1000000,
+    multiplicativeFactor: Math.round(multiplicativeFactor * 1000000) / 1000000,
+    minBound: minBound,
+    maxBound: maxBound,
+    appliedEffects: matching
+  };
+}
+
+// Resolve Unlock / Disable / Replace state for a target capability, training, ability, or recipe
+function resolveUnlockState(target, effects, options) {
+  const opts = options || {};
+  const effectTypeFilter = opts.effectType || null;
+  const list = Array.isArray(effects) ? effects : [];
+
+  let unlocked = false;
+  let maxUnlockLevel = 0;
+  let highestUnlockPriority = -Infinity;
+  let disabled = false;
+  let highestDisablePriority = -Infinity;
+  let replacedBy = null;
+  let highestReplacePriority = -Infinity;
+  const sources = [];
+
+  for (let i = 0; i < list.length; i++) {
+    const eff = list[i];
+    if (!eff || eff.target !== target) continue;
+    if (effectTypeFilter && eff.effectType !== effectTypeFilter) continue;
+    if (!isUnlockEffect(eff)) continue;
+
+    sources.push(eff);
+    const prio = typeof eff.priority === 'number' ? eff.priority : 0;
+
+    if (eff.op === EFFECT_OPS.UNLOCK) {
+      unlocked = true;
+      const lvl = typeof eff.value === 'number' ? eff.value : 1;
+      if (lvl > maxUnlockLevel) maxUnlockLevel = lvl;
+      if (prio >= highestUnlockPriority) highestUnlockPriority = prio;
+    } else if (eff.op === EFFECT_OPS.DISABLE) {
+      disabled = true;
+      if (prio >= highestDisablePriority) highestDisablePriority = prio;
+    } else if (eff.op === EFFECT_OPS.REPLACE) {
+      if (prio >= highestReplacePriority) {
+        highestReplacePriority = prio;
+        replacedBy = eff.value;
+      }
+    }
+  }
+
+  // Disable overrides unlock unless an unlock has strictly higher priority
+  const isEffectiveUnlocked = unlocked && (!disabled || highestUnlockPriority > highestDisablePriority);
+
+  return {
+    target: target,
+    unlocked: isEffectiveUnlocked,
+    maxUnlockLevel: isEffectiveUnlocked ? maxUnlockLevel : 0,
+    disabled: disabled && highestDisablePriority >= highestUnlockPriority,
+    replacedBy: replacedBy,
+    sources: sources
+  };
+}
+
+  // --- Module: src/progression/trainingService.js ---
+// =============================================================================
+// SEPARATE HERO & SUBJECT TRAINING QUEUE SERVICE (Inc 10.4 / Spec §3.4, §7, §14)
+// Manages subject-scoped TrainingInstances (Hero, City, Unit, Construct) on a
+// dedicated Training Queue completely independent of the Personal Research Queue.
+// Personal Research unlocks training options; each subject trains independently.
+// =============================================================================
+
+
+
+
+
+
+const SUBJECT_TYPES = {
+  HERO: 'hero',
+  CITY: 'city',
+  UNIT: 'unit',
+  CONSTRUCT: 'construct'
+};
+
+function makeTrainingKey(subjectType, subjectId, trainingDefinitionId) {
+  return String(subjectType) + ':' + String(subjectId) + ':' + String(trainingDefinitionId);
+}
+
+function getTrainingDefinition(trainingDefinitionId, customCatalog) {
+  const cat = customCatalog || PROTOTYPE_TRAINING_DEFINITIONS;
+  return cat[trainingDefinitionId] || null;
+}
+
+function getTrainingInstance(progression, subjectType, subjectId, trainingDefinitionId) {
+  const key = makeTrainingKey(subjectType, subjectId, trainingDefinitionId);
+  if (!progression.trainingInstances[key]) {
+    progression.trainingInstances[key] = {
+      trainingInstanceId: 'trn_' + key,
+      trainingDefinitionId: String(trainingDefinitionId),
+      subjectId: String(subjectId),
+      subjectType: String(subjectType),
+      currentLevel: 0,
+      targetLevel: 0,
+      status: 'not_started',
+      startedAt: null,
+      completedAt: null,
+      totalTimeSpentMs: 0,
+      completionCount: 0,
+      definitionVersion: '1.0.0',
+      lastUpdated: 0
+    };
+  }
+  return progression.trainingInstances[key];
+}
+
+function evaluateTrainingEligibility(progression, params) {
+  if (!progression || !params) {
+    return { canStart: false, status: EVALUATION_STATUS.LOCKED, unmetConditions: [{ reason: 'Invalid parameters' }] };
+  }
+  const ownerId = String(params.ownerId || 'player_1');
+  const ownerType = params.ownerType || OWNER_TYPES.PLAYER;
+  const subjectType = String(params.subjectType || SUBJECT_TYPES.HERO);
+  const subjectId = params.subjectId ? String(params.subjectId) : null;
+  const trainingDefinitionId = params.trainingDefinitionId;
+
+  if (!subjectId) {
+    return { canStart: false, status: EVALUATION_STATUS.SUBJECT_UNAVAILABLE, unmetConditions: [{ reason: 'No training subject specified' }] };
+  }
+  if (params.subjectAvailable === false) {
+    return { canStart: false, status: EVALUATION_STATUS.SUBJECT_UNAVAILABLE, unmetConditions: [{ reason: 'Subject is currently unavailable for training' }] };
+  }
+
+  const def = getTrainingDefinition(trainingDefinitionId, params.trainingCatalog);
+  if (!def) {
+    return { canStart: false, status: EVALUATION_STATUS.LOCKED, unmetConditions: [{ reason: 'Unknown training definition: ' + trainingDefinitionId }] };
+  }
+  if (def.subjectType && def.subjectType !== subjectType) {
+    return { canStart: false, status: EVALUATION_STATUS.SUBJECT_UNAVAILABLE, unmetConditions: [{ reason: 'Training requires subject type ' + def.subjectType }] };
+  }
+
+  const inst = getTrainingInstance(progression, subjectType, subjectId, trainingDefinitionId);
+  const targetLevel = typeof params.targetLevel === 'number' ? params.targetLevel : ((inst.currentLevel || 0) + 1);
+  const lvlDef = Array.isArray(def.levels)
+    ? def.levels.find(function(l) { return l.level === targetLevel; })
+    : null;
+  if (!lvlDef) {
+    return { canStart: false, status: EVALUATION_STATUS.MAX_LEVEL, unmetConditions: [{ reason: 'Maximum training level reached' }] };
+  }
+
+  const unmet = [];
+
+  // 1. Verify capability unlock via BenefitService (if unlocked via research)
+  if (params.requireUnlock !== false) {
+    const activeEffects = collectActiveEffects(progression, {
+      playerId: ownerId,
+      researchCatalog: params.researchCatalog,
+      orgCatalog: params.orgCatalog,
+      trainingCatalog: params.trainingCatalog,
+      extraEffects: params.extraEffects
+    });
+    const unlockState = resolveUnlockState(trainingDefinitionId, activeEffects.unlocks, {
+      effectType: EFFECT_TYPES.UNLOCK_TRAINING
+    });
+    if (!unlockState.unlocked || unlockState.maxUnlockLevel < targetLevel) {
+      unmet.push({
+        type: 'unlock_training',
+        target: trainingDefinitionId,
+        expected: targetLevel,
+        actual: unlockState.maxUnlockLevel,
+        reason: 'Requires research unlock for ' + def.name + ' Level ' + targetLevel
+      });
+    }
+  }
+
+  // 2. Evaluate training-level and definition-level prerequisites
+  const eligCtx = Object.assign({}, params.eligibilityCtx || {}, {
+    ownerId: ownerId,
+    ownerType: ownerType,
+    ledger: progression.currencyLedger,
+    researchProgress: buildOwnerProgressLookup(progression, ownerType, ownerId),
+    alignment: progression.alignment,
+    discoveries: progression.discoveries
+  });
+
+  if (def.prerequisites) {
+    const baseEval = evaluateConditionNode(def.prerequisites, eligCtx);
+    if (!baseEval.passed) {
+      for (let i = 0; i < baseEval.unmetConditions.length; i++) {
+        unmet.push(baseEval.unmetConditions[i]);
+      }
+    }
+  }
+  if (lvlDef.prerequisites) {
+    const lvlEval = evaluateConditionNode(lvlDef.prerequisites, eligCtx);
+    if (!lvlEval.passed) {
+      for (let j = 0; j < lvlEval.unmetConditions.length; j++) {
+        unmet.push(lvlEval.unmetConditions[j]);
+      }
+    }
+  }
+
+  if (unmet.length > 0) {
+    return {
+      canStart: false,
+      status: EVALUATION_STATUS.LOCKED,
+      targetLevel: targetLevel,
+      unmetConditions: unmet
+    };
+  }
+
+  return {
+    canStart: true,
+    status: EVALUATION_STATUS.AVAILABLE,
+    targetLevel: targetLevel,
+    levelDefinition: lvlDef,
+    definition: def,
+    unmetConditions: []
+  };
+}
+
+function startOrEnqueueTraining(progression, params) {
+  if (!progression || !params) return { ok: false, reason: 'invalid_params' };
+  const ownerId = String(params.ownerId || 'player_1');
+  const ownerType = params.ownerType || OWNER_TYPES.PLAYER;
+  const subjectType = String(params.subjectType || SUBJECT_TYPES.HERO);
+  const subjectId = params.subjectId ? String(params.subjectId) : null;
+  const trainingDefinitionId = params.trainingDefinitionId;
+  const nowMs = typeof params.nowMs === 'number' ? params.nowMs : 0;
+  const queue = params.queue || progression.trainingQueue;
+  const allowPending = params.allowPending !== false;
+
+  if (!subjectId) return { ok: false, reason: EVALUATION_STATUS.SUBJECT_UNAVAILABLE };
+
+  // Prevent duplicate active or pending training of the same definition for the same subject
+  const isDupActive = queue.activeItems.some(function(a) {
+    return a.subjectType === subjectType && a.subjectId === subjectId && a.trainingDefinitionId === trainingDefinitionId;
+  });
+  const isDupPending = queue.pendingItems.some(function(p) {
+    return p.subjectType === subjectType && p.subjectId === subjectId && p.trainingDefinitionId === trainingDefinitionId;
+  });
+  if (isDupActive || isDupPending) {
+    return { ok: false, reason: 'already_in_training_queue' };
+  }
+
+  const elig = evaluateTrainingEligibility(progression, params);
+  if (!elig.canStart) {
+    return { ok: false, reason: elig.status, unmetConditions: elig.unmetConditions };
+  }
+
+  const def = elig.definition;
+  const lvlDef = elig.levelDefinition;
+  const targetLevel = elig.targetLevel;
+  const isQueueFull = queue.activeItems.length >= (queue.capacity || 1);
+
+  if (isQueueFull && !allowPending) {
+    return { ok: false, reason: EVALUATION_STATUS.QUEUE_FULL };
+  }
+
+  // Pending entries do not deduct costs until promoted to active
+  if (isQueueFull) {
+    const pendingEntry = {
+      queueEntryId: 'tpend_' + subjectId + '_' + trainingDefinitionId + '_' + targetLevel + '_' + nowMs,
+      trainingDefinitionId: trainingDefinitionId,
+      ownerId: ownerId,
+      ownerType: String(ownerType),
+      subjectType: subjectType,
+      subjectId: subjectId,
+      targetLevel: targetLevel,
+      enqueuedAt: nowMs,
+      status: 'pending'
+    };
+    queue.pendingItems.push(pendingEntry);
+    return { ok: true, queuedAs: 'pending', entry: pendingEntry };
+  }
+
+  // Atomic all-or-nothing payment validation & deduction
+  const payRes = executeAtomicPayment(progression.currencyLedger, lvlDef.costs || [], {
+    ownerId: ownerId,
+    ownerType: ownerType,
+    stockpile: params.stockpile || null,
+    nowMs: nowMs,
+    source: 'training_start:' + trainingDefinitionId + ':' + subjectId,
+    referenceId: subjectId + ':' + trainingDefinitionId + ':L' + targetLevel,
+    idempotencyKey: 'tstart:' + subjectType + ':' + subjectId + ':' + trainingDefinitionId + ':L' + targetLevel + ':' + nowMs
+  });
+
+  if (!payRes.ok) {
+    return { ok: false, reason: EVALUATION_STATUS.UNAFFORDABLE, shortfalls: payRes.shortfalls };
+  }
+
+  const speedBonus = typeof params.speedBonus === 'number' ? params.speedBonus : 0;
+  const speedFactor = Math.max(0.1, 1 + speedBonus);
+  const baseDurationMs = (lvlDef.durationSec || 30) * 1000;
+  const effectiveDurationMs = Math.max(1000, Math.round(baseDurationMs / speedFactor));
+
+  const activeEntry = {
+    queueEntryId: 'tact_' + subjectId + '_' + trainingDefinitionId + '_' + targetLevel + '_' + nowMs,
+    trainingDefinitionId: trainingDefinitionId,
+    ownerId: ownerId,
+    ownerType: String(ownerType),
+    subjectType: subjectType,
+    subjectId: subjectId,
+    targetLevel: targetLevel,
+    status: 'active',
+    startedAt: nowMs,
+    lastTickAt: nowMs,
+    elapsedMs: 0,
+    effectiveDurationMs: effectiveDurationMs,
+    snapshot: {
+      definitionVersion: def.version || '1.0.0',
+      durationSec: lvlDef.durationSec,
+      costs: JSON.parse(JSON.stringify(lvlDef.costs || [])),
+      benefits: JSON.parse(JSON.stringify(lvlDef.benefits || []))
+    }
+  };
+
+  queue.activeItems.push(activeEntry);
+
+  const inst = getTrainingInstance(progression, subjectType, subjectId, trainingDefinitionId);
+  inst.targetLevel = targetLevel;
+  inst.status = 'in_progress';
+  inst.startedAt = nowMs;
+  inst.definitionVersion = def.version || '1.0.0';
+  inst.lastUpdated = nowMs;
+
+  return { ok: true, queuedAs: 'active', entry: activeEntry, transactions: payRes.transactions };
+}
+
+function pauseTrainingItem(progression, subjectId, trainingDefinitionId, nowMs, options) {
+  const opts = options || {};
+  const queue = opts.queue || progression.trainingQueue;
+  const subjectType = String(opts.subjectType || SUBJECT_TYPES.HERO);
+  const entry = queue.activeItems.find(function(a) {
+    return a.subjectType === subjectType && a.subjectId === String(subjectId) && a.trainingDefinitionId === trainingDefinitionId;
+  });
+  if (!entry || entry.status !== 'active') return { ok: false, reason: 'not_active' };
+
+  entry.elapsedMs += Math.max(0, nowMs - entry.lastTickAt);
+  entry.lastTickAt = nowMs;
+  entry.status = 'paused';
+  return { ok: true, elapsedMs: entry.elapsedMs };
+}
+
+function resumeTrainingItem(progression, subjectId, trainingDefinitionId, nowMs, options) {
+  const opts = options || {};
+  const queue = opts.queue || progression.trainingQueue;
+  const subjectType = String(opts.subjectType || SUBJECT_TYPES.HERO);
+  const entry = queue.activeItems.find(function(a) {
+    return a.subjectType === subjectType && a.subjectId === String(subjectId) && a.trainingDefinitionId === trainingDefinitionId;
+  });
+  if (!entry || entry.status !== 'paused') return { ok: false, reason: 'not_paused' };
+
+  entry.lastTickAt = nowMs;
+  entry.status = 'active';
+  return { ok: true, elapsedMs: entry.elapsedMs };
+}
+
+function cancelTrainingItem(progression, subjectId, trainingDefinitionId, options) {
+  const opts = options || {};
+  const queue = opts.queue || progression.trainingQueue;
+  const subjectType = String(opts.subjectType || SUBJECT_TYPES.HERO);
+  const nowMs = typeof opts.nowMs === 'number' ? opts.nowMs : 0;
+
+  const pIdx = queue.pendingItems.findIndex(function(p) {
+    return p.subjectType === subjectType && p.subjectId === String(subjectId) && p.trainingDefinitionId === trainingDefinitionId;
+  });
+  if (pIdx !== -1) {
+    const removed = queue.pendingItems.splice(pIdx, 1)[0];
+    return { ok: true, removedFrom: 'pending', refundedRatio: 0, entry: removed };
+  }
+
+  const aIdx = queue.activeItems.findIndex(function(a) {
+    return a.subjectType === subjectType && a.subjectId === String(subjectId) && a.trainingDefinitionId === trainingDefinitionId;
+  });
+  if (aIdx === -1) return { ok: false, reason: 'not_found_in_queue' };
+
+  const entry = queue.activeItems.splice(aIdx, 1)[0];
+  if (entry.status === 'active') {
+    entry.elapsedMs += Math.max(0, nowMs - entry.lastTickAt);
+  }
+
+  const policy = opts.refundPolicy || REFUND_POLICIES.FIXED_PERCENT;
+  let ratio = 0;
+  if (policy === REFUND_POLICIES.FULL) {
+    ratio = 1.0;
+  } else if (policy === REFUND_POLICIES.FIXED_PERCENT) {
+    ratio = typeof opts.refundRatio === 'number' ? opts.refundRatio : 0.5;
+  } else if (policy === REFUND_POLICIES.TIME_BASED) {
+    ratio = Math.max(0, Math.min(1, 1 - (entry.elapsedMs / Math.max(1, entry.effectiveDurationMs))));
+  }
+
+  const snapCosts = (entry.snapshot && Array.isArray(entry.snapshot.costs)) ? entry.snapshot.costs : [];
+  if (ratio > 0) {
+    for (let i = 0; i < snapCosts.length; i++) {
+      const c = snapCosts[i];
+      if (c.consumed === false) continue;
+      const refundAmt = Number(c.amount || 0) * ratio;
+      if (refundAmt <= 0) continue;
+      if ((c.kind || 'currency') === 'currency') {
+        recordCurrencyTransaction(progression.currencyLedger, {
+          ownerId: c.ownerId || entry.ownerId,
+          ownerType: c.ownerType || entry.ownerType,
+          currencyId: c.currencyId,
+          amount: refundAmt,
+          transactionType: TRANSACTION_TYPES.REFUND,
+          source: 'training_cancel:' + trainingDefinitionId,
+          referenceId: entry.queueEntryId,
+          idempotencyKey: 'tcancel:' + entry.queueEntryId + ':c' + i,
+          nowMs: nowMs
+        });
+      } else if (c.kind === 'stockpile' && opts.stockpile) {
+        opts.stockpile[c.resourceId] = Number(opts.stockpile[c.resourceId] || 0) + Math.floor(refundAmt);
+      }
+    }
+  }
+
+  const inst = getTrainingInstance(progression, entry.subjectType, entry.subjectId, trainingDefinitionId);
+  inst.status = inst.currentLevel > 0 ? 'completed' : 'not_started';
+  inst.targetLevel = inst.currentLevel;
+  inst.lastUpdated = nowMs;
+
+  return { ok: true, removedFrom: 'active', refundedRatio: ratio, entry: entry };
+}
+
+function advanceTrainingProgress(progression, nowMs, options) {
+  const opts = options || {};
+  const queue = opts.queue || progression.trainingQueue;
+  const completedItems = [];
+  const promotedItems = [];
+
+  for (let i = queue.activeItems.length - 1; i >= 0; i--) {
+    const entry = queue.activeItems[i];
+    if (entry.status !== 'active') continue;
+
+    const delta = Math.max(0, nowMs - entry.lastTickAt);
+    entry.elapsedMs += delta;
+    entry.lastTickAt = nowMs;
+
+    if (entry.elapsedMs >= entry.effectiveDurationMs) {
+      queue.activeItems.splice(i, 1);
+      const inst = getTrainingInstance(progression, entry.subjectType, entry.subjectId, entry.trainingDefinitionId);
+      inst.currentLevel = entry.targetLevel;
+      inst.targetLevel = entry.targetLevel;
+      inst.status = 'completed';
+      inst.completedAt = nowMs;
+      inst.totalTimeSpentMs = (inst.totalTimeSpentMs || 0) + entry.effectiveDurationMs;
+      inst.completionCount = (inst.completionCount || 0) + 1;
+      inst.lastUpdated = nowMs;
+
+      completedItems.push({
+        trainingDefinitionId: entry.trainingDefinitionId,
+        completedLevel: entry.targetLevel,
+        subjectType: entry.subjectType,
+        subjectId: entry.subjectId,
+        ownerId: entry.ownerId,
+        ownerType: entry.ownerType,
+        snapshot: entry.snapshot
+      });
+    }
+  }
+
+  while (queue.activeItems.length < (queue.capacity || 1) && queue.pendingItems.length > 0) {
+    const nextPending = queue.pendingItems.shift();
+    const startRes = startOrEnqueueTraining(progression, {
+      ownerId: nextPending.ownerId,
+      ownerType: nextPending.ownerType,
+      subjectType: nextPending.subjectType,
+      subjectId: nextPending.subjectId,
+      trainingDefinitionId: nextPending.trainingDefinitionId,
+      nowMs: nowMs,
+      queue: queue,
+      allowPending: false,
+      stockpile: opts.stockpile || null,
+      eligibilityCtx: opts.eligibilityCtx || {},
+      speedBonus: opts.speedBonus || 0,
+      researchCatalog: opts.researchCatalog,
+      orgCatalog: opts.orgCatalog,
+      trainingCatalog: opts.trainingCatalog,
+      requireUnlock: opts.requireUnlock
+    });
+    if (startRes.ok) {
+      promotedItems.push(startRes.entry);
+    }
+  }
+
+  return {
+    completedItems: completedItems,
+    promotedItems: promotedItems
+  };
+}
+
+function getSubjectTrainingSummary(progression, subjectType, subjectId) {
+  const prefix = String(subjectType) + ':' + String(subjectId) + ':';
+  const instMap = (progression && progression.trainingInstances) ? progression.trainingInstances : {};
+  const keys = Object.keys(instMap);
+  const completed = [];
+  for (let i = 0; i < keys.length; i++) {
+    if (keys[i].indexOf(prefix) !== 0) continue;
+    const inst = instMap[keys[i]];
+    if (inst && inst.currentLevel > 0) {
+      completed.push({
+        trainingDefinitionId: inst.trainingDefinitionId,
+        currentLevel: inst.currentLevel,
+        completedAt: inst.completedAt
+      });
+    }
+  }
+  return completed;
+}
+
+function computeSubjectEffectiveStat(progression, subjectType, subjectId, baseValue, statTarget, options) {
+  const opts = options || {};
+  const collected = collectActiveEffects(progression, {
+    playerId: opts.playerId || opts.ownerId || 'player_1',
+    guildId: opts.guildId,
+    allianceId: opts.allianceId,
+    subjectType: subjectType,
+    subjectId: subjectId,
+    researchCatalog: opts.researchCatalog,
+    orgCatalog: opts.orgCatalog,
+    trainingCatalog: opts.trainingCatalog,
+    extraEffects: opts.extraEffects
+  });
+  return resolveNumericStat(baseValue, statTarget, collected.modifiers, {
+    effectType: opts.effectType || null
+  });
+}
+
   // --- Module: src/wargame/test/wargameSelfTest.js ---
 // Headless & In-Browser Verification Suite for the Standalone Macro Wargame & Real-Time Simulation Engine
+
+
 
 
 
@@ -13699,6 +14525,130 @@ function evaluateWargameSelfTests() {
     detail: t19Pass
       ? 'Guild-owned RP/research, 3-member attributed Alliance pool funding, no-alliance-training rule & departure ownership persistence verified'
       : 'Failed checks: ' + failed19.join(', ')
+  });
+
+  // =========================================================================
+  // Test 20: Track F Phase 4 — Generic Effects Framework & Separate Hero Training Queue (Inc 10.4)
+  // =========================================================================
+  const prog20 = createDefaultProgressionState(0);
+  recordCurrencyTransaction(prog20.currencyLedger, { ownerId: 'p1', ownerType: OWNER_TYPES.PLAYER, currencyId: 'rp_adventurer', amount: 20, transactionType: TRANSACTION_TYPES.AWARD, source: 'seed', nowMs: 1000 });
+  recordCurrencyTransaction(prog20.currencyLedger, { ownerId: 'p1', ownerType: OWNER_TYPES.PLAYER, currencyId: 'rp_general', amount: 1, transactionType: TRANSACTION_TYPES.AWARD, source: 'seed', nowMs: 1000 });
+  recordCurrencyTransaction(prog20.currencyLedger, { ownerId: 'p1', ownerType: OWNER_TYPES.PLAYER, currencyId: 'gold', amount: 500, transactionType: TRANSACTION_TYPES.AWARD, source: 'seed', nowMs: 1000 });
+
+  // 1. Deterministic BenefitService stacking: Set(10) -> Additive(+4, +6 => 20) -> Multiplicative(*1.5 => 30) -> Max(25 => 25)
+  const stackEffects = [
+    { effectType: EFFECT_TYPES.ATTRIBUTE_MODIFIER, target: 'atk', op: EFFECT_OPS.SET, value: 10, priority: 1 },
+    { effectType: EFFECT_TYPES.ATTRIBUTE_MODIFIER, target: 'atk', op: EFFECT_OPS.ADDITIVE, value: 4 },
+    { effectType: EFFECT_TYPES.ATTRIBUTE_MODIFIER, target: 'atk', op: EFFECT_OPS.ADDITIVE, value: 6 },
+    { effectType: EFFECT_TYPES.ATTRIBUTE_MODIFIER, target: 'atk', op: EFFECT_OPS.MULTIPLICATIVE, value: 1.5 },
+    { effectType: EFFECT_TYPES.ATTRIBUTE_MODIFIER, target: 'atk', op: EFFECT_OPS.MINIMUM, value: 5 },
+    { effectType: EFFECT_TYPES.ATTRIBUTE_MODIFIER, target: 'atk', op: EFFECT_OPS.MAXIMUM, value: 25 }
+  ];
+  const stackRes = resolveNumericStat(99, 'atk', stackEffects);
+  const stackingOk = stackRes.finalValue === 25 && stackRes.setApplied === 10 && stackRes.additiveSum === 10 && stackRes.multiplicativeFactor === 1.5;
+
+  // 2. Unlock / Disable / Replace + Custom Handler separation
+  const unlockEffects = [
+    { effectType: EFFECT_TYPES.ABILITY_UNLOCK, target: 'heavy_cleave', op: EFFECT_OPS.UNLOCK, value: 1, priority: 1 },
+    { effectType: EFFECT_TYPES.ABILITY_UNLOCK, target: 'heavy_cleave', op: EFFECT_OPS.REPLACE, value: 'titan_cleave', priority: 2 },
+    { effectType: EFFECT_TYPES.ABILITY_UNLOCK, target: 'banned_rite', op: EFFECT_OPS.UNLOCK, value: 1, priority: 1 },
+    { effectType: EFFECT_TYPES.ABILITY_UNLOCK, target: 'banned_rite', op: EFFECT_OPS.DISABLE, value: true, priority: 2 }
+  ];
+  const cleaveUnlock = resolveUnlockState('heavy_cleave', unlockEffects);
+  const bannedUnlock = resolveUnlockState('banned_rite', unlockEffects);
+  registerCustomEffectHandler('bonus_flat_test', function(p) { return (p.base || 0) + 7; });
+  const customEffRes = evaluateCustomEffect('bonus_flat_test', { base: 10 });
+  const unlockAndCustomOk = cleaveUnlock.unlocked && cleaveUnlock.replacedBy === 'titan_cleave' &&
+    !bannedUnlock.unlocked && bannedUnlock.disabled &&
+    customEffRes.ok && customEffRes.result === 17;
+
+  // 3. Before WAR_WEAPON_HEAVY_001 is researched, Hero A cannot start train_heavy_weapons
+  const trainLockedBefore = !startOrEnqueueTraining(prog20, { ownerId: 'p1', subjectType: SUBJECT_TYPES.HERO, subjectId: 'hero_A', trainingDefinitionId: 'train_heavy_weapons', nowMs: 2000 }).ok;
+
+  // 4. Complete WAR_WEAPON_HEAVY_001 Lv 1 -> unlocks train_heavy_weapons WITHOUT auto-granting +4 ATK!
+  const startHeavyRes = startOrEnqueueResearch(prog20, { ownerId: 'p1', researchItemId: 'WAR_WEAPON_HEAVY_001', nowMs: 2000 });
+  const advHeavyRes = advanceResearchProgress(prog20, 65000);
+  const heroEffectsPreTrain = collectActiveEffects(prog20, { playerId: 'p1', subjectType: SUBJECT_TYPES.HERO, subjectId: 'hero_A' });
+  const heavyUnlockedLv1 = resolveUnlockState('train_heavy_weapons', heroEffectsPreTrain.unlocks, { effectType: EFFECT_TYPES.UNLOCK_TRAINING });
+  const heroAAtkPre = computeSubjectEffectiveStat(prog20, SUBJECT_TYPES.HERO, 'hero_A', 10, 'atk', { playerId: 'p1' }).finalValue;
+  const heroBAtkPre = computeSubjectEffectiveStat(prog20, SUBJECT_TYPES.HERO, 'hero_B', 10, 'atk', { playerId: 'p1' }).finalValue;
+  const unlockWithoutAutoBonusOk = Boolean(
+    startHeavyRes.ok && advHeavyRes.completedItems.length === 1 &&
+    heavyUnlockedLv1.unlocked && heavyUnlockedLv1.maxUnlockLevel === 1 &&
+    heroAAtkPre === 10 && heroBAtkPre === 10
+  );
+
+  // 5. Separate queues: run Personal Research (GEN_SCHOLAR_001) AND Hero A Training simultaneously!
+  const startConcurrentResearch = startOrEnqueueResearch(prog20, { ownerId: 'p1', researchItemId: 'GEN_SCHOLAR_001', nowMs: 70000 });
+  const startHeroATrain = startOrEnqueueTraining(prog20, { ownerId: 'p1', subjectType: SUBJECT_TYPES.HERO, subjectId: 'hero_A', trainingDefinitionId: 'train_heavy_weapons', nowMs: 70000 });
+  const concurrentQueuesOk = Boolean(
+    startConcurrentResearch.ok && startConcurrentResearch.queuedAs === 'active' &&
+    startHeroATrain.ok && startHeroATrain.queuedAs === 'active' &&
+    prog20.researchQueue.activeItems.length === 1 && prog20.trainingQueue.activeItems.length === 1
+  );
+
+  // Pause & resume Hero A training, then complete via offline jump
+  pauseTrainingItem(prog20, 'hero_A', 'train_heavy_weapons', 80000);
+  const advPausedTrain = advanceTrainingProgress(prog20, 100000);
+  resumeTrainingItem(prog20, 'hero_A', 'train_heavy_weapons', 100000);
+  const advDoneTrain = advanceTrainingProgress(prog20, 140000);
+
+  // 6. Strict Subject Isolation: Hero A gets +4 ATK (14), Hero B remains at 10!
+  const heroAAtkPost = computeSubjectEffectiveStat(prog20, SUBJECT_TYPES.HERO, 'hero_A', 10, 'atk', { playerId: 'p1' }).finalValue;
+  const heroBAtkPost = computeSubjectEffectiveStat(prog20, SUBJECT_TYPES.HERO, 'hero_B', 10, 'atk', { playerId: 'p1' }).finalValue;
+  const heroLv2StillLocked = !startOrEnqueueTraining(prog20, { ownerId: 'p1', subjectType: SUBJECT_TYPES.HERO, subjectId: 'hero_A', trainingDefinitionId: 'train_heavy_weapons', nowMs: 141000 }).ok;
+  const unavailableSubjectBlocked = startOrEnqueueTraining(prog20, { ownerId: 'p1', subjectType: SUBJECT_TYPES.HERO, subjectId: 'hero_B', trainingDefinitionId: 'train_heavy_weapons', subjectAvailable: false, nowMs: 141000 }).reason === EVALUATION_STATUS.SUBJECT_UNAVAILABLE;
+
+  // Cancel training with full refund check on Hero B
+  const goldBeforeHeroB = getCurrencyBalance(prog20.currencyLedger, 'p1', OWNER_TYPES.PLAYER, 'gold').available;
+  startOrEnqueueTraining(prog20, { ownerId: 'p1', subjectType: SUBJECT_TYPES.HERO, subjectId: 'hero_B', trainingDefinitionId: 'train_heavy_weapons', nowMs: 142000 });
+  const cancelHeroB = cancelTrainingItem(prog20, 'hero_B', 'train_heavy_weapons', { nowMs: 143000, refundPolicy: REFUND_POLICIES.FULL });
+  const cancelHeroBOk = cancelHeroB.ok && getCurrencyBalance(prog20.currencyLedger, 'p1', OWNER_TYPES.PLAYER, 'gold').available === goldBeforeHeroB;
+
+  const subjectIsolationOk = Boolean(
+    advPausedTrain.completedItems.length === 0 &&
+    advDoneTrain.completedItems.length === 1 &&
+    heroAAtkPost === 14 &&
+    heroBAtkPost === 10 &&
+    heroLv2StillLocked &&
+    unavailableSubjectBlocked &&
+    cancelHeroBOk
+  );
+
+  // 7. Extensibility: City-scoped training subject (city_1 vs city_2)
+  const customCityCatalog = {
+    train_city_militia: {
+      trainingDefinitionId: 'train_city_militia',
+      name: 'Civic Militia Drills',
+      subjectType: SUBJECT_TYPES.CITY,
+      levels: [{ level: 1, durationSec: 10, costs: [{ kind: 'currency', currencyId: 'gold', amount: 20 }], benefits: [{ effectType: EFFECT_TYPES.ATTRIBUTE_MODIFIER, target: 'city_defense', op: EFFECT_OPS.ADDITIVE, value: 15 }] }],
+      version: '1.0.0'
+    }
+  };
+  const startCityTrain = startOrEnqueueTraining(prog20, { ownerId: 'p1', subjectType: SUBJECT_TYPES.CITY, subjectId: 'city_1', trainingDefinitionId: 'train_city_militia', trainingCatalog: customCityCatalog, requireUnlock: false, nowMs: 150000 });
+  advanceTrainingProgress(prog20, 165000, { trainingCatalog: customCityCatalog });
+  const city1Def = computeSubjectEffectiveStat(prog20, SUBJECT_TYPES.CITY, 'city_1', 100, 'city_defense', { playerId: 'p1', trainingCatalog: customCityCatalog }).finalValue;
+  const city2Def = computeSubjectEffectiveStat(prog20, SUBJECT_TYPES.CITY, 'city_2', 100, 'city_defense', { playerId: 'p1', trainingCatalog: customCityCatalog }).finalValue;
+  const extensibleSubjectOk = startCityTrain.ok && city1Def === 115 && city2Def === 100;
+
+  const t20Checks = {
+    stackingOk: stackingOk,
+    unlockAndCustomOk: unlockAndCustomOk,
+    trainLockedBefore: trainLockedBefore,
+    unlockWithoutAutoBonusOk: unlockWithoutAutoBonusOk,
+    concurrentQueuesOk: concurrentQueuesOk,
+    subjectIsolationOk: subjectIsolationOk,
+    extensibleSubjectOk: extensibleSubjectOk
+  };
+  const failed20 = Object.keys(t20Checks).filter(function(k) { return !t20Checks[k]; });
+  const t20Pass = failed20.length === 0;
+
+  results.push({
+    name: '20. Track F Phase 4: Generic Effects Framework, Separate Hero Training Queue & Subject Isolation (Inc 10.4)',
+    pass: t20Pass,
+    detail: t20Pass
+      ? 'Deterministic Set/Add/Mult/Min/Max stacking, Unlock/Modifier separation, concurrent Research+Training queues, Hero A vs Hero B isolation & extensible City subject verified'
+      : 'Failed checks: ' + failed20.join(', ')
   });
 
   return results;

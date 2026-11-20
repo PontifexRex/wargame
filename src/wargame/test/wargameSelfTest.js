@@ -60,6 +60,24 @@ import {
   startOrganizationResearch,
   getOrganizationResearchBalance
 } from '../../progression/organizationService.js';
+import {
+  EFFECT_TYPES,
+  EFFECT_OPS,
+  collectActiveEffects,
+  resolveNumericStat,
+  resolveUnlockState,
+  registerCustomEffectHandler,
+  evaluateCustomEffect
+} from '../../progression/benefitService.js';
+import {
+  SUBJECT_TYPES,
+  startOrEnqueueTraining,
+  pauseTrainingItem,
+  resumeTrainingItem,
+  cancelTrainingItem,
+  advanceTrainingProgress,
+  computeSubjectEffectiveStat
+} from '../../progression/trainingService.js';
 
 export function evaluateWargameSelfTests() {
   const results = [];
@@ -1431,6 +1449,130 @@ export function evaluateWargameSelfTests() {
     detail: t19Pass
       ? 'Guild-owned RP/research, 3-member attributed Alliance pool funding, no-alliance-training rule & departure ownership persistence verified'
       : 'Failed checks: ' + failed19.join(', ')
+  });
+
+  // =========================================================================
+  // Test 20: Track F Phase 4 — Generic Effects Framework & Separate Hero Training Queue (Inc 10.4)
+  // =========================================================================
+  const prog20 = createDefaultProgressionState(0);
+  recordCurrencyTransaction(prog20.currencyLedger, { ownerId: 'p1', ownerType: OWNER_TYPES.PLAYER, currencyId: 'rp_adventurer', amount: 20, transactionType: TRANSACTION_TYPES.AWARD, source: 'seed', nowMs: 1000 });
+  recordCurrencyTransaction(prog20.currencyLedger, { ownerId: 'p1', ownerType: OWNER_TYPES.PLAYER, currencyId: 'rp_general', amount: 1, transactionType: TRANSACTION_TYPES.AWARD, source: 'seed', nowMs: 1000 });
+  recordCurrencyTransaction(prog20.currencyLedger, { ownerId: 'p1', ownerType: OWNER_TYPES.PLAYER, currencyId: 'gold', amount: 500, transactionType: TRANSACTION_TYPES.AWARD, source: 'seed', nowMs: 1000 });
+
+  // 1. Deterministic BenefitService stacking: Set(10) -> Additive(+4, +6 => 20) -> Multiplicative(*1.5 => 30) -> Max(25 => 25)
+  const stackEffects = [
+    { effectType: EFFECT_TYPES.ATTRIBUTE_MODIFIER, target: 'atk', op: EFFECT_OPS.SET, value: 10, priority: 1 },
+    { effectType: EFFECT_TYPES.ATTRIBUTE_MODIFIER, target: 'atk', op: EFFECT_OPS.ADDITIVE, value: 4 },
+    { effectType: EFFECT_TYPES.ATTRIBUTE_MODIFIER, target: 'atk', op: EFFECT_OPS.ADDITIVE, value: 6 },
+    { effectType: EFFECT_TYPES.ATTRIBUTE_MODIFIER, target: 'atk', op: EFFECT_OPS.MULTIPLICATIVE, value: 1.5 },
+    { effectType: EFFECT_TYPES.ATTRIBUTE_MODIFIER, target: 'atk', op: EFFECT_OPS.MINIMUM, value: 5 },
+    { effectType: EFFECT_TYPES.ATTRIBUTE_MODIFIER, target: 'atk', op: EFFECT_OPS.MAXIMUM, value: 25 }
+  ];
+  const stackRes = resolveNumericStat(99, 'atk', stackEffects);
+  const stackingOk = stackRes.finalValue === 25 && stackRes.setApplied === 10 && stackRes.additiveSum === 10 && stackRes.multiplicativeFactor === 1.5;
+
+  // 2. Unlock / Disable / Replace + Custom Handler separation
+  const unlockEffects = [
+    { effectType: EFFECT_TYPES.ABILITY_UNLOCK, target: 'heavy_cleave', op: EFFECT_OPS.UNLOCK, value: 1, priority: 1 },
+    { effectType: EFFECT_TYPES.ABILITY_UNLOCK, target: 'heavy_cleave', op: EFFECT_OPS.REPLACE, value: 'titan_cleave', priority: 2 },
+    { effectType: EFFECT_TYPES.ABILITY_UNLOCK, target: 'banned_rite', op: EFFECT_OPS.UNLOCK, value: 1, priority: 1 },
+    { effectType: EFFECT_TYPES.ABILITY_UNLOCK, target: 'banned_rite', op: EFFECT_OPS.DISABLE, value: true, priority: 2 }
+  ];
+  const cleaveUnlock = resolveUnlockState('heavy_cleave', unlockEffects);
+  const bannedUnlock = resolveUnlockState('banned_rite', unlockEffects);
+  registerCustomEffectHandler('bonus_flat_test', function(p) { return (p.base || 0) + 7; });
+  const customEffRes = evaluateCustomEffect('bonus_flat_test', { base: 10 });
+  const unlockAndCustomOk = cleaveUnlock.unlocked && cleaveUnlock.replacedBy === 'titan_cleave' &&
+    !bannedUnlock.unlocked && bannedUnlock.disabled &&
+    customEffRes.ok && customEffRes.result === 17;
+
+  // 3. Before WAR_WEAPON_HEAVY_001 is researched, Hero A cannot start train_heavy_weapons
+  const trainLockedBefore = !startOrEnqueueTraining(prog20, { ownerId: 'p1', subjectType: SUBJECT_TYPES.HERO, subjectId: 'hero_A', trainingDefinitionId: 'train_heavy_weapons', nowMs: 2000 }).ok;
+
+  // 4. Complete WAR_WEAPON_HEAVY_001 Lv 1 -> unlocks train_heavy_weapons WITHOUT auto-granting +4 ATK!
+  const startHeavyRes = startOrEnqueueResearch(prog20, { ownerId: 'p1', researchItemId: 'WAR_WEAPON_HEAVY_001', nowMs: 2000 });
+  const advHeavyRes = advanceResearchProgress(prog20, 65000);
+  const heroEffectsPreTrain = collectActiveEffects(prog20, { playerId: 'p1', subjectType: SUBJECT_TYPES.HERO, subjectId: 'hero_A' });
+  const heavyUnlockedLv1 = resolveUnlockState('train_heavy_weapons', heroEffectsPreTrain.unlocks, { effectType: EFFECT_TYPES.UNLOCK_TRAINING });
+  const heroAAtkPre = computeSubjectEffectiveStat(prog20, SUBJECT_TYPES.HERO, 'hero_A', 10, 'atk', { playerId: 'p1' }).finalValue;
+  const heroBAtkPre = computeSubjectEffectiveStat(prog20, SUBJECT_TYPES.HERO, 'hero_B', 10, 'atk', { playerId: 'p1' }).finalValue;
+  const unlockWithoutAutoBonusOk = Boolean(
+    startHeavyRes.ok && advHeavyRes.completedItems.length === 1 &&
+    heavyUnlockedLv1.unlocked && heavyUnlockedLv1.maxUnlockLevel === 1 &&
+    heroAAtkPre === 10 && heroBAtkPre === 10
+  );
+
+  // 5. Separate queues: run Personal Research (GEN_SCHOLAR_001) AND Hero A Training simultaneously!
+  const startConcurrentResearch = startOrEnqueueResearch(prog20, { ownerId: 'p1', researchItemId: 'GEN_SCHOLAR_001', nowMs: 70000 });
+  const startHeroATrain = startOrEnqueueTraining(prog20, { ownerId: 'p1', subjectType: SUBJECT_TYPES.HERO, subjectId: 'hero_A', trainingDefinitionId: 'train_heavy_weapons', nowMs: 70000 });
+  const concurrentQueuesOk = Boolean(
+    startConcurrentResearch.ok && startConcurrentResearch.queuedAs === 'active' &&
+    startHeroATrain.ok && startHeroATrain.queuedAs === 'active' &&
+    prog20.researchQueue.activeItems.length === 1 && prog20.trainingQueue.activeItems.length === 1
+  );
+
+  // Pause & resume Hero A training, then complete via offline jump
+  pauseTrainingItem(prog20, 'hero_A', 'train_heavy_weapons', 80000);
+  const advPausedTrain = advanceTrainingProgress(prog20, 100000);
+  resumeTrainingItem(prog20, 'hero_A', 'train_heavy_weapons', 100000);
+  const advDoneTrain = advanceTrainingProgress(prog20, 140000);
+
+  // 6. Strict Subject Isolation: Hero A gets +4 ATK (14), Hero B remains at 10!
+  const heroAAtkPost = computeSubjectEffectiveStat(prog20, SUBJECT_TYPES.HERO, 'hero_A', 10, 'atk', { playerId: 'p1' }).finalValue;
+  const heroBAtkPost = computeSubjectEffectiveStat(prog20, SUBJECT_TYPES.HERO, 'hero_B', 10, 'atk', { playerId: 'p1' }).finalValue;
+  const heroLv2StillLocked = !startOrEnqueueTraining(prog20, { ownerId: 'p1', subjectType: SUBJECT_TYPES.HERO, subjectId: 'hero_A', trainingDefinitionId: 'train_heavy_weapons', nowMs: 141000 }).ok;
+  const unavailableSubjectBlocked = startOrEnqueueTraining(prog20, { ownerId: 'p1', subjectType: SUBJECT_TYPES.HERO, subjectId: 'hero_B', trainingDefinitionId: 'train_heavy_weapons', subjectAvailable: false, nowMs: 141000 }).reason === EVALUATION_STATUS.SUBJECT_UNAVAILABLE;
+
+  // Cancel training with full refund check on Hero B
+  const goldBeforeHeroB = getCurrencyBalance(prog20.currencyLedger, 'p1', OWNER_TYPES.PLAYER, 'gold').available;
+  startOrEnqueueTraining(prog20, { ownerId: 'p1', subjectType: SUBJECT_TYPES.HERO, subjectId: 'hero_B', trainingDefinitionId: 'train_heavy_weapons', nowMs: 142000 });
+  const cancelHeroB = cancelTrainingItem(prog20, 'hero_B', 'train_heavy_weapons', { nowMs: 143000, refundPolicy: REFUND_POLICIES.FULL });
+  const cancelHeroBOk = cancelHeroB.ok && getCurrencyBalance(prog20.currencyLedger, 'p1', OWNER_TYPES.PLAYER, 'gold').available === goldBeforeHeroB;
+
+  const subjectIsolationOk = Boolean(
+    advPausedTrain.completedItems.length === 0 &&
+    advDoneTrain.completedItems.length === 1 &&
+    heroAAtkPost === 14 &&
+    heroBAtkPost === 10 &&
+    heroLv2StillLocked &&
+    unavailableSubjectBlocked &&
+    cancelHeroBOk
+  );
+
+  // 7. Extensibility: City-scoped training subject (city_1 vs city_2)
+  const customCityCatalog = {
+    train_city_militia: {
+      trainingDefinitionId: 'train_city_militia',
+      name: 'Civic Militia Drills',
+      subjectType: SUBJECT_TYPES.CITY,
+      levels: [{ level: 1, durationSec: 10, costs: [{ kind: 'currency', currencyId: 'gold', amount: 20 }], benefits: [{ effectType: EFFECT_TYPES.ATTRIBUTE_MODIFIER, target: 'city_defense', op: EFFECT_OPS.ADDITIVE, value: 15 }] }],
+      version: '1.0.0'
+    }
+  };
+  const startCityTrain = startOrEnqueueTraining(prog20, { ownerId: 'p1', subjectType: SUBJECT_TYPES.CITY, subjectId: 'city_1', trainingDefinitionId: 'train_city_militia', trainingCatalog: customCityCatalog, requireUnlock: false, nowMs: 150000 });
+  advanceTrainingProgress(prog20, 165000, { trainingCatalog: customCityCatalog });
+  const city1Def = computeSubjectEffectiveStat(prog20, SUBJECT_TYPES.CITY, 'city_1', 100, 'city_defense', { playerId: 'p1', trainingCatalog: customCityCatalog }).finalValue;
+  const city2Def = computeSubjectEffectiveStat(prog20, SUBJECT_TYPES.CITY, 'city_2', 100, 'city_defense', { playerId: 'p1', trainingCatalog: customCityCatalog }).finalValue;
+  const extensibleSubjectOk = startCityTrain.ok && city1Def === 115 && city2Def === 100;
+
+  const t20Checks = {
+    stackingOk: stackingOk,
+    unlockAndCustomOk: unlockAndCustomOk,
+    trainLockedBefore: trainLockedBefore,
+    unlockWithoutAutoBonusOk: unlockWithoutAutoBonusOk,
+    concurrentQueuesOk: concurrentQueuesOk,
+    subjectIsolationOk: subjectIsolationOk,
+    extensibleSubjectOk: extensibleSubjectOk
+  };
+  const failed20 = Object.keys(t20Checks).filter(function(k) { return !t20Checks[k]; });
+  const t20Pass = failed20.length === 0;
+
+  results.push({
+    name: '20. Track F Phase 4: Generic Effects Framework, Separate Hero Training Queue & Subject Isolation (Inc 10.4)',
+    pass: t20Pass,
+    detail: t20Pass
+      ? 'Deterministic Set/Add/Mult/Min/Max stacking, Unlock/Modifier separation, concurrent Research+Training queues, Hero A vs Hero B isolation & extensible City subject verified'
+      : 'Failed checks: ' + failed20.join(', ')
   });
 
   return results;
