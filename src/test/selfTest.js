@@ -117,7 +117,9 @@ import {
   toggleLinkedMechanisms,
   damageDestructibleProp,
   openContainerObject,
-  resolveHazardStepEffects
+  resolveHazardStepEffects,
+  isObjectStackable,
+  isObjectCarryable
 } from '../engine/objects.js';
 import {
   createInteractionRequest,
@@ -1978,12 +1980,22 @@ export function evaluateSelfTests() {
   const woodBarrel31 = createPropInstance('prop_wooden_barrel', fl31.upPos.x, fl31.upPos.y);
   const crate31 = createPropInstance('prop_supply_crate', fl31.upPos.x, fl31.upPos.y);
   const chest31 = createContainerInstance('container_dungeon_chest', fl31.upPos.x, fl31.upPos.y);
-  fl31.objects.push(barrel31, woodBarrel31, crate31, chest31);
+  fl31.objects.push(barrel31, woodBarrel31, crate31);
+  const chestAdded1 = addWorldObject(fl31, chest31);
+  const dupChest31 = createContainerInstance('container_dungeon_chest', fl31.upPos.x, fl31.upPos.y);
+  const chestDupBlocked = addWorldObject(fl31, dupChest31) === null;
+  const chestAttrsValid = Boolean(
+    chestAdded1 &&
+    chestDupBlocked &&
+    isObjectStackable(chest31) === false &&
+    isObjectCarryable(chest31) === false
+  );
   const barrelRes31 = damageDestructibleProp(barrel31, 25, fl31, sandbox31);
   const woodBarrelRes31 = damageDestructibleProp(woodBarrel31, 25, fl31, sandbox31);
   const crateRes31 = damageDestructibleProp(crate31, 30, fl31, sandbox31);
   const chestRes31 = openContainerObject(chest31, fl31, sandbox31, function() { return 0.1; });
   const propsDestroyedCleanly = Boolean(
+    chestAttrsValid &&
     barrelRes31.destroyed && barrelRes31.spawnedHazards >= 1 &&
     barrelRes31.lootResult && barrelRes31.lootResult.dropped === false &&
     woodBarrelRes31.destroyed &&

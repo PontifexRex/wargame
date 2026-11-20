@@ -35,8 +35,13 @@ export function registerObjectDefinition(def) {
   if (!def || !def.definitionId) {
     throw new Error('registerObjectDefinition requires a definition with definitionId');
   }
-  OBJECT_DEFINITIONS[def.definitionId] = Object.freeze(Object.assign({}, def));
-  return OBJECT_DEFINITIONS[def.definitionId];
+  const isItem = def.category === OBJECT_CATEGORIES.ITEM;
+  const normalized = Object.assign({
+    stackable: isItem ? Boolean(def.stackable !== false) : false,
+    carryable: isItem ? true : false
+  }, def);
+  OBJECT_DEFINITIONS[normalized.definitionId] = Object.freeze(normalized);
+  return OBJECT_DEFINITIONS[normalized.definitionId];
 }
 
 export function getObjectDefinition(defId) {
@@ -1304,6 +1309,8 @@ registerObjectDefinition({
   name: 'Gilded Vault Chest',
   description: 'A banded oak treasure chest containing subterranean coin, ore, or relics.',
   tags: ['container', 'chest', 'lootable'],
+  stackable: false,
+  carryable: false,
   defaultState: {
     mechanical: 'closed',
     security: 'unlocked',

@@ -225,9 +225,32 @@ export function getFirstObjectAt(floor, x, y, objectType = null) {
   return null;
 }
 
+export function isObjectStackable(obj) {
+  if (!obj) return false;
+  if (typeof obj.stackable === 'boolean') return obj.stackable;
+  const def = obj.definitionId ? getObjectDefinition(obj.definitionId) : null;
+  if (def && typeof def.stackable === 'boolean') return def.stackable;
+  return obj.category === OBJECT_CATEGORIES.ITEM;
+}
+
+export function isObjectCarryable(obj) {
+  if (!obj) return false;
+  if (typeof obj.carryable === 'boolean') return obj.carryable;
+  const def = obj.definitionId ? getObjectDefinition(obj.definitionId) : null;
+  if (def && typeof def.carryable === 'boolean') return def.carryable;
+  return obj.category === OBJECT_CATEGORIES.ITEM || obj.objectType === WORLD_OBJECT_TYPES.PICKUP;
+}
+
 export function addWorldObject(floor, obj) {
   if (!floor || !obj) return null;
   const objs = ensureFloorObjects(floor);
+  // Enforce non-stackable world object uniqueness per tile (e.g., never allow two chests in the same spot!)
+  if (!isObjectStackable(obj)) {
+    const duplicate = objs.some(function(o) {
+      return o && o.x === obj.x && o.y === obj.y && o.objectType === obj.objectType && !isObjectStackable(o);
+    });
+    if (duplicate) return null;
+  }
   objs.push(obj);
   return obj;
 }

@@ -1342,6 +1342,71 @@ export function renderDoorTile(ctx, px, py, door, biome, inSight) {
   }
 }
 
+export function drawGildedChestProp(ctx, px, py, isOpen) {
+  if (!isOpen) {
+    // 3D Banded Gilded Vault Chest (Closed)
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
+    ctx.fillRect(px + 5, py + 24, 22, 4);
+
+    // Domed oak chest body
+    ctx.fillStyle = '#78350f';
+    ctx.fillRect(px + 6, py + 13, 20, 11);
+    // Domed lid
+    ctx.fillStyle = '#92400e';
+    ctx.beginPath();
+    ctx.moveTo(px + 6, py + 13);
+    if (typeof ctx.quadraticCurveTo === 'function') {
+      ctx.quadraticCurveTo(px + 16, py + 7, px + 26, py + 13);
+    } else {
+      ctx.lineTo(px + 16, py + 8);
+      ctx.lineTo(px + 26, py + 13);
+    }
+    ctx.closePath();
+    ctx.fill();
+
+    // Gilded iron straps with rivets
+    ctx.fillStyle = '#f59e0b';
+    ctx.fillRect(px + 8, py + 10, 3, 14);
+    ctx.fillRect(px + 21, py + 10, 3, 14);
+    ctx.fillStyle = '#fbbf24';
+    ctx.fillRect(px + 6, py + 13, 20, 2);
+    ctx.fillStyle = '#fef08a';
+    ctx.fillRect(px + 9, py + 11, 1, 1);
+    ctx.fillRect(px + 9, py + 17, 1, 1);
+    ctx.fillRect(px + 22, py + 11, 1, 1);
+    ctx.fillRect(px + 22, py + 17, 1, 1);
+
+    // Golden padlock with keyhole
+    ctx.fillStyle = '#fbbf24';
+    ctx.fillRect(px + 14, py + 13, 4, 5);
+    ctx.fillStyle = '#451a03';
+    ctx.fillRect(px + 15, py + 15, 2, 2);
+  } else {
+    // Looted Vault Chest with glittering spoils
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
+    ctx.fillRect(px + 5, py + 24, 22, 4);
+
+    // Tilted open lid thrown back
+    ctx.fillStyle = '#451a03';
+    ctx.fillRect(px + 6, py + 6, 20, 6);
+    ctx.fillStyle = '#78350f';
+    ctx.fillRect(px + 6, py + 12, 20, 12);
+
+    // Open interior cavity
+    ctx.fillStyle = '#1c0a00';
+    ctx.fillRect(px + 8, py + 14, 16, 8);
+    // Gleaming coin and gem sparkles
+    ctx.fillStyle = '#fbbf24';
+    ctx.fillRect(px + 9, py + 18, 3, 2);
+    ctx.fillRect(px + 14, py + 19, 3, 2);
+    ctx.fillRect(px + 18, py + 17, 2, 2);
+    ctx.fillStyle = '#ef4444';
+    ctx.fillRect(px + 12, py + 17, 2, 2);
+    ctx.fillStyle = '#10b981';
+    ctx.fillRect(px + 16, py + 18, 2, 2);
+  }
+}
+
 export function renderPortalTile(ctx, px, py, portal, biome, inSight) {
   if (!ctx || !portal) return;
   const defId = portal.definitionId || '';
@@ -1946,18 +2011,13 @@ export function renderDungeonCanvas() {
               }
               ctx.restore();
             } else if (obj.objectType === 'container') {
-              const isOpen = obj.runtimeState && obj.runtimeState.mechanical === 'open';
-              ctx.save();
-              ctx.fillStyle = isOpen ? '#451a03' : '#92400e';
-              ctx.fillRect(px + 5, py + 8, 22, 16);
-              ctx.strokeStyle = isOpen ? '#78716c' : '#fbbf24';
-              ctx.lineWidth = 2;
-              ctx.strokeRect(px + 5, py + 8, 22, 16);
-              if (!isOpen) {
-                ctx.fillStyle = '#fbbf24';
-                ctx.fillRect(px + 14, py + 14, 4, 5);
+              // Avoid double-drawing when legacy TILE_CHEST / TILE_CHEST_OPEN already rendered the 3D gilded chest
+              if (tile !== TILE_CHEST && tile !== TILE_CHEST_OPEN) {
+                const isOpen = obj.runtimeState && obj.runtimeState.mechanical === 'open';
+                ctx.save();
+                drawGildedChestProp(ctx, px, py, isOpen);
+                ctx.restore();
               }
-              ctx.restore();
             } else if (obj.objectType === 'hazard' && obj.runtimeState && obj.runtimeState.mechanical === 'active') {
               ctx.save();
               if (obj.definitionId === 'hazard_slag_vent') {

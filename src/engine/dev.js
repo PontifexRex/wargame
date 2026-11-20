@@ -438,13 +438,37 @@ export function spawnEntity(type, subId = null, x = null, y = null, state = game
   }
 
   if (tLower === 'chest' || tLower === 'container') {
-    const chest = createContainerInstance('container_dungeon_chest', sx, sy);
-    addWorldObject(floor, chest);
+    // Pick an unoccupied walkable tile adjacent to hero so two chests never stack on the same spot
+    const candidates = [
+      { x: sx, y: sy },
+      { x: state.hero.x - 1, y: state.hero.y },
+      { x: state.hero.x, y: state.hero.y + 1 },
+      { x: state.hero.x, y: state.hero.y - 1 }
+    ];
+    let placedChest = null;
+    let cx = sx;
+    let cy = sy;
+    for (let ci = 0; ci < candidates.length; ci++) {
+      const c = candidates[ci];
+      const t = floor.tiles && floor.tiles[c.y] ? floor.tiles[c.y][c.x] : 0;
+      if (t !== TILE_FLOOR) continue;
+      const chest = createContainerInstance('container_dungeon_chest', c.x, c.y);
+      const added = addWorldObject(floor, chest);
+      if (added) {
+        placedChest = added;
+        cx = c.x;
+        cy = c.y;
+        break;
+      }
+    }
+    if (!placedChest) {
+      return { ok: false, reason: 'No unoccupied adjacent floor tile for chest (chests are not stackable)' };
+    }
     if (state === gameState) {
       emitEngineEvent(ENGINE_EVENTS.FOV_SYNC, {}, state);
-      emitEngineEvent(ENGINE_EVENTS.LOG, { msg: `[DEV] Spawned ${chest.name} at (${sx}, ${sy}).`, tone: 'gold' }, state);
+      emitEngineEvent(ENGINE_EVENTS.LOG, { msg: `[DEV] Spawned ${placedChest.name} at (${cx}, ${cy}).`, tone: 'gold' }, state);
     }
-    return { ok: true, entity: chest, type: 'chest', x: sx, y: sy };
+    return { ok: true, entity: placedChest, type: 'chest', x: cx, y: cy };
   }
 
   if (tLower === 'hazard') {

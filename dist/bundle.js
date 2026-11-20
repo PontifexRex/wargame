@@ -1229,8 +1229,13 @@ function registerObjectDefinition(def) {
   if (!def || !def.definitionId) {
     throw new Error('registerObjectDefinition requires a definition with definitionId');
   }
-  OBJECT_DEFINITIONS[def.definitionId] = Object.freeze(Object.assign({}, def));
-  return OBJECT_DEFINITIONS[def.definitionId];
+  const isItem = def.category === OBJECT_CATEGORIES.ITEM;
+  const normalized = Object.assign({
+    stackable: isItem ? Boolean(def.stackable !== false) : false,
+    carryable: isItem ? true : false
+  }, def);
+  OBJECT_DEFINITIONS[normalized.definitionId] = Object.freeze(normalized);
+  return OBJECT_DEFINITIONS[normalized.definitionId];
 }
 
 function getObjectDefinition(defId) {
@@ -2498,6 +2503,8 @@ registerObjectDefinition({
   name: 'Gilded Vault Chest',
   description: 'A banded oak treasure chest containing subterranean coin, ore, or relics.',
   tags: ['container', 'chest', 'lootable'],
+  stackable: false,
+  carryable: false,
   defaultState: {
     mechanical: 'closed',
     security: 'unlocked',
@@ -2744,9 +2751,32 @@ function getFirstObjectAt(floor, x, y, objectType = null) {
   return null;
 }
 
+function isObjectStackable(obj) {
+  if (!obj) return false;
+  if (typeof obj.stackable === 'boolean') return obj.stackable;
+  const def = obj.definitionId ? getObjectDefinition(obj.definitionId) : null;
+  if (def && typeof def.stackable === 'boolean') return def.stackable;
+  return obj.category === OBJECT_CATEGORIES.ITEM;
+}
+
+function isObjectCarryable(obj) {
+  if (!obj) return false;
+  if (typeof obj.carryable === 'boolean') return obj.carryable;
+  const def = obj.definitionId ? getObjectDefinition(obj.definitionId) : null;
+  if (def && typeof def.carryable === 'boolean') return def.carryable;
+  return obj.category === OBJECT_CATEGORIES.ITEM || obj.objectType === WORLD_OBJECT_TYPES.PICKUP;
+}
+
 function addWorldObject(floor, obj) {
   if (!floor || !obj) return null;
   const objs = ensureFloorObjects(floor);
+  // Enforce non-stackable world object uniqueness per tile (e.g., never allow two chests in the same spot!)
+  if (!isObjectStackable(obj)) {
+    const duplicate = objs.some(function(o) {
+      return o && o.x === obj.x && o.y === obj.y && o.objectType === obj.objectType && !isObjectStackable(o);
+    });
+    if (duplicate) return null;
+  }
   objs.push(obj);
   return obj;
 }
@@ -11298,6 +11328,71 @@ function renderDoorTile(ctx, px, py, door, biome, inSight) {
   }
 }
 
+function drawGildedChestProp(ctx, px, py, isOpen) {
+  if (!isOpen) {
+    // 3D Banded Gilded Vault Chest (Closed)
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
+    ctx.fillRect(px + 5, py + 24, 22, 4);
+
+    // Domed oak chest body
+    ctx.fillStyle = '#78350f';
+    ctx.fillRect(px + 6, py + 13, 20, 11);
+    // Domed lid
+    ctx.fillStyle = '#92400e';
+    ctx.beginPath();
+    ctx.moveTo(px + 6, py + 13);
+    if (typeof ctx.quadraticCurveTo === 'function') {
+      ctx.quadraticCurveTo(px + 16, py + 7, px + 26, py + 13);
+    } else {
+      ctx.lineTo(px + 16, py + 8);
+      ctx.lineTo(px + 26, py + 13);
+    }
+    ctx.closePath();
+    ctx.fill();
+
+    // Gilded iron straps with rivets
+    ctx.fillStyle = '#f59e0b';
+    ctx.fillRect(px + 8, py + 10, 3, 14);
+    ctx.fillRect(px + 21, py + 10, 3, 14);
+    ctx.fillStyle = '#fbbf24';
+    ctx.fillRect(px + 6, py + 13, 20, 2);
+    ctx.fillStyle = '#fef08a';
+    ctx.fillRect(px + 9, py + 11, 1, 1);
+    ctx.fillRect(px + 9, py + 17, 1, 1);
+    ctx.fillRect(px + 22, py + 11, 1, 1);
+    ctx.fillRect(px + 22, py + 17, 1, 1);
+
+    // Golden padlock with keyhole
+    ctx.fillStyle = '#fbbf24';
+    ctx.fillRect(px + 14, py + 13, 4, 5);
+    ctx.fillStyle = '#451a03';
+    ctx.fillRect(px + 15, py + 15, 2, 2);
+  } else {
+    // Looted Vault Chest with glittering spoils
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
+    ctx.fillRect(px + 5, py + 24, 22, 4);
+
+    // Tilted open lid thrown back
+    ctx.fillStyle = '#451a03';
+    ctx.fillRect(px + 6, py + 6, 20, 6);
+    ctx.fillStyle = '#78350f';
+    ctx.fillRect(px + 6, py + 12, 20, 12);
+
+    // Open interior cavity
+    ctx.fillStyle = '#1c0a00';
+    ctx.fillRect(px + 8, py + 14, 16, 8);
+    // Gleaming coin and gem sparkles
+    ctx.fillStyle = '#fbbf24';
+    ctx.fillRect(px + 9, py + 18, 3, 2);
+    ctx.fillRect(px + 14, py + 19, 3, 2);
+    ctx.fillRect(px + 18, py + 17, 2, 2);
+    ctx.fillStyle = '#ef4444';
+    ctx.fillRect(px + 12, py + 17, 2, 2);
+    ctx.fillStyle = '#10b981';
+    ctx.fillRect(px + 16, py + 18, 2, 2);
+  }
+}
+
 function renderPortalTile(ctx, px, py, portal, biome, inSight) {
   if (!ctx || !portal) return;
   const defId = portal.definitionId || '';
@@ -11902,18 +11997,13 @@ function renderDungeonCanvas() {
               }
               ctx.restore();
             } else if (obj.objectType === 'container') {
-              const isOpen = obj.runtimeState && obj.runtimeState.mechanical === 'open';
-              ctx.save();
-              ctx.fillStyle = isOpen ? '#451a03' : '#92400e';
-              ctx.fillRect(px + 5, py + 8, 22, 16);
-              ctx.strokeStyle = isOpen ? '#78716c' : '#fbbf24';
-              ctx.lineWidth = 2;
-              ctx.strokeRect(px + 5, py + 8, 22, 16);
-              if (!isOpen) {
-                ctx.fillStyle = '#fbbf24';
-                ctx.fillRect(px + 14, py + 14, 4, 5);
+              // Avoid double-drawing when legacy TILE_CHEST / TILE_CHEST_OPEN already rendered the 3D gilded chest
+              if (tile !== TILE_CHEST && tile !== TILE_CHEST_OPEN) {
+                const isOpen = obj.runtimeState && obj.runtimeState.mechanical === 'open';
+                ctx.save();
+                drawGildedChestProp(ctx, px, py, isOpen);
+                ctx.restore();
               }
-              ctx.restore();
             } else if (obj.objectType === 'hazard' && obj.runtimeState && obj.runtimeState.mechanical === 'active') {
               ctx.save();
               if (obj.definitionId === 'hazard_slag_vent') {
@@ -14996,13 +15086,37 @@ function spawnEntity(type, subId = null, x = null, y = null, state = gameState) 
   }
 
   if (tLower === 'chest' || tLower === 'container') {
-    const chest = createContainerInstance('container_dungeon_chest', sx, sy);
-    addWorldObject(floor, chest);
+    // Pick an unoccupied walkable tile adjacent to hero so two chests never stack on the same spot
+    const candidates = [
+      { x: sx, y: sy },
+      { x: state.hero.x - 1, y: state.hero.y },
+      { x: state.hero.x, y: state.hero.y + 1 },
+      { x: state.hero.x, y: state.hero.y - 1 }
+    ];
+    let placedChest = null;
+    let cx = sx;
+    let cy = sy;
+    for (let ci = 0; ci < candidates.length; ci++) {
+      const c = candidates[ci];
+      const t = floor.tiles && floor.tiles[c.y] ? floor.tiles[c.y][c.x] : 0;
+      if (t !== TILE_FLOOR) continue;
+      const chest = createContainerInstance('container_dungeon_chest', c.x, c.y);
+      const added = addWorldObject(floor, chest);
+      if (added) {
+        placedChest = added;
+        cx = c.x;
+        cy = c.y;
+        break;
+      }
+    }
+    if (!placedChest) {
+      return { ok: false, reason: 'No unoccupied adjacent floor tile for chest (chests are not stackable)' };
+    }
     if (state === gameState) {
       emitEngineEvent(ENGINE_EVENTS.FOV_SYNC, {}, state);
-      emitEngineEvent(ENGINE_EVENTS.LOG, { msg: `[DEV] Spawned ${chest.name} at (${sx}, ${sy}).`, tone: 'gold' }, state);
+      emitEngineEvent(ENGINE_EVENTS.LOG, { msg: `[DEV] Spawned ${placedChest.name} at (${cx}, ${cy}).`, tone: 'gold' }, state);
     }
-    return { ok: true, entity: chest, type: 'chest', x: sx, y: sy };
+    return { ok: true, entity: placedChest, type: 'chest', x: cx, y: cy };
   }
 
   if (tLower === 'hazard') {
@@ -17497,12 +17611,22 @@ function evaluateSelfTests() {
   const woodBarrel31 = createPropInstance('prop_wooden_barrel', fl31.upPos.x, fl31.upPos.y);
   const crate31 = createPropInstance('prop_supply_crate', fl31.upPos.x, fl31.upPos.y);
   const chest31 = createContainerInstance('container_dungeon_chest', fl31.upPos.x, fl31.upPos.y);
-  fl31.objects.push(barrel31, woodBarrel31, crate31, chest31);
+  fl31.objects.push(barrel31, woodBarrel31, crate31);
+  const chestAdded1 = addWorldObject(fl31, chest31);
+  const dupChest31 = createContainerInstance('container_dungeon_chest', fl31.upPos.x, fl31.upPos.y);
+  const chestDupBlocked = addWorldObject(fl31, dupChest31) === null;
+  const chestAttrsValid = Boolean(
+    chestAdded1 &&
+    chestDupBlocked &&
+    isObjectStackable(chest31) === false &&
+    isObjectCarryable(chest31) === false
+  );
   const barrelRes31 = damageDestructibleProp(barrel31, 25, fl31, sandbox31);
   const woodBarrelRes31 = damageDestructibleProp(woodBarrel31, 25, fl31, sandbox31);
   const crateRes31 = damageDestructibleProp(crate31, 30, fl31, sandbox31);
   const chestRes31 = openContainerObject(chest31, fl31, sandbox31, function() { return 0.1; });
   const propsDestroyedCleanly = Boolean(
+    chestAttrsValid &&
     barrelRes31.destroyed && barrelRes31.spawnedHazards >= 1 &&
     barrelRes31.lootResult && barrelRes31.lootResult.dropped === false &&
     woodBarrelRes31.destroyed &&
