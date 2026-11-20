@@ -1,6 +1,7 @@
 // Foundational Game Object & Runtime Instance Engine (ADR-0010)
 // Manages object instances, spatial floor queries, item pickups, and the ItemStack stacking engine.
 
+import { rollLootTable } from '../data/lootTables.js';
 import {
   OBJECT_CATEGORIES,
   WORLD_OBJECT_TYPES,
@@ -549,6 +550,85 @@ export function createPropInstance(defId = 'prop_supply_crate', x = 0, y = 0, op
   }));
 }
 
+export function createContainerInstance(defId = 'container_dungeon_chest', x = 0, y = 0, options = {}) {
+  return createWorldObjectInstance(defId, Object.assign({}, options, {
+    x: x,
+    y: y,
+    objectType: WORLD_OBJECT_TYPES.CONTAINER
+  }));
+}
+
+export function isClosedContainer(obj) {
+  return Boolean(obj && obj.objectType === WORLD_OBJECT_TYPES.CONTAINER && obj.runtimeState && obj.runtimeState.mechanical === 'closed');
+}
+
+export function resolveLootableComponent(obj, floor, state, randFn = Math.random) {
+  const lootCfg = obj && obj.components && obj.components.lootable;
+  if (!lootCfg || !lootCfg.lootTableId) return { dropped: false, items: [], gold: 0 };
+
+  const chance = typeof lootCfg.dropChance === 'number' ? lootCfg.dropChance : 1.0;
+  const rolls = Math.max(1, lootCfg.rolls || 1);
+  const depth = (floor && floor.depth) || 1;
+  const droppedItems = [];
+  let goldGained = 0;
+
+  for (let r = 0; r < rolls; r++) {
+    const rollVal = typeof randFn === 'function' ? randFn() : Math.random();
+    if (rollVal > chance) continue;
+    const entry = rollLootTable(lootCfg.lootTableId, depth, randFn);
+    if (!entry) continue;
+
+    if (entry.kind === 'gold') {
+      const amt = entry.goldAmount || 3;
+      goldGained += amt;
+      if (state && state.hero && Array.isArray(state.hero.expeditionPack)) {
+        state.hero.expeditionPack.push({ id: entry.id, name: entry.name, qty: 1, val: amt });
+      } else if (state && state.guildVault) {
+        state.guildVault.gold = (state.guildVault.gold || 0) + amt;
+      }
+      droppedItems.push(entry);
+    } else if (entry.kind === 'consumable' && state && state.hero && state.hero.consumables) {
+      const k = entry.consumableKey || 'potions';
+      state.hero.consumables[k] = (state.hero.consumables[k] || 0) + (entry.qty || 1);
+      droppedItems.push(entry);
+    } else if (entry.kind === 'ore' && state && state.hero && Array.isArray(state.hero.expeditionPack)) {
+      const existing = state.hero.expeditionPack.find(function(it) { return it.id === entry.oreId; });
+      if (existing) existing.qty += (entry.qty || 1);
+      else state.hero.expeditionPack.push({ id: entry.oreId || 'copper', name: entry.name, qty: entry.qty || 1, val: entry.value || 5 });
+      droppedItems.push(entry);
+    } else if (entry.kind === 'trash' || entry.kind === 'trade') {
+      if (state && state.hero && Array.isArray(state.hero.expeditionPack)) {
+        state.hero.expeditionPack.push({ id: entry.id, name: entry.name, qty: 1, val: entry.value || 0, isTrash: entry.kind === 'trash' });
+      }
+      droppedItems.push(entry);
+    } else if (entry.kind === 'gear') {
+      if (state && state.hero && Array.isArray(state.hero.expeditionGear)) {
+        state.hero.expeditionGear.push({
+          uid: 'chest_gear_' + Date.now() + '_' + Math.floor((typeof randFn === 'function' ? randFn() : Math.random()) * 10000),
+          slot: 'weapon',
+          name: 'Vault-Forged Blade',
+          rarity: 'uncommon',
+          atk: 8 + Math.floor(depth * 1.5),
+          def: 1,
+          value: 45 + depth * 10
+        });
+      }
+      droppedItems.push(entry);
+    }
+  }
+
+  return { dropped: droppedItems.length > 0, items: droppedItems, gold: goldGained };
+}
+
+export function openContainerObject(containerObj, floor, state, randFn = Math.random) {
+  if (!isClosedContainer(containerObj)) return { opened: false, loot: null };
+  containerObj.runtimeState.mechanical = 'open';
+  if (!containerObj.permeability) containerObj.permeability = {};
+  containerObj.permeability.movement = true;
+  const loot = resolveLootableComponent(containerObj, floor, state, randFn);
+  return { opened: true, loot: loot };
+}
+
 export function createHazardInstance(defId = 'hazard_slag_vent', x = 0, y = 0, options = {}) {
   return createWorldObjectInstance(defId, Object.assign({}, options, {
     x: x,
@@ -639,10 +719,11 @@ export function damageDestructibleProp(propObj, rawDamage, floor, state) {
   const propCfg = (propObj.components && propObj.components.prop) || {};
   let spawnedHazards = 0;
   let goldLooted = 0;
-
+  const lootRes = resolveLootableComponent(propObj, floor, state);
+  goldLooted += (lootRes.gold || 0);
   if (propCfg.goldDrop && state && state.guildVault) {
-    goldLooted = propCfg.goldDrop;
-    state.guildVault.gold = (state.guildVault.gold || 0) + goldLooted;
+    goldLooted += propCfg.goldDrop;
+    state.guildVault.gold = (state.guildVault.gold || 0) + propCfg.goldDrop;
   }
 
   if (propCfg.spawnsHazard && floor && Array.isArray(floor.objects)) {
@@ -668,6 +749,7 @@ export function damageDestructibleProp(propObj, rawDamage, floor, state) {
     destroyed: true,
     damage: dmg,
     goldLooted: goldLooted,
+    lootResult: lootRes,
     spawnedHazards: spawnedHazards
   };
 }

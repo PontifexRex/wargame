@@ -46,9 +46,13 @@ export const SPAWN_SUB_OPTIONS = {
     { value: 'plate', label: 'Dwarven Pressure Plate (Step Trigger)' }
   ],
   prop: [
-    { value: 'crate', label: 'Iron-Bound Supply Crate (Smash for Gold)' },
-    { value: 'barrel', label: 'Volatile Oil Barrel (Spills Oil Slicks)' },
+    { value: 'crate', label: 'Iron-Bound Supply Crate (55% Salvage)' },
+    { value: 'wooden_barrel', label: 'Wooden Storage Barrel (35% Junk/Loot)' },
+    { value: 'barrel', label: 'Volatile Oil Barrel (0% Loot, Spills Oil)' },
     { value: 'barricade', label: 'Splintered Wood Barricade (Destructible)' }
+  ],
+  chest: [
+    { value: 'vault_chest', label: 'Gilded Vault Chest (100% Treasure)' }
   ],
   hazard: [
     { value: 'slag', label: 'Molten Slag Vent (Fire + Burn)' },

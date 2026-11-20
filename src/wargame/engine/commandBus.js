@@ -14,7 +14,9 @@ import {
   CANCEL_CLEANUP_TIME_RATIO,
   BASE_MOVE_BUILDING_DURATION_MS,
   CITY_CENTER_PLOT_INDEX,
-  CITY_TOTAL_PLOTS
+  CITY_TOTAL_PLOTS,
+  BASE_MAX_HERO_ROSTER,
+  CITY_STORAGE_BASE_CAPACITY
 } from '../constants.js';
 import {
   OVERWORLD_TERRAIN_DEFS,
@@ -26,7 +28,9 @@ import {
   computeBuildingUpgradeCost,
   computeBuildingDurationMs,
   isBuildingPrerequisiteMet,
-  getBuildingPrerequisiteMissingReason
+  getBuildingPrerequisiteMissingReason,
+  computeMaxPartySize,
+  getCityRecruitableClasses
 } from '../data/buildings.js';
 import { CAMPAIGN_TASKS_DAG } from '../data/tasks.js';
 import {
@@ -54,6 +58,7 @@ import { evaluateTaskDAG } from './taskEngine.js';
 import {
   createNewCampaignWorldState,
   createDefaultCityPlots,
+  createInventoryContainer,
   getPrimaryCity,
   getSelectedOverworldUnit
 } from './state.js';
@@ -297,7 +302,8 @@ export function dispatchWargameCommand(commandEnvelope, state, scheduler, eventS
       buildQueue: [],
       maxBuildQueueSlots: BASE_BUILD_QUEUE_LIMIT || 3,
       recruitmentQueue: [],
-      maxRecruitQueueSlots: BASE_RECRUIT_QUEUE_LIMIT || 3
+      maxRecruitQueueSlots: BASE_RECRUIT_QUEUE_LIMIT || 3,
+      storage: createInventoryContainer('city_storage_' + cityId, cityName + ' Vault Storage', CITY_STORAGE_BASE_CAPACITY || 200)
     };
 
     world.cities[cityId] = newCity;
@@ -767,6 +773,13 @@ export function dispatchWargameCommand(commandEnvelope, state, scheduler, eventS
       city.recruitmentQueue = [];
     }
 
+    // Enforce global Hero Roster Cap (ADR-0012: starts at 3, dismiss a Hero to recruit another)
+    const maxHeroes = (world.roster && world.roster.maxHeroes) ? world.roster.maxHeroes : (BASE_MAX_HERO_ROSTER || 3);
+    const totalActiveAndQueued = (world.heroes ? world.heroes.length : 0) + city.recruitmentQueue.length;
+    if (totalActiveAndQueued >= maxHeroes) {
+      return reject('Hero roster is full (' + totalActiveAndQueued + '/' + maxHeroes + '). Dismiss a Hero before recruiting another.');
+    }
+
     if (city.recruitmentQueue.length >= (city.maxRecruitQueueSlots || BASE_RECRUIT_QUEUE_LIMIT || 3)) {
       return reject('Hero training grounds are full (Maximum ' + (city.maxRecruitQueueSlots || 3) + ' in training queue)');
     }
@@ -936,6 +949,169 @@ export function dispatchWargameCommand(commandEnvelope, state, scheduler, eventS
       }
     }
     return accept({ heroId: hero.id, equippedCount: equippedCount });
+  }
+
+  // ---------------------------------------------------------------------------
+  // 9B3. HERO ROSTER MANAGEMENT (Dismiss Hero, Overall Leader, Garrison Party)
+  // ---------------------------------------------------------------------------
+  if (cmdType === COMMAND_TYPES.DISMISS_HERO) {
+    const heroIdx = (world.heroes || []).findIndex(function(h) { return h.id === payload.heroId; });
+    if (heroIdx === -1) return reject('Hero not found in roster');
+    const hero = world.heroes[heroIdx];
+    const city = getPrimaryCity(state);
+
+    // Safely deposit all hero equipment & bag gear into City Vault Storage!
+    if (city) {
+      if (!city.storage || !Array.isArray(city.storage.items)) {
+        city.storage = createInventoryContainer('city_storage_' + city.id, city.name + ' Vault Storage', CITY_STORAGE_BASE_CAPACITY || 200);
+      }
+      if (hero.equipment) {
+        const eqKeys = Object.keys(hero.equipment);
+        for (let i = 0; i < eqKeys.length; i++) {
+          const it = hero.equipment[eqKeys[i]];
+          if (it) city.storage.items.push(it);
+        }
+      }
+      if (Array.isArray(hero.bagGear)) {
+        for (let i = 0; i < hero.bagGear.length; i++) {
+          if (hero.bagGear[i]) city.storage.items.push(hero.bagGear[i]);
+        }
+      }
+    }
+
+    world.heroes.splice(heroIdx, 1);
+
+    // Remove or clean up Overworld unit led by this dismissed hero
+    if (ow && Array.isArray(ow.units)) {
+      for (let u = 0; u < ow.units.length; u++) {
+        if (ow.units[u].leaderHeroId === hero.id) {
+          if (ow.units[u].marchPlan && ow.units[u].marchPlan.activeJobId && scheduler) {
+            scheduler.cancelJob(ow.units[u].marchPlan.activeJobId);
+          }
+          ow.units[u].alive = false;
+          ow.units[u].status = 'dismissed';
+        }
+      }
+    }
+
+    // Remove from any party
+    if (Array.isArray(world.parties)) {
+      world.parties = world.parties.filter(function(pt) {
+        if (Array.isArray(pt.memberHeroIds)) {
+          pt.memberHeroIds = pt.memberHeroIds.filter(function(mid) { return mid !== hero.id; });
+        }
+        if (Array.isArray(pt.memberIds)) {
+          pt.memberIds = pt.memberIds.filter(function(mid) { return mid !== hero.id; });
+        }
+        return pt.leaderHeroId !== hero.id;
+      });
+    }
+
+    // Reassign Overall Leader if the dismissed hero was leader
+    if (world.roster && world.roster.overallLeaderHeroId === hero.id) {
+      world.roster.overallLeaderHeroId = world.heroes.length > 0 ? world.heroes[0].id : null;
+    }
+
+    if (eventStream) {
+      eventStream.publish(STREAM_TOPICS.HERO_DISMISSED, {
+        heroId: hero.id,
+        heroName: hero.name
+      }, simTimeMs);
+    }
+    return accept({ dismissedHeroId: hero.id, remainingHeroes: world.heroes.length });
+  }
+
+  if (cmdType === COMMAND_TYPES.SET_OVERALL_LEADER) {
+    const hero = (world.heroes || []).find(function(h) { return h.id === payload.heroId; });
+    if (!hero) return reject('Hero not found in roster');
+    if (!world.roster) world.roster = { maxHeroes: BASE_MAX_HERO_ROSTER || 3, overallLeaderHeroId: null };
+    world.roster.overallLeaderHeroId = hero.id;
+    if (eventStream) {
+      eventStream.publish(STREAM_TOPICS.LEADER_CHANGED, {
+        heroId: hero.id,
+        heroName: hero.name
+      }, simTimeMs);
+    }
+    return accept({ overallLeaderHeroId: hero.id });
+  }
+
+  if (cmdType === COMMAND_TYPES.ASSIGN_HERO_TO_PARTY) {
+    const city = getPrimaryCity(state);
+    if (!city) return reject('Requires an established City');
+    const maxSize = computeMaxPartySize(city);
+    const party = (world.parties || []).find(function(pt) { return pt.id === payload.partyId; });
+    if (!party) return reject('Party not found');
+    const hero = (world.heroes || []).find(function(h) { return h.id === payload.heroId; });
+    if (!hero) return reject('Hero not found');
+    if (!Array.isArray(party.memberIds)) party.memberIds = [];
+    if (party.memberIds.indexOf(hero.id) !== -1) return reject('Hero is already in this party');
+    if (party.memberIds.length >= maxSize) {
+      return reject('Party is at maximum capacity (' + maxSize + '). Build or upgrade the City Garrison to add more Heroes to a Party.');
+    }
+    party.memberIds.push(hero.id);
+    return accept({ partyId: party.id, memberIds: party.memberIds.slice(), maxPartySize: maxSize });
+  }
+
+  // ---------------------------------------------------------------------------
+  // 9B4. CITY VAULT STORAGE CONTAINER (Deposit, Withdraw, Dump Bag — ADR-0012)
+  // ---------------------------------------------------------------------------
+  if (cmdType === COMMAND_TYPES.DEPOSIT_TO_CITY_STORAGE) {
+    const city = getPrimaryCity(state);
+    if (!city) return reject('No City founded');
+    if (!city.storage || !Array.isArray(city.storage.items)) {
+      city.storage = createInventoryContainer('city_storage_' + city.id, city.name + ' Vault Storage', CITY_STORAGE_BASE_CAPACITY || 200);
+    }
+    const hero = (world.heroes || []).find(function(h) { return h.id === payload.heroId; });
+    if (!hero || !Array.isArray(hero.bagGear)) return reject('Hero not found');
+    if (city.storage.items.length >= (city.storage.capacity || 200)) {
+      return reject('City Vault Storage is full');
+    }
+    const idx = hero.bagGear.findIndex(function(it) { return it.uid === payload.itemUid; });
+    if (idx === -1) return reject('Item not found in hero pack');
+    const item = hero.bagGear.splice(idx, 1)[0];
+    city.storage.items.push(item);
+    if (eventStream) {
+      eventStream.publish(STREAM_TOPICS.STORAGE_UPDATED, { cityId: city.id, action: 'deposit', itemName: item.name }, simTimeMs);
+    }
+    return accept({ item: item, storageCount: city.storage.items.length });
+  }
+
+  if (cmdType === COMMAND_TYPES.WITHDRAW_FROM_CITY_STORAGE) {
+    const city = getPrimaryCity(state);
+    if (!city || !city.storage || !Array.isArray(city.storage.items)) return reject('City Vault Storage unavailable');
+    const hero = (world.heroes || []).find(function(h) { return h.id === payload.heroId; });
+    if (!hero) return reject('Hero not found');
+    if (!Array.isArray(hero.bagGear)) hero.bagGear = [];
+    const idx = city.storage.items.findIndex(function(it) { return it.uid === payload.itemUid; });
+    if (idx === -1) return reject('Item not found in City Vault Storage');
+    const item = city.storage.items.splice(idx, 1)[0];
+    hero.bagGear.push(item);
+    if (eventStream) {
+      eventStream.publish(STREAM_TOPICS.STORAGE_UPDATED, { cityId: city.id, action: 'withdraw', itemName: item.name }, simTimeMs);
+    }
+    return accept({ item: item, storageCount: city.storage.items.length });
+  }
+
+  if (cmdType === COMMAND_TYPES.DUMP_HERO_BAG_TO_CITY) {
+    const city = getPrimaryCity(state);
+    if (!city) return reject('No City founded');
+    if (!city.storage || !Array.isArray(city.storage.items)) {
+      city.storage = createInventoryContainer('city_storage_' + city.id, city.name + ' Vault Storage', CITY_STORAGE_BASE_CAPACITY || 200);
+    }
+    const hero = (world.heroes || []).find(function(h) { return h.id === payload.heroId; });
+    if (!hero || !Array.isArray(hero.bagGear) || hero.bagGear.length === 0) {
+      return reject('Hero pack is already empty');
+    }
+    const cap = city.storage.capacity || 200;
+    let movedCount = 0;
+    while (hero.bagGear.length > 0 && city.storage.items.length < cap) {
+      city.storage.items.push(hero.bagGear.shift());
+      movedCount++;
+    }
+    if (eventStream) {
+      eventStream.publish(STREAM_TOPICS.STORAGE_UPDATED, { cityId: city.id, action: 'dump', count: movedCount }, simTimeMs);
+    }
+    return accept({ movedCount: movedCount, storageCount: city.storage.items.length });
   }
 
   // ---------------------------------------------------------------------------

@@ -112,9 +112,11 @@ import {
   getDiscoveredWaypoints,
   createMechanismInstance,
   createPropInstance,
+  createContainerInstance,
   createHazardInstance,
   toggleLinkedMechanisms,
   damageDestructibleProp,
+  openContainerObject,
   resolveHazardStepEffects
 } from '../engine/objects.js';
 import {
@@ -1971,17 +1973,22 @@ export function evaluateSelfTests() {
     secret31.runtimeState.discovery === 'revealed' &&
     isDoorWalkable(secret31);
 
-  // Destructible Oil Barrel -> spawns flammable oil slicks on destruction; Supply Crate -> drops gold & clears path
+  // Destructible Oil Barrel (0% treasure, spills oil) vs Wooden Barrel (35% junk/salvage) & Spawnable Chest (100% treasure)
   const barrel31 = createPropInstance('prop_oil_barrel', fl31.upPos.x, fl31.upPos.y);
+  const woodBarrel31 = createPropInstance('prop_wooden_barrel', fl31.upPos.x, fl31.upPos.y);
   const crate31 = createPropInstance('prop_supply_crate', fl31.upPos.x, fl31.upPos.y);
-  fl31.objects.push(barrel31, crate31);
-  const goldBefore31 = sandbox31.guildVault.gold;
+  const chest31 = createContainerInstance('container_dungeon_chest', fl31.upPos.x, fl31.upPos.y);
+  fl31.objects.push(barrel31, woodBarrel31, crate31, chest31);
   const barrelRes31 = damageDestructibleProp(barrel31, 25, fl31, sandbox31);
+  const woodBarrelRes31 = damageDestructibleProp(woodBarrel31, 25, fl31, sandbox31);
   const crateRes31 = damageDestructibleProp(crate31, 30, fl31, sandbox31);
+  const chestRes31 = openContainerObject(chest31, fl31, sandbox31, function() { return 0.1; });
   const propsDestroyedCleanly = Boolean(
     barrelRes31.destroyed && barrelRes31.spawnedHazards >= 1 &&
-    crateRes31.destroyed && sandbox31.guildVault.gold === goldBefore31 + 12 &&
-    crate31.permeability.movement === true
+    barrelRes31.lootResult && barrelRes31.lootResult.dropped === false &&
+    woodBarrelRes31.destroyed &&
+    crateRes31.destroyed && crate31.permeability.movement === true &&
+    chestRes31.opened && chestRes31.loot && chestRes31.loot.dropped === true
   );
 
   // Environmental Hazards affect BOTH Hero and Monsters symmetrically

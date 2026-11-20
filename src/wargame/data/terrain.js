@@ -214,6 +214,17 @@ export const RECRUITABLE_HERO_CLASSES = [
     specialty: 'Master lockpicking, secret door discovery, and Shadowstep Strike.'
   },
   {
+    classId: 'cleric',
+    name: 'Acolyte Cleric',
+    title: 'Temple Devotee',
+    icon: '✝️',
+    color: '#fef08a',
+    costGold: 55,
+    costFood: 30,
+    baseStats: { str: 10, dex: 9, int: 15, vit: 13, hp: 162, mp: 105, atk: 22, def: 15 },
+    specialty: 'Entry-level Temple Chapterhouse healer, blessing wards, and undead turning.'
+  },
+  {
     classId: 'paladin',
     name: 'Radiant Crusader',
     title: 'Dawn Warden',
@@ -222,7 +233,7 @@ export const RECRUITABLE_HERO_CLASSES = [
     costGold: 65,
     costFood: 35,
     baseStats: { str: 14, dex: 9, int: 12, vit: 15, hp: 195, mp: 86, atk: 27, def: 20 },
-    specialty: 'Aura of Radiance, Holy Smite self-healing, and Divine Intervention.'
+    specialty: 'Temple Chapterhouse Tier-2 Champion: Aura of Radiance, Holy Smite, and Divine Intervention.'
   }
 ];
 

@@ -39,6 +39,8 @@ import {
   removeWorldObject,
   isMechanism,
   isDestructibleProp,
+  isClosedContainer,
+  openContainerObject,
   toggleLinkedMechanisms,
   damageDestructibleProp,
   resolveHazardStepEffects
@@ -1418,7 +1420,24 @@ export function handlePlayerAction(dx, dy, state = gameState) {
     }
   }
 
-  // 6.6. Destructible Prop Bump-Bash (Inc 8.3: Crates, Oil Barrels, Barricades)
+  // 6.55. Spawnable Container Chest Bump-Open (ADR-0012)
+  const containerAtTarget = (floor.objects && floor.objects.length > 0)
+    ? floor.objects.find(function(o) { return o.x === nx && o.y === ny && isClosedContainer(o); })
+    : null;
+  if (containerAtTarget) {
+    const cRes = openContainerObject(containerAtTarget, floor, state);
+    if (cRes.opened && state === gameState) {
+      playSound('chest');
+      const items = (cRes.loot && cRes.loot.items) || [];
+      const summary = items.length > 0 ? items.map(function(it) { return it.name; }).join(', ') : 'Empty';
+      ui.floatingText(nx, ny, 'Chest Opened!', '#fbbf24');
+      ui.log('Opened ' + containerAtTarget.name + ': Found ' + summary + '!', 'gold');
+    }
+    processTurn(state);
+    return;
+  }
+
+  // 6.6. Destructible Prop Bump-Bash (Inc 8.3: Crates, Barrels, Barricades)
   const propAtTarget = (floor.objects && floor.objects.length > 0)
     ? floor.objects.find(function(o) { return o.x === nx && o.y === ny && isDestructibleProp(o); })
     : null;

@@ -1077,7 +1077,8 @@ registerObjectDefinition({
   },
   defaultComponents: {
     durability: { hp: 18, maxHp: 18, armor: 1, canBeForced: true },
-    prop: { propType: 'crate', goldDrop: 12 },
+    prop: { propType: 'crate' },
+    lootable: { dropChance: 0.55, lootTableId: 'loot_crate_salvage', rolls: 1 },
     interactable: {
       prompt: 'Smash Crate',
       actions: {
@@ -1118,6 +1119,7 @@ registerObjectDefinition({
   defaultComponents: {
     durability: { hp: 12, maxHp: 12, armor: 0, canBeForced: true },
     prop: { propType: 'oil_barrel', spawnsHazard: 'hazard_oil_slick' },
+    lootable: null,
     interactable: {
       prompt: 'Rupture Oil Barrel',
       actions: {
@@ -1251,5 +1253,85 @@ registerObjectDefinition({
   },
   defaultComponents: {
     hazard: { hazardType: 'poison', damage: 7, statusId: 'poison', statusTurns: 3 }
+  }
+});
+
+registerObjectDefinition({
+  definitionId: 'prop_wooden_barrel',
+  category: OBJECT_CATEGORIES.WORLD_OBJECT,
+  objectType: WORLD_OBJECT_TYPES.PROP,
+  name: 'Wooden Storage Barrel',
+  description: 'An oak cask left behind by dwarven miners. Smashing it has a chance to uncover minor salvage or worthless junk.',
+  tags: ['prop', 'destructible', 'wood', 'barrel', 'lootable'],
+  defaultState: {
+    mechanical: 'closed',
+    security: 'unlocked',
+    discovery: 'revealed',
+    structural: 'intact',
+    power: 'unpowered'
+  },
+  defaultPermeability: {
+    movement: false,
+    lineOfSight: true,
+    light: true,
+    sound: true,
+    projectiles: true,
+    magic: true
+  },
+  defaultComponents: {
+    durability: { hp: 12, maxHp: 12, armor: 0, canBeForced: true },
+    prop: { propType: 'wooden_barrel' },
+    lootable: { dropChance: 0.35, lootTableId: 'loot_barrel_junk', rolls: 1 },
+    interactable: {
+      prompt: 'Smash Barrel',
+      actions: {
+        bash: {
+          id: 'bash',
+          name: 'Smash Wooden Barrel',
+          requirements: null,
+          costs: null,
+          effects: [{ type: 'damageProp' }]
+        }
+      }
+    }
+  }
+});
+
+registerObjectDefinition({
+  definitionId: 'container_dungeon_chest',
+  category: OBJECT_CATEGORIES.WORLD_OBJECT,
+  objectType: WORLD_OBJECT_TYPES.CONTAINER,
+  name: 'Gilded Vault Chest',
+  description: 'A banded oak treasure chest containing subterranean coin, ore, or relics.',
+  tags: ['container', 'chest', 'lootable'],
+  defaultState: {
+    mechanical: 'closed',
+    security: 'unlocked',
+    discovery: 'revealed',
+    structural: 'intact',
+    power: 'unpowered'
+  },
+  defaultPermeability: {
+    movement: false,
+    lineOfSight: true,
+    light: true,
+    sound: true,
+    projectiles: true,
+    magic: true
+  },
+  defaultComponents: {
+    lootable: { dropChance: 1.0, lootTableId: 'loot_dungeon_chest', rolls: 1 },
+    interactable: {
+      prompt: 'Open Chest',
+      actions: {
+        open: {
+          id: 'open',
+          name: 'Open Vault Chest',
+          requirements: { type: 'objectState', axis: 'mechanical', value: 'closed' },
+          costs: null,
+          effects: [{ type: 'changeState', axis: 'mechanical', value: 'open' }]
+        }
+      }
+    }
   }
 });

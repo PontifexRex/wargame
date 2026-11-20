@@ -21,6 +21,7 @@ import {
   createPortalInstance,
   createMechanismInstance,
   createPropInstance,
+  createContainerInstance,
   createHazardInstance,
   spawnGroundItem,
   addWorldObject
@@ -424,7 +425,8 @@ export function spawnEntity(type, subId = null, x = null, y = null, state = game
 
   if (tLower === 'prop') {
     let defId = 'prop_supply_crate';
-    if (subLower === 'barrel' || subLower === 'oil' || subLower === 'oil_barrel') defId = 'prop_oil_barrel';
+    if (subLower === 'wooden_barrel' || subLower === 'wood_barrel') defId = 'prop_wooden_barrel';
+    else if (subLower === 'barrel' || subLower === 'oil' || subLower === 'oil_barrel') defId = 'prop_oil_barrel';
     else if (subLower === 'barricade' || subLower === 'wood_barricade') defId = 'prop_wood_barricade';
     const prop = createPropInstance(defId, sx, sy);
     addWorldObject(floor, prop);
@@ -433,6 +435,16 @@ export function spawnEntity(type, subId = null, x = null, y = null, state = game
       emitEngineEvent(ENGINE_EVENTS.LOG, { msg: `[DEV] Spawned ${prop.name} at (${sx}, ${sy}).`, tone: 'gold' }, state);
     }
     return { ok: true, entity: prop, type: 'prop', x: sx, y: sy };
+  }
+
+  if (tLower === 'chest' || tLower === 'container') {
+    const chest = createContainerInstance('container_dungeon_chest', sx, sy);
+    addWorldObject(floor, chest);
+    if (state === gameState) {
+      emitEngineEvent(ENGINE_EVENTS.FOV_SYNC, {}, state);
+      emitEngineEvent(ENGINE_EVENTS.LOG, { msg: `[DEV] Spawned ${chest.name} at (${sx}, ${sy}).`, tone: 'gold' }, state);
+    }
+    return { ok: true, entity: chest, type: 'chest', x: sx, y: sy };
   }
 
   if (tLower === 'hazard') {

@@ -678,6 +678,11 @@ export function resolveRecruitHeroJob(job, state, scheduler, eventStream) {
 
   if (!world.heroes) world.heroes = [];
   world.heroes.push(heroObj);
+  if (!world.roster) {
+    world.roster = { maxHeroes: 3, overallLeaderHeroId: heroObj.id };
+  } else if (!world.roster.overallLeaderHeroId) {
+    world.roster.overallLeaderHeroId = heroObj.id;
+  }
   world.stats.heroesRecruited = (world.stats.heroesRecruited || 0) + 1;
 
   // Form an Overworld Vanguard Party at the City gates led by this Hero

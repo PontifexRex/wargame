@@ -286,6 +286,61 @@ export function handleAutoEquipHero() {
   syncWargameUI(simHost);
 }
 
+export function handleDepositToCityStorage(heroId, itemUid) {
+  simHost.dispatch({
+    type: COMMAND_TYPES.DEPOSIT_TO_CITY_STORAGE,
+    payload: { heroId: heroId, itemUid: itemUid }
+  });
+  simHost.state._dirty = true;
+  simHost.save();
+  syncWargameUI(simHost);
+}
+
+export function handleWithdrawFromCityStorage(heroId, itemUid) {
+  simHost.dispatch({
+    type: COMMAND_TYPES.WITHDRAW_FROM_CITY_STORAGE,
+    payload: { heroId: heroId, itemUid: itemUid }
+  });
+  simHost.state._dirty = true;
+  simHost.save();
+  syncWargameUI(simHost);
+}
+
+export function handleDumpHeroBagToCity() {
+  const heroId = simHost.state && simHost.state._openHeroSheetId;
+  if (!heroId) return;
+  simHost.dispatch({
+    type: COMMAND_TYPES.DUMP_HERO_BAG_TO_CITY,
+    payload: { heroId: heroId }
+  });
+  simHost.state._dirty = true;
+  simHost.save();
+  syncWargameUI(simHost);
+}
+
+export function handleSetOverallLeader(heroId) {
+  simHost.dispatch({
+    type: COMMAND_TYPES.SET_OVERALL_LEADER,
+    payload: { heroId: heroId }
+  });
+  simHost.state._dirty = true;
+  simHost.save();
+  syncWargameUI(simHost);
+}
+
+export function handleDismissHero(heroId) {
+  simHost.dispatch({
+    type: COMMAND_TYPES.DISMISS_HERO,
+    payload: { heroId: heroId }
+  });
+  if (simHost.state && simHost.state._openHeroSheetId === heroId) {
+    delete simHost.state._openHeroSheetId;
+  }
+  simHost.state._dirty = true;
+  simHost.save();
+  syncWargameUI(simHost);
+}
+
 export function handleSelectPartyByHero(heroId) {
   if (!simHost.state.world || !simHost.state.world.overworld) return;
   const ow = simHost.state.world.overworld;
@@ -597,6 +652,11 @@ export const WargameApp = {
   handleEquipHeroItem: handleEquipHeroItem,
   handleUnequipHeroItem: handleUnequipHeroItem,
   handleAutoEquipHero: handleAutoEquipHero,
+  handleDepositToCityStorage: handleDepositToCityStorage,
+  handleWithdrawFromCityStorage: handleWithdrawFromCityStorage,
+  handleDumpHeroBagToCity: handleDumpHeroBagToCity,
+  handleSetOverallLeader: handleSetOverallLeader,
+  handleDismissHero: handleDismissHero,
   handleMarchToDungeon: handleMarchToDungeon,
   handleReturnToCity: handleReturnToCity,
   handleEnterDungeon: handleEnterDungeon,

@@ -14,7 +14,9 @@ import {
   CITY_CENTER_PLOT_INDEX,
   DEFAULT_STORAGE_CAPS,
   BASE_POPULATION_CAP,
-  HUT_POPULATION_PER_LEVEL
+  HUT_POPULATION_PER_LEVEL,
+  BASE_MAX_HERO_ROSTER,
+  CITY_STORAGE_BASE_CAPACITY
 } from '../constants.js';
 import { generateOverworldMap } from './pathfinding.js';
 import { createInitialTasksState } from './taskEngine.js';
@@ -81,7 +83,11 @@ export function createNewCampaignWorldState(options = {}) {
       overworld: overworld,
       cities: {},
       activeCityId: null,
-      // Heroes & Parties only exist AFTER Adventurers Guild Hall is constructed!
+      // Heroes & Parties only exist AFTER a Guild Hall is constructed!
+      roster: {
+        maxHeroes: BASE_MAX_HERO_ROSTER || 3,
+        overallLeaderHeroId: null
+      },
       heroes: [],
       parties: [],
       tasks: createInitialTasksState(),
@@ -125,6 +131,15 @@ export function createDefaultCityPlots() {
     });
   }
   return plots;
+}
+
+export function createInventoryContainer(id, name, capacity) {
+  return {
+    id: id || 'container_default',
+    name: name || 'Storage Vault',
+    capacity: typeof capacity === 'number' && capacity > 0 ? capacity : (CITY_STORAGE_BASE_CAPACITY || 200),
+    items: []
+  };
 }
 
 export function getPrimaryCity(state) {
@@ -276,6 +291,13 @@ export function loadWargameState(scheduler = null) {
       if (typeof parsed.world.stats.expeditionsBanked !== 'number') parsed.world.stats.expeditionsBanked = 0;
       if (typeof parsed.world.stats.skirmishesWon !== 'number')     parsed.world.stats.skirmishesWon = 0;
     }
+    if (!parsed.world.roster || typeof parsed.world.roster !== 'object') {
+      const firstH = Array.isArray(parsed.world.heroes) && parsed.world.heroes.length > 0 ? parsed.world.heroes[0].id : null;
+      parsed.world.roster = {
+        maxHeroes: BASE_MAX_HERO_ROSTER || 3,
+        overallLeaderHeroId: firstH
+      };
+    }
     if (parsed.world.overworld) {
       if (!Array.isArray(parsed.world.overworld.hostiles)) parsed.world.overworld.hostiles = [];
       if (Array.isArray(parsed.world.overworld.pois)) {
@@ -326,6 +348,9 @@ export function loadWargameState(scheduler = null) {
         if (!c.maxBuildQueueSlots) c.maxBuildQueueSlots = 3;
         if (!Array.isArray(c.recruitmentQueue)) c.recruitmentQueue = [];
         if (!c.maxRecruitQueueSlots) c.maxRecruitQueueSlots = 3;
+        if (!c.storage || !Array.isArray(c.storage.items)) {
+          c.storage = createInventoryContainer('city_storage_' + cid, (c.name || 'City') + ' Vault Storage', CITY_STORAGE_BASE_CAPACITY || 200);
+        }
         if (typeof c.selectedPlotIndex !== 'number') c.selectedPlotIndex = (CITY_CENTER_PLOT_INDEX !== undefined ? CITY_CENTER_PLOT_INDEX : 27);
 
         // Migrate legacy 8-plot array to full 64-plot 8x8 grid if needed

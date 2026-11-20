@@ -298,11 +298,48 @@ export function renderWargameCharacterSheetModal(simHost) {
               <div class="font-bold truncate" style="color:${rInfo.color}">${icon} ${it.name}</div>
               <div class="text-[10px] font-mono text-[#8b949e]">${it.slot.toUpperCase()} • ${rInfo.label} • <span class="text-[#34d399]">${statTxt}</span></div>
             </div>
-            <button onclick="window.WargameApp.handleEquipHeroItem('${rawHero.id}', '${it.uid}')" class="px-2.5 py-1 rounded bg-[#fbbf24] hover:bg-[#f59e0b] text-[#080b11] font-bold text-[10px] uppercase cursor-pointer">Equip</button>
+            <div class="flex items-center gap-1">
+              <button onclick="window.WargameApp.handleDepositToCityStorage('${rawHero.id}', '${it.uid}')" class="px-2 py-1 rounded bg-[#1a2232] hover:bg-[#283347] text-[#fbbf24] border border-[#fbbf24]/30 font-bold text-[10px] uppercase cursor-pointer" title="Store in City Vault">Store</button>
+              <button onclick="window.WargameApp.handleEquipHeroItem('${rawHero.id}', '${it.uid}')" class="px-2.5 py-1 rounded bg-[#fbbf24] hover:bg-[#f59e0b] text-[#080b11] font-bold text-[10px] uppercase cursor-pointer">Equip</button>
+            </div>
           </div>
         `;
       }).join('');
       setHtmlIfChanged(bagEl, bagHtml);
+    }
+  }
+
+  // City Vault Storage Container (200-slot shared city inventory)
+  const storageSection = document.getElementById('wgSheetCityStorageSection');
+  const storageCountEl = document.getElementById('wgSheetStorageCount');
+  const storageListEl = document.getElementById('wgSheetCityStorageList');
+  const city = getPrimaryCity(simHost.state);
+  if (storageSection && storageListEl) {
+    if (!city) {
+      storageSection.classList.add('hidden');
+    } else {
+      storageSection.classList.remove('hidden');
+      const items = (city.storage && Array.isArray(city.storage.items)) ? city.storage.items : [];
+      const cap = (city.storage && city.storage.capacity) ? city.storage.capacity : 200;
+      if (storageCountEl) storageCountEl.textContent = items.length + ' / ' + cap + ' slots';
+      if (items.length === 0) {
+        setHtmlIfChanged(storageListEl, `<div class="text-[11px] text-[#64748b] italic py-2 text-center">City Vault Storage is empty. Click "📦 Dump to City" to offload loot from your Hero's pack!</div>`);
+      } else {
+        const stHtml = items.map(function(it) {
+          const rInfo = RARITY[it.rarity] || RARITY.common;
+          const icon = getItemTypeIcon(it.slot || 'weapon');
+          return `
+            <div class="p-1.5 rounded bg-[#111722] border border-[#283347] flex items-center justify-between gap-2 text-xs">
+              <div class="min-w-0">
+                <div class="font-bold truncate" style="color:${rInfo.color}">${icon} ${it.name}</div>
+                <div class="text-[10px] font-mono text-[#8b949e]">${(it.slot || 'item').toUpperCase()} • ${rInfo.label}</div>
+              </div>
+              <button onclick="window.WargameApp.handleWithdrawFromCityStorage('${rawHero.id}', '${it.uid}')" class="px-2 py-0.5 rounded bg-[#1a2232] hover:bg-[#283347] text-[#38bdf8] border border-[#38bdf8]/40 font-bold text-[10px] uppercase cursor-pointer">Take</button>
+            </div>
+          `;
+        }).join('');
+        setHtmlIfChanged(storageListEl, stHtml);
+      }
     }
   }
 }
@@ -605,8 +642,10 @@ export function renderLeftCommandSidebar(simHost) {
               </div>
             </div>
             <div class="flex items-center gap-1">
+              <button data-action="set-leader" data-hero-id="${h.id}" onclick="window.WargameApp.handleSetOverallLeader('${h.id}')" class="px-1.5 py-1 rounded bg-[#1a2232] hover:bg-[#283347] text-[#fbbf24] text-[10px] font-mono font-bold cursor-pointer" title="Designate as Overall Leader">${(world.roster && world.roster.overallLeaderHeroId === h.id) ? '👑' : '☆'}</button>
               <button data-action="open-hero-sheet" data-hero-id="${h.id}" onclick="window.WargameApp.handleOpenHeroSheet('${h.id}')" class="px-2 py-1 rounded bg-[#1a2232] hover:bg-[#283347] text-[#fbbf24] border border-[#fbbf24]/30 text-[10px] font-mono font-bold cursor-pointer" title="Open Shared Character Sheet">👤 Sheet</button>
               <button data-action="select-party" data-hero-id="${h.id}" onclick="window.WargameApp.handleSelectPartyByHero('${h.id}')" class="px-2 py-1 rounded bg-[#1a2232] hover:bg-[#283347] text-[#60a5fa] text-[10px] font-mono font-bold cursor-pointer">Select</button>
+              <button data-action="dismiss-hero" data-hero-id="${h.id}" onclick="window.WargameApp.handleDismissHero('${h.id}')" class="px-1.5 py-1 rounded bg-[#1a2232] hover:bg-[#f87171]/20 text-[#f87171] text-[10px] font-mono font-bold cursor-pointer" title="Dismiss Hero (Gear saved to City Vault)">✕</button>
             </div>
           </div>
         `;

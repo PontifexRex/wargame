@@ -1929,12 +1929,33 @@ export function renderDungeonCanvas() {
                 ctx.strokeStyle = '#f97316';
                 ctx.lineWidth = 2;
                 ctx.stroke();
+              } else if (obj.definitionId === 'prop_wooden_barrel') {
+                ctx.fillStyle = '#78350f';
+                ctx.beginPath();
+                ctx.arc(px + 16, py + 16, 10, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.strokeStyle = '#d97706';
+                ctx.lineWidth = 1.5;
+                ctx.stroke();
               } else {
                 ctx.fillStyle = '#78350f';
                 ctx.fillRect(px + 6, py + 6, 20, 20);
                 ctx.strokeStyle = '#d97706';
                 ctx.lineWidth = 1.5;
                 ctx.strokeRect(px + 6, py + 6, 20, 20);
+              }
+              ctx.restore();
+            } else if (obj.objectType === 'container') {
+              const isOpen = obj.runtimeState && obj.runtimeState.mechanical === 'open';
+              ctx.save();
+              ctx.fillStyle = isOpen ? '#451a03' : '#92400e';
+              ctx.fillRect(px + 5, py + 8, 22, 16);
+              ctx.strokeStyle = isOpen ? '#78716c' : '#fbbf24';
+              ctx.lineWidth = 2;
+              ctx.strokeRect(px + 5, py + 8, 22, 16);
+              if (!isOpen) {
+                ctx.fillStyle = '#fbbf24';
+                ctx.fillRect(px + 14, py + 14, 4, 5);
               }
               ctx.restore();
             } else if (obj.objectType === 'hazard' && obj.runtimeState && obj.runtimeState.mechanical === 'active') {

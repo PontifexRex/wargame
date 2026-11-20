@@ -246,7 +246,129 @@ export const CITY_BUILDINGS_CATALOG = {
     requires: { meeting_hall: 1, quarry: 1 },
     requiredPopulation: 20,
     recruits: ['fighter', 'ranger', 'thief'],
-    desc: 'Charters an adventuring guild where Heroes are recruited to explore and delve subterranean vaults.'
+    facilities: {
+      recruitment: { classes: [{ classId: 'fighter', minLevel: 1 }, { classId: 'ranger', minLevel: 1 }, { classId: 'thief', minLevel: 1 }] },
+      questBoard: { domain: 'adventurers' },
+      training: { domain: 'adventurers' },
+      research: { domain: 'adventurers' },
+      shop: { catalogId: 'shop_adventurers' }
+    },
+    desc: 'Guild dedicated to Adventurers & dungeon delving: dungeon quests, training, research, and delve-gear shop.'
+  },
+  garrison: {
+    id: 'garrison',
+    name: 'City Garrison',
+    icon: '🏰',
+    category: 'military',
+    color: '#fb923c',
+    maxLevel: 5,
+    baseBuildTimeMs: 5500,
+    baseCost: { wood: 45, stone: 45, gold: 30 },
+    requires: { meeting_hall: 1, guild_hall: 1 },
+    facilities: {
+      partyManagement: { baseBonus: 1 }
+    },
+    desc: 'Command headquarters for forming multi-hero Parties. Each Garrison level increases maximum Heroes per Party by +1.'
+  },
+  temple_chapterhouse: {
+    id: 'temple_chapterhouse',
+    name: 'Temple Chapterhouse',
+    icon: '⛪',
+    category: 'arcane',
+    color: '#fef08a',
+    maxLevel: 5,
+    baseBuildTimeMs: 6500,
+    baseCost: { wood: 40, stone: 55, gold: 35 },
+    requires: { meeting_hall: 1, guild_hall: 1 },
+    facilities: {
+      recruitment: {
+        classes: [
+          { classId: 'cleric',  minLevel: 1 },
+          { classId: 'paladin', minLevel: 2 }
+        ]
+      },
+      questBoard: { domain: 'temple' },
+      training:   { domain: 'temple' },
+      research:   { domain: 'temple' },
+      shop:       { catalogId: 'shop_temple_exclusive' }
+    },
+    desc: 'Sacred sanctuary recruiting Clerics (Lv 1) and Paladins (Lv 2+), with holy quests, training, research, and exclusive temple relics.'
+  },
+  fighters_guild: {
+    id: 'fighters_guild',
+    name: 'Fighters Guild',
+    icon: '🛡️',
+    category: 'military',
+    color: '#f87171',
+    maxLevel: 5,
+    baseBuildTimeMs: 5500,
+    baseCost: { wood: 40, stone: 45, gold: 30 },
+    requires: { meeting_hall: 1, quarry: 1 },
+    facilities: {
+      recruitment: { classes: [{ classId: 'fighter', minLevel: 1 }] },
+      questBoard: { domain: 'fighters' },
+      training:   { domain: 'fighters' },
+      research:   { domain: 'fighters' },
+      shop:       { catalogId: 'shop_fighters_exclusive' }
+    },
+    desc: 'Martial brotherhood recruiting Fighters, offering martial quests, training, research, and exclusive arms.'
+  },
+  thieves_guild: {
+    id: 'thieves_guild',
+    name: 'Thieves Guild',
+    icon: '🗡️',
+    category: 'military',
+    color: '#c084fc',
+    maxLevel: 5,
+    baseBuildTimeMs: 5500,
+    baseCost: { wood: 40, stone: 35, gold: 35 },
+    requires: { meeting_hall: 1, lumber_camp: 1 },
+    facilities: {
+      recruitment: { classes: [{ classId: 'thief', minLevel: 1 }] },
+      questBoard: { domain: 'thieves' },
+      training:   { domain: 'thieves' },
+      research:   { domain: 'thieves' },
+      shop:       { catalogId: 'shop_thieves_exclusive' }
+    },
+    desc: 'Shadow network recruiting Thieves, offering heist contracts, stealth training, research, and black-market gear.'
+  },
+  mages_guild: {
+    id: 'mages_guild',
+    name: 'Mages Guild',
+    icon: '✨',
+    category: 'arcane',
+    color: '#60a5fa',
+    maxLevel: 5,
+    baseBuildTimeMs: 6500,
+    baseCost: { wood: 35, stone: 50, gold: 40 },
+    requires: { meeting_hall: 1, quarry: 1 },
+    facilities: {
+      recruitment: { classes: [{ classId: 'mage', minLevel: 1 }] },
+      questBoard: { domain: 'mages' },
+      training:   { domain: 'mages' },
+      research:   { domain: 'mages' },
+      shop:       { catalogId: 'shop_mages_exclusive' }
+    },
+    desc: 'Arcane spire recruiting Mages, offering spellcraft quests, arcane training, research, and staff/tome relics.'
+  },
+  rangers_lodge: {
+    id: 'rangers_lodge',
+    name: 'Rangers Lodge',
+    icon: '🏹',
+    category: 'military',
+    color: '#34d399',
+    maxLevel: 5,
+    baseBuildTimeMs: 5500,
+    baseCost: { wood: 50, stone: 30, gold: 25 },
+    requires: { meeting_hall: 1, lumber_camp: 1 },
+    facilities: {
+      recruitment: { classes: [{ classId: 'ranger', minLevel: 1 }] },
+      questBoard: { domain: 'rangers' },
+      training:   { domain: 'rangers' },
+      research:   { domain: 'rangers' },
+      shop:       { catalogId: 'shop_rangers_exclusive' }
+    },
+    desc: 'Frontier pathfinder lodge recruiting Rangers, offering scouting quests, archery training, research, and bows.'
   },
   shrine: {
     id: 'shrine',
@@ -419,4 +541,33 @@ export function computeBuildingDurationMs(buildingId, targetLevel) {
   if (!def) return 5000;
   const mult = Math.pow(2.0, Math.max(0, targetLevel - 1));
   return Math.round(def.baseBuildTimeMs * mult);
+}
+
+// Garrison Party Size Scaling (ADR-0012): 1 hero solo pre-Garrison; +1 per Garrison level
+export function computeMaxPartySize(city) {
+  if (!city || !city.buildings) return 1;
+  const garLvl = city.buildings.garrison || 0;
+  return 1 + garLvl;
+}
+
+// Compute all Hero classIds recruitable in this city based on declarative building facilities
+export function getCityRecruitableClasses(city) {
+  const unlocked = {};
+  if (!city || !city.buildings) return [];
+  const bKeys = Object.keys(city.buildings);
+  for (let i = 0; i < bKeys.length; i++) {
+    const bId = bKeys[i];
+    const lvl = city.buildings[bId] || 0;
+    if (lvl <= 0) continue;
+    const def = CITY_BUILDINGS_CATALOG[bId];
+    if (def && def.facilities && def.facilities.recruitment && Array.isArray(def.facilities.recruitment.classes)) {
+      const list = def.facilities.recruitment.classes;
+      for (let j = 0; j < list.length; j++) {
+        if (lvl >= (list[j].minLevel || 1)) {
+          unlocked[list[j].classId] = true;
+        }
+      }
+    }
+  }
+  return Object.keys(unlocked);
 }

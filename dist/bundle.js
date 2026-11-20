@@ -1120,6 +1120,77 @@ function hydrateFloorFromStorage(rawFloor) {
   };
 }
 
+  // --- Module: src/data/lootTables.js ---
+// Declarative Weighted Loot Tables for Breakable Props, Dungeon Containers & Treasure Chests (ADR-0012)
+
+const LOOT_TABLES = {
+  loot_barrel_junk: {
+    id: 'loot_barrel_junk',
+    name: 'Barrel Rummage & Trash',
+    entries: [
+      { id: 'junk_splintered_mug', name: 'Splintered Wooden Mug',  kind: 'trash',      weight: 30, value: 0 },
+      { id: 'junk_moldy_rations',  name: 'Moldy Hardtack',         kind: 'trash',      weight: 25, value: 0 },
+      { id: 'junk_bent_nails',     name: 'Bent Iron Nails',        kind: 'trash',      weight: 20, value: 1 },
+      { id: 'coin_copper_handful', name: 'Tarnished Copper Coins', kind: 'gold',       weight: 18, minGold: 2, maxGold: 5 },
+      { id: 'salvage_torch_oil',   name: 'Intact Torch Oil Flask', kind: 'trade',      weight: 5,  value: 6 },
+      { id: 'tonic_minor',         name: 'Dusty Healing Tonic',    kind: 'consumable', weight: 2,  consumableKey: 'potions', qty: 1 }
+    ]
+  },
+  loot_crate_salvage: {
+    id: 'loot_crate_salvage',
+    name: 'Supply Crate Salvage',
+    entries: [
+      { id: 'junk_broken_tool',    name: 'Cracked Pick Handle',    kind: 'trash',      weight: 22, value: 1 },
+      { id: 'coin_dwarven_bits',   name: 'Dwarven Trade Coins',    kind: 'gold',       weight: 40, minGold: 5, maxGold: 12 },
+      { id: 'salvage_copper_ore',  name: 'Loose Copper Chunk',     kind: 'ore',        weight: 20, oreId: 'copper', qty: 1, value: 5 },
+      { id: 'salvage_iron_scrap',  name: 'Forged Iron Scrap',      kind: 'trade',      weight: 12, value: 8 },
+      { id: 'tonic_supply',        name: 'Guild Healing Tonic',    kind: 'consumable', weight: 6,  consumableKey: 'potions', qty: 1 }
+    ]
+  },
+  loot_dungeon_chest: {
+    id: 'loot_dungeon_chest',
+    name: 'Dungeon Vault Chest',
+    entries: [
+      { id: 'chest_gold_pouch',    name: 'Gilded Coin Coffer',     kind: 'gold',       weight: 45, minGold: 25, maxGold: 55 },
+      { id: 'chest_relic_gear',    name: 'Vault Equipment Cache',  kind: 'gear',       weight: 35 },
+      { id: 'chest_mineral_satchel', name: 'Refined Ore Satchel',  kind: 'ore',        weight: 12, oreId: 'iron', qty: 3, value: 10 },
+      { id: 'chest_recall_scroll', name: 'Astral Recall Scroll',   kind: 'consumable', weight: 8,  consumableKey: 'recalls', qty: 1 }
+    ]
+  }
+};
+
+function rollLootTable(tableId, depth = 1, randFn = Math.random) {
+  const table = LOOT_TABLES[tableId];
+  if (!table || !Array.isArray(table.entries) || table.entries.length === 0) return null;
+
+  let totalWeight = 0;
+  for (let i = 0; i < table.entries.length; i++) {
+    totalWeight += (table.entries[i].weight || 1);
+  }
+  if (totalWeight <= 0) return null;
+
+  const r = (typeof randFn === 'function' ? randFn() : Math.random()) * totalWeight;
+  let acc = 0;
+  let picked = table.entries[0];
+  for (let i = 0; i < table.entries.length; i++) {
+    acc += (table.entries[i].weight || 1);
+    if (r <= acc) {
+      picked = table.entries[i];
+      break;
+    }
+  }
+
+  const out = Object.assign({}, picked);
+  if (out.kind === 'gold') {
+    const minG = out.minGold || 1;
+    const maxG = Math.max(minG, out.maxGold || minG);
+    const scale = 1 + Math.max(0, (depth || 1) - 1) * 0.12;
+    const raw = minG + Math.floor((typeof randFn === 'function' ? randFn() : Math.random()) * (maxG - minG + 1));
+    out.goldAmount = Math.max(1, Math.round(raw * scale));
+  }
+  return out;
+}
+
   // --- Module: src/data/definitions.js ---
 // Object Definitions Catalog & Schema Registries (ADR-0010)
 // Defines immutable templates for Items, Keys, Containers, Devices, Mechanisms, and Pickups.
@@ -2200,7 +2271,8 @@ registerObjectDefinition({
   },
   defaultComponents: {
     durability: { hp: 18, maxHp: 18, armor: 1, canBeForced: true },
-    prop: { propType: 'crate', goldDrop: 12 },
+    prop: { propType: 'crate' },
+    lootable: { dropChance: 0.55, lootTableId: 'loot_crate_salvage', rolls: 1 },
     interactable: {
       prompt: 'Smash Crate',
       actions: {
@@ -2241,6 +2313,7 @@ registerObjectDefinition({
   defaultComponents: {
     durability: { hp: 12, maxHp: 12, armor: 0, canBeForced: true },
     prop: { propType: 'oil_barrel', spawnsHazard: 'hazard_oil_slick' },
+    lootable: null,
     interactable: {
       prompt: 'Rupture Oil Barrel',
       actions: {
@@ -2377,9 +2450,90 @@ registerObjectDefinition({
   }
 });
 
+registerObjectDefinition({
+  definitionId: 'prop_wooden_barrel',
+  category: OBJECT_CATEGORIES.WORLD_OBJECT,
+  objectType: WORLD_OBJECT_TYPES.PROP,
+  name: 'Wooden Storage Barrel',
+  description: 'An oak cask left behind by dwarven miners. Smashing it has a chance to uncover minor salvage or worthless junk.',
+  tags: ['prop', 'destructible', 'wood', 'barrel', 'lootable'],
+  defaultState: {
+    mechanical: 'closed',
+    security: 'unlocked',
+    discovery: 'revealed',
+    structural: 'intact',
+    power: 'unpowered'
+  },
+  defaultPermeability: {
+    movement: false,
+    lineOfSight: true,
+    light: true,
+    sound: true,
+    projectiles: true,
+    magic: true
+  },
+  defaultComponents: {
+    durability: { hp: 12, maxHp: 12, armor: 0, canBeForced: true },
+    prop: { propType: 'wooden_barrel' },
+    lootable: { dropChance: 0.35, lootTableId: 'loot_barrel_junk', rolls: 1 },
+    interactable: {
+      prompt: 'Smash Barrel',
+      actions: {
+        bash: {
+          id: 'bash',
+          name: 'Smash Wooden Barrel',
+          requirements: null,
+          costs: null,
+          effects: [{ type: 'damageProp' }]
+        }
+      }
+    }
+  }
+});
+
+registerObjectDefinition({
+  definitionId: 'container_dungeon_chest',
+  category: OBJECT_CATEGORIES.WORLD_OBJECT,
+  objectType: WORLD_OBJECT_TYPES.CONTAINER,
+  name: 'Gilded Vault Chest',
+  description: 'A banded oak treasure chest containing subterranean coin, ore, or relics.',
+  tags: ['container', 'chest', 'lootable'],
+  defaultState: {
+    mechanical: 'closed',
+    security: 'unlocked',
+    discovery: 'revealed',
+    structural: 'intact',
+    power: 'unpowered'
+  },
+  defaultPermeability: {
+    movement: false,
+    lineOfSight: true,
+    light: true,
+    sound: true,
+    projectiles: true,
+    magic: true
+  },
+  defaultComponents: {
+    lootable: { dropChance: 1.0, lootTableId: 'loot_dungeon_chest', rolls: 1 },
+    interactable: {
+      prompt: 'Open Chest',
+      actions: {
+        open: {
+          id: 'open',
+          name: 'Open Vault Chest',
+          requirements: { type: 'objectState', axis: 'mechanical', value: 'closed' },
+          costs: null,
+          effects: [{ type: 'changeState', axis: 'mechanical', value: 'open' }]
+        }
+      }
+    }
+  }
+});
+
   // --- Module: src/engine/objects.js ---
 // Foundational Game Object & Runtime Instance Engine (ADR-0010)
 // Manages object instances, spatial floor queries, item pickups, and the ItemStack stacking engine.
+
 
 
 
@@ -2915,6 +3069,85 @@ function createPropInstance(defId = 'prop_supply_crate', x = 0, y = 0, options =
   }));
 }
 
+function createContainerInstance(defId = 'container_dungeon_chest', x = 0, y = 0, options = {}) {
+  return createWorldObjectInstance(defId, Object.assign({}, options, {
+    x: x,
+    y: y,
+    objectType: WORLD_OBJECT_TYPES.CONTAINER
+  }));
+}
+
+function isClosedContainer(obj) {
+  return Boolean(obj && obj.objectType === WORLD_OBJECT_TYPES.CONTAINER && obj.runtimeState && obj.runtimeState.mechanical === 'closed');
+}
+
+function resolveLootableComponent(obj, floor, state, randFn = Math.random) {
+  const lootCfg = obj && obj.components && obj.components.lootable;
+  if (!lootCfg || !lootCfg.lootTableId) return { dropped: false, items: [], gold: 0 };
+
+  const chance = typeof lootCfg.dropChance === 'number' ? lootCfg.dropChance : 1.0;
+  const rolls = Math.max(1, lootCfg.rolls || 1);
+  const depth = (floor && floor.depth) || 1;
+  const droppedItems = [];
+  let goldGained = 0;
+
+  for (let r = 0; r < rolls; r++) {
+    const rollVal = typeof randFn === 'function' ? randFn() : Math.random();
+    if (rollVal > chance) continue;
+    const entry = rollLootTable(lootCfg.lootTableId, depth, randFn);
+    if (!entry) continue;
+
+    if (entry.kind === 'gold') {
+      const amt = entry.goldAmount || 3;
+      goldGained += amt;
+      if (state && state.hero && Array.isArray(state.hero.expeditionPack)) {
+        state.hero.expeditionPack.push({ id: entry.id, name: entry.name, qty: 1, val: amt });
+      } else if (state && state.guildVault) {
+        state.guildVault.gold = (state.guildVault.gold || 0) + amt;
+      }
+      droppedItems.push(entry);
+    } else if (entry.kind === 'consumable' && state && state.hero && state.hero.consumables) {
+      const k = entry.consumableKey || 'potions';
+      state.hero.consumables[k] = (state.hero.consumables[k] || 0) + (entry.qty || 1);
+      droppedItems.push(entry);
+    } else if (entry.kind === 'ore' && state && state.hero && Array.isArray(state.hero.expeditionPack)) {
+      const existing = state.hero.expeditionPack.find(function(it) { return it.id === entry.oreId; });
+      if (existing) existing.qty += (entry.qty || 1);
+      else state.hero.expeditionPack.push({ id: entry.oreId || 'copper', name: entry.name, qty: entry.qty || 1, val: entry.value || 5 });
+      droppedItems.push(entry);
+    } else if (entry.kind === 'trash' || entry.kind === 'trade') {
+      if (state && state.hero && Array.isArray(state.hero.expeditionPack)) {
+        state.hero.expeditionPack.push({ id: entry.id, name: entry.name, qty: 1, val: entry.value || 0, isTrash: entry.kind === 'trash' });
+      }
+      droppedItems.push(entry);
+    } else if (entry.kind === 'gear') {
+      if (state && state.hero && Array.isArray(state.hero.expeditionGear)) {
+        state.hero.expeditionGear.push({
+          uid: 'chest_gear_' + Date.now() + '_' + Math.floor((typeof randFn === 'function' ? randFn() : Math.random()) * 10000),
+          slot: 'weapon',
+          name: 'Vault-Forged Blade',
+          rarity: 'uncommon',
+          atk: 8 + Math.floor(depth * 1.5),
+          def: 1,
+          value: 45 + depth * 10
+        });
+      }
+      droppedItems.push(entry);
+    }
+  }
+
+  return { dropped: droppedItems.length > 0, items: droppedItems, gold: goldGained };
+}
+
+function openContainerObject(containerObj, floor, state, randFn = Math.random) {
+  if (!isClosedContainer(containerObj)) return { opened: false, loot: null };
+  containerObj.runtimeState.mechanical = 'open';
+  if (!containerObj.permeability) containerObj.permeability = {};
+  containerObj.permeability.movement = true;
+  const loot = resolveLootableComponent(containerObj, floor, state, randFn);
+  return { opened: true, loot: loot };
+}
+
 function createHazardInstance(defId = 'hazard_slag_vent', x = 0, y = 0, options = {}) {
   return createWorldObjectInstance(defId, Object.assign({}, options, {
     x: x,
@@ -3005,10 +3238,11 @@ function damageDestructibleProp(propObj, rawDamage, floor, state) {
   const propCfg = (propObj.components && propObj.components.prop) || {};
   let spawnedHazards = 0;
   let goldLooted = 0;
-
+  const lootRes = resolveLootableComponent(propObj, floor, state);
+  goldLooted += (lootRes.gold || 0);
   if (propCfg.goldDrop && state && state.guildVault) {
-    goldLooted = propCfg.goldDrop;
-    state.guildVault.gold = (state.guildVault.gold || 0) + goldLooted;
+    goldLooted += propCfg.goldDrop;
+    state.guildVault.gold = (state.guildVault.gold || 0) + propCfg.goldDrop;
   }
 
   if (propCfg.spawnsHazard && floor && Array.isArray(floor.objects)) {
@@ -3034,6 +3268,7 @@ function damageDestructibleProp(propObj, rawDamage, floor, state) {
     destroyed: true,
     damage: dmg,
     goldLooted: goldLooted,
+    lootResult: lootRes,
     spawnedHazards: spawnedHazards
   };
 }
@@ -8979,7 +9214,24 @@ function handlePlayerAction(dx, dy, state = gameState) {
     }
   }
 
-  // 6.6. Destructible Prop Bump-Bash (Inc 8.3: Crates, Oil Barrels, Barricades)
+  // 6.55. Spawnable Container Chest Bump-Open (ADR-0012)
+  const containerAtTarget = (floor.objects && floor.objects.length > 0)
+    ? floor.objects.find(function(o) { return o.x === nx && o.y === ny && isClosedContainer(o); })
+    : null;
+  if (containerAtTarget) {
+    const cRes = openContainerObject(containerAtTarget, floor, state);
+    if (cRes.opened && state === gameState) {
+      playSound('chest');
+      const items = (cRes.loot && cRes.loot.items) || [];
+      const summary = items.length > 0 ? items.map(function(it) { return it.name; }).join(', ') : 'Empty';
+      ui.floatingText(nx, ny, 'Chest Opened!', '#fbbf24');
+      ui.log('Opened ' + containerAtTarget.name + ': Found ' + summary + '!', 'gold');
+    }
+    processTurn(state);
+    return;
+  }
+
+  // 6.6. Destructible Prop Bump-Bash (Inc 8.3: Crates, Barrels, Barricades)
   const propAtTarget = (floor.objects && floor.objects.length > 0)
     ? floor.objects.find(function(o) { return o.x === nx && o.y === ny && isDestructibleProp(o); })
     : null;
@@ -11633,12 +11885,33 @@ function renderDungeonCanvas() {
                 ctx.strokeStyle = '#f97316';
                 ctx.lineWidth = 2;
                 ctx.stroke();
+              } else if (obj.definitionId === 'prop_wooden_barrel') {
+                ctx.fillStyle = '#78350f';
+                ctx.beginPath();
+                ctx.arc(px + 16, py + 16, 10, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.strokeStyle = '#d97706';
+                ctx.lineWidth = 1.5;
+                ctx.stroke();
               } else {
                 ctx.fillStyle = '#78350f';
                 ctx.fillRect(px + 6, py + 6, 20, 20);
                 ctx.strokeStyle = '#d97706';
                 ctx.lineWidth = 1.5;
                 ctx.strokeRect(px + 6, py + 6, 20, 20);
+              }
+              ctx.restore();
+            } else if (obj.objectType === 'container') {
+              const isOpen = obj.runtimeState && obj.runtimeState.mechanical === 'open';
+              ctx.save();
+              ctx.fillStyle = isOpen ? '#451a03' : '#92400e';
+              ctx.fillRect(px + 5, py + 8, 22, 16);
+              ctx.strokeStyle = isOpen ? '#78716c' : '#fbbf24';
+              ctx.lineWidth = 2;
+              ctx.strokeRect(px + 5, py + 8, 22, 16);
+              if (!isOpen) {
+                ctx.fillStyle = '#fbbf24';
+                ctx.fillRect(px + 14, py + 14, 4, 5);
               }
               ctx.restore();
             } else if (obj.objectType === 'hazard' && obj.runtimeState && obj.runtimeState.mechanical === 'active') {
@@ -14710,7 +14983,8 @@ function spawnEntity(type, subId = null, x = null, y = null, state = gameState) 
 
   if (tLower === 'prop') {
     let defId = 'prop_supply_crate';
-    if (subLower === 'barrel' || subLower === 'oil' || subLower === 'oil_barrel') defId = 'prop_oil_barrel';
+    if (subLower === 'wooden_barrel' || subLower === 'wood_barrel') defId = 'prop_wooden_barrel';
+    else if (subLower === 'barrel' || subLower === 'oil' || subLower === 'oil_barrel') defId = 'prop_oil_barrel';
     else if (subLower === 'barricade' || subLower === 'wood_barricade') defId = 'prop_wood_barricade';
     const prop = createPropInstance(defId, sx, sy);
     addWorldObject(floor, prop);
@@ -14719,6 +14993,16 @@ function spawnEntity(type, subId = null, x = null, y = null, state = gameState) 
       emitEngineEvent(ENGINE_EVENTS.LOG, { msg: `[DEV] Spawned ${prop.name} at (${sx}, ${sy}).`, tone: 'gold' }, state);
     }
     return { ok: true, entity: prop, type: 'prop', x: sx, y: sy };
+  }
+
+  if (tLower === 'chest' || tLower === 'container') {
+    const chest = createContainerInstance('container_dungeon_chest', sx, sy);
+    addWorldObject(floor, chest);
+    if (state === gameState) {
+      emitEngineEvent(ENGINE_EVENTS.FOV_SYNC, {}, state);
+      emitEngineEvent(ENGINE_EVENTS.LOG, { msg: `[DEV] Spawned ${chest.name} at (${sx}, ${sy}).`, tone: 'gold' }, state);
+    }
+    return { ok: true, entity: chest, type: 'chest', x: sx, y: sy };
   }
 
   if (tLower === 'hazard') {
@@ -14777,9 +15061,13 @@ const SPAWN_SUB_OPTIONS = {
     { value: 'plate', label: 'Dwarven Pressure Plate (Step Trigger)' }
   ],
   prop: [
-    { value: 'crate', label: 'Iron-Bound Supply Crate (Smash for Gold)' },
-    { value: 'barrel', label: 'Volatile Oil Barrel (Spills Oil Slicks)' },
+    { value: 'crate', label: 'Iron-Bound Supply Crate (55% Salvage)' },
+    { value: 'wooden_barrel', label: 'Wooden Storage Barrel (35% Junk/Loot)' },
+    { value: 'barrel', label: 'Volatile Oil Barrel (0% Loot, Spills Oil)' },
     { value: 'barricade', label: 'Splintered Wood Barricade (Destructible)' }
+  ],
+  chest: [
+    { value: 'vault_chest', label: 'Gilded Vault Chest (100% Treasure)' }
   ],
   hazard: [
     { value: 'slag', label: 'Molten Slag Vent (Fire + Burn)' },
@@ -17204,17 +17492,22 @@ function evaluateSelfTests() {
     secret31.runtimeState.discovery === 'revealed' &&
     isDoorWalkable(secret31);
 
-  // Destructible Oil Barrel -> spawns flammable oil slicks on destruction; Supply Crate -> drops gold & clears path
+  // Destructible Oil Barrel (0% treasure, spills oil) vs Wooden Barrel (35% junk/salvage) & Spawnable Chest (100% treasure)
   const barrel31 = createPropInstance('prop_oil_barrel', fl31.upPos.x, fl31.upPos.y);
+  const woodBarrel31 = createPropInstance('prop_wooden_barrel', fl31.upPos.x, fl31.upPos.y);
   const crate31 = createPropInstance('prop_supply_crate', fl31.upPos.x, fl31.upPos.y);
-  fl31.objects.push(barrel31, crate31);
-  const goldBefore31 = sandbox31.guildVault.gold;
+  const chest31 = createContainerInstance('container_dungeon_chest', fl31.upPos.x, fl31.upPos.y);
+  fl31.objects.push(barrel31, woodBarrel31, crate31, chest31);
   const barrelRes31 = damageDestructibleProp(barrel31, 25, fl31, sandbox31);
+  const woodBarrelRes31 = damageDestructibleProp(woodBarrel31, 25, fl31, sandbox31);
   const crateRes31 = damageDestructibleProp(crate31, 30, fl31, sandbox31);
+  const chestRes31 = openContainerObject(chest31, fl31, sandbox31, function() { return 0.1; });
   const propsDestroyedCleanly = Boolean(
     barrelRes31.destroyed && barrelRes31.spawnedHazards >= 1 &&
-    crateRes31.destroyed && sandbox31.guildVault.gold === goldBefore31 + 12 &&
-    crate31.permeability.movement === true
+    barrelRes31.lootResult && barrelRes31.lootResult.dropped === false &&
+    woodBarrelRes31.destroyed &&
+    crateRes31.destroyed && crate31.permeability.movement === true &&
+    chestRes31.opened && chestRes31.loot && chestRes31.loot.dropped === true
   );
 
   // Environmental Hazards affect BOTH Hero and Monsters symmetrically

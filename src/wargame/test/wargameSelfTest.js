@@ -9,7 +9,7 @@ import {
 import { createWargameSimHost } from '../engine/simHost.js';
 import { createMinHeapPriorityQueue } from '../engine/scheduler.js';
 import { getPrimaryCity, getSelectedOverworldUnit, computeCityPopulation } from '../engine/state.js';
-import { computeBuildingDurationMs, isBuildingPrerequisiteMet } from '../data/buildings.js';
+import { computeBuildingDurationMs, isBuildingPrerequisiteMet, computeMaxPartySize, getCityRecruitableClasses } from '../data/buildings.js';
 import {
   normalizeSharedHeroProfile,
   renderSharedPaperDollMannequin,
@@ -859,6 +859,93 @@ export function evaluateWargameSelfTests() {
     detail: t9Pass
       ? 'Shared 10-slot paper-doll, 4 prestige cosmetic slots, CMD_EQUIP/UNEQUIP_HERO_ITEM stat recomputation, pickaxe guard, and canvas render verified'
       : 'Failed checks: ' + failed9.join(', ')
+  });
+
+  // =========================================================================
+  // Test 10: City Vault Storage (200 Slots), Roster Cap (3), Dismiss, Overall Leader, Garrison & Temple Chapterhouse (ADR-0012)
+  // =========================================================================
+  // 10A. City Storage Container: Dump Hero Bag -> City Vault -> Withdraw back
+  const bagCountBeforeDump = hero9.bagGear.length;
+  const dumpRes10 = host7.dispatch({
+    type: COMMAND_TYPES.DUMP_HERO_BAG_TO_CITY,
+    payload: { heroId: hero9.id }
+  });
+  const dumpedToCity10 = Boolean(
+    dumpRes10.ok &&
+    hero9.bagGear.length === 0 &&
+    city7.storage &&
+    city7.storage.capacity === 200 &&
+    city7.storage.items.length >= bagCountBeforeDump
+  );
+  const storedSampleUid = city7.storage.items[0] ? city7.storage.items[0].uid : null;
+  const withdrawRes10 = storedSampleUid ? host7.dispatch({
+    type: COMMAND_TYPES.WITHDRAW_FROM_CITY_STORAGE,
+    payload: { heroId: hero9.id, itemUid: storedSampleUid }
+  }) : { ok: false };
+  const withdrewFromCity10 = Boolean(withdrawRes10.ok && hero9.bagGear.length === 1);
+
+  // 10B. Garrison Party Size Scaling (1 pre-Garrison -> 2 at Garrison Lv 1) & Temple Chapterhouse (Cleric Lv 1 -> Paladin Lv 2)
+  const preGarrisonMax = computeMaxPartySize(city7);
+  city7.buildings.garrison = 1;
+  const postGarrisonMax = computeMaxPartySize(city7);
+  city7.buildings.temple_chapterhouse = 1;
+  const templeLv1Classes = getCityRecruitableClasses(city7);
+  city7.buildings.temple_chapterhouse = 2;
+  const templeLv2Classes = getCityRecruitableClasses(city7);
+  const templeAndGarrisonVerified = Boolean(
+    preGarrisonMax === 1 &&
+    postGarrisonMax === 2 &&
+    templeLv1Classes.indexOf('cleric') !== -1 &&
+    templeLv1Classes.indexOf('paladin') === -1 &&
+    templeLv2Classes.indexOf('paladin') !== -1
+  );
+
+  // 10C. Hero Roster Cap of 3, Overall Leader Reassignment & Dismiss Hero (Gear preserved in City Storage)
+  city7.stockpile.gold = 500;
+  city7.stockpile.food = 500;
+  const rec2 = host7.dispatch({ type: COMMAND_TYPES.RECRUIT_HERO, payload: { classId: 'cleric', heroName: 'Brother Aldous' } });
+  const rec3 = host7.dispatch({ type: COMMAND_TYPES.RECRUIT_HERO, payload: { classId: 'mage', heroName: 'Lyra Starweaver' } });
+  const rec4Blocked = !host7.dispatch({ type: COMMAND_TYPES.RECRUIT_HERO, payload: { classId: 'thief', heroName: 'Vex Shadow' } }).ok;
+  host7.stepClock(125000);
+  const rosterAtCap3 = Boolean(rec2.ok && rec3.ok && rec4Blocked && host7.state.world.heroes.length === 3);
+
+  const secondHero = host7.state.world.heroes[1];
+  const leaderRes10 = host7.dispatch({ type: COMMAND_TYPES.SET_OVERALL_LEADER, payload: { heroId: secondHero.id } });
+  const leaderChanged10 = Boolean(leaderRes10.ok && host7.state.world.roster.overallLeaderHeroId === secondHero.id);
+
+  // Assign 2nd hero to 1st party using Garrison Lv 1 (maxSize 2)
+  const party1Id = host7.state.world.parties[0].id;
+  const assignRes10 = host7.dispatch({ type: COMMAND_TYPES.ASSIGN_HERO_TO_PARTY, payload: { partyId: party1Id, heroId: secondHero.id } });
+  const partyAssignVerified10 = Boolean(assignRes10.ok && host7.state.world.parties[0].memberIds.length === 2);
+
+  // Dismiss 3rd hero -> frees roster slot & deposits their gear safely into City Storage
+  const thirdHero = host7.state.world.heroes[2];
+  const storageBeforeDismiss = city7.storage.items.length;
+  const dismissRes10 = host7.dispatch({ type: COMMAND_TYPES.DISMISS_HERO, payload: { heroId: thirdHero.id } });
+  const dismissVerified10 = Boolean(
+    dismissRes10.ok &&
+    host7.state.world.heroes.length === 2 &&
+    city7.storage.items.length > storageBeforeDismiss
+  );
+
+  const t10Checks = {
+    dumpedToCity10: dumpedToCity10,
+    withdrewFromCity10: withdrewFromCity10,
+    templeAndGarrisonVerified: templeAndGarrisonVerified,
+    rosterAtCap3: rosterAtCap3,
+    leaderChanged10: leaderChanged10,
+    partyAssignVerified10: partyAssignVerified10,
+    dismissVerified10: dismissVerified10
+  };
+  const failed10 = Object.keys(t10Checks).filter(function(k) { return !t10Checks[k]; });
+  const t10Pass = failed10.length === 0;
+
+  results.push({
+    name: '10. City Vault Storage (200 Slots), Roster Cap (3), Dismiss, Leader, Garrison & Temple Chapterhouse',
+    pass: t10Pass,
+    detail: t10Pass
+      ? '200-slot City Storage dump/withdraw, Garrison party scaling, Temple Chapterhouse Cleric->Paladin gating, 3-Hero cap, Overall Leader, and Dismiss gear rescue verified'
+      : 'Failed checks: ' + failed10.join(', ')
   });
 
   return results;

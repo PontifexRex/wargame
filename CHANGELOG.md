@@ -11,9 +11,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Planned
 - **Track A (`v0.8.4`–`v0.8.7`)**: `Trigger -> Condition -> Action` event graph, environmental storytelling & handcrafted set-pieces, dungeon ecology & acoustic alerts, 10-slot paper-doll & vault modifiers.
-- **Track B (`v0.9.5`–`v0.9.10`)**: Tier 2 City Industry (Smeltery, Warehouse, Apothecary), City Blacksmith & Lapidary Workshop, Arcane Academy & Market, Frontier Outposts, Multi-City expansion, and City Defense / Temple of War.
+- **Track B (`v0.9.6`–`v0.9.10`)**: Tier 2 City Industry (Smeltery, Warehouse, Apothecary), City Blacksmith & Lapidary Workshop, Arcane Academy & Market, Frontier Outposts, Multi-City expansion, and City Defense / Temple of War.
 - **Track D (`v0.9.x-sim`)**: Headless progression simulator ("ChronoSim"), time-to-finish calculator, and 1-year pacing engine.
 - **Track E (Stages E.2–E.6)**: Formal Art Bible & UI Design System, Asset Taxonomy & Management Pipeline, Graphics Engine Evaluation (`ADR-0012`), Golden Vertical Slice, and scaled visual migration.
+
+---
+
+## [v0.9.5-class-guilds] - 2026-11-19
+
+### Added
+- **Architecture Decision Record (`docs/adr/ADR-0012-modular-guilds-garrison-containers-and-loot-tables.md`)**:
+  - Codified composable building `facilities`, global Hero Roster Cap (3) + Dismiss + Overall Leader, Garrison multi-hero party scaling, Unified `InventoryContainer` (City Vault Storage), and declarative `LOOT_TABLES`.
+- **Declarative Weighted Loot Tables, Wooden Barrel & Spawnable Dungeon Chest (`src/data/lootTables.js`, `src/data/definitions.js`, `src/engine/objects.js`)**:
+  - Created `LOOT_TABLES` (`loot_barrel_junk`, `loot_crate_salvage`, `loot_dungeon_chest`) + `rollLootTable` + `resolveLootableComponent` + `openContainerObject`.
+  - Added `prop_wooden_barrel` (35% chance to drop low-value/trash/rare tonic), `container_dungeon_chest` (100% treasure, bump-to-open), and explicitly set `prop_oil_barrel` to `lootable: null` (0% treasure, spills oil only).
+  - Added **Chest** (`container_dungeon_chest`) and **Wooden Barrel** (`prop_wooden_barrel`) to the Developer Console Spawner (`dev.js`, `devConsole.js`, `index.html`) and 2D canvas renderer.
+- **Unified City Vault Storage Container (200 Slots)**:
+  - Every founded city initializes a 200-slot `city.storage` container (`createInventoryContainer`).
+  - Added `CMD_DEPOSIT_TO_CITY_STORAGE`, `CMD_WITHDRAW_FROM_CITY_STORAGE`, and `CMD_DUMP_HERO_BAG_TO_CITY`, mounted inside `#wgCharacterSheetModal` with a 1-click **📦 Dump to City** button and per-item **Store / Take** controls.
+- **Hero Roster Cap (3), Dismissal & Overall Leader**:
+  - Enforced starting cap of `3` Heroes (`BASE_MAX_HERO_ROSTER = 3`) in `CMD_RECRUIT_HERO`.
+  - Added `CMD_DISMISS_HERO` (safely deposits all hero equipment & pack gear into City Vault Storage) and `CMD_SET_OVERALL_LEADER` (reassignable at any time via 👑 button in Hero Roster).
+- **Modular Class Guilds & City Garrison (`src/wargame/data/buildings.js`, `src/wargame/data/terrain.js`)**:
+  - Added `cleric` (*Acolyte Cleric*) to `RECRUITABLE_HERO_CLASSES`.
+  - Added declarative `facilities` (`recruitment`, `questBoard`, `training`, `research`, `shop`, `partyManagement`) across **Temple Chapterhouse** (`Cleric` Lv 1 → `Paladin` Lv 2+), **Fighters Guild**, **Thieves Guild**, **Mages Guild**, **Rangers Lodge**, **Adventurers Guild**, and **City Garrison** (`computeMaxPartySize = 1 + garrisonLevel`, `CMD_ASSIGN_HERO_TO_PARTY`).
+
+### Verification
+- Expanded **Test 31** in `src/test/selfTest.js` verifying `prop_wooden_barrel`, 0%-treasure `prop_oil_barrel`, and spawnable `container_dungeon_chest`.
+- Added **Test 10** in `src/wargame/test/wargameSelfTest.js` verifying 200-slot City Vault Storage dump/withdraw, Garrison party scaling, Temple Chapterhouse Cleric → Paladin gating, 3-Hero roster cap, Overall Leader reassignment, and Dismiss Hero gear rescue.
+- Suite status: **31/31 Roguelike Tests PASS** + **10/10 Wargame Tests PASS** + Headless UI Smoke Suites.
 
 ---
 

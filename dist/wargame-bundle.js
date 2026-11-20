@@ -58,6 +58,8 @@ const DEFAULT_STORAGE_CAPS = {
 const BASE_POPULATION_CAP = 10;
 const HUT_POPULATION_PER_LEVEL = 5;
 const WINDMILL_ADJACENCY_BONUS = 0.20;
+const BASE_MAX_HERO_ROSTER = 3;
+const CITY_STORAGE_BASE_CAPACITY = 200;
 
 // Structured Streaming Event Topics
 const STREAM_TOPICS = {
@@ -84,6 +86,9 @@ const STREAM_TOPICS = {
   HERO_RECRUIT_STARTED: 'guild.heroRecruitStarted',
   HERO_RECRUIT_CANCEL:  'guild.heroRecruitCancelled',
   HERO_RECRUITED:       'guild.heroRecruited',
+  HERO_DISMISSED:       'guild.heroDismissed',
+  LEADER_CHANGED:       'guild.leaderChanged',
+  STORAGE_UPDATED:      'city.storageUpdated',
   PARTY_FORMED:         'guild.partyFormed',
   DUNGEON_DISCOVERED:   'dungeon.discovered',
   DUNGEON_ENTERED:      'dungeon.entered',
@@ -112,9 +117,15 @@ const COMMAND_TYPES = {
   DEMOLISH_BUILDING:  'CMD_DEMOLISH_BUILDING',
   RECRUIT_HERO:          'CMD_RECRUIT_HERO',
   CANCEL_RECRUITMENT:    'CMD_CANCEL_RECRUITMENT',
+  DISMISS_HERO:          'CMD_DISMISS_HERO',
+  SET_OVERALL_LEADER:    'CMD_SET_OVERALL_LEADER',
+  ASSIGN_HERO_TO_PARTY:  'CMD_ASSIGN_HERO_TO_PARTY',
   EQUIP_HERO_ITEM:       'CMD_EQUIP_HERO_ITEM',
   UNEQUIP_HERO_ITEM:     'CMD_UNEQUIP_HERO_ITEM',
   AUTO_EQUIP_HERO:       'CMD_AUTO_EQUIP_HERO',
+  DEPOSIT_TO_CITY_STORAGE:    'CMD_DEPOSIT_TO_CITY_STORAGE',
+  WITHDRAW_FROM_CITY_STORAGE: 'CMD_WITHDRAW_FROM_CITY_STORAGE',
+  DUMP_HERO_BAG_TO_CITY:      'CMD_DUMP_HERO_BAG_TO_CITY',
   MARCH_TO_DUNGEON:      'CMD_MARCH_TO_DUNGEON',
   ENTER_DUNGEON:         'CMD_ENTER_DUNGEON',
   RESOLVE_DUNGEON_RETURN:'CMD_RESOLVE_DUNGEON_RETURN',
@@ -649,6 +660,17 @@ const RECRUITABLE_HERO_CLASSES = [
     specialty: 'Master lockpicking, secret door discovery, and Shadowstep Strike.'
   },
   {
+    classId: 'cleric',
+    name: 'Acolyte Cleric',
+    title: 'Temple Devotee',
+    icon: '✝️',
+    color: '#fef08a',
+    costGold: 55,
+    costFood: 30,
+    baseStats: { str: 10, dex: 9, int: 15, vit: 13, hp: 162, mp: 105, atk: 22, def: 15 },
+    specialty: 'Entry-level Temple Chapterhouse healer, blessing wards, and undead turning.'
+  },
+  {
     classId: 'paladin',
     name: 'Radiant Crusader',
     title: 'Dawn Warden',
@@ -657,7 +679,7 @@ const RECRUITABLE_HERO_CLASSES = [
     costGold: 65,
     costFood: 35,
     baseStats: { str: 14, dex: 9, int: 12, vit: 15, hp: 195, mp: 86, atk: 27, def: 20 },
-    specialty: 'Aura of Radiance, Holy Smite self-healing, and Divine Intervention.'
+    specialty: 'Temple Chapterhouse Tier-2 Champion: Aura of Radiance, Holy Smite, and Divine Intervention.'
   }
 ];
 
@@ -1783,7 +1805,129 @@ const CITY_BUILDINGS_CATALOG = {
     requires: { meeting_hall: 1, quarry: 1 },
     requiredPopulation: 20,
     recruits: ['fighter', 'ranger', 'thief'],
-    desc: 'Charters an adventuring guild where Heroes are recruited to explore and delve subterranean vaults.'
+    facilities: {
+      recruitment: { classes: [{ classId: 'fighter', minLevel: 1 }, { classId: 'ranger', minLevel: 1 }, { classId: 'thief', minLevel: 1 }] },
+      questBoard: { domain: 'adventurers' },
+      training: { domain: 'adventurers' },
+      research: { domain: 'adventurers' },
+      shop: { catalogId: 'shop_adventurers' }
+    },
+    desc: 'Guild dedicated to Adventurers & dungeon delving: dungeon quests, training, research, and delve-gear shop.'
+  },
+  garrison: {
+    id: 'garrison',
+    name: 'City Garrison',
+    icon: '🏰',
+    category: 'military',
+    color: '#fb923c',
+    maxLevel: 5,
+    baseBuildTimeMs: 5500,
+    baseCost: { wood: 45, stone: 45, gold: 30 },
+    requires: { meeting_hall: 1, guild_hall: 1 },
+    facilities: {
+      partyManagement: { baseBonus: 1 }
+    },
+    desc: 'Command headquarters for forming multi-hero Parties. Each Garrison level increases maximum Heroes per Party by +1.'
+  },
+  temple_chapterhouse: {
+    id: 'temple_chapterhouse',
+    name: 'Temple Chapterhouse',
+    icon: '⛪',
+    category: 'arcane',
+    color: '#fef08a',
+    maxLevel: 5,
+    baseBuildTimeMs: 6500,
+    baseCost: { wood: 40, stone: 55, gold: 35 },
+    requires: { meeting_hall: 1, guild_hall: 1 },
+    facilities: {
+      recruitment: {
+        classes: [
+          { classId: 'cleric',  minLevel: 1 },
+          { classId: 'paladin', minLevel: 2 }
+        ]
+      },
+      questBoard: { domain: 'temple' },
+      training:   { domain: 'temple' },
+      research:   { domain: 'temple' },
+      shop:       { catalogId: 'shop_temple_exclusive' }
+    },
+    desc: 'Sacred sanctuary recruiting Clerics (Lv 1) and Paladins (Lv 2+), with holy quests, training, research, and exclusive temple relics.'
+  },
+  fighters_guild: {
+    id: 'fighters_guild',
+    name: 'Fighters Guild',
+    icon: '🛡️',
+    category: 'military',
+    color: '#f87171',
+    maxLevel: 5,
+    baseBuildTimeMs: 5500,
+    baseCost: { wood: 40, stone: 45, gold: 30 },
+    requires: { meeting_hall: 1, quarry: 1 },
+    facilities: {
+      recruitment: { classes: [{ classId: 'fighter', minLevel: 1 }] },
+      questBoard: { domain: 'fighters' },
+      training:   { domain: 'fighters' },
+      research:   { domain: 'fighters' },
+      shop:       { catalogId: 'shop_fighters_exclusive' }
+    },
+    desc: 'Martial brotherhood recruiting Fighters, offering martial quests, training, research, and exclusive arms.'
+  },
+  thieves_guild: {
+    id: 'thieves_guild',
+    name: 'Thieves Guild',
+    icon: '🗡️',
+    category: 'military',
+    color: '#c084fc',
+    maxLevel: 5,
+    baseBuildTimeMs: 5500,
+    baseCost: { wood: 40, stone: 35, gold: 35 },
+    requires: { meeting_hall: 1, lumber_camp: 1 },
+    facilities: {
+      recruitment: { classes: [{ classId: 'thief', minLevel: 1 }] },
+      questBoard: { domain: 'thieves' },
+      training:   { domain: 'thieves' },
+      research:   { domain: 'thieves' },
+      shop:       { catalogId: 'shop_thieves_exclusive' }
+    },
+    desc: 'Shadow network recruiting Thieves, offering heist contracts, stealth training, research, and black-market gear.'
+  },
+  mages_guild: {
+    id: 'mages_guild',
+    name: 'Mages Guild',
+    icon: '✨',
+    category: 'arcane',
+    color: '#60a5fa',
+    maxLevel: 5,
+    baseBuildTimeMs: 6500,
+    baseCost: { wood: 35, stone: 50, gold: 40 },
+    requires: { meeting_hall: 1, quarry: 1 },
+    facilities: {
+      recruitment: { classes: [{ classId: 'mage', minLevel: 1 }] },
+      questBoard: { domain: 'mages' },
+      training:   { domain: 'mages' },
+      research:   { domain: 'mages' },
+      shop:       { catalogId: 'shop_mages_exclusive' }
+    },
+    desc: 'Arcane spire recruiting Mages, offering spellcraft quests, arcane training, research, and staff/tome relics.'
+  },
+  rangers_lodge: {
+    id: 'rangers_lodge',
+    name: 'Rangers Lodge',
+    icon: '🏹',
+    category: 'military',
+    color: '#34d399',
+    maxLevel: 5,
+    baseBuildTimeMs: 5500,
+    baseCost: { wood: 50, stone: 30, gold: 25 },
+    requires: { meeting_hall: 1, lumber_camp: 1 },
+    facilities: {
+      recruitment: { classes: [{ classId: 'ranger', minLevel: 1 }] },
+      questBoard: { domain: 'rangers' },
+      training:   { domain: 'rangers' },
+      research:   { domain: 'rangers' },
+      shop:       { catalogId: 'shop_rangers_exclusive' }
+    },
+    desc: 'Frontier pathfinder lodge recruiting Rangers, offering scouting quests, archery training, research, and bows.'
   },
   shrine: {
     id: 'shrine',
@@ -1958,6 +2102,35 @@ function computeBuildingDurationMs(buildingId, targetLevel) {
   return Math.round(def.baseBuildTimeMs * mult);
 }
 
+// Garrison Party Size Scaling (ADR-0012): 1 hero solo pre-Garrison; +1 per Garrison level
+function computeMaxPartySize(city) {
+  if (!city || !city.buildings) return 1;
+  const garLvl = city.buildings.garrison || 0;
+  return 1 + garLvl;
+}
+
+// Compute all Hero classIds recruitable in this city based on declarative building facilities
+function getCityRecruitableClasses(city) {
+  const unlocked = {};
+  if (!city || !city.buildings) return [];
+  const bKeys = Object.keys(city.buildings);
+  for (let i = 0; i < bKeys.length; i++) {
+    const bId = bKeys[i];
+    const lvl = city.buildings[bId] || 0;
+    if (lvl <= 0) continue;
+    const def = CITY_BUILDINGS_CATALOG[bId];
+    if (def && def.facilities && def.facilities.recruitment && Array.isArray(def.facilities.recruitment.classes)) {
+      const list = def.facilities.recruitment.classes;
+      for (let j = 0; j < list.length; j++) {
+        if (lvl >= (list[j].minLevel || 1)) {
+          unlocked[list[j].classId] = true;
+        }
+      }
+    }
+  }
+  return Object.keys(unlocked);
+}
+
   // --- Module: src/wargame/engine/state.js ---
 // Wargame Authoritative State Store, Universe -> World -> Cities -> Units Hierarchy & Save Serialization
 
@@ -2026,7 +2199,11 @@ function createNewCampaignWorldState(options = {}) {
       overworld: overworld,
       cities: {},
       activeCityId: null,
-      // Heroes & Parties only exist AFTER Adventurers Guild Hall is constructed!
+      // Heroes & Parties only exist AFTER a Guild Hall is constructed!
+      roster: {
+        maxHeroes: BASE_MAX_HERO_ROSTER || 3,
+        overallLeaderHeroId: null
+      },
       heroes: [],
       parties: [],
       tasks: createInitialTasksState(),
@@ -2070,6 +2247,15 @@ function createDefaultCityPlots() {
     });
   }
   return plots;
+}
+
+function createInventoryContainer(id, name, capacity) {
+  return {
+    id: id || 'container_default',
+    name: name || 'Storage Vault',
+    capacity: typeof capacity === 'number' && capacity > 0 ? capacity : (CITY_STORAGE_BASE_CAPACITY || 200),
+    items: []
+  };
 }
 
 function getPrimaryCity(state) {
@@ -2221,6 +2407,13 @@ function loadWargameState(scheduler = null) {
       if (typeof parsed.world.stats.expeditionsBanked !== 'number') parsed.world.stats.expeditionsBanked = 0;
       if (typeof parsed.world.stats.skirmishesWon !== 'number')     parsed.world.stats.skirmishesWon = 0;
     }
+    if (!parsed.world.roster || typeof parsed.world.roster !== 'object') {
+      const firstH = Array.isArray(parsed.world.heroes) && parsed.world.heroes.length > 0 ? parsed.world.heroes[0].id : null;
+      parsed.world.roster = {
+        maxHeroes: BASE_MAX_HERO_ROSTER || 3,
+        overallLeaderHeroId: firstH
+      };
+    }
     if (parsed.world.overworld) {
       if (!Array.isArray(parsed.world.overworld.hostiles)) parsed.world.overworld.hostiles = [];
       if (Array.isArray(parsed.world.overworld.pois)) {
@@ -2271,6 +2464,9 @@ function loadWargameState(scheduler = null) {
         if (!c.maxBuildQueueSlots) c.maxBuildQueueSlots = 3;
         if (!Array.isArray(c.recruitmentQueue)) c.recruitmentQueue = [];
         if (!c.maxRecruitQueueSlots) c.maxRecruitQueueSlots = 3;
+        if (!c.storage || !Array.isArray(c.storage.items)) {
+          c.storage = createInventoryContainer('city_storage_' + cid, (c.name || 'City') + ' Vault Storage', CITY_STORAGE_BASE_CAPACITY || 200);
+        }
         if (typeof c.selectedPlotIndex !== 'number') c.selectedPlotIndex = (CITY_CENTER_PLOT_INDEX !== undefined ? CITY_CENTER_PLOT_INDEX : 27);
 
         // Migrate legacy 8-plot array to full 64-plot 8x8 grid if needed
@@ -2981,6 +3177,11 @@ function resolveRecruitHeroJob(job, state, scheduler, eventStream) {
 
   if (!world.heroes) world.heroes = [];
   world.heroes.push(heroObj);
+  if (!world.roster) {
+    world.roster = { maxHeroes: 3, overallLeaderHeroId: heroObj.id };
+  } else if (!world.roster.overallLeaderHeroId) {
+    world.roster.overallLeaderHeroId = heroObj.id;
+  }
   world.stats.heroesRecruited = (world.stats.heroesRecruited || 0) + 1;
 
   // Form an Overworld Vanguard Party at the City gates led by this Hero
@@ -3630,7 +3831,8 @@ function dispatchWargameCommand(commandEnvelope, state, scheduler, eventStream) 
       buildQueue: [],
       maxBuildQueueSlots: BASE_BUILD_QUEUE_LIMIT || 3,
       recruitmentQueue: [],
-      maxRecruitQueueSlots: BASE_RECRUIT_QUEUE_LIMIT || 3
+      maxRecruitQueueSlots: BASE_RECRUIT_QUEUE_LIMIT || 3,
+      storage: createInventoryContainer('city_storage_' + cityId, cityName + ' Vault Storage', CITY_STORAGE_BASE_CAPACITY || 200)
     };
 
     world.cities[cityId] = newCity;
@@ -4100,6 +4302,13 @@ function dispatchWargameCommand(commandEnvelope, state, scheduler, eventStream) 
       city.recruitmentQueue = [];
     }
 
+    // Enforce global Hero Roster Cap (ADR-0012: starts at 3, dismiss a Hero to recruit another)
+    const maxHeroes = (world.roster && world.roster.maxHeroes) ? world.roster.maxHeroes : (BASE_MAX_HERO_ROSTER || 3);
+    const totalActiveAndQueued = (world.heroes ? world.heroes.length : 0) + city.recruitmentQueue.length;
+    if (totalActiveAndQueued >= maxHeroes) {
+      return reject('Hero roster is full (' + totalActiveAndQueued + '/' + maxHeroes + '). Dismiss a Hero before recruiting another.');
+    }
+
     if (city.recruitmentQueue.length >= (city.maxRecruitQueueSlots || BASE_RECRUIT_QUEUE_LIMIT || 3)) {
       return reject('Hero training grounds are full (Maximum ' + (city.maxRecruitQueueSlots || 3) + ' in training queue)');
     }
@@ -4269,6 +4478,169 @@ function dispatchWargameCommand(commandEnvelope, state, scheduler, eventStream) 
       }
     }
     return accept({ heroId: hero.id, equippedCount: equippedCount });
+  }
+
+  // ---------------------------------------------------------------------------
+  // 9B3. HERO ROSTER MANAGEMENT (Dismiss Hero, Overall Leader, Garrison Party)
+  // ---------------------------------------------------------------------------
+  if (cmdType === COMMAND_TYPES.DISMISS_HERO) {
+    const heroIdx = (world.heroes || []).findIndex(function(h) { return h.id === payload.heroId; });
+    if (heroIdx === -1) return reject('Hero not found in roster');
+    const hero = world.heroes[heroIdx];
+    const city = getPrimaryCity(state);
+
+    // Safely deposit all hero equipment & bag gear into City Vault Storage!
+    if (city) {
+      if (!city.storage || !Array.isArray(city.storage.items)) {
+        city.storage = createInventoryContainer('city_storage_' + city.id, city.name + ' Vault Storage', CITY_STORAGE_BASE_CAPACITY || 200);
+      }
+      if (hero.equipment) {
+        const eqKeys = Object.keys(hero.equipment);
+        for (let i = 0; i < eqKeys.length; i++) {
+          const it = hero.equipment[eqKeys[i]];
+          if (it) city.storage.items.push(it);
+        }
+      }
+      if (Array.isArray(hero.bagGear)) {
+        for (let i = 0; i < hero.bagGear.length; i++) {
+          if (hero.bagGear[i]) city.storage.items.push(hero.bagGear[i]);
+        }
+      }
+    }
+
+    world.heroes.splice(heroIdx, 1);
+
+    // Remove or clean up Overworld unit led by this dismissed hero
+    if (ow && Array.isArray(ow.units)) {
+      for (let u = 0; u < ow.units.length; u++) {
+        if (ow.units[u].leaderHeroId === hero.id) {
+          if (ow.units[u].marchPlan && ow.units[u].marchPlan.activeJobId && scheduler) {
+            scheduler.cancelJob(ow.units[u].marchPlan.activeJobId);
+          }
+          ow.units[u].alive = false;
+          ow.units[u].status = 'dismissed';
+        }
+      }
+    }
+
+    // Remove from any party
+    if (Array.isArray(world.parties)) {
+      world.parties = world.parties.filter(function(pt) {
+        if (Array.isArray(pt.memberHeroIds)) {
+          pt.memberHeroIds = pt.memberHeroIds.filter(function(mid) { return mid !== hero.id; });
+        }
+        if (Array.isArray(pt.memberIds)) {
+          pt.memberIds = pt.memberIds.filter(function(mid) { return mid !== hero.id; });
+        }
+        return pt.leaderHeroId !== hero.id;
+      });
+    }
+
+    // Reassign Overall Leader if the dismissed hero was leader
+    if (world.roster && world.roster.overallLeaderHeroId === hero.id) {
+      world.roster.overallLeaderHeroId = world.heroes.length > 0 ? world.heroes[0].id : null;
+    }
+
+    if (eventStream) {
+      eventStream.publish(STREAM_TOPICS.HERO_DISMISSED, {
+        heroId: hero.id,
+        heroName: hero.name
+      }, simTimeMs);
+    }
+    return accept({ dismissedHeroId: hero.id, remainingHeroes: world.heroes.length });
+  }
+
+  if (cmdType === COMMAND_TYPES.SET_OVERALL_LEADER) {
+    const hero = (world.heroes || []).find(function(h) { return h.id === payload.heroId; });
+    if (!hero) return reject('Hero not found in roster');
+    if (!world.roster) world.roster = { maxHeroes: BASE_MAX_HERO_ROSTER || 3, overallLeaderHeroId: null };
+    world.roster.overallLeaderHeroId = hero.id;
+    if (eventStream) {
+      eventStream.publish(STREAM_TOPICS.LEADER_CHANGED, {
+        heroId: hero.id,
+        heroName: hero.name
+      }, simTimeMs);
+    }
+    return accept({ overallLeaderHeroId: hero.id });
+  }
+
+  if (cmdType === COMMAND_TYPES.ASSIGN_HERO_TO_PARTY) {
+    const city = getPrimaryCity(state);
+    if (!city) return reject('Requires an established City');
+    const maxSize = computeMaxPartySize(city);
+    const party = (world.parties || []).find(function(pt) { return pt.id === payload.partyId; });
+    if (!party) return reject('Party not found');
+    const hero = (world.heroes || []).find(function(h) { return h.id === payload.heroId; });
+    if (!hero) return reject('Hero not found');
+    if (!Array.isArray(party.memberIds)) party.memberIds = [];
+    if (party.memberIds.indexOf(hero.id) !== -1) return reject('Hero is already in this party');
+    if (party.memberIds.length >= maxSize) {
+      return reject('Party is at maximum capacity (' + maxSize + '). Build or upgrade the City Garrison to add more Heroes to a Party.');
+    }
+    party.memberIds.push(hero.id);
+    return accept({ partyId: party.id, memberIds: party.memberIds.slice(), maxPartySize: maxSize });
+  }
+
+  // ---------------------------------------------------------------------------
+  // 9B4. CITY VAULT STORAGE CONTAINER (Deposit, Withdraw, Dump Bag — ADR-0012)
+  // ---------------------------------------------------------------------------
+  if (cmdType === COMMAND_TYPES.DEPOSIT_TO_CITY_STORAGE) {
+    const city = getPrimaryCity(state);
+    if (!city) return reject('No City founded');
+    if (!city.storage || !Array.isArray(city.storage.items)) {
+      city.storage = createInventoryContainer('city_storage_' + city.id, city.name + ' Vault Storage', CITY_STORAGE_BASE_CAPACITY || 200);
+    }
+    const hero = (world.heroes || []).find(function(h) { return h.id === payload.heroId; });
+    if (!hero || !Array.isArray(hero.bagGear)) return reject('Hero not found');
+    if (city.storage.items.length >= (city.storage.capacity || 200)) {
+      return reject('City Vault Storage is full');
+    }
+    const idx = hero.bagGear.findIndex(function(it) { return it.uid === payload.itemUid; });
+    if (idx === -1) return reject('Item not found in hero pack');
+    const item = hero.bagGear.splice(idx, 1)[0];
+    city.storage.items.push(item);
+    if (eventStream) {
+      eventStream.publish(STREAM_TOPICS.STORAGE_UPDATED, { cityId: city.id, action: 'deposit', itemName: item.name }, simTimeMs);
+    }
+    return accept({ item: item, storageCount: city.storage.items.length });
+  }
+
+  if (cmdType === COMMAND_TYPES.WITHDRAW_FROM_CITY_STORAGE) {
+    const city = getPrimaryCity(state);
+    if (!city || !city.storage || !Array.isArray(city.storage.items)) return reject('City Vault Storage unavailable');
+    const hero = (world.heroes || []).find(function(h) { return h.id === payload.heroId; });
+    if (!hero) return reject('Hero not found');
+    if (!Array.isArray(hero.bagGear)) hero.bagGear = [];
+    const idx = city.storage.items.findIndex(function(it) { return it.uid === payload.itemUid; });
+    if (idx === -1) return reject('Item not found in City Vault Storage');
+    const item = city.storage.items.splice(idx, 1)[0];
+    hero.bagGear.push(item);
+    if (eventStream) {
+      eventStream.publish(STREAM_TOPICS.STORAGE_UPDATED, { cityId: city.id, action: 'withdraw', itemName: item.name }, simTimeMs);
+    }
+    return accept({ item: item, storageCount: city.storage.items.length });
+  }
+
+  if (cmdType === COMMAND_TYPES.DUMP_HERO_BAG_TO_CITY) {
+    const city = getPrimaryCity(state);
+    if (!city) return reject('No City founded');
+    if (!city.storage || !Array.isArray(city.storage.items)) {
+      city.storage = createInventoryContainer('city_storage_' + city.id, city.name + ' Vault Storage', CITY_STORAGE_BASE_CAPACITY || 200);
+    }
+    const hero = (world.heroes || []).find(function(h) { return h.id === payload.heroId; });
+    if (!hero || !Array.isArray(hero.bagGear) || hero.bagGear.length === 0) {
+      return reject('Hero pack is already empty');
+    }
+    const cap = city.storage.capacity || 200;
+    let movedCount = 0;
+    while (hero.bagGear.length > 0 && city.storage.items.length < cap) {
+      city.storage.items.push(hero.bagGear.shift());
+      movedCount++;
+    }
+    if (eventStream) {
+      eventStream.publish(STREAM_TOPICS.STORAGE_UPDATED, { cityId: city.id, action: 'dump', count: movedCount }, simTimeMs);
+    }
+    return accept({ movedCount: movedCount, storageCount: city.storage.items.length });
   }
 
   // ---------------------------------------------------------------------------
@@ -6060,11 +6432,48 @@ function renderWargameCharacterSheetModal(simHost) {
               <div class="font-bold truncate" style="color:${rInfo.color}">${icon} ${it.name}</div>
               <div class="text-[10px] font-mono text-[#8b949e]">${it.slot.toUpperCase()} • ${rInfo.label} • <span class="text-[#34d399]">${statTxt}</span></div>
             </div>
-            <button onclick="window.WargameApp.handleEquipHeroItem('${rawHero.id}', '${it.uid}')" class="px-2.5 py-1 rounded bg-[#fbbf24] hover:bg-[#f59e0b] text-[#080b11] font-bold text-[10px] uppercase cursor-pointer">Equip</button>
+            <div class="flex items-center gap-1">
+              <button onclick="window.WargameApp.handleDepositToCityStorage('${rawHero.id}', '${it.uid}')" class="px-2 py-1 rounded bg-[#1a2232] hover:bg-[#283347] text-[#fbbf24] border border-[#fbbf24]/30 font-bold text-[10px] uppercase cursor-pointer" title="Store in City Vault">Store</button>
+              <button onclick="window.WargameApp.handleEquipHeroItem('${rawHero.id}', '${it.uid}')" class="px-2.5 py-1 rounded bg-[#fbbf24] hover:bg-[#f59e0b] text-[#080b11] font-bold text-[10px] uppercase cursor-pointer">Equip</button>
+            </div>
           </div>
         `;
       }).join('');
       setHtmlIfChanged(bagEl, bagHtml);
+    }
+  }
+
+  // City Vault Storage Container (200-slot shared city inventory)
+  const storageSection = document.getElementById('wgSheetCityStorageSection');
+  const storageCountEl = document.getElementById('wgSheetStorageCount');
+  const storageListEl = document.getElementById('wgSheetCityStorageList');
+  const city = getPrimaryCity(simHost.state);
+  if (storageSection && storageListEl) {
+    if (!city) {
+      storageSection.classList.add('hidden');
+    } else {
+      storageSection.classList.remove('hidden');
+      const items = (city.storage && Array.isArray(city.storage.items)) ? city.storage.items : [];
+      const cap = (city.storage && city.storage.capacity) ? city.storage.capacity : 200;
+      if (storageCountEl) storageCountEl.textContent = items.length + ' / ' + cap + ' slots';
+      if (items.length === 0) {
+        setHtmlIfChanged(storageListEl, `<div class="text-[11px] text-[#64748b] italic py-2 text-center">City Vault Storage is empty. Click "📦 Dump to City" to offload loot from your Hero's pack!</div>`);
+      } else {
+        const stHtml = items.map(function(it) {
+          const rInfo = RARITY[it.rarity] || RARITY.common;
+          const icon = getItemTypeIcon(it.slot || 'weapon');
+          return `
+            <div class="p-1.5 rounded bg-[#111722] border border-[#283347] flex items-center justify-between gap-2 text-xs">
+              <div class="min-w-0">
+                <div class="font-bold truncate" style="color:${rInfo.color}">${icon} ${it.name}</div>
+                <div class="text-[10px] font-mono text-[#8b949e]">${(it.slot || 'item').toUpperCase()} • ${rInfo.label}</div>
+              </div>
+              <button onclick="window.WargameApp.handleWithdrawFromCityStorage('${rawHero.id}', '${it.uid}')" class="px-2 py-0.5 rounded bg-[#1a2232] hover:bg-[#283347] text-[#38bdf8] border border-[#38bdf8]/40 font-bold text-[10px] uppercase cursor-pointer">Take</button>
+            </div>
+          `;
+        }).join('');
+        setHtmlIfChanged(storageListEl, stHtml);
+      }
     }
   }
 }
@@ -6367,8 +6776,10 @@ function renderLeftCommandSidebar(simHost) {
               </div>
             </div>
             <div class="flex items-center gap-1">
+              <button data-action="set-leader" data-hero-id="${h.id}" onclick="window.WargameApp.handleSetOverallLeader('${h.id}')" class="px-1.5 py-1 rounded bg-[#1a2232] hover:bg-[#283347] text-[#fbbf24] text-[10px] font-mono font-bold cursor-pointer" title="Designate as Overall Leader">${(world.roster && world.roster.overallLeaderHeroId === h.id) ? '👑' : '☆'}</button>
               <button data-action="open-hero-sheet" data-hero-id="${h.id}" onclick="window.WargameApp.handleOpenHeroSheet('${h.id}')" class="px-2 py-1 rounded bg-[#1a2232] hover:bg-[#283347] text-[#fbbf24] border border-[#fbbf24]/30 text-[10px] font-mono font-bold cursor-pointer" title="Open Shared Character Sheet">👤 Sheet</button>
               <button data-action="select-party" data-hero-id="${h.id}" onclick="window.WargameApp.handleSelectPartyByHero('${h.id}')" class="px-2 py-1 rounded bg-[#1a2232] hover:bg-[#283347] text-[#60a5fa] text-[10px] font-mono font-bold cursor-pointer">Select</button>
+              <button data-action="dismiss-hero" data-hero-id="${h.id}" onclick="window.WargameApp.handleDismissHero('${h.id}')" class="px-1.5 py-1 rounded bg-[#1a2232] hover:bg-[#f87171]/20 text-[#f87171] text-[10px] font-mono font-bold cursor-pointer" title="Dismiss Hero (Gear saved to City Vault)">✕</button>
             </div>
           </div>
         `;
@@ -7798,6 +8209,93 @@ function evaluateWargameSelfTests() {
       : 'Failed checks: ' + failed9.join(', ')
   });
 
+  // =========================================================================
+  // Test 10: City Vault Storage (200 Slots), Roster Cap (3), Dismiss, Overall Leader, Garrison & Temple Chapterhouse (ADR-0012)
+  // =========================================================================
+  // 10A. City Storage Container: Dump Hero Bag -> City Vault -> Withdraw back
+  const bagCountBeforeDump = hero9.bagGear.length;
+  const dumpRes10 = host7.dispatch({
+    type: COMMAND_TYPES.DUMP_HERO_BAG_TO_CITY,
+    payload: { heroId: hero9.id }
+  });
+  const dumpedToCity10 = Boolean(
+    dumpRes10.ok &&
+    hero9.bagGear.length === 0 &&
+    city7.storage &&
+    city7.storage.capacity === 200 &&
+    city7.storage.items.length >= bagCountBeforeDump
+  );
+  const storedSampleUid = city7.storage.items[0] ? city7.storage.items[0].uid : null;
+  const withdrawRes10 = storedSampleUid ? host7.dispatch({
+    type: COMMAND_TYPES.WITHDRAW_FROM_CITY_STORAGE,
+    payload: { heroId: hero9.id, itemUid: storedSampleUid }
+  }) : { ok: false };
+  const withdrewFromCity10 = Boolean(withdrawRes10.ok && hero9.bagGear.length === 1);
+
+  // 10B. Garrison Party Size Scaling (1 pre-Garrison -> 2 at Garrison Lv 1) & Temple Chapterhouse (Cleric Lv 1 -> Paladin Lv 2)
+  const preGarrisonMax = computeMaxPartySize(city7);
+  city7.buildings.garrison = 1;
+  const postGarrisonMax = computeMaxPartySize(city7);
+  city7.buildings.temple_chapterhouse = 1;
+  const templeLv1Classes = getCityRecruitableClasses(city7);
+  city7.buildings.temple_chapterhouse = 2;
+  const templeLv2Classes = getCityRecruitableClasses(city7);
+  const templeAndGarrisonVerified = Boolean(
+    preGarrisonMax === 1 &&
+    postGarrisonMax === 2 &&
+    templeLv1Classes.indexOf('cleric') !== -1 &&
+    templeLv1Classes.indexOf('paladin') === -1 &&
+    templeLv2Classes.indexOf('paladin') !== -1
+  );
+
+  // 10C. Hero Roster Cap of 3, Overall Leader Reassignment & Dismiss Hero (Gear preserved in City Storage)
+  city7.stockpile.gold = 500;
+  city7.stockpile.food = 500;
+  const rec2 = host7.dispatch({ type: COMMAND_TYPES.RECRUIT_HERO, payload: { classId: 'cleric', heroName: 'Brother Aldous' } });
+  const rec3 = host7.dispatch({ type: COMMAND_TYPES.RECRUIT_HERO, payload: { classId: 'mage', heroName: 'Lyra Starweaver' } });
+  const rec4Blocked = !host7.dispatch({ type: COMMAND_TYPES.RECRUIT_HERO, payload: { classId: 'thief', heroName: 'Vex Shadow' } }).ok;
+  host7.stepClock(125000);
+  const rosterAtCap3 = Boolean(rec2.ok && rec3.ok && rec4Blocked && host7.state.world.heroes.length === 3);
+
+  const secondHero = host7.state.world.heroes[1];
+  const leaderRes10 = host7.dispatch({ type: COMMAND_TYPES.SET_OVERALL_LEADER, payload: { heroId: secondHero.id } });
+  const leaderChanged10 = Boolean(leaderRes10.ok && host7.state.world.roster.overallLeaderHeroId === secondHero.id);
+
+  // Assign 2nd hero to 1st party using Garrison Lv 1 (maxSize 2)
+  const party1Id = host7.state.world.parties[0].id;
+  const assignRes10 = host7.dispatch({ type: COMMAND_TYPES.ASSIGN_HERO_TO_PARTY, payload: { partyId: party1Id, heroId: secondHero.id } });
+  const partyAssignVerified10 = Boolean(assignRes10.ok && host7.state.world.parties[0].memberIds.length === 2);
+
+  // Dismiss 3rd hero -> frees roster slot & deposits their gear safely into City Storage
+  const thirdHero = host7.state.world.heroes[2];
+  const storageBeforeDismiss = city7.storage.items.length;
+  const dismissRes10 = host7.dispatch({ type: COMMAND_TYPES.DISMISS_HERO, payload: { heroId: thirdHero.id } });
+  const dismissVerified10 = Boolean(
+    dismissRes10.ok &&
+    host7.state.world.heroes.length === 2 &&
+    city7.storage.items.length > storageBeforeDismiss
+  );
+
+  const t10Checks = {
+    dumpedToCity10: dumpedToCity10,
+    withdrewFromCity10: withdrewFromCity10,
+    templeAndGarrisonVerified: templeAndGarrisonVerified,
+    rosterAtCap3: rosterAtCap3,
+    leaderChanged10: leaderChanged10,
+    partyAssignVerified10: partyAssignVerified10,
+    dismissVerified10: dismissVerified10
+  };
+  const failed10 = Object.keys(t10Checks).filter(function(k) { return !t10Checks[k]; });
+  const t10Pass = failed10.length === 0;
+
+  results.push({
+    name: '10. City Vault Storage (200 Slots), Roster Cap (3), Dismiss, Leader, Garrison & Temple Chapterhouse',
+    pass: t10Pass,
+    detail: t10Pass
+      ? '200-slot City Storage dump/withdraw, Garrison party scaling, Temple Chapterhouse Cleric->Paladin gating, 3-Hero cap, Overall Leader, and Dismiss gear rescue verified'
+      : 'Failed checks: ' + failed10.join(', ')
+  });
+
   return results;
 }
 
@@ -8069,6 +8567,61 @@ function handleAutoEquipHero() {
     type: COMMAND_TYPES.AUTO_EQUIP_HERO,
     payload: { heroId: heroId }
   });
+  simHost.state._dirty = true;
+  simHost.save();
+  syncWargameUI(simHost);
+}
+
+function handleDepositToCityStorage(heroId, itemUid) {
+  simHost.dispatch({
+    type: COMMAND_TYPES.DEPOSIT_TO_CITY_STORAGE,
+    payload: { heroId: heroId, itemUid: itemUid }
+  });
+  simHost.state._dirty = true;
+  simHost.save();
+  syncWargameUI(simHost);
+}
+
+function handleWithdrawFromCityStorage(heroId, itemUid) {
+  simHost.dispatch({
+    type: COMMAND_TYPES.WITHDRAW_FROM_CITY_STORAGE,
+    payload: { heroId: heroId, itemUid: itemUid }
+  });
+  simHost.state._dirty = true;
+  simHost.save();
+  syncWargameUI(simHost);
+}
+
+function handleDumpHeroBagToCity() {
+  const heroId = simHost.state && simHost.state._openHeroSheetId;
+  if (!heroId) return;
+  simHost.dispatch({
+    type: COMMAND_TYPES.DUMP_HERO_BAG_TO_CITY,
+    payload: { heroId: heroId }
+  });
+  simHost.state._dirty = true;
+  simHost.save();
+  syncWargameUI(simHost);
+}
+
+function handleSetOverallLeader(heroId) {
+  simHost.dispatch({
+    type: COMMAND_TYPES.SET_OVERALL_LEADER,
+    payload: { heroId: heroId }
+  });
+  simHost.state._dirty = true;
+  simHost.save();
+  syncWargameUI(simHost);
+}
+
+function handleDismissHero(heroId) {
+  simHost.dispatch({
+    type: COMMAND_TYPES.DISMISS_HERO,
+    payload: { heroId: heroId }
+  });
+  if (simHost.state && simHost.state._openHeroSheetId === heroId) {
+    delete simHost.state._openHeroSheetId;
+  }
   simHost.state._dirty = true;
   simHost.save();
   syncWargameUI(simHost);
@@ -8385,6 +8938,11 @@ const WargameApp = {
   handleEquipHeroItem: handleEquipHeroItem,
   handleUnequipHeroItem: handleUnequipHeroItem,
   handleAutoEquipHero: handleAutoEquipHero,
+  handleDepositToCityStorage: handleDepositToCityStorage,
+  handleWithdrawFromCityStorage: handleWithdrawFromCityStorage,
+  handleDumpHeroBagToCity: handleDumpHeroBagToCity,
+  handleSetOverallLeader: handleSetOverallLeader,
+  handleDismissHero: handleDismissHero,
   handleMarchToDungeon: handleMarchToDungeon,
   handleReturnToCity: handleReturnToCity,
   handleEnterDungeon: handleEnterDungeon,

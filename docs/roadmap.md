@@ -94,14 +94,14 @@ Track E (Art Direction & Graphics) ──► Stage E.1 (Pillars) ──► E.2 (
 - **Increment 9.3 (`v0.9.3-dungeon-march`)**: Multi-dungeon Overworld discovery, wandering hostile skirmishes, real-time march to vaults, cross-engine `wargameBridge` handoff (`wargame.html` ↔ `index.html`), extraction return march + cargo banking, Recall Scroll express return, and defeat recovery. *(Verified)*  
 - **Increment 9.4 (`v0.9.4-shared-hero-sheet`)**: Shared cross-engine Character Sheet & Paper-Doll module (`src/ui/shared/characterSheet.js`), Tier 1 Prestige Cosmetic slots, `#wgCharacterSheetModal` in `wargame.html`, `CMD_EQUIP/UNEQUIP_HERO_ITEM`, and bridge equipment sync. *(Verified)*
 
-#### Increment 9.5 (`v0.9.5-class-guilds`) — Specialized Class Guild Halls & Hero Recruitment
-- **Dedicated Class Recruitment Constructs**: Split hero recruitment across specialized enterable City Guild Halls so city planning directly shapes your roster:
-  - **Fighters Guild / Warrior Hall**: Recruits **Ironclad Fighters**.
-  - **Thieves Guild / Shadow Den**: Recruits **Shadowblade Rogues**.
-  - **Mages Guild / Arcane Spire**: Recruits **Astral Elementalists**.
-  - **Rangers Lodge / Pathfinders Outpost**: Recruits **Deepwood Rangers**.
-  - **Paladin Chapterhouse / Radiant Sanctum**: Recruits **Radiant Crusaders**.
-- **Adventurers Guild Hall Role**: Evolves into the central Expedition HQ (Party Assembly, Notice Board Bounties, and Bestiary Codex).
+#### Increment 9.5 (`v0.9.5-class-guilds`) — Modular Class Guilds, Garrison Parties, Roster Cap & City Storage Container (`ADR-0012`)
+- **Declarative Building `facilities` Architecture**: Every enterable guild declares composable `recruitment`, `questBoard`, `training`, `research`, and class-exclusive `shop` capabilities:
+  - **Temple Chapterhouse**: Religious classes — **Cleric** (entry-level, Lv 1) → **Paladin** (Lv 2+) and future religious archetypes.
+  - **Fighters Guild**, **Thieves Guild**, **Mages Guild**, **Rangers Lodge**: Dedicated martial, stealth, arcane, and wilderness class guilds.
+  - **Adventurers Guild**: Dedicated to the Adventurer/Delver class and dungeon-specific exploration quests, training, research, and gear.
+- **Hero Roster Cap, Dismissal & Overall Leader**: Starting global cap of `3` Heroes (expandable later), `CMD_DISMISS_HERO` (returning gear safely to City Storage), and `CMD_SET_OVERALL_LEADER` (reassignable at any time).
+- **Garrison (Party Formation & Scaling)**: Build and upgrade the **Garrison** to form multi-hero parties (`maxPartySize = 1 + garrisonLevel`; solo 1-hero parties allowed pre-Garrison).
+- **Unified Inventory Containers & City Storage Vault**: 200-slot City Storage Container accessible whenever a Hero is in Town, with 1-click **"Dump Bag to City Vault"** and bidirectional item transfers.
 
 #### Increment 9.6 (`v0.9.6-city-industry`) — Tier 2 City Industry: Smeltery, Warehouse & Apothecary
 - **Smeltery** *(Enterable City Construct)*: Refines raw dungeon ores (`Copper`, `Iron`, `Mithril`, `Astralite`) into forged ingots/alloys required for Tier 2 buildings and crafted equipment.
