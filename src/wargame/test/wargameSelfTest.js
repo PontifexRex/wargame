@@ -1078,7 +1078,7 @@ export function evaluateWargameSelfTests() {
   const forgeBannerSrc = getProductionImageSrc(forgeBannerId);
   const fighterPortraitSrc = getProductionImageSrc(getHeroPortraitAssetId('fighter'));
   const paladinPortraitSrc = getProductionImageSrc(getHeroPortraitAssetId('paladin'));
-  const fallbackPortraitSrc = getProductionImageSrc(getHeroPortraitAssetId('thief'));
+  const fallbackPortraitSrc = getProductionImageSrc(getHeroPortraitAssetId('mage'));
   const adapter13 = createRenderAdapter({ mode: 'auto' });
 
   const t13Checks = {

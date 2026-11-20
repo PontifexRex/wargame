@@ -279,14 +279,18 @@
 
         <!-- VIEW 3: ADVENTURERS GUILD RECRUITMENT PANEL -->
         <div id="wgPanelGuild" class="card-surface p-4 md:p-5 flex flex-col gap-4 hidden">
-          <div class="flex items-center justify-between border-b border-[#283347] pb-3">
-            <div>
-              <h2 class="font-display text-lg font-bold text-[#60a5fa]">Adventurers Guild Hall — Oath of Sworn Blades</h2>
-              <p class="text-xs text-[#8b949e] mt-0.5">Swear in Hero class leaders to command Overworld exploration parties and plunge into subterranean vaults.</p>
+          <div id="wgGuildInteriorBanner" class="relative h-44 rounded-lg overflow-hidden border border-[#fbbf24]/40 bg-[#080b11] shadow-lg">
+            <img src="assets/runtime/tier1/interiors/city_interior_adventurers_guild_default_static.jpg" alt="Adventurers Guild Hall Interior" class="w-full h-full object-cover object-center" />
+            <div class="absolute inset-0 bg-gradient-to-t from-[#0f1520] via-[#0f1520]/45 to-transparent"></div>
+            <div class="absolute bottom-3 left-4 right-4 flex items-end justify-between gap-2">
+              <div>
+                <h2 class="font-display text-lg font-bold text-[#fbbf24] drop-shadow">Adventurers Guild Hall — Oath of Sworn Blades</h2>
+                <p class="text-xs text-[#e6edf3]/90 mt-0.5 drop-shadow">Swear in Hero class leaders to command Overworld exploration parties and plunge into subterranean vaults.</p>
+              </div>
+              <span class="px-2.5 py-1 rounded bg-[#080b11]/85 text-[#fbbf24] border border-[#fbbf24]/50 text-[10px] font-mono font-bold uppercase whitespace-nowrap">
+                Tier 1 • Guild Interior
+              </span>
             </div>
-            <span class="px-2.5 py-1 rounded bg-[#60a5fa]/20 text-[#60a5fa] border border-[#60a5fa]/40 text-xs font-mono font-bold">
-              5 Archetypes
-            </span>
           </div>
           <div id="wgGuildClassesGrid" class="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-[580px] overflow-y-auto pr-1">
             <!-- Dynamically populated hero recruitment cards -->

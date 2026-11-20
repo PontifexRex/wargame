@@ -6218,7 +6218,7 @@ const DEFAULT_ASSET_MANIFEST = {
       tier: 1,
       domain: 'char',
       category: 'portrait',
-      status: 'procedural_fallback',
+      status: 'production',
       src: 'assets/runtime/tier1/portraits/char_portrait_thief_default_idle.jpg',
       atlasFrame: null,
       width: 512,
@@ -6244,7 +6244,7 @@ const DEFAULT_ASSET_MANIFEST = {
       tier: 1,
       domain: 'char',
       category: 'portrait',
-      status: 'procedural_fallback',
+      status: 'production',
       src: 'assets/runtime/tier1/portraits/char_portrait_ranger_default_idle.jpg',
       atlasFrame: null,
       width: 512,
@@ -8428,14 +8428,23 @@ function renderGuildRecruitmentPanel(simHost) {
 
   const newGuildHtml = RECRUITABLE_HERO_CLASSES.map(function(cls) {
     const canAfford = (city.stockpile.gold || 0) >= cls.costGold && (city.stockpile.food || 0) >= cls.costFood;
+    const portraitSrc = getProductionImageSrc(getHeroPortraitAssetId(cls.classId));
+    const portraitHtml = portraitSrc
+      ? `<img src="${portraitSrc}" alt="${cls.name}" class="w-14 h-14 rounded-lg object-cover border border-[#fbbf24]/50 shadow shrink-0 bg-[#111722]" />`
+      : `<div class="w-14 h-14 rounded-lg bg-[#111722] border border-[#283347] flex items-center justify-center text-2xl shrink-0">${cls.icon}</div>`;
     return `
       <div class="p-3.5 rounded-lg bg-[#080b11] border border-[#283347] flex flex-col justify-between gap-3">
         <div>
-          <div class="flex items-center justify-between">
-            <span class="text-base font-bold" style="color:${cls.color}">${cls.icon} ${cls.name}</span>
-            <span class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-[#1a2232] text-[#fbbf24]">${cls.title}</span>
+          <div class="flex items-start gap-3">
+            ${portraitHtml}
+            <div class="min-w-0 flex-1">
+              <div class="flex items-center justify-between gap-1">
+                <span class="text-base font-bold truncate" style="color:${cls.color}">${cls.icon} ${cls.name}</span>
+                <span class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-[#1a2232] text-[#fbbf24] whitespace-nowrap">${cls.title}</span>
+              </div>
+              <p class="text-[11px] text-[#8b949e] mt-1">${cls.specialty}</p>
+            </div>
           </div>
-          <p class="text-[11px] text-[#8b949e] mt-1">${cls.specialty}</p>
           <div class="grid grid-cols-4 gap-1 text-center font-mono text-[10px] mt-2.5 bg-[#111722] p-1.5 rounded border border-[#283347]">
             <div>STR <strong>${cls.baseStats.str}</strong></div>
             <div>DEX <strong>${cls.baseStats.dex}</strong></div>
@@ -9654,7 +9663,7 @@ function evaluateWargameSelfTests() {
   const forgeBannerSrc = getProductionImageSrc(forgeBannerId);
   const fighterPortraitSrc = getProductionImageSrc(getHeroPortraitAssetId('fighter'));
   const paladinPortraitSrc = getProductionImageSrc(getHeroPortraitAssetId('paladin'));
-  const fallbackPortraitSrc = getProductionImageSrc(getHeroPortraitAssetId('thief'));
+  const fallbackPortraitSrc = getProductionImageSrc(getHeroPortraitAssetId('mage'));
   const adapter13 = createRenderAdapter({ mode: 'auto' });
 
   const t13Checks = {
