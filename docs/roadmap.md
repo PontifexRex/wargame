@@ -150,9 +150,7 @@ Track E (Art Direction & Graphics) ──► Stage E.1 (Pillars) ──► E.2 (
 
 *Preceding Stages:*  
 - **Stage E.1 — Visual Pillars & Art Direction Brief (`docs/art_direction_brief.md`)**: Locked in **Grounded High-Craft Fantasy Realism**, **Dynamic Light-to-Dark Tone**, and **Tiered Visual Fidelity** (Tier 1 Prestige Realism for Hero Profiles & Cosmetics, Tier 2 Modular Tactical Realism for Cities/Dungeons, Tier 3 Elevated Strategic Cartography for Overworld). *(Verified)*
-
-#### Stage E.2 — Formal Art Bible & UI/UX Design System (`docs/art_bible.md`, `docs/ui_design_system.md`)
-- Author the single source of truth for visual craft: color theory & biome palettes, value/contrast separation (terrain vs. props vs. units vs. VFX), lighting/shadow grammar, material language (stone, timber, brass, starlight), typography hierarchy, HUD ergonomics, and shared component design tokens.
+- **Stage E.2 — Formal Art Bible & UI/UX Design System (`docs/art_bible.md`, `docs/ui_design_system.md`)**: Locked in biome & daylight/subterranean color palettes, Guild/Facility interior art specs, 4-layer value/contrast budgets, lighting & shadow grammar, material library, Tier 1 10-layer Paper-Doll & Cosmetic standards, Carved Obsidian Slate & Celestial Gold UI tokens, typography, and component anatomy. *(Verified)*
 
 #### Stage E.3 — Asset Taxonomy, Storage & Management Pipeline (`docs/asset_pipeline.md`)
 - Define the complete **Asset Catalog & Production Spec** across all domains (Overworld, City, Dungeon, Characters, Monsters, Objects/Props, VFX, UI Icons, Audio).
@@ -162,7 +160,7 @@ Track E (Art Direction & Graphics) ──► Stage E.1 (Pillars) ──► E.2 (
   - Storage & versioning strategy (Git LFS / external asset bucket, optimization budgets, resolution/DPI standards, sprite-sheet / texture-atlas packing specs).
   - Semantic **`assets/manifest.json`** registry so engine code loads assets strictly by semantic ID rather than hardcoded file paths.
 
-#### Stage E.4 — Graphics Library & Rendering Engine Evaluation (`ADR-0012`)
+#### Stage E.4 — Graphics Library & Rendering Engine Evaluation (`ADR-0013`)
 - Evaluate rendering libraries and game engines against the Art Bible and Asset Pipeline requirements (e.g., **PixiJS / WebGL2**, **Phaser**, **Three.js / HD-2D**, or **Godot / WebGPU**) via targeted technical spikes.
 - Strictly preserve our **Decoupled Simulation-First Engine** boundary so game rules, state, and tests remain independent of the visual renderer.
 
