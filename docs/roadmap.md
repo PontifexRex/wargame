@@ -59,24 +59,16 @@ Track E (Art Direction & Mobile UX)     ──► Stage E.6 (Painted Tier 2 Iso/
 
 ---
 
-### Track F *(Immediate Priority 1)*: Unified Progression Core — Currency Ledger, Prerequisite Engine, Effects Framework & Research/Training Prototype (`v0.10.x` Series — [`research_and_training_spec.md`](specs/research_and_training_spec.md) / `ADR-0015`)
+### Track F *(Completed — Verified)*: Unified Progression Core — Currency Ledger, Prerequisite Engine, Effects Framework & Research/Training Prototype (`v0.10.x` Series — [`research_and_training_spec.md`](specs/research_and_training_spec.md) / `ADR-0015`)
 
-*Promoted ahead of Increment 9.8+ so Market, Pantheon/Divine Alignment, Quests, Achievements/Titles, and Multi-City all consume these shared, server-ready foundational services natively. Implemented locally first in pure deterministic JS with server-ready idempotent interfaces.*
+*All 5 Track F phases are implemented locally in pure deterministic JS with server-ready idempotent interfaces so Market, Pantheon/Divine Alignment, Quests, Achievements/Titles, and Multi-City consume these shared foundational services natively.*
 
-*Preceding Increments:*  
+*Completed Increments:*  
 - **Increment 10.1 (`v0.10.1-prog-foundation` / `ADR-0015`) — Phase 1 Foundation**: Implemented scaled-integer fixed-precision `CurrencyService` (`0.00001` precision, idempotent auditable ledger, balance reconstruction, unified atomic currency+stockpile payments), nested `AND`/`OR`/`NOT` `ResearchEligibilityService` (with guild/alliance/alignment restriction codes), versioned `ResearchCatalogService` (15 domains, 5 representative prototype trees incl. `WAR_WEAPON_HEAVY_001` & hero training definitions), and `world.progression` state backfill. *(Verified)*
 - **Increment 10.2 (`v0.10.2-prog-accrual-queues`) — Phase 2 Accrual & Queues**: Implemented `ResearchAccrualService` (passive offline elapsed-time accrual + event-driven fractional activity awards with idempotency, cooldowns, caps & diminishing returns) and `ResearchQueueService` (configurable free/subscriber queues, definition version snapshots, pause/resume, pending auto-promotion without upfront cost deduction, and configurable cancel refund policies). *(Verified)*
 - **Increment 10.3 (`v0.10.3-prog-ownership`) — Phase 3 Guild/Alliance Ownership & Contributions**: Implemented `organizationService.js` cleanly separating Multiplayer Player Guilds (*Adventurers*, *War*, *Artisan*) and Alliances from local City Class Halls, Guild-owned RP accounts & research, multi-member attributed Alliance Research Pools (strictly research-only—no Alliance training), and member departure ownership rules. *(Verified)*
 - **Increment 10.4 (`v0.10.4-prog-effects-training`) — Phase 4 Generic Effects & Separate Hero Training**: Implemented `benefitService.js` (deterministic `Set`/`Additive`/`Multiplicative`/`Minimum`/`Maximum` stacking, `Unlock`/`Disable`/`Replace` resolution, controlled custom handlers, explicit Unlock vs. Modifier separation) and `trainingService.js` (separate Hero/Subject Training Queue independent of Personal Research, subject-scoped `TrainingInstance` isolation across Hero A vs. Hero B, extensible to Cities/Units/Constructs). *(Verified)*
-
-#### Increment 10.5 (`v0.10.5-prog-ui-milestones`) — Phase 5: Research & Training Hub UI, Milestones, Provenance Titles, Quests & Analytics
-- **Dual-Entry Prototype UI (`§18`)**:
-  - Top-level **Research & Training Hub** (accessible from main navigation) PLUS contextual shortcuts directly inside town buildings (Class Halls, Academy, Temple).
-  - Required views: **Research Overview** (balances, accrual rates, active queues, recent achievements), **Visual Research Tree** (branches, prerequisites, milestones, tree archiving), **Research Detail**, **Research Queue Manager**, **Hero Training Screen**, and **Research History & Analytics**.
-- **Milestones, Achievements, Provenance Titles & Trophies (`§16`)**:
-  - Intermediate & tree/branch completion milestones; Common, Rare, Unique, World-First, Guild/Alliance, and Humorous/Unusual titles with provenance, world association, and player display control.
-- **Tutorial, Quest & Telemetry Integration (`§17`, `§19`)**:
-  - 12-step incremental tutorial hooks, recurring research/training quest triggers, 17+ idempotent domain events, and `ResearchAnalyticsService` player/game metrics.
+- **Increment 10.5 (`v0.10.5-prog-ui-milestones`) — Phase 5 Research & Training Hub UI, Milestones, Provenance Titles & Analytics**: Implemented `milestonesAndAnalytics.js` (idempotent tree milestones, Provenance Titles with display selector, lossless tree archiving, 12-step tutorial progress, 17 domain events, `ResearchAnalyticsService`) and Dual-Entry `progressionUi.js` (`#wgProgressionHubModal` with all 6 Spec §18 views accessible from both top-level header navigation and contextual town Class Hall shortcuts). *(Verified)*
 
 ---
 

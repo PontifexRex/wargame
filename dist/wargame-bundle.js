@@ -7130,6 +7130,3362 @@ function renderWargameOverworldCanvas(simHost) {
   }
 }
 
+  // --- Module: src/progression/researchCatalog.js ---
+// =============================================================================
+// VERSIONED RESEARCH & TRAINING CATALOG SERVICE (Inc 10.1 / ADR-0015 / Spec §6, §7, §14, §22)
+// Defines the 15 Research Domains, 5 Representative Prototype Trees (General Knowledge,
+// Adventurer Basics, Weapon Proficiency incl. WAR_WEAPON_HEAVY_001, City Development,
+// Divine Knowledge), Starter Hero Training Definitions, and Catalog Validator.
+// =============================================================================
+
+
+const RESEARCH_DOMAINS = {
+  adventuring:       { domainId: 'adventuring',       name: 'Adventuring',       icon: '🧭', sortOrder: 1,  enabled: true, version: '1.0.0' },
+  dungeon:           { domainId: 'dungeon',           name: 'Dungeon',           icon: '🗝️', sortOrder: 2,  enabled: true, version: '1.0.0' },
+  warrior:           { domainId: 'warrior',           name: 'Warrior',           icon: '⚔️', sortOrder: 3,  enabled: true, version: '1.0.0' },
+  military:          { domainId: 'military',          name: 'Military',          icon: '🛡️', sortOrder: 4,  enabled: true, version: '1.0.0' },
+  city:              { domainId: 'city',              name: 'City',              icon: '🏛️', sortOrder: 5,  enabled: true, version: '1.0.0' },
+  economy:           { domainId: 'economy',           name: 'Economy',           icon: '💰', sortOrder: 6,  enabled: true, version: '1.0.0' },
+  influence:         { domainId: 'influence',         name: 'Influence',         icon: '👑', sortOrder: 7,  enabled: true, version: '1.0.0' },
+  constructs:        { domainId: 'constructs',        name: 'Constructs',        icon: '⚙️', sortOrder: 8,  enabled: true, version: '1.0.0' },
+  religion:          { domainId: 'religion',          name: 'Religion',          icon: '☀️', sortOrder: 9,  enabled: true, version: '1.0.0' },
+  priesthood:        { domainId: 'priesthood',        name: 'Priesthood',        icon: '✝️', sortOrder: 10, enabled: true, version: '1.0.0' },
+  exploration:       { domainId: 'exploration',       name: 'Exploration',       icon: '🗺️', sortOrder: 11, enabled: true, version: '1.0.0' },
+  magic:             { domainId: 'magic',             name: 'Magic',             icon: '✨', sortOrder: 12, enabled: true, version: '1.0.0' },
+  crafting:          { domainId: 'crafting',          name: 'Crafting',          icon: '🔨', sortOrder: 13, enabled: true, version: '1.0.0' },
+  logistics:         { domainId: 'logistics',         name: 'Logistics',         icon: '📦', sortOrder: 14, enabled: true, version: '1.0.0' },
+  general_knowledge: { domainId: 'general_knowledge', name: 'General Knowledge', icon: '📘', sortOrder: 15, enabled: true, version: '1.0.0' }
+};
+
+const PROTOTYPE_RESEARCH_TREES = {
+  tree_general_knowledge: {
+    treeId: 'tree_general_knowledge',
+    domainId: 'general_knowledge',
+    name: 'General Knowledge',
+    shortDescription: 'Foundational literacy, scholarly methods, and passive research acceleration.',
+    icon: '📘',
+    ownershipType: OWNER_TYPES.PLAYER,
+    branches: [
+      { branchId: 'br_scholars', name: 'Scholarly Methods' },
+      { branchId: 'br_efficiency', name: 'Research Efficiency' }
+    ],
+    itemIds: ['GEN_SCHOLAR_001', 'GEN_SPEED_001'],
+    milestones: [
+      { milestoneId: 'ms_gen_1', requiredCompletions: 2, rewardTitle: 'Curious Mind', rewardGold: 100 }
+    ],
+    sortOrder: 1,
+    version: '1.0.0',
+    status: 'active'
+  },
+  tree_adventurer_basics: {
+    treeId: 'tree_adventurer_basics',
+    domainId: 'adventuring',
+    name: 'Adventurer Basics',
+    shortDescription: 'Field survival, torchcraft, and dungeon delving mastery funded by Adventurer RP.',
+    icon: '🧭',
+    ownershipType: OWNER_TYPES.PLAYER,
+    branches: [
+      { branchId: 'br_survival', name: 'Dungeon Survival' },
+      { branchId: 'br_assay', name: 'Treasure Recovery' }
+    ],
+    itemIds: ['ADV_SURVIVAL_001', 'ADV_TREASURE_001'],
+    milestones: [
+      { milestoneId: 'ms_adv_1', requiredCompletions: 2, rewardTitle: 'Vault Pathfinder', rewardGold: 120 }
+    ],
+    sortOrder: 2,
+    version: '1.0.0',
+    status: 'active'
+  },
+  tree_weapon_proficiency: {
+    treeId: 'tree_weapon_proficiency',
+    domainId: 'warrior',
+    name: 'Weapon Proficiency',
+    shortDescription: 'Multilevel martial doctrine unlocking specialized weapon training for individual heroes.',
+    icon: '⚔️',
+    ownershipType: OWNER_TYPES.PLAYER,
+    branches: [
+      { branchId: 'br_heavy_arms', name: 'Heavy Arms' },
+      { branchId: 'br_tactics', name: 'Combat Mastery' }
+    ],
+    itemIds: ['WAR_WEAPON_HEAVY_001', 'WAR_MASTER_001'],
+    milestones: [
+      { milestoneId: 'ms_war_1', requiredCompletions: 2, rewardTitle: 'Master of Arms', rewardGold: 200 }
+    ],
+    sortOrder: 3,
+    version: '1.0.0',
+    status: 'active'
+  },
+  tree_city_development: {
+    treeId: 'tree_city_development',
+    domainId: 'city',
+    name: 'City Development',
+    shortDescription: 'Civic engineering, masonry standards, and resource production multipliers.',
+    icon: '🏛️',
+    ownershipType: OWNER_TYPES.PLAYER,
+    branches: [
+      { branchId: 'br_masonry', name: 'Civic Masonry' },
+      { branchId: 'br_harvest', name: 'Agrarian Yield' }
+    ],
+    itemIds: ['CITY_MASONRY_001', 'CITY_HARVEST_001'],
+    milestones: [
+      { milestoneId: 'ms_city_1', requiredCompletions: 2, rewardTitle: 'Bastion Architect', rewardGold: 150 }
+    ],
+    sortOrder: 4,
+    version: '1.0.0',
+    status: 'active'
+  },
+  tree_divine_knowledge: {
+    treeId: 'tree_divine_knowledge',
+    domainId: 'religion',
+    name: 'Divine Knowledge',
+    shortDescription: 'Sacred liturgy and blessings gated by multi-tag Pantheon alignment.',
+    icon: '☀️',
+    ownershipType: OWNER_TYPES.PLAYER,
+    branches: [
+      { branchId: 'br_radiance', name: 'Solar Liturgy' }
+    ],
+    itemIds: ['REL_LITURGY_001'],
+    milestones: [
+      { milestoneId: 'ms_rel_1', requiredCompletions: 1, rewardTitle: 'Initiate of the Dawn', rewardGold: 150 }
+    ],
+    sortOrder: 5,
+    version: '1.0.0',
+    status: 'active'
+  }
+};
+
+const PROTOTYPE_RESEARCH_ITEMS = {
+  GEN_SCHOLAR_001: {
+    researchItemId: 'GEN_SCHOLAR_001',
+    treeId: 'tree_general_knowledge',
+    domainId: 'general_knowledge',
+    branchId: 'br_scholars',
+    name: 'Foundational Scholarship',
+    description: 'Establishes systematic note-taking, increasing passive General RP accrual by +25% per level.',
+    icon: '📘',
+    itemType: 'modifier',
+    ownershipType: OWNER_TYPES.PLAYER,
+    subjectType: 'player',
+    prerequisites: null,
+    levelLimit: 3,
+    levelDefinitions: [
+      { level: 1, durationSec: 30,  costs: [{ kind: 'currency', currencyId: 'rp_general', amount: 0.01 }, { kind: 'currency', currencyId: 'gold', amount: 25 }],  benefits: [{ effectType: 'accrual_modifier', target: 'rp_general', op: 'additive', value: 0.25 }] },
+      { level: 2, durationSec: 120, costs: [{ kind: 'currency', currencyId: 'rp_general', amount: 0.05 }, { kind: 'currency', currencyId: 'gold', amount: 75 }],  benefits: [{ effectType: 'accrual_modifier', target: 'rp_general', op: 'additive', value: 0.25 }] },
+      { level: 3, durationSec: 300, costs: [{ kind: 'currency', currencyId: 'rp_general', amount: 0.15 }, { kind: 'currency', currencyId: 'gold', amount: 200 }], benefits: [{ effectType: 'accrual_modifier', target: 'rp_general', op: 'additive', value: 0.25 }] }
+    ],
+    queueType: 'research',
+    version: '1.0.0',
+    status: 'active'
+  },
+  GEN_SPEED_001: {
+    researchItemId: 'GEN_SPEED_001',
+    treeId: 'tree_general_knowledge',
+    domainId: 'general_knowledge',
+    branchId: 'br_efficiency',
+    name: 'Structured Research Methods',
+    description: 'Improves personal research completion speed by +10% per level.',
+    icon: '⏱️',
+    itemType: 'modifier',
+    ownershipType: OWNER_TYPES.PLAYER,
+    subjectType: 'player',
+    prerequisites: { type: 'research_level', research_item_id: 'GEN_SCHOLAR_001', operator: '>=', value: 1, label: 'Foundational Scholarship' },
+    levelLimit: 2,
+    levelDefinitions: [
+      { level: 1, durationSec: 90,  costs: [{ kind: 'currency', currencyId: 'rp_general', amount: 0.05 }, { kind: 'currency', currencyId: 'gold', amount: 60 }],  benefits: [{ effectType: 'research_speed_modifier', target: 'personal', op: 'additive', value: 0.10 }] },
+      { level: 2, durationSec: 240, costs: [{ kind: 'currency', currencyId: 'rp_general', amount: 0.12 }, { kind: 'currency', currencyId: 'gold', amount: 180 }], benefits: [{ effectType: 'research_speed_modifier', target: 'personal', op: 'additive', value: 0.10 }] }
+    ],
+    queueType: 'research',
+    version: '1.0.0',
+    status: 'active'
+  },
+  ADV_SURVIVAL_001: {
+    researchItemId: 'ADV_SURVIVAL_001',
+    treeId: 'tree_adventurer_basics',
+    domainId: 'adventuring',
+    branchId: 'br_survival',
+    name: 'Subterranean Survival',
+    description: 'Unlocks Dungeon Survival Drills for individual heroes and improves torchlight preparation.',
+    icon: '🔥',
+    itemType: 'capability_unlock',
+    ownershipType: OWNER_TYPES.PLAYER,
+    subjectType: 'player',
+    prerequisites: null,
+    levelLimit: 2,
+    levelDefinitions: [
+      { level: 1, durationSec: 45,  costs: [{ kind: 'currency', currencyId: 'rp_adventurer', amount: 0.5 }, { kind: 'currency', currencyId: 'gold', amount: 30 }],  benefits: [{ effectType: 'unlock_training', target: 'train_dungeon_survival', op: 'unlock', value: 1 }] },
+      { level: 2, durationSec: 180, costs: [{ kind: 'currency', currencyId: 'rp_adventurer', amount: 2.0 }, { kind: 'currency', currencyId: 'gold', amount: 120 }], benefits: [{ effectType: 'unlock_training', target: 'train_dungeon_survival', op: 'unlock', value: 2 }] }
+    ],
+    queueType: 'research',
+    version: '1.0.0',
+    status: 'active'
+  },
+  ADV_TREASURE_001: {
+    researchItemId: 'ADV_TREASURE_001',
+    treeId: 'tree_adventurer_basics',
+    domainId: 'adventuring',
+    branchId: 'br_assay',
+    name: 'Antiquarian Field Appraisal',
+    description: 'Increases gold value of extracted dungeon relics by +12% per level.',
+    icon: '💎',
+    itemType: 'modifier',
+    ownershipType: OWNER_TYPES.PLAYER,
+    subjectType: 'player',
+    prerequisites: { type: 'research_level', research_item_id: 'ADV_SURVIVAL_001', operator: '>=', value: 1, label: 'Subterranean Survival' },
+    levelLimit: 2,
+    levelDefinitions: [
+      { level: 1, durationSec: 60,  costs: [{ kind: 'currency', currencyId: 'rp_adventurer', amount: 1.0 }, { kind: 'currency', currencyId: 'gold', amount: 50 }],  benefits: [{ effectType: 'probability_modifier', target: 'relic_gold_mult', op: 'additive', value: 0.12 }] },
+      { level: 2, durationSec: 240, costs: [{ kind: 'currency', currencyId: 'rp_adventurer', amount: 3.0 }, { kind: 'currency', currencyId: 'gold', amount: 150 }], benefits: [{ effectType: 'probability_modifier', target: 'relic_gold_mult', op: 'additive', value: 0.12 }] }
+    ],
+    queueType: 'research',
+    version: '1.0.0',
+    status: 'active'
+  },
+  // Spec §14 Reference Research Item
+  WAR_WEAPON_HEAVY_001: {
+    researchItemId: 'WAR_WEAPON_HEAVY_001',
+    treeId: 'tree_weapon_proficiency',
+    domainId: 'warrior',
+    branchId: 'br_heavy_arms',
+    name: 'Wield Heavier Weapons',
+    description: 'Unlocks Heavy Weapon Proficiency training for individual heroes (does not auto-grant skill without hero training).',
+    icon: '⚔️',
+    itemType: 'capability_unlock',
+    ownershipType: OWNER_TYPES.PLAYER,
+    subjectType: 'player',
+    prerequisites: null,
+    levelLimit: 3,
+    levelDefinitions: [
+      { level: 1, durationSec: 60,   costs: [{ kind: 'currency', currencyId: 'rp_adventurer', amount: 5 },  { kind: 'currency', currencyId: 'gold', amount: 50 }],   benefits: [{ effectType: 'unlock_training', target: 'train_heavy_weapons', op: 'unlock', value: 1 }] },
+      { level: 2, durationSec: 600,  costs: [{ kind: 'currency', currencyId: 'rp_adventurer', amount: 10 }, { kind: 'currency', currencyId: 'gold', amount: 250 }],  benefits: [{ effectType: 'unlock_training', target: 'train_heavy_weapons', op: 'unlock', value: 2 }] },
+      { level: 3, durationSec: 6000, costs: [{ kind: 'currency', currencyId: 'rp_adventurer', amount: 25 }, { kind: 'currency', currencyId: 'gold', amount: 2000 }], benefits: [{ effectType: 'unlock_training', target: 'train_heavy_weapons', op: 'unlock', value: 3 }] }
+    ],
+    queueType: 'research',
+    version: '1.0.0',
+    status: 'active'
+  },
+  WAR_MASTER_001: {
+    researchItemId: 'WAR_MASTER_001',
+    treeId: 'tree_weapon_proficiency',
+    domainId: 'warrior',
+    branchId: 'br_tactics',
+    name: 'Vanguard Arms Doctrine',
+    description: 'Advanced combat doctrine requiring a veteran hero and prior martial or survival research.',
+    icon: '🛡️',
+    itemType: 'capability_unlock',
+    ownershipType: OWNER_TYPES.PLAYER,
+    subjectType: 'player',
+    prerequisites: {
+      operator: 'AND',
+      conditions: [
+        { type: 'hero_level', operator: 'greater_than_or_equal', value: 5 },
+        {
+          operator: 'OR',
+          conditions: [
+            { type: 'research_level', research_item_id: 'WAR_WEAPON_HEAVY_001', operator: 'greater_than_or_equal', value: 1, label: 'Wield Heavier Weapons' },
+            { type: 'research_level', research_item_id: 'ADV_SURVIVAL_001', operator: 'greater_than_or_equal', value: 2, label: 'Subterranean Survival' }
+          ]
+        }
+      ]
+    },
+    levelLimit: 1,
+    levelDefinitions: [
+      { level: 1, durationSec: 300, costs: [{ kind: 'currency', currencyId: 'rp_adventurer', amount: 12 }, { kind: 'currency', currencyId: 'gold', amount: 400 }], benefits: [{ effectType: 'attribute_modifier', target: 'hero_atk_pct', op: 'additive', value: 0.08 }] }
+    ],
+    queueType: 'research',
+    version: '1.0.0',
+    status: 'active'
+  },
+  CITY_MASONRY_001: {
+    researchItemId: 'CITY_MASONRY_001',
+    treeId: 'tree_city_development',
+    domainId: 'city',
+    branchId: 'br_masonry',
+    name: 'Ashlar Masonry Standards',
+    description: 'Reduces city construction duration by 8% per level and improves quarry stone output.',
+    icon: '🪨',
+    itemType: 'modifier',
+    ownershipType: OWNER_TYPES.PLAYER,
+    subjectType: 'player',
+    prerequisites: { type: 'building_level', buildingId: 'quarry', operator: '>=', value: 1 },
+    levelLimit: 2,
+    levelDefinitions: [
+      { level: 1, durationSec: 90,  costs: [{ kind: 'currency', currencyId: 'rp_general', amount: 0.02 }, { kind: 'stockpile', resourceId: 'stone', amount: 30 }], benefits: [{ effectType: 'production_modifier', target: 'stone', op: 'additive', value: 0.15 }] },
+      { level: 2, durationSec: 300, costs: [{ kind: 'currency', currencyId: 'rp_general', amount: 0.08 }, { kind: 'stockpile', resourceId: 'stone', amount: 80 }], benefits: [{ effectType: 'production_modifier', target: 'stone', op: 'additive', value: 0.15 }] }
+    ],
+    queueType: 'research',
+    version: '1.0.0',
+    status: 'active'
+  },
+  CITY_HARVEST_001: {
+    researchItemId: 'CITY_HARVEST_001',
+    treeId: 'tree_city_development',
+    domainId: 'city',
+    branchId: 'br_harvest',
+    name: 'Crop Rotation & Irrigation',
+    description: 'Boosts Garden food and Well water output by +15% per level.',
+    icon: '🌾',
+    itemType: 'modifier',
+    ownershipType: OWNER_TYPES.PLAYER,
+    subjectType: 'player',
+    prerequisites: { type: 'building_level', buildingId: 'garden', operator: '>=', value: 1 },
+    levelLimit: 2,
+    levelDefinitions: [
+      { level: 1, durationSec: 90,  costs: [{ kind: 'currency', currencyId: 'rp_general', amount: 0.02 }, { kind: 'stockpile', resourceId: 'wood', amount: 25 }], benefits: [{ effectType: 'production_modifier', target: 'food', op: 'additive', value: 0.15 }] },
+      { level: 2, durationSec: 300, costs: [{ kind: 'currency', currencyId: 'rp_general', amount: 0.08 }, { kind: 'stockpile', resourceId: 'wood', amount: 70 }], benefits: [{ effectType: 'production_modifier', target: 'food', op: 'additive', value: 0.15 }] }
+    ],
+    queueType: 'research',
+    version: '1.0.0',
+    status: 'active'
+  },
+  REL_LITURGY_001: {
+    researchItemId: 'REL_LITURGY_001',
+    treeId: 'tree_divine_knowledge',
+    domainId: 'religion',
+    branchId: 'br_radiance',
+    name: 'Solar Sanctuary Rites',
+    description: 'Sacred rites available to players aligned with a Solar or Order deity.',
+    icon: '☀️',
+    itemType: 'modifier',
+    ownershipType: OWNER_TYPES.PLAYER,
+    subjectType: 'player',
+    prerequisites: { type: 'divine_alignment_tag', operator: 'contains_any', value: ['solar', 'order'] },
+    levelLimit: 2,
+    levelDefinitions: [
+      { level: 1, durationSec: 120, costs: [{ kind: 'currency', currencyId: 'divine_favor', amount: 10 }, { kind: 'currency', currencyId: 'gold', amount: 100 }], benefits: [{ effectType: 'accrual_modifier', target: 'divine_favor', op: 'additive', value: 0.20 }] },
+      { level: 2, durationSec: 360, costs: [{ kind: 'currency', currencyId: 'divine_favor', amount: 30 }, { kind: 'currency', currencyId: 'gold', amount: 300 }], benefits: [{ effectType: 'accrual_modifier', target: 'divine_favor', op: 'additive', value: 0.25 }] }
+    ],
+    queueType: 'research',
+    version: '1.0.0',
+    status: 'active'
+  }
+};
+
+const PROTOTYPE_TRAINING_DEFINITIONS = {
+  train_heavy_weapons: {
+    trainingDefinitionId: 'train_heavy_weapons',
+    name: 'Heavy Weapon Proficiency',
+    description: 'Trains an individual Hero to wield heavy two-handed arms, granting +4 ATK per level.',
+    subjectType: 'hero',
+    skillRef: 'heavy_weapon_proficiency',
+    prerequisites: { type: 'research_level', research_item_id: 'WAR_WEAPON_HEAVY_001', operator: '>=', value: 1, label: 'Wield Heavier Weapons' },
+    queueType: 'hero_training',
+    levels: [
+      { level: 1, durationSec: 45,  costs: [{ kind: 'currency', currencyId: 'gold', amount: 40 }],  benefits: [{ effectType: 'attribute_modifier', target: 'atk', op: 'additive', value: 4 }] },
+      { level: 2, durationSec: 180, costs: [{ kind: 'currency', currencyId: 'gold', amount: 150 }], prerequisites: { type: 'research_level', research_item_id: 'WAR_WEAPON_HEAVY_001', operator: '>=', value: 2 }, benefits: [{ effectType: 'attribute_modifier', target: 'atk', op: 'additive', value: 4 }] },
+      { level: 3, durationSec: 600, costs: [{ kind: 'currency', currencyId: 'gold', amount: 500 }], prerequisites: { type: 'research_level', research_item_id: 'WAR_WEAPON_HEAVY_001', operator: '>=', value: 3 }, benefits: [{ effectType: 'attribute_modifier', target: 'atk', op: 'additive', value: 6 }] }
+    ],
+    version: '1.0.0'
+  },
+  train_dungeon_survival: {
+    trainingDefinitionId: 'train_dungeon_survival',
+    name: 'Dungeon Survival Drills',
+    description: 'Hardens an individual Hero for deep vault delves, granting +15 Max HP per level.',
+    subjectType: 'hero',
+    skillRef: 'dungeon_survival',
+    prerequisites: { type: 'research_level', research_item_id: 'ADV_SURVIVAL_001', operator: '>=', value: 1, label: 'Subterranean Survival' },
+    queueType: 'hero_training',
+    levels: [
+      { level: 1, durationSec: 30,  costs: [{ kind: 'currency', currencyId: 'gold', amount: 30 }],  benefits: [{ effectType: 'attribute_modifier', target: 'maxHp', op: 'additive', value: 15 }] },
+      { level: 2, durationSec: 120, costs: [{ kind: 'currency', currencyId: 'gold', amount: 110 }], prerequisites: { type: 'research_level', research_item_id: 'ADV_SURVIVAL_001', operator: '>=', value: 2 }, benefits: [{ effectType: 'attribute_modifier', target: 'maxHp', op: 'additive', value: 20 }] }
+    ],
+    version: '1.0.0'
+  }
+};
+
+function validateResearchCatalog(trees, items, currencies) {
+  const errors = [];
+  const tMap = trees || PROTOTYPE_RESEARCH_TREES;
+  const iMap = items || PROTOTYPE_RESEARCH_ITEMS;
+  const cMap = currencies || DEFAULT_CURRENCY_DEFINITIONS;
+
+  const treeIds = Object.keys(tMap);
+  for (let i = 0; i < treeIds.length; i++) {
+    const tr = tMap[treeIds[i]];
+    if (!RESEARCH_DOMAINS[tr.domainId]) {
+      errors.push('Tree ' + tr.treeId + ' references unknown domain ' + tr.domainId);
+    }
+    if (!Array.isArray(tr.itemIds) || tr.itemIds.length === 0) {
+      errors.push('Tree ' + tr.treeId + ' has no itemIds');
+    } else {
+      for (let j = 0; j < tr.itemIds.length; j++) {
+        if (!iMap[tr.itemIds[j]]) {
+          errors.push('Tree ' + tr.treeId + ' references missing item ' + tr.itemIds[j]);
+        }
+      }
+    }
+  }
+
+  const itemIds = Object.keys(iMap);
+  for (let k = 0; k < itemIds.length; k++) {
+    const it = iMap[itemIds[k]];
+    if (!tMap[it.treeId]) errors.push('Item ' + it.researchItemId + ' references missing tree ' + it.treeId);
+    if (!it.version) errors.push('Item ' + it.researchItemId + ' missing version');
+    const lvls = Array.isArray(it.levelDefinitions) ? it.levelDefinitions : [];
+    if (lvls.length !== it.levelLimit) {
+      errors.push('Item ' + it.researchItemId + ' levelDefinitions count mismatch');
+    }
+    for (let li = 0; li < lvls.length; li++) {
+      const ld = lvls[li];
+      if (ld.level !== li + 1) errors.push('Item ' + it.researchItemId + ' non-sequential level ' + ld.level);
+      const costs = Array.isArray(ld.costs) ? ld.costs : [];
+      for (let ci = 0; ci < costs.length; ci++) {
+        if (costs[ci].kind === 'currency' && !cMap[costs[ci].currencyId]) {
+          errors.push('Item ' + it.researchItemId + ' L' + ld.level + ' references unknown currency ' + costs[ci].currencyId);
+        }
+      }
+    }
+  }
+
+  return {
+    valid: errors.length === 0,
+    errors: errors,
+    domainCount: Object.keys(RESEARCH_DOMAINS).length,
+    treeCount: treeIds.length,
+    itemCount: itemIds.length
+  };
+}
+
+  // --- Module: src/progression/eligibilityService.js ---
+// =============================================================================
+// GENERIC NESTED PREREQUISITE & ELIGIBILITY ENGINE (Inc 10.1 / ADR-0015 / Spec §8)
+// Evaluates recursive AND / OR / NOT condition trees across Visibility, Eligibility,
+// Start, Completion, and Bonus categories, returning rich diagnostic evaluation results.
+// =============================================================================
+
+
+const EVALUATION_STATUS = {
+  AVAILABLE: 'available',
+  LOCKED: 'locked',
+  HIDDEN: 'hidden',
+  UNAFFORDABLE: 'unaffordable',
+  QUEUE_FULL: 'queue_full',
+  IN_PROGRESS: 'in_progress',
+  COMPLETED: 'completed',
+  MAX_LEVEL: 'max_level_reached',
+  TEMP_UNAVAILABLE: 'temporarily_unavailable',
+  RESTRICTED_GUILD: 'restricted_by_guild',
+  RESTRICTED_ALLIANCE: 'restricted_by_alliance',
+  RESTRICTED_ALIGNMENT: 'restricted_by_alignment',
+  SUBJECT_UNAVAILABLE: 'subject_unavailable'
+};
+
+function compareValues(actual, op, expected) {
+  switch (op) {
+    case 'greater_than_or_equal':
+    case '>=': return Number(actual || 0) >= Number(expected);
+    case 'less_than_or_equal':
+    case '<=': return Number(actual || 0) <= Number(expected);
+    case 'greater_than':
+    case '>':  return Number(actual || 0) > Number(expected);
+    case 'less_than':
+    case '<':  return Number(actual || 0) < Number(expected);
+    case 'equals':
+    case '==': return actual === expected;
+    case 'not_equals':
+    case '!=': return actual !== expected;
+    case 'in': return Array.isArray(expected) && expected.indexOf(actual) !== -1;
+    case 'contains': return Array.isArray(actual) && actual.indexOf(expected) !== -1;
+    case 'contains_any':
+      if (!Array.isArray(actual) || !Array.isArray(expected)) return false;
+      return expected.some(function(v) { return actual.indexOf(v) !== -1; });
+    default:
+      return actual === expected;
+  }
+}
+
+function evaluateLeafCondition(cond, ctx) {
+  const c = ctx || {};
+  const type = cond.type;
+  const op = cond.operator || 'greater_than_or_equal';
+  const expected = cond.value;
+
+  if (type === 'research_level') {
+    const progMap = c.researchProgress || {};
+    const inst = progMap[cond.research_item_id || cond.researchItemId];
+    const actual = inst ? (inst.currentLevel || 0) : 0;
+    const ok = compareValues(actual, op, expected);
+    return {
+      passed: ok,
+      restriction: null,
+      unmet: ok ? null : {
+        type: type,
+        researchItemId: cond.research_item_id || cond.researchItemId,
+        expected: expected,
+        actual: actual,
+        reason: 'Requires ' + (cond.label || cond.research_item_id || cond.researchItemId) + ' Lv ' + expected + ' (have Lv ' + actual + ')'
+      }
+    };
+  }
+
+  if (type === 'hero_level') {
+    const actual = c.hero ? (c.hero.level || 1) : (c.heroLevel || 0);
+    const ok = compareValues(actual, op, expected);
+    return {
+      passed: ok,
+      restriction: c.hero || typeof c.heroLevel === 'number' ? null : EVALUATION_STATUS.SUBJECT_UNAVAILABLE,
+      unmet: ok ? null : { type: type, expected: expected, actual: actual, reason: 'Requires Hero Level ' + expected + ' (current: ' + actual + ')' }
+    };
+  }
+
+  if (type === 'player_level') {
+    const actual = c.playerLevel || 1;
+    const ok = compareValues(actual, op, expected);
+    return {
+      passed: ok,
+      restriction: null,
+      unmet: ok ? null : { type: type, expected: expected, actual: actual, reason: 'Requires Player Level ' + expected }
+    };
+  }
+
+  if (type === 'building_level') {
+    const bMap = (c.city && c.city.buildings) ? c.city.buildings : (c.buildings || {});
+    const actual = bMap[cond.buildingId] || 0;
+    const ok = compareValues(actual, op, expected);
+    return {
+      passed: ok,
+      restriction: null,
+      unmet: ok ? null : { type: type, buildingId: cond.buildingId, expected: expected, actual: actual, reason: 'Requires ' + cond.buildingId + ' Level ' + expected }
+    };
+  }
+
+  if (type === 'currency_balance') {
+    const bal = c.ledger
+      ? getCurrencyBalance(c.ledger, cond.ownerId || c.ownerId || 'player_1', cond.ownerType || c.ownerType || OWNER_TYPES.PLAYER, cond.currencyId).available
+      : 0;
+    const ok = compareValues(bal, op, expected);
+    return {
+      passed: ok,
+      restriction: null,
+      unmet: ok ? null : { type: type, currencyId: cond.currencyId, expected: expected, actual: bal, reason: 'Requires ' + expected + ' ' + cond.currencyId }
+    };
+  }
+
+  if (type === 'guild_type') {
+    const actual = c.guild ? c.guild.type : null;
+    const ok = compareValues(actual, op === 'greater_than_or_equal' ? 'equals' : op, expected);
+    return {
+      passed: ok,
+      restriction: ok ? null : EVALUATION_STATUS.RESTRICTED_GUILD,
+      unmet: ok ? null : { type: type, expected: expected, actual: actual, reason: 'Requires Guild specialization: ' + expected }
+    };
+  }
+
+  if (type === 'alliance_membership') {
+    const isMember = Boolean(c.alliance && c.alliance.id);
+    const ok = isMember === (expected !== false);
+    return {
+      passed: ok,
+      restriction: ok ? null : EVALUATION_STATUS.RESTRICTED_ALLIANCE,
+      unmet: ok ? null : { type: type, expected: true, actual: isMember, reason: 'Requires active Alliance membership' }
+    };
+  }
+
+  if (type === 'divine_alignment_tag') {
+    const tags = (c.alignment && Array.isArray(c.alignment.godTags)) ? c.alignment.godTags : [];
+    const ok = Array.isArray(expected)
+      ? compareValues(tags, 'contains_any', expected)
+      : compareValues(tags, 'contains', expected);
+    return {
+      passed: ok,
+      restriction: ok ? null : EVALUATION_STATUS.RESTRICTED_ALIGNMENT,
+      unmet: ok ? null : { type: type, expected: expected, actual: tags, reason: 'Requires Divine Alignment tag: ' + String(expected) }
+    };
+  }
+
+  if (type === 'discovery_status') {
+    const discovered = (c.discoveries && c.discoveries[cond.discoveryId]) === true;
+    const ok = discovered === (expected !== false);
+    return {
+      passed: ok,
+      restriction: null,
+      unmet: ok ? null : { type: type, discoveryId: cond.discoveryId, expected: true, actual: discovered, reason: 'Must first discover ' + cond.discoveryId }
+    };
+  }
+
+  return { passed: true, restriction: null, unmet: null };
+}
+
+function evaluateConditionNode(node, ctx) {
+  if (!node) return { passed: true, unmetConditions: [], restrictionStatus: null };
+
+  // Composite Group (AND / OR / NOT)
+  if (node.operator === 'AND' || node.operator === 'OR' || node.operator === 'NOT') {
+    const children = Array.isArray(node.conditions) ? node.conditions : [];
+    if (node.operator === 'NOT') {
+      const sub = children.length > 0 ? evaluateConditionNode(children[0], ctx) : { passed: false };
+      const passed = !sub.passed;
+      return {
+        passed: passed,
+        unmetConditions: passed ? [] : [{ type: 'NOT', reason: node.reason || 'Condition must not be met' }],
+        restrictionStatus: null
+      };
+    }
+
+    if (node.operator === 'AND') {
+      const unmet = [];
+      let restriction = null;
+      for (let i = 0; i < children.length; i++) {
+        const res = evaluateConditionNode(children[i], ctx);
+        if (!res.passed) {
+          for (let j = 0; j < res.unmetConditions.length; j++) unmet.push(res.unmetConditions[j]);
+          if (!restriction && res.restrictionStatus) restriction = res.restrictionStatus;
+        }
+      }
+      return {
+        passed: unmet.length === 0,
+        unmetConditions: unmet,
+        restrictionStatus: restriction
+      };
+    }
+
+    if (node.operator === 'OR') {
+      const allUnmet = [];
+      let restriction = null;
+      for (let i = 0; i < children.length; i++) {
+        const res = evaluateConditionNode(children[i], ctx);
+        if (res.passed) {
+          return { passed: true, unmetConditions: [], restrictionStatus: null };
+        }
+        for (let j = 0; j < res.unmetConditions.length; j++) allUnmet.push(res.unmetConditions[j]);
+        if (!restriction && res.restrictionStatus) restriction = res.restrictionStatus;
+      }
+      return {
+        passed: children.length === 0,
+        unmetConditions: allUnmet,
+        restrictionStatus: restriction
+      };
+    }
+  }
+
+  // Leaf Condition
+  const leaf = evaluateLeafCondition(node, ctx);
+  return {
+    passed: leaf.passed,
+    unmetConditions: leaf.unmet ? [leaf.unmet] : [],
+    restrictionStatus: leaf.restriction
+  };
+}
+
+function evaluateResearchEligibility(itemDef, targetLevel, ctx) {
+  if (!itemDef) {
+    return { status: EVALUATION_STATUS.TEMP_UNAVAILABLE, canStart: false, unmetConditions: [{ reason: 'Unknown research item' }] };
+  }
+
+  const context = ctx || {};
+  const progMap = context.researchProgress || {};
+  const inst = progMap[itemDef.researchItemId];
+  const curLvl = inst ? (inst.currentLevel || 0) : 0;
+
+  if (curLvl >= (itemDef.levelLimit || 1)) {
+    return { status: EVALUATION_STATUS.MAX_LEVEL, canStart: false, unmetConditions: [] };
+  }
+
+  if (inst && inst.status === 'in_progress') {
+    return { status: EVALUATION_STATUS.IN_PROGRESS, canStart: false, unmetConditions: [] };
+  }
+
+  // 1. Visibility check
+  if (itemDef.visibilityRules) {
+    const vis = evaluateConditionNode(itemDef.visibilityRules, context);
+    if (!vis.passed) {
+      return { status: EVALUATION_STATUS.HIDDEN, canStart: false, unmetConditions: vis.unmetConditions };
+    }
+  }
+
+  // 2. Item-level & Level-specific Eligibility Prerequisites
+  const lvlDef = Array.isArray(itemDef.levelDefinitions)
+    ? itemDef.levelDefinitions.find(function(l) { return l.level === targetLevel; })
+    : null;
+
+  const combinedUnmet = [];
+  let restriction = null;
+
+  if (itemDef.prerequisites) {
+    const r1 = evaluateConditionNode(itemDef.prerequisites, context);
+    if (!r1.passed) {
+      for (let i = 0; i < r1.unmetConditions.length; i++) combinedUnmet.push(r1.unmetConditions[i]);
+      if (r1.restrictionStatus) restriction = r1.restrictionStatus;
+    }
+  }
+
+  if (lvlDef && lvlDef.prerequisites) {
+    const r2 = evaluateConditionNode(lvlDef.prerequisites, context);
+    if (!r2.passed) {
+      for (let i = 0; i < r2.unmetConditions.length; i++) combinedUnmet.push(r2.unmetConditions[i]);
+      if (!restriction && r2.restrictionStatus) restriction = r2.restrictionStatus;
+    }
+  }
+
+  if (combinedUnmet.length > 0) {
+    return {
+      status: restriction || EVALUATION_STATUS.LOCKED,
+      canStart: false,
+      unmetConditions: combinedUnmet
+    };
+  }
+
+  // 3. Queue Capacity check
+  if (context.queueFull === true) {
+    return { status: EVALUATION_STATUS.QUEUE_FULL, canStart: false, unmetConditions: [{ reason: 'Research queue is full' }] };
+  }
+
+  return {
+    status: EVALUATION_STATUS.AVAILABLE,
+    canStart: true,
+    unmetConditions: []
+  };
+}
+
+  // --- Module: src/progression/accrualService.js ---
+// =============================================================================
+// RESEARCH POINT ACCRUAL & ANTI-ABUSE SERVICE (Inc 10.2 / ADR-0015 / Spec §5)
+// Handles passive time-based accrual (with authoritative offline catch-up) and
+// event-driven fractional activity awards with idempotency, cooldowns, caps,
+// diminishing returns, and strict separation of RP-generation vs. speed modifiers.
+// =============================================================================
+
+
+const DEFAULT_ACCRUAL_CONFIG = {
+  passiveCurrencyId: 'rp_general',
+  passiveBaseRatePerSec: 0.00001 // Spec §5.1 illustrative baseline (configurable)
+};
+
+const DEFAULT_ACTIVITY_AWARD_RULES = {
+  dungeon_move: {
+    activityType: 'dungeon_move',
+    currencyId: 'rp_adventurer',
+    baseAmount: 0.001,
+    cooldownMs: 500,
+    windowMs: 86400000,
+    windowCapCount: 500,
+    diminishingAfter: 200,
+    diminishingFactor: 0.5,
+    version: '1.0.0'
+  },
+  monster_defeated: {
+    activityType: 'monster_defeated',
+    currencyId: 'rp_adventurer',
+    baseAmount: 0.005,
+    cooldownMs: 0,
+    windowMs: 86400000,
+    windowCapCount: 300,
+    diminishingAfter: 150,
+    diminishingFactor: 0.5,
+    version: '1.0.0'
+  },
+  chest_opened: {
+    activityType: 'chest_opened',
+    currencyId: 'rp_adventurer',
+    baseAmount: 0.002,
+    cooldownMs: 0,
+    windowMs: 86400000,
+    windowCapCount: 200,
+    diminishingAfter: 100,
+    diminishingFactor: 0.5,
+    version: '1.0.0'
+  },
+  location_discovered: {
+    activityType: 'location_discovered',
+    currencyId: 'rp_adventurer',
+    baseAmount: 0.010,
+    cooldownMs: 0,
+    windowMs: 86400000,
+    windowCapCount: 100,
+    version: '1.0.0'
+  },
+  dungeon_completed: {
+    activityType: 'dungeon_completed',
+    currencyId: 'rp_adventurer',
+    baseAmount: 0.050,
+    cooldownMs: 0,
+    windowMs: 86400000,
+    windowCapCount: 50,
+    version: '1.0.0'
+  },
+  major_expedition: {
+    activityType: 'major_expedition',
+    currencyId: 'rp_adventurer',
+    baseAmount: 0.100,
+    cooldownMs: 0,
+    windowMs: 86400000,
+    windowCapCount: 20,
+    version: '1.0.0'
+  },
+  research_quest: {
+    activityType: 'research_quest',
+    currencyId: 'rp_adventurer',
+    baseAmount: 5.000,
+    cooldownMs: 0,
+    windowMs: 86400000,
+    windowCapCount: 20,
+    version: '1.0.0'
+  }
+};
+
+function computeEffectiveGenerationMultiplier(modifiers) {
+  const m = modifiers || {};
+  const additive = typeof m.additiveBonus === 'number' ? m.additiveBonus : 0;
+  const multiplicative = typeof m.multiplicativeFactor === 'number' ? m.multiplicativeFactor : 1.0;
+  return Math.max(0, (1 + additive) * multiplicative);
+}
+
+// Passive time-based RP accrual (works seamlessly for offline elapsed-time catch-up)
+function processPassiveAccrual(progression, ownerId, nowMs, options) {
+  if (!progression || !progression.currencyLedger) return { ok: false, reason: 'missing_progression' };
+  const opts = options || {};
+  const currencyId = opts.currencyId || DEFAULT_ACCRUAL_CONFIG.passiveCurrencyId;
+  const baseRate = typeof opts.baseRatePerSec === 'number' ? opts.baseRatePerSec : DEFAULT_ACCRUAL_CONFIG.passiveBaseRatePerSec;
+  const lastMs = typeof progression.lastAccrualAtMs === 'number' ? progression.lastAccrualAtMs : nowMs;
+  const elapsedMs = Math.max(0, nowMs - lastMs);
+
+  if (elapsedMs <= 0) {
+    return { ok: true, elapsedSec: 0, awardedScaled: 0, awarded: 0 };
+  }
+
+  const def = getCurrencyDefinition(progression.currencyLedger, currencyId);
+  const precision = def ? def.decimalPrecision : 5;
+  const mult = computeEffectiveGenerationMultiplier(opts.generationModifiers);
+  const elapsedSec = elapsedMs / 1000;
+  const rawAward = elapsedSec * baseRate * mult;
+  const awardedScaled = Math.floor(rawAward * Math.pow(10, precision));
+
+  if (awardedScaled <= 0) {
+    return { ok: true, elapsedSec: elapsedSec, awardedScaled: 0, awarded: 0 };
+  }
+
+  // Only advance lastAccrualAtMs by the exact time consumed so sub-unit remainders are never lost
+  const consumedSec = (awardedScaled / Math.pow(10, precision)) / (baseRate * mult);
+  progression.lastAccrualAtMs = lastMs + Math.floor(consumedSec * 1000);
+
+  const txRes = recordCurrencyTransaction(progression.currencyLedger, {
+    ownerId: ownerId || 'player_1',
+    ownerType: opts.ownerType || OWNER_TYPES.PLAYER,
+    currencyId: currencyId,
+    amountScaled: awardedScaled,
+    transactionType: TRANSACTION_TYPES.AWARD,
+    source: 'passive_accrual',
+    referenceId: 'passive_' + String(lastMs) + '_' + String(nowMs),
+    idempotencyKey: 'passive:' + String(ownerId || 'player_1') + ':' + String(lastMs) + ':' + String(nowMs),
+    nowMs: nowMs
+  });
+
+  return {
+    ok: txRes.ok,
+    elapsedSec: elapsedSec,
+    awardedScaled: awardedScaled,
+    awarded: awardedScaled / Math.pow(10, precision),
+    transaction: txRes.transaction || null
+  };
+}
+
+// Event-driven fractional activity accrual with idempotency, cooldowns, caps & diminishing returns
+function awardActivityResearchPoints(progression, params) {
+  if (!progression || !progression.currencyLedger || !params) {
+    return { ok: false, reason: 'invalid_params' };
+  }
+
+  const rules = params.customRules || DEFAULT_ACTIVITY_AWARD_RULES;
+  const rule = rules[params.activityType];
+  if (!rule) {
+    return { ok: false, reason: 'unknown_activity_type' };
+  }
+
+  const ownerId = params.ownerId || 'player_1';
+  const ownerType = params.ownerType || OWNER_TYPES.PLAYER;
+  const nowMs = typeof params.nowMs === 'number' ? params.nowMs : 0;
+  const eventId = params.eventId || null;
+  const idempotencyKey = eventId
+    ? ('act:' + ownerType + ':' + ownerId + ':' + rule.activityType + ':' + eventId)
+    : null;
+
+  // Duplicate event check before incrementing anti-abuse counters
+  if (idempotencyKey && progression.currencyLedger.idempotencyIndex[idempotencyKey]) {
+    return { ok: true, duplicate: true, awardedScaled: 0, awarded: 0, throttledReason: null };
+  }
+
+  if (!progression.antiAbuseCounters) progression.antiAbuseCounters = {};
+  const counterKey = ownerType + ':' + ownerId + ':' + rule.activityType;
+  let counter = progression.antiAbuseCounters[counterKey];
+  if (!counter || (rule.windowMs && (nowMs - counter.windowStartMs) >= rule.windowMs)) {
+    counter = { windowStartMs: nowMs, count: 0, lastAwardMs: -Infinity };
+    progression.antiAbuseCounters[counterKey] = counter;
+  }
+
+  // Cooldown check
+  if (rule.cooldownMs > 0 && (nowMs - counter.lastAwardMs) < rule.cooldownMs) {
+    return { ok: false, duplicate: false, awardedScaled: 0, awarded: 0, throttledReason: 'cooldown_active' };
+  }
+
+  // Window cap check
+  if (typeof rule.windowCapCount === 'number' && counter.count >= rule.windowCapCount) {
+    return { ok: false, duplicate: false, awardedScaled: 0, awarded: 0, throttledReason: 'window_cap_reached' };
+  }
+
+  // Diminishing returns check
+  let amount = rule.baseAmount;
+  if (typeof rule.diminishingAfter === 'number' && counter.count >= rule.diminishingAfter) {
+    amount = amount * (typeof rule.diminishingFactor === 'number' ? rule.diminishingFactor : 0.5);
+  }
+
+  const mult = computeEffectiveGenerationMultiplier(params.generationModifiers);
+  amount = amount * mult;
+
+  const def = getCurrencyDefinition(progression.currencyLedger, rule.currencyId);
+  const precision = def ? def.decimalPrecision : 5;
+  const amountScaled = toScaledInt(amount, precision);
+  if (amountScaled <= 0) {
+    return { ok: false, duplicate: false, awardedScaled: 0, awarded: 0, throttledReason: 'below_min_unit' };
+  }
+
+  const txRes = recordCurrencyTransaction(progression.currencyLedger, {
+    ownerId: ownerId,
+    ownerType: ownerType,
+    currencyId: rule.currencyId,
+    amountScaled: amountScaled,
+    transactionType: TRANSACTION_TYPES.AWARD,
+    source: 'activity:' + rule.activityType,
+    referenceId: eventId,
+    idempotencyKey: idempotencyKey,
+    nowMs: nowMs
+  });
+
+  if (txRes.ok && !txRes.duplicate) {
+    counter.count += 1;
+    counter.lastAwardMs = nowMs;
+  }
+
+  return {
+    ok: txRes.ok,
+    duplicate: Boolean(txRes.duplicate),
+    awardedScaled: txRes.ok ? amountScaled : 0,
+    awarded: txRes.ok ? (amountScaled / Math.pow(10, precision)) : 0,
+    throttledReason: null,
+    transaction: txRes.transaction || null
+  };
+}
+
+  // --- Module: src/progression/queueService.js ---
+// =============================================================================
+// RESEARCH QUEUE, PROGRESS & OFFLINE COMPLETION SERVICE (Inc 10.2 / ADR-0015 / Spec §10)
+// Supports configurable queue capacity (1 free / 2 subscriber), atomic start with
+// immutable Definition Version Snapshots, pending queue auto-promotion, pause/resume,
+// configurable cancel refund policies, reordering, and offline elapsed-time completion.
+// =============================================================================
+
+
+
+
+const REFUND_POLICIES = {
+  NONE: 'none',
+  FULL: 'full',
+  FIXED_PERCENT: 'fixed_percent',
+  TIME_BASED: 'time_based'
+};
+
+function makeProgressKey(ownerType, ownerId, researchItemId) {
+  return String(ownerType) + ':' + String(ownerId) + ':' + String(researchItemId);
+}
+
+function getItemDefinition(researchItemId, customCatalog) {
+  const cat = customCatalog || PROTOTYPE_RESEARCH_ITEMS;
+  return cat[researchItemId] || null;
+}
+
+function getResearchProgressInstance(progression, ownerType, ownerId, researchItemId) {
+  const key = makeProgressKey(ownerType, ownerId, researchItemId);
+  if (!progression.researchProgress[key]) {
+    progression.researchProgress[key] = {
+      progressId: 'prog_' + key,
+      researchItemId: researchItemId,
+      ownerId: String(ownerId),
+      ownerType: String(ownerType),
+      currentLevel: 0,
+      targetLevel: 0,
+      status: 'not_started',
+      startedAt: null,
+      completedAt: null,
+      totalTimeSpentMs: 0,
+      completionCount: 0,
+      definitionVersion: '1.0.0',
+      lastUpdated: 0
+    };
+  }
+  return progression.researchProgress[key];
+}
+
+// Build flat map researchItemId -> progress instance for eligibility evaluator
+function buildOwnerProgressLookup(progression, ownerType, ownerId) {
+  const map = {};
+  const prefix = String(ownerType) + ':' + String(ownerId) + ':';
+  const keys = Object.keys(progression.researchProgress || {});
+  for (let i = 0; i < keys.length; i++) {
+    if (keys[i].indexOf(prefix) === 0) {
+      const itemId = keys[i].slice(prefix.length);
+      map[itemId] = progression.researchProgress[keys[i]];
+    }
+  }
+  return map;
+}
+
+function startOrEnqueueResearch(progression, params) {
+  if (!progression || !params) return { ok: false, reason: 'invalid_params' };
+  const ownerId = params.ownerId || 'player_1';
+  const ownerType = params.ownerType || OWNER_TYPES.PLAYER;
+  const researchItemId = params.researchItemId;
+  const nowMs = typeof params.nowMs === 'number' ? params.nowMs : 0;
+  const queue = params.queue || progression.researchQueue;
+  const allowPending = params.allowPending !== false;
+
+  const itemDef = getItemDefinition(researchItemId, params.catalog);
+  if (!itemDef) return { ok: false, reason: 'unknown_research_item' };
+
+  // Prevent duplicate active or pending entries for same item
+  const isDupActive = queue.activeItems.some(function(a) { return a.researchItemId === researchItemId; });
+  const isDupPending = queue.pendingItems.some(function(p) { return p.researchItemId === researchItemId; });
+  if (isDupActive || isDupPending) {
+    return { ok: false, reason: 'already_in_queue' };
+  }
+
+  const prog = getResearchProgressInstance(progression, ownerType, ownerId, researchItemId);
+  const targetLevel = (prog.currentLevel || 0) + 1;
+  const lvlDef = Array.isArray(itemDef.levelDefinitions)
+    ? itemDef.levelDefinitions.find(function(l) { return l.level === targetLevel; })
+    : null;
+  if (!lvlDef) {
+    return { ok: false, reason: EVALUATION_STATUS.MAX_LEVEL };
+  }
+
+  const isQueueFull = queue.activeItems.length >= (queue.capacity || 1);
+  const eligCtx = Object.assign({}, params.eligibilityCtx || {}, {
+    ownerId: ownerId,
+    ownerType: ownerType,
+    ledger: progression.currencyLedger,
+    researchProgress: buildOwnerProgressLookup(progression, ownerType, ownerId),
+    alignment: progression.alignment,
+    discoveries: progression.discoveries,
+    queueFull: isQueueFull && !allowPending
+  });
+
+  const elig = evaluateResearchEligibility(itemDef, targetLevel, eligCtx);
+  if (!elig.canStart) {
+    return { ok: false, reason: elig.status, unmetConditions: elig.unmetConditions };
+  }
+
+  // If active queue is full and pending is allowed, enqueue WITHOUT deducting costs yet (Spec §10.4)
+  if (isQueueFull) {
+    const pendingEntry = {
+      queueEntryId: 'qpend_' + researchItemId + '_' + targetLevel + '_' + nowMs,
+      researchItemId: researchItemId,
+      ownerId: String(ownerId),
+      ownerType: String(ownerType),
+      targetLevel: targetLevel,
+      enqueuedAt: nowMs,
+      status: 'pending'
+    };
+    queue.pendingItems.push(pendingEntry);
+    return { ok: true, queuedAs: 'pending', entry: pendingEntry };
+  }
+
+  // Atomic all-or-nothing payment validation & deduction
+  const payRes = executeAtomicPayment(progression.currencyLedger, lvlDef.costs || [], {
+    ownerId: ownerId,
+    ownerType: ownerType,
+    stockpile: params.stockpile || null,
+    nowMs: nowMs,
+    source: 'research_start:' + researchItemId,
+    referenceId: researchItemId + ':L' + targetLevel,
+    idempotencyKey: 'rstart:' + ownerType + ':' + ownerId + ':' + researchItemId + ':L' + targetLevel + ':' + nowMs
+  });
+
+  if (!payRes.ok) {
+    return { ok: false, reason: EVALUATION_STATUS.UNAFFORDABLE, shortfalls: payRes.shortfalls };
+  }
+
+  // Apply research speed modifier (strictly separate from RP accrual modifiers!)
+  const speedBonus = typeof params.speedBonus === 'number' ? params.speedBonus : 0;
+  const speedFactor = Math.max(0.1, 1 + speedBonus);
+  const baseDurationMs = (lvlDef.durationSec || 60) * 1000;
+  const effectiveDurationMs = Math.max(1000, Math.round(baseDurationMs / speedFactor));
+
+  // Snapshot definition version, costs, duration & benefits so content updates never corrupt active progress
+  const activeEntry = {
+    queueEntryId: 'qact_' + researchItemId + '_' + targetLevel + '_' + nowMs,
+    researchItemId: researchItemId,
+    ownerId: String(ownerId),
+    ownerType: String(ownerType),
+    targetLevel: targetLevel,
+    status: 'active',
+    startedAt: nowMs,
+    lastTickAt: nowMs,
+    elapsedMs: 0,
+    effectiveDurationMs: effectiveDurationMs,
+    snapshot: {
+      definitionVersion: itemDef.version || '1.0.0',
+      durationSec: lvlDef.durationSec,
+      costs: JSON.parse(JSON.stringify(lvlDef.costs || [])),
+      benefits: JSON.parse(JSON.stringify(lvlDef.benefits || []))
+    }
+  };
+
+  queue.activeItems.push(activeEntry);
+  prog.targetLevel = targetLevel;
+  prog.status = 'in_progress';
+  prog.startedAt = nowMs;
+  prog.definitionVersion = itemDef.version || '1.0.0';
+  prog.lastUpdated = nowMs;
+
+  return { ok: true, queuedAs: 'active', entry: activeEntry, transactions: payRes.transactions };
+}
+
+function pauseResearchItem(progression, researchItemId, nowMs, queueOverride) {
+  const queue = queueOverride || progression.researchQueue;
+  const entry = queue.activeItems.find(function(a) { return a.researchItemId === researchItemId; });
+  if (!entry || entry.status !== 'active') return { ok: false, reason: 'not_active' };
+
+  const delta = Math.max(0, nowMs - entry.lastTickAt);
+  entry.elapsedMs += delta;
+  entry.lastTickAt = nowMs;
+  entry.status = 'paused';
+  return { ok: true, elapsedMs: entry.elapsedMs };
+}
+
+function resumeResearchItem(progression, researchItemId, nowMs, queueOverride) {
+  const queue = queueOverride || progression.researchQueue;
+  const entry = queue.activeItems.find(function(a) { return a.researchItemId === researchItemId; });
+  if (!entry || entry.status !== 'paused') return { ok: false, reason: 'not_paused' };
+
+  entry.lastTickAt = nowMs;
+  entry.status = 'active';
+  return { ok: true, elapsedMs: entry.elapsedMs };
+}
+
+function reorderPendingQueue(progression, fromIdx, toIdx, queueOverride) {
+  const queue = queueOverride || progression.researchQueue;
+  const list = queue.pendingItems;
+  if (fromIdx < 0 || fromIdx >= list.length || toIdx < 0 || toIdx >= list.length) {
+    return { ok: false, reason: 'index_out_of_bounds' };
+  }
+  const moved = list.splice(fromIdx, 1)[0];
+  list.splice(toIdx, 0, moved);
+  return { ok: true, pendingItems: list };
+}
+
+function cancelResearchItem(progression, researchItemId, options) {
+  const opts = options || {};
+  const queue = opts.queue || progression.researchQueue;
+  const nowMs = typeof opts.nowMs === 'number' ? opts.nowMs : 0;
+
+  // Check pending items first (no costs were deducted)
+  const pIdx = queue.pendingItems.findIndex(function(p) { return p.researchItemId === researchItemId; });
+  if (pIdx !== -1) {
+    const removed = queue.pendingItems.splice(pIdx, 1)[0];
+    return { ok: true, removedFrom: 'pending', refundedRatio: 0, entry: removed };
+  }
+
+  const aIdx = queue.activeItems.findIndex(function(a) { return a.researchItemId === researchItemId; });
+  if (aIdx === -1) return { ok: false, reason: 'not_found_in_queue' };
+
+  const entry = queue.activeItems.splice(aIdx, 1)[0];
+  if (entry.status === 'active') {
+    entry.elapsedMs += Math.max(0, nowMs - entry.lastTickAt);
+  }
+
+  const policy = opts.refundPolicy || REFUND_POLICIES.FIXED_PERCENT;
+  let ratio = 0;
+  if (policy === REFUND_POLICIES.FULL) {
+    ratio = 1.0;
+  } else if (policy === REFUND_POLICIES.FIXED_PERCENT) {
+    ratio = typeof opts.refundRatio === 'number' ? opts.refundRatio : 0.5;
+  } else if (policy === REFUND_POLICIES.TIME_BASED) {
+    ratio = Math.max(0, Math.min(1, 1 - (entry.elapsedMs / Math.max(1, entry.effectiveDurationMs))));
+  }
+
+  const snapCosts = (entry.snapshot && Array.isArray(entry.snapshot.costs)) ? entry.snapshot.costs : [];
+  if (ratio > 0) {
+    for (let i = 0; i < snapCosts.length; i++) {
+      const c = snapCosts[i];
+      if (c.consumed === false) continue;
+      const refundAmt = Number(c.amount || 0) * ratio;
+      if (refundAmt <= 0) continue;
+      if ((c.kind || 'currency') === 'currency') {
+        recordCurrencyTransaction(progression.currencyLedger, {
+          ownerId: c.ownerId || entry.ownerId,
+          ownerType: c.ownerType || entry.ownerType,
+          currencyId: c.currencyId,
+          amount: refundAmt,
+          transactionType: TRANSACTION_TYPES.REFUND,
+          source: 'research_cancel:' + researchItemId,
+          referenceId: entry.queueEntryId,
+          idempotencyKey: 'rcancel:' + entry.queueEntryId + ':c' + i,
+          nowMs: nowMs
+        });
+      } else if (c.kind === 'stockpile' && opts.stockpile) {
+        opts.stockpile[c.resourceId] = Number(opts.stockpile[c.resourceId] || 0) + Math.floor(refundAmt);
+      }
+    }
+  }
+
+  const prog = getResearchProgressInstance(progression, entry.ownerType, entry.ownerId, researchItemId);
+  prog.status = prog.currentLevel > 0 ? 'completed' : 'not_started';
+  prog.targetLevel = prog.currentLevel;
+  prog.lastUpdated = nowMs;
+
+  return { ok: true, removedFrom: 'active', refundedRatio: ratio, entry: entry };
+}
+
+// Advance active research using authoritative elapsed time (handles offline catch-up + auto-promoting pending queue)
+function advanceResearchProgress(progression, nowMs, options) {
+  const opts = options || {};
+  const queue = opts.queue || progression.researchQueue;
+  const completedItems = [];
+  const promotedItems = [];
+
+  for (let i = queue.activeItems.length - 1; i >= 0; i--) {
+    const entry = queue.activeItems[i];
+    if (entry.status !== 'active') continue;
+
+    const delta = Math.max(0, nowMs - entry.lastTickAt);
+    entry.elapsedMs += delta;
+    entry.lastTickAt = nowMs;
+
+    if (entry.elapsedMs >= entry.effectiveDurationMs) {
+      queue.activeItems.splice(i, 1);
+      const prog = getResearchProgressInstance(progression, entry.ownerType, entry.ownerId, entry.researchItemId);
+      prog.currentLevel = entry.targetLevel;
+      prog.targetLevel = entry.targetLevel;
+      prog.status = 'completed';
+      prog.completedAt = nowMs;
+      prog.totalTimeSpentMs = (prog.totalTimeSpentMs || 0) + entry.effectiveDurationMs;
+      prog.completionCount = (prog.completionCount || 0) + 1;
+      prog.lastUpdated = nowMs;
+
+      completedItems.push({
+        researchItemId: entry.researchItemId,
+        completedLevel: entry.targetLevel,
+        ownerId: entry.ownerId,
+        ownerType: entry.ownerType,
+        snapshot: entry.snapshot
+      });
+    }
+  }
+
+  // Auto-promote eligible pending items into freed active queue slots
+  while (queue.activeItems.length < (queue.capacity || 1) && queue.pendingItems.length > 0) {
+    const nextPending = queue.pendingItems.shift();
+    const startRes = startOrEnqueueResearch(progression, {
+      ownerId: nextPending.ownerId,
+      ownerType: nextPending.ownerType,
+      researchItemId: nextPending.researchItemId,
+      nowMs: nowMs,
+      queue: queue,
+      allowPending: false,
+      stockpile: opts.stockpile || null,
+      eligibilityCtx: opts.eligibilityCtx || {},
+      speedBonus: opts.speedBonus || 0,
+      catalog: opts.catalog
+    });
+    if (startRes.ok) {
+      promotedItems.push(startRes.entry);
+    }
+  }
+
+  return {
+    completedItems: completedItems,
+    promotedItems: promotedItems
+  };
+}
+
+  // --- Module: src/progression/organizationService.js ---
+// =============================================================================
+// GUILD & ALLIANCE RESEARCH OWNERSHIP & CONTRIBUTION SERVICE (Inc 10.3 / Spec §3, §5, §7.6, §9)
+// Separates Multiplayer Player Guilds (Adventurer, War, Artisan) and Alliances
+// from local City Class Halls. Manages organization-owned research accounts,
+// multi-member Alliance contribution pools with attribution, and membership rules.
+// =============================================================================
+
+
+
+const PLAYER_GUILD_SPECIALIZATIONS = {
+  adventurer: {
+    id: 'adventurer',
+    name: 'Adventurers Guild Order',
+    currencyId: 'rp_guild_adventurer',
+    desc: 'Multiplayer guild order focused on dungeon exploration, discoveries, and relic recovery.'
+  },
+  war: {
+    id: 'war',
+    name: 'War Guild Order',
+    currencyId: 'rp_guild_war',
+    desc: 'Multiplayer guild order focused on military warfare, battles, and tactical campaigns.'
+  },
+  artisan: {
+    id: 'artisan',
+    name: 'Artisan Guild Order',
+    currencyId: 'rp_guild_artisan',
+    desc: 'Multiplayer guild order focused on city engineering, smelting, forging, and crafting.'
+  }
+};
+
+const PROTOTYPE_ORG_RESEARCH_TREES = {
+  tree_guild_adventurers: {
+    treeId: 'tree_guild_adventurers',
+    domainId: 'adventuring',
+    name: 'Guild Expedition Archive',
+    shortDescription: 'Guild-owned exploration knowledge funded by member delving activity.',
+    icon: '🧭',
+    ownershipType: OWNER_TYPES.GUILD,
+    requiredGuildType: 'adventurer',
+    itemIds: ['GLD_ADV_MAP_001'],
+    version: '1.0.0',
+    status: 'active'
+  },
+  tree_alliance_citadel: {
+    treeId: 'tree_alliance_citadel',
+    domainId: 'logistics',
+    name: 'Alliance Supply Network',
+    shortDescription: 'Shared Alliance-owned logistics research funded by member contributions.',
+    icon: '🏛️',
+    ownershipType: OWNER_TYPES.ALLIANCE,
+    itemIds: ['ALL_CITADEL_001'],
+    version: '1.0.0',
+    status: 'active'
+  }
+};
+
+const PROTOTYPE_ORG_RESEARCH_ITEMS = {
+  GLD_ADV_MAP_001: {
+    researchItemId: 'GLD_ADV_MAP_001',
+    treeId: 'tree_guild_adventurers',
+    domainId: 'adventuring',
+    name: 'Shared Cartography Archive',
+    description: 'Guild-owned archive granting +10% dungeon discovery yield to all guild members.',
+    icon: '🗺️',
+    itemType: 'modifier',
+    ownershipType: OWNER_TYPES.GUILD,
+    subjectType: 'guild',
+    prerequisites: { type: 'guild_type', operator: 'equals', value: 'adventurer' },
+    levelLimit: 2,
+    levelDefinitions: [
+      { level: 1, durationSec: 60,  costs: [{ kind: 'currency', currencyId: 'rp_guild_adventurer', amount: 2.0 }], benefits: [{ effectType: 'probability_modifier', target: 'guild_discovery_yield', op: 'additive', value: 0.10 }] },
+      { level: 2, durationSec: 180, costs: [{ kind: 'currency', currencyId: 'rp_guild_adventurer', amount: 5.0 }], benefits: [{ effectType: 'probability_modifier', target: 'guild_discovery_yield', op: 'additive', value: 0.10 }] }
+    ],
+    queueType: 'guild_research',
+    version: '1.0.0',
+    status: 'active'
+  },
+  ALL_CITADEL_001: {
+    researchItemId: 'ALL_CITADEL_001',
+    treeId: 'tree_alliance_citadel',
+    domainId: 'logistics',
+    name: 'Alliance Caravan Corridors',
+    description: 'Alliance-owned logistics network accelerating member marches and caravan transit by +12%.',
+    icon: '🏛️',
+    itemType: 'modifier',
+    ownershipType: OWNER_TYPES.ALLIANCE,
+    subjectType: 'alliance',
+    prerequisites: { type: 'alliance_membership', operator: 'equals', value: true },
+    levelLimit: 2,
+    levelDefinitions: [
+      { level: 1, durationSec: 90,  costs: [{ kind: 'currency', currencyId: 'rp_alliance', amount: 10.0 }], benefits: [{ effectType: 'efficiency_modifier', target: 'alliance_march_speed', op: 'additive', value: 0.12 }] },
+      { level: 2, durationSec: 300, costs: [{ kind: 'currency', currencyId: 'rp_alliance', amount: 25.0 }], benefits: [{ effectType: 'efficiency_modifier', target: 'alliance_march_speed', op: 'additive', value: 0.12 }] }
+    ],
+    queueType: 'alliance_research',
+    version: '1.0.0',
+    status: 'active'
+  }
+};
+
+function createPlayerGuild(progression, params) {
+  if (!progression || !params || !params.guildId) return { ok: false, reason: 'invalid_params' };
+  const spec = PLAYER_GUILD_SPECIALIZATIONS[params.specialization || 'adventurer'];
+  if (!spec) return { ok: false, reason: 'invalid_guild_specialization' };
+
+  const orgs = progression.organizations;
+  const guild = {
+    id: String(params.guildId),
+    name: params.name || spec.name,
+    type: spec.id,
+    currencyId: spec.currencyId,
+    members: params.founderPlayerId ? [String(params.founderPlayerId)] : [],
+    researchQueue: {
+      queueId: 'q_guild_' + params.guildId,
+      queueType: 'guild_research',
+      capacity: 1,
+      activeItems: [],
+      pendingItems: [],
+      enabled: true
+    },
+    createdAt: typeof params.nowMs === 'number' ? params.nowMs : 0
+  };
+  orgs.guilds[guild.id] = guild;
+  if (params.founderPlayerId === 'player_1' || params.setAsPrimary) {
+    orgs.playerGuildId = guild.id;
+  }
+  return { ok: true, guild: guild };
+}
+
+function createAlliance(progression, params) {
+  if (!progression || !params || !params.allianceId) return { ok: false, reason: 'invalid_params' };
+  const orgs = progression.organizations;
+  const alliance = {
+    id: String(params.allianceId),
+    name: params.name || 'Starfall Pact',
+    currencyId: 'rp_alliance',
+    allowsTraining: false, // Clarified Decision #1: Alliance level supports Research ONLY (no Alliance training)
+    members: params.founderPlayerId ? [String(params.founderPlayerId)] : [],
+    researchQueue: {
+      queueId: 'q_alliance_' + params.allianceId,
+      queueType: 'alliance_research',
+      capacity: 1,
+      activeItems: [],
+      pendingItems: [],
+      enabled: true
+    },
+    createdAt: typeof params.nowMs === 'number' ? params.nowMs : 0
+  };
+  orgs.alliances[alliance.id] = alliance;
+  if (params.founderPlayerId === 'player_1' || params.setAsPrimary) {
+    orgs.playerAllianceId = alliance.id;
+  }
+  return { ok: true, alliance: alliance };
+}
+
+function joinOrganization(org, playerId) {
+  if (!org || !playerId) return { ok: false, reason: 'invalid_params' };
+  const pid = String(playerId);
+  if (org.members.indexOf(pid) === -1) {
+    org.members.push(pid);
+  }
+  return { ok: true, members: org.members };
+}
+
+function leaveOrganization(org, playerId) {
+  if (!org || !playerId) return { ok: false, reason: 'invalid_params' };
+  const pid = String(playerId);
+  const idx = org.members.indexOf(pid);
+  if (idx !== -1) org.members.splice(idx, 1);
+  // Spec §9.4: Organization retains all completed & in-progress organization research
+  return { ok: true, departedPlayerId: pid, orgRetainsResearch: true };
+}
+
+function isPlayerEligibleForOrgBenefits(org, playerId) {
+  if (!org || !playerId) return false;
+  return org.members.indexOf(String(playerId)) !== -1;
+}
+
+// Award Guild Research Points into the Guild's own currency account & record contributor attribution
+function recordGuildActivityContribution(progression, params) {
+  if (!progression || !params) return { ok: false, reason: 'invalid_params' };
+  const guild = progression.organizations.guilds[params.guildId];
+  if (!guild) return { ok: false, reason: 'guild_not_found' };
+  const contributor = String(params.contributorPlayerId || 'player_1');
+  if (guild.members.indexOf(contributor) === -1) {
+    return { ok: false, reason: 'not_guild_member' };
+  }
+
+  const nowMs = typeof params.nowMs === 'number' ? params.nowMs : 0;
+  const txRes = recordCurrencyTransaction(progression.currencyLedger, {
+    ownerId: guild.id,
+    ownerType: OWNER_TYPES.GUILD,
+    currencyId: guild.currencyId,
+    amount: params.amount,
+    transactionType: TRANSACTION_TYPES.CONTRIBUTION,
+    source: params.source || 'guild_activity',
+    referenceId: params.eventId || null,
+    idempotencyKey: params.eventId ? ('gcontrib:' + guild.id + ':' + contributor + ':' + params.eventId) : null,
+    nowMs: nowMs
+  });
+
+  if (!txRes.ok || txRes.duplicate) return txRes;
+
+  const contrib = {
+    contributionId: 'contrib_' + String(progression.contributions.length + 1),
+    contributorPlayerId: contributor,
+    targetOwnerId: guild.id,
+    targetOwnerType: OWNER_TYPES.GUILD,
+    currencyId: guild.currencyId,
+    amount: txRes.transaction.amount,
+    amountScaled: txRes.transaction.amountScaled,
+    source: params.source || 'guild_activity',
+    referenceId: params.eventId || null,
+    timestamp: nowMs,
+    transactionId: txRes.transaction.transactionId
+  };
+  progression.contributions.push(contrib);
+  return { ok: true, contribution: contrib, balance: txRes.balance };
+}
+
+// Multi-member contribution into a shared Alliance Research Pool (Spec §3.3 & §5.4)
+function contributeToAlliancePool(progression, params) {
+  if (!progression || !params) return { ok: false, reason: 'invalid_params' };
+  const alliance = progression.organizations.alliances[params.allianceId];
+  if (!alliance) return { ok: false, reason: 'alliance_not_found' };
+  const contributor = String(params.contributorPlayerId || 'player_1');
+  if (alliance.members.indexOf(contributor) === -1) {
+    return { ok: false, reason: 'not_alliance_member' };
+  }
+
+  const nowMs = typeof params.nowMs === 'number' ? params.nowMs : 0;
+  const txRes = recordCurrencyTransaction(progression.currencyLedger, {
+    ownerId: alliance.id,
+    ownerType: OWNER_TYPES.ALLIANCE,
+    currencyId: alliance.currencyId,
+    amount: params.amount,
+    transactionType: TRANSACTION_TYPES.CONTRIBUTION,
+    source: params.source || 'member_direct_contribution',
+    referenceId: params.eventId || null,
+    idempotencyKey: params.eventId ? ('acontrib:' + alliance.id + ':' + contributor + ':' + params.eventId) : null,
+    nowMs: nowMs
+  });
+
+  if (!txRes.ok || txRes.duplicate) return txRes;
+
+  const contrib = {
+    contributionId: 'contrib_' + String(progression.contributions.length + 1),
+    contributorPlayerId: contributor,
+    targetOwnerId: alliance.id,
+    targetOwnerType: OWNER_TYPES.ALLIANCE,
+    currencyId: alliance.currencyId,
+    amount: txRes.transaction.amount,
+    amountScaled: txRes.transaction.amountScaled,
+    source: params.source || 'member_direct_contribution',
+    referenceId: params.eventId || null,
+    timestamp: nowMs,
+    transactionId: txRes.transaction.transactionId
+  };
+  progression.contributions.push(contrib);
+  return { ok: true, contribution: contrib, allianceBalance: txRes.balance };
+}
+
+function getContributionReport(progression, filter) {
+  const f = filter || {};
+  const byMember = {};
+  let totalScaled = 0;
+  const records = [];
+
+  for (let i = 0; i < (progression.contributions || []).length; i++) {
+    const c = progression.contributions[i];
+    if (f.targetOwnerType && c.targetOwnerType !== f.targetOwnerType) continue;
+    if (f.targetOwnerId && c.targetOwnerId !== String(f.targetOwnerId)) continue;
+    if (f.contributorPlayerId && c.contributorPlayerId !== String(f.contributorPlayerId)) continue;
+    records.push(c);
+    totalScaled += (c.amountScaled || 0);
+    byMember[c.contributorPlayerId] = (byMember[c.contributorPlayerId] || 0) + (c.amountScaled || 0);
+  }
+
+  return {
+    count: records.length,
+    totalScaled: totalScaled,
+    total: totalScaled / 100000,
+    byMemberScaled: byMember,
+    records: records
+  };
+}
+
+function startOrganizationResearch(progression, params) {
+  if (!progression || !params) return { ok: false, reason: 'invalid_params' };
+  const orgType = params.orgType;
+  if (params.isTraining && orgType === OWNER_TYPES.ALLIANCE) {
+    return { ok: false, reason: 'alliance_training_not_supported' };
+  }
+
+  const org = orgType === OWNER_TYPES.GUILD
+    ? progression.organizations.guilds[params.orgId]
+    : (orgType === OWNER_TYPES.ALLIANCE ? progression.organizations.alliances[params.orgId] : null);
+  if (!org) return { ok: false, reason: 'organization_not_found' };
+
+  return startOrEnqueueResearch(progression, {
+    ownerId: org.id,
+    ownerType: orgType,
+    researchItemId: params.researchItemId,
+    nowMs: params.nowMs || 0,
+    queue: org.researchQueue,
+    catalog: PROTOTYPE_ORG_RESEARCH_ITEMS,
+    eligibilityCtx: {
+      guild: orgType === OWNER_TYPES.GUILD ? org : null,
+      alliance: orgType === OWNER_TYPES.ALLIANCE ? org : null
+    }
+  });
+}
+
+function getOrganizationResearchBalance(progression, orgType, orgId) {
+  const org = orgType === OWNER_TYPES.GUILD
+    ? progression.organizations.guilds[orgId]
+    : progression.organizations.alliances[orgId];
+  if (!org) return null;
+  return getCurrencyBalance(progression.currencyLedger, org.id, orgType, org.currencyId);
+}
+
+  // --- Module: src/progression/benefitService.js ---
+// =============================================================================
+// GENERIC EFFECTS & BENEFITS FRAMEWORK (Inc 10.4 / ADR-0015 / Spec §12)
+// Data-driven effect aggregation and deterministic stacking across Personal,
+// Guild, Alliance, and Subject-Specific (Hero/City/Unit/Construct) progression.
+// Explicitly separates Unlocks from Modifiers.
+// =============================================================================
+
+
+
+
+const EFFECT_TYPES = {
+  CAPABILITY_UNLOCK: 'capability_unlock',
+  UNLOCK_TRAINING: 'unlock_training',
+  ABILITY_UNLOCK: 'ability_unlock',
+  RECIPE_UNLOCK: 'recipe_unlock',
+  ACCESS_UNLOCK: 'access_unlock',
+  ATTRIBUTE_MODIFIER: 'attribute_modifier',
+  SKILL_MODIFIER: 'skill_modifier',
+  PRODUCTION_MODIFIER: 'production_modifier',
+  ACCRUAL_MODIFIER: 'accrual_modifier',
+  RESEARCH_SPEED_MODIFIER: 'research_speed_modifier',
+  TRAINING_SPEED_MODIFIER: 'training_speed_modifier',
+  CAPACITY_MODIFIER: 'capacity_modifier',
+  PROBABILITY_MODIFIER: 'probability_modifier',
+  EFFICIENCY_MODIFIER: 'efficiency_modifier',
+  LIMIT_MODIFIER: 'limit_modifier',
+  BEHAVIOR_MODIFICATION: 'behavior_modification',
+  SPECIAL_EFFECT: 'special_effect'
+};
+
+const EFFECT_OPS = {
+  ADDITIVE: 'additive',
+  MULTIPLICATIVE: 'multiplicative',
+  SET: 'set',
+  MINIMUM: 'minimum',
+  MAXIMUM: 'maximum',
+  UNLOCK: 'unlock',
+  DISABLE: 'disable',
+  REPLACE: 'replace',
+  CUSTOM: 'custom'
+};
+
+const UNLOCK_OPS = {
+  unlock: true,
+  disable: true,
+  replace: true
+};
+
+const UNLOCK_EFFECT_TYPES = {
+  capability_unlock: true,
+  unlock_training: true,
+  ability_unlock: true,
+  recipe_unlock: true,
+  access_unlock: true
+};
+
+const MODIFIER_OPS = {
+  additive: true,
+  multiplicative: true,
+  set: true,
+  minimum: true,
+  maximum: true
+};
+
+const _customEffectHandlers = {};
+
+function registerCustomEffectHandler(handlerId, fn) {
+  if (!handlerId || typeof fn !== 'function') return false;
+  _customEffectHandlers[String(handlerId)] = fn;
+  return true;
+}
+
+function evaluateCustomEffect(handlerId, payload) {
+  const fn = _customEffectHandlers[String(handlerId)];
+  if (!fn) return { ok: false, reason: 'unknown_custom_handler' };
+  return { ok: true, result: fn(payload) };
+}
+
+function isUnlockEffect(effect) {
+  if (!effect) return false;
+  return Boolean(UNLOCK_OPS[effect.op] || UNLOCK_EFFECT_TYPES[effect.effectType]);
+}
+
+function isModifierEffect(effect) {
+  if (!effect) return false;
+  return Boolean(MODIFIER_OPS[effect.op] && !isUnlockEffect(effect));
+}
+
+function collectResearchBenefitsForOwner(progression, ownerType, ownerId, catalog, sourceType, outList) {
+  const prefix = String(ownerType) + ':' + String(ownerId) + ':';
+  const progressMap = (progression && progression.researchProgress) ? progression.researchProgress : {};
+  const keys = Object.keys(progressMap);
+
+  for (let i = 0; i < keys.length; i++) {
+    const key = keys[i];
+    if (key.indexOf(prefix) !== 0) continue;
+    const prog = progressMap[key];
+    if (!prog || !prog.currentLevel || prog.currentLevel <= 0) continue;
+
+    const itemDef = catalog[prog.researchItemId];
+    if (!itemDef || !Array.isArray(itemDef.levelDefinitions)) continue;
+
+    for (let li = 0; li < itemDef.levelDefinitions.length; li++) {
+      const lvlDef = itemDef.levelDefinitions[li];
+      if (lvlDef.level > prog.currentLevel) continue;
+      const benefits = Array.isArray(lvlDef.benefits) ? lvlDef.benefits : [];
+      for (let bi = 0; bi < benefits.length; bi++) {
+        const b = benefits[bi];
+        outList.push({
+          sourceType: sourceType,
+          sourceOwnerType: ownerType,
+          sourceOwnerId: String(ownerId),
+          sourceId: prog.researchItemId,
+          sourceLevel: lvlDef.level,
+          effectType: b.effectType,
+          target: b.target,
+          op: b.op,
+          value: b.value,
+          priority: typeof b.priority === 'number' ? b.priority : 0
+        });
+      }
+    }
+  }
+}
+
+function collectSubjectTrainingBenefits(progression, subjectType, subjectId, trainingCatalog, outList) {
+  if (!subjectType || !subjectId) return;
+  const prefix = String(subjectType) + ':' + String(subjectId) + ':';
+  const instMap = (progression && progression.trainingInstances) ? progression.trainingInstances : {};
+  const keys = Object.keys(instMap);
+
+  for (let i = 0; i < keys.length; i++) {
+    const key = keys[i];
+    if (key.indexOf(prefix) !== 0) continue;
+    const inst = instMap[key];
+    if (!inst || !inst.currentLevel || inst.currentLevel <= 0) continue;
+
+    const def = trainingCatalog[inst.trainingDefinitionId];
+    if (!def || !Array.isArray(def.levels)) continue;
+
+    for (let li = 0; li < def.levels.length; li++) {
+      const lvlDef = def.levels[li];
+      if (lvlDef.level > inst.currentLevel) continue;
+      const benefits = Array.isArray(lvlDef.benefits) ? lvlDef.benefits : [];
+      for (let bi = 0; bi < benefits.length; bi++) {
+        const b = benefits[bi];
+        outList.push({
+          sourceType: 'training',
+          subjectType: String(subjectType),
+          subjectId: String(subjectId),
+          sourceId: inst.trainingDefinitionId,
+          sourceLevel: lvlDef.level,
+          effectType: b.effectType,
+          target: b.target,
+          op: b.op,
+          value: b.value,
+          priority: typeof b.priority === 'number' ? b.priority : 0
+        });
+      }
+    }
+  }
+}
+
+// Collect all active effects for a player (and optionally a specific subject like a Hero)
+// Explicitly returns separated { allEffects, unlocks, modifiers }.
+function collectActiveEffects(progression, context) {
+  const ctx = context || {};
+  const playerId = String(ctx.playerId || ctx.ownerId || 'player_1');
+  const researchCatalog = Object.assign({}, PROTOTYPE_RESEARCH_ITEMS, ctx.researchCatalog || {});
+  const orgCatalog = Object.assign({}, PROTOTYPE_ORG_RESEARCH_ITEMS, ctx.orgCatalog || {});
+  const trainingCatalog = Object.assign({}, PROTOTYPE_TRAINING_DEFINITIONS, ctx.trainingCatalog || {});
+
+  const allEffects = [];
+
+  if (progression) {
+    // 1. Personal Research
+    collectResearchBenefitsForOwner(progression, OWNER_TYPES.PLAYER, playerId, researchCatalog, 'personal_research', allEffects);
+
+    // 2. Guild Research (only if player is an eligible member)
+    const orgs = progression.organizations || {};
+    const guildId = ctx.guildId !== undefined ? ctx.guildId : orgs.playerGuildId;
+    if (guildId && orgs.guilds && orgs.guilds[guildId]) {
+      const guild = orgs.guilds[guildId];
+      if (isPlayerEligibleForOrgBenefits(guild, playerId)) {
+        collectResearchBenefitsForOwner(progression, OWNER_TYPES.GUILD, guildId, orgCatalog, 'guild_research', allEffects);
+      }
+    }
+
+    // 3. Alliance Research (only if player is an eligible member)
+    const allianceId = ctx.allianceId !== undefined ? ctx.allianceId : orgs.playerAllianceId;
+    if (allianceId && orgs.alliances && orgs.alliances[allianceId]) {
+      const alliance = orgs.alliances[allianceId];
+      if (isPlayerEligibleForOrgBenefits(alliance, playerId)) {
+        collectResearchBenefitsForOwner(progression, OWNER_TYPES.ALLIANCE, allianceId, orgCatalog, 'alliance_research', allEffects);
+      }
+    }
+
+    // 4. Subject-Specific Training (strictly scoped to subjectType + subjectId)
+    if (ctx.subjectType && ctx.subjectId) {
+      collectSubjectTrainingBenefits(progression, ctx.subjectType, ctx.subjectId, trainingCatalog, allEffects);
+    }
+  }
+
+  // 5. Optional transient / external effects (alignment, buffs, buildings, tests)
+  if (Array.isArray(ctx.extraEffects)) {
+    for (let ei = 0; ei < ctx.extraEffects.length; ei++) {
+      const ex = ctx.extraEffects[ei];
+      if (!ex) continue;
+      allEffects.push({
+        sourceType: ex.sourceType || 'external',
+        sourceId: ex.sourceId || ('ext_' + ei),
+        sourceLevel: ex.sourceLevel || 1,
+        effectType: ex.effectType,
+        target: ex.target,
+        op: ex.op,
+        value: ex.value,
+        priority: typeof ex.priority === 'number' ? ex.priority : 0
+      });
+    }
+  }
+
+  const unlocks = [];
+  const modifiers = [];
+  for (let i = 0; i < allEffects.length; i++) {
+    const eff = allEffects[i];
+    if (isUnlockEffect(eff)) {
+      unlocks.push(eff);
+    } else if (isModifierEffect(eff)) {
+      modifiers.push(eff);
+    }
+  }
+
+  return {
+    allEffects: allEffects,
+    unlocks: unlocks,
+    modifiers: modifiers
+  };
+}
+
+// Deterministic stacking order (Spec §12):
+// 1. Set (highest priority wins) -> replaces baseValue
+// 2. Additive -> sum all additive values onto base
+// 3. Multiplicative -> multiply by product of multiplicative factors
+// 4. Minimum -> clamp lower bound (highest minimum wins)
+// 5. Maximum -> clamp upper bound (lowest maximum wins)
+function resolveNumericStat(baseValue, target, effects, options) {
+  const opts = options || {};
+  const effectTypeFilter = opts.effectType || null;
+  const list = Array.isArray(effects) ? effects : [];
+
+  const matching = [];
+  for (let i = 0; i < list.length; i++) {
+    const eff = list[i];
+    if (!eff || eff.target !== target) continue;
+    if (effectTypeFilter && eff.effectType !== effectTypeFilter) continue;
+    if (!isModifierEffect(eff)) continue;
+    matching.push(eff);
+  }
+
+  let setEffect = null;
+  let additiveSum = 0;
+  let multiplicativeFactor = 1;
+  let minBound = null;
+  let maxBound = null;
+
+  for (let j = 0; j < matching.length; j++) {
+    const m = matching[j];
+    const numVal = Number(m.value);
+    if (!isFinite(numVal)) continue;
+
+    if (m.op === EFFECT_OPS.SET) {
+      if (!setEffect || (m.priority || 0) >= (setEffect.priority || 0)) {
+        setEffect = m;
+      }
+    } else if (m.op === EFFECT_OPS.ADDITIVE) {
+      additiveSum += numVal;
+    } else if (m.op === EFFECT_OPS.MULTIPLICATIVE) {
+      multiplicativeFactor *= numVal;
+    } else if (m.op === EFFECT_OPS.MINIMUM) {
+      if (minBound === null || numVal > minBound) minBound = numVal;
+    } else if (m.op === EFFECT_OPS.MAXIMUM) {
+      if (maxBound === null || numVal < maxBound) maxBound = numVal;
+    }
+  }
+
+  let val = setEffect ? Number(setEffect.value) : Number(baseValue || 0);
+  val = (val + additiveSum) * multiplicativeFactor;
+  if (minBound !== null && val < minBound) val = minBound;
+  if (maxBound !== null && val > maxBound) val = maxBound;
+
+  // Clean minor floating-point representation noise (e.g. 12.000000000000002 -> 12)
+  const cleanVal = Math.round(val * 1000000) / 1000000;
+
+  return {
+    target: target,
+    baseValue: Number(baseValue || 0),
+    finalValue: cleanVal,
+    setApplied: setEffect ? Number(setEffect.value) : null,
+    additiveSum: Math.round(additiveSum * 1000000) / 1000000,
+    multiplicativeFactor: Math.round(multiplicativeFactor * 1000000) / 1000000,
+    minBound: minBound,
+    maxBound: maxBound,
+    appliedEffects: matching
+  };
+}
+
+// Resolve Unlock / Disable / Replace state for a target capability, training, ability, or recipe
+function resolveUnlockState(target, effects, options) {
+  const opts = options || {};
+  const effectTypeFilter = opts.effectType || null;
+  const list = Array.isArray(effects) ? effects : [];
+
+  let unlocked = false;
+  let maxUnlockLevel = 0;
+  let highestUnlockPriority = -Infinity;
+  let disabled = false;
+  let highestDisablePriority = -Infinity;
+  let replacedBy = null;
+  let highestReplacePriority = -Infinity;
+  const sources = [];
+
+  for (let i = 0; i < list.length; i++) {
+    const eff = list[i];
+    if (!eff || eff.target !== target) continue;
+    if (effectTypeFilter && eff.effectType !== effectTypeFilter) continue;
+    if (!isUnlockEffect(eff)) continue;
+
+    sources.push(eff);
+    const prio = typeof eff.priority === 'number' ? eff.priority : 0;
+
+    if (eff.op === EFFECT_OPS.UNLOCK) {
+      unlocked = true;
+      const lvl = typeof eff.value === 'number' ? eff.value : 1;
+      if (lvl > maxUnlockLevel) maxUnlockLevel = lvl;
+      if (prio >= highestUnlockPriority) highestUnlockPriority = prio;
+    } else if (eff.op === EFFECT_OPS.DISABLE) {
+      disabled = true;
+      if (prio >= highestDisablePriority) highestDisablePriority = prio;
+    } else if (eff.op === EFFECT_OPS.REPLACE) {
+      if (prio >= highestReplacePriority) {
+        highestReplacePriority = prio;
+        replacedBy = eff.value;
+      }
+    }
+  }
+
+  // Disable overrides unlock unless an unlock has strictly higher priority
+  const isEffectiveUnlocked = unlocked && (!disabled || highestUnlockPriority > highestDisablePriority);
+
+  return {
+    target: target,
+    unlocked: isEffectiveUnlocked,
+    maxUnlockLevel: isEffectiveUnlocked ? maxUnlockLevel : 0,
+    disabled: disabled && highestDisablePriority >= highestUnlockPriority,
+    replacedBy: replacedBy,
+    sources: sources
+  };
+}
+
+  // --- Module: src/progression/trainingService.js ---
+// =============================================================================
+// SEPARATE HERO & SUBJECT TRAINING QUEUE SERVICE (Inc 10.4 / Spec §3.4, §7, §14)
+// Manages subject-scoped TrainingInstances (Hero, City, Unit, Construct) on a
+// dedicated Training Queue completely independent of the Personal Research Queue.
+// Personal Research unlocks training options; each subject trains independently.
+// =============================================================================
+
+
+
+
+
+
+const SUBJECT_TYPES = {
+  HERO: 'hero',
+  CITY: 'city',
+  UNIT: 'unit',
+  CONSTRUCT: 'construct'
+};
+
+function makeTrainingKey(subjectType, subjectId, trainingDefinitionId) {
+  return String(subjectType) + ':' + String(subjectId) + ':' + String(trainingDefinitionId);
+}
+
+function getTrainingDefinition(trainingDefinitionId, customCatalog) {
+  const cat = customCatalog || PROTOTYPE_TRAINING_DEFINITIONS;
+  return cat[trainingDefinitionId] || null;
+}
+
+function getTrainingInstance(progression, subjectType, subjectId, trainingDefinitionId) {
+  const key = makeTrainingKey(subjectType, subjectId, trainingDefinitionId);
+  if (!progression.trainingInstances[key]) {
+    progression.trainingInstances[key] = {
+      trainingInstanceId: 'trn_' + key,
+      trainingDefinitionId: String(trainingDefinitionId),
+      subjectId: String(subjectId),
+      subjectType: String(subjectType),
+      currentLevel: 0,
+      targetLevel: 0,
+      status: 'not_started',
+      startedAt: null,
+      completedAt: null,
+      totalTimeSpentMs: 0,
+      completionCount: 0,
+      definitionVersion: '1.0.0',
+      lastUpdated: 0
+    };
+  }
+  return progression.trainingInstances[key];
+}
+
+function evaluateTrainingEligibility(progression, params) {
+  if (!progression || !params) {
+    return { canStart: false, status: EVALUATION_STATUS.LOCKED, unmetConditions: [{ reason: 'Invalid parameters' }] };
+  }
+  const ownerId = String(params.ownerId || 'player_1');
+  const ownerType = params.ownerType || OWNER_TYPES.PLAYER;
+  const subjectType = String(params.subjectType || SUBJECT_TYPES.HERO);
+  const subjectId = params.subjectId ? String(params.subjectId) : null;
+  const trainingDefinitionId = params.trainingDefinitionId;
+
+  if (!subjectId) {
+    return { canStart: false, status: EVALUATION_STATUS.SUBJECT_UNAVAILABLE, unmetConditions: [{ reason: 'No training subject specified' }] };
+  }
+  if (params.subjectAvailable === false) {
+    return { canStart: false, status: EVALUATION_STATUS.SUBJECT_UNAVAILABLE, unmetConditions: [{ reason: 'Subject is currently unavailable for training' }] };
+  }
+
+  const def = getTrainingDefinition(trainingDefinitionId, params.trainingCatalog);
+  if (!def) {
+    return { canStart: false, status: EVALUATION_STATUS.LOCKED, unmetConditions: [{ reason: 'Unknown training definition: ' + trainingDefinitionId }] };
+  }
+  if (def.subjectType && def.subjectType !== subjectType) {
+    return { canStart: false, status: EVALUATION_STATUS.SUBJECT_UNAVAILABLE, unmetConditions: [{ reason: 'Training requires subject type ' + def.subjectType }] };
+  }
+
+  const inst = getTrainingInstance(progression, subjectType, subjectId, trainingDefinitionId);
+  const targetLevel = typeof params.targetLevel === 'number' ? params.targetLevel : ((inst.currentLevel || 0) + 1);
+  const lvlDef = Array.isArray(def.levels)
+    ? def.levels.find(function(l) { return l.level === targetLevel; })
+    : null;
+  if (!lvlDef) {
+    return { canStart: false, status: EVALUATION_STATUS.MAX_LEVEL, unmetConditions: [{ reason: 'Maximum training level reached' }] };
+  }
+
+  const unmet = [];
+
+  // 1. Verify capability unlock via BenefitService (if unlocked via research)
+  if (params.requireUnlock !== false) {
+    const activeEffects = collectActiveEffects(progression, {
+      playerId: ownerId,
+      researchCatalog: params.researchCatalog,
+      orgCatalog: params.orgCatalog,
+      trainingCatalog: params.trainingCatalog,
+      extraEffects: params.extraEffects
+    });
+    const unlockState = resolveUnlockState(trainingDefinitionId, activeEffects.unlocks, {
+      effectType: EFFECT_TYPES.UNLOCK_TRAINING
+    });
+    if (!unlockState.unlocked || unlockState.maxUnlockLevel < targetLevel) {
+      unmet.push({
+        type: 'unlock_training',
+        target: trainingDefinitionId,
+        expected: targetLevel,
+        actual: unlockState.maxUnlockLevel,
+        reason: 'Requires research unlock for ' + def.name + ' Level ' + targetLevel
+      });
+    }
+  }
+
+  // 2. Evaluate training-level and definition-level prerequisites
+  const eligCtx = Object.assign({}, params.eligibilityCtx || {}, {
+    ownerId: ownerId,
+    ownerType: ownerType,
+    ledger: progression.currencyLedger,
+    researchProgress: buildOwnerProgressLookup(progression, ownerType, ownerId),
+    alignment: progression.alignment,
+    discoveries: progression.discoveries
+  });
+
+  if (def.prerequisites) {
+    const baseEval = evaluateConditionNode(def.prerequisites, eligCtx);
+    if (!baseEval.passed) {
+      for (let i = 0; i < baseEval.unmetConditions.length; i++) {
+        unmet.push(baseEval.unmetConditions[i]);
+      }
+    }
+  }
+  if (lvlDef.prerequisites) {
+    const lvlEval = evaluateConditionNode(lvlDef.prerequisites, eligCtx);
+    if (!lvlEval.passed) {
+      for (let j = 0; j < lvlEval.unmetConditions.length; j++) {
+        unmet.push(lvlEval.unmetConditions[j]);
+      }
+    }
+  }
+
+  if (unmet.length > 0) {
+    return {
+      canStart: false,
+      status: EVALUATION_STATUS.LOCKED,
+      targetLevel: targetLevel,
+      unmetConditions: unmet
+    };
+  }
+
+  return {
+    canStart: true,
+    status: EVALUATION_STATUS.AVAILABLE,
+    targetLevel: targetLevel,
+    levelDefinition: lvlDef,
+    definition: def,
+    unmetConditions: []
+  };
+}
+
+function startOrEnqueueTraining(progression, params) {
+  if (!progression || !params) return { ok: false, reason: 'invalid_params' };
+  const ownerId = String(params.ownerId || 'player_1');
+  const ownerType = params.ownerType || OWNER_TYPES.PLAYER;
+  const subjectType = String(params.subjectType || SUBJECT_TYPES.HERO);
+  const subjectId = params.subjectId ? String(params.subjectId) : null;
+  const trainingDefinitionId = params.trainingDefinitionId;
+  const nowMs = typeof params.nowMs === 'number' ? params.nowMs : 0;
+  const queue = params.queue || progression.trainingQueue;
+  const allowPending = params.allowPending !== false;
+
+  if (!subjectId) return { ok: false, reason: EVALUATION_STATUS.SUBJECT_UNAVAILABLE };
+
+  // Prevent duplicate active or pending training of the same definition for the same subject
+  const isDupActive = queue.activeItems.some(function(a) {
+    return a.subjectType === subjectType && a.subjectId === subjectId && a.trainingDefinitionId === trainingDefinitionId;
+  });
+  const isDupPending = queue.pendingItems.some(function(p) {
+    return p.subjectType === subjectType && p.subjectId === subjectId && p.trainingDefinitionId === trainingDefinitionId;
+  });
+  if (isDupActive || isDupPending) {
+    return { ok: false, reason: 'already_in_training_queue' };
+  }
+
+  const elig = evaluateTrainingEligibility(progression, params);
+  if (!elig.canStart) {
+    return { ok: false, reason: elig.status, unmetConditions: elig.unmetConditions };
+  }
+
+  const def = elig.definition;
+  const lvlDef = elig.levelDefinition;
+  const targetLevel = elig.targetLevel;
+  const isQueueFull = queue.activeItems.length >= (queue.capacity || 1);
+
+  if (isQueueFull && !allowPending) {
+    return { ok: false, reason: EVALUATION_STATUS.QUEUE_FULL };
+  }
+
+  // Pending entries do not deduct costs until promoted to active
+  if (isQueueFull) {
+    const pendingEntry = {
+      queueEntryId: 'tpend_' + subjectId + '_' + trainingDefinitionId + '_' + targetLevel + '_' + nowMs,
+      trainingDefinitionId: trainingDefinitionId,
+      ownerId: ownerId,
+      ownerType: String(ownerType),
+      subjectType: subjectType,
+      subjectId: subjectId,
+      targetLevel: targetLevel,
+      enqueuedAt: nowMs,
+      status: 'pending'
+    };
+    queue.pendingItems.push(pendingEntry);
+    return { ok: true, queuedAs: 'pending', entry: pendingEntry };
+  }
+
+  // Atomic all-or-nothing payment validation & deduction
+  const payRes = executeAtomicPayment(progression.currencyLedger, lvlDef.costs || [], {
+    ownerId: ownerId,
+    ownerType: ownerType,
+    stockpile: params.stockpile || null,
+    nowMs: nowMs,
+    source: 'training_start:' + trainingDefinitionId + ':' + subjectId,
+    referenceId: subjectId + ':' + trainingDefinitionId + ':L' + targetLevel,
+    idempotencyKey: 'tstart:' + subjectType + ':' + subjectId + ':' + trainingDefinitionId + ':L' + targetLevel + ':' + nowMs
+  });
+
+  if (!payRes.ok) {
+    return { ok: false, reason: EVALUATION_STATUS.UNAFFORDABLE, shortfalls: payRes.shortfalls };
+  }
+
+  const speedBonus = typeof params.speedBonus === 'number' ? params.speedBonus : 0;
+  const speedFactor = Math.max(0.1, 1 + speedBonus);
+  const baseDurationMs = (lvlDef.durationSec || 30) * 1000;
+  const effectiveDurationMs = Math.max(1000, Math.round(baseDurationMs / speedFactor));
+
+  const activeEntry = {
+    queueEntryId: 'tact_' + subjectId + '_' + trainingDefinitionId + '_' + targetLevel + '_' + nowMs,
+    trainingDefinitionId: trainingDefinitionId,
+    ownerId: ownerId,
+    ownerType: String(ownerType),
+    subjectType: subjectType,
+    subjectId: subjectId,
+    targetLevel: targetLevel,
+    status: 'active',
+    startedAt: nowMs,
+    lastTickAt: nowMs,
+    elapsedMs: 0,
+    effectiveDurationMs: effectiveDurationMs,
+    snapshot: {
+      definitionVersion: def.version || '1.0.0',
+      durationSec: lvlDef.durationSec,
+      costs: JSON.parse(JSON.stringify(lvlDef.costs || [])),
+      benefits: JSON.parse(JSON.stringify(lvlDef.benefits || []))
+    }
+  };
+
+  queue.activeItems.push(activeEntry);
+
+  const inst = getTrainingInstance(progression, subjectType, subjectId, trainingDefinitionId);
+  inst.targetLevel = targetLevel;
+  inst.status = 'in_progress';
+  inst.startedAt = nowMs;
+  inst.definitionVersion = def.version || '1.0.0';
+  inst.lastUpdated = nowMs;
+
+  return { ok: true, queuedAs: 'active', entry: activeEntry, transactions: payRes.transactions };
+}
+
+function pauseTrainingItem(progression, subjectId, trainingDefinitionId, nowMs, options) {
+  const opts = options || {};
+  const queue = opts.queue || progression.trainingQueue;
+  const subjectType = String(opts.subjectType || SUBJECT_TYPES.HERO);
+  const entry = queue.activeItems.find(function(a) {
+    return a.subjectType === subjectType && a.subjectId === String(subjectId) && a.trainingDefinitionId === trainingDefinitionId;
+  });
+  if (!entry || entry.status !== 'active') return { ok: false, reason: 'not_active' };
+
+  entry.elapsedMs += Math.max(0, nowMs - entry.lastTickAt);
+  entry.lastTickAt = nowMs;
+  entry.status = 'paused';
+  return { ok: true, elapsedMs: entry.elapsedMs };
+}
+
+function resumeTrainingItem(progression, subjectId, trainingDefinitionId, nowMs, options) {
+  const opts = options || {};
+  const queue = opts.queue || progression.trainingQueue;
+  const subjectType = String(opts.subjectType || SUBJECT_TYPES.HERO);
+  const entry = queue.activeItems.find(function(a) {
+    return a.subjectType === subjectType && a.subjectId === String(subjectId) && a.trainingDefinitionId === trainingDefinitionId;
+  });
+  if (!entry || entry.status !== 'paused') return { ok: false, reason: 'not_paused' };
+
+  entry.lastTickAt = nowMs;
+  entry.status = 'active';
+  return { ok: true, elapsedMs: entry.elapsedMs };
+}
+
+function cancelTrainingItem(progression, subjectId, trainingDefinitionId, options) {
+  const opts = options || {};
+  const queue = opts.queue || progression.trainingQueue;
+  const subjectType = String(opts.subjectType || SUBJECT_TYPES.HERO);
+  const nowMs = typeof opts.nowMs === 'number' ? opts.nowMs : 0;
+
+  const pIdx = queue.pendingItems.findIndex(function(p) {
+    return p.subjectType === subjectType && p.subjectId === String(subjectId) && p.trainingDefinitionId === trainingDefinitionId;
+  });
+  if (pIdx !== -1) {
+    const removed = queue.pendingItems.splice(pIdx, 1)[0];
+    return { ok: true, removedFrom: 'pending', refundedRatio: 0, entry: removed };
+  }
+
+  const aIdx = queue.activeItems.findIndex(function(a) {
+    return a.subjectType === subjectType && a.subjectId === String(subjectId) && a.trainingDefinitionId === trainingDefinitionId;
+  });
+  if (aIdx === -1) return { ok: false, reason: 'not_found_in_queue' };
+
+  const entry = queue.activeItems.splice(aIdx, 1)[0];
+  if (entry.status === 'active') {
+    entry.elapsedMs += Math.max(0, nowMs - entry.lastTickAt);
+  }
+
+  const policy = opts.refundPolicy || REFUND_POLICIES.FIXED_PERCENT;
+  let ratio = 0;
+  if (policy === REFUND_POLICIES.FULL) {
+    ratio = 1.0;
+  } else if (policy === REFUND_POLICIES.FIXED_PERCENT) {
+    ratio = typeof opts.refundRatio === 'number' ? opts.refundRatio : 0.5;
+  } else if (policy === REFUND_POLICIES.TIME_BASED) {
+    ratio = Math.max(0, Math.min(1, 1 - (entry.elapsedMs / Math.max(1, entry.effectiveDurationMs))));
+  }
+
+  const snapCosts = (entry.snapshot && Array.isArray(entry.snapshot.costs)) ? entry.snapshot.costs : [];
+  if (ratio > 0) {
+    for (let i = 0; i < snapCosts.length; i++) {
+      const c = snapCosts[i];
+      if (c.consumed === false) continue;
+      const refundAmt = Number(c.amount || 0) * ratio;
+      if (refundAmt <= 0) continue;
+      if ((c.kind || 'currency') === 'currency') {
+        recordCurrencyTransaction(progression.currencyLedger, {
+          ownerId: c.ownerId || entry.ownerId,
+          ownerType: c.ownerType || entry.ownerType,
+          currencyId: c.currencyId,
+          amount: refundAmt,
+          transactionType: TRANSACTION_TYPES.REFUND,
+          source: 'training_cancel:' + trainingDefinitionId,
+          referenceId: entry.queueEntryId,
+          idempotencyKey: 'tcancel:' + entry.queueEntryId + ':c' + i,
+          nowMs: nowMs
+        });
+      } else if (c.kind === 'stockpile' && opts.stockpile) {
+        opts.stockpile[c.resourceId] = Number(opts.stockpile[c.resourceId] || 0) + Math.floor(refundAmt);
+      }
+    }
+  }
+
+  const inst = getTrainingInstance(progression, entry.subjectType, entry.subjectId, trainingDefinitionId);
+  inst.status = inst.currentLevel > 0 ? 'completed' : 'not_started';
+  inst.targetLevel = inst.currentLevel;
+  inst.lastUpdated = nowMs;
+
+  return { ok: true, removedFrom: 'active', refundedRatio: ratio, entry: entry };
+}
+
+function advanceTrainingProgress(progression, nowMs, options) {
+  const opts = options || {};
+  const queue = opts.queue || progression.trainingQueue;
+  const completedItems = [];
+  const promotedItems = [];
+
+  for (let i = queue.activeItems.length - 1; i >= 0; i--) {
+    const entry = queue.activeItems[i];
+    if (entry.status !== 'active') continue;
+
+    const delta = Math.max(0, nowMs - entry.lastTickAt);
+    entry.elapsedMs += delta;
+    entry.lastTickAt = nowMs;
+
+    if (entry.elapsedMs >= entry.effectiveDurationMs) {
+      queue.activeItems.splice(i, 1);
+      const inst = getTrainingInstance(progression, entry.subjectType, entry.subjectId, entry.trainingDefinitionId);
+      inst.currentLevel = entry.targetLevel;
+      inst.targetLevel = entry.targetLevel;
+      inst.status = 'completed';
+      inst.completedAt = nowMs;
+      inst.totalTimeSpentMs = (inst.totalTimeSpentMs || 0) + entry.effectiveDurationMs;
+      inst.completionCount = (inst.completionCount || 0) + 1;
+      inst.lastUpdated = nowMs;
+
+      completedItems.push({
+        trainingDefinitionId: entry.trainingDefinitionId,
+        completedLevel: entry.targetLevel,
+        subjectType: entry.subjectType,
+        subjectId: entry.subjectId,
+        ownerId: entry.ownerId,
+        ownerType: entry.ownerType,
+        snapshot: entry.snapshot
+      });
+    }
+  }
+
+  while (queue.activeItems.length < (queue.capacity || 1) && queue.pendingItems.length > 0) {
+    const nextPending = queue.pendingItems.shift();
+    const startRes = startOrEnqueueTraining(progression, {
+      ownerId: nextPending.ownerId,
+      ownerType: nextPending.ownerType,
+      subjectType: nextPending.subjectType,
+      subjectId: nextPending.subjectId,
+      trainingDefinitionId: nextPending.trainingDefinitionId,
+      nowMs: nowMs,
+      queue: queue,
+      allowPending: false,
+      stockpile: opts.stockpile || null,
+      eligibilityCtx: opts.eligibilityCtx || {},
+      speedBonus: opts.speedBonus || 0,
+      researchCatalog: opts.researchCatalog,
+      orgCatalog: opts.orgCatalog,
+      trainingCatalog: opts.trainingCatalog,
+      requireUnlock: opts.requireUnlock
+    });
+    if (startRes.ok) {
+      promotedItems.push(startRes.entry);
+    }
+  }
+
+  return {
+    completedItems: completedItems,
+    promotedItems: promotedItems
+  };
+}
+
+function getSubjectTrainingSummary(progression, subjectType, subjectId) {
+  const prefix = String(subjectType) + ':' + String(subjectId) + ':';
+  const instMap = (progression && progression.trainingInstances) ? progression.trainingInstances : {};
+  const keys = Object.keys(instMap);
+  const completed = [];
+  for (let i = 0; i < keys.length; i++) {
+    if (keys[i].indexOf(prefix) !== 0) continue;
+    const inst = instMap[keys[i]];
+    if (inst && inst.currentLevel > 0) {
+      completed.push({
+        trainingDefinitionId: inst.trainingDefinitionId,
+        currentLevel: inst.currentLevel,
+        completedAt: inst.completedAt
+      });
+    }
+  }
+  return completed;
+}
+
+function computeSubjectEffectiveStat(progression, subjectType, subjectId, baseValue, statTarget, options) {
+  const opts = options || {};
+  const collected = collectActiveEffects(progression, {
+    playerId: opts.playerId || opts.ownerId || 'player_1',
+    guildId: opts.guildId,
+    allianceId: opts.allianceId,
+    subjectType: subjectType,
+    subjectId: subjectId,
+    researchCatalog: opts.researchCatalog,
+    orgCatalog: opts.orgCatalog,
+    trainingCatalog: opts.trainingCatalog,
+    extraEffects: opts.extraEffects
+  });
+  return resolveNumericStat(baseValue, statTarget, collected.modifiers, {
+    effectType: opts.effectType || null
+  });
+}
+
+  // --- Module: src/progression/milestonesAndAnalytics.js ---
+// =============================================================================
+// MILESTONES, PROVENANCE TITLES, TREE ARCHIVING, TUTORIAL HOOKS & ANALYTICS
+// (Inc 10.5 / Spec §16, §17, §19)
+// =============================================================================
+
+
+
+
+const TITLE_RARITIES = {
+  COMMON: 'common',
+  RARE: 'rare',
+  UNIQUE: 'unique',
+  WORLD_FIRST: 'world_first',
+  GUILD: 'guild',
+  ALLIANCE: 'alliance',
+  HUMOROUS: 'humorous'
+};
+
+const PROGRESSION_EVENTS = {
+  RP_ACCRUED_PASSIVE: 'progression.rp_accrued_passive',
+  RP_AWARDED_ACTIVITY: 'progression.rp_awarded_activity',
+  RESEARCH_STARTED: 'progression.research_started',
+  RESEARCH_ENQUEUED: 'progression.research_enqueued',
+  RESEARCH_PAUSED: 'progression.research_paused',
+  RESEARCH_RESUMED: 'progression.research_resumed',
+  RESEARCH_CANCELLED: 'progression.research_cancelled',
+  RESEARCH_COMPLETED: 'progression.research_completed',
+  TRAINING_STARTED: 'progression.training_started',
+  TRAINING_COMPLETED: 'progression.training_completed',
+  TRAINING_CANCELLED: 'progression.training_cancelled',
+  CONTRIBUTION_RECORDED: 'progression.contribution_recorded',
+  MILESTONE_COMPLETED: 'progression.milestone_completed',
+  TITLE_EARNED: 'progression.title_earned',
+  TITLE_EQUIPPED: 'progression.title_equipped',
+  TREE_ARCHIVED: 'progression.tree_archived',
+  TUTORIAL_STEP_COMPLETED: 'progression.tutorial_step_completed'
+};
+
+// 12-Step Incremental Research & Training Onboarding Checklist (Spec §17)
+const PROGRESSION_TUTORIAL_STEPS = [
+  { stepId: 'tut_01_passive_rp',      order: 1,  title: 'Accrue General Knowledge',     desc: 'Earn passive General RP over time.' },
+  { stepId: 'tut_02_activity_rp',     order: 2,  title: 'Earn Field Research Points',   desc: 'Earn Adventurer RP from delving, skirmishes, or quests.' },
+  { stepId: 'tut_03_start_research',  order: 3,  title: 'Begin First Research',         desc: 'Start any Personal Research project.' },
+  { stepId: 'tut_04_complete_res',    order: 4,  title: 'Complete First Research',      desc: 'Finish your first Personal Research level.' },
+  { stepId: 'tut_05_queue_pending',   order: 5,  title: 'Plan Ahead',                   desc: 'Add a second project or reach 2 total research completions.' },
+  { stepId: 'tut_06_unlock_training', order: 6,  title: 'Unlock Hero Training',         desc: 'Research Wield Heavier Weapons or Subterranean Survival.' },
+  { stepId: 'tut_07_train_hero',      order: 7,  title: 'Train an Individual Hero',     desc: 'Complete a Hero Training session on the separate Training Queue.' },
+  { stepId: 'tut_08_milestone',       order: 8,  title: 'Claim a Tree Milestone',       desc: 'Complete a Research Tree milestone.' },
+  { stepId: 'tut_09_equip_title',     order: 9,  title: 'Display a Provenance Title',   desc: 'Select an earned Title for display.' },
+  { stepId: 'tut_10_org_join',        order: 10, title: 'Join a Guild or Alliance',     desc: 'Establish or join a Player Guild or Alliance.' },
+  { stepId: 'tut_11_contribute',      order: 11, title: 'Contribute to Shared Pool',    desc: 'Record a Guild or Alliance research contribution.' },
+  { stepId: 'tut_12_archive_tree',    order: 12, title: 'Archive a Mastered Tree',      desc: 'Archive a completed Research Tree while preserving history.' }
+];
+
+function awardProvenanceTitle(progression, spec) {
+  if (!progression || !spec || !spec.titleId) return { ok: false, reason: 'invalid_title_spec' };
+  if (!Array.isArray(progression.earnedTitles)) progression.earnedTitles = [];
+
+  const existing = progression.earnedTitles.find(function(t) { return t.titleId === spec.titleId; });
+  if (existing) {
+    return { ok: true, duplicate: true, title: existing };
+  }
+
+  const record = {
+    titleId: String(spec.titleId),
+    name: String(spec.name || spec.titleId),
+    rarity: spec.rarity || TITLE_RARITIES.COMMON,
+    provenance: String(spec.provenance || 'research_milestone'),
+    worldId: String(spec.worldId || 'aethelgard_prime'),
+    earnedAt: typeof spec.nowMs === 'number' ? spec.nowMs : 0
+  };
+  progression.earnedTitles.push(record);
+  return { ok: true, duplicate: false, title: record };
+}
+
+function setActivePlayerTitle(progression, titleId) {
+  if (!progression) return { ok: false, reason: 'invalid_progression' };
+  if (titleId === null || titleId === '') {
+    progression.activeTitleId = null;
+    return { ok: true, activeTitle: null };
+  }
+  const found = (progression.earnedTitles || []).find(function(t) { return t.titleId === titleId; });
+  if (!found) return { ok: false, reason: 'title_not_owned' };
+  progression.activeTitleId = found.titleId;
+  return { ok: true, activeTitle: found };
+}
+
+function getActivePlayerTitle(progression) {
+  if (!progression || !progression.activeTitleId) return null;
+  return (progression.earnedTitles || []).find(function(t) { return t.titleId === progression.activeTitleId; }) || null;
+}
+
+function isTreeCompleted(progression, treeId, ownerId, options) {
+  const opts = options || {};
+  const trees = Object.assign({}, PROTOTYPE_RESEARCH_TREES, opts.trees || {});
+  const tree = trees[treeId];
+  if (!tree || !Array.isArray(tree.itemIds) || tree.itemIds.length === 0) return false;
+
+  const ownerType = opts.ownerType || tree.ownershipType || OWNER_TYPES.PLAYER;
+  const lookup = buildOwnerProgressLookup(progression, ownerType, ownerId || 'player_1');
+
+  for (let i = 0; i < tree.itemIds.length; i++) {
+    const inst = lookup[tree.itemIds[i]];
+    if (!inst || (inst.currentLevel || 0) < 1) return false;
+  }
+  return true;
+}
+
+function archiveCompletedTree(progression, treeId, ownerId, options) {
+  if (!progression || !treeId) return { ok: false, reason: 'invalid_params' };
+  if (!isTreeCompleted(progression, treeId, ownerId, options)) {
+    return { ok: false, reason: 'tree_not_completed' };
+  }
+  if (!Array.isArray(progression.archivedTreeIds)) progression.archivedTreeIds = [];
+  if (progression.archivedTreeIds.indexOf(treeId) === -1) {
+    progression.archivedTreeIds.push(treeId);
+  }
+  return { ok: true, treeId: treeId, archivedTreeIds: progression.archivedTreeIds.slice() };
+}
+
+function unarchiveTree(progression, treeId) {
+  if (!progression || !Array.isArray(progression.archivedTreeIds)) return { ok: false, reason: 'invalid_params' };
+  const idx = progression.archivedTreeIds.indexOf(treeId);
+  if (idx !== -1) progression.archivedTreeIds.splice(idx, 1);
+  return { ok: true, treeId: treeId, archivedTreeIds: progression.archivedTreeIds.slice() };
+}
+
+// Evaluate all tree milestones and grant rewards/titles idempotently
+function evaluateTreeMilestones(progression, ownerId, options) {
+  if (!progression) return { newlyCompleted: [], earnedTitles: [] };
+  const opts = options || {};
+  const pid = String(ownerId || 'player_1');
+  const nowMs = typeof opts.nowMs === 'number' ? opts.nowMs : 0;
+  const worldId = String(opts.worldId || 'aethelgard_prime');
+  const trees = Object.assign({}, PROTOTYPE_RESEARCH_TREES, opts.trees || {});
+
+  if (!progression.completedMilestones) progression.completedMilestones = {};
+
+  const lookup = buildOwnerProgressLookup(progression, OWNER_TYPES.PLAYER, pid);
+  const newlyCompleted = [];
+  const newlyEarnedTitles = [];
+
+  const treeIds = Object.keys(trees);
+  for (let i = 0; i < treeIds.length; i++) {
+    const tree = trees[treeIds[i]];
+    const milestones = Array.isArray(tree.milestones) ? tree.milestones : [];
+    if (milestones.length === 0) continue;
+
+    let completedItemsInTree = 0;
+    const itemIds = Array.isArray(tree.itemIds) ? tree.itemIds : [];
+    for (let j = 0; j < itemIds.length; j++) {
+      const inst = lookup[itemIds[j]];
+      if (inst && (inst.currentLevel || 0) >= 1) completedItemsInTree++;
+    }
+
+    for (let m = 0; m < milestones.length; m++) {
+      const ms = milestones[m];
+      if (progression.completedMilestones[ms.milestoneId]) continue;
+      if (completedItemsInTree < (ms.requiredCompletions || 1)) continue;
+
+      const rewardSummary = {
+        gold: ms.rewardGold || 0,
+        title: ms.rewardTitle || null
+      };
+
+      if (ms.rewardGold && ms.rewardGold > 0) {
+        recordCurrencyTransaction(progression.currencyLedger, {
+          ownerId: pid,
+          ownerType: OWNER_TYPES.PLAYER,
+          currencyId: 'gold',
+          amount: ms.rewardGold,
+          transactionType: TRANSACTION_TYPES.AWARD,
+          source: 'milestone:' + ms.milestoneId,
+          referenceId: tree.treeId,
+          idempotencyKey: 'ms_gold:' + pid + ':' + ms.milestoneId,
+          nowMs: nowMs
+        });
+      }
+
+      if (ms.rewardTitle) {
+        const titleRes = awardProvenanceTitle(progression, {
+          titleId: 'title_' + ms.milestoneId,
+          name: ms.rewardTitle,
+          rarity: ms.titleRarity || TITLE_RARITIES.RARE,
+          provenance: 'Completed milestone in ' + tree.name,
+          worldId: worldId,
+          nowMs: nowMs
+        });
+        if (titleRes.ok && !titleRes.duplicate) {
+          newlyEarnedTitles.push(titleRes.title);
+        }
+      }
+
+      const completionRecord = {
+        milestoneId: ms.milestoneId,
+        treeId: tree.treeId,
+        completedAt: nowMs,
+        rewards: rewardSummary
+      };
+      progression.completedMilestones[ms.milestoneId] = completionRecord;
+      newlyCompleted.push(completionRecord);
+    }
+  }
+
+  return {
+    newlyCompleted: newlyCompleted,
+    earnedTitles: newlyEarnedTitles
+  };
+}
+
+function evaluateTutorialProgress(progression, ownerId) {
+  const pid = String(ownerId || 'player_1');
+  const lookup = buildOwnerProgressLookup(progression || {}, OWNER_TYPES.PLAYER, pid);
+  const completedResCount = Object.keys(lookup).filter(function(k) {
+    return lookup[k] && (lookup[k].currentLevel || 0) >= 1;
+  }).length;
+
+  const trainInsts = (progression && progression.trainingInstances) ? Object.values(progression.trainingInstances) : [];
+  const completedTrainCount = trainInsts.filter(function(t) { return t && (t.currentLevel || 0) >= 1; }).length;
+
+  const genRp = progression && progression.currencyLedger
+    ? getCurrencyBalance(progression.currencyLedger, pid, OWNER_TYPES.PLAYER, 'rp_general').availableScaled
+    : 0;
+  const advRp = progression && progression.currencyLedger
+    ? getCurrencyBalance(progression.currencyLedger, pid, OWNER_TYPES.PLAYER, 'rp_adventurer').availableScaled
+    : 0;
+
+  const rq = (progression && progression.researchQueue) ? progression.researchQueue : { activeItems: [], pendingItems: [] };
+  const orgs = (progression && progression.organizations) ? progression.organizations : {};
+
+  const checks = {
+    tut_01_passive_rp: genRp > 0 || completedResCount > 0,
+    tut_02_activity_rp: advRp > 0 || completedResCount > 0,
+    tut_03_start_research: rq.activeItems.length > 0 || completedResCount > 0,
+    tut_04_complete_res: completedResCount >= 1,
+    tut_05_queue_pending: rq.pendingItems.length > 0 || completedResCount >= 2,
+    tut_06_unlock_training: Boolean((lookup.WAR_WEAPON_HEAVY_001 && lookup.WAR_WEAPON_HEAVY_001.currentLevel >= 1) || (lookup.ADV_SURVIVAL_001 && lookup.ADV_SURVIVAL_001.currentLevel >= 1)),
+    tut_07_train_hero: completedTrainCount >= 1,
+    tut_08_milestone: Object.keys((progression && progression.completedMilestones) || {}).length >= 1,
+    tut_09_equip_title: Boolean(progression && progression.activeTitleId),
+    tut_10_org_join: Boolean(orgs.playerGuildId || orgs.playerAllianceId),
+    tut_11_contribute: Boolean(progression && Array.isArray(progression.contributions) && progression.contributions.length >= 1),
+    tut_12_archive_tree: Boolean(progression && Array.isArray(progression.archivedTreeIds) && progression.archivedTreeIds.length >= 1)
+  };
+
+  const completedSteps = [];
+  let nextStep = null;
+  for (let i = 0; i < PROGRESSION_TUTORIAL_STEPS.length; i++) {
+    const st = PROGRESSION_TUTORIAL_STEPS[i];
+    if (checks[st.stepId]) {
+      completedSteps.push(st.stepId);
+    } else if (!nextStep) {
+      nextStep = st;
+    }
+  }
+
+  return {
+    completedSteps: completedSteps,
+    completedCount: completedSteps.length,
+    totalSteps: PROGRESSION_TUTORIAL_STEPS.length,
+    progressPct: Math.round((completedSteps.length / PROGRESSION_TUTORIAL_STEPS.length) * 100),
+    nextStep: nextStep
+  };
+}
+
+// ResearchAnalyticsService: Player & Game Telemetry Summary (Spec §19)
+function computeProgressionAnalytics(progression, ownerId, options) {
+  const opts = options || {};
+  const pid = String(ownerId || 'player_1');
+  const itemsCatalog = Object.assign({}, PROTOTYPE_RESEARCH_ITEMS, opts.items || {});
+  const treesCatalog = Object.assign({}, PROTOTYPE_RESEARCH_TREES, opts.trees || {});
+
+  const currencyBalances = {};
+  const cIds = Object.keys(DEFAULT_CURRENCY_DEFINITIONS);
+  for (let i = 0; i < cIds.length; i++) {
+    const cid = cIds[i];
+    currencyBalances[cid] = progression && progression.currencyLedger
+      ? getCurrencyBalance(progression.currencyLedger, pid, OWNER_TYPES.PLAYER, cid).available
+      : 0;
+  }
+
+  const lookup = buildOwnerProgressLookup(progression || {}, OWNER_TYPES.PLAYER, pid);
+  const domainBreakdown = {};
+  let totalResearchCompletions = 0;
+  let totalResearchLevels = 0;
+
+  const progKeys = Object.keys(lookup);
+  for (let j = 0; j < progKeys.length; j++) {
+    const itemId = progKeys[j];
+    const inst = lookup[itemId];
+    if (!inst || !inst.currentLevel) continue;
+    totalResearchCompletions += (inst.completionCount || inst.currentLevel);
+    totalResearchLevels += inst.currentLevel;
+
+    const def = itemsCatalog[itemId];
+    const domId = def ? def.domainId : 'unknown';
+    if (!domainBreakdown[domId]) {
+      domainBreakdown[domId] = { domainId: domId, itemsCompleted: 0, totalLevels: 0 };
+    }
+    domainBreakdown[domId].itemsCompleted += 1;
+    domainBreakdown[domId].totalLevels += inst.currentLevel;
+  }
+
+  const completedTreeIds = Object.keys(treesCatalog).filter(function(tid) {
+    return isTreeCompleted(progression, tid, pid, { trees: treesCatalog });
+  });
+
+  const trainMap = (progression && progression.trainingInstances) ? progression.trainingInstances : {};
+  const trainKeys = Object.keys(trainMap);
+  const trainedSubjects = {};
+  let totalTrainingCompletions = 0;
+  for (let t = 0; t < trainKeys.length; t++) {
+    const tr = trainMap[trainKeys[t]];
+    if (tr && tr.currentLevel > 0) {
+      totalTrainingCompletions += (tr.completionCount || tr.currentLevel);
+      trainedSubjects[tr.subjectType + ':' + tr.subjectId] = true;
+    }
+  }
+
+  const contribs = (progression && Array.isArray(progression.contributions)) ? progression.contributions : [];
+  let totalContributedScaled = 0;
+  for (let c = 0; c < contribs.length; c++) {
+    totalContributedScaled += (contribs[c].amountScaled || 0);
+  }
+
+  const rq = (progression && progression.researchQueue) ? progression.researchQueue : { activeItems: [], pendingItems: [] };
+  const tq = (progression && progression.trainingQueue) ? progression.trainingQueue : { activeItems: [], pendingItems: [] };
+
+  return {
+    ownerId: pid,
+    currencyBalances: currencyBalances,
+    totalResearchCompletions: totalResearchCompletions,
+    totalResearchLevels: totalResearchLevels,
+    completedTreeCount: completedTreeIds.length,
+    completedTreeIds: completedTreeIds,
+    archivedTreeCount: (progression && Array.isArray(progression.archivedTreeIds)) ? progression.archivedTreeIds.length : 0,
+    totalTrainingCompletions: totalTrainingCompletions,
+    trainedSubjectCount: Object.keys(trainedSubjects).length,
+    activeResearchCount: rq.activeItems.length,
+    pendingResearchCount: rq.pendingItems.length,
+    activeTrainingCount: tq.activeItems.length,
+    pendingTrainingCount: tq.pendingItems.length,
+    milestoneCount: Object.keys((progression && progression.completedMilestones) || {}).length,
+    titleCount: (progression && Array.isArray(progression.earnedTitles)) ? progression.earnedTitles.length : 0,
+    activeTitle: getActivePlayerTitle(progression),
+    ledgerTransactionCount: (progression && progression.currencyLedger && Array.isArray(progression.currencyLedger.transactions))
+      ? progression.currencyLedger.transactions.length
+      : 0,
+    contributionCount: contribs.length,
+    totalContributedScaled: totalContributedScaled,
+    domainBreakdown: domainBreakdown,
+    tutorial: evaluateTutorialProgress(progression, pid)
+  };
+}
+
+  // --- Module: src/wargame/ui/progressionUi.js ---
+// =============================================================================
+// DUAL-ENTRY RESEARCH & TRAINING HUB UI (Inc 10.5 / Spec §18)
+// Renders the 6 required prototype views inside #wgProgressionHubModal:
+//   1. Overview  2. Visual Research Trees  3. Research Detail
+//   4. Queue Manager  5. Hero Training  6. History & Analytics
+// Accessible from the top-level navigation header AND contextual town buildings.
+// =============================================================================
+
+
+
+
+
+
+
+
+
+
+const PROGRESSION_HUB_TABS = [
+  { id: 'overview',  label: '📊 Overview' },
+  { id: 'trees',     label: '🌳 Trees' },
+  { id: 'detail',    label: '🔍 Detail' },
+  { id: 'queues',    label: '⏳ Queues' },
+  { id: 'training',  label: '🎯 Hero Training' },
+  { id: 'analytics', label: '🏆 History & Titles' }
+];
+
+function getNowMs(simHost) {
+  return (simHost && simHost.state && simHost.state.world && simHost.state.world.clock)
+    ? (simHost.state.world.clock.simTimeMs || 0)
+    : 0;
+}
+
+function getPlayerId() {
+  return 'player_1';
+}
+
+function formatRp(val) {
+  return Number(val || 0).toFixed(5);
+}
+
+function syncGoldToLedger(world, prog, nowMs) {
+  const city = world ? getPrimaryCity({ world: world }) : null;
+  if (!city || !city.stockpile) return;
+  const ledgerGold = getCurrencyBalance(prog.currencyLedger, getPlayerId(), OWNER_TYPES.PLAYER, 'gold').available;
+  const cityGold = Number(city.stockpile.gold || 0);
+  const diff = cityGold - ledgerGold;
+  if (diff > 0.0001) {
+    recordCurrencyTransaction(prog.currencyLedger, {
+      ownerId: getPlayerId(),
+      ownerType: OWNER_TYPES.PLAYER,
+      currencyId: 'gold',
+      amount: diff,
+      transactionType: TRANSACTION_TYPES.ADJUSTMENT,
+      source: 'city_treasury_sync',
+      nowMs: nowMs
+    });
+  }
+}
+
+function tickWorldProgression(simHost) {
+  if (!simHost || !simHost.state || !simHost.state.world) return;
+  const world = simHost.state.world;
+  const prog = ensureProgressionState(world);
+  const nowMs = getNowMs(simHost);
+  const pid = getPlayerId();
+
+  processPassiveAccrual(prog, pid, nowMs);
+  advanceResearchProgress(prog, nowMs);
+  advanceTrainingProgress(prog, nowMs);
+  evaluateTreeMilestones(prog, pid, { nowMs: nowMs, worldId: world.meta ? world.meta.worldName : 'aethelgard_prime' });
+}
+
+function renderProgressionHubModal(simHost) {
+  const modal = document.getElementById('wgProgressionHubModal');
+  if (!modal) return;
+  const state = simHost ? simHost.state : null;
+  if (!state || !state.world || !state._progressionHubOpen) {
+    modal.classList.add('hidden');
+    return;
+  }
+
+  modal.classList.remove('hidden');
+  tickWorldProgression(simHost);
+
+  const world = state.world;
+  const prog = ensureProgressionState(world);
+  const nowMs = getNowMs(simHost);
+  const pid = getPlayerId();
+  syncGoldToLedger(world, prog, nowMs);
+
+  const activeTab = state._progressionHubTab || 'overview';
+  const selectedItemId = state._progressionSelectedItemId || 'WAR_WEAPON_HEAVY_001';
+  const heroes = Array.isArray(world.heroes) ? world.heroes : [];
+  let selectedHeroId = state._progressionSelectedHeroId || (heroes[0] ? heroes[0].id : null);
+  if (selectedHeroId && !heroes.some(function(h) { return h.id === selectedHeroId; })) {
+    selectedHeroId = heroes[0] ? heroes[0].id : null;
+  }
+
+  const subtitleEl = document.getElementById('wgProgressionHubSubtitle');
+  if (subtitleEl) {
+    const genRp = getCurrencyBalance(prog.currencyLedger, pid, OWNER_TYPES.PLAYER, 'rp_general').available;
+    const advRp = getCurrencyBalance(prog.currencyLedger, pid, OWNER_TYPES.PLAYER, 'rp_adventurer').available;
+    const goldBal = getCurrencyBalance(prog.currencyLedger, pid, OWNER_TYPES.PLAYER, 'gold').available;
+    subtitleEl.textContent = 'General RP: ' + formatRp(genRp) + ' • Adventurer RP: ' + formatRp(advRp) + ' • Gold: ' + Math.floor(goldBal);
+  }
+
+  const tabsEl = document.getElementById('wgProgressionHubTabs');
+  if (tabsEl) {
+    tabsEl.innerHTML = PROGRESSION_HUB_TABS.map(function(t) {
+      const isAct = t.id === activeTab;
+      return `<button onclick="window.WargameApp.handleSwitchProgressionTab('${t.id}')" class="px-3 py-1.5 rounded-lg text-[11px] font-mono font-bold uppercase cursor-pointer transition ${isAct ? 'bg-[#fbbf24] text-[#080b11] shadow' : 'bg-[#111722] hover:bg-[#1a2232] text-[#cbd5e1] border border-[#283347]'}">${t.label}</button>`;
+    }).join('');
+  }
+
+  const bodyEl = document.getElementById('wgProgressionHubBody');
+  if (!bodyEl) return;
+
+  const analytics = computeProgressionAnalytics(prog, pid);
+  const lookup = buildOwnerProgressLookup(prog, OWNER_TYPES.PLAYER, pid);
+  const city = getPrimaryCity(state);
+
+  if (activeTab === 'overview') {
+    const activeTitleHtml = analytics.activeTitle
+      ? `<span class="px-2 py-0.5 rounded bg-[#fbbf24]/20 text-[#fbbf24] border border-[#fbbf24]/50 text-[10px] font-mono font-bold">👑 ${analytics.activeTitle.name}</span>`
+      : `<span class="text-[10px] font-mono text-[#64748b]">No title equipped</span>`;
+
+    const nextStepText = analytics.tutorial.nextStep
+      ? ('Next: ' + analytics.tutorial.nextStep.order + '. ' + analytics.tutorial.nextStep.title + ' — ' + analytics.tutorial.nextStep.desc)
+      : 'All 12 Research & Training onboarding steps mastered!';
+
+    bodyEl.innerHTML = `
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <div class="p-3 rounded-lg bg-[#080b11] border border-[#283347] space-y-1">
+          <div class="text-[10px] font-mono uppercase text-[#94a3b8]">📘 General RP (Passive)</div>
+          <div class="text-lg font-mono font-bold text-[#60a5fa]">${formatRp(analytics.currencyBalances.rp_general)}</div>
+          <div class="text-[10px] text-[#64748b]">Accrues offline at 0.00001 / sec + modifiers</div>
+        </div>
+        <div class="p-3 rounded-lg bg-[#080b11] border border-[#283347] space-y-1">
+          <div class="text-[10px] font-mono uppercase text-[#94a3b8]">🧭 Adventurer RP (Activity)</div>
+          <div class="text-lg font-mono font-bold text-[#34d399]">${formatRp(analytics.currencyBalances.rp_adventurer)}</div>
+          <div class="text-[10px] text-[#64748b]">Earned from delving, skirmishes & quests</div>
+        </div>
+        <div class="p-3 rounded-lg bg-[#080b11] border border-[#283347] space-y-1">
+          <div class="text-[10px] font-mono uppercase text-[#94a3b8]">💰 Treasury Gold</div>
+          <div class="text-lg font-mono font-bold text-[#fbbf24]">${Math.floor(analytics.currencyBalances.gold)}g</div>
+          <div class="text-[10px] text-[#64748b]">Shared atomic currency & stockpile payments</div>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div class="p-3 rounded-lg bg-[#080b11] border border-[#283347] space-y-2">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-bold text-[#fbbf24] uppercase">⏳ Active Queues</span>
+            <button onclick="window.WargameApp.handleSwitchProgressionTab('queues')" class="text-[10px] font-mono text-[#38bdf8] hover:underline cursor-pointer">Manage →</button>
+          </div>
+          <div class="text-xs text-[#cbd5e1] font-mono">
+            • Personal Research Queue: <strong>${analytics.activeResearchCount}/${prog.researchQueue.capacity}</strong> active (${analytics.pendingResearchCount} pending)<br/>
+            • Separate Hero Training Queue: <strong>${analytics.activeTrainingCount}/${prog.trainingQueue.capacity}</strong> active (${analytics.pendingTrainingCount} pending)
+          </div>
+        </div>
+        <div class="p-3 rounded-lg bg-[#080b11] border border-[#283347] space-y-2">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-bold text-[#c084fc] uppercase">🏆 Progression Identity</span>
+            ${activeTitleHtml}
+          </div>
+          <div class="text-xs text-[#cbd5e1] font-mono">
+            • Research Levels Completed: <strong>${analytics.totalResearchLevels}</strong> (${analytics.completedTreeCount} trees mastered)<br/>
+            • Hero Trainings Completed: <strong>${analytics.totalTrainingCompletions}</strong> (${analytics.trainedSubjectCount} heroes)
+          </div>
+        </div>
+      </div>
+
+      <div class="p-3 rounded-lg bg-[#080b11] border border-[#38bdf8]/40 space-y-2">
+        <div class="flex items-center justify-between text-xs">
+          <span class="font-bold text-[#38bdf8]">📜 12-Step Research &amp; Training Onboarding</span>
+          <span class="font-mono text-[#fbbf24] font-bold">${analytics.tutorial.completedCount} / ${analytics.tutorial.totalSteps} (${analytics.tutorial.progressPct}%)</span>
+        </div>
+        <div class="w-full h-2 bg-[#111722] rounded-full overflow-hidden">
+          <div class="h-full bg-[#38bdf8]" style="width:${analytics.tutorial.progressPct}%"></div>
+        </div>
+        <div class="text-[11px] text-[#94a3b8]">${nextStepText}</div>
+      </div>
+    `;
+    return;
+  }
+
+  if (activeTab === 'trees') {
+    const treesHtml = Object.keys(PROTOTYPE_RESEARCH_TREES).map(function(tid) {
+      const tree = PROTOTYPE_RESEARCH_TREES[tid];
+      const archived = (prog.archivedTreeIds || []).indexOf(tid) !== -1;
+      const completed = isTreeCompleted(prog, tid, pid);
+
+      const nodesHtml = (tree.itemIds || []).map(function(itemId) {
+        const item = PROTOTYPE_RESEARCH_ITEMS[itemId];
+        if (!item) return '';
+        const inst = lookup[itemId];
+        const curLv = inst ? (inst.currentLevel || 0) : 0;
+        const isActive = prog.researchQueue.activeItems.some(function(a) { return a.researchItemId === itemId; });
+        const badge = isActive
+          ? '<span class="px-1.5 py-0.5 rounded bg-[#38bdf8]/20 text-[#38bdf8] text-[9px] font-mono">IN PROGRESS</span>'
+          : (curLv >= item.levelLimit
+            ? '<span class="px-1.5 py-0.5 rounded bg-[#34d399]/20 text-[#34d399] text-[9px] font-mono">MAX</span>'
+            : '<span class="px-1.5 py-0.5 rounded bg-[#1a2232] text-[#fbbf24] text-[9px] font-mono">Lv ' + curLv + '/' + item.levelLimit + '</span>');
+
+        return `
+          <button onclick="window.WargameApp.handleSelectResearchItem('${itemId}')" class="w-full text-left p-2.5 rounded-lg bg-[#111722] hover:bg-[#1a2232] border ${selectedItemId === itemId ? 'border-[#fbbf24]' : 'border-[#283347]'} flex items-center justify-between gap-2 cursor-pointer transition">
+            <div class="min-w-0">
+              <div class="text-xs font-bold text-[#e6edf3] truncate">${item.icon || '📘'} ${item.name}</div>
+              <div class="text-[10px] text-[#8b949e] truncate">${item.description}</div>
+            </div>
+            ${badge}
+          </button>
+        `;
+      }).join('');
+
+      const archiveBtn = completed
+        ? (archived
+          ? `<button onclick="window.WargameApp.handleToggleArchiveTree('${tid}', false)" class="px-2 py-0.5 rounded bg-[#1a2232] text-[#94a3b8] text-[10px] font-mono cursor-pointer">Restore</button>`
+          : `<button onclick="window.WargameApp.handleToggleArchiveTree('${tid}', true)" class="px-2 py-0.5 rounded bg-[#34d399]/20 text-[#34d399] border border-[#34d399]/40 text-[10px] font-mono cursor-pointer">📦 Archive Tree</button>`)
+        : '';
+
+      return `
+        <div class="p-3 rounded-lg bg-[#080b11] border ${archived ? 'border-[#1e293b] opacity-65' : 'border-[#283347]'} space-y-2">
+          <div class="flex items-center justify-between gap-2">
+            <div>
+              <div class="text-xs font-bold text-[#fbbf24]">${tree.icon} ${tree.name} ${archived ? '<span class="text-[9px] text-[#64748b] font-mono">(Archived)</span>' : ''}</div>
+              <div class="text-[10px] text-[#94a3b8]">${tree.shortDescription}</div>
+            </div>
+            ${archiveBtn}
+          </div>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-2">${nodesHtml}</div>
+        </div>
+      `;
+    }).join('');
+
+    bodyEl.innerHTML = `<div class="space-y-3">${treesHtml}</div>`;
+    return;
+  }
+
+  if (activeTab === 'detail') {
+    const item = PROTOTYPE_RESEARCH_ITEMS[selectedItemId] || PROTOTYPE_RESEARCH_ITEMS.WAR_WEAPON_HEAVY_001;
+    const inst = lookup[item.researchItemId];
+    const curLv = inst ? (inst.currentLevel || 0) : 0;
+    const nextLv = curLv + 1;
+    const lvlDef = (item.levelDefinitions || []).find(function(l) { return l.level === nextLv; });
+
+    const elig = lvlDef
+      ? evaluateResearchEligibility(item, nextLv, {
+          ownerId: pid,
+          ownerType: OWNER_TYPES.PLAYER,
+          ledger: prog.currencyLedger,
+          researchProgress: lookup,
+          city: city,
+          alignment: prog.alignment,
+          discoveries: prog.discoveries
+        })
+      : { canStart: false, status: 'max_level_reached', unmetConditions: [] };
+
+    const costsStr = lvlDef
+      ? (lvlDef.costs || []).map(function(c) {
+          return c.kind === 'stockpile' ? (c.amount + ' ' + c.resourceId) : (c.amount + ' ' + c.currencyId);
+        }).join(' • ')
+      : 'Max Level Reached';
+
+    const benefitsStr = lvlDef
+      ? (lvlDef.benefits || []).map(function(b) {
+          return '[' + b.op.toUpperCase() + '] ' + b.effectType + ' -> ' + b.target + ' (' + b.value + ')';
+        }).join('<br/>')
+      : 'All levels completed.';
+
+    const unmetHtml = (elig.unmetConditions && elig.unmetConditions.length > 0)
+      ? `<div class="p-2.5 rounded bg-red-950/40 border border-red-500/40 text-[11px] text-red-300 space-y-1">
+          <div class="font-bold">🔒 Unmet Requirements:</div>
+          ${elig.unmetConditions.map(function(u) { return '<div>• ' + (u.reason || u.type) + '</div>'; }).join('')}
+        </div>`
+      : '';
+
+    bodyEl.innerHTML = `
+      <div class="p-4 rounded-lg bg-[#080b11] border border-[#fbbf24]/40 space-y-3">
+        <div class="flex items-center justify-between">
+          <div>
+            <div class="text-base font-bold text-[#fbbf24]">${item.icon || '📘'} ${item.name}</div>
+            <div class="text-[11px] font-mono text-[#94a3b8]">ID: ${item.researchItemId} • Domain: ${item.domainId} • Level ${curLv} / ${item.levelLimit}</div>
+          </div>
+          <button onclick="window.WargameApp.handleSwitchProgressionTab('trees')" class="px-2.5 py-1 rounded bg-[#1a2232] text-xs text-[#cbd5e1] cursor-pointer">← All Trees</button>
+        </div>
+        <p class="text-xs text-[#e6edf3]">${item.description}</p>
+        ${unmetHtml}
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs font-mono">
+          <div class="p-3 rounded bg-[#111722] border border-[#283347]">
+            <div class="text-[10px] uppercase text-[#94a3b8] mb-1">Next Level (${lvlDef ? ('Lv ' + nextLv) : 'MAX'}) Costs &amp; Time</div>
+            <div class="text-[#fbbf24]">${costsStr}</div>
+            ${lvlDef ? `<div class="text-[#38bdf8] mt-1">⏱ Duration: ${lvlDef.durationSec}s</div>` : ''}
+          </div>
+          <div class="p-3 rounded bg-[#111722] border border-[#283347]">
+            <div class="text-[10px] uppercase text-[#94a3b8] mb-1">Effects (Unlocks &amp; Modifiers)</div>
+            <div class="text-[#34d399]">${benefitsStr}</div>
+          </div>
+        </div>
+        <div class="flex justify-end">
+          <button onclick="window.WargameApp.handleStartResearch('${item.researchItemId}')" ${!lvlDef ? 'disabled' : ''} class="px-4 py-2 rounded-lg font-bold text-xs uppercase ${lvlDef ? 'bg-[#fbbf24] hover:bg-[#f59e0b] text-[#080b11] cursor-pointer' : 'bg-[#1a2232] text-[#64748b] cursor-not-allowed'}">
+            ${lvlDef ? ('📚 Start / Enqueue Level ' + nextLv) : '✓ Mastered'}
+          </button>
+        </div>
+      </div>
+    `;
+    return;
+  }
+
+  if (activeTab === 'queues') {
+    const rq = prog.researchQueue;
+    const tq = prog.trainingQueue;
+
+    const rActiveHtml = rq.activeItems.length > 0
+      ? rq.activeItems.map(function(e) {
+          const pct = Math.min(100, Math.round((e.elapsedMs / Math.max(1, e.effectiveDurationMs)) * 100));
+          const toggleBtn = e.status === 'paused'
+            ? `<button onclick="window.WargameApp.handleResumeResearch('${e.researchItemId}')" class="px-2 py-0.5 rounded bg-[#34d399]/20 text-[#34d399] text-[10px] font-mono cursor-pointer">▶ Resume</button>`
+            : `<button onclick="window.WargameApp.handlePauseResearch('${e.researchItemId}')" class="px-2 py-0.5 rounded bg-[#fbbf24]/20 text-[#fbbf24] text-[10px] font-mono cursor-pointer">⏸ Pause</button>`;
+          return `
+            <div class="p-2.5 rounded bg-[#111722] border border-[#38bdf8]/40 space-y-1.5 text-xs">
+              <div class="flex items-center justify-between">
+                <span class="font-bold text-[#e6edf3]">${e.researchItemId} (Lv ${e.targetLevel})</span>
+                <div class="flex items-center gap-1">
+                  ${toggleBtn}
+                  <button onclick="window.WargameApp.handleCancelResearch('${e.researchItemId}')" class="px-2 py-0.5 rounded bg-red-950/60 text-red-300 text-[10px] font-mono cursor-pointer">✕ Cancel</button>
+                </div>
+              </div>
+              <div class="w-full h-1.5 bg-[#080b11] rounded-full overflow-hidden"><div class="h-full bg-[#38bdf8]" style="width:${pct}%"></div></div>
+              <div class="text-[10px] font-mono text-[#94a3b8]">Status: ${e.status} • ${pct}%</div>
+            </div>
+          `;
+        }).join('')
+      : '<div class="text-xs text-[#64748b] italic">No active personal research.</div>';
+
+    const tActiveHtml = tq.activeItems.length > 0
+      ? tq.activeItems.map(function(e) {
+          const pct = Math.min(100, Math.round((e.elapsedMs / Math.max(1, e.effectiveDurationMs)) * 100));
+          return `
+            <div class="p-2.5 rounded bg-[#111722] border border-[#34d399]/40 space-y-1.5 text-xs">
+              <div class="flex items-center justify-between">
+                <span class="font-bold text-[#e6edf3]">${e.trainingDefinitionId} • ${e.subjectId} (Lv ${e.targetLevel})</span>
+                <button onclick="window.WargameApp.handleCancelHeroTraining('${e.subjectId}', '${e.trainingDefinitionId}')" class="px-2 py-0.5 rounded bg-red-950/60 text-red-300 text-[10px] font-mono cursor-pointer">✕ Cancel</button>
+              </div>
+              <div class="w-full h-1.5 bg-[#080b11] rounded-full overflow-hidden"><div class="h-full bg-[#34d399]" style="width:${pct}%"></div></div>
+              <div class="text-[10px] font-mono text-[#94a3b8]">Status: ${e.status} • ${pct}%</div>
+            </div>
+          `;
+        }).join('')
+      : '<div class="text-xs text-[#64748b] italic">No active hero training.</div>';
+
+    bodyEl.innerHTML = `
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div class="p-3 rounded-lg bg-[#080b11] border border-[#283347] space-y-2">
+          <div class="text-xs font-bold text-[#38bdf8] uppercase">📚 Personal Research Queue (${rq.activeItems.length}/${rq.capacity})</div>
+          ${rActiveHtml}
+          <div class="text-[10px] font-mono text-[#94a3b8] pt-1">Pending: ${rq.pendingItems.length}</div>
+        </div>
+        <div class="p-3 rounded-lg bg-[#080b11] border border-[#283347] space-y-2">
+          <div class="text-xs font-bold text-[#34d399] uppercase">🎯 Separate Hero Training Queue (${tq.activeItems.length}/${tq.capacity})</div>
+          ${tActiveHtml}
+          <div class="text-[10px] font-mono text-[#94a3b8] pt-1">Pending: ${tq.pendingItems.length}</div>
+        </div>
+      </div>
+    `;
+    return;
+  }
+
+  if (activeTab === 'training') {
+    if (heroes.length === 0) {
+      bodyEl.innerHTML = `<div class="p-4 rounded-lg bg-[#080b11] border border-[#283347] text-xs text-[#94a3b8] text-center">Recruit at least one Hero at your City Guild Hall to train individual Hero skills here.</div>`;
+      return;
+    }
+    const selHero = heroes.find(function(h) { return h.id === selectedHeroId; }) || heroes[0];
+    const effAtk = computeSubjectEffectiveStat(prog, SUBJECT_TYPES.HERO, selHero.id, selHero.stats ? selHero.stats.atk : 10, 'atk', { playerId: pid }).finalValue;
+    const effHp = computeSubjectEffectiveStat(prog, SUBJECT_TYPES.HERO, selHero.id, selHero.stats ? selHero.stats.maxHp : 100, 'maxHp', { playerId: pid }).finalValue;
+    const heroSummary = getSubjectTrainingSummary(prog, SUBJECT_TYPES.HERO, selHero.id);
+
+    const heroButtons = heroes.map(function(h) {
+      const isSel = h.id === selHero.id;
+      return `<button onclick="window.WargameApp.handleSelectTrainingHero('${h.id}')" class="px-2.5 py-1.5 rounded-lg text-xs font-mono cursor-pointer ${isSel ? 'bg-[#fbbf24] text-[#080b11] font-bold' : 'bg-[#111722] text-[#cbd5e1] border border-[#283347]'}">${h.icon || '⚔️'} ${h.name}</button>`;
+    }).join('');
+
+    const trainCards = Object.keys(PROTOTYPE_TRAINING_DEFINITIONS).map(function(tid) {
+      const def = PROTOTYPE_TRAINING_DEFINITIONS[tid];
+      const elig = evaluateTrainingEligibility(prog, { ownerId: pid, subjectType: SUBJECT_TYPES.HERO, subjectId: selHero.id, trainingDefinitionId: tid });
+      const trainedRec = heroSummary.find(function(s) { return s.trainingDefinitionId === tid; });
+      const curLv = trainedRec ? trainedRec.currentLevel : 0;
+      const reasonHtml = !elig.canStart && elig.unmetConditions && elig.unmetConditions[0]
+        ? `<div class="text-[10px] text-amber-300 font-mono">🔒 ${elig.unmetConditions[0].reason}</div>`
+        : '';
+
+      return `
+        <div class="p-3 rounded-lg bg-[#111722] border border-[#283347] flex items-center justify-between gap-3 text-xs">
+          <div class="space-y-0.5">
+            <div class="font-bold text-[#34d399]">🎯 ${def.name} <span class="text-[10px] font-mono text-[#fbbf24]">• Lv ${curLv}/${def.levels.length}</span></div>
+            <div class="text-[10px] text-[#94a3b8]">${def.description}</div>
+            ${reasonHtml}
+          </div>
+          <button onclick="window.WargameApp.handleStartHeroTraining('${selHero.id}', '${tid}')" ${!elig.canStart ? 'disabled' : ''} class="px-3 py-1.5 rounded font-bold text-[10px] font-mono uppercase whitespace-nowrap ${elig.canStart ? 'bg-[#34d399] hover:bg-[#10b981] text-[#080b11] cursor-pointer' : 'bg-[#1a2232] text-[#64748b] cursor-not-allowed'}">
+            ${elig.canStart ? ('Train Lv ' + elig.targetLevel) : 'Locked'}
+          </button>
+        </div>
+      `;
+    }).join('');
+
+    bodyEl.innerHTML = `
+      <div class="space-y-3">
+        <div class="flex flex-wrap items-center gap-2">${heroButtons}</div>
+        <div class="p-3 rounded-lg bg-[#080b11] border border-[#fbbf24]/30 flex items-center justify-between text-xs font-mono">
+          <span class="font-bold text-[#fbbf24]">${selHero.icon || '⚔️'} ${selHero.name} (Lv ${selHero.level} ${selHero.className})</span>
+          <span class="text-[#34d399]">Effective ATK: <strong>${effAtk}</strong> • Effective Max HP: <strong>${effHp}</strong></span>
+        </div>
+        <div class="space-y-2">${trainCards}</div>
+      </div>
+    `;
+    return;
+  }
+
+  // Tab 6: History, Milestones, Provenance Titles & Analytics
+  const titlesHtml = (prog.earnedTitles || []).length > 0
+    ? prog.earnedTitles.map(function(t) {
+        const isEq = prog.activeTitleId === t.titleId;
+        return `
+          <div class="p-2 rounded bg-[#111722] border ${isEq ? 'border-[#fbbf24]' : 'border-[#283347]'} flex items-center justify-between text-xs">
+            <div>
+              <div class="font-bold text-[#fbbf24]">👑 ${t.name} <span class="text-[9px] font-mono uppercase text-[#c084fc]">[${t.rarity}]</span></div>
+              <div class="text-[10px] text-[#94a3b8]">${t.provenance} • World: ${t.worldId}</div>
+            </div>
+            <button onclick="window.WargameApp.handleEquipPlayerTitle('${isEq ? '' : t.titleId}')" class="px-2.5 py-1 rounded text-[10px] font-mono font-bold cursor-pointer ${isEq ? 'bg-[#fbbf24] text-[#080b11]' : 'bg-[#1a2232] text-[#e6edf3]'}">
+              ${isEq ? 'Equipped' : 'Equip'}
+            </button>
+          </div>
+        `;
+      }).join('')
+    : '<div class="text-xs text-[#64748b] italic">Complete Research Tree milestones to earn Provenance Titles!</div>';
+
+  bodyEl.innerHTML = `
+    <div class="space-y-3">
+      <div class="p-3 rounded-lg bg-[#080b11] border border-[#283347] space-y-2">
+        <div class="text-xs font-bold text-[#fbbf24] uppercase">👑 Provenance Titles (${analytics.titleCount})</div>
+        <div class="space-y-1.5">${titlesHtml}</div>
+      </div>
+      <div class="p-3 rounded-lg bg-[#080b11] border border-[#283347] grid grid-cols-2 md:grid-cols-4 gap-2 text-xs font-mono">
+        <div><span class="text-[#94a3b8]">Milestones:</span> <strong class="text-[#34d399]">${analytics.milestoneCount}</strong></div>
+        <div><span class="text-[#94a3b8]">Archived Trees:</span> <strong class="text-[#38bdf8]">${analytics.archivedTreeCount}</strong></div>
+        <div><span class="text-[#94a3b8]">Ledger Txns:</span> <strong class="text-[#fbbf24]">${analytics.ledgerTransactionCount}</strong></div>
+        <div><span class="text-[#94a3b8]">Contributions:</span> <strong class="text-[#c084fc]">${analytics.contributionCount}</strong></div>
+      </div>
+    </div>
+  `;
+}
+
+// UI Action Handlers (bound to window.WargameApp)
+function handleOpenProgressionHub(simHost, initialTab) {
+  if (!simHost || !simHost.state || !simHost.state.world) return;
+  simHost.state._progressionHubOpen = true;
+  if (initialTab) simHost.state._progressionHubTab = initialTab;
+  renderProgressionHubModal(simHost);
+}
+
+function handleCloseProgressionHub(simHost) {
+  if (!simHost || !simHost.state) return;
+  simHost.state._progressionHubOpen = false;
+  renderProgressionHubModal(simHost);
+}
+
+function handleSwitchProgressionTab(simHost, tabId) {
+  if (!simHost || !simHost.state) return;
+  simHost.state._progressionHubTab = tabId || 'overview';
+  renderProgressionHubModal(simHost);
+}
+
+function handleSelectResearchItem(simHost, itemId) {
+  if (!simHost || !simHost.state) return;
+  simHost.state._progressionSelectedItemId = itemId;
+  simHost.state._progressionHubTab = 'detail';
+  renderProgressionHubModal(simHost);
+}
+
+function handleStartResearchAction(simHost, itemId) {
+  if (!simHost || !simHost.state || !simHost.state.world) return { ok: false };
+  const world = simHost.state.world;
+  const prog = ensureProgressionState(world);
+  const nowMs = getNowMs(simHost);
+  const city = getPrimaryCity(simHost.state);
+  syncGoldToLedger(world, prog, nowMs);
+
+  const res = startOrEnqueueResearch(prog, {
+    ownerId: getPlayerId(),
+    researchItemId: itemId,
+    nowMs: nowMs,
+    stockpile: city ? city.stockpile : null,
+    eligibilityCtx: { city: city }
+  });
+  simHost.save();
+  renderProgressionHubModal(simHost);
+  return res;
+}
+
+function handlePauseResearchAction(simHost, itemId) {
+  if (!simHost || !simHost.state || !simHost.state.world) return { ok: false };
+  const prog = ensureProgressionState(simHost.state.world);
+  const res = pauseResearchItem(prog, itemId, getNowMs(simHost));
+  simHost.save();
+  renderProgressionHubModal(simHost);
+  return res;
+}
+
+function handleResumeResearchAction(simHost, itemId) {
+  if (!simHost || !simHost.state || !simHost.state.world) return { ok: false };
+  const prog = ensureProgressionState(simHost.state.world);
+  const res = resumeResearchItem(prog, itemId, getNowMs(simHost));
+  simHost.save();
+  renderProgressionHubModal(simHost);
+  return res;
+}
+
+function handleCancelResearchAction(simHost, itemId) {
+  if (!simHost || !simHost.state || !simHost.state.world) return { ok: false };
+  const prog = ensureProgressionState(simHost.state.world);
+  const city = getPrimaryCity(simHost.state);
+  const res = cancelResearchItem(prog, itemId, {
+    nowMs: getNowMs(simHost),
+    refundPolicy: REFUND_POLICIES.FIXED_PERCENT,
+    stockpile: city ? city.stockpile : null
+  });
+  simHost.save();
+  renderProgressionHubModal(simHost);
+  return res;
+}
+
+function handleSelectTrainingHeroAction(simHost, heroId) {
+  if (!simHost || !simHost.state) return;
+  simHost.state._progressionSelectedHeroId = heroId;
+  renderProgressionHubModal(simHost);
+}
+
+function handleStartHeroTrainingAction(simHost, heroId, trainingDefinitionId) {
+  if (!simHost || !simHost.state || !simHost.state.world) return { ok: false };
+  const world = simHost.state.world;
+  const prog = ensureProgressionState(world);
+  const nowMs = getNowMs(simHost);
+  const city = getPrimaryCity(simHost.state);
+  syncGoldToLedger(world, prog, nowMs);
+
+  const res = startOrEnqueueTraining(prog, {
+    ownerId: getPlayerId(),
+    subjectType: SUBJECT_TYPES.HERO,
+    subjectId: heroId,
+    trainingDefinitionId: trainingDefinitionId,
+    nowMs: nowMs,
+    stockpile: city ? city.stockpile : null
+  });
+  simHost.save();
+  renderProgressionHubModal(simHost);
+  return res;
+}
+
+function handleCancelHeroTrainingAction(simHost, heroId, trainingDefinitionId) {
+  if (!simHost || !simHost.state || !simHost.state.world) return { ok: false };
+  const prog = ensureProgressionState(simHost.state.world);
+  const res = cancelTrainingItem(prog, heroId, trainingDefinitionId, {
+    nowMs: getNowMs(simHost),
+    refundPolicy: REFUND_POLICIES.FIXED_PERCENT
+  });
+  simHost.save();
+  renderProgressionHubModal(simHost);
+  return res;
+}
+
+function handleToggleArchiveTreeAction(simHost, treeId, archive) {
+  if (!simHost || !simHost.state || !simHost.state.world) return { ok: false };
+  const prog = ensureProgressionState(simHost.state.world);
+  const res = archive ? archiveCompletedTree(prog, treeId, getPlayerId()) : unarchiveTree(prog, treeId);
+  simHost.save();
+  renderProgressionHubModal(simHost);
+  return res;
+}
+
+function handleEquipPlayerTitleAction(simHost, titleId) {
+  if (!simHost || !simHost.state || !simHost.state.world) return { ok: false };
+  const prog = ensureProgressionState(simHost.state.world);
+  const res = setActivePlayerTitle(prog, titleId || null);
+  simHost.save();
+  renderProgressionHubModal(simHost);
+  return res;
+}
+
   // --- Module: src/constants.js ---
 // Core constants, viewport dimensions, map scale presets, tile IDs, and rarity definitions
 
@@ -8992,6 +12348,7 @@ function renderCityIsoCanvas(simHost) {
 
 
 
+
 function setHtmlIfChanged(el, newHtml) {
   if (!el) return;
   if (!el.dataset) el.dataset = {};
@@ -9189,6 +12546,7 @@ function syncWargameUI(simHost) {
   // 7. Sync Shared Character Sheet Modal, Enterable Facility Modal, Screen Info Popup & Mobile Drawers
   renderWargameCharacterSheetModal(simHost);
   renderWargameFacilityModal(simHost);
+  renderProgressionHubModal(simHost);
   renderScreenInfoModal(simHost);
   syncMobileDrawers(simHost);
 }
@@ -9477,7 +12835,14 @@ function buildUnifiedGuildServicesHtml(simHost, bId, city, bDef, lvl) {
         </div>
       `;
     }).join('');
-    panelHtml = `<div class="space-y-1.5">${tList}</div>`;
+    panelHtml = `
+      <div class="space-y-1.5">
+        <div class="flex justify-end pb-1">
+          <button onclick="window.WargameApp.handleOpenProgressionHub('training')" class="px-3 py-1.5 rounded-lg bg-[#34d399] hover:bg-[#10b981] text-[#080b11] font-mono font-bold text-[10px] uppercase cursor-pointer">🎯 Open Hero Training Hub →</button>
+        </div>
+        ${tList}
+      </div>
+    `;
   } else if (activeTab === 'research') {
     const rList = (catalog.research || []).map(function(rs) {
       return `
@@ -9490,7 +12855,14 @@ function buildUnifiedGuildServicesHtml(simHost, bId, city, bDef, lvl) {
         </div>
       `;
     }).join('');
-    panelHtml = `<div class="space-y-1.5">${rList}</div>`;
+    panelHtml = `
+      <div class="space-y-1.5">
+        <div class="flex justify-end pb-1">
+          <button onclick="window.WargameApp.handleOpenProgressionHub('trees')" class="px-3 py-1.5 rounded-lg bg-[#c084fc] hover:bg-[#a855f7] text-[#080b11] font-mono font-bold text-[10px] uppercase cursor-pointer">📚 Open Research Trees Hub →</button>
+        </div>
+        ${rList}
+      </div>
+    `;
   } else if (activeTab === 'shop') {
     const sList = (catalog.shop || []).map(function(sh) {
       return `
@@ -10722,2418 +14094,10 @@ function formatEventSummary(ev) {
   return '';
 }
 
-  // --- Module: src/progression/eligibilityService.js ---
-// =============================================================================
-// GENERIC NESTED PREREQUISITE & ELIGIBILITY ENGINE (Inc 10.1 / ADR-0015 / Spec §8)
-// Evaluates recursive AND / OR / NOT condition trees across Visibility, Eligibility,
-// Start, Completion, and Bonus categories, returning rich diagnostic evaluation results.
-// =============================================================================
-
-
-const EVALUATION_STATUS = {
-  AVAILABLE: 'available',
-  LOCKED: 'locked',
-  HIDDEN: 'hidden',
-  UNAFFORDABLE: 'unaffordable',
-  QUEUE_FULL: 'queue_full',
-  IN_PROGRESS: 'in_progress',
-  COMPLETED: 'completed',
-  MAX_LEVEL: 'max_level_reached',
-  TEMP_UNAVAILABLE: 'temporarily_unavailable',
-  RESTRICTED_GUILD: 'restricted_by_guild',
-  RESTRICTED_ALLIANCE: 'restricted_by_alliance',
-  RESTRICTED_ALIGNMENT: 'restricted_by_alignment',
-  SUBJECT_UNAVAILABLE: 'subject_unavailable'
-};
-
-function compareValues(actual, op, expected) {
-  switch (op) {
-    case 'greater_than_or_equal':
-    case '>=': return Number(actual || 0) >= Number(expected);
-    case 'less_than_or_equal':
-    case '<=': return Number(actual || 0) <= Number(expected);
-    case 'greater_than':
-    case '>':  return Number(actual || 0) > Number(expected);
-    case 'less_than':
-    case '<':  return Number(actual || 0) < Number(expected);
-    case 'equals':
-    case '==': return actual === expected;
-    case 'not_equals':
-    case '!=': return actual !== expected;
-    case 'in': return Array.isArray(expected) && expected.indexOf(actual) !== -1;
-    case 'contains': return Array.isArray(actual) && actual.indexOf(expected) !== -1;
-    case 'contains_any':
-      if (!Array.isArray(actual) || !Array.isArray(expected)) return false;
-      return expected.some(function(v) { return actual.indexOf(v) !== -1; });
-    default:
-      return actual === expected;
-  }
-}
-
-function evaluateLeafCondition(cond, ctx) {
-  const c = ctx || {};
-  const type = cond.type;
-  const op = cond.operator || 'greater_than_or_equal';
-  const expected = cond.value;
-
-  if (type === 'research_level') {
-    const progMap = c.researchProgress || {};
-    const inst = progMap[cond.research_item_id || cond.researchItemId];
-    const actual = inst ? (inst.currentLevel || 0) : 0;
-    const ok = compareValues(actual, op, expected);
-    return {
-      passed: ok,
-      restriction: null,
-      unmet: ok ? null : {
-        type: type,
-        researchItemId: cond.research_item_id || cond.researchItemId,
-        expected: expected,
-        actual: actual,
-        reason: 'Requires ' + (cond.label || cond.research_item_id || cond.researchItemId) + ' Lv ' + expected + ' (have Lv ' + actual + ')'
-      }
-    };
-  }
-
-  if (type === 'hero_level') {
-    const actual = c.hero ? (c.hero.level || 1) : (c.heroLevel || 0);
-    const ok = compareValues(actual, op, expected);
-    return {
-      passed: ok,
-      restriction: c.hero || typeof c.heroLevel === 'number' ? null : EVALUATION_STATUS.SUBJECT_UNAVAILABLE,
-      unmet: ok ? null : { type: type, expected: expected, actual: actual, reason: 'Requires Hero Level ' + expected + ' (current: ' + actual + ')' }
-    };
-  }
-
-  if (type === 'player_level') {
-    const actual = c.playerLevel || 1;
-    const ok = compareValues(actual, op, expected);
-    return {
-      passed: ok,
-      restriction: null,
-      unmet: ok ? null : { type: type, expected: expected, actual: actual, reason: 'Requires Player Level ' + expected }
-    };
-  }
-
-  if (type === 'building_level') {
-    const bMap = (c.city && c.city.buildings) ? c.city.buildings : (c.buildings || {});
-    const actual = bMap[cond.buildingId] || 0;
-    const ok = compareValues(actual, op, expected);
-    return {
-      passed: ok,
-      restriction: null,
-      unmet: ok ? null : { type: type, buildingId: cond.buildingId, expected: expected, actual: actual, reason: 'Requires ' + cond.buildingId + ' Level ' + expected }
-    };
-  }
-
-  if (type === 'currency_balance') {
-    const bal = c.ledger
-      ? getCurrencyBalance(c.ledger, cond.ownerId || c.ownerId || 'player_1', cond.ownerType || c.ownerType || OWNER_TYPES.PLAYER, cond.currencyId).available
-      : 0;
-    const ok = compareValues(bal, op, expected);
-    return {
-      passed: ok,
-      restriction: null,
-      unmet: ok ? null : { type: type, currencyId: cond.currencyId, expected: expected, actual: bal, reason: 'Requires ' + expected + ' ' + cond.currencyId }
-    };
-  }
-
-  if (type === 'guild_type') {
-    const actual = c.guild ? c.guild.type : null;
-    const ok = compareValues(actual, op === 'greater_than_or_equal' ? 'equals' : op, expected);
-    return {
-      passed: ok,
-      restriction: ok ? null : EVALUATION_STATUS.RESTRICTED_GUILD,
-      unmet: ok ? null : { type: type, expected: expected, actual: actual, reason: 'Requires Guild specialization: ' + expected }
-    };
-  }
-
-  if (type === 'alliance_membership') {
-    const isMember = Boolean(c.alliance && c.alliance.id);
-    const ok = isMember === (expected !== false);
-    return {
-      passed: ok,
-      restriction: ok ? null : EVALUATION_STATUS.RESTRICTED_ALLIANCE,
-      unmet: ok ? null : { type: type, expected: true, actual: isMember, reason: 'Requires active Alliance membership' }
-    };
-  }
-
-  if (type === 'divine_alignment_tag') {
-    const tags = (c.alignment && Array.isArray(c.alignment.godTags)) ? c.alignment.godTags : [];
-    const ok = Array.isArray(expected)
-      ? compareValues(tags, 'contains_any', expected)
-      : compareValues(tags, 'contains', expected);
-    return {
-      passed: ok,
-      restriction: ok ? null : EVALUATION_STATUS.RESTRICTED_ALIGNMENT,
-      unmet: ok ? null : { type: type, expected: expected, actual: tags, reason: 'Requires Divine Alignment tag: ' + String(expected) }
-    };
-  }
-
-  if (type === 'discovery_status') {
-    const discovered = (c.discoveries && c.discoveries[cond.discoveryId]) === true;
-    const ok = discovered === (expected !== false);
-    return {
-      passed: ok,
-      restriction: null,
-      unmet: ok ? null : { type: type, discoveryId: cond.discoveryId, expected: true, actual: discovered, reason: 'Must first discover ' + cond.discoveryId }
-    };
-  }
-
-  return { passed: true, restriction: null, unmet: null };
-}
-
-function evaluateConditionNode(node, ctx) {
-  if (!node) return { passed: true, unmetConditions: [], restrictionStatus: null };
-
-  // Composite Group (AND / OR / NOT)
-  if (node.operator === 'AND' || node.operator === 'OR' || node.operator === 'NOT') {
-    const children = Array.isArray(node.conditions) ? node.conditions : [];
-    if (node.operator === 'NOT') {
-      const sub = children.length > 0 ? evaluateConditionNode(children[0], ctx) : { passed: false };
-      const passed = !sub.passed;
-      return {
-        passed: passed,
-        unmetConditions: passed ? [] : [{ type: 'NOT', reason: node.reason || 'Condition must not be met' }],
-        restrictionStatus: null
-      };
-    }
-
-    if (node.operator === 'AND') {
-      const unmet = [];
-      let restriction = null;
-      for (let i = 0; i < children.length; i++) {
-        const res = evaluateConditionNode(children[i], ctx);
-        if (!res.passed) {
-          for (let j = 0; j < res.unmetConditions.length; j++) unmet.push(res.unmetConditions[j]);
-          if (!restriction && res.restrictionStatus) restriction = res.restrictionStatus;
-        }
-      }
-      return {
-        passed: unmet.length === 0,
-        unmetConditions: unmet,
-        restrictionStatus: restriction
-      };
-    }
-
-    if (node.operator === 'OR') {
-      const allUnmet = [];
-      let restriction = null;
-      for (let i = 0; i < children.length; i++) {
-        const res = evaluateConditionNode(children[i], ctx);
-        if (res.passed) {
-          return { passed: true, unmetConditions: [], restrictionStatus: null };
-        }
-        for (let j = 0; j < res.unmetConditions.length; j++) allUnmet.push(res.unmetConditions[j]);
-        if (!restriction && res.restrictionStatus) restriction = res.restrictionStatus;
-      }
-      return {
-        passed: children.length === 0,
-        unmetConditions: allUnmet,
-        restrictionStatus: restriction
-      };
-    }
-  }
-
-  // Leaf Condition
-  const leaf = evaluateLeafCondition(node, ctx);
-  return {
-    passed: leaf.passed,
-    unmetConditions: leaf.unmet ? [leaf.unmet] : [],
-    restrictionStatus: leaf.restriction
-  };
-}
-
-function evaluateResearchEligibility(itemDef, targetLevel, ctx) {
-  if (!itemDef) {
-    return { status: EVALUATION_STATUS.TEMP_UNAVAILABLE, canStart: false, unmetConditions: [{ reason: 'Unknown research item' }] };
-  }
-
-  const context = ctx || {};
-  const progMap = context.researchProgress || {};
-  const inst = progMap[itemDef.researchItemId];
-  const curLvl = inst ? (inst.currentLevel || 0) : 0;
-
-  if (curLvl >= (itemDef.levelLimit || 1)) {
-    return { status: EVALUATION_STATUS.MAX_LEVEL, canStart: false, unmetConditions: [] };
-  }
-
-  if (inst && inst.status === 'in_progress') {
-    return { status: EVALUATION_STATUS.IN_PROGRESS, canStart: false, unmetConditions: [] };
-  }
-
-  // 1. Visibility check
-  if (itemDef.visibilityRules) {
-    const vis = evaluateConditionNode(itemDef.visibilityRules, context);
-    if (!vis.passed) {
-      return { status: EVALUATION_STATUS.HIDDEN, canStart: false, unmetConditions: vis.unmetConditions };
-    }
-  }
-
-  // 2. Item-level & Level-specific Eligibility Prerequisites
-  const lvlDef = Array.isArray(itemDef.levelDefinitions)
-    ? itemDef.levelDefinitions.find(function(l) { return l.level === targetLevel; })
-    : null;
-
-  const combinedUnmet = [];
-  let restriction = null;
-
-  if (itemDef.prerequisites) {
-    const r1 = evaluateConditionNode(itemDef.prerequisites, context);
-    if (!r1.passed) {
-      for (let i = 0; i < r1.unmetConditions.length; i++) combinedUnmet.push(r1.unmetConditions[i]);
-      if (r1.restrictionStatus) restriction = r1.restrictionStatus;
-    }
-  }
-
-  if (lvlDef && lvlDef.prerequisites) {
-    const r2 = evaluateConditionNode(lvlDef.prerequisites, context);
-    if (!r2.passed) {
-      for (let i = 0; i < r2.unmetConditions.length; i++) combinedUnmet.push(r2.unmetConditions[i]);
-      if (!restriction && r2.restrictionStatus) restriction = r2.restrictionStatus;
-    }
-  }
-
-  if (combinedUnmet.length > 0) {
-    return {
-      status: restriction || EVALUATION_STATUS.LOCKED,
-      canStart: false,
-      unmetConditions: combinedUnmet
-    };
-  }
-
-  // 3. Queue Capacity check
-  if (context.queueFull === true) {
-    return { status: EVALUATION_STATUS.QUEUE_FULL, canStart: false, unmetConditions: [{ reason: 'Research queue is full' }] };
-  }
-
-  return {
-    status: EVALUATION_STATUS.AVAILABLE,
-    canStart: true,
-    unmetConditions: []
-  };
-}
-
-  // --- Module: src/progression/researchCatalog.js ---
-// =============================================================================
-// VERSIONED RESEARCH & TRAINING CATALOG SERVICE (Inc 10.1 / ADR-0015 / Spec §6, §7, §14, §22)
-// Defines the 15 Research Domains, 5 Representative Prototype Trees (General Knowledge,
-// Adventurer Basics, Weapon Proficiency incl. WAR_WEAPON_HEAVY_001, City Development,
-// Divine Knowledge), Starter Hero Training Definitions, and Catalog Validator.
-// =============================================================================
-
-
-const RESEARCH_DOMAINS = {
-  adventuring:       { domainId: 'adventuring',       name: 'Adventuring',       icon: '🧭', sortOrder: 1,  enabled: true, version: '1.0.0' },
-  dungeon:           { domainId: 'dungeon',           name: 'Dungeon',           icon: '🗝️', sortOrder: 2,  enabled: true, version: '1.0.0' },
-  warrior:           { domainId: 'warrior',           name: 'Warrior',           icon: '⚔️', sortOrder: 3,  enabled: true, version: '1.0.0' },
-  military:          { domainId: 'military',          name: 'Military',          icon: '🛡️', sortOrder: 4,  enabled: true, version: '1.0.0' },
-  city:              { domainId: 'city',              name: 'City',              icon: '🏛️', sortOrder: 5,  enabled: true, version: '1.0.0' },
-  economy:           { domainId: 'economy',           name: 'Economy',           icon: '💰', sortOrder: 6,  enabled: true, version: '1.0.0' },
-  influence:         { domainId: 'influence',         name: 'Influence',         icon: '👑', sortOrder: 7,  enabled: true, version: '1.0.0' },
-  constructs:        { domainId: 'constructs',        name: 'Constructs',        icon: '⚙️', sortOrder: 8,  enabled: true, version: '1.0.0' },
-  religion:          { domainId: 'religion',          name: 'Religion',          icon: '☀️', sortOrder: 9,  enabled: true, version: '1.0.0' },
-  priesthood:        { domainId: 'priesthood',        name: 'Priesthood',        icon: '✝️', sortOrder: 10, enabled: true, version: '1.0.0' },
-  exploration:       { domainId: 'exploration',       name: 'Exploration',       icon: '🗺️', sortOrder: 11, enabled: true, version: '1.0.0' },
-  magic:             { domainId: 'magic',             name: 'Magic',             icon: '✨', sortOrder: 12, enabled: true, version: '1.0.0' },
-  crafting:          { domainId: 'crafting',          name: 'Crafting',          icon: '🔨', sortOrder: 13, enabled: true, version: '1.0.0' },
-  logistics:         { domainId: 'logistics',         name: 'Logistics',         icon: '📦', sortOrder: 14, enabled: true, version: '1.0.0' },
-  general_knowledge: { domainId: 'general_knowledge', name: 'General Knowledge', icon: '📘', sortOrder: 15, enabled: true, version: '1.0.0' }
-};
-
-const PROTOTYPE_RESEARCH_TREES = {
-  tree_general_knowledge: {
-    treeId: 'tree_general_knowledge',
-    domainId: 'general_knowledge',
-    name: 'General Knowledge',
-    shortDescription: 'Foundational literacy, scholarly methods, and passive research acceleration.',
-    icon: '📘',
-    ownershipType: OWNER_TYPES.PLAYER,
-    branches: [
-      { branchId: 'br_scholars', name: 'Scholarly Methods' },
-      { branchId: 'br_efficiency', name: 'Research Efficiency' }
-    ],
-    itemIds: ['GEN_SCHOLAR_001', 'GEN_SPEED_001'],
-    milestones: [
-      { milestoneId: 'ms_gen_1', requiredCompletions: 2, rewardTitle: 'Curious Mind', rewardGold: 100 }
-    ],
-    sortOrder: 1,
-    version: '1.0.0',
-    status: 'active'
-  },
-  tree_adventurer_basics: {
-    treeId: 'tree_adventurer_basics',
-    domainId: 'adventuring',
-    name: 'Adventurer Basics',
-    shortDescription: 'Field survival, torchcraft, and dungeon delving mastery funded by Adventurer RP.',
-    icon: '🧭',
-    ownershipType: OWNER_TYPES.PLAYER,
-    branches: [
-      { branchId: 'br_survival', name: 'Dungeon Survival' },
-      { branchId: 'br_assay', name: 'Treasure Recovery' }
-    ],
-    itemIds: ['ADV_SURVIVAL_001', 'ADV_TREASURE_001'],
-    milestones: [
-      { milestoneId: 'ms_adv_1', requiredCompletions: 2, rewardTitle: 'Vault Pathfinder', rewardGold: 120 }
-    ],
-    sortOrder: 2,
-    version: '1.0.0',
-    status: 'active'
-  },
-  tree_weapon_proficiency: {
-    treeId: 'tree_weapon_proficiency',
-    domainId: 'warrior',
-    name: 'Weapon Proficiency',
-    shortDescription: 'Multilevel martial doctrine unlocking specialized weapon training for individual heroes.',
-    icon: '⚔️',
-    ownershipType: OWNER_TYPES.PLAYER,
-    branches: [
-      { branchId: 'br_heavy_arms', name: 'Heavy Arms' },
-      { branchId: 'br_tactics', name: 'Combat Mastery' }
-    ],
-    itemIds: ['WAR_WEAPON_HEAVY_001', 'WAR_MASTER_001'],
-    milestones: [
-      { milestoneId: 'ms_war_1', requiredCompletions: 2, rewardTitle: 'Master of Arms', rewardGold: 200 }
-    ],
-    sortOrder: 3,
-    version: '1.0.0',
-    status: 'active'
-  },
-  tree_city_development: {
-    treeId: 'tree_city_development',
-    domainId: 'city',
-    name: 'City Development',
-    shortDescription: 'Civic engineering, masonry standards, and resource production multipliers.',
-    icon: '🏛️',
-    ownershipType: OWNER_TYPES.PLAYER,
-    branches: [
-      { branchId: 'br_masonry', name: 'Civic Masonry' },
-      { branchId: 'br_harvest', name: 'Agrarian Yield' }
-    ],
-    itemIds: ['CITY_MASONRY_001', 'CITY_HARVEST_001'],
-    milestones: [
-      { milestoneId: 'ms_city_1', requiredCompletions: 2, rewardTitle: 'Bastion Architect', rewardGold: 150 }
-    ],
-    sortOrder: 4,
-    version: '1.0.0',
-    status: 'active'
-  },
-  tree_divine_knowledge: {
-    treeId: 'tree_divine_knowledge',
-    domainId: 'religion',
-    name: 'Divine Knowledge',
-    shortDescription: 'Sacred liturgy and blessings gated by multi-tag Pantheon alignment.',
-    icon: '☀️',
-    ownershipType: OWNER_TYPES.PLAYER,
-    branches: [
-      { branchId: 'br_radiance', name: 'Solar Liturgy' }
-    ],
-    itemIds: ['REL_LITURGY_001'],
-    milestones: [
-      { milestoneId: 'ms_rel_1', requiredCompletions: 1, rewardTitle: 'Initiate of the Dawn', rewardGold: 150 }
-    ],
-    sortOrder: 5,
-    version: '1.0.0',
-    status: 'active'
-  }
-};
-
-const PROTOTYPE_RESEARCH_ITEMS = {
-  GEN_SCHOLAR_001: {
-    researchItemId: 'GEN_SCHOLAR_001',
-    treeId: 'tree_general_knowledge',
-    domainId: 'general_knowledge',
-    branchId: 'br_scholars',
-    name: 'Foundational Scholarship',
-    description: 'Establishes systematic note-taking, increasing passive General RP accrual by +25% per level.',
-    icon: '📘',
-    itemType: 'modifier',
-    ownershipType: OWNER_TYPES.PLAYER,
-    subjectType: 'player',
-    prerequisites: null,
-    levelLimit: 3,
-    levelDefinitions: [
-      { level: 1, durationSec: 30,  costs: [{ kind: 'currency', currencyId: 'rp_general', amount: 0.01 }, { kind: 'currency', currencyId: 'gold', amount: 25 }],  benefits: [{ effectType: 'accrual_modifier', target: 'rp_general', op: 'additive', value: 0.25 }] },
-      { level: 2, durationSec: 120, costs: [{ kind: 'currency', currencyId: 'rp_general', amount: 0.05 }, { kind: 'currency', currencyId: 'gold', amount: 75 }],  benefits: [{ effectType: 'accrual_modifier', target: 'rp_general', op: 'additive', value: 0.25 }] },
-      { level: 3, durationSec: 300, costs: [{ kind: 'currency', currencyId: 'rp_general', amount: 0.15 }, { kind: 'currency', currencyId: 'gold', amount: 200 }], benefits: [{ effectType: 'accrual_modifier', target: 'rp_general', op: 'additive', value: 0.25 }] }
-    ],
-    queueType: 'research',
-    version: '1.0.0',
-    status: 'active'
-  },
-  GEN_SPEED_001: {
-    researchItemId: 'GEN_SPEED_001',
-    treeId: 'tree_general_knowledge',
-    domainId: 'general_knowledge',
-    branchId: 'br_efficiency',
-    name: 'Structured Research Methods',
-    description: 'Improves personal research completion speed by +10% per level.',
-    icon: '⏱️',
-    itemType: 'modifier',
-    ownershipType: OWNER_TYPES.PLAYER,
-    subjectType: 'player',
-    prerequisites: { type: 'research_level', research_item_id: 'GEN_SCHOLAR_001', operator: '>=', value: 1, label: 'Foundational Scholarship' },
-    levelLimit: 2,
-    levelDefinitions: [
-      { level: 1, durationSec: 90,  costs: [{ kind: 'currency', currencyId: 'rp_general', amount: 0.05 }, { kind: 'currency', currencyId: 'gold', amount: 60 }],  benefits: [{ effectType: 'research_speed_modifier', target: 'personal', op: 'additive', value: 0.10 }] },
-      { level: 2, durationSec: 240, costs: [{ kind: 'currency', currencyId: 'rp_general', amount: 0.12 }, { kind: 'currency', currencyId: 'gold', amount: 180 }], benefits: [{ effectType: 'research_speed_modifier', target: 'personal', op: 'additive', value: 0.10 }] }
-    ],
-    queueType: 'research',
-    version: '1.0.0',
-    status: 'active'
-  },
-  ADV_SURVIVAL_001: {
-    researchItemId: 'ADV_SURVIVAL_001',
-    treeId: 'tree_adventurer_basics',
-    domainId: 'adventuring',
-    branchId: 'br_survival',
-    name: 'Subterranean Survival',
-    description: 'Unlocks Dungeon Survival Drills for individual heroes and improves torchlight preparation.',
-    icon: '🔥',
-    itemType: 'capability_unlock',
-    ownershipType: OWNER_TYPES.PLAYER,
-    subjectType: 'player',
-    prerequisites: null,
-    levelLimit: 2,
-    levelDefinitions: [
-      { level: 1, durationSec: 45,  costs: [{ kind: 'currency', currencyId: 'rp_adventurer', amount: 0.5 }, { kind: 'currency', currencyId: 'gold', amount: 30 }],  benefits: [{ effectType: 'unlock_training', target: 'train_dungeon_survival', op: 'unlock', value: 1 }] },
-      { level: 2, durationSec: 180, costs: [{ kind: 'currency', currencyId: 'rp_adventurer', amount: 2.0 }, { kind: 'currency', currencyId: 'gold', amount: 120 }], benefits: [{ effectType: 'unlock_training', target: 'train_dungeon_survival', op: 'unlock', value: 2 }] }
-    ],
-    queueType: 'research',
-    version: '1.0.0',
-    status: 'active'
-  },
-  ADV_TREASURE_001: {
-    researchItemId: 'ADV_TREASURE_001',
-    treeId: 'tree_adventurer_basics',
-    domainId: 'adventuring',
-    branchId: 'br_assay',
-    name: 'Antiquarian Field Appraisal',
-    description: 'Increases gold value of extracted dungeon relics by +12% per level.',
-    icon: '💎',
-    itemType: 'modifier',
-    ownershipType: OWNER_TYPES.PLAYER,
-    subjectType: 'player',
-    prerequisites: { type: 'research_level', research_item_id: 'ADV_SURVIVAL_001', operator: '>=', value: 1, label: 'Subterranean Survival' },
-    levelLimit: 2,
-    levelDefinitions: [
-      { level: 1, durationSec: 60,  costs: [{ kind: 'currency', currencyId: 'rp_adventurer', amount: 1.0 }, { kind: 'currency', currencyId: 'gold', amount: 50 }],  benefits: [{ effectType: 'probability_modifier', target: 'relic_gold_mult', op: 'additive', value: 0.12 }] },
-      { level: 2, durationSec: 240, costs: [{ kind: 'currency', currencyId: 'rp_adventurer', amount: 3.0 }, { kind: 'currency', currencyId: 'gold', amount: 150 }], benefits: [{ effectType: 'probability_modifier', target: 'relic_gold_mult', op: 'additive', value: 0.12 }] }
-    ],
-    queueType: 'research',
-    version: '1.0.0',
-    status: 'active'
-  },
-  // Spec §14 Reference Research Item
-  WAR_WEAPON_HEAVY_001: {
-    researchItemId: 'WAR_WEAPON_HEAVY_001',
-    treeId: 'tree_weapon_proficiency',
-    domainId: 'warrior',
-    branchId: 'br_heavy_arms',
-    name: 'Wield Heavier Weapons',
-    description: 'Unlocks Heavy Weapon Proficiency training for individual heroes (does not auto-grant skill without hero training).',
-    icon: '⚔️',
-    itemType: 'capability_unlock',
-    ownershipType: OWNER_TYPES.PLAYER,
-    subjectType: 'player',
-    prerequisites: null,
-    levelLimit: 3,
-    levelDefinitions: [
-      { level: 1, durationSec: 60,   costs: [{ kind: 'currency', currencyId: 'rp_adventurer', amount: 5 },  { kind: 'currency', currencyId: 'gold', amount: 50 }],   benefits: [{ effectType: 'unlock_training', target: 'train_heavy_weapons', op: 'unlock', value: 1 }] },
-      { level: 2, durationSec: 600,  costs: [{ kind: 'currency', currencyId: 'rp_adventurer', amount: 10 }, { kind: 'currency', currencyId: 'gold', amount: 250 }],  benefits: [{ effectType: 'unlock_training', target: 'train_heavy_weapons', op: 'unlock', value: 2 }] },
-      { level: 3, durationSec: 6000, costs: [{ kind: 'currency', currencyId: 'rp_adventurer', amount: 25 }, { kind: 'currency', currencyId: 'gold', amount: 2000 }], benefits: [{ effectType: 'unlock_training', target: 'train_heavy_weapons', op: 'unlock', value: 3 }] }
-    ],
-    queueType: 'research',
-    version: '1.0.0',
-    status: 'active'
-  },
-  WAR_MASTER_001: {
-    researchItemId: 'WAR_MASTER_001',
-    treeId: 'tree_weapon_proficiency',
-    domainId: 'warrior',
-    branchId: 'br_tactics',
-    name: 'Vanguard Arms Doctrine',
-    description: 'Advanced combat doctrine requiring a veteran hero and prior martial or survival research.',
-    icon: '🛡️',
-    itemType: 'capability_unlock',
-    ownershipType: OWNER_TYPES.PLAYER,
-    subjectType: 'player',
-    prerequisites: {
-      operator: 'AND',
-      conditions: [
-        { type: 'hero_level', operator: 'greater_than_or_equal', value: 5 },
-        {
-          operator: 'OR',
-          conditions: [
-            { type: 'research_level', research_item_id: 'WAR_WEAPON_HEAVY_001', operator: 'greater_than_or_equal', value: 1, label: 'Wield Heavier Weapons' },
-            { type: 'research_level', research_item_id: 'ADV_SURVIVAL_001', operator: 'greater_than_or_equal', value: 2, label: 'Subterranean Survival' }
-          ]
-        }
-      ]
-    },
-    levelLimit: 1,
-    levelDefinitions: [
-      { level: 1, durationSec: 300, costs: [{ kind: 'currency', currencyId: 'rp_adventurer', amount: 12 }, { kind: 'currency', currencyId: 'gold', amount: 400 }], benefits: [{ effectType: 'attribute_modifier', target: 'hero_atk_pct', op: 'additive', value: 0.08 }] }
-    ],
-    queueType: 'research',
-    version: '1.0.0',
-    status: 'active'
-  },
-  CITY_MASONRY_001: {
-    researchItemId: 'CITY_MASONRY_001',
-    treeId: 'tree_city_development',
-    domainId: 'city',
-    branchId: 'br_masonry',
-    name: 'Ashlar Masonry Standards',
-    description: 'Reduces city construction duration by 8% per level and improves quarry stone output.',
-    icon: '🪨',
-    itemType: 'modifier',
-    ownershipType: OWNER_TYPES.PLAYER,
-    subjectType: 'player',
-    prerequisites: { type: 'building_level', buildingId: 'quarry', operator: '>=', value: 1 },
-    levelLimit: 2,
-    levelDefinitions: [
-      { level: 1, durationSec: 90,  costs: [{ kind: 'currency', currencyId: 'rp_general', amount: 0.02 }, { kind: 'stockpile', resourceId: 'stone', amount: 30 }], benefits: [{ effectType: 'production_modifier', target: 'stone', op: 'additive', value: 0.15 }] },
-      { level: 2, durationSec: 300, costs: [{ kind: 'currency', currencyId: 'rp_general', amount: 0.08 }, { kind: 'stockpile', resourceId: 'stone', amount: 80 }], benefits: [{ effectType: 'production_modifier', target: 'stone', op: 'additive', value: 0.15 }] }
-    ],
-    queueType: 'research',
-    version: '1.0.0',
-    status: 'active'
-  },
-  CITY_HARVEST_001: {
-    researchItemId: 'CITY_HARVEST_001',
-    treeId: 'tree_city_development',
-    domainId: 'city',
-    branchId: 'br_harvest',
-    name: 'Crop Rotation & Irrigation',
-    description: 'Boosts Garden food and Well water output by +15% per level.',
-    icon: '🌾',
-    itemType: 'modifier',
-    ownershipType: OWNER_TYPES.PLAYER,
-    subjectType: 'player',
-    prerequisites: { type: 'building_level', buildingId: 'garden', operator: '>=', value: 1 },
-    levelLimit: 2,
-    levelDefinitions: [
-      { level: 1, durationSec: 90,  costs: [{ kind: 'currency', currencyId: 'rp_general', amount: 0.02 }, { kind: 'stockpile', resourceId: 'wood', amount: 25 }], benefits: [{ effectType: 'production_modifier', target: 'food', op: 'additive', value: 0.15 }] },
-      { level: 2, durationSec: 300, costs: [{ kind: 'currency', currencyId: 'rp_general', amount: 0.08 }, { kind: 'stockpile', resourceId: 'wood', amount: 70 }], benefits: [{ effectType: 'production_modifier', target: 'food', op: 'additive', value: 0.15 }] }
-    ],
-    queueType: 'research',
-    version: '1.0.0',
-    status: 'active'
-  },
-  REL_LITURGY_001: {
-    researchItemId: 'REL_LITURGY_001',
-    treeId: 'tree_divine_knowledge',
-    domainId: 'religion',
-    branchId: 'br_radiance',
-    name: 'Solar Sanctuary Rites',
-    description: 'Sacred rites available to players aligned with a Solar or Order deity.',
-    icon: '☀️',
-    itemType: 'modifier',
-    ownershipType: OWNER_TYPES.PLAYER,
-    subjectType: 'player',
-    prerequisites: { type: 'divine_alignment_tag', operator: 'contains_any', value: ['solar', 'order'] },
-    levelLimit: 2,
-    levelDefinitions: [
-      { level: 1, durationSec: 120, costs: [{ kind: 'currency', currencyId: 'divine_favor', amount: 10 }, { kind: 'currency', currencyId: 'gold', amount: 100 }], benefits: [{ effectType: 'accrual_modifier', target: 'divine_favor', op: 'additive', value: 0.20 }] },
-      { level: 2, durationSec: 360, costs: [{ kind: 'currency', currencyId: 'divine_favor', amount: 30 }, { kind: 'currency', currencyId: 'gold', amount: 300 }], benefits: [{ effectType: 'accrual_modifier', target: 'divine_favor', op: 'additive', value: 0.25 }] }
-    ],
-    queueType: 'research',
-    version: '1.0.0',
-    status: 'active'
-  }
-};
-
-const PROTOTYPE_TRAINING_DEFINITIONS = {
-  train_heavy_weapons: {
-    trainingDefinitionId: 'train_heavy_weapons',
-    name: 'Heavy Weapon Proficiency',
-    description: 'Trains an individual Hero to wield heavy two-handed arms, granting +4 ATK per level.',
-    subjectType: 'hero',
-    skillRef: 'heavy_weapon_proficiency',
-    prerequisites: { type: 'research_level', research_item_id: 'WAR_WEAPON_HEAVY_001', operator: '>=', value: 1, label: 'Wield Heavier Weapons' },
-    queueType: 'hero_training',
-    levels: [
-      { level: 1, durationSec: 45,  costs: [{ kind: 'currency', currencyId: 'gold', amount: 40 }],  benefits: [{ effectType: 'attribute_modifier', target: 'atk', op: 'additive', value: 4 }] },
-      { level: 2, durationSec: 180, costs: [{ kind: 'currency', currencyId: 'gold', amount: 150 }], prerequisites: { type: 'research_level', research_item_id: 'WAR_WEAPON_HEAVY_001', operator: '>=', value: 2 }, benefits: [{ effectType: 'attribute_modifier', target: 'atk', op: 'additive', value: 4 }] },
-      { level: 3, durationSec: 600, costs: [{ kind: 'currency', currencyId: 'gold', amount: 500 }], prerequisites: { type: 'research_level', research_item_id: 'WAR_WEAPON_HEAVY_001', operator: '>=', value: 3 }, benefits: [{ effectType: 'attribute_modifier', target: 'atk', op: 'additive', value: 6 }] }
-    ],
-    version: '1.0.0'
-  },
-  train_dungeon_survival: {
-    trainingDefinitionId: 'train_dungeon_survival',
-    name: 'Dungeon Survival Drills',
-    description: 'Hardens an individual Hero for deep vault delves, granting +15 Max HP per level.',
-    subjectType: 'hero',
-    skillRef: 'dungeon_survival',
-    prerequisites: { type: 'research_level', research_item_id: 'ADV_SURVIVAL_001', operator: '>=', value: 1, label: 'Subterranean Survival' },
-    queueType: 'hero_training',
-    levels: [
-      { level: 1, durationSec: 30,  costs: [{ kind: 'currency', currencyId: 'gold', amount: 30 }],  benefits: [{ effectType: 'attribute_modifier', target: 'maxHp', op: 'additive', value: 15 }] },
-      { level: 2, durationSec: 120, costs: [{ kind: 'currency', currencyId: 'gold', amount: 110 }], prerequisites: { type: 'research_level', research_item_id: 'ADV_SURVIVAL_001', operator: '>=', value: 2 }, benefits: [{ effectType: 'attribute_modifier', target: 'maxHp', op: 'additive', value: 20 }] }
-    ],
-    version: '1.0.0'
-  }
-};
-
-function validateResearchCatalog(trees, items, currencies) {
-  const errors = [];
-  const tMap = trees || PROTOTYPE_RESEARCH_TREES;
-  const iMap = items || PROTOTYPE_RESEARCH_ITEMS;
-  const cMap = currencies || DEFAULT_CURRENCY_DEFINITIONS;
-
-  const treeIds = Object.keys(tMap);
-  for (let i = 0; i < treeIds.length; i++) {
-    const tr = tMap[treeIds[i]];
-    if (!RESEARCH_DOMAINS[tr.domainId]) {
-      errors.push('Tree ' + tr.treeId + ' references unknown domain ' + tr.domainId);
-    }
-    if (!Array.isArray(tr.itemIds) || tr.itemIds.length === 0) {
-      errors.push('Tree ' + tr.treeId + ' has no itemIds');
-    } else {
-      for (let j = 0; j < tr.itemIds.length; j++) {
-        if (!iMap[tr.itemIds[j]]) {
-          errors.push('Tree ' + tr.treeId + ' references missing item ' + tr.itemIds[j]);
-        }
-      }
-    }
-  }
-
-  const itemIds = Object.keys(iMap);
-  for (let k = 0; k < itemIds.length; k++) {
-    const it = iMap[itemIds[k]];
-    if (!tMap[it.treeId]) errors.push('Item ' + it.researchItemId + ' references missing tree ' + it.treeId);
-    if (!it.version) errors.push('Item ' + it.researchItemId + ' missing version');
-    const lvls = Array.isArray(it.levelDefinitions) ? it.levelDefinitions : [];
-    if (lvls.length !== it.levelLimit) {
-      errors.push('Item ' + it.researchItemId + ' levelDefinitions count mismatch');
-    }
-    for (let li = 0; li < lvls.length; li++) {
-      const ld = lvls[li];
-      if (ld.level !== li + 1) errors.push('Item ' + it.researchItemId + ' non-sequential level ' + ld.level);
-      const costs = Array.isArray(ld.costs) ? ld.costs : [];
-      for (let ci = 0; ci < costs.length; ci++) {
-        if (costs[ci].kind === 'currency' && !cMap[costs[ci].currencyId]) {
-          errors.push('Item ' + it.researchItemId + ' L' + ld.level + ' references unknown currency ' + costs[ci].currencyId);
-        }
-      }
-    }
-  }
-
-  return {
-    valid: errors.length === 0,
-    errors: errors,
-    domainCount: Object.keys(RESEARCH_DOMAINS).length,
-    treeCount: treeIds.length,
-    itemCount: itemIds.length
-  };
-}
-
-  // --- Module: src/progression/accrualService.js ---
-// =============================================================================
-// RESEARCH POINT ACCRUAL & ANTI-ABUSE SERVICE (Inc 10.2 / ADR-0015 / Spec §5)
-// Handles passive time-based accrual (with authoritative offline catch-up) and
-// event-driven fractional activity awards with idempotency, cooldowns, caps,
-// diminishing returns, and strict separation of RP-generation vs. speed modifiers.
-// =============================================================================
-
-
-const DEFAULT_ACCRUAL_CONFIG = {
-  passiveCurrencyId: 'rp_general',
-  passiveBaseRatePerSec: 0.00001 // Spec §5.1 illustrative baseline (configurable)
-};
-
-const DEFAULT_ACTIVITY_AWARD_RULES = {
-  dungeon_move: {
-    activityType: 'dungeon_move',
-    currencyId: 'rp_adventurer',
-    baseAmount: 0.001,
-    cooldownMs: 500,
-    windowMs: 86400000,
-    windowCapCount: 500,
-    diminishingAfter: 200,
-    diminishingFactor: 0.5,
-    version: '1.0.0'
-  },
-  monster_defeated: {
-    activityType: 'monster_defeated',
-    currencyId: 'rp_adventurer',
-    baseAmount: 0.005,
-    cooldownMs: 0,
-    windowMs: 86400000,
-    windowCapCount: 300,
-    diminishingAfter: 150,
-    diminishingFactor: 0.5,
-    version: '1.0.0'
-  },
-  chest_opened: {
-    activityType: 'chest_opened',
-    currencyId: 'rp_adventurer',
-    baseAmount: 0.002,
-    cooldownMs: 0,
-    windowMs: 86400000,
-    windowCapCount: 200,
-    diminishingAfter: 100,
-    diminishingFactor: 0.5,
-    version: '1.0.0'
-  },
-  location_discovered: {
-    activityType: 'location_discovered',
-    currencyId: 'rp_adventurer',
-    baseAmount: 0.010,
-    cooldownMs: 0,
-    windowMs: 86400000,
-    windowCapCount: 100,
-    version: '1.0.0'
-  },
-  dungeon_completed: {
-    activityType: 'dungeon_completed',
-    currencyId: 'rp_adventurer',
-    baseAmount: 0.050,
-    cooldownMs: 0,
-    windowMs: 86400000,
-    windowCapCount: 50,
-    version: '1.0.0'
-  },
-  major_expedition: {
-    activityType: 'major_expedition',
-    currencyId: 'rp_adventurer',
-    baseAmount: 0.100,
-    cooldownMs: 0,
-    windowMs: 86400000,
-    windowCapCount: 20,
-    version: '1.0.0'
-  },
-  research_quest: {
-    activityType: 'research_quest',
-    currencyId: 'rp_adventurer',
-    baseAmount: 5.000,
-    cooldownMs: 0,
-    windowMs: 86400000,
-    windowCapCount: 20,
-    version: '1.0.0'
-  }
-};
-
-function computeEffectiveGenerationMultiplier(modifiers) {
-  const m = modifiers || {};
-  const additive = typeof m.additiveBonus === 'number' ? m.additiveBonus : 0;
-  const multiplicative = typeof m.multiplicativeFactor === 'number' ? m.multiplicativeFactor : 1.0;
-  return Math.max(0, (1 + additive) * multiplicative);
-}
-
-// Passive time-based RP accrual (works seamlessly for offline elapsed-time catch-up)
-function processPassiveAccrual(progression, ownerId, nowMs, options) {
-  if (!progression || !progression.currencyLedger) return { ok: false, reason: 'missing_progression' };
-  const opts = options || {};
-  const currencyId = opts.currencyId || DEFAULT_ACCRUAL_CONFIG.passiveCurrencyId;
-  const baseRate = typeof opts.baseRatePerSec === 'number' ? opts.baseRatePerSec : DEFAULT_ACCRUAL_CONFIG.passiveBaseRatePerSec;
-  const lastMs = typeof progression.lastAccrualAtMs === 'number' ? progression.lastAccrualAtMs : nowMs;
-  const elapsedMs = Math.max(0, nowMs - lastMs);
-
-  if (elapsedMs <= 0) {
-    return { ok: true, elapsedSec: 0, awardedScaled: 0, awarded: 0 };
-  }
-
-  const def = getCurrencyDefinition(progression.currencyLedger, currencyId);
-  const precision = def ? def.decimalPrecision : 5;
-  const mult = computeEffectiveGenerationMultiplier(opts.generationModifiers);
-  const elapsedSec = elapsedMs / 1000;
-  const rawAward = elapsedSec * baseRate * mult;
-  const awardedScaled = Math.floor(rawAward * Math.pow(10, precision));
-
-  if (awardedScaled <= 0) {
-    return { ok: true, elapsedSec: elapsedSec, awardedScaled: 0, awarded: 0 };
-  }
-
-  // Only advance lastAccrualAtMs by the exact time consumed so sub-unit remainders are never lost
-  const consumedSec = (awardedScaled / Math.pow(10, precision)) / (baseRate * mult);
-  progression.lastAccrualAtMs = lastMs + Math.floor(consumedSec * 1000);
-
-  const txRes = recordCurrencyTransaction(progression.currencyLedger, {
-    ownerId: ownerId || 'player_1',
-    ownerType: opts.ownerType || OWNER_TYPES.PLAYER,
-    currencyId: currencyId,
-    amountScaled: awardedScaled,
-    transactionType: TRANSACTION_TYPES.AWARD,
-    source: 'passive_accrual',
-    referenceId: 'passive_' + String(lastMs) + '_' + String(nowMs),
-    idempotencyKey: 'passive:' + String(ownerId || 'player_1') + ':' + String(lastMs) + ':' + String(nowMs),
-    nowMs: nowMs
-  });
-
-  return {
-    ok: txRes.ok,
-    elapsedSec: elapsedSec,
-    awardedScaled: awardedScaled,
-    awarded: awardedScaled / Math.pow(10, precision),
-    transaction: txRes.transaction || null
-  };
-}
-
-// Event-driven fractional activity accrual with idempotency, cooldowns, caps & diminishing returns
-function awardActivityResearchPoints(progression, params) {
-  if (!progression || !progression.currencyLedger || !params) {
-    return { ok: false, reason: 'invalid_params' };
-  }
-
-  const rules = params.customRules || DEFAULT_ACTIVITY_AWARD_RULES;
-  const rule = rules[params.activityType];
-  if (!rule) {
-    return { ok: false, reason: 'unknown_activity_type' };
-  }
-
-  const ownerId = params.ownerId || 'player_1';
-  const ownerType = params.ownerType || OWNER_TYPES.PLAYER;
-  const nowMs = typeof params.nowMs === 'number' ? params.nowMs : 0;
-  const eventId = params.eventId || null;
-  const idempotencyKey = eventId
-    ? ('act:' + ownerType + ':' + ownerId + ':' + rule.activityType + ':' + eventId)
-    : null;
-
-  // Duplicate event check before incrementing anti-abuse counters
-  if (idempotencyKey && progression.currencyLedger.idempotencyIndex[idempotencyKey]) {
-    return { ok: true, duplicate: true, awardedScaled: 0, awarded: 0, throttledReason: null };
-  }
-
-  if (!progression.antiAbuseCounters) progression.antiAbuseCounters = {};
-  const counterKey = ownerType + ':' + ownerId + ':' + rule.activityType;
-  let counter = progression.antiAbuseCounters[counterKey];
-  if (!counter || (rule.windowMs && (nowMs - counter.windowStartMs) >= rule.windowMs)) {
-    counter = { windowStartMs: nowMs, count: 0, lastAwardMs: -Infinity };
-    progression.antiAbuseCounters[counterKey] = counter;
-  }
-
-  // Cooldown check
-  if (rule.cooldownMs > 0 && (nowMs - counter.lastAwardMs) < rule.cooldownMs) {
-    return { ok: false, duplicate: false, awardedScaled: 0, awarded: 0, throttledReason: 'cooldown_active' };
-  }
-
-  // Window cap check
-  if (typeof rule.windowCapCount === 'number' && counter.count >= rule.windowCapCount) {
-    return { ok: false, duplicate: false, awardedScaled: 0, awarded: 0, throttledReason: 'window_cap_reached' };
-  }
-
-  // Diminishing returns check
-  let amount = rule.baseAmount;
-  if (typeof rule.diminishingAfter === 'number' && counter.count >= rule.diminishingAfter) {
-    amount = amount * (typeof rule.diminishingFactor === 'number' ? rule.diminishingFactor : 0.5);
-  }
-
-  const mult = computeEffectiveGenerationMultiplier(params.generationModifiers);
-  amount = amount * mult;
-
-  const def = getCurrencyDefinition(progression.currencyLedger, rule.currencyId);
-  const precision = def ? def.decimalPrecision : 5;
-  const amountScaled = toScaledInt(amount, precision);
-  if (amountScaled <= 0) {
-    return { ok: false, duplicate: false, awardedScaled: 0, awarded: 0, throttledReason: 'below_min_unit' };
-  }
-
-  const txRes = recordCurrencyTransaction(progression.currencyLedger, {
-    ownerId: ownerId,
-    ownerType: ownerType,
-    currencyId: rule.currencyId,
-    amountScaled: amountScaled,
-    transactionType: TRANSACTION_TYPES.AWARD,
-    source: 'activity:' + rule.activityType,
-    referenceId: eventId,
-    idempotencyKey: idempotencyKey,
-    nowMs: nowMs
-  });
-
-  if (txRes.ok && !txRes.duplicate) {
-    counter.count += 1;
-    counter.lastAwardMs = nowMs;
-  }
-
-  return {
-    ok: txRes.ok,
-    duplicate: Boolean(txRes.duplicate),
-    awardedScaled: txRes.ok ? amountScaled : 0,
-    awarded: txRes.ok ? (amountScaled / Math.pow(10, precision)) : 0,
-    throttledReason: null,
-    transaction: txRes.transaction || null
-  };
-}
-
-  // --- Module: src/progression/queueService.js ---
-// =============================================================================
-// RESEARCH QUEUE, PROGRESS & OFFLINE COMPLETION SERVICE (Inc 10.2 / ADR-0015 / Spec §10)
-// Supports configurable queue capacity (1 free / 2 subscriber), atomic start with
-// immutable Definition Version Snapshots, pending queue auto-promotion, pause/resume,
-// configurable cancel refund policies, reordering, and offline elapsed-time completion.
-// =============================================================================
-
-
-
-
-const REFUND_POLICIES = {
-  NONE: 'none',
-  FULL: 'full',
-  FIXED_PERCENT: 'fixed_percent',
-  TIME_BASED: 'time_based'
-};
-
-function makeProgressKey(ownerType, ownerId, researchItemId) {
-  return String(ownerType) + ':' + String(ownerId) + ':' + String(researchItemId);
-}
-
-function getItemDefinition(researchItemId, customCatalog) {
-  const cat = customCatalog || PROTOTYPE_RESEARCH_ITEMS;
-  return cat[researchItemId] || null;
-}
-
-function getResearchProgressInstance(progression, ownerType, ownerId, researchItemId) {
-  const key = makeProgressKey(ownerType, ownerId, researchItemId);
-  if (!progression.researchProgress[key]) {
-    progression.researchProgress[key] = {
-      progressId: 'prog_' + key,
-      researchItemId: researchItemId,
-      ownerId: String(ownerId),
-      ownerType: String(ownerType),
-      currentLevel: 0,
-      targetLevel: 0,
-      status: 'not_started',
-      startedAt: null,
-      completedAt: null,
-      totalTimeSpentMs: 0,
-      completionCount: 0,
-      definitionVersion: '1.0.0',
-      lastUpdated: 0
-    };
-  }
-  return progression.researchProgress[key];
-}
-
-// Build flat map researchItemId -> progress instance for eligibility evaluator
-function buildOwnerProgressLookup(progression, ownerType, ownerId) {
-  const map = {};
-  const prefix = String(ownerType) + ':' + String(ownerId) + ':';
-  const keys = Object.keys(progression.researchProgress || {});
-  for (let i = 0; i < keys.length; i++) {
-    if (keys[i].indexOf(prefix) === 0) {
-      const itemId = keys[i].slice(prefix.length);
-      map[itemId] = progression.researchProgress[keys[i]];
-    }
-  }
-  return map;
-}
-
-function startOrEnqueueResearch(progression, params) {
-  if (!progression || !params) return { ok: false, reason: 'invalid_params' };
-  const ownerId = params.ownerId || 'player_1';
-  const ownerType = params.ownerType || OWNER_TYPES.PLAYER;
-  const researchItemId = params.researchItemId;
-  const nowMs = typeof params.nowMs === 'number' ? params.nowMs : 0;
-  const queue = params.queue || progression.researchQueue;
-  const allowPending = params.allowPending !== false;
-
-  const itemDef = getItemDefinition(researchItemId, params.catalog);
-  if (!itemDef) return { ok: false, reason: 'unknown_research_item' };
-
-  // Prevent duplicate active or pending entries for same item
-  const isDupActive = queue.activeItems.some(function(a) { return a.researchItemId === researchItemId; });
-  const isDupPending = queue.pendingItems.some(function(p) { return p.researchItemId === researchItemId; });
-  if (isDupActive || isDupPending) {
-    return { ok: false, reason: 'already_in_queue' };
-  }
-
-  const prog = getResearchProgressInstance(progression, ownerType, ownerId, researchItemId);
-  const targetLevel = (prog.currentLevel || 0) + 1;
-  const lvlDef = Array.isArray(itemDef.levelDefinitions)
-    ? itemDef.levelDefinitions.find(function(l) { return l.level === targetLevel; })
-    : null;
-  if (!lvlDef) {
-    return { ok: false, reason: EVALUATION_STATUS.MAX_LEVEL };
-  }
-
-  const isQueueFull = queue.activeItems.length >= (queue.capacity || 1);
-  const eligCtx = Object.assign({}, params.eligibilityCtx || {}, {
-    ownerId: ownerId,
-    ownerType: ownerType,
-    ledger: progression.currencyLedger,
-    researchProgress: buildOwnerProgressLookup(progression, ownerType, ownerId),
-    alignment: progression.alignment,
-    discoveries: progression.discoveries,
-    queueFull: isQueueFull && !allowPending
-  });
-
-  const elig = evaluateResearchEligibility(itemDef, targetLevel, eligCtx);
-  if (!elig.canStart) {
-    return { ok: false, reason: elig.status, unmetConditions: elig.unmetConditions };
-  }
-
-  // If active queue is full and pending is allowed, enqueue WITHOUT deducting costs yet (Spec §10.4)
-  if (isQueueFull) {
-    const pendingEntry = {
-      queueEntryId: 'qpend_' + researchItemId + '_' + targetLevel + '_' + nowMs,
-      researchItemId: researchItemId,
-      ownerId: String(ownerId),
-      ownerType: String(ownerType),
-      targetLevel: targetLevel,
-      enqueuedAt: nowMs,
-      status: 'pending'
-    };
-    queue.pendingItems.push(pendingEntry);
-    return { ok: true, queuedAs: 'pending', entry: pendingEntry };
-  }
-
-  // Atomic all-or-nothing payment validation & deduction
-  const payRes = executeAtomicPayment(progression.currencyLedger, lvlDef.costs || [], {
-    ownerId: ownerId,
-    ownerType: ownerType,
-    stockpile: params.stockpile || null,
-    nowMs: nowMs,
-    source: 'research_start:' + researchItemId,
-    referenceId: researchItemId + ':L' + targetLevel,
-    idempotencyKey: 'rstart:' + ownerType + ':' + ownerId + ':' + researchItemId + ':L' + targetLevel + ':' + nowMs
-  });
-
-  if (!payRes.ok) {
-    return { ok: false, reason: EVALUATION_STATUS.UNAFFORDABLE, shortfalls: payRes.shortfalls };
-  }
-
-  // Apply research speed modifier (strictly separate from RP accrual modifiers!)
-  const speedBonus = typeof params.speedBonus === 'number' ? params.speedBonus : 0;
-  const speedFactor = Math.max(0.1, 1 + speedBonus);
-  const baseDurationMs = (lvlDef.durationSec || 60) * 1000;
-  const effectiveDurationMs = Math.max(1000, Math.round(baseDurationMs / speedFactor));
-
-  // Snapshot definition version, costs, duration & benefits so content updates never corrupt active progress
-  const activeEntry = {
-    queueEntryId: 'qact_' + researchItemId + '_' + targetLevel + '_' + nowMs,
-    researchItemId: researchItemId,
-    ownerId: String(ownerId),
-    ownerType: String(ownerType),
-    targetLevel: targetLevel,
-    status: 'active',
-    startedAt: nowMs,
-    lastTickAt: nowMs,
-    elapsedMs: 0,
-    effectiveDurationMs: effectiveDurationMs,
-    snapshot: {
-      definitionVersion: itemDef.version || '1.0.0',
-      durationSec: lvlDef.durationSec,
-      costs: JSON.parse(JSON.stringify(lvlDef.costs || [])),
-      benefits: JSON.parse(JSON.stringify(lvlDef.benefits || []))
-    }
-  };
-
-  queue.activeItems.push(activeEntry);
-  prog.targetLevel = targetLevel;
-  prog.status = 'in_progress';
-  prog.startedAt = nowMs;
-  prog.definitionVersion = itemDef.version || '1.0.0';
-  prog.lastUpdated = nowMs;
-
-  return { ok: true, queuedAs: 'active', entry: activeEntry, transactions: payRes.transactions };
-}
-
-function pauseResearchItem(progression, researchItemId, nowMs, queueOverride) {
-  const queue = queueOverride || progression.researchQueue;
-  const entry = queue.activeItems.find(function(a) { return a.researchItemId === researchItemId; });
-  if (!entry || entry.status !== 'active') return { ok: false, reason: 'not_active' };
-
-  const delta = Math.max(0, nowMs - entry.lastTickAt);
-  entry.elapsedMs += delta;
-  entry.lastTickAt = nowMs;
-  entry.status = 'paused';
-  return { ok: true, elapsedMs: entry.elapsedMs };
-}
-
-function resumeResearchItem(progression, researchItemId, nowMs, queueOverride) {
-  const queue = queueOverride || progression.researchQueue;
-  const entry = queue.activeItems.find(function(a) { return a.researchItemId === researchItemId; });
-  if (!entry || entry.status !== 'paused') return { ok: false, reason: 'not_paused' };
-
-  entry.lastTickAt = nowMs;
-  entry.status = 'active';
-  return { ok: true, elapsedMs: entry.elapsedMs };
-}
-
-function reorderPendingQueue(progression, fromIdx, toIdx, queueOverride) {
-  const queue = queueOverride || progression.researchQueue;
-  const list = queue.pendingItems;
-  if (fromIdx < 0 || fromIdx >= list.length || toIdx < 0 || toIdx >= list.length) {
-    return { ok: false, reason: 'index_out_of_bounds' };
-  }
-  const moved = list.splice(fromIdx, 1)[0];
-  list.splice(toIdx, 0, moved);
-  return { ok: true, pendingItems: list };
-}
-
-function cancelResearchItem(progression, researchItemId, options) {
-  const opts = options || {};
-  const queue = opts.queue || progression.researchQueue;
-  const nowMs = typeof opts.nowMs === 'number' ? opts.nowMs : 0;
-
-  // Check pending items first (no costs were deducted)
-  const pIdx = queue.pendingItems.findIndex(function(p) { return p.researchItemId === researchItemId; });
-  if (pIdx !== -1) {
-    const removed = queue.pendingItems.splice(pIdx, 1)[0];
-    return { ok: true, removedFrom: 'pending', refundedRatio: 0, entry: removed };
-  }
-
-  const aIdx = queue.activeItems.findIndex(function(a) { return a.researchItemId === researchItemId; });
-  if (aIdx === -1) return { ok: false, reason: 'not_found_in_queue' };
-
-  const entry = queue.activeItems.splice(aIdx, 1)[0];
-  if (entry.status === 'active') {
-    entry.elapsedMs += Math.max(0, nowMs - entry.lastTickAt);
-  }
-
-  const policy = opts.refundPolicy || REFUND_POLICIES.FIXED_PERCENT;
-  let ratio = 0;
-  if (policy === REFUND_POLICIES.FULL) {
-    ratio = 1.0;
-  } else if (policy === REFUND_POLICIES.FIXED_PERCENT) {
-    ratio = typeof opts.refundRatio === 'number' ? opts.refundRatio : 0.5;
-  } else if (policy === REFUND_POLICIES.TIME_BASED) {
-    ratio = Math.max(0, Math.min(1, 1 - (entry.elapsedMs / Math.max(1, entry.effectiveDurationMs))));
-  }
-
-  const snapCosts = (entry.snapshot && Array.isArray(entry.snapshot.costs)) ? entry.snapshot.costs : [];
-  if (ratio > 0) {
-    for (let i = 0; i < snapCosts.length; i++) {
-      const c = snapCosts[i];
-      if (c.consumed === false) continue;
-      const refundAmt = Number(c.amount || 0) * ratio;
-      if (refundAmt <= 0) continue;
-      if ((c.kind || 'currency') === 'currency') {
-        recordCurrencyTransaction(progression.currencyLedger, {
-          ownerId: c.ownerId || entry.ownerId,
-          ownerType: c.ownerType || entry.ownerType,
-          currencyId: c.currencyId,
-          amount: refundAmt,
-          transactionType: TRANSACTION_TYPES.REFUND,
-          source: 'research_cancel:' + researchItemId,
-          referenceId: entry.queueEntryId,
-          idempotencyKey: 'rcancel:' + entry.queueEntryId + ':c' + i,
-          nowMs: nowMs
-        });
-      } else if (c.kind === 'stockpile' && opts.stockpile) {
-        opts.stockpile[c.resourceId] = Number(opts.stockpile[c.resourceId] || 0) + Math.floor(refundAmt);
-      }
-    }
-  }
-
-  const prog = getResearchProgressInstance(progression, entry.ownerType, entry.ownerId, researchItemId);
-  prog.status = prog.currentLevel > 0 ? 'completed' : 'not_started';
-  prog.targetLevel = prog.currentLevel;
-  prog.lastUpdated = nowMs;
-
-  return { ok: true, removedFrom: 'active', refundedRatio: ratio, entry: entry };
-}
-
-// Advance active research using authoritative elapsed time (handles offline catch-up + auto-promoting pending queue)
-function advanceResearchProgress(progression, nowMs, options) {
-  const opts = options || {};
-  const queue = opts.queue || progression.researchQueue;
-  const completedItems = [];
-  const promotedItems = [];
-
-  for (let i = queue.activeItems.length - 1; i >= 0; i--) {
-    const entry = queue.activeItems[i];
-    if (entry.status !== 'active') continue;
-
-    const delta = Math.max(0, nowMs - entry.lastTickAt);
-    entry.elapsedMs += delta;
-    entry.lastTickAt = nowMs;
-
-    if (entry.elapsedMs >= entry.effectiveDurationMs) {
-      queue.activeItems.splice(i, 1);
-      const prog = getResearchProgressInstance(progression, entry.ownerType, entry.ownerId, entry.researchItemId);
-      prog.currentLevel = entry.targetLevel;
-      prog.targetLevel = entry.targetLevel;
-      prog.status = 'completed';
-      prog.completedAt = nowMs;
-      prog.totalTimeSpentMs = (prog.totalTimeSpentMs || 0) + entry.effectiveDurationMs;
-      prog.completionCount = (prog.completionCount || 0) + 1;
-      prog.lastUpdated = nowMs;
-
-      completedItems.push({
-        researchItemId: entry.researchItemId,
-        completedLevel: entry.targetLevel,
-        ownerId: entry.ownerId,
-        ownerType: entry.ownerType,
-        snapshot: entry.snapshot
-      });
-    }
-  }
-
-  // Auto-promote eligible pending items into freed active queue slots
-  while (queue.activeItems.length < (queue.capacity || 1) && queue.pendingItems.length > 0) {
-    const nextPending = queue.pendingItems.shift();
-    const startRes = startOrEnqueueResearch(progression, {
-      ownerId: nextPending.ownerId,
-      ownerType: nextPending.ownerType,
-      researchItemId: nextPending.researchItemId,
-      nowMs: nowMs,
-      queue: queue,
-      allowPending: false,
-      stockpile: opts.stockpile || null,
-      eligibilityCtx: opts.eligibilityCtx || {},
-      speedBonus: opts.speedBonus || 0,
-      catalog: opts.catalog
-    });
-    if (startRes.ok) {
-      promotedItems.push(startRes.entry);
-    }
-  }
-
-  return {
-    completedItems: completedItems,
-    promotedItems: promotedItems
-  };
-}
-
-  // --- Module: src/progression/organizationService.js ---
-// =============================================================================
-// GUILD & ALLIANCE RESEARCH OWNERSHIP & CONTRIBUTION SERVICE (Inc 10.3 / Spec §3, §5, §7.6, §9)
-// Separates Multiplayer Player Guilds (Adventurer, War, Artisan) and Alliances
-// from local City Class Halls. Manages organization-owned research accounts,
-// multi-member Alliance contribution pools with attribution, and membership rules.
-// =============================================================================
-
-
-
-const PLAYER_GUILD_SPECIALIZATIONS = {
-  adventurer: {
-    id: 'adventurer',
-    name: 'Adventurers Guild Order',
-    currencyId: 'rp_guild_adventurer',
-    desc: 'Multiplayer guild order focused on dungeon exploration, discoveries, and relic recovery.'
-  },
-  war: {
-    id: 'war',
-    name: 'War Guild Order',
-    currencyId: 'rp_guild_war',
-    desc: 'Multiplayer guild order focused on military warfare, battles, and tactical campaigns.'
-  },
-  artisan: {
-    id: 'artisan',
-    name: 'Artisan Guild Order',
-    currencyId: 'rp_guild_artisan',
-    desc: 'Multiplayer guild order focused on city engineering, smelting, forging, and crafting.'
-  }
-};
-
-const PROTOTYPE_ORG_RESEARCH_TREES = {
-  tree_guild_adventurers: {
-    treeId: 'tree_guild_adventurers',
-    domainId: 'adventuring',
-    name: 'Guild Expedition Archive',
-    shortDescription: 'Guild-owned exploration knowledge funded by member delving activity.',
-    icon: '🧭',
-    ownershipType: OWNER_TYPES.GUILD,
-    requiredGuildType: 'adventurer',
-    itemIds: ['GLD_ADV_MAP_001'],
-    version: '1.0.0',
-    status: 'active'
-  },
-  tree_alliance_citadel: {
-    treeId: 'tree_alliance_citadel',
-    domainId: 'logistics',
-    name: 'Alliance Supply Network',
-    shortDescription: 'Shared Alliance-owned logistics research funded by member contributions.',
-    icon: '🏛️',
-    ownershipType: OWNER_TYPES.ALLIANCE,
-    itemIds: ['ALL_CITADEL_001'],
-    version: '1.0.0',
-    status: 'active'
-  }
-};
-
-const PROTOTYPE_ORG_RESEARCH_ITEMS = {
-  GLD_ADV_MAP_001: {
-    researchItemId: 'GLD_ADV_MAP_001',
-    treeId: 'tree_guild_adventurers',
-    domainId: 'adventuring',
-    name: 'Shared Cartography Archive',
-    description: 'Guild-owned archive granting +10% dungeon discovery yield to all guild members.',
-    icon: '🗺️',
-    itemType: 'modifier',
-    ownershipType: OWNER_TYPES.GUILD,
-    subjectType: 'guild',
-    prerequisites: { type: 'guild_type', operator: 'equals', value: 'adventurer' },
-    levelLimit: 2,
-    levelDefinitions: [
-      { level: 1, durationSec: 60,  costs: [{ kind: 'currency', currencyId: 'rp_guild_adventurer', amount: 2.0 }], benefits: [{ effectType: 'probability_modifier', target: 'guild_discovery_yield', op: 'additive', value: 0.10 }] },
-      { level: 2, durationSec: 180, costs: [{ kind: 'currency', currencyId: 'rp_guild_adventurer', amount: 5.0 }], benefits: [{ effectType: 'probability_modifier', target: 'guild_discovery_yield', op: 'additive', value: 0.10 }] }
-    ],
-    queueType: 'guild_research',
-    version: '1.0.0',
-    status: 'active'
-  },
-  ALL_CITADEL_001: {
-    researchItemId: 'ALL_CITADEL_001',
-    treeId: 'tree_alliance_citadel',
-    domainId: 'logistics',
-    name: 'Alliance Caravan Corridors',
-    description: 'Alliance-owned logistics network accelerating member marches and caravan transit by +12%.',
-    icon: '🏛️',
-    itemType: 'modifier',
-    ownershipType: OWNER_TYPES.ALLIANCE,
-    subjectType: 'alliance',
-    prerequisites: { type: 'alliance_membership', operator: 'equals', value: true },
-    levelLimit: 2,
-    levelDefinitions: [
-      { level: 1, durationSec: 90,  costs: [{ kind: 'currency', currencyId: 'rp_alliance', amount: 10.0 }], benefits: [{ effectType: 'efficiency_modifier', target: 'alliance_march_speed', op: 'additive', value: 0.12 }] },
-      { level: 2, durationSec: 300, costs: [{ kind: 'currency', currencyId: 'rp_alliance', amount: 25.0 }], benefits: [{ effectType: 'efficiency_modifier', target: 'alliance_march_speed', op: 'additive', value: 0.12 }] }
-    ],
-    queueType: 'alliance_research',
-    version: '1.0.0',
-    status: 'active'
-  }
-};
-
-function createPlayerGuild(progression, params) {
-  if (!progression || !params || !params.guildId) return { ok: false, reason: 'invalid_params' };
-  const spec = PLAYER_GUILD_SPECIALIZATIONS[params.specialization || 'adventurer'];
-  if (!spec) return { ok: false, reason: 'invalid_guild_specialization' };
-
-  const orgs = progression.organizations;
-  const guild = {
-    id: String(params.guildId),
-    name: params.name || spec.name,
-    type: spec.id,
-    currencyId: spec.currencyId,
-    members: params.founderPlayerId ? [String(params.founderPlayerId)] : [],
-    researchQueue: {
-      queueId: 'q_guild_' + params.guildId,
-      queueType: 'guild_research',
-      capacity: 1,
-      activeItems: [],
-      pendingItems: [],
-      enabled: true
-    },
-    createdAt: typeof params.nowMs === 'number' ? params.nowMs : 0
-  };
-  orgs.guilds[guild.id] = guild;
-  if (params.founderPlayerId === 'player_1' || params.setAsPrimary) {
-    orgs.playerGuildId = guild.id;
-  }
-  return { ok: true, guild: guild };
-}
-
-function createAlliance(progression, params) {
-  if (!progression || !params || !params.allianceId) return { ok: false, reason: 'invalid_params' };
-  const orgs = progression.organizations;
-  const alliance = {
-    id: String(params.allianceId),
-    name: params.name || 'Starfall Pact',
-    currencyId: 'rp_alliance',
-    allowsTraining: false, // Clarified Decision #1: Alliance level supports Research ONLY (no Alliance training)
-    members: params.founderPlayerId ? [String(params.founderPlayerId)] : [],
-    researchQueue: {
-      queueId: 'q_alliance_' + params.allianceId,
-      queueType: 'alliance_research',
-      capacity: 1,
-      activeItems: [],
-      pendingItems: [],
-      enabled: true
-    },
-    createdAt: typeof params.nowMs === 'number' ? params.nowMs : 0
-  };
-  orgs.alliances[alliance.id] = alliance;
-  if (params.founderPlayerId === 'player_1' || params.setAsPrimary) {
-    orgs.playerAllianceId = alliance.id;
-  }
-  return { ok: true, alliance: alliance };
-}
-
-function joinOrganization(org, playerId) {
-  if (!org || !playerId) return { ok: false, reason: 'invalid_params' };
-  const pid = String(playerId);
-  if (org.members.indexOf(pid) === -1) {
-    org.members.push(pid);
-  }
-  return { ok: true, members: org.members };
-}
-
-function leaveOrganization(org, playerId) {
-  if (!org || !playerId) return { ok: false, reason: 'invalid_params' };
-  const pid = String(playerId);
-  const idx = org.members.indexOf(pid);
-  if (idx !== -1) org.members.splice(idx, 1);
-  // Spec §9.4: Organization retains all completed & in-progress organization research
-  return { ok: true, departedPlayerId: pid, orgRetainsResearch: true };
-}
-
-function isPlayerEligibleForOrgBenefits(org, playerId) {
-  if (!org || !playerId) return false;
-  return org.members.indexOf(String(playerId)) !== -1;
-}
-
-// Award Guild Research Points into the Guild's own currency account & record contributor attribution
-function recordGuildActivityContribution(progression, params) {
-  if (!progression || !params) return { ok: false, reason: 'invalid_params' };
-  const guild = progression.organizations.guilds[params.guildId];
-  if (!guild) return { ok: false, reason: 'guild_not_found' };
-  const contributor = String(params.contributorPlayerId || 'player_1');
-  if (guild.members.indexOf(contributor) === -1) {
-    return { ok: false, reason: 'not_guild_member' };
-  }
-
-  const nowMs = typeof params.nowMs === 'number' ? params.nowMs : 0;
-  const txRes = recordCurrencyTransaction(progression.currencyLedger, {
-    ownerId: guild.id,
-    ownerType: OWNER_TYPES.GUILD,
-    currencyId: guild.currencyId,
-    amount: params.amount,
-    transactionType: TRANSACTION_TYPES.CONTRIBUTION,
-    source: params.source || 'guild_activity',
-    referenceId: params.eventId || null,
-    idempotencyKey: params.eventId ? ('gcontrib:' + guild.id + ':' + contributor + ':' + params.eventId) : null,
-    nowMs: nowMs
-  });
-
-  if (!txRes.ok || txRes.duplicate) return txRes;
-
-  const contrib = {
-    contributionId: 'contrib_' + String(progression.contributions.length + 1),
-    contributorPlayerId: contributor,
-    targetOwnerId: guild.id,
-    targetOwnerType: OWNER_TYPES.GUILD,
-    currencyId: guild.currencyId,
-    amount: txRes.transaction.amount,
-    amountScaled: txRes.transaction.amountScaled,
-    source: params.source || 'guild_activity',
-    referenceId: params.eventId || null,
-    timestamp: nowMs,
-    transactionId: txRes.transaction.transactionId
-  };
-  progression.contributions.push(contrib);
-  return { ok: true, contribution: contrib, balance: txRes.balance };
-}
-
-// Multi-member contribution into a shared Alliance Research Pool (Spec §3.3 & §5.4)
-function contributeToAlliancePool(progression, params) {
-  if (!progression || !params) return { ok: false, reason: 'invalid_params' };
-  const alliance = progression.organizations.alliances[params.allianceId];
-  if (!alliance) return { ok: false, reason: 'alliance_not_found' };
-  const contributor = String(params.contributorPlayerId || 'player_1');
-  if (alliance.members.indexOf(contributor) === -1) {
-    return { ok: false, reason: 'not_alliance_member' };
-  }
-
-  const nowMs = typeof params.nowMs === 'number' ? params.nowMs : 0;
-  const txRes = recordCurrencyTransaction(progression.currencyLedger, {
-    ownerId: alliance.id,
-    ownerType: OWNER_TYPES.ALLIANCE,
-    currencyId: alliance.currencyId,
-    amount: params.amount,
-    transactionType: TRANSACTION_TYPES.CONTRIBUTION,
-    source: params.source || 'member_direct_contribution',
-    referenceId: params.eventId || null,
-    idempotencyKey: params.eventId ? ('acontrib:' + alliance.id + ':' + contributor + ':' + params.eventId) : null,
-    nowMs: nowMs
-  });
-
-  if (!txRes.ok || txRes.duplicate) return txRes;
-
-  const contrib = {
-    contributionId: 'contrib_' + String(progression.contributions.length + 1),
-    contributorPlayerId: contributor,
-    targetOwnerId: alliance.id,
-    targetOwnerType: OWNER_TYPES.ALLIANCE,
-    currencyId: alliance.currencyId,
-    amount: txRes.transaction.amount,
-    amountScaled: txRes.transaction.amountScaled,
-    source: params.source || 'member_direct_contribution',
-    referenceId: params.eventId || null,
-    timestamp: nowMs,
-    transactionId: txRes.transaction.transactionId
-  };
-  progression.contributions.push(contrib);
-  return { ok: true, contribution: contrib, allianceBalance: txRes.balance };
-}
-
-function getContributionReport(progression, filter) {
-  const f = filter || {};
-  const byMember = {};
-  let totalScaled = 0;
-  const records = [];
-
-  for (let i = 0; i < (progression.contributions || []).length; i++) {
-    const c = progression.contributions[i];
-    if (f.targetOwnerType && c.targetOwnerType !== f.targetOwnerType) continue;
-    if (f.targetOwnerId && c.targetOwnerId !== String(f.targetOwnerId)) continue;
-    if (f.contributorPlayerId && c.contributorPlayerId !== String(f.contributorPlayerId)) continue;
-    records.push(c);
-    totalScaled += (c.amountScaled || 0);
-    byMember[c.contributorPlayerId] = (byMember[c.contributorPlayerId] || 0) + (c.amountScaled || 0);
-  }
-
-  return {
-    count: records.length,
-    totalScaled: totalScaled,
-    total: totalScaled / 100000,
-    byMemberScaled: byMember,
-    records: records
-  };
-}
-
-function startOrganizationResearch(progression, params) {
-  if (!progression || !params) return { ok: false, reason: 'invalid_params' };
-  const orgType = params.orgType;
-  if (params.isTraining && orgType === OWNER_TYPES.ALLIANCE) {
-    return { ok: false, reason: 'alliance_training_not_supported' };
-  }
-
-  const org = orgType === OWNER_TYPES.GUILD
-    ? progression.organizations.guilds[params.orgId]
-    : (orgType === OWNER_TYPES.ALLIANCE ? progression.organizations.alliances[params.orgId] : null);
-  if (!org) return { ok: false, reason: 'organization_not_found' };
-
-  return startOrEnqueueResearch(progression, {
-    ownerId: org.id,
-    ownerType: orgType,
-    researchItemId: params.researchItemId,
-    nowMs: params.nowMs || 0,
-    queue: org.researchQueue,
-    catalog: PROTOTYPE_ORG_RESEARCH_ITEMS,
-    eligibilityCtx: {
-      guild: orgType === OWNER_TYPES.GUILD ? org : null,
-      alliance: orgType === OWNER_TYPES.ALLIANCE ? org : null
-    }
-  });
-}
-
-function getOrganizationResearchBalance(progression, orgType, orgId) {
-  const org = orgType === OWNER_TYPES.GUILD
-    ? progression.organizations.guilds[orgId]
-    : progression.organizations.alliances[orgId];
-  if (!org) return null;
-  return getCurrencyBalance(progression.currencyLedger, org.id, orgType, org.currencyId);
-}
-
-  // --- Module: src/progression/benefitService.js ---
-// =============================================================================
-// GENERIC EFFECTS & BENEFITS FRAMEWORK (Inc 10.4 / ADR-0015 / Spec §12)
-// Data-driven effect aggregation and deterministic stacking across Personal,
-// Guild, Alliance, and Subject-Specific (Hero/City/Unit/Construct) progression.
-// Explicitly separates Unlocks from Modifiers.
-// =============================================================================
-
-
-
-
-const EFFECT_TYPES = {
-  CAPABILITY_UNLOCK: 'capability_unlock',
-  UNLOCK_TRAINING: 'unlock_training',
-  ABILITY_UNLOCK: 'ability_unlock',
-  RECIPE_UNLOCK: 'recipe_unlock',
-  ACCESS_UNLOCK: 'access_unlock',
-  ATTRIBUTE_MODIFIER: 'attribute_modifier',
-  SKILL_MODIFIER: 'skill_modifier',
-  PRODUCTION_MODIFIER: 'production_modifier',
-  ACCRUAL_MODIFIER: 'accrual_modifier',
-  RESEARCH_SPEED_MODIFIER: 'research_speed_modifier',
-  TRAINING_SPEED_MODIFIER: 'training_speed_modifier',
-  CAPACITY_MODIFIER: 'capacity_modifier',
-  PROBABILITY_MODIFIER: 'probability_modifier',
-  EFFICIENCY_MODIFIER: 'efficiency_modifier',
-  LIMIT_MODIFIER: 'limit_modifier',
-  BEHAVIOR_MODIFICATION: 'behavior_modification',
-  SPECIAL_EFFECT: 'special_effect'
-};
-
-const EFFECT_OPS = {
-  ADDITIVE: 'additive',
-  MULTIPLICATIVE: 'multiplicative',
-  SET: 'set',
-  MINIMUM: 'minimum',
-  MAXIMUM: 'maximum',
-  UNLOCK: 'unlock',
-  DISABLE: 'disable',
-  REPLACE: 'replace',
-  CUSTOM: 'custom'
-};
-
-const UNLOCK_OPS = {
-  unlock: true,
-  disable: true,
-  replace: true
-};
-
-const UNLOCK_EFFECT_TYPES = {
-  capability_unlock: true,
-  unlock_training: true,
-  ability_unlock: true,
-  recipe_unlock: true,
-  access_unlock: true
-};
-
-const MODIFIER_OPS = {
-  additive: true,
-  multiplicative: true,
-  set: true,
-  minimum: true,
-  maximum: true
-};
-
-const _customEffectHandlers = {};
-
-function registerCustomEffectHandler(handlerId, fn) {
-  if (!handlerId || typeof fn !== 'function') return false;
-  _customEffectHandlers[String(handlerId)] = fn;
-  return true;
-}
-
-function evaluateCustomEffect(handlerId, payload) {
-  const fn = _customEffectHandlers[String(handlerId)];
-  if (!fn) return { ok: false, reason: 'unknown_custom_handler' };
-  return { ok: true, result: fn(payload) };
-}
-
-function isUnlockEffect(effect) {
-  if (!effect) return false;
-  return Boolean(UNLOCK_OPS[effect.op] || UNLOCK_EFFECT_TYPES[effect.effectType]);
-}
-
-function isModifierEffect(effect) {
-  if (!effect) return false;
-  return Boolean(MODIFIER_OPS[effect.op] && !isUnlockEffect(effect));
-}
-
-function collectResearchBenefitsForOwner(progression, ownerType, ownerId, catalog, sourceType, outList) {
-  const prefix = String(ownerType) + ':' + String(ownerId) + ':';
-  const progressMap = (progression && progression.researchProgress) ? progression.researchProgress : {};
-  const keys = Object.keys(progressMap);
-
-  for (let i = 0; i < keys.length; i++) {
-    const key = keys[i];
-    if (key.indexOf(prefix) !== 0) continue;
-    const prog = progressMap[key];
-    if (!prog || !prog.currentLevel || prog.currentLevel <= 0) continue;
-
-    const itemDef = catalog[prog.researchItemId];
-    if (!itemDef || !Array.isArray(itemDef.levelDefinitions)) continue;
-
-    for (let li = 0; li < itemDef.levelDefinitions.length; li++) {
-      const lvlDef = itemDef.levelDefinitions[li];
-      if (lvlDef.level > prog.currentLevel) continue;
-      const benefits = Array.isArray(lvlDef.benefits) ? lvlDef.benefits : [];
-      for (let bi = 0; bi < benefits.length; bi++) {
-        const b = benefits[bi];
-        outList.push({
-          sourceType: sourceType,
-          sourceOwnerType: ownerType,
-          sourceOwnerId: String(ownerId),
-          sourceId: prog.researchItemId,
-          sourceLevel: lvlDef.level,
-          effectType: b.effectType,
-          target: b.target,
-          op: b.op,
-          value: b.value,
-          priority: typeof b.priority === 'number' ? b.priority : 0
-        });
-      }
-    }
-  }
-}
-
-function collectSubjectTrainingBenefits(progression, subjectType, subjectId, trainingCatalog, outList) {
-  if (!subjectType || !subjectId) return;
-  const prefix = String(subjectType) + ':' + String(subjectId) + ':';
-  const instMap = (progression && progression.trainingInstances) ? progression.trainingInstances : {};
-  const keys = Object.keys(instMap);
-
-  for (let i = 0; i < keys.length; i++) {
-    const key = keys[i];
-    if (key.indexOf(prefix) !== 0) continue;
-    const inst = instMap[key];
-    if (!inst || !inst.currentLevel || inst.currentLevel <= 0) continue;
-
-    const def = trainingCatalog[inst.trainingDefinitionId];
-    if (!def || !Array.isArray(def.levels)) continue;
-
-    for (let li = 0; li < def.levels.length; li++) {
-      const lvlDef = def.levels[li];
-      if (lvlDef.level > inst.currentLevel) continue;
-      const benefits = Array.isArray(lvlDef.benefits) ? lvlDef.benefits : [];
-      for (let bi = 0; bi < benefits.length; bi++) {
-        const b = benefits[bi];
-        outList.push({
-          sourceType: 'training',
-          subjectType: String(subjectType),
-          subjectId: String(subjectId),
-          sourceId: inst.trainingDefinitionId,
-          sourceLevel: lvlDef.level,
-          effectType: b.effectType,
-          target: b.target,
-          op: b.op,
-          value: b.value,
-          priority: typeof b.priority === 'number' ? b.priority : 0
-        });
-      }
-    }
-  }
-}
-
-// Collect all active effects for a player (and optionally a specific subject like a Hero)
-// Explicitly returns separated { allEffects, unlocks, modifiers }.
-function collectActiveEffects(progression, context) {
-  const ctx = context || {};
-  const playerId = String(ctx.playerId || ctx.ownerId || 'player_1');
-  const researchCatalog = Object.assign({}, PROTOTYPE_RESEARCH_ITEMS, ctx.researchCatalog || {});
-  const orgCatalog = Object.assign({}, PROTOTYPE_ORG_RESEARCH_ITEMS, ctx.orgCatalog || {});
-  const trainingCatalog = Object.assign({}, PROTOTYPE_TRAINING_DEFINITIONS, ctx.trainingCatalog || {});
-
-  const allEffects = [];
-
-  if (progression) {
-    // 1. Personal Research
-    collectResearchBenefitsForOwner(progression, OWNER_TYPES.PLAYER, playerId, researchCatalog, 'personal_research', allEffects);
-
-    // 2. Guild Research (only if player is an eligible member)
-    const orgs = progression.organizations || {};
-    const guildId = ctx.guildId !== undefined ? ctx.guildId : orgs.playerGuildId;
-    if (guildId && orgs.guilds && orgs.guilds[guildId]) {
-      const guild = orgs.guilds[guildId];
-      if (isPlayerEligibleForOrgBenefits(guild, playerId)) {
-        collectResearchBenefitsForOwner(progression, OWNER_TYPES.GUILD, guildId, orgCatalog, 'guild_research', allEffects);
-      }
-    }
-
-    // 3. Alliance Research (only if player is an eligible member)
-    const allianceId = ctx.allianceId !== undefined ? ctx.allianceId : orgs.playerAllianceId;
-    if (allianceId && orgs.alliances && orgs.alliances[allianceId]) {
-      const alliance = orgs.alliances[allianceId];
-      if (isPlayerEligibleForOrgBenefits(alliance, playerId)) {
-        collectResearchBenefitsForOwner(progression, OWNER_TYPES.ALLIANCE, allianceId, orgCatalog, 'alliance_research', allEffects);
-      }
-    }
-
-    // 4. Subject-Specific Training (strictly scoped to subjectType + subjectId)
-    if (ctx.subjectType && ctx.subjectId) {
-      collectSubjectTrainingBenefits(progression, ctx.subjectType, ctx.subjectId, trainingCatalog, allEffects);
-    }
-  }
-
-  // 5. Optional transient / external effects (alignment, buffs, buildings, tests)
-  if (Array.isArray(ctx.extraEffects)) {
-    for (let ei = 0; ei < ctx.extraEffects.length; ei++) {
-      const ex = ctx.extraEffects[ei];
-      if (!ex) continue;
-      allEffects.push({
-        sourceType: ex.sourceType || 'external',
-        sourceId: ex.sourceId || ('ext_' + ei),
-        sourceLevel: ex.sourceLevel || 1,
-        effectType: ex.effectType,
-        target: ex.target,
-        op: ex.op,
-        value: ex.value,
-        priority: typeof ex.priority === 'number' ? ex.priority : 0
-      });
-    }
-  }
-
-  const unlocks = [];
-  const modifiers = [];
-  for (let i = 0; i < allEffects.length; i++) {
-    const eff = allEffects[i];
-    if (isUnlockEffect(eff)) {
-      unlocks.push(eff);
-    } else if (isModifierEffect(eff)) {
-      modifiers.push(eff);
-    }
-  }
-
-  return {
-    allEffects: allEffects,
-    unlocks: unlocks,
-    modifiers: modifiers
-  };
-}
-
-// Deterministic stacking order (Spec §12):
-// 1. Set (highest priority wins) -> replaces baseValue
-// 2. Additive -> sum all additive values onto base
-// 3. Multiplicative -> multiply by product of multiplicative factors
-// 4. Minimum -> clamp lower bound (highest minimum wins)
-// 5. Maximum -> clamp upper bound (lowest maximum wins)
-function resolveNumericStat(baseValue, target, effects, options) {
-  const opts = options || {};
-  const effectTypeFilter = opts.effectType || null;
-  const list = Array.isArray(effects) ? effects : [];
-
-  const matching = [];
-  for (let i = 0; i < list.length; i++) {
-    const eff = list[i];
-    if (!eff || eff.target !== target) continue;
-    if (effectTypeFilter && eff.effectType !== effectTypeFilter) continue;
-    if (!isModifierEffect(eff)) continue;
-    matching.push(eff);
-  }
-
-  let setEffect = null;
-  let additiveSum = 0;
-  let multiplicativeFactor = 1;
-  let minBound = null;
-  let maxBound = null;
-
-  for (let j = 0; j < matching.length; j++) {
-    const m = matching[j];
-    const numVal = Number(m.value);
-    if (!isFinite(numVal)) continue;
-
-    if (m.op === EFFECT_OPS.SET) {
-      if (!setEffect || (m.priority || 0) >= (setEffect.priority || 0)) {
-        setEffect = m;
-      }
-    } else if (m.op === EFFECT_OPS.ADDITIVE) {
-      additiveSum += numVal;
-    } else if (m.op === EFFECT_OPS.MULTIPLICATIVE) {
-      multiplicativeFactor *= numVal;
-    } else if (m.op === EFFECT_OPS.MINIMUM) {
-      if (minBound === null || numVal > minBound) minBound = numVal;
-    } else if (m.op === EFFECT_OPS.MAXIMUM) {
-      if (maxBound === null || numVal < maxBound) maxBound = numVal;
-    }
-  }
-
-  let val = setEffect ? Number(setEffect.value) : Number(baseValue || 0);
-  val = (val + additiveSum) * multiplicativeFactor;
-  if (minBound !== null && val < minBound) val = minBound;
-  if (maxBound !== null && val > maxBound) val = maxBound;
-
-  // Clean minor floating-point representation noise (e.g. 12.000000000000002 -> 12)
-  const cleanVal = Math.round(val * 1000000) / 1000000;
-
-  return {
-    target: target,
-    baseValue: Number(baseValue || 0),
-    finalValue: cleanVal,
-    setApplied: setEffect ? Number(setEffect.value) : null,
-    additiveSum: Math.round(additiveSum * 1000000) / 1000000,
-    multiplicativeFactor: Math.round(multiplicativeFactor * 1000000) / 1000000,
-    minBound: minBound,
-    maxBound: maxBound,
-    appliedEffects: matching
-  };
-}
-
-// Resolve Unlock / Disable / Replace state for a target capability, training, ability, or recipe
-function resolveUnlockState(target, effects, options) {
-  const opts = options || {};
-  const effectTypeFilter = opts.effectType || null;
-  const list = Array.isArray(effects) ? effects : [];
-
-  let unlocked = false;
-  let maxUnlockLevel = 0;
-  let highestUnlockPriority = -Infinity;
-  let disabled = false;
-  let highestDisablePriority = -Infinity;
-  let replacedBy = null;
-  let highestReplacePriority = -Infinity;
-  const sources = [];
-
-  for (let i = 0; i < list.length; i++) {
-    const eff = list[i];
-    if (!eff || eff.target !== target) continue;
-    if (effectTypeFilter && eff.effectType !== effectTypeFilter) continue;
-    if (!isUnlockEffect(eff)) continue;
-
-    sources.push(eff);
-    const prio = typeof eff.priority === 'number' ? eff.priority : 0;
-
-    if (eff.op === EFFECT_OPS.UNLOCK) {
-      unlocked = true;
-      const lvl = typeof eff.value === 'number' ? eff.value : 1;
-      if (lvl > maxUnlockLevel) maxUnlockLevel = lvl;
-      if (prio >= highestUnlockPriority) highestUnlockPriority = prio;
-    } else if (eff.op === EFFECT_OPS.DISABLE) {
-      disabled = true;
-      if (prio >= highestDisablePriority) highestDisablePriority = prio;
-    } else if (eff.op === EFFECT_OPS.REPLACE) {
-      if (prio >= highestReplacePriority) {
-        highestReplacePriority = prio;
-        replacedBy = eff.value;
-      }
-    }
-  }
-
-  // Disable overrides unlock unless an unlock has strictly higher priority
-  const isEffectiveUnlocked = unlocked && (!disabled || highestUnlockPriority > highestDisablePriority);
-
-  return {
-    target: target,
-    unlocked: isEffectiveUnlocked,
-    maxUnlockLevel: isEffectiveUnlocked ? maxUnlockLevel : 0,
-    disabled: disabled && highestDisablePriority >= highestUnlockPriority,
-    replacedBy: replacedBy,
-    sources: sources
-  };
-}
-
-  // --- Module: src/progression/trainingService.js ---
-// =============================================================================
-// SEPARATE HERO & SUBJECT TRAINING QUEUE SERVICE (Inc 10.4 / Spec §3.4, §7, §14)
-// Manages subject-scoped TrainingInstances (Hero, City, Unit, Construct) on a
-// dedicated Training Queue completely independent of the Personal Research Queue.
-// Personal Research unlocks training options; each subject trains independently.
-// =============================================================================
-
-
-
-
-
-
-const SUBJECT_TYPES = {
-  HERO: 'hero',
-  CITY: 'city',
-  UNIT: 'unit',
-  CONSTRUCT: 'construct'
-};
-
-function makeTrainingKey(subjectType, subjectId, trainingDefinitionId) {
-  return String(subjectType) + ':' + String(subjectId) + ':' + String(trainingDefinitionId);
-}
-
-function getTrainingDefinition(trainingDefinitionId, customCatalog) {
-  const cat = customCatalog || PROTOTYPE_TRAINING_DEFINITIONS;
-  return cat[trainingDefinitionId] || null;
-}
-
-function getTrainingInstance(progression, subjectType, subjectId, trainingDefinitionId) {
-  const key = makeTrainingKey(subjectType, subjectId, trainingDefinitionId);
-  if (!progression.trainingInstances[key]) {
-    progression.trainingInstances[key] = {
-      trainingInstanceId: 'trn_' + key,
-      trainingDefinitionId: String(trainingDefinitionId),
-      subjectId: String(subjectId),
-      subjectType: String(subjectType),
-      currentLevel: 0,
-      targetLevel: 0,
-      status: 'not_started',
-      startedAt: null,
-      completedAt: null,
-      totalTimeSpentMs: 0,
-      completionCount: 0,
-      definitionVersion: '1.0.0',
-      lastUpdated: 0
-    };
-  }
-  return progression.trainingInstances[key];
-}
-
-function evaluateTrainingEligibility(progression, params) {
-  if (!progression || !params) {
-    return { canStart: false, status: EVALUATION_STATUS.LOCKED, unmetConditions: [{ reason: 'Invalid parameters' }] };
-  }
-  const ownerId = String(params.ownerId || 'player_1');
-  const ownerType = params.ownerType || OWNER_TYPES.PLAYER;
-  const subjectType = String(params.subjectType || SUBJECT_TYPES.HERO);
-  const subjectId = params.subjectId ? String(params.subjectId) : null;
-  const trainingDefinitionId = params.trainingDefinitionId;
-
-  if (!subjectId) {
-    return { canStart: false, status: EVALUATION_STATUS.SUBJECT_UNAVAILABLE, unmetConditions: [{ reason: 'No training subject specified' }] };
-  }
-  if (params.subjectAvailable === false) {
-    return { canStart: false, status: EVALUATION_STATUS.SUBJECT_UNAVAILABLE, unmetConditions: [{ reason: 'Subject is currently unavailable for training' }] };
-  }
-
-  const def = getTrainingDefinition(trainingDefinitionId, params.trainingCatalog);
-  if (!def) {
-    return { canStart: false, status: EVALUATION_STATUS.LOCKED, unmetConditions: [{ reason: 'Unknown training definition: ' + trainingDefinitionId }] };
-  }
-  if (def.subjectType && def.subjectType !== subjectType) {
-    return { canStart: false, status: EVALUATION_STATUS.SUBJECT_UNAVAILABLE, unmetConditions: [{ reason: 'Training requires subject type ' + def.subjectType }] };
-  }
-
-  const inst = getTrainingInstance(progression, subjectType, subjectId, trainingDefinitionId);
-  const targetLevel = typeof params.targetLevel === 'number' ? params.targetLevel : ((inst.currentLevel || 0) + 1);
-  const lvlDef = Array.isArray(def.levels)
-    ? def.levels.find(function(l) { return l.level === targetLevel; })
-    : null;
-  if (!lvlDef) {
-    return { canStart: false, status: EVALUATION_STATUS.MAX_LEVEL, unmetConditions: [{ reason: 'Maximum training level reached' }] };
-  }
-
-  const unmet = [];
-
-  // 1. Verify capability unlock via BenefitService (if unlocked via research)
-  if (params.requireUnlock !== false) {
-    const activeEffects = collectActiveEffects(progression, {
-      playerId: ownerId,
-      researchCatalog: params.researchCatalog,
-      orgCatalog: params.orgCatalog,
-      trainingCatalog: params.trainingCatalog,
-      extraEffects: params.extraEffects
-    });
-    const unlockState = resolveUnlockState(trainingDefinitionId, activeEffects.unlocks, {
-      effectType: EFFECT_TYPES.UNLOCK_TRAINING
-    });
-    if (!unlockState.unlocked || unlockState.maxUnlockLevel < targetLevel) {
-      unmet.push({
-        type: 'unlock_training',
-        target: trainingDefinitionId,
-        expected: targetLevel,
-        actual: unlockState.maxUnlockLevel,
-        reason: 'Requires research unlock for ' + def.name + ' Level ' + targetLevel
-      });
-    }
-  }
-
-  // 2. Evaluate training-level and definition-level prerequisites
-  const eligCtx = Object.assign({}, params.eligibilityCtx || {}, {
-    ownerId: ownerId,
-    ownerType: ownerType,
-    ledger: progression.currencyLedger,
-    researchProgress: buildOwnerProgressLookup(progression, ownerType, ownerId),
-    alignment: progression.alignment,
-    discoveries: progression.discoveries
-  });
-
-  if (def.prerequisites) {
-    const baseEval = evaluateConditionNode(def.prerequisites, eligCtx);
-    if (!baseEval.passed) {
-      for (let i = 0; i < baseEval.unmetConditions.length; i++) {
-        unmet.push(baseEval.unmetConditions[i]);
-      }
-    }
-  }
-  if (lvlDef.prerequisites) {
-    const lvlEval = evaluateConditionNode(lvlDef.prerequisites, eligCtx);
-    if (!lvlEval.passed) {
-      for (let j = 0; j < lvlEval.unmetConditions.length; j++) {
-        unmet.push(lvlEval.unmetConditions[j]);
-      }
-    }
-  }
-
-  if (unmet.length > 0) {
-    return {
-      canStart: false,
-      status: EVALUATION_STATUS.LOCKED,
-      targetLevel: targetLevel,
-      unmetConditions: unmet
-    };
-  }
-
-  return {
-    canStart: true,
-    status: EVALUATION_STATUS.AVAILABLE,
-    targetLevel: targetLevel,
-    levelDefinition: lvlDef,
-    definition: def,
-    unmetConditions: []
-  };
-}
-
-function startOrEnqueueTraining(progression, params) {
-  if (!progression || !params) return { ok: false, reason: 'invalid_params' };
-  const ownerId = String(params.ownerId || 'player_1');
-  const ownerType = params.ownerType || OWNER_TYPES.PLAYER;
-  const subjectType = String(params.subjectType || SUBJECT_TYPES.HERO);
-  const subjectId = params.subjectId ? String(params.subjectId) : null;
-  const trainingDefinitionId = params.trainingDefinitionId;
-  const nowMs = typeof params.nowMs === 'number' ? params.nowMs : 0;
-  const queue = params.queue || progression.trainingQueue;
-  const allowPending = params.allowPending !== false;
-
-  if (!subjectId) return { ok: false, reason: EVALUATION_STATUS.SUBJECT_UNAVAILABLE };
-
-  // Prevent duplicate active or pending training of the same definition for the same subject
-  const isDupActive = queue.activeItems.some(function(a) {
-    return a.subjectType === subjectType && a.subjectId === subjectId && a.trainingDefinitionId === trainingDefinitionId;
-  });
-  const isDupPending = queue.pendingItems.some(function(p) {
-    return p.subjectType === subjectType && p.subjectId === subjectId && p.trainingDefinitionId === trainingDefinitionId;
-  });
-  if (isDupActive || isDupPending) {
-    return { ok: false, reason: 'already_in_training_queue' };
-  }
-
-  const elig = evaluateTrainingEligibility(progression, params);
-  if (!elig.canStart) {
-    return { ok: false, reason: elig.status, unmetConditions: elig.unmetConditions };
-  }
-
-  const def = elig.definition;
-  const lvlDef = elig.levelDefinition;
-  const targetLevel = elig.targetLevel;
-  const isQueueFull = queue.activeItems.length >= (queue.capacity || 1);
-
-  if (isQueueFull && !allowPending) {
-    return { ok: false, reason: EVALUATION_STATUS.QUEUE_FULL };
-  }
-
-  // Pending entries do not deduct costs until promoted to active
-  if (isQueueFull) {
-    const pendingEntry = {
-      queueEntryId: 'tpend_' + subjectId + '_' + trainingDefinitionId + '_' + targetLevel + '_' + nowMs,
-      trainingDefinitionId: trainingDefinitionId,
-      ownerId: ownerId,
-      ownerType: String(ownerType),
-      subjectType: subjectType,
-      subjectId: subjectId,
-      targetLevel: targetLevel,
-      enqueuedAt: nowMs,
-      status: 'pending'
-    };
-    queue.pendingItems.push(pendingEntry);
-    return { ok: true, queuedAs: 'pending', entry: pendingEntry };
-  }
-
-  // Atomic all-or-nothing payment validation & deduction
-  const payRes = executeAtomicPayment(progression.currencyLedger, lvlDef.costs || [], {
-    ownerId: ownerId,
-    ownerType: ownerType,
-    stockpile: params.stockpile || null,
-    nowMs: nowMs,
-    source: 'training_start:' + trainingDefinitionId + ':' + subjectId,
-    referenceId: subjectId + ':' + trainingDefinitionId + ':L' + targetLevel,
-    idempotencyKey: 'tstart:' + subjectType + ':' + subjectId + ':' + trainingDefinitionId + ':L' + targetLevel + ':' + nowMs
-  });
-
-  if (!payRes.ok) {
-    return { ok: false, reason: EVALUATION_STATUS.UNAFFORDABLE, shortfalls: payRes.shortfalls };
-  }
-
-  const speedBonus = typeof params.speedBonus === 'number' ? params.speedBonus : 0;
-  const speedFactor = Math.max(0.1, 1 + speedBonus);
-  const baseDurationMs = (lvlDef.durationSec || 30) * 1000;
-  const effectiveDurationMs = Math.max(1000, Math.round(baseDurationMs / speedFactor));
-
-  const activeEntry = {
-    queueEntryId: 'tact_' + subjectId + '_' + trainingDefinitionId + '_' + targetLevel + '_' + nowMs,
-    trainingDefinitionId: trainingDefinitionId,
-    ownerId: ownerId,
-    ownerType: String(ownerType),
-    subjectType: subjectType,
-    subjectId: subjectId,
-    targetLevel: targetLevel,
-    status: 'active',
-    startedAt: nowMs,
-    lastTickAt: nowMs,
-    elapsedMs: 0,
-    effectiveDurationMs: effectiveDurationMs,
-    snapshot: {
-      definitionVersion: def.version || '1.0.0',
-      durationSec: lvlDef.durationSec,
-      costs: JSON.parse(JSON.stringify(lvlDef.costs || [])),
-      benefits: JSON.parse(JSON.stringify(lvlDef.benefits || []))
-    }
-  };
-
-  queue.activeItems.push(activeEntry);
-
-  const inst = getTrainingInstance(progression, subjectType, subjectId, trainingDefinitionId);
-  inst.targetLevel = targetLevel;
-  inst.status = 'in_progress';
-  inst.startedAt = nowMs;
-  inst.definitionVersion = def.version || '1.0.0';
-  inst.lastUpdated = nowMs;
-
-  return { ok: true, queuedAs: 'active', entry: activeEntry, transactions: payRes.transactions };
-}
-
-function pauseTrainingItem(progression, subjectId, trainingDefinitionId, nowMs, options) {
-  const opts = options || {};
-  const queue = opts.queue || progression.trainingQueue;
-  const subjectType = String(opts.subjectType || SUBJECT_TYPES.HERO);
-  const entry = queue.activeItems.find(function(a) {
-    return a.subjectType === subjectType && a.subjectId === String(subjectId) && a.trainingDefinitionId === trainingDefinitionId;
-  });
-  if (!entry || entry.status !== 'active') return { ok: false, reason: 'not_active' };
-
-  entry.elapsedMs += Math.max(0, nowMs - entry.lastTickAt);
-  entry.lastTickAt = nowMs;
-  entry.status = 'paused';
-  return { ok: true, elapsedMs: entry.elapsedMs };
-}
-
-function resumeTrainingItem(progression, subjectId, trainingDefinitionId, nowMs, options) {
-  const opts = options || {};
-  const queue = opts.queue || progression.trainingQueue;
-  const subjectType = String(opts.subjectType || SUBJECT_TYPES.HERO);
-  const entry = queue.activeItems.find(function(a) {
-    return a.subjectType === subjectType && a.subjectId === String(subjectId) && a.trainingDefinitionId === trainingDefinitionId;
-  });
-  if (!entry || entry.status !== 'paused') return { ok: false, reason: 'not_paused' };
-
-  entry.lastTickAt = nowMs;
-  entry.status = 'active';
-  return { ok: true, elapsedMs: entry.elapsedMs };
-}
-
-function cancelTrainingItem(progression, subjectId, trainingDefinitionId, options) {
-  const opts = options || {};
-  const queue = opts.queue || progression.trainingQueue;
-  const subjectType = String(opts.subjectType || SUBJECT_TYPES.HERO);
-  const nowMs = typeof opts.nowMs === 'number' ? opts.nowMs : 0;
-
-  const pIdx = queue.pendingItems.findIndex(function(p) {
-    return p.subjectType === subjectType && p.subjectId === String(subjectId) && p.trainingDefinitionId === trainingDefinitionId;
-  });
-  if (pIdx !== -1) {
-    const removed = queue.pendingItems.splice(pIdx, 1)[0];
-    return { ok: true, removedFrom: 'pending', refundedRatio: 0, entry: removed };
-  }
-
-  const aIdx = queue.activeItems.findIndex(function(a) {
-    return a.subjectType === subjectType && a.subjectId === String(subjectId) && a.trainingDefinitionId === trainingDefinitionId;
-  });
-  if (aIdx === -1) return { ok: false, reason: 'not_found_in_queue' };
-
-  const entry = queue.activeItems.splice(aIdx, 1)[0];
-  if (entry.status === 'active') {
-    entry.elapsedMs += Math.max(0, nowMs - entry.lastTickAt);
-  }
-
-  const policy = opts.refundPolicy || REFUND_POLICIES.FIXED_PERCENT;
-  let ratio = 0;
-  if (policy === REFUND_POLICIES.FULL) {
-    ratio = 1.0;
-  } else if (policy === REFUND_POLICIES.FIXED_PERCENT) {
-    ratio = typeof opts.refundRatio === 'number' ? opts.refundRatio : 0.5;
-  } else if (policy === REFUND_POLICIES.TIME_BASED) {
-    ratio = Math.max(0, Math.min(1, 1 - (entry.elapsedMs / Math.max(1, entry.effectiveDurationMs))));
-  }
-
-  const snapCosts = (entry.snapshot && Array.isArray(entry.snapshot.costs)) ? entry.snapshot.costs : [];
-  if (ratio > 0) {
-    for (let i = 0; i < snapCosts.length; i++) {
-      const c = snapCosts[i];
-      if (c.consumed === false) continue;
-      const refundAmt = Number(c.amount || 0) * ratio;
-      if (refundAmt <= 0) continue;
-      if ((c.kind || 'currency') === 'currency') {
-        recordCurrencyTransaction(progression.currencyLedger, {
-          ownerId: c.ownerId || entry.ownerId,
-          ownerType: c.ownerType || entry.ownerType,
-          currencyId: c.currencyId,
-          amount: refundAmt,
-          transactionType: TRANSACTION_TYPES.REFUND,
-          source: 'training_cancel:' + trainingDefinitionId,
-          referenceId: entry.queueEntryId,
-          idempotencyKey: 'tcancel:' + entry.queueEntryId + ':c' + i,
-          nowMs: nowMs
-        });
-      } else if (c.kind === 'stockpile' && opts.stockpile) {
-        opts.stockpile[c.resourceId] = Number(opts.stockpile[c.resourceId] || 0) + Math.floor(refundAmt);
-      }
-    }
-  }
-
-  const inst = getTrainingInstance(progression, entry.subjectType, entry.subjectId, trainingDefinitionId);
-  inst.status = inst.currentLevel > 0 ? 'completed' : 'not_started';
-  inst.targetLevel = inst.currentLevel;
-  inst.lastUpdated = nowMs;
-
-  return { ok: true, removedFrom: 'active', refundedRatio: ratio, entry: entry };
-}
-
-function advanceTrainingProgress(progression, nowMs, options) {
-  const opts = options || {};
-  const queue = opts.queue || progression.trainingQueue;
-  const completedItems = [];
-  const promotedItems = [];
-
-  for (let i = queue.activeItems.length - 1; i >= 0; i--) {
-    const entry = queue.activeItems[i];
-    if (entry.status !== 'active') continue;
-
-    const delta = Math.max(0, nowMs - entry.lastTickAt);
-    entry.elapsedMs += delta;
-    entry.lastTickAt = nowMs;
-
-    if (entry.elapsedMs >= entry.effectiveDurationMs) {
-      queue.activeItems.splice(i, 1);
-      const inst = getTrainingInstance(progression, entry.subjectType, entry.subjectId, entry.trainingDefinitionId);
-      inst.currentLevel = entry.targetLevel;
-      inst.targetLevel = entry.targetLevel;
-      inst.status = 'completed';
-      inst.completedAt = nowMs;
-      inst.totalTimeSpentMs = (inst.totalTimeSpentMs || 0) + entry.effectiveDurationMs;
-      inst.completionCount = (inst.completionCount || 0) + 1;
-      inst.lastUpdated = nowMs;
-
-      completedItems.push({
-        trainingDefinitionId: entry.trainingDefinitionId,
-        completedLevel: entry.targetLevel,
-        subjectType: entry.subjectType,
-        subjectId: entry.subjectId,
-        ownerId: entry.ownerId,
-        ownerType: entry.ownerType,
-        snapshot: entry.snapshot
-      });
-    }
-  }
-
-  while (queue.activeItems.length < (queue.capacity || 1) && queue.pendingItems.length > 0) {
-    const nextPending = queue.pendingItems.shift();
-    const startRes = startOrEnqueueTraining(progression, {
-      ownerId: nextPending.ownerId,
-      ownerType: nextPending.ownerType,
-      subjectType: nextPending.subjectType,
-      subjectId: nextPending.subjectId,
-      trainingDefinitionId: nextPending.trainingDefinitionId,
-      nowMs: nowMs,
-      queue: queue,
-      allowPending: false,
-      stockpile: opts.stockpile || null,
-      eligibilityCtx: opts.eligibilityCtx || {},
-      speedBonus: opts.speedBonus || 0,
-      researchCatalog: opts.researchCatalog,
-      orgCatalog: opts.orgCatalog,
-      trainingCatalog: opts.trainingCatalog,
-      requireUnlock: opts.requireUnlock
-    });
-    if (startRes.ok) {
-      promotedItems.push(startRes.entry);
-    }
-  }
-
-  return {
-    completedItems: completedItems,
-    promotedItems: promotedItems
-  };
-}
-
-function getSubjectTrainingSummary(progression, subjectType, subjectId) {
-  const prefix = String(subjectType) + ':' + String(subjectId) + ':';
-  const instMap = (progression && progression.trainingInstances) ? progression.trainingInstances : {};
-  const keys = Object.keys(instMap);
-  const completed = [];
-  for (let i = 0; i < keys.length; i++) {
-    if (keys[i].indexOf(prefix) !== 0) continue;
-    const inst = instMap[keys[i]];
-    if (inst && inst.currentLevel > 0) {
-      completed.push({
-        trainingDefinitionId: inst.trainingDefinitionId,
-        currentLevel: inst.currentLevel,
-        completedAt: inst.completedAt
-      });
-    }
-  }
-  return completed;
-}
-
-function computeSubjectEffectiveStat(progression, subjectType, subjectId, baseValue, statTarget, options) {
-  const opts = options || {};
-  const collected = collectActiveEffects(progression, {
-    playerId: opts.playerId || opts.ownerId || 'player_1',
-    guildId: opts.guildId,
-    allianceId: opts.allianceId,
-    subjectType: subjectType,
-    subjectId: subjectId,
-    researchCatalog: opts.researchCatalog,
-    orgCatalog: opts.orgCatalog,
-    trainingCatalog: opts.trainingCatalog,
-    extraEffects: opts.extraEffects
-  });
-  return resolveNumericStat(baseValue, statTarget, collected.modifiers, {
-    effectType: opts.effectType || null
-  });
-}
-
   // --- Module: src/wargame/test/wargameSelfTest.js ---
 // Headless & In-Browser Verification Suite for the Standalone Macro Wargame & Real-Time Simulation Engine
+
+
 
 
 
@@ -14651,11 +15615,94 @@ function evaluateWargameSelfTests() {
       : 'Failed checks: ' + failed20.join(', ')
   });
 
+  // =========================================================================
+  // Test 21: Track F Phase 5 — Milestones, Provenance Titles, Tree Archiving, Tutorial Hooks & Hub UI (Inc 10.5)
+  // =========================================================================
+  const prog21 = createDefaultProgressionState(0);
+  recordCurrencyTransaction(prog21.currencyLedger, { ownerId: 'p1', ownerType: OWNER_TYPES.PLAYER, currencyId: 'rp_general', amount: 1.0, transactionType: TRANSACTION_TYPES.AWARD, source: 'seed', nowMs: 1000 });
+  recordCurrencyTransaction(prog21.currencyLedger, { ownerId: 'p1', ownerType: OWNER_TYPES.PLAYER, currencyId: 'gold', amount: 500, transactionType: TRANSACTION_TYPES.AWARD, source: 'seed', nowMs: 1000 });
+
+  // Incomplete tree cannot be archived yet
+  const archiveIncompleteBlocked = !archiveCompletedTree(prog21, 'tree_general_knowledge', 'p1').ok;
+
+  // Complete both items in tree_general_knowledge -> satisfies ms_gen_1 milestone
+  startOrEnqueueResearch(prog21, { ownerId: 'p1', researchItemId: 'GEN_SCHOLAR_001', nowMs: 2000 });
+  advanceResearchProgress(prog21, 35000);
+  startOrEnqueueResearch(prog21, { ownerId: 'p1', researchItemId: 'GEN_SPEED_001', nowMs: 36000 });
+  advanceResearchProgress(prog21, 130000);
+
+  const goldBeforeMs = getCurrencyBalance(prog21.currencyLedger, 'p1', OWNER_TYPES.PLAYER, 'gold').available;
+  const msRes1 = evaluateTreeMilestones(prog21, 'p1', { nowMs: 131000, worldId: 'Starfall Prime' });
+  const msRes2 = evaluateTreeMilestones(prog21, 'p1', { nowMs: 132000, worldId: 'Starfall Prime' });
+  const milestoneIdempotentOk = msRes1.newlyCompleted.length === 1 &&
+    msRes1.earnedTitles.length === 1 &&
+    msRes1.earnedTitles[0].name === 'Curious Mind' &&
+    msRes2.newlyCompleted.length === 0 &&
+    getCurrencyBalance(prog21.currencyLedger, 'p1', OWNER_TYPES.PLAYER, 'gold').available === goldBeforeMs + 100;
+
+  // Provenance Title display selector (equip owned, reject unowned, grant World-First title)
+  const equipOwned = setActivePlayerTitle(prog21, 'title_ms_gen_1');
+  const equipUnownedBlocked = !setActivePlayerTitle(prog21, 'title_does_not_exist').ok;
+  const wfTitle = awardProvenanceTitle(prog21, { titleId: 'title_wf_1', name: 'First Scholar of Starfall', rarity: TITLE_RARITIES.WORLD_FIRST, provenance: 'World-First Tree Completion', worldId: 'Starfall Prime', nowMs: 132000 });
+  const titlesOk = equipOwned.ok && getActivePlayerTitle(prog21).name === 'Curious Mind' && equipUnownedBlocked && wfTitle.ok && prog21.earnedTitles.length === 2;
+
+  // Archive completed tree without losing research history, then restore
+  const archOk = archiveCompletedTree(prog21, 'tree_general_knowledge', 'p1').ok &&
+    prog21.archivedTreeIds.indexOf('tree_general_knowledge') !== -1 &&
+    prog21.researchProgress['player:p1:GEN_SCHOLAR_001'].currentLevel === 1;
+  const unarchOk = unarchiveTree(prog21, 'tree_general_knowledge').ok && prog21.archivedTreeIds.length === 0;
+  archiveCompletedTree(prog21, 'tree_general_knowledge', 'p1');
+
+  // 12-Step Tutorial & Analytics verification
+  const tut21 = evaluateTutorialProgress(prog21, 'p1');
+  const analytics21 = computeProgressionAnalytics(prog21, 'p1');
+  const analyticsOk = PROGRESSION_TUTORIAL_STEPS.length === 12 &&
+    Object.keys(PROGRESSION_EVENTS).length >= 17 &&
+    tut21.completedCount >= 7 &&
+    analytics21.completedTreeCount === 1 &&
+    analytics21.archivedTreeCount === 1 &&
+    analytics21.milestoneCount === 1 &&
+    analytics21.titleCount === 2 &&
+    analytics21.domainBreakdown.general_knowledge.itemsCompleted === 2;
+
+  // Dual-Entry Hub UI smoke render across all 6 Spec §18 tabs
+  const host21 = createWargameSimHost();
+  host21.dispatch({ type: COMMAND_TYPES.START_NEW_CAMPAIGN, payload: { houseName: 'House Lore', seedCode: 'STAR-2121' } });
+  host21.state._progressionHubOpen = true;
+  let allTabsRendered = PROGRESSION_HUB_TABS.length === 6;
+  for (let ti = 0; ti < PROGRESSION_HUB_TABS.length; ti++) {
+    host21.state._progressionHubTab = PROGRESSION_HUB_TABS[ti].id;
+    renderProgressionHubModal(host21);
+  }
+  host21.state._progressionHubOpen = false;
+  renderProgressionHubModal(host21);
+
+  const t21Checks = {
+    archiveIncompleteBlocked: archiveIncompleteBlocked,
+    milestoneIdempotentOk: milestoneIdempotentOk,
+    titlesOk: titlesOk,
+    archOk: archOk,
+    unarchOk: unarchOk,
+    analyticsOk: analyticsOk,
+    allTabsRendered: allTabsRendered
+  };
+  const failed21 = Object.keys(t21Checks).filter(function(k) { return !t21Checks[k]; });
+  const t21Pass = failed21.length === 0;
+
+  results.push({
+    name: '21. Track F Phase 5: Milestones, Provenance Titles, Tree Archiving, 12-Step Tutorial & Hub UI (Inc 10.5)',
+    pass: t21Pass,
+    detail: t21Pass
+      ? 'Idempotent tree milestones, Provenance Titles + display selector, lossless tree archiving, 12-step tutorial, analytics & 6-tab Research/Training Hub verified'
+      : 'Failed checks: ' + failed21.join(', ')
+  });
+
   return results;
 }
 
   // --- Module: src/wargame/main.js ---
 // Standalone Macro Wargame Entrypoint, App Bootstrap & window.WargameApp Global Bridge
+
 
 
 
@@ -15391,6 +16438,7 @@ function wargameMainLoop(timestamp) {
     if (simHost.state._dirty || (timestamp - lastUiSyncRealMs >= 400)) {
       lastUiSyncRealMs = timestamp;
       simHost.state._dirty = false;
+      tickWorldProgression(simHost);
       syncWargameUI(simHost);
     }
   }
@@ -15453,6 +16501,19 @@ const WargameApp = {
   handleReturnToCity: handleReturnToCity,
   handleExitDungeonToSurface: handleExitDungeonToSurface,
   handleEnterDungeon: handleEnterDungeon,
+  handleOpenProgressionHub: function(tab) { handleOpenProgressionHub(simHost, tab); },
+  handleCloseProgressionHub: function() { handleCloseProgressionHub(simHost); },
+  handleSwitchProgressionTab: function(tab) { handleSwitchProgressionTab(simHost, tab); },
+  handleSelectResearchItem: function(itemId) { handleSelectResearchItem(simHost, itemId); },
+  handleStartResearch: function(itemId) { return handleStartResearchAction(simHost, itemId); },
+  handlePauseResearch: function(itemId) { return handlePauseResearchAction(simHost, itemId); },
+  handleResumeResearch: function(itemId) { return handleResumeResearchAction(simHost, itemId); },
+  handleCancelResearch: function(itemId) { return handleCancelResearchAction(simHost, itemId); },
+  handleSelectTrainingHero: function(heroId) { handleSelectTrainingHeroAction(simHost, heroId); },
+  handleStartHeroTraining: function(heroId, tid) { return handleStartHeroTrainingAction(simHost, heroId, tid); },
+  handleCancelHeroTraining: function(heroId, tid) { return handleCancelHeroTrainingAction(simHost, heroId, tid); },
+  handleToggleArchiveTree: function(treeId, archive) { return handleToggleArchiveTreeAction(simHost, treeId, archive); },
+  handleEquipPlayerTitle: function(titleId) { return handleEquipPlayerTitleAction(simHost, titleId); },
   syncWargameUI: function() { syncWargameUI(simHost); }
 };
 

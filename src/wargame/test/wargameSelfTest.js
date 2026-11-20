@@ -78,6 +78,20 @@ import {
   advanceTrainingProgress,
   computeSubjectEffectiveStat
 } from '../../progression/trainingService.js';
+import {
+  TITLE_RARITIES,
+  PROGRESSION_EVENTS,
+  PROGRESSION_TUTORIAL_STEPS,
+  evaluateTreeMilestones,
+  awardProvenanceTitle,
+  setActivePlayerTitle,
+  getActivePlayerTitle,
+  archiveCompletedTree,
+  unarchiveTree,
+  evaluateTutorialProgress,
+  computeProgressionAnalytics
+} from '../../progression/milestonesAndAnalytics.js';
+import { PROGRESSION_HUB_TABS, renderProgressionHubModal } from '../ui/progressionUi.js';
 
 export function evaluateWargameSelfTests() {
   const results = [];
@@ -1573,6 +1587,88 @@ export function evaluateWargameSelfTests() {
     detail: t20Pass
       ? 'Deterministic Set/Add/Mult/Min/Max stacking, Unlock/Modifier separation, concurrent Research+Training queues, Hero A vs Hero B isolation & extensible City subject verified'
       : 'Failed checks: ' + failed20.join(', ')
+  });
+
+  // =========================================================================
+  // Test 21: Track F Phase 5 — Milestones, Provenance Titles, Tree Archiving, Tutorial Hooks & Hub UI (Inc 10.5)
+  // =========================================================================
+  const prog21 = createDefaultProgressionState(0);
+  recordCurrencyTransaction(prog21.currencyLedger, { ownerId: 'p1', ownerType: OWNER_TYPES.PLAYER, currencyId: 'rp_general', amount: 1.0, transactionType: TRANSACTION_TYPES.AWARD, source: 'seed', nowMs: 1000 });
+  recordCurrencyTransaction(prog21.currencyLedger, { ownerId: 'p1', ownerType: OWNER_TYPES.PLAYER, currencyId: 'gold', amount: 500, transactionType: TRANSACTION_TYPES.AWARD, source: 'seed', nowMs: 1000 });
+
+  // Incomplete tree cannot be archived yet
+  const archiveIncompleteBlocked = !archiveCompletedTree(prog21, 'tree_general_knowledge', 'p1').ok;
+
+  // Complete both items in tree_general_knowledge -> satisfies ms_gen_1 milestone
+  startOrEnqueueResearch(prog21, { ownerId: 'p1', researchItemId: 'GEN_SCHOLAR_001', nowMs: 2000 });
+  advanceResearchProgress(prog21, 35000);
+  startOrEnqueueResearch(prog21, { ownerId: 'p1', researchItemId: 'GEN_SPEED_001', nowMs: 36000 });
+  advanceResearchProgress(prog21, 130000);
+
+  const goldBeforeMs = getCurrencyBalance(prog21.currencyLedger, 'p1', OWNER_TYPES.PLAYER, 'gold').available;
+  const msRes1 = evaluateTreeMilestones(prog21, 'p1', { nowMs: 131000, worldId: 'Starfall Prime' });
+  const msRes2 = evaluateTreeMilestones(prog21, 'p1', { nowMs: 132000, worldId: 'Starfall Prime' });
+  const milestoneIdempotentOk = msRes1.newlyCompleted.length === 1 &&
+    msRes1.earnedTitles.length === 1 &&
+    msRes1.earnedTitles[0].name === 'Curious Mind' &&
+    msRes2.newlyCompleted.length === 0 &&
+    getCurrencyBalance(prog21.currencyLedger, 'p1', OWNER_TYPES.PLAYER, 'gold').available === goldBeforeMs + 100;
+
+  // Provenance Title display selector (equip owned, reject unowned, grant World-First title)
+  const equipOwned = setActivePlayerTitle(prog21, 'title_ms_gen_1');
+  const equipUnownedBlocked = !setActivePlayerTitle(prog21, 'title_does_not_exist').ok;
+  const wfTitle = awardProvenanceTitle(prog21, { titleId: 'title_wf_1', name: 'First Scholar of Starfall', rarity: TITLE_RARITIES.WORLD_FIRST, provenance: 'World-First Tree Completion', worldId: 'Starfall Prime', nowMs: 132000 });
+  const titlesOk = equipOwned.ok && getActivePlayerTitle(prog21).name === 'Curious Mind' && equipUnownedBlocked && wfTitle.ok && prog21.earnedTitles.length === 2;
+
+  // Archive completed tree without losing research history, then restore
+  const archOk = archiveCompletedTree(prog21, 'tree_general_knowledge', 'p1').ok &&
+    prog21.archivedTreeIds.indexOf('tree_general_knowledge') !== -1 &&
+    prog21.researchProgress['player:p1:GEN_SCHOLAR_001'].currentLevel === 1;
+  const unarchOk = unarchiveTree(prog21, 'tree_general_knowledge').ok && prog21.archivedTreeIds.length === 0;
+  archiveCompletedTree(prog21, 'tree_general_knowledge', 'p1');
+
+  // 12-Step Tutorial & Analytics verification
+  const tut21 = evaluateTutorialProgress(prog21, 'p1');
+  const analytics21 = computeProgressionAnalytics(prog21, 'p1');
+  const analyticsOk = PROGRESSION_TUTORIAL_STEPS.length === 12 &&
+    Object.keys(PROGRESSION_EVENTS).length >= 17 &&
+    tut21.completedCount >= 7 &&
+    analytics21.completedTreeCount === 1 &&
+    analytics21.archivedTreeCount === 1 &&
+    analytics21.milestoneCount === 1 &&
+    analytics21.titleCount === 2 &&
+    analytics21.domainBreakdown.general_knowledge.itemsCompleted === 2;
+
+  // Dual-Entry Hub UI smoke render across all 6 Spec §18 tabs
+  const host21 = createWargameSimHost();
+  host21.dispatch({ type: COMMAND_TYPES.START_NEW_CAMPAIGN, payload: { houseName: 'House Lore', seedCode: 'STAR-2121' } });
+  host21.state._progressionHubOpen = true;
+  let allTabsRendered = PROGRESSION_HUB_TABS.length === 6;
+  for (let ti = 0; ti < PROGRESSION_HUB_TABS.length; ti++) {
+    host21.state._progressionHubTab = PROGRESSION_HUB_TABS[ti].id;
+    renderProgressionHubModal(host21);
+  }
+  host21.state._progressionHubOpen = false;
+  renderProgressionHubModal(host21);
+
+  const t21Checks = {
+    archiveIncompleteBlocked: archiveIncompleteBlocked,
+    milestoneIdempotentOk: milestoneIdempotentOk,
+    titlesOk: titlesOk,
+    archOk: archOk,
+    unarchOk: unarchOk,
+    analyticsOk: analyticsOk,
+    allTabsRendered: allTabsRendered
+  };
+  const failed21 = Object.keys(t21Checks).filter(function(k) { return !t21Checks[k]; });
+  const t21Pass = failed21.length === 0;
+
+  results.push({
+    name: '21. Track F Phase 5: Milestones, Provenance Titles, Tree Archiving, 12-Step Tutorial & Hub UI (Inc 10.5)',
+    pass: t21Pass,
+    detail: t21Pass
+      ? 'Idempotent tree milestones, Provenance Titles + display selector, lossless tree archiving, 12-step tutorial, analytics & 6-tab Research/Training Hub verified'
+      : 'Failed checks: ' + failed21.join(', ')
   });
 
   return results;

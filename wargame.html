@@ -153,6 +153,9 @@
 
       <!-- RIGHT UTILITY BUTTONS -->
       <div class="flex items-center gap-1.5 md:gap-2">
+        <button id="wgBtnProgressionHub" onclick="window.WargameApp.handleOpenProgressionHub('overview')" title="Open Research &amp; Training Hub" class="h-9 px-2.5 rounded-lg bg-[#1a2232] hover:bg-[#c084fc] hover:text-[#080b11] border border-[#c084fc]/50 text-[#c084fc] font-mono font-bold text-xs flex items-center gap-1 cursor-pointer transition">
+          <span>📚</span><span class="hidden sm:inline">Research</span>
+        </button>
         <button id="wgBtnMobilePreview" onclick="window.WargameApp.handleToggleMobilePreview()" title="Toggle Mobile Phone Preview Mode (430px)" class="h-9 px-2.5 rounded-lg bg-[#1a2232] hover:bg-[#38bdf8] hover:text-[#080b11] border border-[#38bdf8]/50 text-[#38bdf8] font-mono font-bold text-xs flex items-center gap-1 cursor-pointer transition">
           <span>📱</span><span class="hidden sm:inline">Mobile</span>
         </button>
@@ -429,6 +432,21 @@
         <button id="wgFacilityCloseBtn" onclick="window.WargameApp.handleCloseFacilityModal()" class="px-3 py-1 rounded bg-[#1a2232] hover:bg-[#283347] text-xs font-mono font-bold text-[#e6edf3] cursor-pointer">✕ Close</button>
       </div>
       <div id="wgFacilityBody" class="p-4 space-y-3 overflow-y-auto"></div>
+    </div>
+  </div>
+
+  <!-- Research & Training Hub Modal (Track F Inc 10.5 — Dual-Entry Prototype UI §18) -->
+  <div id="wgProgressionHubModal" class="hidden fixed inset-0 z-50 flex items-end md:items-center justify-center bg-black/80 backdrop-blur-sm p-0 md:p-4">
+    <div class="w-full md:max-w-4xl bg-[#0e1524] border-t md:border border-[#c084fc]/50 rounded-t-2xl md:rounded-xl shadow-2xl overflow-hidden flex flex-col max-h-[92dvh]">
+      <div class="flex items-center justify-between px-4 py-3 bg-[#080b11] border-b border-[#283347]">
+        <div>
+          <h2 class="text-base font-bold text-[#c084fc]">📚 Research &amp; Training Hub</h2>
+          <div id="wgProgressionHubSubtitle" class="text-[11px] font-mono text-[#94a3b8]">General RP: 0.00000 • Adventurer RP: 0.00000 • Gold: 0</div>
+        </div>
+        <button id="wgProgressionHubCloseBtn" onclick="window.WargameApp.handleCloseProgressionHub()" class="px-3 py-1 rounded bg-[#1a2232] hover:bg-[#283347] text-xs font-mono font-bold text-[#e6edf3] cursor-pointer">✕ Close</button>
+      </div>
+      <div id="wgProgressionHubTabs" class="px-4 py-2 bg-[#0b101a] border-b border-[#283347] flex flex-wrap items-center gap-1.5"></div>
+      <div id="wgProgressionHubBody" class="p-4 space-y-3 overflow-y-auto"></div>
     </div>
   </div>
 

@@ -17,6 +17,22 @@ import {
   centerOverworldOnOffset
 } from './ui/overworldView.js';
 import { syncWargameUI, updateHeaderFastTick } from './ui/wargameUiSync.js';
+import {
+  tickWorldProgression,
+  handleOpenProgressionHub,
+  handleCloseProgressionHub,
+  handleSwitchProgressionTab,
+  handleSelectResearchItem,
+  handleStartResearchAction,
+  handlePauseResearchAction,
+  handleResumeResearchAction,
+  handleCancelResearchAction,
+  handleSelectTrainingHeroAction,
+  handleStartHeroTrainingAction,
+  handleCancelHeroTrainingAction,
+  handleToggleArchiveTreeAction,
+  handleEquipPlayerTitleAction
+} from './ui/progressionUi.js';
 import { attachCityIsoControls, renderCityIsoCanvas } from './ui/cityIsoCanvas.js';
 import { findOverworldPath, isOverworldTilePassable } from './engine/pathfinding.js';
 import { getSelectedOverworldUnit, getPrimaryCity } from './engine/state.js';
@@ -752,6 +768,7 @@ function wargameMainLoop(timestamp) {
     if (simHost.state._dirty || (timestamp - lastUiSyncRealMs >= 400)) {
       lastUiSyncRealMs = timestamp;
       simHost.state._dirty = false;
+      tickWorldProgression(simHost);
       syncWargameUI(simHost);
     }
   }
@@ -814,6 +831,19 @@ export const WargameApp = {
   handleReturnToCity: handleReturnToCity,
   handleExitDungeonToSurface: handleExitDungeonToSurface,
   handleEnterDungeon: handleEnterDungeon,
+  handleOpenProgressionHub: function(tab) { handleOpenProgressionHub(simHost, tab); },
+  handleCloseProgressionHub: function() { handleCloseProgressionHub(simHost); },
+  handleSwitchProgressionTab: function(tab) { handleSwitchProgressionTab(simHost, tab); },
+  handleSelectResearchItem: function(itemId) { handleSelectResearchItem(simHost, itemId); },
+  handleStartResearch: function(itemId) { return handleStartResearchAction(simHost, itemId); },
+  handlePauseResearch: function(itemId) { return handlePauseResearchAction(simHost, itemId); },
+  handleResumeResearch: function(itemId) { return handleResumeResearchAction(simHost, itemId); },
+  handleCancelResearch: function(itemId) { return handleCancelResearchAction(simHost, itemId); },
+  handleSelectTrainingHero: function(heroId) { handleSelectTrainingHeroAction(simHost, heroId); },
+  handleStartHeroTraining: function(heroId, tid) { return handleStartHeroTrainingAction(simHost, heroId, tid); },
+  handleCancelHeroTraining: function(heroId, tid) { return handleCancelHeroTrainingAction(simHost, heroId, tid); },
+  handleToggleArchiveTree: function(treeId, archive) { return handleToggleArchiveTreeAction(simHost, treeId, archive); },
+  handleEquipPlayerTitle: function(titleId) { return handleEquipPlayerTitleAction(simHost, titleId); },
   syncWargameUI: function() { syncWargameUI(simHost); }
 };
 
