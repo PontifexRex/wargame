@@ -136,8 +136,9 @@ const COMMAND_TYPES = {
   SOCKET_CITY_GEM:            'CMD_SOCKET_CITY_GEM',
   UNSOCKET_CITY_GEM:          'CMD_UNSOCKET_CITY_GEM',
   MARCH_TO_DUNGEON:           'CMD_MARCH_TO_DUNGEON',
-  ENTER_DUNGEON:         'CMD_ENTER_DUNGEON',
-  RESOLVE_DUNGEON_RETURN:'CMD_RESOLVE_DUNGEON_RETURN',
+  ENTER_DUNGEON:              'CMD_ENTER_DUNGEON',
+  EXIT_DUNGEON_TO_SURFACE:    'CMD_EXIT_DUNGEON_TO_SURFACE',
+  RESOLVE_DUNGEON_RETURN:     'CMD_RESOLVE_DUNGEON_RETURN',
   CLAIM_TASK_REWARD:     'CMD_CLAIM_TASK_REWARD',
   SET_SIM_SPEED:      'CMD_SET_SIM_SPEED',
   SWITCH_VIEW:        'CMD_SWITCH_VIEW'
@@ -5156,6 +5157,20 @@ function dispatchWargameCommand(commandEnvelope, state, scheduler, eventStream) 
   }
 
   // ---------------------------------------------------------------------------
+  // 9D2. EXIT DUNGEON TO SURFACE (Safely surface a party marked in_dungeon)
+  // ---------------------------------------------------------------------------
+  if (cmdType === COMMAND_TYPES.EXIT_DUNGEON_TO_SURFACE) {
+    const unitId = payload.unitId || ow.selectedUnitId;
+    const unit = (ow.units || []).find(function(u) { return u.id === unitId && u.alive; });
+    if (!unit) return reject('No active party found');
+    unit.status = 'idle';
+    unit.marchPlan = null;
+    unit.activeDungeonPoiId = null;
+    unit.activeDungeonId = null;
+    return accept({ unitId: unit.id, x: unit.x, y: unit.y, status: 'idle' });
+  }
+
+  // ---------------------------------------------------------------------------
   // 9E. RESOLVE DUNGEON RETURN (Extraction Return March, Recall Scroll, or Defeat)
   // ---------------------------------------------------------------------------
   if (cmdType === COMMAND_TYPES.RESOLVE_DUNGEON_RETURN) {
@@ -7134,8 +7149,12 @@ function renderLeftCommandSidebar(simHost) {
       let marchHtml = '';
       if (selUnit.status === 'in_dungeon') {
         marchHtml = `
-          <div class="p-2 rounded bg-[#450a0a]/40 border border-[#f87171]/50 text-[11px] font-mono text-[#f87171]">
-            ⚔️ Currently delving inside Vault.
+          <div class="p-2 rounded bg-[#450a0a]/40 border border-[#f87171]/50 space-y-1.5 text-[11px] font-mono text-[#f87171]">
+            <div>⚔️ Currently delving inside Vault.</div>
+            <div class="grid grid-cols-2 gap-1.5 pt-0.5">
+              <button onclick="window.WargameApp.handleEnterDungeon('${selUnit.activeDungeonPoiId || ''}')" class="py-1 rounded bg-[#f87171] hover:bg-[#ef4444] text-[#080b11] font-bold text-[10px] uppercase cursor-pointer">⚔️ Resume</button>
+              <button onclick="window.WargameApp.handleExitDungeonToSurface('${selUnit.id}')" class="py-1 rounded bg-[#1a2232] hover:bg-[#283347] text-[#fbbf24] border border-[#fbbf24]/40 font-bold text-[10px] uppercase cursor-pointer">🧗 Exit to Surface</button>
+            </div>
           </div>
         `;
       } else if (selUnit.status === 'marching' && selUnit.marchPlan) {
@@ -9460,6 +9479,16 @@ function handleReturnToCity() {
   syncWargameUI(simHost);
 }
 
+function handleExitDungeonToSurface(unitId) {
+  simHost.dispatch({
+    type: COMMAND_TYPES.EXIT_DUNGEON_TO_SURFACE,
+    payload: { unitId: unitId || null }
+  });
+  simHost.state._dirty = true;
+  simHost.save();
+  syncWargameUI(simHost);
+}
+
 function handleEnterDungeon(poiId) {
   const selUnit = getSelectedOverworldUnit(simHost.state);
   if (simHost && simHost.state && simHost.state.world && selUnit) {
@@ -9745,6 +9774,7 @@ const WargameApp = {
   handleAssignHeroToParty: handleAssignHeroToParty,
   handleMarchToDungeon: handleMarchToDungeon,
   handleReturnToCity: handleReturnToCity,
+  handleExitDungeonToSurface: handleExitDungeonToSurface,
   handleEnterDungeon: handleEnterDungeon,
   syncWargameUI: function() { syncWargameUI(simHost); }
 };

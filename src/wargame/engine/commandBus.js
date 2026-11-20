@@ -1532,6 +1532,20 @@ export function dispatchWargameCommand(commandEnvelope, state, scheduler, eventS
   }
 
   // ---------------------------------------------------------------------------
+  // 9D2. EXIT DUNGEON TO SURFACE (Safely surface a party marked in_dungeon)
+  // ---------------------------------------------------------------------------
+  if (cmdType === COMMAND_TYPES.EXIT_DUNGEON_TO_SURFACE) {
+    const unitId = payload.unitId || ow.selectedUnitId;
+    const unit = (ow.units || []).find(function(u) { return u.id === unitId && u.alive; });
+    if (!unit) return reject('No active party found');
+    unit.status = 'idle';
+    unit.marchPlan = null;
+    unit.activeDungeonPoiId = null;
+    unit.activeDungeonId = null;
+    return accept({ unitId: unit.id, x: unit.x, y: unit.y, status: 'idle' });
+  }
+
+  // ---------------------------------------------------------------------------
   // 9E. RESOLVE DUNGEON RETURN (Extraction Return March, Recall Scroll, or Defeat)
   // ---------------------------------------------------------------------------
   if (cmdType === COMMAND_TYPES.RESOLVE_DUNGEON_RETURN) {

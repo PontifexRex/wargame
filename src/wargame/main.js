@@ -463,6 +463,16 @@ export function handleReturnToCity() {
   syncWargameUI(simHost);
 }
 
+export function handleExitDungeonToSurface(unitId) {
+  simHost.dispatch({
+    type: COMMAND_TYPES.EXIT_DUNGEON_TO_SURFACE,
+    payload: { unitId: unitId || null }
+  });
+  simHost.state._dirty = true;
+  simHost.save();
+  syncWargameUI(simHost);
+}
+
 export function handleEnterDungeon(poiId) {
   const selUnit = getSelectedOverworldUnit(simHost.state);
   if (simHost && simHost.state && simHost.state.world && selUnit) {
@@ -748,6 +758,7 @@ export const WargameApp = {
   handleAssignHeroToParty: handleAssignHeroToParty,
   handleMarchToDungeon: handleMarchToDungeon,
   handleReturnToCity: handleReturnToCity,
+  handleExitDungeonToSurface: handleExitDungeonToSurface,
   handleEnterDungeon: handleEnterDungeon,
   syncWargameUI: function() { syncWargameUI(simHost); }
 };

@@ -13399,9 +13399,9 @@ function showOutcomeModal(title, desc, details = [], isConfirmNewDungeon = false
     `;
   } else {
     const hasWargameSession = Boolean(gameState.wargameSession && gameState.wargameSession.active);
-    btnBox.innerHTML = (hasWargameSession
-      ? `<button onclick="window.Aethelgard.returnToWargameOverworld()" class="px-4 py-1.5 rounded bg-[#38bdf8] hover:bg-[#0ea5e9] text-[#080b11] font-bold text-xs cursor-pointer">🗺️ Return to Overworld</button>`
-      : '') + `<button onclick="window.Aethelgard.closeOutcomeModal()" class="px-4 py-1.5 rounded bg-[#fbbf24] text-[#080b11] font-bold text-xs cursor-pointer">Continue</button>`;
+    btnBox.innerHTML = hasWargameSession
+      ? `<button onclick="window.Aethelgard.returnToWargameOverworld()" class="px-4 py-1.5 rounded bg-[#38bdf8] hover:bg-[#0ea5e9] text-[#080b11] font-bold text-xs cursor-pointer">🗺️ Return to Surface (Overworld)</button>`
+      : `<button onclick="window.Aethelgard.closeOutcomeModal()" class="px-4 py-1.5 rounded bg-[#fbbf24] text-[#080b11] font-bold text-xs cursor-pointer">Continue</button>`;
   }
   document.getElementById('outcomeModal').classList.remove('hidden');
 }

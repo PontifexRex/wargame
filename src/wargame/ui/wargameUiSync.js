@@ -622,8 +622,12 @@ export function renderLeftCommandSidebar(simHost) {
       let marchHtml = '';
       if (selUnit.status === 'in_dungeon') {
         marchHtml = `
-          <div class="p-2 rounded bg-[#450a0a]/40 border border-[#f87171]/50 text-[11px] font-mono text-[#f87171]">
-            ⚔️ Currently delving inside Vault.
+          <div class="p-2 rounded bg-[#450a0a]/40 border border-[#f87171]/50 space-y-1.5 text-[11px] font-mono text-[#f87171]">
+            <div>⚔️ Currently delving inside Vault.</div>
+            <div class="grid grid-cols-2 gap-1.5 pt-0.5">
+              <button onclick="window.WargameApp.handleEnterDungeon('${selUnit.activeDungeonPoiId || ''}')" class="py-1 rounded bg-[#f87171] hover:bg-[#ef4444] text-[#080b11] font-bold text-[10px] uppercase cursor-pointer">⚔️ Resume</button>
+              <button onclick="window.WargameApp.handleExitDungeonToSurface('${selUnit.id}')" class="py-1 rounded bg-[#1a2232] hover:bg-[#283347] text-[#fbbf24] border border-[#fbbf24]/40 font-bold text-[10px] uppercase cursor-pointer">🧗 Exit to Surface</button>
+            </div>
           </div>
         `;
       } else if (selUnit.status === 'marching' && selUnit.marchPlan) {
