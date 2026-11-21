@@ -176,10 +176,20 @@ export function handleCancelMarch() {
 }
 
 export function handleSelectCityPlot(plotIndex) {
+  const city = getPrimaryCity(simHost.state);
+  const inMoveMode = Boolean(city && city.moveSourcePlotIndex !== null && city.moveSourcePlotIndex !== undefined);
   simHost.dispatch({
     type: COMMAND_TYPES.SELECT_CITY_PLOT,
     payload: { plotIndex: plotIndex }
   });
+  simHost.state._plotPopupOpen = !inMoveMode;
+  simHost.state._dirty = true;
+  syncWargameUI(simHost);
+}
+
+export function handleClosePlotPopup() {
+  if (!simHost.state) return;
+  simHost.state._plotPopupOpen = false;
   simHost.state._dirty = true;
   syncWargameUI(simHost);
 }
@@ -381,7 +391,21 @@ export function handleOpenFacilityModal(buildingId, plotIndex) {
   simHost.state._openFacilityPlotIndex = (typeof plotIndex === 'number' && !isNaN(plotIndex)) ? plotIndex : null;
   simHost.state._facilityTab = null;
   simHost.state._showFacilityInfo = false;
+  simHost.state._showBuildingLevels = false;
+  simHost.state._confirmFacilityDemolish = false;
+  simHost.state._plotPopupOpen = false;
+  simHost.state.activeView = WARGAME_VIEWS.GUILD;
   simHost.state._dirty = true;
+  syncWargameUI(simHost);
+}
+
+export function handleToggleBuildingLevels() {
+  if (!simHost.state) return;
+  simHost.state._showBuildingLevels = !simHost.state._showBuildingLevels;
+  if (simHost.state._showBuildingLevels) {
+    simHost.state._showFacilityInfo = false;
+    simHost.state._confirmFacilityDemolish = false;
+  }
   syncWargameUI(simHost);
 }
 
@@ -869,7 +893,9 @@ export const WargameApp = {
   handleOpenFacilityModal: handleOpenFacilityModal,
   handleSwitchFacilityTab: handleSwitchFacilityTab,
   handleToggleFacilityInfo: handleToggleFacilityInfo,
+  handleToggleBuildingLevels: handleToggleBuildingLevels,
   handleToggleFacilityDemolishConfirm: handleToggleFacilityDemolishConfirm,
+  handleClosePlotPopup: handleClosePlotPopup,
   handleOpenScreenInfo: handleOpenScreenInfo,
   handleCloseScreenInfo: handleCloseScreenInfo,
   handleToggleMobileDrawer: handleToggleMobileDrawer,

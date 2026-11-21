@@ -815,3 +815,60 @@ export function getCityAcademyBenefitEffects(city) {
     }
   ];
 }
+
+// Check per-button prerequisite (e.g. facilities.shop.minLevel)
+export function isFacilityButtonUnlocked(facConfig, buildingLevel) {
+  if (!facConfig) return { unlocked: false, minLevel: 1 };
+  const minLvl = (typeof facConfig === 'object' && typeof facConfig.minLevel === 'number') ? facConfig.minLevel : 1;
+  return { unlocked: Number(buildingLevel || 1) >= minLvl, minLevel: minLvl };
+}
+
+// Generate full level-by-level configuration table (cost, build time, benefits) for any building
+export function getBuildingLevelsTable(buildingId) {
+  const bDef = CITY_BUILDINGS_CATALOG[buildingId];
+  if (!bDef) return [];
+  const maxLvl = bDef.maxLevel || 5;
+  const rows = [];
+  for (let lv = 1; lv <= maxLvl; lv++) {
+    const cost = computeBuildingUpgradeCost(buildingId, lv);
+    const durationMs = computeBuildingDurationMs(buildingId, lv);
+    const benefits = [];
+    if (bDef.productionPerTick) {
+      Object.entries(bDef.productionPerTick).forEach(function(e) {
+        if (e[1] > 0) benefits.push('+' + (e[1] * lv) + ' ' + e[0] + '/tick');
+      });
+    }
+    if (bDef.providesPopulation) benefits.push('+' + (bDef.providesPopulation * lv) + ' Max Pop');
+    if (bDef.storageBonus) {
+      Object.entries(bDef.storageBonus).forEach(function(e) {
+        benefits.push('+' + (e[1] * lv) + ' ' + e[0] + ' Cap');
+      });
+    }
+    if (bDef.troopCapacityBonus) benefits.push('+' + (bDef.troopCapacityBonus * lv) + ' Troops');
+    if (buildingId === 'garrison') benefits.push('Party Size: ' + (1 + lv));
+    if (buildingId === 'warehouse') benefits.push('+' + (50 * lv) + ' Vault Slots');
+    if (buildingId === 'arcane_academy') benefits.push('+' + (25 * lv) + '% Gen RP, +' + (10 * lv) + '% Res Speed');
+    if (buildingId === 'market_post' && lv > 1) benefits.push('+' + ((lv - 1) * 5) + '% Sell Yield');
+    if (bDef.facilities && bDef.facilities.recruitment && Array.isArray(bDef.facilities.recruitment.classes)) {
+      const unlockedHere = bDef.facilities.recruitment.classes
+        .filter(function(c) { return (c.minLevel || 1) === lv; })
+        .map(function(c) { return 'Recruit ' + c.classId; });
+      if (unlockedHere.length > 0) benefits.push(unlockedHere.join(', '));
+    }
+    if (bDef.facilities) {
+      Object.keys(bDef.facilities).forEach(function(fk) {
+        const fc = bDef.facilities[fk];
+        if (fc && typeof fc === 'object' && fc.minLevel === lv && lv > 1) {
+          benefits.push('Unlocks ' + fk);
+        }
+      });
+    }
+    rows.push({
+      level: lv,
+      cost: cost,
+      durationMs: durationMs,
+      benefits: benefits.length > 0 ? benefits.join(' • ') : 'Tier ' + lv + ' Operations'
+    });
+  }
+  return rows;
+}

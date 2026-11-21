@@ -50,8 +50,8 @@
     <!-- RIGHT UTILITY BUTTONS -->
     <div class="flex items-center gap-2">
       <a href="./wargame.html" class="px-2.5 py-1.5 rounded-md bg-[#fbbf24]/20 hover:bg-[#fbbf24]/30 border border-[#fbbf24]/50 text-xs font-mono font-bold text-[#fbbf24] flex items-center gap-1 btn-tactical" title="Switch to Macro Wargame &amp; World Map"><span>ðŸ—ºï¸ World Map</span></a>
-      <button id="btnOpenInventory" onclick="window.Aethelgard.toggleInventoryModal()" class="px-2.5 py-1.5 rounded-md bg-[#1a2232] hover:bg-[#283347] border border-[#fbbf24]/50 text-xs font-medium text-[#fbbf24] flex items-center gap-1 btn-tactical" title="Character Sheet &amp; Inventory [I / C]">
-        <span>🎒 Bag [I]</span>
+      <button id="btnOpenInventoryHeaderLegacy" class="hidden"></button>
+        <span class="hidden">🎒 Bag [I]</span>
       </button>
       <button id="btnAudioToggle" onclick="window.Aethelgard.toggleAudio()" class="px-2.5 py-1.5 rounded-md bg-[#1a2232] hover:bg-[#283347] border border-[#283347] text-xs font-medium text-[#e6edf3] btn-tactical">
         🔊 Audio: ON
@@ -168,6 +168,11 @@
           </div>
         </div>
 
+        <!-- INVENTORY BUTTON (Moved from top header into Character Card) -->
+        <button id="btnOpenInventory" onclick="window.Aethelgard.toggleInventoryModal()" class="w-full mt-2.5 py-2 rounded-lg bg-[#1a2232] hover:bg-[#283347] border border-[#fbbf24]/50 text-xs font-bold text-[#fbbf24] flex items-center justify-center gap-1.5 btn-tactical cursor-pointer" title="Character Sheet &amp; Inventory [I / C]">
+          <span>🎒 Inventory [I]</span>
+        </button>
+
         <!-- UNSPENT STAT OR TALENT POINTS BANNER -->
         <div id="uiStatPointsBox" class="hidden mt-2.5 p-2 rounded bg-[#fbbf24]/15 border border-[#fbbf24]/40 flex items-center justify-between">
           <span class="text-xs font-bold text-[#fbbf24]">+<span id="uiStatPointsCount">0</span> Stat Points</span>
@@ -180,7 +185,7 @@
         </div>
       </div>
 
-      <!-- 6-SLOT PAPER DOLL LOADOUT -->
+      <!-- 6-SLOT PAPER DOLL LOADOUT --><div class="hidden">
       <div class="card-surface p-3.5">
         <div class="flex items-center justify-between border-b border-[#283347] pb-2 mb-2.5">
           <h3 class="text-xs font-bold uppercase tracking-wider text-[#8b949e]">Equipped Loadout (6 Slots)</h3>
@@ -191,7 +196,7 @@
         </div>
       </div>
 
-      <!-- CLASS PASSIVE & ACTIVE SKILL CARD -->
+      </div><!-- CLASS PASSIVE & ACTIVE SKILL CARD -->
       <div class="card-surface p-3.5 space-y-2">
         <div class="flex items-center justify-between border-b border-[#283347] pb-1.5">
           <span class="text-[11px] font-bold uppercase tracking-wider text-[#8b949e]">Class Tactical Kit</span>
@@ -654,7 +659,7 @@
               <button onclick="window.Aethelgard.handlePlayerAction(0, 1, event)" class="w-9 h-7 rounded bg-[#1a2232] hover:bg-[#283347] text-xs font-mono-num font-bold" title="Move Down (Shift+Click to Fast-Run)">↓</button>
             </div>
             <button onclick="window.Aethelgard.handlePlayerAction(1, 0, event)" class="w-9 h-8 rounded bg-[#1a2232] hover:bg-[#283347] text-xs font-mono-num font-bold" title="Move Right (Shift+Click to Fast-Run)">→</button>
-            <button onclick="window.Aethelgard.waitTurn()" class="px-2.5 h-8 rounded bg-[#111722] hover:bg-[#1a2232] border border-[#283347] text-[10px] font-mono-num text-[#8b949e] hover:text-[#e6edf3]">WAIT</button>
+            <button onclick="window.Aethelgard.waitTurn()" class="px-2.5 h-8 rounded bg-[#111722] hover:bg-[#1a2232] border border-[#283347] text-[10px] font-mono-num text-[#8b949e] hover:text-[#e6edf3]">WAIT</button><div class="w-full flex items-center justify-center gap-2 pt-2 mt-2 border-t border-[#283347]"><a href="./wargame.html" class="px-2.5 py-1 rounded bg-[#1a2232] hover:bg-[#fbbf24] hover:text-[#080b11] border border-[#283347] text-[11px] font-mono font-bold text-[#e6edf3]">🗺️ World</a><a href="./wargame.html#city" class="px-2.5 py-1 rounded bg-[#1a2232] hover:bg-[#fbbf24] hover:text-[#080b11] border border-[#283347] text-[11px] font-mono font-bold text-[#e6edf3]">🏛️ City</a><span class="px-2.5 py-1 rounded bg-[#f87171]/20 border border-[#f87171]/50 text-[11px] font-mono font-bold text-[#f87171]">⚔️ Dungeon</span></div>
           </div>
         </div>
       </div>
@@ -664,7 +669,7 @@
     <aside class="lg:col-span-3 flex flex-col gap-3 order-3">
       <!-- SAFE VAULT & CONSUMABLES SUMMARY -->
       <div class="card-surface p-3.5 space-y-3">
-        <div class="p-2.5 rounded-lg bg-[#080b11] border border-[#34d399]/40">
+        <div class="hidden p-2.5 rounded-lg bg-[#080b11] border border-[#34d399]/40">
           <div class="flex items-center justify-between mb-1.5">
             <span class="text-[11px] font-mono-num uppercase tracking-wider text-[#34d399] font-bold flex items-center gap-1.5">
               <span class="w-2 h-2 rounded-full bg-[#34d399]"></span>

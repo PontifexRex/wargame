@@ -121,10 +121,11 @@ Track E (Art Direction & Mobile UX)     ──► Stage E.6 (Painted Tier 2 Iso/
 - **Multi-Tag Pantheon Registry**: Define Aethelgard's Pantheon where each God supports multiple flexible categories/tags (never a single hardcoded category), unique domains, and **Divine Favor** currency accounts (`CurrencyService`).
 - **Alignment-Driven Eligibility, Modifiers & Blessings**: Wire Divine Alignment into `ResearchEligibilityService` and `BenefitService` so gods unlock exclusive paths (e.g., *Divine Knowledge* & *Priesthood* trees), modify research costs/speeds/accrual, grant active Blessings, and obey configurable alignment-change rules for in-progress research.
 
-#### Increment 9.8b (`v0.9.8b-overworld-frontiers`) — Claimable Overworld Outposts, Scouts & Dynamic Patrols
-- **Frontier Outposts**: Claim and fortify Overworld resource nodes (Timber Groves, Mason Quarries, Astral Monoliths) for passive regional yield.
-- **Reconnaissance**: Train **Outrider Scouts** for rapid fog-of-war exploration and construct **Watchtowers** for permanent vision radii.
-- **Living Frontier**: Dynamic hostile patrol routes with territory aggro and respawn timers.
+#### Increment 9.8b (`v0.9.8b-overworld-frontiers`) — Unified Entity/Object Model, Scoped World Map Monsters & Outposts
+- **Common Entity / Object Model (`ADR-0016`)**: Define shared base entity schemas (`entityId`, `entityType`, `visibilityScope`, `ownerId`, `position`, `stats`, `tags`, `lifecycle`) across Overworld, City, and Dungeon engines.
+- **Shared World Map & Dungeon Monsters**: Use the same monster definitions across Dungeons and Overworld with declarative spawn-eligibility rules (`canAppearOverworld`, biome/tier gates). Support **visibility scoping**: **Player-local** (low-chatter default), **Alliance-scoped**, and **World/Global-scoped** encounters.
+- **Guild Bounty Claim Flow**: Update active Guild Bounties so players must return to the respective Class Guild and press an explicit **Claim** button to collect bounty rewards.
+- **Frontier Outposts & Scouts**: Claim Overworld resource nodes, train Outrider Scouts, and construct Watchtowers.
 
 #### Increment 9.9 (`v0.9.9-multi-city`) — Settler Training, Multi-City Expansion & Trade Caravans
 - **Settler Recruitment**: Train new Pioneer Settlers at a Level 3+ Meeting Hall to establish Bastion Cities #2..N across the Overworld.
@@ -136,8 +137,9 @@ Track E (Art Direction & Mobile UX)     ──► Stage E.6 (Painted Tier 2 Iso/
 
 ---
 
-### Track C: Multiplayer Backend, Multi-Hero Parties, Guild/Alliance Organizations & Tactical Warfare (`v1.1.x+` Series)
+### Track C *(Accelerated Priority)*: Multiplayer Backend, City-vs-City Attacks, Multi-Hero Parties & Tactical Warfare (`v1.1.x+` Series)
 
+- **Early Partial Multiplayer & City-vs-City Attacks**: Stand up a lightweight multiplayer world state / sync layer early so players can scout and launch timed attacks on other players' cities before full MMO scale.
 - **Authoritative Multiplayer Backend & Server-Time Sync**: Migrate Track F's server-ready services (`CurrencyService` ledger, offline RP accrual, `ResearchQueueService`, `ResearchContributionService`) and Overworld simulation from local client storage to an authoritative multiplayer server with concurrent/idempotent transaction safety.
 - **Multi-Member Hero Parties**: Parties led by a Hero with multiple class members entering dungeons and tactical battles together.
 - **Multiplayer Guild Archetypes & Alliances**: Distinct Player Guild organizations (**Adventurers Guilds**, **War Guilds**, **Artisan Guilds**, **Social Guilds**) owning Guild Research, plus **Alliances** owning Alliance Research (no Alliance training) and endgame Alliance victory objectives.
@@ -194,6 +196,17 @@ Track E (Art Direction & Mobile UX)     ──► Stage E.6 (Painted Tier 2 Iso/
 - **Deep Industry UX Research**: Conduct thorough research into best practices for cross-platform and mobile-first strategy/city-builder and tactical roguelike RPGs (touch ergonomics, gesture pan/zoom, compact HUD density, portrait vs. landscape workflows, and screen-vs-popup flows) rather than shrinking desktop layouts.
 - **End-to-End Target-State Experience Design**: Once core main-screen graphics (Overworld, City, Dungeon, and Interiors) are more defined, design the complete target-state player experience across every screen so mobile and desktop each feel native, legible, and uncluttered with zero box overflow.
 - **Purpose-Built Mobile Implementation**: Rebuild mobile views, touch controls, and responsive modals against the researched target-state blueprint.
+
+#### Stage E.8 — Complete Application Screen Architecture, Unified Header, Live/Dev Mode & Hotbar
+- **Developer View vs. Live Player View Toggle**: Add a main-screen toggle switching between **Developer View** (shows debug overlays, coordinates, dev portal shortcuts, telemetry) and **Live Player View** (shows the exact clean UI a real player sees).
+- **Unified Cross-Screen Header Shell**: Share one identical header component across Overworld, City, Building Interiors, and Dungeon (`wargame.html` & `index.html`).
+- **Quick-Use Hot Slots (`1–9`)**: Assignable consumable/item hotbar slots (e.g., Healing Potions, Recall Scrolls) bound to number keys for instant tactical use.
+- **Core Platform & Account Screens** *(Scaffolded early so features have a dedicated home)*:
+  - **Account Screen**: Player profile, email, language preferences, notification settings.
+  - **Configuration Screen**: Audio/SFX/ambient volume sliders, graphics/display, keybindings, accessibility.
+  - **Support Screen**: Bug reporting, diagnostics export, customer support tickets.
+  - **Communications Screen**: Real-time chat channels, direct messages, Guild/Alliance forums & notices.
+  - **Comprehensive Stats & Completed Trees Screen**: Full career analytics, completed research archives, and provenance history.
 
 ---
 
