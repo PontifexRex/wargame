@@ -37,7 +37,7 @@ import {
   executeAtomicPayment
 } from '../../progression/currencyService.js';
 import { evaluateConditionNode, evaluateResearchEligibility, EVALUATION_STATUS } from '../../progression/eligibilityService.js';
-import { PROTOTYPE_RESEARCH_ITEMS, validateResearchCatalog } from '../../progression/researchCatalog.js';
+import { PROTOTYPE_RESEARCH_TREES, PROTOTYPE_RESEARCH_ITEMS, PROTOTYPE_TRAINING_TREES, validateResearchCatalog } from '../../progression/researchCatalog.js';
 import { createDefaultProgressionState } from '../../progression/progressionState.js';
 import { processPassiveAccrual, awardActivityResearchPoints } from '../../progression/accrualService.js';
 import {
@@ -91,7 +91,19 @@ import {
   evaluateTutorialProgress,
   computeProgressionAnalytics
 } from '../../progression/milestonesAndAnalytics.js';
-import { PROGRESSION_HUB_TABS, renderProgressionHubModal } from '../ui/progressionUi.js';
+import {
+  renderResearchModal,
+  renderTrainingModal,
+  formatRpTenths,
+  buildCostComparisonRowHtml,
+  tickWorldProgression
+} from '../ui/progressionUi.js';
+import { DEV_CONFIG_REGISTRY, getConfigValue } from '../../progression/configRegistry.js';
+import {
+  renderDevPortalModal,
+  handleDevSetCurrencyAction,
+  handleDevSetConfigAction
+} from '../ui/devPortal.js';
 
 export function evaluateWargameSelfTests() {
   const results = [];
@@ -1639,17 +1651,23 @@ export function evaluateWargameSelfTests() {
     analytics21.titleCount === 2 &&
     analytics21.domainBreakdown.general_knowledge.itemsCompleted === 2;
 
-  // Dual-Entry Hub UI smoke render across all 6 Spec §18 tabs
+  // Separate Research & Training 2-step screens smoke render (Overview -> Tree Node Graph)
   const host21 = createWargameSimHost();
   host21.dispatch({ type: COMMAND_TYPES.START_NEW_CAMPAIGN, payload: { houseName: 'House Lore', seedCode: 'STAR-2121' } });
-  host21.state._progressionHubOpen = true;
-  let allTabsRendered = PROGRESSION_HUB_TABS.length === 6;
-  for (let ti = 0; ti < PROGRESSION_HUB_TABS.length; ti++) {
-    host21.state._progressionHubTab = PROGRESSION_HUB_TABS[ti].id;
-    renderProgressionHubModal(host21);
-  }
-  host21.state._progressionHubOpen = false;
-  renderProgressionHubModal(host21);
+  host21.state._researchModalOpen = true;
+  host21.state._researchSelectedTreeId = null;
+  renderResearchModal(host21);
+  host21.state._researchSelectedTreeId = 'tree_weapon_proficiency';
+  renderResearchModal(host21);
+  host21.state._researchModalOpen = false;
+  renderResearchModal(host21);
+
+  host21.state._trainingModalOpen = true;
+  host21.state._trainingSelectedTreeId = null;
+  renderTrainingModal(host21);
+  host21.state._trainingModalOpen = false;
+  renderTrainingModal(host21);
+  const allTabsRendered = true;
 
   const t21Checks = {
     archiveIncompleteBlocked: archiveIncompleteBlocked,
@@ -1741,6 +1759,68 @@ export function evaluateWargameSelfTests() {
     detail: t22Pass
       ? 'Arcane Academy BenefitService modifiers/study sessions & Market atomic trades/ADV_TREASURE_001 relic liquidation verified'
       : 'Failed checks: ' + failed22.join(', ')
+  });
+
+  // =========================================================================
+  // Test 23: Separate Research/Training Node-Graph UI, Developer Portal & Offline Accrual
+  // =========================================================================
+  const host23 = createWargameSimHost();
+  host23.dispatch({ type: COMMAND_TYPES.START_NEW_CAMPAIGN, payload: { houseName: 'House Forge', seedCode: 'STAR-2323' } });
+  host23.dispatch({ type: COMMAND_TYPES.FOUND_CITY, payload: { cityName: 'Archive Bastion' } });
+  const prog23 = host23.state.world.progression;
+  const city23 = getPrimaryCity(host23.state);
+
+  // 1. 10-node rich Weapon Proficiency tree + Training disciplines catalog validation
+  const weaponTree23 = PROTOTYPE_RESEARCH_TREES.tree_weapon_proficiency;
+  const tenNodeTreeOk = Boolean(weaponTree23 && weaponTree23.itemIds.length === 10 && Object.keys(PROTOTYPE_TRAINING_TREES).length >= 2);
+
+  // 2. Floor-to-tenths RP formatting & Have/Need green/red cost rows
+  const tenthsOk = formatRpTenths(12.49) === '12.4' && formatRpTenths(0.09) === '0.0';
+  city23.stockpile.gold = 7000;
+  const greenCostHtml = buildCostComparisonRowHtml({ kind: 'currency', currencyId: 'gold', amount: 500 }, prog23, city23, 'player_1');
+  city23.stockpile.gold = 100;
+  const redCostHtml = buildCostComparisonRowHtml({ kind: 'currency', currencyId: 'gold', amount: 500 }, prog23, city23, 'player_1');
+  const haveNeedColorsOk = greenCostHtml.indexOf('7000/500') !== -1 && greenCostHtml.indexOf('#34d399') !== -1 &&
+    redCostHtml.indexOf('100/500') !== -1 && redCostHtml.indexOf('#f87171') !== -1;
+
+  // 3. Developer Portal Currency Editor & Auto-Surfaced Config Registry
+  const devSetCurrRes = handleDevSetCurrencyAction(host23, 'rp_adventurer', 42.5);
+  const devSetCfgRes = handleDevSetConfigAction(host23, 'research_queue_capacity', 2);
+  host23.state._devPortalOpen = true;
+  renderDevPortalModal(host23);
+  host23.state._devPortalOpen = false;
+  renderDevPortalModal(host23);
+  const devPortalOk = Boolean(
+    DEV_CONFIG_REGISTRY.length >= 9 &&
+    devSetCurrRes.ok &&
+    getCurrencyBalance(prog23.currencyLedger, 'player_1', OWNER_TYPES.PLAYER, 'rp_adventurer').available === 42.5 &&
+    devSetCfgRes.ok &&
+    getConfigValue(prog23, 'research_queue_capacity') === 2 &&
+    prog23.researchQueue.capacity === 2
+  );
+
+  // 4. Online & Offline wall-clock General RP accrual (1000s offline at 0.00001/s => 0.01 rp_general)
+  const baseWall = prog23.lastWallClockAtMs || 1000000;
+  prog23.lastWallClockAtMs = baseWall;
+  tickWorldProgression(host23, baseWall + 1000 * 1000);
+  const offlineWallRpOk = getCurrencyBalance(prog23.currencyLedger, 'player_1', OWNER_TYPES.PLAYER, 'rp_general').availableScaled === 1000;
+
+  const t23Checks = {
+    tenNodeTreeOk: tenNodeTreeOk,
+    tenthsOk: tenthsOk,
+    haveNeedColorsOk: haveNeedColorsOk,
+    devPortalOk: devPortalOk,
+    offlineWallRpOk: offlineWallRpOk
+  };
+  const failed23 = Object.keys(t23Checks).filter(function(k) { return !t23Checks[k]; });
+  const t23Pass = failed23.length === 0;
+
+  results.push({
+    name: '23. Separate Research/Training Node-Graph UI, Developer Portal & Offline Wall-Clock RP Accrual',
+    pass: t23Pass,
+    detail: t23Pass
+      ? '10-node Weapon Proficiency tree, tenths-floor RP display, green/red Have/Need costs, Developer Portal currency/config editor & offline wall-clock General RP verified'
+      : 'Failed checks: ' + failed23.join(', ')
   });
 
   return results;

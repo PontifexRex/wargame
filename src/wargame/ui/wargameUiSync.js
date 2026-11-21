@@ -28,7 +28,8 @@ import {
   computeCityPopulation
 } from '../engine/state.js';
 import { getFormattedTasksList } from '../engine/taskEngine.js';
-import { renderProgressionHubModal } from './progressionUi.js';
+import { renderProgressionModals } from './progressionUi.js';
+import { renderDevPortalModal } from './devPortal.js';
 import {
   normalizeSharedHeroProfile,
   renderSharedPaperDollMannequin,
@@ -243,7 +244,8 @@ export function syncWargameUI(simHost) {
   // 7. Sync Shared Character Sheet Modal, Enterable Facility Modal, Screen Info Popup & Mobile Drawers
   renderWargameCharacterSheetModal(simHost);
   renderWargameFacilityModal(simHost);
-  renderProgressionHubModal(simHost);
+  renderProgressionModals(simHost);
+  renderDevPortalModal(simHost);
   renderScreenInfoModal(simHost);
   syncMobileDrawers(simHost);
 }
@@ -535,7 +537,7 @@ export function buildUnifiedGuildServicesHtml(simHost, bId, city, bDef, lvl) {
     panelHtml = `
       <div class="space-y-1.5">
         <div class="flex justify-end pb-1">
-          <button onclick="window.WargameApp.handleOpenProgressionHub('training')" class="px-3 py-1.5 rounded-lg bg-[#34d399] hover:bg-[#10b981] text-[#080b11] font-mono font-bold text-[10px] uppercase cursor-pointer">🎯 Open Hero Training Hub →</button>
+          <button onclick="window.WargameApp.handleOpenTrainingHub()" class="px-3 py-1.5 rounded-lg bg-[#34d399] hover:bg-[#10b981] text-[#080b11] font-mono font-bold text-[10px] uppercase cursor-pointer">🎯 Open Training Grounds →</button>
         </div>
         ${tList}
       </div>
@@ -555,7 +557,7 @@ export function buildUnifiedGuildServicesHtml(simHost, bId, city, bDef, lvl) {
     panelHtml = `
       <div class="space-y-1.5">
         <div class="flex justify-end pb-1">
-          <button onclick="window.WargameApp.handleOpenProgressionHub('trees')" class="px-3 py-1.5 rounded-lg bg-[#c084fc] hover:bg-[#a855f7] text-[#080b11] font-mono font-bold text-[10px] uppercase cursor-pointer">📚 Open Research Trees Hub →</button>
+          <button onclick="window.WargameApp.handleOpenResearchHub()" class="px-3 py-1.5 rounded-lg bg-[#fbbf24] hover:bg-[#f59e0b] text-[#080b11] font-mono font-bold text-[10px] uppercase cursor-pointer">📚 Open Research Archive →</button>
         </div>
         ${rList}
       </div>
@@ -748,9 +750,8 @@ export function renderWargameFacilityModal(simHost) {
         </div>
         <p class="text-[11px] text-[#94a3b8]">Direct civic gateway into your Personal Research Trees. Academy modifiers stack automatically via BenefitService.</p>
         <div class="flex flex-wrap gap-2">
-          <button onclick="window.WargameApp.handleCloseFacilityModal(); window.WargameApp.handleOpenProgressionHub('trees')" class="px-3 py-1.5 rounded-lg bg-[#c084fc] hover:bg-[#a855f7] text-[#080b11] font-mono font-bold text-xs uppercase cursor-pointer">📚 Open Research Trees →</button>
-          <button onclick="window.WargameApp.handleCloseFacilityModal(); window.WargameApp.handleOpenProgressionHub('queues')" class="px-3 py-1.5 rounded-lg bg-[#1a2232] hover:bg-[#283347] text-[#38bdf8] border border-[#38bdf8]/40 font-mono font-bold text-xs uppercase cursor-pointer">⏳ Queue Manager</button>
-          <button onclick="window.WargameApp.handleAcademyStudySession()" class="px-3 py-1.5 rounded-lg bg-[#fbbf24] hover:bg-[#f59e0b] text-[#080b11] font-mono font-bold text-xs uppercase cursor-pointer">📘 Fund Study (+${studyYield} RP • 25g, 10 Food)</button>
+          <button onclick="window.WargameApp.handleCloseFacilityModal(); window.WargameApp.handleOpenResearchHub()" class="px-3 py-1.5 rounded-lg bg-[#fbbf24] hover:bg-[#f59e0b] text-[#080b11] font-mono font-bold text-xs uppercase cursor-pointer">📚 Open Research Archive →</button>
+          <button onclick="window.WargameApp.handleAcademyStudySession()" class="px-3 py-1.5 rounded-lg bg-[#1a2232] hover:bg-[#283347] text-[#c084fc] border border-[#c084fc]/50 font-mono font-bold text-xs uppercase cursor-pointer">📘 Fund Study (+${studyYield} RP • 25g, 10 Food)</button>
         </div>
       </div>
     `);

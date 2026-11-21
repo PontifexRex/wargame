@@ -47,6 +47,8 @@ export function createDefaultProgressionState(nowMs) {
       godTags: []
     },
     lastAccrualAtMs: ts,
+    lastWallClockAtMs: Date.now(),
+    configOverrides: {},
     antiAbuseCounters: {}
   };
 }
@@ -71,6 +73,8 @@ export function ensureProgressionState(world) {
   if (!Array.isArray(p.archivedTreeIds)) p.archivedTreeIds = [];
   if (!p.discoveries) p.discoveries = {};
   if (!p.alignment) p.alignment = { godId: null, godName: null, godTags: [] };
+  if (!p.configOverrides || typeof p.configOverrides !== 'object') p.configOverrides = {};
+  if (typeof p.lastWallClockAtMs !== 'number') p.lastWallClockAtMs = Date.now();
   if (!p.antiAbuseCounters) p.antiAbuseCounters = {};
   return p;
 }

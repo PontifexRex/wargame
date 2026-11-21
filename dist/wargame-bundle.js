@@ -2876,6 +2876,8 @@ function createDefaultProgressionState(nowMs) {
       godTags: []
     },
     lastAccrualAtMs: ts,
+    lastWallClockAtMs: Date.now(),
+    configOverrides: {},
     antiAbuseCounters: {}
   };
 }
@@ -2900,6 +2902,8 @@ function ensureProgressionState(world) {
   if (!Array.isArray(p.archivedTreeIds)) p.archivedTreeIds = [];
   if (!p.discoveries) p.discoveries = {};
   if (!p.alignment) p.alignment = { godId: null, godName: null, godTags: [] };
+  if (!p.configOverrides || typeof p.configOverrides !== 'object') p.configOverrides = {};
+  if (typeof p.lastWallClockAtMs !== 'number') p.lastWallClockAtMs = Date.now();
   if (!p.antiAbuseCounters) p.antiAbuseCounters = {};
   return p;
 }
@@ -3372,16 +3376,29 @@ const PROTOTYPE_RESEARCH_TREES = {
     treeId: 'tree_weapon_proficiency',
     domainId: 'warrior',
     name: 'Weapon Proficiency',
-    shortDescription: 'Multilevel martial doctrine unlocking specialized weapon training for individual heroes.',
+    shortDescription: '10-node martial doctrine spanning Heavy Arms, Polearms & Shields, and Battlefield Tactics.',
     icon: '⚔️',
     ownershipType: OWNER_TYPES.PLAYER,
     branches: [
       { branchId: 'br_heavy_arms', name: 'Heavy Arms' },
-      { branchId: 'br_tactics', name: 'Combat Mastery' }
+      { branchId: 'br_shields', name: 'Polearms & Shields' },
+      { branchId: 'br_tactics', name: 'Battlefield Tactics' }
     ],
-    itemIds: ['WAR_WEAPON_HEAVY_001', 'WAR_MASTER_001'],
+    itemIds: [
+      'WAR_WEAPON_HEAVY_001',
+      'WAR_BLADE_BALANCE_001',
+      'WAR_CRUSHING_BLOW_001',
+      'WAR_SHIELD_WALL_001',
+      'WAR_POLEARM_REACH_001',
+      'WAR_ARMOR_FITTING_001',
+      'WAR_FIELD_DRILLS_001',
+      'WAR_FLANKING_001',
+      'WAR_MASTER_001',
+      'WAR_WARLORD_APEX_001'
+    ],
     milestones: [
-      { milestoneId: 'ms_war_1', requiredCompletions: 2, rewardTitle: 'Master of Arms', rewardGold: 200 }
+      { milestoneId: 'ms_war_1', requiredCompletions: 4, rewardTitle: 'Master of Arms', rewardGold: 200 },
+      { milestoneId: 'ms_war_2', requiredCompletions: 10, rewardTitle: 'Grand Marshal of Steel', rewardGold: 600 }
     ],
     sortOrder: 3,
     version: '1.0.0',
@@ -3512,12 +3529,14 @@ const PROTOTYPE_RESEARCH_ITEMS = {
     version: '1.0.0',
     status: 'active'
   },
-  // Spec §14 Reference Research Item
+  // Spec §14 Reference Research Item (Root of Heavy Arms branch)
   WAR_WEAPON_HEAVY_001: {
     researchItemId: 'WAR_WEAPON_HEAVY_001',
     treeId: 'tree_weapon_proficiency',
     domainId: 'warrior',
     branchId: 'br_heavy_arms',
+    nodePos: { col: 0, row: 0 },
+    parentIds: [],
     name: 'Wield Heavier Weapons',
     description: 'Unlocks Heavy Weapon Proficiency training for individual heroes (does not auto-grant skill without hero training).',
     icon: '⚔️',
@@ -3535,14 +3554,192 @@ const PROTOTYPE_RESEARCH_ITEMS = {
     version: '1.0.0',
     status: 'active'
   },
+  WAR_BLADE_BALANCE_001: {
+    researchItemId: 'WAR_BLADE_BALANCE_001',
+    treeId: 'tree_weapon_proficiency',
+    domainId: 'warrior',
+    branchId: 'br_heavy_arms',
+    nodePos: { col: 1, row: 0 },
+    parentIds: ['WAR_WEAPON_HEAVY_001'],
+    name: 'Counterweight Tempering',
+    description: 'Balances greatswords and warhammers for +4% critical strike chance per level.',
+    icon: '🗡️',
+    itemType: 'modifier',
+    ownershipType: OWNER_TYPES.PLAYER,
+    subjectType: 'player',
+    prerequisites: { type: 'research_level', research_item_id: 'WAR_WEAPON_HEAVY_001', operator: '>=', value: 1, label: 'Wield Heavier Weapons' },
+    levelLimit: 3,
+    levelDefinitions: [
+      { level: 1, durationSec: 120, costs: [{ kind: 'currency', currencyId: 'rp_adventurer', amount: 6 },  { kind: 'currency', currencyId: 'gold', amount: 90 },  { kind: 'stockpile', resourceId: 'ore', amount: 10 }], benefits: [{ effectType: 'attribute_modifier', target: 'hero_crit_pct', op: 'additive', value: 0.04 }] },
+      { level: 2, durationSec: 360, costs: [{ kind: 'currency', currencyId: 'rp_adventurer', amount: 12 }, { kind: 'currency', currencyId: 'gold', amount: 240 }, { kind: 'stockpile', resourceId: 'ingots', amount: 5 }], benefits: [{ effectType: 'attribute_modifier', target: 'hero_crit_pct', op: 'additive', value: 0.04 }] },
+      { level: 3, durationSec: 900, costs: [{ kind: 'currency', currencyId: 'rp_adventurer', amount: 22 }, { kind: 'currency', currencyId: 'gold', amount: 600 }, { kind: 'stockpile', resourceId: 'ingots', amount: 12 }], benefits: [{ effectType: 'attribute_modifier', target: 'hero_crit_pct', op: 'additive', value: 0.05 }] }
+    ],
+    queueType: 'research',
+    version: '1.0.0',
+    status: 'active'
+  },
+  WAR_CRUSHING_BLOW_001: {
+    researchItemId: 'WAR_CRUSHING_BLOW_001',
+    treeId: 'tree_weapon_proficiency',
+    domainId: 'warrior',
+    branchId: 'br_heavy_arms',
+    nodePos: { col: 2, row: 0 },
+    parentIds: ['WAR_BLADE_BALANCE_001'],
+    name: 'Shattering Strikes',
+    description: 'Requires Blacksmith Lv 1 and Counterweight Tempering. Unlocks Crushing Blow hero training.',
+    icon: '🔨',
+    itemType: 'capability_unlock',
+    ownershipType: OWNER_TYPES.PLAYER,
+    subjectType: 'player',
+    prerequisites: {
+      operator: 'AND',
+      conditions: [
+        { type: 'research_level', research_item_id: 'WAR_BLADE_BALANCE_001', operator: '>=', value: 1, label: 'Counterweight Tempering' },
+        { type: 'building_level', buildingId: 'blacksmith', operator: '>=', value: 1 }
+      ]
+    },
+    levelLimit: 2,
+    levelDefinitions: [
+      { level: 1, durationSec: 240, costs: [{ kind: 'currency', currencyId: 'rp_adventurer', amount: 14 }, { kind: 'currency', currencyId: 'gold', amount: 320 }], benefits: [{ effectType: 'unlock_training', target: 'train_crushing_blows', op: 'unlock', value: 1 }] },
+      { level: 2, durationSec: 720, costs: [{ kind: 'currency', currencyId: 'rp_adventurer', amount: 28 }, { kind: 'currency', currencyId: 'gold', amount: 750 }], benefits: [{ effectType: 'unlock_training', target: 'train_crushing_blows', op: 'unlock', value: 2 }] }
+    ],
+    queueType: 'research',
+    version: '1.0.0',
+    status: 'active'
+  },
+  WAR_SHIELD_WALL_001: {
+    researchItemId: 'WAR_SHIELD_WALL_001',
+    treeId: 'tree_weapon_proficiency',
+    domainId: 'warrior',
+    branchId: 'br_shields',
+    nodePos: { col: 0, row: 1 },
+    parentIds: [],
+    name: 'Tower Shield Foundations',
+    description: 'Unlocks Shield Wall Conditioning for individual heroes (+3 DEF per training rank).',
+    icon: '🛡️',
+    itemType: 'capability_unlock',
+    ownershipType: OWNER_TYPES.PLAYER,
+    subjectType: 'player',
+    prerequisites: null,
+    levelLimit: 3,
+    levelDefinitions: [
+      { level: 1, durationSec: 60,  costs: [{ kind: 'currency', currencyId: 'rp_adventurer', amount: 4 },  { kind: 'currency', currencyId: 'gold', amount: 45 }],  benefits: [{ effectType: 'unlock_training', target: 'train_shield_wall', op: 'unlock', value: 1 }] },
+      { level: 2, durationSec: 300, costs: [{ kind: 'currency', currencyId: 'rp_adventurer', amount: 9 },  { kind: 'currency', currencyId: 'gold', amount: 180 }], benefits: [{ effectType: 'unlock_training', target: 'train_shield_wall', op: 'unlock', value: 2 }] },
+      { level: 3, durationSec: 900, costs: [{ kind: 'currency', currencyId: 'rp_adventurer', amount: 18 }, { kind: 'currency', currencyId: 'gold', amount: 520 }], benefits: [{ effectType: 'unlock_training', target: 'train_shield_wall', op: 'unlock', value: 3 }] }
+    ],
+    queueType: 'research',
+    version: '1.0.0',
+    status: 'active'
+  },
+  WAR_POLEARM_REACH_001: {
+    researchItemId: 'WAR_POLEARM_REACH_001',
+    treeId: 'tree_weapon_proficiency',
+    domainId: 'warrior',
+    branchId: 'br_shields',
+    nodePos: { col: 1, row: 1 },
+    parentIds: ['WAR_SHIELD_WALL_001'],
+    name: 'Phalanx Polearm Reach',
+    description: 'Extends melee formation discipline, granting +6% defense in dungeon corridors.',
+    icon: '🔱',
+    itemType: 'modifier',
+    ownershipType: OWNER_TYPES.PLAYER,
+    subjectType: 'player',
+    prerequisites: { type: 'research_level', research_item_id: 'WAR_SHIELD_WALL_001', operator: '>=', value: 1, label: 'Tower Shield Foundations' },
+    levelLimit: 2,
+    levelDefinitions: [
+      { level: 1, durationSec: 150, costs: [{ kind: 'currency', currencyId: 'rp_adventurer', amount: 7 },  { kind: 'currency', currencyId: 'gold', amount: 110 }, { kind: 'stockpile', resourceId: 'wood', amount: 20 }], benefits: [{ effectType: 'attribute_modifier', target: 'hero_def_pct', op: 'additive', value: 0.06 }] },
+      { level: 2, durationSec: 420, costs: [{ kind: 'currency', currencyId: 'rp_adventurer', amount: 15 }, { kind: 'currency', currencyId: 'gold', amount: 300 }, { kind: 'stockpile', resourceId: 'wood', amount: 45 }], benefits: [{ effectType: 'attribute_modifier', target: 'hero_def_pct', op: 'additive', value: 0.06 }] }
+    ],
+    queueType: 'research',
+    version: '1.0.0',
+    status: 'active'
+  },
+  WAR_ARMOR_FITTING_001: {
+    researchItemId: 'WAR_ARMOR_FITTING_001',
+    treeId: 'tree_weapon_proficiency',
+    domainId: 'warrior',
+    branchId: 'br_shields',
+    nodePos: { col: 2, row: 1 },
+    parentIds: ['WAR_POLEARM_REACH_001', 'WAR_BLADE_BALANCE_001'],
+    name: 'Articulated Plate Fitting',
+    description: 'Converging mastery: requires either Phalanx Polearm Reach OR Counterweight Tempering. Unlocks Armor Conditioning.',
+    icon: '🥋',
+    itemType: 'capability_unlock',
+    ownershipType: OWNER_TYPES.PLAYER,
+    subjectType: 'player',
+    prerequisites: {
+      operator: 'OR',
+      conditions: [
+        { type: 'research_level', research_item_id: 'WAR_POLEARM_REACH_001', operator: '>=', value: 1, label: 'Phalanx Polearm Reach' },
+        { type: 'research_level', research_item_id: 'WAR_BLADE_BALANCE_001', operator: '>=', value: 1, label: 'Counterweight Tempering' }
+      ]
+    },
+    levelLimit: 2,
+    levelDefinitions: [
+      { level: 1, durationSec: 210, costs: [{ kind: 'currency', currencyId: 'rp_adventurer', amount: 11 }, { kind: 'currency', currencyId: 'gold', amount: 260 }], benefits: [{ effectType: 'unlock_training', target: 'train_armor_conditioning', op: 'unlock', value: 1 }] },
+      { level: 2, durationSec: 600, costs: [{ kind: 'currency', currencyId: 'rp_adventurer', amount: 22 }, { kind: 'currency', currencyId: 'gold', amount: 640 }], benefits: [{ effectType: 'unlock_training', target: 'train_armor_conditioning', op: 'unlock', value: 2 }] }
+    ],
+    queueType: 'research',
+    version: '1.0.0',
+    status: 'active'
+  },
+  WAR_FIELD_DRILLS_001: {
+    researchItemId: 'WAR_FIELD_DRILLS_001',
+    treeId: 'tree_weapon_proficiency',
+    domainId: 'warrior',
+    branchId: 'br_tactics',
+    nodePos: { col: 0, row: 2 },
+    parentIds: [],
+    name: 'Standardized Yard Drills',
+    description: 'Streamlines martial instruction, accelerating Hero Training speed by +10% per level.',
+    icon: '📯',
+    itemType: 'modifier',
+    ownershipType: OWNER_TYPES.PLAYER,
+    subjectType: 'player',
+    prerequisites: null,
+    levelLimit: 3,
+    levelDefinitions: [
+      { level: 1, durationSec: 75,  costs: [{ kind: 'currency', currencyId: 'rp_general', amount: 0.04 }, { kind: 'currency', currencyId: 'gold', amount: 50 }],  benefits: [{ effectType: 'training_speed_modifier', target: 'hero', op: 'additive', value: 0.10 }] },
+      { level: 2, durationSec: 240, costs: [{ kind: 'currency', currencyId: 'rp_general', amount: 0.10 }, { kind: 'currency', currencyId: 'gold', amount: 160 }], benefits: [{ effectType: 'training_speed_modifier', target: 'hero', op: 'additive', value: 0.10 }] },
+      { level: 3, durationSec: 600, costs: [{ kind: 'currency', currencyId: 'rp_general', amount: 0.25 }, { kind: 'currency', currencyId: 'gold', amount: 450 }], benefits: [{ effectType: 'training_speed_modifier', target: 'hero', op: 'additive', value: 0.15 }] }
+    ],
+    queueType: 'research',
+    version: '1.0.0',
+    status: 'active'
+  },
+  WAR_FLANKING_001: {
+    researchItemId: 'WAR_FLANKING_001',
+    treeId: 'tree_weapon_proficiency',
+    domainId: 'warrior',
+    branchId: 'br_tactics',
+    nodePos: { col: 1, row: 2 },
+    parentIds: ['WAR_FIELD_DRILLS_001'],
+    name: 'Squad Flanking Maneuvers',
+    description: 'Coordinated vanguard formations increasing Overworld skirmish victory odds & party ATK by +5%.',
+    icon: '🚩',
+    itemType: 'modifier',
+    ownershipType: OWNER_TYPES.PLAYER,
+    subjectType: 'player',
+    prerequisites: { type: 'research_level', research_item_id: 'WAR_FIELD_DRILLS_001', operator: '>=', value: 1, label: 'Standardized Yard Drills' },
+    levelLimit: 2,
+    levelDefinitions: [
+      { level: 1, durationSec: 180, costs: [{ kind: 'currency', currencyId: 'rp_adventurer', amount: 8 },  { kind: 'currency', currencyId: 'gold', amount: 140 }], benefits: [{ effectType: 'attribute_modifier', target: 'hero_atk_pct', op: 'additive', value: 0.05 }] },
+      { level: 2, durationSec: 480, costs: [{ kind: 'currency', currencyId: 'rp_adventurer', amount: 16 }, { kind: 'currency', currencyId: 'gold', amount: 360 }], benefits: [{ effectType: 'attribute_modifier', target: 'hero_atk_pct', op: 'additive', value: 0.05 }] }
+    ],
+    queueType: 'research',
+    version: '1.0.0',
+    status: 'active'
+  },
   WAR_MASTER_001: {
     researchItemId: 'WAR_MASTER_001',
     treeId: 'tree_weapon_proficiency',
     domainId: 'warrior',
     branchId: 'br_tactics',
+    nodePos: { col: 2, row: 2 },
+    parentIds: ['WAR_FLANKING_001', 'WAR_WEAPON_HEAVY_001'],
     name: 'Vanguard Arms Doctrine',
     description: 'Advanced combat doctrine requiring a veteran hero and prior martial or survival research.',
-    icon: '🛡️',
+    icon: '🏅',
     itemType: 'capability_unlock',
     ownershipType: OWNER_TYPES.PLAYER,
     subjectType: 'player',
@@ -3562,6 +3759,35 @@ const PROTOTYPE_RESEARCH_ITEMS = {
     levelLimit: 1,
     levelDefinitions: [
       { level: 1, durationSec: 300, costs: [{ kind: 'currency', currencyId: 'rp_adventurer', amount: 12 }, { kind: 'currency', currencyId: 'gold', amount: 400 }], benefits: [{ effectType: 'attribute_modifier', target: 'hero_atk_pct', op: 'additive', value: 0.08 }] }
+    ],
+    queueType: 'research',
+    version: '1.0.0',
+    status: 'active'
+  },
+  WAR_WARLORD_APEX_001: {
+    researchItemId: 'WAR_WARLORD_APEX_001',
+    treeId: 'tree_weapon_proficiency',
+    domainId: 'warrior',
+    branchId: 'br_tactics',
+    nodePos: { col: 3, row: 1 },
+    parentIds: ['WAR_CRUSHING_BLOW_001', 'WAR_ARMOR_FITTING_001', 'WAR_MASTER_001'],
+    name: 'Grandmaster of Arms',
+    description: 'Capstone martial synthesis requiring Shattering Strikes, Articulated Plate Fitting, and Vanguard Arms Doctrine.',
+    icon: '👑',
+    itemType: 'modifier',
+    ownershipType: OWNER_TYPES.PLAYER,
+    subjectType: 'player',
+    prerequisites: {
+      operator: 'AND',
+      conditions: [
+        { type: 'research_level', research_item_id: 'WAR_CRUSHING_BLOW_001', operator: '>=', value: 1, label: 'Shattering Strikes' },
+        { type: 'research_level', research_item_id: 'WAR_ARMOR_FITTING_001', operator: '>=', value: 1, label: 'Articulated Plate Fitting' },
+        { type: 'research_level', research_item_id: 'WAR_MASTER_001', operator: '>=', value: 1, label: 'Vanguard Arms Doctrine' }
+      ]
+    },
+    levelLimit: 1,
+    levelDefinitions: [
+      { level: 1, durationSec: 1800, costs: [{ kind: 'currency', currencyId: 'rp_adventurer', amount: 45 }, { kind: 'currency', currencyId: 'gold', amount: 2500 }], benefits: [{ effectType: 'attribute_modifier', target: 'hero_atk_pct', op: 'additive', value: 0.15 }] }
     ],
     queueType: 'research',
     version: '1.0.0',
@@ -3632,9 +3858,30 @@ const PROTOTYPE_RESEARCH_ITEMS = {
   }
 };
 
+const PROTOTYPE_TRAINING_TREES = {
+  tr_tree_martial: {
+    treeId: 'tr_tree_martial',
+    name: 'Martial Arms & Conditioning',
+    shortDescription: 'Combat yard drills building an individual Hero\'s weapon mastery, shields, and armor endurance.',
+    icon: '⚔️',
+    trainingIds: ['train_heavy_weapons', 'train_crushing_blows', 'train_shield_wall', 'train_armor_conditioning']
+  },
+  tr_tree_delving: {
+    treeId: 'tr_tree_delving',
+    name: 'Dungeon Survival & Delving',
+    shortDescription: 'Subterranean endurance and vault survival drills tailored for deep Starfall expeditions.',
+    icon: '🧭',
+    trainingIds: ['train_dungeon_survival']
+  }
+};
+
 const PROTOTYPE_TRAINING_DEFINITIONS = {
   train_heavy_weapons: {
     trainingDefinitionId: 'train_heavy_weapons',
+    treeId: 'tr_tree_martial',
+    nodePos: { col: 0, row: 0 },
+    parentIds: [],
+    icon: '⚔️',
     name: 'Heavy Weapon Proficiency',
     description: 'Trains an individual Hero to wield heavy two-handed arms, granting +4 ATK per level.',
     subjectType: 'hero',
@@ -3648,8 +3895,67 @@ const PROTOTYPE_TRAINING_DEFINITIONS = {
     ],
     version: '1.0.0'
   },
+  train_crushing_blows: {
+    trainingDefinitionId: 'train_crushing_blows',
+    treeId: 'tr_tree_martial',
+    nodePos: { col: 1, row: 0 },
+    parentIds: ['train_heavy_weapons'],
+    icon: '🔨',
+    name: 'Crushing Blow Drills',
+    description: 'Armor-breaking heavy strike drills granting +6 ATK per level to this Hero.',
+    subjectType: 'hero',
+    skillRef: 'crushing_blows',
+    prerequisites: { type: 'research_level', research_item_id: 'WAR_CRUSHING_BLOW_001', operator: '>=', value: 1, label: 'Shattering Strikes' },
+    queueType: 'hero_training',
+    levels: [
+      { level: 1, durationSec: 90,  costs: [{ kind: 'currency', currencyId: 'gold', amount: 120 }], benefits: [{ effectType: 'attribute_modifier', target: 'atk', op: 'additive', value: 6 }] },
+      { level: 2, durationSec: 300, costs: [{ kind: 'currency', currencyId: 'gold', amount: 350 }], prerequisites: { type: 'research_level', research_item_id: 'WAR_CRUSHING_BLOW_001', operator: '>=', value: 2 }, benefits: [{ effectType: 'attribute_modifier', target: 'atk', op: 'additive', value: 8 }] }
+    ],
+    version: '1.0.0'
+  },
+  train_shield_wall: {
+    trainingDefinitionId: 'train_shield_wall',
+    treeId: 'tr_tree_martial',
+    nodePos: { col: 0, row: 1 },
+    parentIds: [],
+    icon: '🛡️',
+    name: 'Shield Wall Conditioning',
+    description: 'Defensive stance training granting +3 DEF per level to this Hero.',
+    subjectType: 'hero',
+    skillRef: 'shield_wall',
+    prerequisites: { type: 'research_level', research_item_id: 'WAR_SHIELD_WALL_001', operator: '>=', value: 1, label: 'Tower Shield Foundations' },
+    queueType: 'hero_training',
+    levels: [
+      { level: 1, durationSec: 45,  costs: [{ kind: 'currency', currencyId: 'gold', amount: 40 }],  benefits: [{ effectType: 'attribute_modifier', target: 'def', op: 'additive', value: 3 }] },
+      { level: 2, durationSec: 180, costs: [{ kind: 'currency', currencyId: 'gold', amount: 140 }], prerequisites: { type: 'research_level', research_item_id: 'WAR_SHIELD_WALL_001', operator: '>=', value: 2 }, benefits: [{ effectType: 'attribute_modifier', target: 'def', op: 'additive', value: 3 }] },
+      { level: 3, durationSec: 540, costs: [{ kind: 'currency', currencyId: 'gold', amount: 420 }], prerequisites: { type: 'research_level', research_item_id: 'WAR_SHIELD_WALL_001', operator: '>=', value: 3 }, benefits: [{ effectType: 'attribute_modifier', target: 'def', op: 'additive', value: 4 }] }
+    ],
+    version: '1.0.0'
+  },
+  train_armor_conditioning: {
+    trainingDefinitionId: 'train_armor_conditioning',
+    treeId: 'tr_tree_martial',
+    nodePos: { col: 1, row: 1 },
+    parentIds: ['train_shield_wall'],
+    icon: '🥋',
+    name: 'Heavy Plate Conditioning',
+    description: 'Endurance drills in full plate granting +20 Max HP and +2 DEF per level.',
+    subjectType: 'hero',
+    skillRef: 'armor_conditioning',
+    prerequisites: { type: 'research_level', research_item_id: 'WAR_ARMOR_FITTING_001', operator: '>=', value: 1, label: 'Articulated Plate Fitting' },
+    queueType: 'hero_training',
+    levels: [
+      { level: 1, durationSec: 90,  costs: [{ kind: 'currency', currencyId: 'gold', amount: 110 }], benefits: [{ effectType: 'attribute_modifier', target: 'maxHp', op: 'additive', value: 20 }, { effectType: 'attribute_modifier', target: 'def', op: 'additive', value: 2 }] },
+      { level: 2, durationSec: 300, costs: [{ kind: 'currency', currencyId: 'gold', amount: 320 }], prerequisites: { type: 'research_level', research_item_id: 'WAR_ARMOR_FITTING_001', operator: '>=', value: 2 }, benefits: [{ effectType: 'attribute_modifier', target: 'maxHp', op: 'additive', value: 25 }, { effectType: 'attribute_modifier', target: 'def', op: 'additive', value: 3 }] }
+    ],
+    version: '1.0.0'
+  },
   train_dungeon_survival: {
     trainingDefinitionId: 'train_dungeon_survival',
+    treeId: 'tr_tree_delving',
+    nodePos: { col: 0, row: 0 },
+    parentIds: [],
+    icon: '🔥',
     name: 'Dungeon Survival Drills',
     description: 'Hardens an individual Hero for deep vault delves, granting +15 Max HP per level.',
     subjectType: 'hero',
@@ -10153,924 +10459,171 @@ function computeProgressionAnalytics(progression, ownerId, options) {
   };
 }
 
-  // --- Module: src/wargame/ui/progressionUi.js ---
+  // --- Module: src/progression/configRegistry.js ---
 // =============================================================================
-// DUAL-ENTRY RESEARCH & TRAINING HUB UI (Inc 10.5 / Spec §18)
-// Renders the 6 required prototype views inside #wgProgressionHubModal:
-//   1. Overview  2. Visual Research Trees  3. Research Detail
-//   4. Queue Manager  5. Hero Training  6. History & Analytics
-// Accessible from the top-level navigation header AND contextual town buildings.
+// CENTRALIZED KEY CONFIGURATION REGISTRY (Auto-Surfaced in Developer Portal)
+// Rule: Whenever a new key gameplay configuration is introduced, register it here
+// so it automatically appears in the Developer Portal for live tuning & testing.
 // =============================================================================
 
+const CONFIG_CATEGORIES = {
+  ACCRUAL: 'RP Accrual & Rates',
+  QUEUES: 'Research & Training Queues',
+  REFUNDS: 'Cancellation & Refunds',
+  TRAINING: 'Hero & Subject Training'
+};
 
-
-
-
-
-
-
-
-
-
-
-const PROGRESSION_HUB_TABS = [
-  { id: 'overview',  label: '📊 Overview' },
-  { id: 'trees',     label: '🌳 Trees' },
-  { id: 'detail',    label: '🔍 Detail' },
-  { id: 'queues',    label: '⏳ Queues' },
-  { id: 'training',  label: '🎯 Hero Training' },
-  { id: 'analytics', label: '🏆 History & Titles' }
+const DEV_CONFIG_REGISTRY = [
+  {
+    key: 'passive_rp_general_per_sec',
+    category: CONFIG_CATEGORIES.ACCRUAL,
+    label: 'Base General RP / sec (Online & Offline)',
+    type: 'number',
+    step: 0.00001,
+    min: 0,
+    max: 10,
+    defaultValue: 0.00001,
+    desc: 'Base passive General RP earned per real-world second (before Building & Research modifiers).'
+  },
+  {
+    key: 'activity_rp_dungeon_move',
+    category: CONFIG_CATEGORIES.ACCRUAL,
+    label: 'Adventurer RP per Dungeon Action',
+    type: 'number',
+    step: 0.0001,
+    min: 0,
+    max: 10,
+    defaultValue: 0.001,
+    desc: 'Base Adventurer RP awarded per qualifying dungeon movement/exploration action.'
+  },
+  {
+    key: 'activity_rp_monster_defeat',
+    category: CONFIG_CATEGORIES.ACCRUAL,
+    label: 'Adventurer RP per Monster Defeated',
+    type: 'number',
+    step: 0.001,
+    min: 0,
+    max: 50,
+    defaultValue: 0.005,
+    desc: 'Base Adventurer RP awarded for defeating a dungeon or overworld monster.'
+  },
+  {
+    key: 'activity_rp_research_quest',
+    category: CONFIG_CATEGORIES.ACCRUAL,
+    label: 'Adventurer RP per Research Quest',
+    type: 'number',
+    step: 0.5,
+    min: 0,
+    max: 500,
+    defaultValue: 5.0,
+    desc: 'Adventurer RP granted upon completing a dedicated research quest.'
+  },
+  {
+    key: 'research_queue_capacity',
+    category: CONFIG_CATEGORIES.QUEUES,
+    label: 'Personal Research Queue Capacity',
+    type: 'integer',
+    step: 1,
+    min: 1,
+    max: 5,
+    defaultValue: 1,
+    desc: 'Concurrent active Personal Research slots (1 free baseline, 2 subscriber).'
+  },
+  {
+    key: 'training_queue_capacity',
+    category: CONFIG_CATEGORIES.QUEUES,
+    label: 'Hero Training Queue Capacity',
+    type: 'integer',
+    step: 1,
+    min: 1,
+    max: 5,
+    defaultValue: 1,
+    desc: 'Concurrent active Hero Training slots on the separate Training Queue.'
+  },
+  {
+    key: 'global_research_speed_mult',
+    category: CONFIG_CATEGORIES.QUEUES,
+    label: 'Global Research Speed Multiplier',
+    type: 'number',
+    step: 0.1,
+    min: 0.1,
+    max: 100,
+    defaultValue: 1.0,
+    desc: 'Testing multiplier applied to Personal Research completion speed.'
+  },
+  {
+    key: 'global_training_speed_mult',
+    category: CONFIG_CATEGORIES.TRAINING,
+    label: 'Global Training Speed Multiplier',
+    type: 'number',
+    step: 0.1,
+    min: 0.1,
+    max: 100,
+    defaultValue: 1.0,
+    desc: 'Testing multiplier applied to Hero Training completion speed.'
+  },
+  {
+    key: 'cancel_refund_ratio',
+    category: CONFIG_CATEGORIES.REFUNDS,
+    label: 'Active Cancel Refund Ratio (0.0 - 1.0)',
+    type: 'number',
+    step: 0.05,
+    min: 0,
+    max: 1,
+    defaultValue: 0.5,
+    desc: 'Fraction of costs refunded when cancelling an active Research or Training item.'
+  }
 ];
 
-function getNowMs(simHost) {
-  return (simHost && simHost.state && simHost.state.world && simHost.state.world.clock)
-    ? (simHost.state.world.clock.simTimeMs || 0)
-    : 0;
+const _configByKey = {};
+for (let i = 0; i < DEV_CONFIG_REGISTRY.length; i++) {
+  _configByKey[DEV_CONFIG_REGISTRY[i].key] = DEV_CONFIG_REGISTRY[i];
 }
 
-function getPlayerId() {
-  return 'player_1';
+function getConfigDefinition(key) {
+  return _configByKey[key] || null;
 }
 
-function formatRp(val) {
-  return Number(val || 0).toFixed(5);
-}
-
-function syncGoldToLedger(world, prog, nowMs) {
-  const city = world ? getPrimaryCity({ world: world }) : null;
-  if (!city || !city.stockpile) return;
-  const ledgerGold = getCurrencyBalance(prog.currencyLedger, getPlayerId(), OWNER_TYPES.PLAYER, 'gold').available;
-  const cityGold = Number(city.stockpile.gold || 0);
-  const diff = cityGold - ledgerGold;
-  if (diff > 0.0001) {
-    recordCurrencyTransaction(prog.currencyLedger, {
-      ownerId: getPlayerId(),
-      ownerType: OWNER_TYPES.PLAYER,
-      currencyId: 'gold',
-      amount: diff,
-      transactionType: TRANSACTION_TYPES.ADJUSTMENT,
-      source: 'city_treasury_sync',
-      nowMs: nowMs
-    });
+function getConfigValue(progression, key) {
+  const def = _configByKey[key];
+  const overrides = (progression && progression.configOverrides) ? progression.configOverrides : {};
+  if (Object.prototype.hasOwnProperty.call(overrides, key)) {
+    return overrides[key];
   }
+  return def ? def.defaultValue : null;
 }
 
-function tickWorldProgression(simHost) {
-  if (!simHost || !simHost.state || !simHost.state.world) return;
-  const world = simHost.state.world;
-  const prog = ensureProgressionState(world);
-  const nowMs = getNowMs(simHost);
-  const pid = getPlayerId();
-  const city = getPrimaryCity(simHost.state);
-  const acadEffects = getCityAcademyBenefitEffects(city);
-  const activeEffs = collectActiveEffects(prog, { playerId: pid, extraEffects: acadEffects });
-  const genRpBonus = resolveNumericStat(0, 'rp_general', activeEffs.modifiers, { effectType: EFFECT_TYPES.ACCRUAL_MODIFIER }).finalValue;
-  const speedBonus = resolveNumericStat(0, 'personal', activeEffs.modifiers, { effectType: EFFECT_TYPES.RESEARCH_SPEED_MODIFIER }).finalValue;
+function setConfigValue(progression, key, rawValue) {
+  if (!progression) return { ok: false, reason: 'invalid_progression' };
+  const def = _configByKey[key];
+  if (!def) return { ok: false, reason: 'unknown_config_key' };
 
-  processPassiveAccrual(prog, pid, nowMs, { generationModifiers: { additiveBonus: genRpBonus } });
-  advanceResearchProgress(prog, nowMs, { speedBonus: speedBonus });
-  advanceTrainingProgress(prog, nowMs);
-  evaluateTreeMilestones(prog, pid, { nowMs: nowMs, worldId: world.meta ? world.meta.worldName : 'aethelgard_prime' });
-}
+  let val = Number(rawValue);
+  if (!isFinite(val)) return { ok: false, reason: 'invalid_number' };
+  if (def.type === 'integer') val = Math.round(val);
+  if (typeof def.min === 'number' && val < def.min) val = def.min;
+  if (typeof def.max === 'number' && val > def.max) val = def.max;
 
-function renderProgressionHubModal(simHost) {
-  const modal = document.getElementById('wgProgressionHubModal');
-  if (!modal) return;
-  const state = simHost ? simHost.state : null;
-  if (!state || !state.world || !state._progressionHubOpen) {
-    modal.classList.add('hidden');
-    return;
+  if (!progression.configOverrides) progression.configOverrides = {};
+  progression.configOverrides[key] = val;
+
+  // Apply immediate side-effects for queue capacities
+  if (key === 'research_queue_capacity' && progression.researchQueue) {
+    progression.researchQueue.capacity = val;
+  }
+  if (key === 'training_queue_capacity' && progression.trainingQueue) {
+    progression.trainingQueue.capacity = val;
   }
 
-  modal.classList.remove('hidden');
-  tickWorldProgression(simHost);
-
-  const world = state.world;
-  const prog = ensureProgressionState(world);
-  const nowMs = getNowMs(simHost);
-  const pid = getPlayerId();
-  syncGoldToLedger(world, prog, nowMs);
-
-  const activeTab = state._progressionHubTab || 'overview';
-  const selectedItemId = state._progressionSelectedItemId || 'WAR_WEAPON_HEAVY_001';
-  const heroes = Array.isArray(world.heroes) ? world.heroes : [];
-  let selectedHeroId = state._progressionSelectedHeroId || (heroes[0] ? heroes[0].id : null);
-  if (selectedHeroId && !heroes.some(function(h) { return h.id === selectedHeroId; })) {
-    selectedHeroId = heroes[0] ? heroes[0].id : null;
-  }
-
-  const subtitleEl = document.getElementById('wgProgressionHubSubtitle');
-  if (subtitleEl) {
-    const genRp = getCurrencyBalance(prog.currencyLedger, pid, OWNER_TYPES.PLAYER, 'rp_general').available;
-    const advRp = getCurrencyBalance(prog.currencyLedger, pid, OWNER_TYPES.PLAYER, 'rp_adventurer').available;
-    const goldBal = getCurrencyBalance(prog.currencyLedger, pid, OWNER_TYPES.PLAYER, 'gold').available;
-    subtitleEl.textContent = 'General RP: ' + formatRp(genRp) + ' • Adventurer RP: ' + formatRp(advRp) + ' • Gold: ' + Math.floor(goldBal);
-  }
-
-  const tabsEl = document.getElementById('wgProgressionHubTabs');
-  if (tabsEl) {
-    tabsEl.innerHTML = PROGRESSION_HUB_TABS.map(function(t) {
-      const isAct = t.id === activeTab;
-      return `<button onclick="window.WargameApp.handleSwitchProgressionTab('${t.id}')" class="px-3 py-1.5 rounded-lg text-[11px] font-mono font-bold uppercase cursor-pointer transition ${isAct ? 'bg-[#fbbf24] text-[#080b11] shadow' : 'bg-[#111722] hover:bg-[#1a2232] text-[#cbd5e1] border border-[#283347]'}">${t.label}</button>`;
-    }).join('');
-  }
-
-  const bodyEl = document.getElementById('wgProgressionHubBody');
-  if (!bodyEl) return;
-
-  const analytics = computeProgressionAnalytics(prog, pid);
-  const lookup = buildOwnerProgressLookup(prog, OWNER_TYPES.PLAYER, pid);
-  const city = getPrimaryCity(state);
-
-  if (activeTab === 'overview') {
-    const activeTitleHtml = analytics.activeTitle
-      ? `<span class="px-2 py-0.5 rounded bg-[#fbbf24]/20 text-[#fbbf24] border border-[#fbbf24]/50 text-[10px] font-mono font-bold">👑 ${analytics.activeTitle.name}</span>`
-      : `<span class="text-[10px] font-mono text-[#64748b]">No title equipped</span>`;
-
-    const nextStepText = analytics.tutorial.nextStep
-      ? ('Next: ' + analytics.tutorial.nextStep.order + '. ' + analytics.tutorial.nextStep.title + ' — ' + analytics.tutorial.nextStep.desc)
-      : 'All 12 Research & Training onboarding steps mastered!';
-
-    bodyEl.innerHTML = `
-      <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
-        <div class="p-3 rounded-lg bg-[#080b11] border border-[#283347] space-y-1">
-          <div class="text-[10px] font-mono uppercase text-[#94a3b8]">📘 General RP (Passive)</div>
-          <div class="text-lg font-mono font-bold text-[#60a5fa]">${formatRp(analytics.currencyBalances.rp_general)}</div>
-          <div class="text-[10px] text-[#64748b]">Accrues offline at 0.00001 / sec + modifiers</div>
-        </div>
-        <div class="p-3 rounded-lg bg-[#080b11] border border-[#283347] space-y-1">
-          <div class="text-[10px] font-mono uppercase text-[#94a3b8]">🧭 Adventurer RP (Activity)</div>
-          <div class="text-lg font-mono font-bold text-[#34d399]">${formatRp(analytics.currencyBalances.rp_adventurer)}</div>
-          <div class="text-[10px] text-[#64748b]">Earned from delving, skirmishes & quests</div>
-        </div>
-        <div class="p-3 rounded-lg bg-[#080b11] border border-[#283347] space-y-1">
-          <div class="text-[10px] font-mono uppercase text-[#94a3b8]">💰 Treasury Gold</div>
-          <div class="text-lg font-mono font-bold text-[#fbbf24]">${Math.floor(analytics.currencyBalances.gold)}g</div>
-          <div class="text-[10px] text-[#64748b]">Shared atomic currency & stockpile payments</div>
-        </div>
-      </div>
-
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-        <div class="p-3 rounded-lg bg-[#080b11] border border-[#283347] space-y-2">
-          <div class="flex items-center justify-between">
-            <span class="text-xs font-bold text-[#fbbf24] uppercase">⏳ Active Queues</span>
-            <button onclick="window.WargameApp.handleSwitchProgressionTab('queues')" class="text-[10px] font-mono text-[#38bdf8] hover:underline cursor-pointer">Manage →</button>
-          </div>
-          <div class="text-xs text-[#cbd5e1] font-mono">
-            • Personal Research Queue: <strong>${analytics.activeResearchCount}/${prog.researchQueue.capacity}</strong> active (${analytics.pendingResearchCount} pending)<br/>
-            • Separate Hero Training Queue: <strong>${analytics.activeTrainingCount}/${prog.trainingQueue.capacity}</strong> active (${analytics.pendingTrainingCount} pending)
-          </div>
-        </div>
-        <div class="p-3 rounded-lg bg-[#080b11] border border-[#283347] space-y-2">
-          <div class="flex items-center justify-between">
-            <span class="text-xs font-bold text-[#c084fc] uppercase">🏆 Progression Identity</span>
-            ${activeTitleHtml}
-          </div>
-          <div class="text-xs text-[#cbd5e1] font-mono">
-            • Research Levels Completed: <strong>${analytics.totalResearchLevels}</strong> (${analytics.completedTreeCount} trees mastered)<br/>
-            • Hero Trainings Completed: <strong>${analytics.totalTrainingCompletions}</strong> (${analytics.trainedSubjectCount} heroes)
-          </div>
-        </div>
-      </div>
-
-      <div class="p-3 rounded-lg bg-[#080b11] border border-[#38bdf8]/40 space-y-2">
-        <div class="flex items-center justify-between text-xs">
-          <span class="font-bold text-[#38bdf8]">📜 12-Step Research &amp; Training Onboarding</span>
-          <span class="font-mono text-[#fbbf24] font-bold">${analytics.tutorial.completedCount} / ${analytics.tutorial.totalSteps} (${analytics.tutorial.progressPct}%)</span>
-        </div>
-        <div class="w-full h-2 bg-[#111722] rounded-full overflow-hidden">
-          <div class="h-full bg-[#38bdf8]" style="width:${analytics.tutorial.progressPct}%"></div>
-        </div>
-        <div class="text-[11px] text-[#94a3b8]">${nextStepText}</div>
-      </div>
-    `;
-    return;
-  }
-
-  if (activeTab === 'trees') {
-    const treesHtml = Object.keys(PROTOTYPE_RESEARCH_TREES).map(function(tid) {
-      const tree = PROTOTYPE_RESEARCH_TREES[tid];
-      const archived = (prog.archivedTreeIds || []).indexOf(tid) !== -1;
-      const completed = isTreeCompleted(prog, tid, pid);
-
-      const nodesHtml = (tree.itemIds || []).map(function(itemId) {
-        const item = PROTOTYPE_RESEARCH_ITEMS[itemId];
-        if (!item) return '';
-        const inst = lookup[itemId];
-        const curLv = inst ? (inst.currentLevel || 0) : 0;
-        const isActive = prog.researchQueue.activeItems.some(function(a) { return a.researchItemId === itemId; });
-        const badge = isActive
-          ? '<span class="px-1.5 py-0.5 rounded bg-[#38bdf8]/20 text-[#38bdf8] text-[9px] font-mono">IN PROGRESS</span>'
-          : (curLv >= item.levelLimit
-            ? '<span class="px-1.5 py-0.5 rounded bg-[#34d399]/20 text-[#34d399] text-[9px] font-mono">MAX</span>'
-            : '<span class="px-1.5 py-0.5 rounded bg-[#1a2232] text-[#fbbf24] text-[9px] font-mono">Lv ' + curLv + '/' + item.levelLimit + '</span>');
-
-        return `
-          <button onclick="window.WargameApp.handleSelectResearchItem('${itemId}')" class="w-full text-left p-2.5 rounded-lg bg-[#111722] hover:bg-[#1a2232] border ${selectedItemId === itemId ? 'border-[#fbbf24]' : 'border-[#283347]'} flex items-center justify-between gap-2 cursor-pointer transition">
-            <div class="min-w-0">
-              <div class="text-xs font-bold text-[#e6edf3] truncate">${item.icon || '📘'} ${item.name}</div>
-              <div class="text-[10px] text-[#8b949e] truncate">${item.description}</div>
-            </div>
-            ${badge}
-          </button>
-        `;
-      }).join('');
-
-      const archiveBtn = completed
-        ? (archived
-          ? `<button onclick="window.WargameApp.handleToggleArchiveTree('${tid}', false)" class="px-2 py-0.5 rounded bg-[#1a2232] text-[#94a3b8] text-[10px] font-mono cursor-pointer">Restore</button>`
-          : `<button onclick="window.WargameApp.handleToggleArchiveTree('${tid}', true)" class="px-2 py-0.5 rounded bg-[#34d399]/20 text-[#34d399] border border-[#34d399]/40 text-[10px] font-mono cursor-pointer">📦 Archive Tree</button>`)
-        : '';
-
-      return `
-        <div class="p-3 rounded-lg bg-[#080b11] border ${archived ? 'border-[#1e293b] opacity-65' : 'border-[#283347]'} space-y-2">
-          <div class="flex items-center justify-between gap-2">
-            <div>
-              <div class="text-xs font-bold text-[#fbbf24]">${tree.icon} ${tree.name} ${archived ? '<span class="text-[9px] text-[#64748b] font-mono">(Archived)</span>' : ''}</div>
-              <div class="text-[10px] text-[#94a3b8]">${tree.shortDescription}</div>
-            </div>
-            ${archiveBtn}
-          </div>
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-2">${nodesHtml}</div>
-        </div>
-      `;
-    }).join('');
-
-    bodyEl.innerHTML = `<div class="space-y-3">${treesHtml}</div>`;
-    return;
-  }
-
-  if (activeTab === 'detail') {
-    const item = PROTOTYPE_RESEARCH_ITEMS[selectedItemId] || PROTOTYPE_RESEARCH_ITEMS.WAR_WEAPON_HEAVY_001;
-    const inst = lookup[item.researchItemId];
-    const curLv = inst ? (inst.currentLevel || 0) : 0;
-    const nextLv = curLv + 1;
-    const lvlDef = (item.levelDefinitions || []).find(function(l) { return l.level === nextLv; });
-
-    const elig = lvlDef
-      ? evaluateResearchEligibility(item, nextLv, {
-          ownerId: pid,
-          ownerType: OWNER_TYPES.PLAYER,
-          ledger: prog.currencyLedger,
-          researchProgress: lookup,
-          city: city,
-          alignment: prog.alignment,
-          discoveries: prog.discoveries
-        })
-      : { canStart: false, status: 'max_level_reached', unmetConditions: [] };
-
-    const costsStr = lvlDef
-      ? (lvlDef.costs || []).map(function(c) {
-          return c.kind === 'stockpile' ? (c.amount + ' ' + c.resourceId) : (c.amount + ' ' + c.currencyId);
-        }).join(' • ')
-      : 'Max Level Reached';
-
-    const benefitsStr = lvlDef
-      ? (lvlDef.benefits || []).map(function(b) {
-          return '[' + b.op.toUpperCase() + '] ' + b.effectType + ' -> ' + b.target + ' (' + b.value + ')';
-        }).join('<br/>')
-      : 'All levels completed.';
-
-    const unmetHtml = (elig.unmetConditions && elig.unmetConditions.length > 0)
-      ? `<div class="p-2.5 rounded bg-red-950/40 border border-red-500/40 text-[11px] text-red-300 space-y-1">
-          <div class="font-bold">🔒 Unmet Requirements:</div>
-          ${elig.unmetConditions.map(function(u) { return '<div>• ' + (u.reason || u.type) + '</div>'; }).join('')}
-        </div>`
-      : '';
-
-    bodyEl.innerHTML = `
-      <div class="p-4 rounded-lg bg-[#080b11] border border-[#fbbf24]/40 space-y-3">
-        <div class="flex items-center justify-between">
-          <div>
-            <div class="text-base font-bold text-[#fbbf24]">${item.icon || '📘'} ${item.name}</div>
-            <div class="text-[11px] font-mono text-[#94a3b8]">ID: ${item.researchItemId} • Domain: ${item.domainId} • Level ${curLv} / ${item.levelLimit}</div>
-          </div>
-          <button onclick="window.WargameApp.handleSwitchProgressionTab('trees')" class="px-2.5 py-1 rounded bg-[#1a2232] text-xs text-[#cbd5e1] cursor-pointer">← All Trees</button>
-        </div>
-        <p class="text-xs text-[#e6edf3]">${item.description}</p>
-        ${unmetHtml}
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs font-mono">
-          <div class="p-3 rounded bg-[#111722] border border-[#283347]">
-            <div class="text-[10px] uppercase text-[#94a3b8] mb-1">Next Level (${lvlDef ? ('Lv ' + nextLv) : 'MAX'}) Costs &amp; Time</div>
-            <div class="text-[#fbbf24]">${costsStr}</div>
-            ${lvlDef ? `<div class="text-[#38bdf8] mt-1">⏱ Duration: ${lvlDef.durationSec}s</div>` : ''}
-          </div>
-          <div class="p-3 rounded bg-[#111722] border border-[#283347]">
-            <div class="text-[10px] uppercase text-[#94a3b8] mb-1">Effects (Unlocks &amp; Modifiers)</div>
-            <div class="text-[#34d399]">${benefitsStr}</div>
-          </div>
-        </div>
-        <div class="flex justify-end">
-          <button onclick="window.WargameApp.handleStartResearch('${item.researchItemId}')" ${!lvlDef ? 'disabled' : ''} class="px-4 py-2 rounded-lg font-bold text-xs uppercase ${lvlDef ? 'bg-[#fbbf24] hover:bg-[#f59e0b] text-[#080b11] cursor-pointer' : 'bg-[#1a2232] text-[#64748b] cursor-not-allowed'}">
-            ${lvlDef ? ('📚 Start / Enqueue Level ' + nextLv) : '✓ Mastered'}
-          </button>
-        </div>
-      </div>
-    `;
-    return;
-  }
-
-  if (activeTab === 'queues') {
-    const rq = prog.researchQueue;
-    const tq = prog.trainingQueue;
-
-    const rActiveHtml = rq.activeItems.length > 0
-      ? rq.activeItems.map(function(e) {
-          const pct = Math.min(100, Math.round((e.elapsedMs / Math.max(1, e.effectiveDurationMs)) * 100));
-          const toggleBtn = e.status === 'paused'
-            ? `<button onclick="window.WargameApp.handleResumeResearch('${e.researchItemId}')" class="px-2 py-0.5 rounded bg-[#34d399]/20 text-[#34d399] text-[10px] font-mono cursor-pointer">▶ Resume</button>`
-            : `<button onclick="window.WargameApp.handlePauseResearch('${e.researchItemId}')" class="px-2 py-0.5 rounded bg-[#fbbf24]/20 text-[#fbbf24] text-[10px] font-mono cursor-pointer">⏸ Pause</button>`;
-          return `
-            <div class="p-2.5 rounded bg-[#111722] border border-[#38bdf8]/40 space-y-1.5 text-xs">
-              <div class="flex items-center justify-between">
-                <span class="font-bold text-[#e6edf3]">${e.researchItemId} (Lv ${e.targetLevel})</span>
-                <div class="flex items-center gap-1">
-                  ${toggleBtn}
-                  <button onclick="window.WargameApp.handleCancelResearch('${e.researchItemId}')" class="px-2 py-0.5 rounded bg-red-950/60 text-red-300 text-[10px] font-mono cursor-pointer">✕ Cancel</button>
-                </div>
-              </div>
-              <div class="w-full h-1.5 bg-[#080b11] rounded-full overflow-hidden"><div class="h-full bg-[#38bdf8]" style="width:${pct}%"></div></div>
-              <div class="text-[10px] font-mono text-[#94a3b8]">Status: ${e.status} • ${pct}%</div>
-            </div>
-          `;
-        }).join('')
-      : '<div class="text-xs text-[#64748b] italic">No active personal research.</div>';
-
-    const tActiveHtml = tq.activeItems.length > 0
-      ? tq.activeItems.map(function(e) {
-          const pct = Math.min(100, Math.round((e.elapsedMs / Math.max(1, e.effectiveDurationMs)) * 100));
-          return `
-            <div class="p-2.5 rounded bg-[#111722] border border-[#34d399]/40 space-y-1.5 text-xs">
-              <div class="flex items-center justify-between">
-                <span class="font-bold text-[#e6edf3]">${e.trainingDefinitionId} • ${e.subjectId} (Lv ${e.targetLevel})</span>
-                <button onclick="window.WargameApp.handleCancelHeroTraining('${e.subjectId}', '${e.trainingDefinitionId}')" class="px-2 py-0.5 rounded bg-red-950/60 text-red-300 text-[10px] font-mono cursor-pointer">✕ Cancel</button>
-              </div>
-              <div class="w-full h-1.5 bg-[#080b11] rounded-full overflow-hidden"><div class="h-full bg-[#34d399]" style="width:${pct}%"></div></div>
-              <div class="text-[10px] font-mono text-[#94a3b8]">Status: ${e.status} • ${pct}%</div>
-            </div>
-          `;
-        }).join('')
-      : '<div class="text-xs text-[#64748b] italic">No active hero training.</div>';
-
-    bodyEl.innerHTML = `
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-        <div class="p-3 rounded-lg bg-[#080b11] border border-[#283347] space-y-2">
-          <div class="text-xs font-bold text-[#38bdf8] uppercase">📚 Personal Research Queue (${rq.activeItems.length}/${rq.capacity})</div>
-          ${rActiveHtml}
-          <div class="text-[10px] font-mono text-[#94a3b8] pt-1">Pending: ${rq.pendingItems.length}</div>
-        </div>
-        <div class="p-3 rounded-lg bg-[#080b11] border border-[#283347] space-y-2">
-          <div class="text-xs font-bold text-[#34d399] uppercase">🎯 Separate Hero Training Queue (${tq.activeItems.length}/${tq.capacity})</div>
-          ${tActiveHtml}
-          <div class="text-[10px] font-mono text-[#94a3b8] pt-1">Pending: ${tq.pendingItems.length}</div>
-        </div>
-      </div>
-    `;
-    return;
-  }
-
-  if (activeTab === 'training') {
-    if (heroes.length === 0) {
-      bodyEl.innerHTML = `<div class="p-4 rounded-lg bg-[#080b11] border border-[#283347] text-xs text-[#94a3b8] text-center">Recruit at least one Hero at your City Guild Hall to train individual Hero skills here.</div>`;
-      return;
-    }
-    const selHero = heroes.find(function(h) { return h.id === selectedHeroId; }) || heroes[0];
-    const effAtk = computeSubjectEffectiveStat(prog, SUBJECT_TYPES.HERO, selHero.id, selHero.stats ? selHero.stats.atk : 10, 'atk', { playerId: pid }).finalValue;
-    const effHp = computeSubjectEffectiveStat(prog, SUBJECT_TYPES.HERO, selHero.id, selHero.stats ? selHero.stats.maxHp : 100, 'maxHp', { playerId: pid }).finalValue;
-    const heroSummary = getSubjectTrainingSummary(prog, SUBJECT_TYPES.HERO, selHero.id);
-
-    const heroButtons = heroes.map(function(h) {
-      const isSel = h.id === selHero.id;
-      return `<button onclick="window.WargameApp.handleSelectTrainingHero('${h.id}')" class="px-2.5 py-1.5 rounded-lg text-xs font-mono cursor-pointer ${isSel ? 'bg-[#fbbf24] text-[#080b11] font-bold' : 'bg-[#111722] text-[#cbd5e1] border border-[#283347]'}">${h.icon || '⚔️'} ${h.name}</button>`;
-    }).join('');
-
-    const trainCards = Object.keys(PROTOTYPE_TRAINING_DEFINITIONS).map(function(tid) {
-      const def = PROTOTYPE_TRAINING_DEFINITIONS[tid];
-      const elig = evaluateTrainingEligibility(prog, { ownerId: pid, subjectType: SUBJECT_TYPES.HERO, subjectId: selHero.id, trainingDefinitionId: tid });
-      const trainedRec = heroSummary.find(function(s) { return s.trainingDefinitionId === tid; });
-      const curLv = trainedRec ? trainedRec.currentLevel : 0;
-      const reasonHtml = !elig.canStart && elig.unmetConditions && elig.unmetConditions[0]
-        ? `<div class="text-[10px] text-amber-300 font-mono">🔒 ${elig.unmetConditions[0].reason}</div>`
-        : '';
-
-      return `
-        <div class="p-3 rounded-lg bg-[#111722] border border-[#283347] flex items-center justify-between gap-3 text-xs">
-          <div class="space-y-0.5">
-            <div class="font-bold text-[#34d399]">🎯 ${def.name} <span class="text-[10px] font-mono text-[#fbbf24]">• Lv ${curLv}/${def.levels.length}</span></div>
-            <div class="text-[10px] text-[#94a3b8]">${def.description}</div>
-            ${reasonHtml}
-          </div>
-          <button onclick="window.WargameApp.handleStartHeroTraining('${selHero.id}', '${tid}')" ${!elig.canStart ? 'disabled' : ''} class="px-3 py-1.5 rounded font-bold text-[10px] font-mono uppercase whitespace-nowrap ${elig.canStart ? 'bg-[#34d399] hover:bg-[#10b981] text-[#080b11] cursor-pointer' : 'bg-[#1a2232] text-[#64748b] cursor-not-allowed'}">
-            ${elig.canStart ? ('Train Lv ' + elig.targetLevel) : 'Locked'}
-          </button>
-        </div>
-      `;
-    }).join('');
-
-    bodyEl.innerHTML = `
-      <div class="space-y-3">
-        <div class="flex flex-wrap items-center gap-2">${heroButtons}</div>
-        <div class="p-3 rounded-lg bg-[#080b11] border border-[#fbbf24]/30 flex items-center justify-between text-xs font-mono">
-          <span class="font-bold text-[#fbbf24]">${selHero.icon || '⚔️'} ${selHero.name} (Lv ${selHero.level} ${selHero.className})</span>
-          <span class="text-[#34d399]">Effective ATK: <strong>${effAtk}</strong> • Effective Max HP: <strong>${effHp}</strong></span>
-        </div>
-        <div class="space-y-2">${trainCards}</div>
-      </div>
-    `;
-    return;
-  }
-
-  // Tab 6: History, Milestones, Provenance Titles & Analytics
-  const titlesHtml = (prog.earnedTitles || []).length > 0
-    ? prog.earnedTitles.map(function(t) {
-        const isEq = prog.activeTitleId === t.titleId;
-        return `
-          <div class="p-2 rounded bg-[#111722] border ${isEq ? 'border-[#fbbf24]' : 'border-[#283347]'} flex items-center justify-between text-xs">
-            <div>
-              <div class="font-bold text-[#fbbf24]">👑 ${t.name} <span class="text-[9px] font-mono uppercase text-[#c084fc]">[${t.rarity}]</span></div>
-              <div class="text-[10px] text-[#94a3b8]">${t.provenance} • World: ${t.worldId}</div>
-            </div>
-            <button onclick="window.WargameApp.handleEquipPlayerTitle('${isEq ? '' : t.titleId}')" class="px-2.5 py-1 rounded text-[10px] font-mono font-bold cursor-pointer ${isEq ? 'bg-[#fbbf24] text-[#080b11]' : 'bg-[#1a2232] text-[#e6edf3]'}">
-              ${isEq ? 'Equipped' : 'Equip'}
-            </button>
-          </div>
-        `;
-      }).join('')
-    : '<div class="text-xs text-[#64748b] italic">Complete Research Tree milestones to earn Provenance Titles!</div>';
-
-  bodyEl.innerHTML = `
-    <div class="space-y-3">
-      <div class="p-3 rounded-lg bg-[#080b11] border border-[#283347] space-y-2">
-        <div class="text-xs font-bold text-[#fbbf24] uppercase">👑 Provenance Titles (${analytics.titleCount})</div>
-        <div class="space-y-1.5">${titlesHtml}</div>
-      </div>
-      <div class="p-3 rounded-lg bg-[#080b11] border border-[#283347] grid grid-cols-2 md:grid-cols-4 gap-2 text-xs font-mono">
-        <div><span class="text-[#94a3b8]">Milestones:</span> <strong class="text-[#34d399]">${analytics.milestoneCount}</strong></div>
-        <div><span class="text-[#94a3b8]">Archived Trees:</span> <strong class="text-[#38bdf8]">${analytics.archivedTreeCount}</strong></div>
-        <div><span class="text-[#94a3b8]">Ledger Txns:</span> <strong class="text-[#fbbf24]">${analytics.ledgerTransactionCount}</strong></div>
-        <div><span class="text-[#94a3b8]">Contributions:</span> <strong class="text-[#c084fc]">${analytics.contributionCount}</strong></div>
-      </div>
-    </div>
-  `;
+  return { ok: true, key: key, value: val };
 }
 
-// UI Action Handlers (bound to window.WargameApp)
-function handleOpenProgressionHub(simHost, initialTab) {
-  if (!simHost || !simHost.state || !simHost.state.world) return;
-  simHost.state._progressionHubOpen = true;
-  if (initialTab) simHost.state._progressionHubTab = initialTab;
-  renderProgressionHubModal(simHost);
-}
-
-function handleCloseProgressionHub(simHost) {
-  if (!simHost || !simHost.state) return;
-  simHost.state._progressionHubOpen = false;
-  renderProgressionHubModal(simHost);
-}
-
-function handleSwitchProgressionTab(simHost, tabId) {
-  if (!simHost || !simHost.state) return;
-  simHost.state._progressionHubTab = tabId || 'overview';
-  renderProgressionHubModal(simHost);
-}
-
-function handleSelectResearchItem(simHost, itemId) {
-  if (!simHost || !simHost.state) return;
-  simHost.state._progressionSelectedItemId = itemId;
-  simHost.state._progressionHubTab = 'detail';
-  renderProgressionHubModal(simHost);
-}
-
-function handleStartResearchAction(simHost, itemId) {
-  if (!simHost || !simHost.state || !simHost.state.world) return { ok: false };
-  const world = simHost.state.world;
-  const prog = ensureProgressionState(world);
-  const nowMs = getNowMs(simHost);
-  const city = getPrimaryCity(simHost.state);
-  syncGoldToLedger(world, prog, nowMs);
-
-  const acadEffects = getCityAcademyBenefitEffects(city);
-  const activeEffs = collectActiveEffects(prog, { playerId: getPlayerId(), extraEffects: acadEffects });
-  const speedBonus = resolveNumericStat(0, 'personal', activeEffs.modifiers, { effectType: EFFECT_TYPES.RESEARCH_SPEED_MODIFIER }).finalValue;
-
-  const res = startOrEnqueueResearch(prog, {
-    ownerId: getPlayerId(),
-    researchItemId: itemId,
-    nowMs: nowMs,
-    stockpile: city ? city.stockpile : null,
-    eligibilityCtx: { city: city },
-    speedBonus: speedBonus
-  });
-  simHost.save();
-  renderProgressionHubModal(simHost);
-  return res;
-}
-
-function handlePauseResearchAction(simHost, itemId) {
-  if (!simHost || !simHost.state || !simHost.state.world) return { ok: false };
-  const prog = ensureProgressionState(simHost.state.world);
-  const res = pauseResearchItem(prog, itemId, getNowMs(simHost));
-  simHost.save();
-  renderProgressionHubModal(simHost);
-  return res;
-}
-
-function handleResumeResearchAction(simHost, itemId) {
-  if (!simHost || !simHost.state || !simHost.state.world) return { ok: false };
-  const prog = ensureProgressionState(simHost.state.world);
-  const res = resumeResearchItem(prog, itemId, getNowMs(simHost));
-  simHost.save();
-  renderProgressionHubModal(simHost);
-  return res;
-}
-
-function handleCancelResearchAction(simHost, itemId) {
-  if (!simHost || !simHost.state || !simHost.state.world) return { ok: false };
-  const prog = ensureProgressionState(simHost.state.world);
-  const city = getPrimaryCity(simHost.state);
-  const res = cancelResearchItem(prog, itemId, {
-    nowMs: getNowMs(simHost),
-    refundPolicy: REFUND_POLICIES.FIXED_PERCENT,
-    stockpile: city ? city.stockpile : null
-  });
-  simHost.save();
-  renderProgressionHubModal(simHost);
-  return res;
-}
-
-function handleSelectTrainingHeroAction(simHost, heroId) {
-  if (!simHost || !simHost.state) return;
-  simHost.state._progressionSelectedHeroId = heroId;
-  renderProgressionHubModal(simHost);
-}
-
-function handleStartHeroTrainingAction(simHost, heroId, trainingDefinitionId) {
-  if (!simHost || !simHost.state || !simHost.state.world) return { ok: false };
-  const world = simHost.state.world;
-  const prog = ensureProgressionState(world);
-  const nowMs = getNowMs(simHost);
-  const city = getPrimaryCity(simHost.state);
-  syncGoldToLedger(world, prog, nowMs);
-
-  const res = startOrEnqueueTraining(prog, {
-    ownerId: getPlayerId(),
-    subjectType: SUBJECT_TYPES.HERO,
-    subjectId: heroId,
-    trainingDefinitionId: trainingDefinitionId,
-    nowMs: nowMs,
-    stockpile: city ? city.stockpile : null
-  });
-  simHost.save();
-  renderProgressionHubModal(simHost);
-  return res;
-}
-
-function handleCancelHeroTrainingAction(simHost, heroId, trainingDefinitionId) {
-  if (!simHost || !simHost.state || !simHost.state.world) return { ok: false };
-  const prog = ensureProgressionState(simHost.state.world);
-  const res = cancelTrainingItem(prog, heroId, trainingDefinitionId, {
-    nowMs: getNowMs(simHost),
-    refundPolicy: REFUND_POLICIES.FIXED_PERCENT
-  });
-  simHost.save();
-  renderProgressionHubModal(simHost);
-  return res;
-}
-
-function handleToggleArchiveTreeAction(simHost, treeId, archive) {
-  if (!simHost || !simHost.state || !simHost.state.world) return { ok: false };
-  const prog = ensureProgressionState(simHost.state.world);
-  const res = archive ? archiveCompletedTree(prog, treeId, getPlayerId()) : unarchiveTree(prog, treeId);
-  simHost.save();
-  renderProgressionHubModal(simHost);
-  return res;
-}
-
-function handleEquipPlayerTitleAction(simHost, titleId) {
-  if (!simHost || !simHost.state || !simHost.state.world) return { ok: false };
-  const prog = ensureProgressionState(simHost.state.world);
-  const res = setActivePlayerTitle(prog, titleId || null);
-  simHost.save();
-  renderProgressionHubModal(simHost);
-  return res;
-}
-
-  // --- Module: src/constants.js ---
-// Core constants, viewport dimensions, map scale presets, tile IDs, and rarity definitions
-
-const SCHEMA_VERSION = 'v0.5.0-inc5';
-const STORAGE_KEY = 'aethelgard_save_v6';
-
-const TILE_SIZE = 32;
-const VIEWPORT_WIDTH = 21;
-const VIEWPORT_HEIGHT = 15;
-
-// Legacy viewport aliases + new exploration-scale default floor dimensions
-const GRID_W = VIEWPORT_WIDTH;
-const GRID_H = VIEWPORT_HEIGHT;
-const DEFAULT_MAP_W = 80;
-const DEFAULT_MAP_H = 60;
-
-// Soft configurable cap on simultaneously chartered custom expeditions (not a structural limit; can be raised to 500+)
-const DEFAULT_MAX_CHARTERED_DUNGEONS = 12;
-
-// Bestiary & Codex Mastery Constants
-const CODEX_MASTERY_KILLS = 5;
-const CODEX_MASTERY_DMG_MULT = 1.08;
-
-const MAP_SIZE_PRESETS = {
-  small:     { id: 'small',     name: 'Small Outpost',        width: 48,  height: 36,  desc: '48x36 (~5.5x classic) • 14–18 chambers' },
-  standard:  { id: 'standard',  name: 'Standard Delve',       width: 80,  height: 60,  desc: '80x60 (~15x classic) • Multi-wing halls & vaults' },
-  sprawling: { id: 'sprawling', name: 'Sprawling Labyrinth',  width: 128, height: 96,  desc: '128x96 (~39x classic) • Deep avenues & caverns' },
-  colossal:  { id: 'colossal',  name: 'Colossal Megadungeon', width: 192, height: 144, desc: '192x144 (~88x classic) • Massive subterranean expanse' }
-};
-
-// Tile Constants
-const TILE_WALL = 0;
-const TILE_FLOOR = 1;
-const TILE_STAIRS_UP = 2;
-const TILE_STAIRS_DOWN = 3;
-const TILE_CHEST = 4;
-const TILE_CHEST_OPEN = 5;
-const TILE_SHRINE = 6;
-const TILE_SHRINE_USED = 7;
-const TILE_TRAP_HIDDEN = 8;
-const TILE_TRAP_VISIBLE = 9;
-const TILE_ORE_COPPER = 10;
-const TILE_ORE_IRON = 11;
-const TILE_ORE_MITHRIL = 12;
-const TILE_ORE_STAR = 13;
-const TILE_ORE_ASTRAL = 14;
-const TILE_ORE_GEODE = 15;
-const TILE_TRAP_DISARMED = 16;
-
-// Economy Constants
-const LAPIDARY_UNSOCKET_COST = 15;
-const BOUNTY_REROLL_COST = 25;
-
-// Rarity Definitions
-const RARITY = {
-  common:   { id: 'common',   name: 'Common',            color: '#94a3b8', mult: 1.0, affixes: 0 },
-  uncommon: { id: 'uncommon', name: 'Uncommon',          color: '#4ade80', mult: 1.4, affixes: 1 },
-  rare:     { id: 'rare',     name: 'Rare',              color: '#60a5fa', mult: 2.0, affixes: 2 },
-  epic:     { id: 'epic',     name: 'Epic',              color: '#c084fc', mult: 3.2, affixes: 3 },
-  relic:    { id: 'relic',    name: 'Star-Forged Relic', color: '#fbbf24', mult: 5.5, affixes: 4 }
-};
-
-  // --- Module: src/data/classes.js ---
-// Complete 5 Playable Classes Registry (Fighter, Thief, Mage, Ranger, Paladin)
-
-const CLASSES = {
-  fighter: {
-    id: 'fighter',
-    name: 'Fighter',
-    title: 'Iron Vanguard',
-    color: '#f87171',
-    baseStats: { str: 15, dex: 10, int: 8, vit: 14 },
-    hpBase: 120,
-    mpBase: 35,
-    vision: 5,
-    starterGear: {
-      weapon:    { uid: 'w_start_f', name: 'Iron Broadsword', slot: 'weapon', rarity: 'common', atk: 8, str: 2, value: 20, affixes: [] },
-      armor:     { uid: 'a_start_f', name: 'Riveted Mail', slot: 'armor', rarity: 'common', def: 6, vit: 1, value: 20, affixes: [] },
-      helm:      { uid: 'h_start_f', name: 'Iron Coif', slot: 'helm', rarity: 'common', def: 2, value: 12, affixes: [] },
-      boots:     { uid: 'b_start_f', name: 'Heavy Sabatons', slot: 'boots', rarity: 'common', def: 2, value: 12, affixes: [] },
-      accessory: { uid: 'acc_start_f', name: 'Vanguard Signet', slot: 'accessory', rarity: 'common', atk: 1, crit: 2, value: 15, affixes: [] },
-      pickaxe:   { uid: 'pick_start_f', name: 'Iron Pickaxe', slot: 'pickaxe', rarity: 'common', curDur: 30, maxDur: 30, value: 25, affixes: [] }
-    },
-    passiveName: 'Unstoppable Stride',
-    passiveDesc: '+10 Max HP & reduces incoming physical damage by 15%.',
-    skillName: 'Whirlwind Cleave',
-    skillCost: 10,
-    skillRange: 1,
-    skillDesc: 'Cleaves all adjacent foes for 150% weapon damage and stuns them for 1 turn.'
-  },
-  thief: {
-    id: 'thief',
-    name: 'Thief',
-    title: 'Shadow Strider',
-    color: '#c084fc',
-    baseStats: { str: 9, dex: 16, int: 11, vit: 10 },
-    hpBase: 90,
-    mpBase: 45,
-    vision: 6,
-    starterGear: {
-      weapon:    { uid: 'w_start_t', name: 'Obsidian Stiletto', slot: 'weapon', rarity: 'common', atk: 7, crit: 8, value: 20, affixes: [] },
-      armor:     { uid: 'a_start_t', name: 'Shadow Leather', slot: 'armor', rarity: 'common', def: 3, dodge: 6, value: 20, affixes: [] },
-      helm:      { uid: 'h_start_t', name: 'Nightblade Cowl', slot: 'helm', rarity: 'common', def: 1, crit: 3, value: 12, affixes: [] },
-      boots:     { uid: 'b_start_t', name: 'Silent Footwraps', slot: 'boots', rarity: 'common', def: 1, dodge: 5, value: 12, affixes: [] },
-      accessory: { uid: 'acc_start_t', name: 'Prospector Die', slot: 'accessory', rarity: 'common', crit: 4, value: 15, affixes: [] },
-      pickaxe:   { uid: 'pick_start_t', name: 'Iron Pickaxe', slot: 'pickaxe', rarity: 'common', curDur: 28, maxDur: 28, value: 25, affixes: [] }
-    },
-    passiveName: 'Opportunist',
-    passiveDesc: '+15% Critical Strike chance & +25% gold found in chests.',
-    skillName: 'Shadowstep Strike',
-    skillCost: 12,
-    skillRange: 3,
-    skillDesc: 'Teleports to a free floor tile adjacent to a target within 3 tiles and strikes for 220% Crit damage.'
-  },
-  mage: {
-    id: 'mage',
-    name: 'Mage',
-    title: 'Starweaver Adept',
-    color: '#60a5fa',
-    baseStats: { str: 7, dex: 10, int: 17, vit: 10 },
-    hpBase: 82,
-    mpBase: 80,
-    vision: 6,
-    starterGear: {
-      weapon:    { uid: 'w_start_m', name: 'Astral Runestaff', slot: 'weapon', rarity: 'common', atk: 5, int: 3, value: 20, affixes: [] },
-      armor:     { uid: 'a_start_m', name: 'Starweaver Robes', slot: 'armor', rarity: 'common', def: 2, maxMp: 15, value: 20, affixes: [] },
-      helm:      { uid: 'h_start_m', name: 'Circlet of Will', slot: 'helm', rarity: 'common', def: 1, int: 2, value: 12, affixes: [] },
-      boots:     { uid: 'b_start_m', name: 'Leyline Slippers', slot: 'boots', rarity: 'common', def: 1, maxMp: 10, value: 12, affixes: [] },
-      accessory: { uid: 'acc_start_m', name: 'Vespera Shard', slot: 'accessory', rarity: 'common', maxMp: 15, value: 15, affixes: [] },
-      pickaxe:   { uid: 'pick_start_m', name: 'Iron Pickaxe', slot: 'pickaxe', rarity: 'common', curDur: 25, maxDur: 25, value: 25, affixes: [] }
-    },
-    passiveName: 'Arcane Surge',
-    passiveDesc: 'Regenerates +2 MP each turn and adds INT scaling to basic attacks.',
-    skillName: 'Starfall Nova',
-    skillCost: 16,
-    skillRange: 4,
-    skillDesc: 'Unleashes an astral detonation hitting all visible enemies within 4 tiles for 200% spell damage + Burn.'
-  },
-  ranger: {
-    id: 'ranger',
-    name: 'Ranger',
-    title: 'Deepwood Pathfinder',
-    color: '#34d399',
-    baseStats: { str: 12, dex: 15, int: 11, vit: 11 },
-    hpBase: 95,
-    mpBase: 45,
-    vision: 7,
-    starterGear: {
-      weapon:    { uid: 'w_start_r', name: 'Recurve Shortbow', slot: 'weapon', rarity: 'common', atk: 6, dex: 2, value: 20, affixes: [] },
-      armor:     { uid: 'a_start_r', name: 'Scout Gambeson', slot: 'armor', rarity: 'common', def: 4, dodge: 4, value: 20, affixes: [] },
-      helm:      { uid: 'h_start_r', name: 'Falconer Cap', slot: 'helm', rarity: 'common', def: 1, visionBonus: 1, value: 12, affixes: [] },
-      boots:     { uid: 'b_start_r', name: 'Trailrunner Boots', slot: 'boots', rarity: 'common', def: 1, dodge: 5, value: 12, affixes: [] },
-      accessory: { uid: 'acc_start_r', name: 'Quiver Trinket', slot: 'accessory', rarity: 'common', crit: 5, value: 15, affixes: [] },
-      pickaxe:   { uid: 'pick_start_r', name: 'Iron Pickaxe', slot: 'pickaxe', rarity: 'common', curDur: 25, maxDur: 25, value: 25, affixes: [] }
-    },
-    passiveName: 'Eagle Eye',
-    passiveDesc: '7-tile Torchlight vision & +15% Evasion.',
-    skillName: 'Starfall Volley',
-    skillCost: 14,
-    skillRange: 5,
-    skillDesc: 'Looses a piercing astral salvo striking up to 3 visible foes within 5 tiles for 180% weapon damage.'
-  },
-  paladin: {
-    id: 'paladin',
-    name: 'Paladin',
-    title: 'Dawn Warden',
-    color: '#fbbf24',
-    baseStats: { str: 14, dex: 9, int: 12, vit: 15 },
-    hpBase: 125,
-    mpBase: 50,
-    vision: 5,
-    starterGear: {
-      weapon:    { uid: 'w_start_p', name: 'Blessed Mace', slot: 'weapon', rarity: 'common', atk: 7, str: 1, value: 20, affixes: [] },
-      armor:     { uid: 'a_start_p', name: 'Crusader Hauberk', slot: 'armor', rarity: 'common', def: 7, vit: 1, value: 22, affixes: [] },
-      helm:      { uid: 'h_start_p', name: 'Steel Sallet', slot: 'helm', rarity: 'common', def: 3, value: 14, affixes: [] },
-      boots:     { uid: 'b_start_p', name: 'Plated Greaves', slot: 'boots', rarity: 'common', def: 2, value: 14, affixes: [] },
-      accessory: { uid: 'acc_start_p', name: 'Solar Medallion', slot: 'accessory', rarity: 'common', maxHp: 12, value: 18, affixes: [] },
-      pickaxe:   { uid: 'pick_start_p', name: 'Iron Pickaxe', slot: 'pickaxe', rarity: 'common', curDur: 28, maxDur: 28, value: 25, affixes: [] }
-    },
-    passiveName: 'Aura of Radiance',
-    passiveDesc: '+10 Armor & regenerates +1 HP every 3 turns.',
-    skillName: 'Holy Smite',
-    skillCost: 16,
-    skillRange: 1,
-    skillDesc: 'Strikes an adjacent foe for 240% holy damage and restores 15% of your Max HP.'
-  },
-  adventurer: {
-    id: 'adventurer',
-    name: 'Adventurer',
-    title: 'Starfall Delver',
-    color: '#38bdf8',
-    baseStats: { str: 12, dex: 12, int: 11, vit: 13 },
-    hpBase: 108,
-    mpBase: 50,
-    vision: 6,
-    starterGear: {
-      weapon:    { uid: 'w_start_a', name: 'Delver Shortsword', slot: 'weapon', rarity: 'common', atk: 7, dex: 1, value: 20, affixes: [] },
-      armor:     { uid: 'a_start_a', name: 'Expedition Brigandine', slot: 'armor', rarity: 'common', def: 5, vit: 1, value: 20, affixes: [] },
-      helm:      { uid: 'h_start_a', name: 'Lantern Cap', slot: 'helm', rarity: 'common', def: 2, visionBonus: 1, value: 12, affixes: [] },
-      boots:     { uid: 'b_start_a', name: 'Wayfarer Boots', slot: 'boots', rarity: 'common', def: 2, value: 12, affixes: [] },
-      accessory: { uid: 'acc_start_a', name: 'Guild Compass', slot: 'accessory', rarity: 'common', crit: 3, value: 15, affixes: [] },
-      pickaxe:   { uid: 'pick_start_a', name: 'Reinforced Pickaxe', slot: 'pickaxe', rarity: 'common', curDur: 34, maxDur: 34, value: 25, affixes: [] }
-    },
-    passiveName: 'Delver Grit',
-    passiveDesc: 'Balanced dungeon explorer with +1 Torchlight vision and durable mining pickaxe.',
-    skillName: 'Torch Flare',
-    skillCost: 11,
-    skillRange: 1,
-    skillDesc: 'Blasts an adjacent foe with searing torchlight for 180% damage and stuns them for 1 turn.'
-  }
-};
-
-  // --- Module: src/data/items.js ---
-// Equipment Affix Pools, Quartermaster Shop Catalog, and Elite Monster Affixes
-
-
-const AFFIX_POOL = [
-  { id: 'atk',   label: 'of Ferocity',    stat: 'atk',   min: 2,  max: 6,  slots: ['weapon', 'accessory'] },
-  { id: 'def',   label: 'of the Bulwark', stat: 'def',   min: 2,  max: 6,  slots: ['armor', 'helm', 'boots'] },
-  { id: 'str',   label: 'of Might',       stat: 'str',   min: 1,  max: 4,  slots: ['weapon', 'armor', 'helm'] },
-  { id: 'dex',   label: 'of Precision',   stat: 'dex',   min: 1,  max: 4,  slots: ['weapon', 'boots', 'accessory'] },
-  { id: 'int',   label: 'of Astral Lore', stat: 'int',   min: 1,  max: 4,  slots: ['weapon', 'helm', 'accessory'] },
-  { id: 'vit',   label: 'of Fortitude',   stat: 'vit',   min: 1,  max: 4,  slots: ['armor', 'helm', 'boots'] },
-  { id: 'crit',  label: 'of Keen Sight',  stat: 'crit',  min: 3,  max: 9,  slots: ['weapon', 'accessory', 'helm'] },
-  { id: 'dodge', label: 'of the Zephyr',  stat: 'dodge', min: 3,  max: 8,  slots: ['boots', 'armor', 'accessory'] },
-  { id: 'maxHp', label: 'of Lifeblood',   stat: 'maxHp', min: 12, max: 35, slots: ['armor', 'helm', 'accessory'] },
-  { id: 'maxMp', label: 'of the Leyline', stat: 'maxMp', min: 10, max: 28, slots: ['helm', 'accessory', 'weapon'] },
-  { id: 'thorns', label: 'of Retaliation', stat: 'thorns', min: 3, max: 8, slots: ['armor', 'helm', 'boots'] },
-  { id: 'leech', label: 'of the Blood Drinker', stat: 'leech', min: 2, max: 6, slots: ['weapon', 'accessory'] },
-  { id: 'ward', label: 'of Astral Warding', stat: 'ward', min: 2, max: 5, slots: ['armor', 'helm', 'accessory'] }
-];
-
-const BASE_GEAR_NAMES = {
-  weapon:    ['Star-Shard Blade', 'Runed Broadsword', 'Astral Longbow', 'Vespera Halberd', 'Obsidian Cleaver'],
-  armor:     ['Astral Hauberk', 'Deepwood Brigandine', 'Star-Forged Plate', 'Shadowalker Coat', 'Runed Cuirass'],
-  helm:      ['Visor of the Deep', 'Starweaver Hood', 'Ironbound Sallet', 'Astral Crown', 'Stalker Mask'],
-  boots:     ['Greaves of Striding', 'Silent Sabatons', 'Starlight Treads', 'Dwarven Marchers', 'Windrunner Boots'],
-  accessory: ['Vespera Signet', 'Astral Lens Charm', 'Pendant of Dawn', 'Bloodstone Ring', 'Star-Core Amulet']
-};
-
-const SHOP_ITEMS = [
-  { id: 'buy_heal',   name: 'Healing Tonic',             type: 'consumable', cost: 18,  reqQM: 0, desc: 'Restores 45% Max HP & cures Bleed/Poison.' },
-  { id: 'buy_recall', name: 'Astral Recall Scroll',      type: 'consumable', cost: 30,  reqQM: 0, desc: 'Safely extracts you & your pack from any floor.' },
-  { id: 'buy_pick_1', name: 'Dwarven Steel Pickaxe',     type: 'gear', slot: 'pickaxe',   rarity: 'uncommon', maxDur: 50,  cost: 65,  reqQM: 0, desc: '50 Base Durability.' },
-  { id: 'buy_wep_1',  name: 'Vespera Runeblade',         type: 'gear', slot: 'weapon',    rarity: 'rare',     atk: 14, crit: 6, cost: 115, reqQM: 1, desc: '+14 ATK, +6% Crit.' },
-  { id: 'buy_arm_1',  name: 'Carapace of the Deep',      type: 'gear', slot: 'armor',     rarity: 'rare',     def: 11, maxHp: 25, cost: 115, reqQM: 1, desc: '+11 DEF, +25 Max HP.' },
-  { id: 'buy_pick_2', name: 'Mithril Star-Pickaxe',      type: 'gear', slot: 'pickaxe',   rarity: 'rare',     maxDur: 85,  cost: 145, reqQM: 1, desc: '85 Base Durability.' },
-  { id: 'buy_acc_2',  name: 'Amulet of the Fallen Star', type: 'gear', slot: 'accessory', rarity: 'epic',     atk: 6, maxHp: 35, crit: 8, cost: 240, reqQM: 2, desc: '+6 ATK, +35 HP, +8% Crit.' },
-  { id: 'buy_pick_3', name: 'Titanium Master Pick',      type: 'gear', slot: 'pickaxe',   rarity: 'epic',     maxDur: 140, cost: 260, reqQM: 2, desc: '140 Base Durability.' },
-  { id: 'buy_wep_3',  name: 'Eclipse, Blade of Vespera', type: 'gear', slot: 'weapon',    rarity: 'relic',    atk: 28, str: 5, crit: 14, cost: 520, reqQM: 3, desc: '+28 ATK, +5 STR, +14% Crit.' },
-  { id: 'buy_pick_4', name: 'Void Astralite Drill',      type: 'gear', slot: 'pickaxe',   rarity: 'relic',    maxDur: 240, cost: 450, reqQM: 3, desc: '240 Base Durability.' }
-];
-
-const ELITE_AFFIXES = [
-  { id: 'vampiric',   name: 'Vampiric',      color: '#f87171', desc: 'Heals for 40% of damage dealt' },
-  { id: 'molten',     name: 'Molten',        color: '#fb923c', desc: 'Inflicts Burn on hit' },
-  { id: 'venomous',   name: 'Venomous',      color: '#4ade80', desc: 'Inflicts Poison on hit' },
-  { id: 'fortified',  name: 'Fortified',     color: '#60a5fa', desc: '+35% Defense & HP' },
-  { id: 'reflective', name: 'Reflective',    color: '#ec4899', desc: 'Reflects 25% thorns damage back to attacker' },
-  { id: 'chilling',   name: 'Chilling',      color: '#38bdf8', desc: 'Inflicts Chilled on hit (-15% Dodge, +2 Skill MP)' },
-  { id: 'temporal',   name: 'Temporal Warp', color: '#a855f7', desc: '40% chance on damage to phase-shift away' },
-  { id: 'volatile',   name: 'Volatile',      color: '#ef4444', desc: 'Detonates upon defeat for 150% ATK damage in 1-tile radius' }
-];
-
-function computeItemPowerScore(item) {
-  if (!item) return 0;
-  const atk = (item.atk || 0) * 2;
-  const def = (item.def || 0) * 2;
-  const hp = (item.maxHp || 0) * 0.25;
-  const mp = (item.maxMp || 0) * 0.25;
-  const crit = (item.crit || 0) * 1.5;
-  const dodge = (item.dodge || 0) * 1.5;
-  const stats = ((item.str || 0) + (item.dex || 0) + (item.int || 0) + (item.vit || 0)) * 1.2;
-  const affExtra = ((item.thorns || 0) * 1.5) + ((item.leech || 0) * 2) + ((item.ward || 0) * 2);
-  const sockets = ((item.maxSockets || 0) * 4) + (Array.isArray(item.sockets) ? item.sockets.length * 4 : 0);
-  const dur = (item.maxDur || 0) * 0.5;
-  return Math.round(atk + def + hp + mp + crit + dodge + stats + affExtra + sockets + dur);
-}
-
-function isItemUpgrade(candidateItem, equipment) {
-  if (!candidateItem || !candidateItem.slot) return false;
-  if (!equipment) return true;
-  const curEq = equipment[candidateItem.slot];
-  if (!curEq) return true;
-  return computeItemPowerScore(candidateItem) > computeItemPowerScore(curEq);
-}
-
-const SLOT_METADATA = {
-  helm:      { id: 'helm',      label: 'Head / Helm',         icon: '🪖', placeholder: 'Helm' },
-  armor:     { id: 'armor',     label: 'Chest / Body Armor',  icon: '🦺', placeholder: 'Armor' },
-  weapon:    { id: 'weapon',    label: 'Main Hand / Weapon',  icon: '⚔️', placeholder: 'Weapon' },
-  boots:     { id: 'boots',     label: 'Feet / Boots',        icon: '👢', placeholder: 'Boots' },
-  accessory: { id: 'accessory', label: 'Neck / Accessory',    icon: '💍', placeholder: 'Trinket' },
-  pickaxe:   { id: 'pickaxe',   label: 'Off-Hand / Pickaxe',  icon: '⛏️', placeholder: 'Pickaxe' },
-  shield:    { id: 'shield',    label: 'Off-Hand / Shield',   icon: '🛡️', placeholder: 'Shield' },
-  gloves:    { id: 'gloves',    label: 'Hands / Gauntlets',   icon: '🧤', placeholder: 'Gloves' },
-  amulet:    { id: 'amulet',    label: 'Necklace / Amulet',   icon: '📿', placeholder: 'Amulet' },
-  ring:      { id: 'ring',      label: 'Finger / Ring',       icon: '💍', placeholder: 'Ring' },
-  belt:      { id: 'belt',      label: 'Waist / Belt',        icon: '🎗️', placeholder: 'Belt' }
-};
-
-function getItemTypeIcon(itemOrSlot) {
-  if (!itemOrSlot) return '📦';
-  if (typeof itemOrSlot === 'string') {
-    const meta = SLOT_METADATA[itemOrSlot];
-    return meta ? meta.icon : '📦';
-  }
-  if (itemOrSlot.slot && SLOT_METADATA[itemOrSlot.slot]) {
-    return SLOT_METADATA[itemOrSlot.slot].icon;
-  }
-  const idStr = String(itemOrSlot.id || '');
-  if (idStr === 'healing_tonic' || idStr === 'buy_heal' || idStr === 'potions') return '🧪';
-  if (idStr === 'recall_scroll' || idStr === 'buy_recall' || idStr === 'recalls') return '📜';
-  if (itemOrSlot.type === 'Gem') return '◆';
-  if (itemOrSlot.type === 'Ore' || ['copper', 'iron', 'mithril', 'geode', 'starcrystal', 'astralite'].includes(idStr) || idStr.indexOf('ore') !== -1) return '🪨';
-  return '📦';
+function resetAllConfigValues(progression) {
+  if (!progression) return { ok: false };
+  progression.configOverrides = {};
+  if (progression.researchQueue) progression.researchQueue.capacity = 1;
+  if (progression.trainingQueue) progression.trainingQueue.capacity = 1;
+  return { ok: true };
 }
 
   // --- Module: src/ui/shared/assetRegistry.js ---
@@ -11544,6 +11097,1593 @@ function getAssetRegistryStats() {
     fallbackAssets: check.total - check.productionCount,
     valid: check.valid
   };
+}
+
+  // --- Module: src/wargame/ui/progressionUi.js ---
+// =============================================================================
+// SEPARATE RESEARCH & TRAINING GAME SCREENS (Zero-Tab 2-Step Game UI)
+// Implements docs/ui_design_system.md §7:
+//   - Dedicated Research Screen (#wgResearchModal): Overview -> Scrollable Node Graph & Detail
+//   - Dedicated Training Screen (#wgTrainingModal): Overview -> Scrollable Node Graph & Detail
+//   - Online & Offline wall-clock General RP accrual + live ConfigRegistry integration
+// =============================================================================
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function getPlayerId() {
+  return 'player_1';
+}
+
+function getSimNowMs(simHost) {
+  return (simHost && simHost.state && simHost.state.world && simHost.state.world.clock)
+    ? (simHost.state.world.clock.simTimeMs || 0)
+    : 0;
+}
+
+// Floor to tenths (e.g. 12.49 -> "12.4", 0.09 -> "0.0") per UI Design System §7.2
+function formatRpTenths(val) {
+  const num = Number(val || 0);
+  const floored = Math.floor((num + 1e-9) * 10) / 10;
+  return floored.toFixed(1);
+}
+
+// Render open/filled pips (e.g. ● ○ ○) for multi-level items
+function renderLevelPipsHtml(currentLevel, maxLevel) {
+  const maxL = Math.max(1, Number(maxLevel || 1));
+  const curL = Math.max(0, Math.min(maxL, Number(currentLevel || 0)));
+  const pips = [];
+  for (let i = 1; i <= maxL; i++) {
+    const filled = i <= curL;
+    pips.push(filled
+      ? '<span class="inline-block w-2 h-2 rounded-full bg-[#fbbf24] shadow-[0_0_6px_rgba(251,191,36,0.8)]"></span>'
+      : '<span class="inline-block w-2 h-2 rounded-full border border-[#64748b] bg-[#080b11]"></span>');
+  }
+  return '<span class="inline-flex items-center gap-1" title="Level ' + curL + ' / ' + maxL + '">' + pips.join('') + '</span>';
+}
+
+function formatDurationShort(sec) {
+  const s = Math.max(0, Math.round(Number(sec || 0)));
+  if (s < 60) return s + 's';
+  if (s < 3600) return Math.floor(s / 60) + 'm ' + (s % 60) + 's';
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  return h + 'h ' + m + 'm';
+}
+
+function syncCityGoldToLedger(world, prog, nowMs) {
+  const city = world ? getPrimaryCity({ world: world }) : null;
+  if (!city || !city.stockpile) return;
+  const ledgerGold = getCurrencyBalance(prog.currencyLedger, getPlayerId(), OWNER_TYPES.PLAYER, 'gold').available;
+  const cityGold = Number(city.stockpile.gold || 0);
+  const diff = cityGold - ledgerGold;
+  if (diff > 0.0001) {
+    recordCurrencyTransaction(prog.currencyLedger, {
+      ownerId: getPlayerId(),
+      ownerType: OWNER_TYPES.PLAYER,
+      currencyId: 'gold',
+      amount: diff,
+      transactionType: TRANSACTION_TYPES.ADJUSTMENT,
+      source: 'city_treasury_sync',
+      nowMs: nowMs
+    });
+  }
+}
+
+function computeEffectiveRates(prog, city, pid) {
+  const acadEffects = getCityAcademyBenefitEffects(city);
+  const activeEffs = collectActiveEffects(prog, { playerId: pid, extraEffects: acadEffects });
+  const genAdditive = resolveNumericStat(0, 'rp_general', activeEffs.modifiers, { effectType: EFFECT_TYPES.ACCRUAL_MODIFIER }).finalValue;
+  const speedAdditive = resolveNumericStat(0, 'personal', activeEffs.modifiers, { effectType: EFFECT_TYPES.RESEARCH_SPEED_MODIFIER }).finalValue;
+  const trainSpeedAdditive = resolveNumericStat(0, 'hero', activeEffs.modifiers, { effectType: EFFECT_TYPES.TRAINING_SPEED_MODIFIER }).finalValue;
+
+  const baseGenRate = getConfigValue(prog, 'passive_rp_general_per_sec');
+  const effectiveGenRate = Math.round((baseGenRate * (1 + genAdditive)) * 10000000) / 10000000;
+  const baseAdvAction = getConfigValue(prog, 'activity_rp_dungeon_move');
+  const globalResMult = getConfigValue(prog, 'global_research_speed_mult');
+  const globalTrainMult = getConfigValue(prog, 'global_training_speed_mult');
+
+  return {
+    baseGenRate: baseGenRate,
+    genAdditive: genAdditive,
+    effectiveGenRate: effectiveGenRate,
+    baseAdvAction: baseAdvAction,
+    researchSpeedBonus: ((1 + speedAdditive) * globalResMult) - 1,
+    trainingSpeedBonus: ((1 + trainSpeedAdditive) * globalTrainMult) - 1
+  };
+}
+
+// Online & Offline General RP accrual + Queue Advancement
+function tickWorldProgression(simHost, explicitWallNowMs) {
+  if (!simHost || !simHost.state || !simHost.state.world) return;
+  const world = simHost.state.world;
+  const prog = ensureProgressionState(world);
+  const simNowMs = getSimNowMs(simHost);
+  const wallNowMs = typeof explicitWallNowMs === 'number' ? explicitWallNowMs : Date.now();
+  const pid = getPlayerId();
+  const city = getPrimaryCity(simHost.state);
+  const rates = computeEffectiveRates(prog, city, pid);
+
+  // Wall-clock elapsed ms handles BOTH online real-time ticks AND offline browser-closed accrual!
+  if (typeof prog.lastWallClockAtMs !== 'number') prog.lastWallClockAtMs = wallNowMs;
+  const wallDeltaMs = Math.max(0, wallNowMs - prog.lastWallClockAtMs);
+  if (wallDeltaMs >= 1000) {
+    const prevAccrual = typeof prog.lastAccrualAtMs === 'number' ? prog.lastAccrualAtMs : 0;
+    processPassiveAccrual(prog, pid, prevAccrual + wallDeltaMs, {
+      baseRatePerSec: rates.baseGenRate,
+      generationModifiers: { additiveBonus: rates.genAdditive }
+    });
+    prog.lastWallClockAtMs = wallNowMs;
+  }
+
+  advanceResearchProgress(prog, simNowMs, { speedBonus: rates.researchSpeedBonus });
+  advanceTrainingProgress(prog, simNowMs, { speedBonus: rates.trainingSpeedBonus });
+  evaluateTreeMilestones(prog, pid, { nowMs: simNowMs, worldId: world.meta ? world.meta.worldName : 'aethelgard_prime' });
+}
+
+// Compute tree completion percentage (0..100)
+function computeResearchTreePct(tree, lookup) {
+  const ids = Array.isArray(tree.itemIds) ? tree.itemIds : [];
+  if (ids.length === 0) return 0;
+  let totalMax = 0;
+  let totalCur = 0;
+  for (let i = 0; i < ids.length; i++) {
+    const def = PROTOTYPE_RESEARCH_ITEMS[ids[i]];
+    if (!def) continue;
+    totalMax += (def.levelLimit || 1);
+    const inst = lookup[ids[i]];
+    totalCur += inst ? Math.min(def.levelLimit || 1, inst.currentLevel || 0) : 0;
+  }
+  return totalMax > 0 ? Math.floor((totalCur / totalMax) * 100) : 0;
+}
+
+function computeTrainingTreePct(tree, heroSummary) {
+  const ids = Array.isArray(tree.trainingIds) ? tree.trainingIds : [];
+  if (ids.length === 0) return 0;
+  let totalMax = 0;
+  let totalCur = 0;
+  for (let i = 0; i < ids.length; i++) {
+    const def = PROTOTYPE_TRAINING_DEFINITIONS[ids[i]];
+    if (!def) continue;
+    const maxL = Array.isArray(def.levels) ? def.levels.length : 1;
+    totalMax += maxL;
+    const rec = heroSummary.find(function(s) { return s.trainingDefinitionId === ids[i]; });
+    totalCur += rec ? Math.min(maxL, rec.currentLevel || 0) : 0;
+  }
+  return totalMax > 0 ? Math.floor((totalCur / totalMax) * 100) : 0;
+}
+
+// Format a cost row as "Gold 7000/500" in green if affordable, red if unaffordable
+function buildCostComparisonRowHtml(cost, prog, city, pid) {
+  let label = '';
+  let owned = 0;
+  const need = Number(cost.amount || 0);
+
+  if (cost.kind === 'stockpile') {
+    label = String(cost.resourceId || '').toUpperCase();
+    owned = city && city.stockpile ? Number(city.stockpile[cost.resourceId] || 0) : 0;
+  } else {
+    const cDef = DEFAULT_CURRENCY_DEFINITIONS[cost.currencyId];
+    label = cDef ? cDef.name : cost.currencyId;
+    if (cost.currencyId === 'gold' && city && city.stockpile) {
+      owned = Math.max(
+        Number(city.stockpile.gold || 0),
+        getCurrencyBalance(prog.currencyLedger, pid, OWNER_TYPES.PLAYER, 'gold').available
+      );
+    } else {
+      owned = getCurrencyBalance(prog.currencyLedger, pid, OWNER_TYPES.PLAYER, cost.currencyId).available;
+    }
+  }
+
+  const affordable = owned + 1e-9 >= need;
+  const isRp = cost.kind !== 'stockpile' && cost.currencyId !== 'gold';
+  const ownedText = isRp ? formatRpTenths(owned) : String(Math.floor(owned));
+  const needText = isRp ? String(need) : String(Math.floor(need));
+  const colorCls = affordable ? 'text-[#34d399]' : 'text-[#f87171]';
+  const icon = affordable ? '✓' : '✕';
+
+  return `<div class="flex items-center justify-between text-xs font-mono ${colorCls}"><span>${icon} ${label}</span><strong>${ownedText}/${needText}</strong></div>`;
+}
+
+// Build a scrollable 2D Node-and-Edge Graph (scales cleanly to 8-12+ or 30+ nodes!)
+function buildScrollableNodeGraphHtml(nodes, selectedId, onClickHandlerName) {
+  const COL_W = 210;
+  const ROW_H = 104;
+  const NODE_W = 166;
+  const NODE_H = 74;
+  const PAD_X = 24;
+  const PAD_Y = 24;
+
+  let maxCol = 0;
+  let maxRow = 0;
+  const posById = {};
+
+  for (let i = 0; i < nodes.length; i++) {
+    const n = nodes[i];
+    const col = (n.nodePos && typeof n.nodePos.col === 'number') ? n.nodePos.col : i;
+    const row = (n.nodePos && typeof n.nodePos.row === 'number') ? n.nodePos.row : 0;
+    if (col > maxCol) maxCol = col;
+    if (row > maxRow) maxRow = row;
+    posById[n.id] = {
+      x: PAD_X + col * COL_W,
+      y: PAD_Y + row * ROW_H
+    };
+  }
+
+  const canvasW = Math.max(640, PAD_X * 2 + (maxCol + 1) * COL_W);
+  const canvasH = Math.max(240, PAD_Y * 2 + (maxRow + 1) * ROW_H);
+
+  // SVG Edges connecting prerequisite parents -> children
+  const edgeLines = [];
+  for (let i = 0; i < nodes.length; i++) {
+    const child = nodes[i];
+    const parents = Array.isArray(child.parentIds) ? child.parentIds : [];
+    const cPos = posById[child.id];
+    for (let p = 0; p < parents.length; p++) {
+      const pPos = posById[parents[p]];
+      if (!pPos || !cPos) continue;
+      const x1 = pPos.x + NODE_W;
+      const y1 = pPos.y + Math.floor(NODE_H / 2);
+      const x2 = cPos.x;
+      const y2 = cPos.y + Math.floor(NODE_H / 2);
+      const midX = Math.floor((x1 + x2) / 2);
+      const isLit = child.isUnlockedOrDone;
+      const stroke = isLit ? '#fbbf24' : '#334155';
+      const strokeW = isLit ? '2.5' : '1.75';
+      edgeLines.push(`<path d="M ${x1} ${y1} C ${midX} ${y1}, ${midX} ${y2}, ${x2} ${y2}" fill="none" stroke="${stroke}" stroke-width="${strokeW}" stroke-opacity="${isLit ? '0.9' : '0.65'}" />`);
+    }
+  }
+
+  const nodeCards = nodes.map(function(n) {
+    const pos = posById[n.id];
+    const isSel = n.id === selectedId;
+    let borderCls = 'border-[#334155] bg-[#0f1520]';
+    if (n.isActive) {
+      borderCls = 'border-[#fbbf24] bg-[#1a1625] shadow-[0_0_16px_rgba(251,191,36,0.45)]';
+    } else if (n.isMaxed) {
+      borderCls = 'border-[#34d399]/70 bg-[#0d1f1c]';
+    } else if (n.canStart) {
+      borderCls = 'border-[#38bdf8]/60 bg-[#101a2a]';
+    } else {
+      borderCls = 'border-[#1e293b] bg-[#090d14] opacity-75';
+    }
+    if (isSel) {
+      borderCls += ' ring-2 ring-[#fbbf24]';
+    }
+
+    const activeSparkle = n.isActive
+      ? '<span class="text-[10px] text-[#fbbf24] animate-pulse" title="In Progress">✨</span>'
+      : '';
+
+    return `
+      <button onclick="window.WargameApp.${onClickHandlerName}('${n.id}')" style="left:${pos.x}px; top:${pos.y}px; width:${NODE_W}px; height:${NODE_H}px;" class="absolute p-2 rounded-lg border ${borderCls} text-left flex flex-col justify-between cursor-pointer transition hover:brightness-110">
+        <div class="flex items-center justify-between gap-1">
+          ${renderLevelPipsHtml(n.currentLevel, n.maxLevel)}
+          <span class="text-[9px] font-mono text-[#94a3b8]">${activeSparkle} Lv ${n.currentLevel}/${n.maxLevel}</span>
+        </div>
+        <div class="flex items-center gap-1.5 min-w-0">
+          <span class="text-base leading-none shrink-0">${n.icon || '📘'}</span>
+          <span class="text-[11px] font-bold text-[#e6edf3] leading-tight line-clamp-2">${n.name}</span>
+        </div>
+      </button>
+    `;
+  }).join('');
+
+  return `
+    <div class="w-full overflow-auto rounded-lg bg-[#05080f] border border-[#1e293b] max-h-[340px]">
+      <div class="relative" style="width:${canvasW}px; height:${canvasH}px;">
+        <svg class="absolute inset-0 pointer-events-none" width="${canvasW}" height="${canvasH}">
+          ${edgeLines.join('')}
+        </svg>
+        ${nodeCards}
+      </div>
+    </div>
+  `;
+}
+
+// =============================================================================
+// 1. DEDICATED RESEARCH SCREEN (#wgResearchModal) — ZERO TABS (Overview -> Tree)
+// =============================================================================
+function renderResearchModal(simHost) {
+  const modal = document.getElementById('wgResearchModal');
+  if (!modal) return;
+  const state = simHost ? simHost.state : null;
+  if (!state || !state.world || !state._researchModalOpen) {
+    modal.classList.add('hidden');
+    return;
+  }
+
+  modal.classList.remove('hidden');
+  tickWorldProgression(simHost);
+
+  const bodyEl = document.getElementById('wgResearchBody');
+  if (!bodyEl) return;
+
+  const world = state.world;
+  const prog = ensureProgressionState(world);
+  const simNowMs = getSimNowMs(simHost);
+  const pid = getPlayerId();
+  const city = getPrimaryCity(state);
+  syncCityGoldToLedger(world, prog, simNowMs);
+
+  const rates = computeEffectiveRates(prog, city, pid);
+  const lookup = buildOwnerProgressLookup(prog, OWNER_TYPES.PLAYER, pid);
+  const bannerSrc = getProductionImageSrc('city_interior_mages_guild_default_static');
+  const selectedTreeId = state._researchSelectedTreeId || null;
+
+  // Shared Atmospheric Library/Laboratory Header (no duplicate RP/Gold subtitle!)
+  const headerHtml = `
+    <div class="relative h-32 sm:h-36 w-full overflow-hidden border-b border-[#fbbf24]/40 bg-[#080b11] shrink-0">
+      ${bannerSrc ? `<img src="${bannerSrc}" alt="Arcane Library & Laboratory" class="absolute inset-0 w-full h-full object-cover object-center" />` : ''}
+      <div class="absolute inset-0 bg-gradient-to-b from-[#080b11]/55 via-[#080b11]/25 to-[#080b11]/95"></div>
+      <div class="relative z-10 h-full px-4 py-3 flex flex-col justify-between">
+        <div class="flex items-center justify-between gap-2">
+          <div class="flex items-center gap-2">
+            ${selectedTreeId ? `<button onclick="window.WargameApp.handleBackToResearchOverview()" class="px-2.5 py-1 rounded-lg bg-[#080b11]/80 hover:bg-[#fbbf24] hover:text-[#080b11] border border-[#fbbf24]/50 text-[#fbbf24] text-xs font-mono font-bold cursor-pointer transition">← Overview</button>` : ''}
+            <div class="px-3 py-1 rounded-lg bg-[#080b11]/75 backdrop-blur-md border border-[#fbbf24]/40">
+              <h2 class="font-display text-sm sm:text-base font-bold text-[#fbbf24]">📚 ${selectedTreeId && PROTOTYPE_RESEARCH_TREES[selectedTreeId] ? PROTOTYPE_RESEARCH_TREES[selectedTreeId].name : 'Grand Archive of Research'}</h2>
+            </div>
+          </div>
+          <button id="wgResearchCloseBtn" onclick="window.WargameApp.handleCloseResearchHub()" class="px-3 py-1 rounded-lg bg-[#080b11]/80 hover:bg-[#283347] border border-[#334155] text-xs font-mono font-bold text-[#e6edf3] cursor-pointer">✕ Close</button>
+        </div>
+        <div class="text-[11px] text-[#cbd5e1] drop-shadow">
+          ${selectedTreeId && PROTOTYPE_RESEARCH_TREES[selectedTreeId]
+            ? PROTOTYPE_RESEARCH_TREES[selectedTreeId].shortDescription
+            : 'Select an active Research Tree to chart connected doctrines and unlock new capabilities.'}
+        </div>
+      </div>
+    </div>
+  `;
+
+  // VIEW 1: RESEARCH OVERVIEW (RP List + Inline Active Queue + Active Trees Grid)
+  if (!selectedTreeId || !PROTOTYPE_RESEARCH_TREES[selectedTreeId]) {
+    // Relevant RP currencies list only (no Gold!), rounded down to tenths, showing effective rate after modifiers
+    const rpDefs = Object.values(DEFAULT_CURRENCY_DEFINITIONS).filter(function(c) {
+      return c.category === 'research_point' && c.enabled !== false;
+    });
+
+    const rpListHtml = rpDefs.map(function(cDef) {
+      const bal = getCurrencyBalance(prog.currencyLedger, pid, OWNER_TYPES.PLAYER, cDef.currencyId).available;
+      let rateLabel = 'Earned via guild/alliance activity';
+      let tooltip = cDef.description || cDef.name;
+
+      if (cDef.currencyId === 'rp_general') {
+        rateLabel = '+' + rates.effectiveGenRate.toFixed(5) + '/sec';
+        tooltip = 'Base ' + rates.baseGenRate.toFixed(5) + '/sec • Modifiers: +' + Math.round(rates.genAdditive * 100) + '% (Accrues online & offline)';
+      } else if (cDef.currencyId === 'rp_adventurer') {
+        rateLabel = '+' + rates.baseAdvAction.toFixed(4) + '/action';
+        tooltip = 'Earned from dungeon exploration, monster kills, discoveries, and quests.';
+      }
+
+      return `
+        <div title="${tooltip}" class="px-2.5 py-1.5 rounded bg-[#0a0f18] border border-[#1e293b] flex items-center justify-between gap-2 text-xs font-mono">
+          <span class="text-[#e6edf3] truncate">${cDef.icon || '📘'} ${cDef.name.replace(' Research Points', ' RP')}</span>
+          <div class="flex items-center gap-2 shrink-0">
+            <span class="text-[10px] text-[#34d399]">${rateLabel}</span>
+            <strong class="text-[#fbbf24]">${formatRpTenths(bal)}</strong>
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    // Inline Active Research Queue
+    const rq = prog.researchQueue;
+    const activeQHtml = rq.activeItems.length > 0
+      ? rq.activeItems.map(function(e) {
+          const itemDef = PROTOTYPE_RESEARCH_ITEMS[e.researchItemId];
+          const pct = Math.min(100, Math.round((e.elapsedMs / Math.max(1, e.effectiveDurationMs)) * 100));
+          const remSec = Math.max(0, Math.ceil((e.effectiveDurationMs - e.elapsedMs) / 1000));
+          const toggleBtn = e.status === 'paused'
+            ? `<button onclick="window.WargameApp.handleResumeResearch('${e.researchItemId}')" class="px-2 py-0.5 rounded bg-[#34d399]/20 text-[#34d399] text-[10px] font-mono cursor-pointer">▶ Resume</button>`
+            : `<button onclick="window.WargameApp.handlePauseResearch('${e.researchItemId}')" class="px-2 py-0.5 rounded bg-[#fbbf24]/20 text-[#fbbf24] text-[10px] font-mono cursor-pointer">⏸ Pause</button>`;
+          return `
+            <div class="p-2.5 rounded-lg bg-[#0a0f18] border border-[#fbbf24]/50 space-y-1.5">
+              <div class="flex flex-wrap items-center justify-between gap-2 text-xs">
+                <span class="font-bold text-[#fbbf24]">✨ ${itemDef ? itemDef.name : e.researchItemId} <span class="text-[10px] font-mono text-[#94a3b8]">Lv ${e.targetLevel}</span></span>
+                <div class="flex items-center gap-1.5 font-mono">
+                  <span class="text-[11px] text-[#38bdf8]">${e.status === 'paused' ? 'PAUSED' : formatDurationShort(remSec)}</span>
+                  ${toggleBtn}
+                  <button onclick="window.WargameApp.handleCancelResearch('${e.researchItemId}')" class="px-2 py-0.5 rounded bg-red-950/60 text-red-300 text-[10px] cursor-pointer">✕</button>
+                </div>
+              </div>
+              <div class="w-full h-1.5 bg-[#111722] rounded-full overflow-hidden"><div class="h-full bg-[#fbbf24]" style="width:${pct}%"></div></div>
+            </div>
+          `;
+        }).join('')
+      : `<div class="text-xs text-[#64748b] italic py-1">Research queue is idle. Select any active Research Tree below to begin.</div>`;
+
+    const pendingText = rq.pendingItems.length > 0
+      ? `<div class="text-[10px] font-mono text-[#94a3b8] pt-1">Queued next: ${rq.pendingItems.map(function(p) { return p.researchItemId + ' (Lv ' + p.targetLevel + ')'; }).join(', ')}</div>`
+      : '';
+
+    // Active (non-completed) Research Trees Grid (Bulk of the page!)
+    const activeTrees = Object.values(PROTOTYPE_RESEARCH_TREES).filter(function(tr) {
+      const pct = computeResearchTreePct(tr, lookup);
+      return pct < 100 && !isTreeCompleted(prog, tr.treeId, pid);
+    });
+
+    const treesGridHtml = activeTrees.length > 0
+      ? activeTrees.map(function(tr) {
+          const pct = computeResearchTreePct(tr, lookup);
+          const hasActiveInTree = rq.activeItems.some(function(a) {
+            return (tr.itemIds || []).indexOf(a.researchItemId) !== -1;
+          });
+          const cardCls = hasActiveInTree
+            ? 'border-[#fbbf24] bg-gradient-to-b from-[#1d1829] to-[#0d111a] shadow-[0_0_20px_rgba(251,191,36,0.3)]'
+            : 'border-[#283347] hover:border-[#fbbf24]/60 bg-[#0f1520] hover:bg-[#161e2e]';
+
+          return `
+            <button onclick="window.WargameApp.handleSelectResearchTree('${tr.treeId}')" class="p-4 rounded-xl border ${cardCls} text-center flex flex-col items-center justify-between gap-2.5 cursor-pointer transition group">
+              <div class="relative">
+                <div class="w-14 h-14 rounded-2xl bg-[#080b11] border ${hasActiveInTree ? 'border-[#fbbf24]' : 'border-[#334155]'} flex items-center justify-center text-3xl shadow-inner group-hover:scale-105 transition">
+                  ${tr.icon || '📘'}
+                </div>
+                ${hasActiveInTree ? '<span class="absolute -top-1.5 -right-2 text-sm animate-pulse" title="Active Research in Progress">✨</span>' : ''}
+              </div>
+              <div class="space-y-0.5">
+                <div class="font-display text-xs sm:text-sm font-bold text-[#e6edf3]">${tr.name}</div>
+                <div class="text-[10px] font-mono ${hasActiveInTree ? 'text-[#fbbf24]' : 'text-[#94a3b8]'}">${pct}% Complete</div>
+              </div>
+              <div class="w-full h-1.5 bg-[#080b11] rounded-full overflow-hidden">
+                <div class="h-full ${hasActiveInTree ? 'bg-[#fbbf24]' : 'bg-[#38bdf8]'}" style="width:${pct}%"></div>
+              </div>
+            </button>
+          `;
+        }).join('')
+      : `<div class="col-span-full p-6 text-center text-xs text-[#34d399]">All available Research Trees are 100% mastered!</div>`;
+
+    bodyEl.innerHTML = `
+      ${headerHtml}
+      <div class="p-4 space-y-4 overflow-y-auto">
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
+          <div class="lg:col-span-4 space-y-3">
+            <div class="space-y-1.5">
+              <div class="text-[10px] font-mono uppercase tracking-wider text-[#94a3b8] font-bold">Research Points</div>
+              <div class="space-y-1">${rpListHtml}</div>
+            </div>
+            <div class="space-y-1.5">
+              <div class="text-[10px] font-mono uppercase tracking-wider text-[#fbbf24] font-bold">Active Research Queue (${rq.activeItems.length}/${rq.capacity})</div>
+              ${activeQHtml}
+              ${pendingText}
+            </div>
+          </div>
+          <div class="lg:col-span-8 space-y-2">
+            <div class="text-[10px] font-mono uppercase tracking-wider text-[#fbbf24] font-bold">Active Research Trees</div>
+            <div class="grid grid-cols-2 sm:grid-cols-3 gap-3">${treesGridHtml}</div>
+          </div>
+        </div>
+      </div>
+    `;
+    return;
+  }
+
+  // VIEW 2: TREE NODE GRAPH & SELECTED ITEM DETAIL
+  const tree = PROTOTYPE_RESEARCH_TREES[selectedTreeId];
+  const itemIds = Array.isArray(tree.itemIds) ? tree.itemIds : [];
+  let selItemId = state._researchSelectedItemId;
+  if (!selItemId || itemIds.indexOf(selItemId) === -1) {
+    selItemId = itemIds[0] || null;
+    state._researchSelectedItemId = selItemId;
+  }
+
+  const graphNodes = itemIds.map(function(id, idx) {
+    const def = PROTOTYPE_RESEARCH_ITEMS[id];
+    const inst = lookup[id];
+    const curLv = inst ? (inst.currentLevel || 0) : 0;
+    const maxLv = def.levelLimit || 1;
+    const isActive = prog.researchQueue.activeItems.some(function(a) { return a.researchItemId === id; });
+    const nextLv = curLv + 1;
+    const elig = curLv < maxLv
+      ? evaluateResearchEligibility(def, nextLv, {
+          ownerId: pid,
+          ownerType: OWNER_TYPES.PLAYER,
+          ledger: prog.currencyLedger,
+          researchProgress: lookup,
+          city: city,
+          heroLevel: (world.heroes && world.heroes[0]) ? (world.heroes[0].level || 1) : 1,
+          alignment: prog.alignment,
+          discoveries: prog.discoveries
+        })
+      : { canStart: false };
+    return {
+      id: id,
+      name: def.name,
+      icon: def.icon,
+      nodePos: def.nodePos || { col: idx % 4, row: Math.floor(idx / 4) },
+      parentIds: Array.isArray(def.parentIds) ? def.parentIds : [],
+      currentLevel: curLv,
+      maxLevel: maxLv,
+      isActive: isActive,
+      isMaxed: curLv >= maxLv,
+      canStart: elig.canStart,
+      isUnlockedOrDone: curLv > 0 || isActive || elig.canStart
+    };
+  });
+
+  const graphHtml = buildScrollableNodeGraphHtml(graphNodes, selItemId, 'handleSelectResearchNode');
+
+  // Docked Detail Panel for Selected Research Item
+  const selItem = PROTOTYPE_RESEARCH_ITEMS[selItemId];
+  const selInst = lookup[selItemId];
+  const curLv = selInst ? (selInst.currentLevel || 0) : 0;
+  const nextLv = curLv + 1;
+  const lvlDef = selItem && Array.isArray(selItem.levelDefinitions)
+    ? selItem.levelDefinitions.find(function(l) { return l.level === nextLv; })
+    : null;
+
+  const elig = (selItem && lvlDef)
+    ? evaluateResearchEligibility(selItem, nextLv, {
+        ownerId: pid,
+        ownerType: OWNER_TYPES.PLAYER,
+        ledger: prog.currencyLedger,
+        researchProgress: lookup,
+        city: city,
+        heroLevel: (world.heroes && world.heroes[0]) ? (world.heroes[0].level || 1) : 1,
+        alignment: prog.alignment,
+        discoveries: prog.discoveries
+      })
+    : { canStart: false, unmetConditions: [] };
+
+  const costRowsHtml = lvlDef && Array.isArray(lvlDef.costs)
+    ? lvlDef.costs.map(function(c) { return buildCostComparisonRowHtml(c, prog, city, pid); }).join('')
+    : '<div class="text-xs text-[#34d399] font-mono">✓ Maximum Level Mastered</div>';
+
+  const unmetHtml = (elig.unmetConditions && elig.unmetConditions.length > 0)
+    ? `<div class="p-2 rounded bg-red-950/40 border border-red-500/40 text-[11px] text-[#f87171] space-y-0.5">${elig.unmetConditions.map(function(u) { return '<div>✕ ' + (u.reason || u.type) + '</div>'; }).join('')}</div>`
+    : (lvlDef ? '<div class="text-[11px] text-[#34d399] font-mono">✓ Prerequisites Met</div>' : '');
+
+  const benefitsHtml = lvlDef && Array.isArray(lvlDef.benefits)
+    ? lvlDef.benefits.map(function(b) {
+        return '<div class="text-[11px] text-[#cbd5e1] font-mono">• ' + b.effectType.replace(/_/g, ' ') + ': <span class="text-[#fbbf24]">' + b.target + ' (' + b.value + ')</span></div>';
+      }).join('')
+    : '';
+
+  bodyEl.innerHTML = `
+    ${headerHtml}
+    <div class="p-4 space-y-3 overflow-y-auto">
+      ${graphHtml}
+      ${selItem ? `
+        <div class="p-3.5 rounded-xl bg-[#0f1520] border border-[#fbbf24]/40 grid grid-cols-1 md:grid-cols-12 gap-3 items-start">
+          <div class="md:col-span-7 space-y-1.5">
+            <div class="flex items-center gap-2">
+              <span class="text-xl">${selItem.icon || '📘'}</span>
+              <div>
+                <div class="font-display text-sm font-bold text-[#fbbf24]">${selItem.name}</div>
+                <div class="flex items-center gap-2 text-[10px] font-mono text-[#94a3b8]">
+                  ${renderLevelPipsHtml(curLv, selItem.levelLimit)}
+                  <span>Level ${curLv} / ${selItem.levelLimit}</span>
+                  ${lvlDef ? '<span>• ⏱ ' + formatDurationShort(lvlDef.durationSec) + '</span>' : ''}
+                </div>
+              </div>
+            </div>
+            <p class="text-xs text-[#e6edf3]">${selItem.description}</p>
+            ${benefitsHtml}
+            ${unmetHtml}
+          </div>
+          <div class="md:col-span-5 p-3 rounded-lg bg-[#080b11] border border-[#1e293b] space-y-2">
+            <div class="text-[10px] font-mono uppercase tracking-wider text-[#94a3b8] font-bold">Required Resources (Have / Need)</div>
+            <div class="space-y-1">${costRowsHtml}</div>
+            <button onclick="window.WargameApp.handleStartResearch('${selItem.researchItemId}')" ${!lvlDef ? 'disabled' : ''} class="w-full py-2 rounded-lg font-bold text-xs uppercase ${lvlDef ? 'bg-[#fbbf24] hover:bg-[#f59e0b] text-[#080b11] cursor-pointer' : 'bg-[#1a2232] text-[#64748b] cursor-not-allowed'}">
+              ${lvlDef ? ('Start Research (Lv ' + nextLv + ')') : '✓ Mastered'}
+            </button>
+          </div>
+        </div>
+      ` : ''}
+    </div>
+  `;
+}
+
+// =============================================================================
+// 2. DEDICATED TRAINING SCREEN (#wgTrainingModal) — ZERO TABS (Overview -> Tree)
+// =============================================================================
+function renderTrainingModal(simHost) {
+  const modal = document.getElementById('wgTrainingModal');
+  if (!modal) return;
+  const state = simHost ? simHost.state : null;
+  if (!state || !state.world || !state._trainingModalOpen) {
+    modal.classList.add('hidden');
+    return;
+  }
+
+  modal.classList.remove('hidden');
+  tickWorldProgression(simHost);
+
+  const bodyEl = document.getElementById('wgTrainingBody');
+  if (!bodyEl) return;
+
+  const world = state.world;
+  const prog = ensureProgressionState(world);
+  const simNowMs = getSimNowMs(simHost);
+  const pid = getPlayerId();
+  const city = getPrimaryCity(state);
+  syncCityGoldToLedger(world, prog, simNowMs);
+
+  const heroes = Array.isArray(world.heroes) ? world.heroes : [];
+  let selHeroId = state._trainingSelectedHeroId || (heroes[0] ? heroes[0].id : null);
+  if (selHeroId && !heroes.some(function(h) { return h.id === selHeroId; })) {
+    selHeroId = heroes[0] ? heroes[0].id : null;
+  }
+  const selHero = heroes.find(function(h) { return h.id === selHeroId; }) || null;
+  const selectedTreeId = state._trainingSelectedTreeId || null;
+  const bannerSrc = getProductionImageSrc('city_interior_fighters_guild_default_static');
+
+  const headerHtml = `
+    <div class="relative h-32 sm:h-36 w-full overflow-hidden border-b border-[#34d399]/40 bg-[#080b11] shrink-0">
+      ${bannerSrc ? `<img src="${bannerSrc}" alt="Arms Training Yard" class="absolute inset-0 w-full h-full object-cover object-center" />` : ''}
+      <div class="absolute inset-0 bg-gradient-to-b from-[#080b11]/55 via-[#080b11]/25 to-[#080b11]/95"></div>
+      <div class="relative z-10 h-full px-4 py-3 flex flex-col justify-between">
+        <div class="flex items-center justify-between gap-2">
+          <div class="flex items-center gap-2">
+            ${selectedTreeId ? `<button onclick="window.WargameApp.handleBackToTrainingOverview()" class="px-2.5 py-1 rounded-lg bg-[#080b11]/80 hover:bg-[#34d399] hover:text-[#080b11] border border-[#34d399]/50 text-[#34d399] text-xs font-mono font-bold cursor-pointer transition">← Overview</button>` : ''}
+            <div class="px-3 py-1 rounded-lg bg-[#080b11]/75 backdrop-blur-md border border-[#34d399]/40">
+              <h2 class="font-display text-sm sm:text-base font-bold text-[#34d399]">🎯 ${selectedTreeId && PROTOTYPE_TRAINING_TREES[selectedTreeId] ? PROTOTYPE_TRAINING_TREES[selectedTreeId].name : 'Hero Training Grounds'}</h2>
+            </div>
+          </div>
+          <button id="wgTrainingCloseBtn" onclick="window.WargameApp.handleCloseTrainingHub()" class="px-3 py-1 rounded-lg bg-[#080b11]/80 hover:bg-[#283347] border border-[#334155] text-xs font-mono font-bold text-[#e6edf3] cursor-pointer">✕ Close</button>
+        </div>
+        <div class="text-[11px] text-[#cbd5e1] drop-shadow">
+          ${selectedTreeId && PROTOTYPE_TRAINING_TREES[selectedTreeId]
+            ? PROTOTYPE_TRAINING_TREES[selectedTreeId].shortDescription
+            : 'Train individual Heroes in unlocked martial and delving disciplines on a dedicated Training Queue.'}
+        </div>
+      </div>
+    </div>
+  `;
+
+  if (!selHero) {
+    bodyEl.innerHTML = `
+      ${headerHtml}
+      <div class="p-6 text-center text-xs text-[#94a3b8]">
+        Recruit at least one Hero at a City Guild Hall before using the Hero Training Grounds.
+      </div>
+    `;
+    return;
+  }
+
+  const effAtk = computeSubjectEffectiveStat(prog, SUBJECT_TYPES.HERO, selHero.id, selHero.stats ? selHero.stats.atk : 10, 'atk', { playerId: pid }).finalValue;
+  const effDef = computeSubjectEffectiveStat(prog, SUBJECT_TYPES.HERO, selHero.id, selHero.stats ? selHero.stats.def : 5, 'def', { playerId: pid }).finalValue;
+  const effHp = computeSubjectEffectiveStat(prog, SUBJECT_TYPES.HERO, selHero.id, selHero.stats ? selHero.stats.maxHp : 100, 'maxHp', { playerId: pid }).finalValue;
+  const heroSummary = getSubjectTrainingSummary(prog, SUBJECT_TYPES.HERO, selHero.id);
+
+  const heroBarHtml = `
+    <div class="flex flex-wrap items-center justify-between gap-2 p-2.5 rounded-lg bg-[#0a0f18] border border-[#1e293b]">
+      <div class="flex flex-wrap items-center gap-1.5">
+        ${heroes.map(function(h) {
+          const isSel = h.id === selHero.id;
+          return `<button onclick="window.WargameApp.handleSelectTrainingHero('${h.id}')" class="px-2.5 py-1 rounded-lg text-xs font-mono cursor-pointer ${isSel ? 'bg-[#34d399] text-[#080b11] font-bold' : 'bg-[#111722] text-[#cbd5e1] border border-[#283347]'}">${h.icon || '⚔️'} ${h.name}</button>`;
+        }).join('')}
+      </div>
+      <div class="text-xs font-mono text-[#34d399]">
+        ATK <strong>${effAtk}</strong> • DEF <strong>${effDef}</strong> • HP <strong>${effHp}</strong>
+      </div>
+    </div>
+  `;
+
+  // VIEW 1: TRAINING OVERVIEW
+  if (!selectedTreeId || !PROTOTYPE_TRAINING_TREES[selectedTreeId]) {
+    const tq = prog.trainingQueue;
+    const activeTHtml = tq.activeItems.length > 0
+      ? tq.activeItems.map(function(e) {
+          const def = PROTOTYPE_TRAINING_DEFINITIONS[e.trainingDefinitionId];
+          const pct = Math.min(100, Math.round((e.elapsedMs / Math.max(1, e.effectiveDurationMs)) * 100));
+          const remSec = Math.max(0, Math.ceil((e.effectiveDurationMs - e.elapsedMs) / 1000));
+          return `
+            <div class="p-2.5 rounded-lg bg-[#0a0f18] border border-[#34d399]/50 space-y-1.5">
+              <div class="flex items-center justify-between gap-2 text-xs">
+                <span class="font-bold text-[#34d399]">✨ ${def ? def.name : e.trainingDefinitionId} (${e.subjectId} • Lv ${e.targetLevel})</span>
+                <div class="flex items-center gap-1.5 font-mono">
+                  <span class="text-[11px] text-[#fbbf24]">${formatDurationShort(remSec)}</span>
+                  <button onclick="window.WargameApp.handleCancelHeroTraining('${e.subjectId}', '${e.trainingDefinitionId}')" class="px-2 py-0.5 rounded bg-red-950/60 text-red-300 text-[10px] cursor-pointer">✕</button>
+                </div>
+              </div>
+              <div class="w-full h-1.5 bg-[#111722] rounded-full overflow-hidden"><div class="h-full bg-[#34d399]" style="width:${pct}%"></div></div>
+            </div>
+          `;
+        }).join('')
+      : `<div class="text-xs text-[#64748b] italic py-1">Training queue is idle. Select a discipline below to drill ${selHero.name}.</div>`;
+
+    const trTrees = Object.values(PROTOTYPE_TRAINING_TREES).filter(function(tr) {
+      return computeTrainingTreePct(tr, heroSummary) < 100;
+    });
+
+    const trGridHtml = trTrees.map(function(tr) {
+      const pct = computeTrainingTreePct(tr, heroSummary);
+      const hasActive = tq.activeItems.some(function(a) {
+        return a.subjectId === selHero.id && (tr.trainingIds || []).indexOf(a.trainingDefinitionId) !== -1;
+      });
+      const cardCls = hasActive
+        ? 'border-[#34d399] bg-gradient-to-b from-[#11241f] to-[#0a0f18] shadow-[0_0_20px_rgba(52,211,153,0.3)]'
+        : 'border-[#283347] hover:border-[#34d399]/60 bg-[#0f1520] hover:bg-[#161e2e]';
+
+      return `
+        <button onclick="window.WargameApp.handleSelectTrainingTree('${tr.treeId}')" class="p-4 rounded-xl border ${cardCls} text-center flex flex-col items-center justify-between gap-2.5 cursor-pointer transition group">
+          <div class="relative">
+            <div class="w-14 h-14 rounded-2xl bg-[#080b11] border ${hasActive ? 'border-[#34d399]' : 'border-[#334155]'} flex items-center justify-center text-3xl shadow-inner group-hover:scale-105 transition">
+              ${tr.icon || '🎯'}
+            </div>
+            ${hasActive ? '<span class="absolute -top-1.5 -right-2 text-sm animate-pulse">✨</span>' : ''}
+          </div>
+          <div class="space-y-0.5">
+            <div class="font-display text-xs sm:text-sm font-bold text-[#e6edf3]">${tr.name}</div>
+            <div class="text-[10px] font-mono ${hasActive ? 'text-[#34d399]' : 'text-[#94a3b8]'}">${pct}% Complete</div>
+          </div>
+          <div class="w-full h-1.5 bg-[#080b11] rounded-full overflow-hidden">
+            <div class="h-full bg-[#34d399]" style="width:${pct}%"></div>
+          </div>
+        </button>
+      `;
+    }).join('');
+
+    bodyEl.innerHTML = `
+      ${headerHtml}
+      <div class="p-4 space-y-4 overflow-y-auto">
+        ${heroBarHtml}
+        <div class="space-y-1.5">
+          <div class="text-[10px] font-mono uppercase tracking-wider text-[#34d399] font-bold">Active Hero Training Queue (${tq.activeItems.length}/${tq.capacity})</div>
+          ${activeTHtml}
+        </div>
+        <div class="space-y-2">
+          <div class="text-[10px] font-mono uppercase tracking-wider text-[#34d399] font-bold">Active Training Disciplines for ${selHero.name}</div>
+          <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">${trGridHtml}</div>
+        </div>
+      </div>
+    `;
+    return;
+  }
+
+  // VIEW 2: TRAINING NODE GRAPH & DETAIL
+  const trTree = PROTOTYPE_TRAINING_TREES[selectedTreeId];
+  const tIds = Array.isArray(trTree.trainingIds) ? trTree.trainingIds : [];
+  let selTrainId = state._trainingSelectedItemId;
+  if (!selTrainId || tIds.indexOf(selTrainId) === -1) {
+    selTrainId = tIds[0] || null;
+    state._trainingSelectedItemId = selTrainId;
+  }
+
+  const graphNodes = tIds.map(function(id, idx) {
+    const def = PROTOTYPE_TRAINING_DEFINITIONS[id];
+    const rec = heroSummary.find(function(s) { return s.trainingDefinitionId === id; });
+    const curLv = rec ? rec.currentLevel : 0;
+    const maxLv = Array.isArray(def.levels) ? def.levels.length : 1;
+    const isActive = prog.trainingQueue.activeItems.some(function(a) {
+      return a.subjectId === selHero.id && a.trainingDefinitionId === id;
+    });
+    const elig = evaluateTrainingEligibility(prog, { ownerId: pid, subjectType: SUBJECT_TYPES.HERO, subjectId: selHero.id, trainingDefinitionId: id });
+    return {
+      id: id,
+      name: def.name,
+      icon: def.icon || '🎯',
+      nodePos: def.nodePos || { col: idx, row: 0 },
+      parentIds: Array.isArray(def.parentIds) ? def.parentIds : [],
+      currentLevel: curLv,
+      maxLevel: maxLv,
+      isActive: isActive,
+      isMaxed: curLv >= maxLv,
+      canStart: elig.canStart,
+      isUnlockedOrDone: curLv > 0 || isActive || elig.canStart
+    };
+  });
+
+  const graphHtml = buildScrollableNodeGraphHtml(graphNodes, selTrainId, 'handleSelectTrainingNode');
+  const selDef = PROTOTYPE_TRAINING_DEFINITIONS[selTrainId];
+  const selRec = heroSummary.find(function(s) { return s.trainingDefinitionId === selTrainId; });
+  const curLv = selRec ? selRec.currentLevel : 0;
+  const maxLv = selDef && Array.isArray(selDef.levels) ? selDef.levels.length : 1;
+  const nextLv = curLv + 1;
+  const lvlDef = selDef && Array.isArray(selDef.levels)
+    ? selDef.levels.find(function(l) { return l.level === nextLv; })
+    : null;
+  const elig = selDef
+    ? evaluateTrainingEligibility(prog, { ownerId: pid, subjectType: SUBJECT_TYPES.HERO, subjectId: selHero.id, trainingDefinitionId: selTrainId })
+    : { canStart: false, unmetConditions: [] };
+
+  const costRowsHtml = lvlDef && Array.isArray(lvlDef.costs)
+    ? lvlDef.costs.map(function(c) { return buildCostComparisonRowHtml(c, prog, city, pid); }).join('')
+    : '<div class="text-xs text-[#34d399] font-mono">✓ Maximum Training Rank Reached</div>';
+
+  const unmetHtml = (elig.unmetConditions && elig.unmetConditions.length > 0)
+    ? `<div class="p-2 rounded bg-red-950/40 border border-red-500/40 text-[11px] text-[#f87171] space-y-0.5">${elig.unmetConditions.map(function(u) { return '<div>✕ ' + (u.reason || u.type) + '</div>'; }).join('')}</div>`
+    : (lvlDef ? '<div class="text-[11px] text-[#34d399] font-mono">✓ Research Unlock &amp; Prerequisites Met</div>' : '');
+
+  bodyEl.innerHTML = `
+    ${headerHtml}
+    <div class="p-4 space-y-3 overflow-y-auto">
+      ${heroBarHtml}
+      ${graphHtml}
+      ${selDef ? `
+        <div class="p-3.5 rounded-xl bg-[#0f1520] border border-[#34d399]/40 grid grid-cols-1 md:grid-cols-12 gap-3 items-start">
+          <div class="md:col-span-7 space-y-1.5">
+            <div class="flex items-center gap-2">
+              <span class="text-xl">${selDef.icon || '🎯'}</span>
+              <div>
+                <div class="font-display text-sm font-bold text-[#34d399]">${selDef.name}</div>
+                <div class="flex items-center gap-2 text-[10px] font-mono text-[#94a3b8]">
+                  ${renderLevelPipsHtml(curLv, maxLv)}
+                  <span>Rank ${curLv} / ${maxLv} (${selHero.name})</span>
+                  ${lvlDef ? '<span>• ⏱ ' + formatDurationShort(lvlDef.durationSec) + '</span>' : ''}
+                </div>
+              </div>
+            </div>
+            <p class="text-xs text-[#e6edf3]">${selDef.description}</p>
+            ${unmetHtml}
+          </div>
+          <div class="md:col-span-5 p-3 rounded-lg bg-[#080b11] border border-[#1e293b] space-y-2">
+            <div class="text-[10px] font-mono uppercase tracking-wider text-[#94a3b8] font-bold">Required Resources (Have / Need)</div>
+            <div class="space-y-1">${costRowsHtml}</div>
+            <button onclick="window.WargameApp.handleStartHeroTraining('${selHero.id}', '${selDef.trainingDefinitionId}')" ${!elig.canStart ? 'disabled' : ''} class="w-full py-2 rounded-lg font-bold text-xs uppercase ${elig.canStart ? 'bg-[#34d399] hover:bg-[#10b981] text-[#080b11] cursor-pointer' : 'bg-[#1a2232] text-[#64748b] cursor-not-allowed'}">
+              ${elig.canStart ? ('Train ' + selHero.name + ' (Lv ' + nextLv + ')') : (lvlDef ? 'Locked' : '✓ Mastered')}
+            </button>
+          </div>
+        </div>
+      ` : ''}
+    </div>
+  `;
+}
+
+// Unified render hook called by syncWargameUI
+function renderProgressionModals(simHost) {
+  renderResearchModal(simHost);
+  renderTrainingModal(simHost);
+}
+
+// Action Handlers (Separate Research & Training flows)
+function handleOpenResearchHub(simHost, treeId) {
+  if (!simHost || !simHost.state || !simHost.state.world) return;
+  simHost.state._trainingModalOpen = false;
+  simHost.state._researchModalOpen = true;
+  simHost.state._researchSelectedTreeId = treeId || null;
+  renderProgressionModals(simHost);
+}
+
+function handleCloseResearchHub(simHost) {
+  if (!simHost || !simHost.state) return;
+  simHost.state._researchModalOpen = false;
+  renderResearchModal(simHost);
+}
+
+function handleSelectResearchTree(simHost, treeId) {
+  if (!simHost || !simHost.state) return;
+  simHost.state._researchSelectedTreeId = treeId;
+  simHost.state._researchSelectedItemId = null;
+  renderResearchModal(simHost);
+}
+
+function handleBackToResearchOverview(simHost) {
+  if (!simHost || !simHost.state) return;
+  simHost.state._researchSelectedTreeId = null;
+  renderResearchModal(simHost);
+}
+
+function handleSelectResearchNode(simHost, itemId) {
+  if (!simHost || !simHost.state) return;
+  simHost.state._researchSelectedItemId = itemId;
+  renderResearchModal(simHost);
+}
+
+function handleOpenTrainingHub(simHost, treeId) {
+  if (!simHost || !simHost.state || !simHost.state.world) return;
+  simHost.state._researchModalOpen = false;
+  simHost.state._trainingModalOpen = true;
+  simHost.state._trainingSelectedTreeId = treeId || null;
+  renderProgressionModals(simHost);
+}
+
+function handleCloseTrainingHub(simHost) {
+  if (!simHost || !simHost.state) return;
+  simHost.state._trainingModalOpen = false;
+  renderTrainingModal(simHost);
+}
+
+function handleSelectTrainingTree(simHost, treeId) {
+  if (!simHost || !simHost.state) return;
+  simHost.state._trainingSelectedTreeId = treeId;
+  simHost.state._trainingSelectedItemId = null;
+  renderTrainingModal(simHost);
+}
+
+function handleBackToTrainingOverview(simHost) {
+  if (!simHost || !simHost.state) return;
+  simHost.state._trainingSelectedTreeId = null;
+  renderTrainingModal(simHost);
+}
+
+function handleSelectTrainingNode(simHost, trainingDefId) {
+  if (!simHost || !simHost.state) return;
+  simHost.state._trainingSelectedItemId = trainingDefId;
+  renderTrainingModal(simHost);
+}
+
+function handleSelectTrainingHeroAction(simHost, heroId) {
+  if (!simHost || !simHost.state) return;
+  simHost.state._trainingSelectedHeroId = heroId;
+  renderTrainingModal(simHost);
+}
+
+function handleStartResearchAction(simHost, itemId) {
+  if (!simHost || !simHost.state || !simHost.state.world) return { ok: false };
+  const world = simHost.state.world;
+  const prog = ensureProgressionState(world);
+  const simNowMs = getSimNowMs(simHost);
+  const city = getPrimaryCity(simHost.state);
+  syncCityGoldToLedger(world, prog, simNowMs);
+  const rates = computeEffectiveRates(prog, city, getPlayerId());
+
+  const res = startOrEnqueueResearch(prog, {
+    ownerId: getPlayerId(),
+    researchItemId: itemId,
+    nowMs: simNowMs,
+    stockpile: city ? city.stockpile : null,
+    eligibilityCtx: {
+      city: city,
+      heroLevel: (world.heroes && world.heroes[0]) ? (world.heroes[0].level || 1) : 1
+    },
+    speedBonus: rates.researchSpeedBonus
+  });
+  simHost.save();
+  renderResearchModal(simHost);
+  return res;
+}
+
+function handlePauseResearchAction(simHost, itemId) {
+  if (!simHost || !simHost.state || !simHost.state.world) return { ok: false };
+  const prog = ensureProgressionState(simHost.state.world);
+  const res = pauseResearchItem(prog, itemId, getSimNowMs(simHost));
+  simHost.save();
+  renderResearchModal(simHost);
+  return res;
+}
+
+function handleResumeResearchAction(simHost, itemId) {
+  if (!simHost || !simHost.state || !simHost.state.world) return { ok: false };
+  const prog = ensureProgressionState(simHost.state.world);
+  const res = resumeResearchItem(prog, itemId, getSimNowMs(simHost));
+  simHost.save();
+  renderResearchModal(simHost);
+  return res;
+}
+
+function handleCancelResearchAction(simHost, itemId) {
+  if (!simHost || !simHost.state || !simHost.state.world) return { ok: false };
+  const prog = ensureProgressionState(simHost.state.world);
+  const city = getPrimaryCity(simHost.state);
+  const refundRatio = getConfigValue(prog, 'cancel_refund_ratio');
+  const res = cancelResearchItem(prog, itemId, {
+    nowMs: getSimNowMs(simHost),
+    refundPolicy: REFUND_POLICIES.FIXED_PERCENT,
+    refundRatio: refundRatio,
+    stockpile: city ? city.stockpile : null
+  });
+  simHost.save();
+  renderResearchModal(simHost);
+  return res;
+}
+
+function handleStartHeroTrainingAction(simHost, heroId, trainingDefinitionId) {
+  if (!simHost || !simHost.state || !simHost.state.world) return { ok: false };
+  const world = simHost.state.world;
+  const prog = ensureProgressionState(world);
+  const simNowMs = getSimNowMs(simHost);
+  const city = getPrimaryCity(simHost.state);
+  syncCityGoldToLedger(world, prog, simNowMs);
+  const rates = computeEffectiveRates(prog, city, getPlayerId());
+
+  const res = startOrEnqueueTraining(prog, {
+    ownerId: getPlayerId(),
+    subjectType: SUBJECT_TYPES.HERO,
+    subjectId: heroId,
+    trainingDefinitionId: trainingDefinitionId,
+    nowMs: simNowMs,
+    stockpile: city ? city.stockpile : null,
+    speedBonus: rates.trainingSpeedBonus
+  });
+  simHost.save();
+  renderTrainingModal(simHost);
+  return res;
+}
+
+function handleCancelHeroTrainingAction(simHost, heroId, trainingDefinitionId) {
+  if (!simHost || !simHost.state || !simHost.state.world) return { ok: false };
+  const prog = ensureProgressionState(simHost.state.world);
+  const refundRatio = getConfigValue(prog, 'cancel_refund_ratio');
+  const res = cancelTrainingItem(prog, heroId, trainingDefinitionId, {
+    nowMs: getSimNowMs(simHost),
+    refundPolicy: REFUND_POLICIES.FIXED_PERCENT,
+    refundRatio: refundRatio
+  });
+  simHost.save();
+  renderTrainingModal(simHost);
+  return res;
+}
+
+  // --- Module: src/wargame/ui/devPortal.js ---
+// =============================================================================
+// WARGAME DEVELOPER PORTAL (Live Currency Editor & Auto-Surfaced Key Configs)
+// Automatically renders every entry registered in src/progression/configRegistry.js
+// plus live currency/stockpile editors and offline time-jump testing tools.
+// =============================================================================
+
+
+
+
+
+
+
+
+function renderDevPortalModal(simHost) {
+  const modal = document.getElementById('wgDevPortalModal');
+  if (!modal) return;
+  const state = simHost ? simHost.state : null;
+  if (!state || !state.world || !state._devPortalOpen) {
+    modal.classList.add('hidden');
+    return;
+  }
+
+  modal.classList.remove('hidden');
+  const bodyEl = document.getElementById('wgDevPortalBody');
+  if (!bodyEl) return;
+
+  const world = state.world;
+  const prog = ensureProgressionState(world);
+  const pid = 'player_1';
+  const city = getPrimaryCity(state);
+
+  // 1. Progression Currencies Editor
+  const currIds = Object.keys(DEFAULT_CURRENCY_DEFINITIONS);
+  const currRows = currIds.map(function(cid) {
+    const def = DEFAULT_CURRENCY_DEFINITIONS[cid];
+    const bal = getCurrencyBalance(prog.currencyLedger, pid, OWNER_TYPES.PLAYER, cid).available;
+    return `
+      <div class="p-2 rounded bg-[#0a0f18] border border-[#1e293b] flex flex-wrap items-center justify-between gap-2 text-xs font-mono">
+        <div class="min-w-0">
+          <div class="font-bold text-[#e6edf3]">${def.icon || '💎'} ${def.name}</div>
+          <div class="text-[10px] text-[#64748b]">${cid} • Current: <span class="text-[#fbbf24]">${Number(bal).toFixed(5)}</span></div>
+        </div>
+        <div class="flex items-center gap-1.5">
+          <input id="wgDevCurrInput_${cid}" type="number" step="any" value="${bal}" class="w-24 px-2 py-1 rounded bg-[#111722] border border-[#334155] text-[#e6edf3] text-xs font-mono" />
+          <button onclick="window.WargameApp.handleDevSetCurrency('${cid}')" class="px-2.5 py-1 rounded bg-[#fbbf24] hover:bg-[#f59e0b] text-[#080b11] font-bold text-[10px] uppercase cursor-pointer">Set</button>
+          <button onclick="window.WargameApp.handleDevAddCurrency('${cid}', ${cid === 'gold' ? 500 : 10})" class="px-2 py-1 rounded bg-[#161e2e] hover:bg-[#283347] text-[#34d399] border border-[#34d399]/40 font-bold text-[10px] cursor-pointer">+${cid === 'gold' ? 500 : 10}</button>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  // 2. City Stockpiles Editor
+  const stockKeys = ['wood', 'stone', 'food', 'water', 'ore', 'ingots', 'gold'];
+  const stockHtml = city ? stockKeys.map(function(sk) {
+    const val = (city.stockpile && city.stockpile[sk]) || 0;
+    return `
+      <div class="p-2 rounded bg-[#0a0f18] border border-[#1e293b] flex items-center justify-between gap-2 text-xs font-mono">
+        <span class="uppercase text-[#94a3b8] font-bold">${sk}: <strong class="text-[#e6edf3]">${val}</strong></span>
+        <div class="flex items-center gap-1">
+          <button onclick="window.WargameApp.handleDevAddStockpile('${sk}', 100)" class="px-2 py-0.5 rounded bg-[#161e2e] hover:bg-[#283347] text-[#34d399] border border-[#34d399]/40 text-[10px] font-bold cursor-pointer">+100</button>
+          <button onclick="window.WargameApp.handleDevAddStockpile('${sk}', 1000)" class="px-2 py-0.5 rounded bg-[#161e2e] hover:bg-[#283347] text-[#fbbf24] border border-[#fbbf24]/40 text-[10px] font-bold cursor-pointer">+1000</button>
+        </div>
+      </div>
+    `;
+  }).join('') : '<div class="text-xs text-[#64748b] italic">Found a city to edit city stockpiles.</div>';
+
+  // 3. Auto-Surfaced Key Configurations grouped by category
+  const byCat = {};
+  for (let i = 0; i < DEV_CONFIG_REGISTRY.length; i++) {
+    const cfg = DEV_CONFIG_REGISTRY[i];
+    if (!byCat[cfg.category]) byCat[cfg.category] = [];
+    byCat[cfg.category].push(cfg);
+  }
+
+  const configSections = Object.keys(byCat).map(function(cat) {
+    const rows = byCat[cat].map(function(cfg) {
+      const curVal = getConfigValue(prog, cfg.key);
+      return `
+        <div class="p-2 rounded bg-[#0a0f18] border border-[#1e293b] flex flex-wrap items-center justify-between gap-2 text-xs">
+          <div class="min-w-0 flex-1">
+            <div class="font-bold text-[#e6edf3]">${cfg.label}</div>
+            <div class="text-[10px] text-[#64748b]">${cfg.desc} <span class="font-mono text-[#94a3b8]">(default: ${cfg.defaultValue})</span></div>
+          </div>
+          <div class="flex items-center gap-1.5">
+            <input id="wgDevCfgInput_${cfg.key}" type="number" step="${cfg.step}" min="${cfg.min}" max="${cfg.max}" value="${curVal}" class="w-24 px-2 py-1 rounded bg-[#111722] border border-[#334155] text-[#38bdf8] text-xs font-mono" />
+            <button onclick="window.WargameApp.handleDevSetConfig('${cfg.key}')" class="px-2.5 py-1 rounded bg-[#38bdf8] hover:bg-[#0ea5e9] text-[#080b11] font-bold text-[10px] font-mono uppercase cursor-pointer">Apply</button>
+          </div>
+        </div>
+      `;
+    }).join('');
+    return `
+      <div class="space-y-1.5">
+        <div class="text-[10px] font-mono uppercase tracking-wider text-[#38bdf8] font-bold">${cat}</div>
+        ${rows}
+      </div>
+    `;
+  }).join('');
+
+  bodyEl.innerHTML = `
+    <div class="space-y-4">
+      <div class="p-3 rounded-lg bg-[#080b11] border border-[#fbbf24]/40 flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <div class="text-xs font-bold text-[#fbbf24] uppercase">⚡ Live Simulation &amp; Offline Testing Tools</div>
+          <div class="text-[10px] text-[#94a3b8]">Simulate offline time passage for General RP accrual &amp; active queue completion.</div>
+        </div>
+        <div class="flex flex-wrap gap-1.5">
+          <button onclick="window.WargameApp.handleDevTimeJump(600)" class="px-2.5 py-1.5 rounded bg-[#161e2e] hover:bg-[#283347] text-[#38bdf8] border border-[#38bdf8]/40 text-[10px] font-mono font-bold cursor-pointer">⏩ +10m Offline</button>
+          <button onclick="window.WargameApp.handleDevTimeJump(3600)" class="px-2.5 py-1.5 rounded bg-[#161e2e] hover:bg-[#283347] text-[#fbbf24] border border-[#fbbf24]/40 text-[10px] font-mono font-bold cursor-pointer">⏩ +1h Offline</button>
+          <button onclick="window.WargameApp.handleDevCompleteQueues()" class="px-2.5 py-1.5 rounded bg-[#34d399] hover:bg-[#10b981] text-[#080b11] text-[10px] font-mono font-bold cursor-pointer">✓ Finish Active Queues</button>
+          <button onclick="window.WargameApp.handleDevResetConfigs()" class="px-2.5 py-1.5 rounded bg-red-950/60 hover:bg-red-900/60 text-red-300 border border-red-500/40 text-[10px] font-mono font-bold cursor-pointer">↺ Reset Configs</button>
+        </div>
+      </div>
+
+      <div class="p-3 rounded-lg bg-[#080b11] border border-[#283347] space-y-2">
+        <div class="text-xs font-bold text-[#fbbf24] uppercase">💰 Progression Currencies (Ledger)</div>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-2">${currRows}</div>
+      </div>
+
+      <div class="p-3 rounded-lg bg-[#080b11] border border-[#283347] space-y-2">
+        <div class="text-xs font-bold text-[#34d399] uppercase">📦 Primary City Stockpiles</div>
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">${stockHtml}</div>
+      </div>
+
+      <div class="p-3 rounded-lg bg-[#080b11] border border-[#38bdf8]/40 space-y-3">
+        <div class="flex items-center justify-between">
+          <div class="text-xs font-bold text-[#38bdf8] uppercase">⚙️ Registered Key Configurations (Auto-Surfaced)</div>
+          <span class="text-[10px] font-mono text-[#64748b]">${DEV_CONFIG_REGISTRY.length} live settings</span>
+        </div>
+        ${configSections}
+      </div>
+    </div>
+  `;
+}
+
+function handleOpenDevPortal(simHost) {
+  if (!simHost || !simHost.state || !simHost.state.world) return;
+  simHost.state._devPortalOpen = true;
+  renderDevPortalModal(simHost);
+}
+
+function handleCloseDevPortal(simHost) {
+  if (!simHost || !simHost.state) return;
+  simHost.state._devPortalOpen = false;
+  renderDevPortalModal(simHost);
+}
+
+function handleDevSetCurrencyAction(simHost, currencyId, explicitValue) {
+  if (!simHost || !simHost.state || !simHost.state.world) return { ok: false };
+  const prog = ensureProgressionState(simHost.state.world);
+  const pid = 'player_1';
+  let targetVal = explicitValue;
+  if (typeof targetVal !== 'number' && typeof document !== 'undefined') {
+    const inp = document.getElementById('wgDevCurrInput_' + currencyId);
+    targetVal = inp ? parseFloat(inp.value) : NaN;
+  }
+  if (!isFinite(targetVal) || targetVal < 0) return { ok: false, reason: 'invalid_amount' };
+
+  const current = getCurrencyBalance(prog.currencyLedger, pid, OWNER_TYPES.PLAYER, currencyId).available;
+  const delta = Math.round((targetVal - current) * 100000) / 100000;
+  if (Math.abs(delta) > 0) {
+    recordCurrencyTransaction(prog.currencyLedger, {
+      ownerId: pid,
+      ownerType: OWNER_TYPES.PLAYER,
+      currencyId: currencyId,
+      amount: delta,
+      transactionType: TRANSACTION_TYPES.ADJUSTMENT,
+      source: 'dev_portal_set',
+      nowMs: Date.now()
+    });
+  }
+  // Keep City Gold stockpile in sync when editing gold
+  if (currencyId === 'gold') {
+    const city = getPrimaryCity(simHost.state);
+    if (city && city.stockpile) city.stockpile.gold = Math.floor(targetVal);
+  }
+  simHost.state._dirty = true;
+  simHost.save();
+  renderDevPortalModal(simHost);
+  return { ok: true, currencyId: currencyId, balance: targetVal };
+}
+
+function handleDevAddCurrencyAction(simHost, currencyId, delta) {
+  if (!simHost || !simHost.state || !simHost.state.world) return { ok: false };
+  const prog = ensureProgressionState(simHost.state.world);
+  const pid = 'player_1';
+  const current = getCurrencyBalance(prog.currencyLedger, pid, OWNER_TYPES.PLAYER, currencyId).available;
+  return handleDevSetCurrencyAction(simHost, currencyId, Math.max(0, current + Number(delta || 0)));
+}
+
+function handleDevAddStockpileAction(simHost, resourceId, delta) {
+  const city = getPrimaryCity(simHost.state);
+  if (!city || !city.stockpile) return { ok: false };
+  city.stockpile[resourceId] = Math.max(0, Number(city.stockpile[resourceId] || 0) + Number(delta || 0));
+  if (resourceId === 'gold') {
+    handleDevAddCurrencyAction(simHost, 'gold', delta);
+  }
+  simHost.state._dirty = true;
+  simHost.save();
+  renderDevPortalModal(simHost);
+  return { ok: true, resourceId: resourceId, value: city.stockpile[resourceId] };
+}
+
+function handleDevSetConfigAction(simHost, key, explicitValue) {
+  if (!simHost || !simHost.state || !simHost.state.world) return { ok: false };
+  const prog = ensureProgressionState(simHost.state.world);
+  let val = explicitValue;
+  if (typeof val !== 'number' && typeof document !== 'undefined') {
+    const inp = document.getElementById('wgDevCfgInput_' + key);
+    val = inp ? parseFloat(inp.value) : NaN;
+  }
+  const res = setConfigValue(prog, key, val);
+  simHost.state._dirty = true;
+  simHost.save();
+  renderDevPortalModal(simHost);
+  return res;
+}
+
+function handleDevResetConfigsAction(simHost) {
+  if (!simHost || !simHost.state || !simHost.state.world) return { ok: false };
+  const prog = ensureProgressionState(simHost.state.world);
+  resetAllConfigValues(prog);
+  simHost.state._dirty = true;
+  simHost.save();
+  renderDevPortalModal(simHost);
+  return { ok: true };
+}
+
+function handleDevTimeJumpAction(simHost, seconds) {
+  if (!simHost || !simHost.state || !simHost.state.world) return { ok: false };
+  const prog = ensureProgressionState(simHost.state.world);
+  const deltaMs = Math.max(1000, Math.round(Number(seconds || 600) * 1000));
+  const newWallMs = (prog.lastWallClockAtMs || Date.now()) + deltaMs;
+  const baseRate = getConfigValue(prog, 'passive_rp_general_per_sec');
+
+  // Rewind lastAccrualAtMs by deltaMs so processPassiveAccrual awards exact elapsed time
+  prog.lastAccrualAtMs = (prog.lastAccrualAtMs || 0);
+  const simNow = (simHost.state.world.clock ? simHost.state.world.clock.simTimeMs : 0) + deltaMs;
+  if (simHost.state.world.clock) simHost.state.world.clock.simTimeMs = simNow;
+  processPassiveAccrual(prog, 'player_1', prog.lastAccrualAtMs + deltaMs, { baseRatePerSec: baseRate });
+  prog.lastWallClockAtMs = newWallMs;
+  advanceResearchProgress(prog, simNow);
+  advanceTrainingProgress(prog, simNow);
+
+  simHost.state._dirty = true;
+  simHost.save();
+  renderDevPortalModal(simHost);
+  return { ok: true, jumpedSec: seconds };
+}
+
+function handleDevCompleteQueuesAction(simHost) {
+  if (!simHost || !simHost.state || !simHost.state.world) return { ok: false };
+  const prog = ensureProgressionState(simHost.state.world);
+  const simNow = (simHost.state.world.clock ? simHost.state.world.clock.simTimeMs : 0) + 100000000;
+  if (simHost.state.world.clock) simHost.state.world.clock.simTimeMs = simNow;
+  advanceResearchProgress(prog, simNow);
+  advanceTrainingProgress(prog, simNow);
+  simHost.state._dirty = true;
+  simHost.save();
+  renderDevPortalModal(simHost);
+  return { ok: true };
+}
+
+  // --- Module: src/constants.js ---
+// Core constants, viewport dimensions, map scale presets, tile IDs, and rarity definitions
+
+const SCHEMA_VERSION = 'v0.5.0-inc5';
+const STORAGE_KEY = 'aethelgard_save_v6';
+
+const TILE_SIZE = 32;
+const VIEWPORT_WIDTH = 21;
+const VIEWPORT_HEIGHT = 15;
+
+// Legacy viewport aliases + new exploration-scale default floor dimensions
+const GRID_W = VIEWPORT_WIDTH;
+const GRID_H = VIEWPORT_HEIGHT;
+const DEFAULT_MAP_W = 80;
+const DEFAULT_MAP_H = 60;
+
+// Soft configurable cap on simultaneously chartered custom expeditions (not a structural limit; can be raised to 500+)
+const DEFAULT_MAX_CHARTERED_DUNGEONS = 12;
+
+// Bestiary & Codex Mastery Constants
+const CODEX_MASTERY_KILLS = 5;
+const CODEX_MASTERY_DMG_MULT = 1.08;
+
+const MAP_SIZE_PRESETS = {
+  small:     { id: 'small',     name: 'Small Outpost',        width: 48,  height: 36,  desc: '48x36 (~5.5x classic) • 14–18 chambers' },
+  standard:  { id: 'standard',  name: 'Standard Delve',       width: 80,  height: 60,  desc: '80x60 (~15x classic) • Multi-wing halls & vaults' },
+  sprawling: { id: 'sprawling', name: 'Sprawling Labyrinth',  width: 128, height: 96,  desc: '128x96 (~39x classic) • Deep avenues & caverns' },
+  colossal:  { id: 'colossal',  name: 'Colossal Megadungeon', width: 192, height: 144, desc: '192x144 (~88x classic) • Massive subterranean expanse' }
+};
+
+// Tile Constants
+const TILE_WALL = 0;
+const TILE_FLOOR = 1;
+const TILE_STAIRS_UP = 2;
+const TILE_STAIRS_DOWN = 3;
+const TILE_CHEST = 4;
+const TILE_CHEST_OPEN = 5;
+const TILE_SHRINE = 6;
+const TILE_SHRINE_USED = 7;
+const TILE_TRAP_HIDDEN = 8;
+const TILE_TRAP_VISIBLE = 9;
+const TILE_ORE_COPPER = 10;
+const TILE_ORE_IRON = 11;
+const TILE_ORE_MITHRIL = 12;
+const TILE_ORE_STAR = 13;
+const TILE_ORE_ASTRAL = 14;
+const TILE_ORE_GEODE = 15;
+const TILE_TRAP_DISARMED = 16;
+
+// Economy Constants
+const LAPIDARY_UNSOCKET_COST = 15;
+const BOUNTY_REROLL_COST = 25;
+
+// Rarity Definitions
+const RARITY = {
+  common:   { id: 'common',   name: 'Common',            color: '#94a3b8', mult: 1.0, affixes: 0 },
+  uncommon: { id: 'uncommon', name: 'Uncommon',          color: '#4ade80', mult: 1.4, affixes: 1 },
+  rare:     { id: 'rare',     name: 'Rare',              color: '#60a5fa', mult: 2.0, affixes: 2 },
+  epic:     { id: 'epic',     name: 'Epic',              color: '#c084fc', mult: 3.2, affixes: 3 },
+  relic:    { id: 'relic',    name: 'Star-Forged Relic', color: '#fbbf24', mult: 5.5, affixes: 4 }
+};
+
+  // --- Module: src/data/classes.js ---
+// Complete 5 Playable Classes Registry (Fighter, Thief, Mage, Ranger, Paladin)
+
+const CLASSES = {
+  fighter: {
+    id: 'fighter',
+    name: 'Fighter',
+    title: 'Iron Vanguard',
+    color: '#f87171',
+    baseStats: { str: 15, dex: 10, int: 8, vit: 14 },
+    hpBase: 120,
+    mpBase: 35,
+    vision: 5,
+    starterGear: {
+      weapon:    { uid: 'w_start_f', name: 'Iron Broadsword', slot: 'weapon', rarity: 'common', atk: 8, str: 2, value: 20, affixes: [] },
+      armor:     { uid: 'a_start_f', name: 'Riveted Mail', slot: 'armor', rarity: 'common', def: 6, vit: 1, value: 20, affixes: [] },
+      helm:      { uid: 'h_start_f', name: 'Iron Coif', slot: 'helm', rarity: 'common', def: 2, value: 12, affixes: [] },
+      boots:     { uid: 'b_start_f', name: 'Heavy Sabatons', slot: 'boots', rarity: 'common', def: 2, value: 12, affixes: [] },
+      accessory: { uid: 'acc_start_f', name: 'Vanguard Signet', slot: 'accessory', rarity: 'common', atk: 1, crit: 2, value: 15, affixes: [] },
+      pickaxe:   { uid: 'pick_start_f', name: 'Iron Pickaxe', slot: 'pickaxe', rarity: 'common', curDur: 30, maxDur: 30, value: 25, affixes: [] }
+    },
+    passiveName: 'Unstoppable Stride',
+    passiveDesc: '+10 Max HP & reduces incoming physical damage by 15%.',
+    skillName: 'Whirlwind Cleave',
+    skillCost: 10,
+    skillRange: 1,
+    skillDesc: 'Cleaves all adjacent foes for 150% weapon damage and stuns them for 1 turn.'
+  },
+  thief: {
+    id: 'thief',
+    name: 'Thief',
+    title: 'Shadow Strider',
+    color: '#c084fc',
+    baseStats: { str: 9, dex: 16, int: 11, vit: 10 },
+    hpBase: 90,
+    mpBase: 45,
+    vision: 6,
+    starterGear: {
+      weapon:    { uid: 'w_start_t', name: 'Obsidian Stiletto', slot: 'weapon', rarity: 'common', atk: 7, crit: 8, value: 20, affixes: [] },
+      armor:     { uid: 'a_start_t', name: 'Shadow Leather', slot: 'armor', rarity: 'common', def: 3, dodge: 6, value: 20, affixes: [] },
+      helm:      { uid: 'h_start_t', name: 'Nightblade Cowl', slot: 'helm', rarity: 'common', def: 1, crit: 3, value: 12, affixes: [] },
+      boots:     { uid: 'b_start_t', name: 'Silent Footwraps', slot: 'boots', rarity: 'common', def: 1, dodge: 5, value: 12, affixes: [] },
+      accessory: { uid: 'acc_start_t', name: 'Prospector Die', slot: 'accessory', rarity: 'common', crit: 4, value: 15, affixes: [] },
+      pickaxe:   { uid: 'pick_start_t', name: 'Iron Pickaxe', slot: 'pickaxe', rarity: 'common', curDur: 28, maxDur: 28, value: 25, affixes: [] }
+    },
+    passiveName: 'Opportunist',
+    passiveDesc: '+15% Critical Strike chance & +25% gold found in chests.',
+    skillName: 'Shadowstep Strike',
+    skillCost: 12,
+    skillRange: 3,
+    skillDesc: 'Teleports to a free floor tile adjacent to a target within 3 tiles and strikes for 220% Crit damage.'
+  },
+  mage: {
+    id: 'mage',
+    name: 'Mage',
+    title: 'Starweaver Adept',
+    color: '#60a5fa',
+    baseStats: { str: 7, dex: 10, int: 17, vit: 10 },
+    hpBase: 82,
+    mpBase: 80,
+    vision: 6,
+    starterGear: {
+      weapon:    { uid: 'w_start_m', name: 'Astral Runestaff', slot: 'weapon', rarity: 'common', atk: 5, int: 3, value: 20, affixes: [] },
+      armor:     { uid: 'a_start_m', name: 'Starweaver Robes', slot: 'armor', rarity: 'common', def: 2, maxMp: 15, value: 20, affixes: [] },
+      helm:      { uid: 'h_start_m', name: 'Circlet of Will', slot: 'helm', rarity: 'common', def: 1, int: 2, value: 12, affixes: [] },
+      boots:     { uid: 'b_start_m', name: 'Leyline Slippers', slot: 'boots', rarity: 'common', def: 1, maxMp: 10, value: 12, affixes: [] },
+      accessory: { uid: 'acc_start_m', name: 'Vespera Shard', slot: 'accessory', rarity: 'common', maxMp: 15, value: 15, affixes: [] },
+      pickaxe:   { uid: 'pick_start_m', name: 'Iron Pickaxe', slot: 'pickaxe', rarity: 'common', curDur: 25, maxDur: 25, value: 25, affixes: [] }
+    },
+    passiveName: 'Arcane Surge',
+    passiveDesc: 'Regenerates +2 MP each turn and adds INT scaling to basic attacks.',
+    skillName: 'Starfall Nova',
+    skillCost: 16,
+    skillRange: 4,
+    skillDesc: 'Unleashes an astral detonation hitting all visible enemies within 4 tiles for 200% spell damage + Burn.'
+  },
+  ranger: {
+    id: 'ranger',
+    name: 'Ranger',
+    title: 'Deepwood Pathfinder',
+    color: '#34d399',
+    baseStats: { str: 12, dex: 15, int: 11, vit: 11 },
+    hpBase: 95,
+    mpBase: 45,
+    vision: 7,
+    starterGear: {
+      weapon:    { uid: 'w_start_r', name: 'Recurve Shortbow', slot: 'weapon', rarity: 'common', atk: 6, dex: 2, value: 20, affixes: [] },
+      armor:     { uid: 'a_start_r', name: 'Scout Gambeson', slot: 'armor', rarity: 'common', def: 4, dodge: 4, value: 20, affixes: [] },
+      helm:      { uid: 'h_start_r', name: 'Falconer Cap', slot: 'helm', rarity: 'common', def: 1, visionBonus: 1, value: 12, affixes: [] },
+      boots:     { uid: 'b_start_r', name: 'Trailrunner Boots', slot: 'boots', rarity: 'common', def: 1, dodge: 5, value: 12, affixes: [] },
+      accessory: { uid: 'acc_start_r', name: 'Quiver Trinket', slot: 'accessory', rarity: 'common', crit: 5, value: 15, affixes: [] },
+      pickaxe:   { uid: 'pick_start_r', name: 'Iron Pickaxe', slot: 'pickaxe', rarity: 'common', curDur: 25, maxDur: 25, value: 25, affixes: [] }
+    },
+    passiveName: 'Eagle Eye',
+    passiveDesc: '7-tile Torchlight vision & +15% Evasion.',
+    skillName: 'Starfall Volley',
+    skillCost: 14,
+    skillRange: 5,
+    skillDesc: 'Looses a piercing astral salvo striking up to 3 visible foes within 5 tiles for 180% weapon damage.'
+  },
+  paladin: {
+    id: 'paladin',
+    name: 'Paladin',
+    title: 'Dawn Warden',
+    color: '#fbbf24',
+    baseStats: { str: 14, dex: 9, int: 12, vit: 15 },
+    hpBase: 125,
+    mpBase: 50,
+    vision: 5,
+    starterGear: {
+      weapon:    { uid: 'w_start_p', name: 'Blessed Mace', slot: 'weapon', rarity: 'common', atk: 7, str: 1, value: 20, affixes: [] },
+      armor:     { uid: 'a_start_p', name: 'Crusader Hauberk', slot: 'armor', rarity: 'common', def: 7, vit: 1, value: 22, affixes: [] },
+      helm:      { uid: 'h_start_p', name: 'Steel Sallet', slot: 'helm', rarity: 'common', def: 3, value: 14, affixes: [] },
+      boots:     { uid: 'b_start_p', name: 'Plated Greaves', slot: 'boots', rarity: 'common', def: 2, value: 14, affixes: [] },
+      accessory: { uid: 'acc_start_p', name: 'Solar Medallion', slot: 'accessory', rarity: 'common', maxHp: 12, value: 18, affixes: [] },
+      pickaxe:   { uid: 'pick_start_p', name: 'Iron Pickaxe', slot: 'pickaxe', rarity: 'common', curDur: 28, maxDur: 28, value: 25, affixes: [] }
+    },
+    passiveName: 'Aura of Radiance',
+    passiveDesc: '+10 Armor & regenerates +1 HP every 3 turns.',
+    skillName: 'Holy Smite',
+    skillCost: 16,
+    skillRange: 1,
+    skillDesc: 'Strikes an adjacent foe for 240% holy damage and restores 15% of your Max HP.'
+  },
+  adventurer: {
+    id: 'adventurer',
+    name: 'Adventurer',
+    title: 'Starfall Delver',
+    color: '#38bdf8',
+    baseStats: { str: 12, dex: 12, int: 11, vit: 13 },
+    hpBase: 108,
+    mpBase: 50,
+    vision: 6,
+    starterGear: {
+      weapon:    { uid: 'w_start_a', name: 'Delver Shortsword', slot: 'weapon', rarity: 'common', atk: 7, dex: 1, value: 20, affixes: [] },
+      armor:     { uid: 'a_start_a', name: 'Expedition Brigandine', slot: 'armor', rarity: 'common', def: 5, vit: 1, value: 20, affixes: [] },
+      helm:      { uid: 'h_start_a', name: 'Lantern Cap', slot: 'helm', rarity: 'common', def: 2, visionBonus: 1, value: 12, affixes: [] },
+      boots:     { uid: 'b_start_a', name: 'Wayfarer Boots', slot: 'boots', rarity: 'common', def: 2, value: 12, affixes: [] },
+      accessory: { uid: 'acc_start_a', name: 'Guild Compass', slot: 'accessory', rarity: 'common', crit: 3, value: 15, affixes: [] },
+      pickaxe:   { uid: 'pick_start_a', name: 'Reinforced Pickaxe', slot: 'pickaxe', rarity: 'common', curDur: 34, maxDur: 34, value: 25, affixes: [] }
+    },
+    passiveName: 'Delver Grit',
+    passiveDesc: 'Balanced dungeon explorer with +1 Torchlight vision and durable mining pickaxe.',
+    skillName: 'Torch Flare',
+    skillCost: 11,
+    skillRange: 1,
+    skillDesc: 'Blasts an adjacent foe with searing torchlight for 180% damage and stuns them for 1 turn.'
+  }
+};
+
+  // --- Module: src/data/items.js ---
+// Equipment Affix Pools, Quartermaster Shop Catalog, and Elite Monster Affixes
+
+
+const AFFIX_POOL = [
+  { id: 'atk',   label: 'of Ferocity',    stat: 'atk',   min: 2,  max: 6,  slots: ['weapon', 'accessory'] },
+  { id: 'def',   label: 'of the Bulwark', stat: 'def',   min: 2,  max: 6,  slots: ['armor', 'helm', 'boots'] },
+  { id: 'str',   label: 'of Might',       stat: 'str',   min: 1,  max: 4,  slots: ['weapon', 'armor', 'helm'] },
+  { id: 'dex',   label: 'of Precision',   stat: 'dex',   min: 1,  max: 4,  slots: ['weapon', 'boots', 'accessory'] },
+  { id: 'int',   label: 'of Astral Lore', stat: 'int',   min: 1,  max: 4,  slots: ['weapon', 'helm', 'accessory'] },
+  { id: 'vit',   label: 'of Fortitude',   stat: 'vit',   min: 1,  max: 4,  slots: ['armor', 'helm', 'boots'] },
+  { id: 'crit',  label: 'of Keen Sight',  stat: 'crit',  min: 3,  max: 9,  slots: ['weapon', 'accessory', 'helm'] },
+  { id: 'dodge', label: 'of the Zephyr',  stat: 'dodge', min: 3,  max: 8,  slots: ['boots', 'armor', 'accessory'] },
+  { id: 'maxHp', label: 'of Lifeblood',   stat: 'maxHp', min: 12, max: 35, slots: ['armor', 'helm', 'accessory'] },
+  { id: 'maxMp', label: 'of the Leyline', stat: 'maxMp', min: 10, max: 28, slots: ['helm', 'accessory', 'weapon'] },
+  { id: 'thorns', label: 'of Retaliation', stat: 'thorns', min: 3, max: 8, slots: ['armor', 'helm', 'boots'] },
+  { id: 'leech', label: 'of the Blood Drinker', stat: 'leech', min: 2, max: 6, slots: ['weapon', 'accessory'] },
+  { id: 'ward', label: 'of Astral Warding', stat: 'ward', min: 2, max: 5, slots: ['armor', 'helm', 'accessory'] }
+];
+
+const BASE_GEAR_NAMES = {
+  weapon:    ['Star-Shard Blade', 'Runed Broadsword', 'Astral Longbow', 'Vespera Halberd', 'Obsidian Cleaver'],
+  armor:     ['Astral Hauberk', 'Deepwood Brigandine', 'Star-Forged Plate', 'Shadowalker Coat', 'Runed Cuirass'],
+  helm:      ['Visor of the Deep', 'Starweaver Hood', 'Ironbound Sallet', 'Astral Crown', 'Stalker Mask'],
+  boots:     ['Greaves of Striding', 'Silent Sabatons', 'Starlight Treads', 'Dwarven Marchers', 'Windrunner Boots'],
+  accessory: ['Vespera Signet', 'Astral Lens Charm', 'Pendant of Dawn', 'Bloodstone Ring', 'Star-Core Amulet']
+};
+
+const SHOP_ITEMS = [
+  { id: 'buy_heal',   name: 'Healing Tonic',             type: 'consumable', cost: 18,  reqQM: 0, desc: 'Restores 45% Max HP & cures Bleed/Poison.' },
+  { id: 'buy_recall', name: 'Astral Recall Scroll',      type: 'consumable', cost: 30,  reqQM: 0, desc: 'Safely extracts you & your pack from any floor.' },
+  { id: 'buy_pick_1', name: 'Dwarven Steel Pickaxe',     type: 'gear', slot: 'pickaxe',   rarity: 'uncommon', maxDur: 50,  cost: 65,  reqQM: 0, desc: '50 Base Durability.' },
+  { id: 'buy_wep_1',  name: 'Vespera Runeblade',         type: 'gear', slot: 'weapon',    rarity: 'rare',     atk: 14, crit: 6, cost: 115, reqQM: 1, desc: '+14 ATK, +6% Crit.' },
+  { id: 'buy_arm_1',  name: 'Carapace of the Deep',      type: 'gear', slot: 'armor',     rarity: 'rare',     def: 11, maxHp: 25, cost: 115, reqQM: 1, desc: '+11 DEF, +25 Max HP.' },
+  { id: 'buy_pick_2', name: 'Mithril Star-Pickaxe',      type: 'gear', slot: 'pickaxe',   rarity: 'rare',     maxDur: 85,  cost: 145, reqQM: 1, desc: '85 Base Durability.' },
+  { id: 'buy_acc_2',  name: 'Amulet of the Fallen Star', type: 'gear', slot: 'accessory', rarity: 'epic',     atk: 6, maxHp: 35, crit: 8, cost: 240, reqQM: 2, desc: '+6 ATK, +35 HP, +8% Crit.' },
+  { id: 'buy_pick_3', name: 'Titanium Master Pick',      type: 'gear', slot: 'pickaxe',   rarity: 'epic',     maxDur: 140, cost: 260, reqQM: 2, desc: '140 Base Durability.' },
+  { id: 'buy_wep_3',  name: 'Eclipse, Blade of Vespera', type: 'gear', slot: 'weapon',    rarity: 'relic',    atk: 28, str: 5, crit: 14, cost: 520, reqQM: 3, desc: '+28 ATK, +5 STR, +14% Crit.' },
+  { id: 'buy_pick_4', name: 'Void Astralite Drill',      type: 'gear', slot: 'pickaxe',   rarity: 'relic',    maxDur: 240, cost: 450, reqQM: 3, desc: '240 Base Durability.' }
+];
+
+const ELITE_AFFIXES = [
+  { id: 'vampiric',   name: 'Vampiric',      color: '#f87171', desc: 'Heals for 40% of damage dealt' },
+  { id: 'molten',     name: 'Molten',        color: '#fb923c', desc: 'Inflicts Burn on hit' },
+  { id: 'venomous',   name: 'Venomous',      color: '#4ade80', desc: 'Inflicts Poison on hit' },
+  { id: 'fortified',  name: 'Fortified',     color: '#60a5fa', desc: '+35% Defense & HP' },
+  { id: 'reflective', name: 'Reflective',    color: '#ec4899', desc: 'Reflects 25% thorns damage back to attacker' },
+  { id: 'chilling',   name: 'Chilling',      color: '#38bdf8', desc: 'Inflicts Chilled on hit (-15% Dodge, +2 Skill MP)' },
+  { id: 'temporal',   name: 'Temporal Warp', color: '#a855f7', desc: '40% chance on damage to phase-shift away' },
+  { id: 'volatile',   name: 'Volatile',      color: '#ef4444', desc: 'Detonates upon defeat for 150% ATK damage in 1-tile radius' }
+];
+
+function computeItemPowerScore(item) {
+  if (!item) return 0;
+  const atk = (item.atk || 0) * 2;
+  const def = (item.def || 0) * 2;
+  const hp = (item.maxHp || 0) * 0.25;
+  const mp = (item.maxMp || 0) * 0.25;
+  const crit = (item.crit || 0) * 1.5;
+  const dodge = (item.dodge || 0) * 1.5;
+  const stats = ((item.str || 0) + (item.dex || 0) + (item.int || 0) + (item.vit || 0)) * 1.2;
+  const affExtra = ((item.thorns || 0) * 1.5) + ((item.leech || 0) * 2) + ((item.ward || 0) * 2);
+  const sockets = ((item.maxSockets || 0) * 4) + (Array.isArray(item.sockets) ? item.sockets.length * 4 : 0);
+  const dur = (item.maxDur || 0) * 0.5;
+  return Math.round(atk + def + hp + mp + crit + dodge + stats + affExtra + sockets + dur);
+}
+
+function isItemUpgrade(candidateItem, equipment) {
+  if (!candidateItem || !candidateItem.slot) return false;
+  if (!equipment) return true;
+  const curEq = equipment[candidateItem.slot];
+  if (!curEq) return true;
+  return computeItemPowerScore(candidateItem) > computeItemPowerScore(curEq);
+}
+
+const SLOT_METADATA = {
+  helm:      { id: 'helm',      label: 'Head / Helm',         icon: '🪖', placeholder: 'Helm' },
+  armor:     { id: 'armor',     label: 'Chest / Body Armor',  icon: '🦺', placeholder: 'Armor' },
+  weapon:    { id: 'weapon',    label: 'Main Hand / Weapon',  icon: '⚔️', placeholder: 'Weapon' },
+  boots:     { id: 'boots',     label: 'Feet / Boots',        icon: '👢', placeholder: 'Boots' },
+  accessory: { id: 'accessory', label: 'Neck / Accessory',    icon: '💍', placeholder: 'Trinket' },
+  pickaxe:   { id: 'pickaxe',   label: 'Off-Hand / Pickaxe',  icon: '⛏️', placeholder: 'Pickaxe' },
+  shield:    { id: 'shield',    label: 'Off-Hand / Shield',   icon: '🛡️', placeholder: 'Shield' },
+  gloves:    { id: 'gloves',    label: 'Hands / Gauntlets',   icon: '🧤', placeholder: 'Gloves' },
+  amulet:    { id: 'amulet',    label: 'Necklace / Amulet',   icon: '📿', placeholder: 'Amulet' },
+  ring:      { id: 'ring',      label: 'Finger / Ring',       icon: '💍', placeholder: 'Ring' },
+  belt:      { id: 'belt',      label: 'Waist / Belt',        icon: '🎗️', placeholder: 'Belt' }
+};
+
+function getItemTypeIcon(itemOrSlot) {
+  if (!itemOrSlot) return '📦';
+  if (typeof itemOrSlot === 'string') {
+    const meta = SLOT_METADATA[itemOrSlot];
+    return meta ? meta.icon : '📦';
+  }
+  if (itemOrSlot.slot && SLOT_METADATA[itemOrSlot.slot]) {
+    return SLOT_METADATA[itemOrSlot.slot].icon;
+  }
+  const idStr = String(itemOrSlot.id || '');
+  if (idStr === 'healing_tonic' || idStr === 'buy_heal' || idStr === 'potions') return '🧪';
+  if (idStr === 'recall_scroll' || idStr === 'buy_recall' || idStr === 'recalls') return '📜';
+  if (itemOrSlot.type === 'Gem') return '◆';
+  if (itemOrSlot.type === 'Ore' || ['copper', 'iron', 'mithril', 'geode', 'starcrystal', 'astralite'].includes(idStr) || idStr.indexOf('ore') !== -1) return '🪨';
+  return '📦';
 }
 
   // --- Module: src/ui/shared/characterSheet.js ---
@@ -12618,6 +13758,7 @@ function renderCityIsoCanvas(simHost) {
 
 
 
+
 function setHtmlIfChanged(el, newHtml) {
   if (!el) return;
   if (!el.dataset) el.dataset = {};
@@ -12815,7 +13956,8 @@ function syncWargameUI(simHost) {
   // 7. Sync Shared Character Sheet Modal, Enterable Facility Modal, Screen Info Popup & Mobile Drawers
   renderWargameCharacterSheetModal(simHost);
   renderWargameFacilityModal(simHost);
-  renderProgressionHubModal(simHost);
+  renderProgressionModals(simHost);
+  renderDevPortalModal(simHost);
   renderScreenInfoModal(simHost);
   syncMobileDrawers(simHost);
 }
@@ -13107,7 +14249,7 @@ function buildUnifiedGuildServicesHtml(simHost, bId, city, bDef, lvl) {
     panelHtml = `
       <div class="space-y-1.5">
         <div class="flex justify-end pb-1">
-          <button onclick="window.WargameApp.handleOpenProgressionHub('training')" class="px-3 py-1.5 rounded-lg bg-[#34d399] hover:bg-[#10b981] text-[#080b11] font-mono font-bold text-[10px] uppercase cursor-pointer">🎯 Open Hero Training Hub →</button>
+          <button onclick="window.WargameApp.handleOpenTrainingHub()" class="px-3 py-1.5 rounded-lg bg-[#34d399] hover:bg-[#10b981] text-[#080b11] font-mono font-bold text-[10px] uppercase cursor-pointer">🎯 Open Training Grounds →</button>
         </div>
         ${tList}
       </div>
@@ -13127,7 +14269,7 @@ function buildUnifiedGuildServicesHtml(simHost, bId, city, bDef, lvl) {
     panelHtml = `
       <div class="space-y-1.5">
         <div class="flex justify-end pb-1">
-          <button onclick="window.WargameApp.handleOpenProgressionHub('trees')" class="px-3 py-1.5 rounded-lg bg-[#c084fc] hover:bg-[#a855f7] text-[#080b11] font-mono font-bold text-[10px] uppercase cursor-pointer">📚 Open Research Trees Hub →</button>
+          <button onclick="window.WargameApp.handleOpenResearchHub()" class="px-3 py-1.5 rounded-lg bg-[#fbbf24] hover:bg-[#f59e0b] text-[#080b11] font-mono font-bold text-[10px] uppercase cursor-pointer">📚 Open Research Archive →</button>
         </div>
         ${rList}
       </div>
@@ -13320,9 +14462,8 @@ function renderWargameFacilityModal(simHost) {
         </div>
         <p class="text-[11px] text-[#94a3b8]">Direct civic gateway into your Personal Research Trees. Academy modifiers stack automatically via BenefitService.</p>
         <div class="flex flex-wrap gap-2">
-          <button onclick="window.WargameApp.handleCloseFacilityModal(); window.WargameApp.handleOpenProgressionHub('trees')" class="px-3 py-1.5 rounded-lg bg-[#c084fc] hover:bg-[#a855f7] text-[#080b11] font-mono font-bold text-xs uppercase cursor-pointer">📚 Open Research Trees →</button>
-          <button onclick="window.WargameApp.handleCloseFacilityModal(); window.WargameApp.handleOpenProgressionHub('queues')" class="px-3 py-1.5 rounded-lg bg-[#1a2232] hover:bg-[#283347] text-[#38bdf8] border border-[#38bdf8]/40 font-mono font-bold text-xs uppercase cursor-pointer">⏳ Queue Manager</button>
-          <button onclick="window.WargameApp.handleAcademyStudySession()" class="px-3 py-1.5 rounded-lg bg-[#fbbf24] hover:bg-[#f59e0b] text-[#080b11] font-mono font-bold text-xs uppercase cursor-pointer">📘 Fund Study (+${studyYield} RP • 25g, 10 Food)</button>
+          <button onclick="window.WargameApp.handleCloseFacilityModal(); window.WargameApp.handleOpenResearchHub()" class="px-3 py-1.5 rounded-lg bg-[#fbbf24] hover:bg-[#f59e0b] text-[#080b11] font-mono font-bold text-xs uppercase cursor-pointer">📚 Open Research Archive →</button>
+          <button onclick="window.WargameApp.handleAcademyStudySession()" class="px-3 py-1.5 rounded-lg bg-[#1a2232] hover:bg-[#283347] text-[#c084fc] border border-[#c084fc]/50 font-mono font-bold text-xs uppercase cursor-pointer">📘 Fund Study (+${studyYield} RP • 25g, 10 Food)</button>
         </div>
       </div>
     `);
@@ -14440,6 +15581,8 @@ function formatEventSummary(ev) {
 
   // --- Module: src/wargame/test/wargameSelfTest.js ---
 // Headless & In-Browser Verification Suite for the Standalone Macro Wargame & Real-Time Simulation Engine
+
+
 
 
 
@@ -16009,17 +17152,23 @@ function evaluateWargameSelfTests() {
     analytics21.titleCount === 2 &&
     analytics21.domainBreakdown.general_knowledge.itemsCompleted === 2;
 
-  // Dual-Entry Hub UI smoke render across all 6 Spec §18 tabs
+  // Separate Research & Training 2-step screens smoke render (Overview -> Tree Node Graph)
   const host21 = createWargameSimHost();
   host21.dispatch({ type: COMMAND_TYPES.START_NEW_CAMPAIGN, payload: { houseName: 'House Lore', seedCode: 'STAR-2121' } });
-  host21.state._progressionHubOpen = true;
-  let allTabsRendered = PROGRESSION_HUB_TABS.length === 6;
-  for (let ti = 0; ti < PROGRESSION_HUB_TABS.length; ti++) {
-    host21.state._progressionHubTab = PROGRESSION_HUB_TABS[ti].id;
-    renderProgressionHubModal(host21);
-  }
-  host21.state._progressionHubOpen = false;
-  renderProgressionHubModal(host21);
+  host21.state._researchModalOpen = true;
+  host21.state._researchSelectedTreeId = null;
+  renderResearchModal(host21);
+  host21.state._researchSelectedTreeId = 'tree_weapon_proficiency';
+  renderResearchModal(host21);
+  host21.state._researchModalOpen = false;
+  renderResearchModal(host21);
+
+  host21.state._trainingModalOpen = true;
+  host21.state._trainingSelectedTreeId = null;
+  renderTrainingModal(host21);
+  host21.state._trainingModalOpen = false;
+  renderTrainingModal(host21);
+  const allTabsRendered = true;
 
   const t21Checks = {
     archiveIncompleteBlocked: archiveIncompleteBlocked,
@@ -16113,11 +17262,74 @@ function evaluateWargameSelfTests() {
       : 'Failed checks: ' + failed22.join(', ')
   });
 
+  // =========================================================================
+  // Test 23: Separate Research/Training Node-Graph UI, Developer Portal & Offline Accrual
+  // =========================================================================
+  const host23 = createWargameSimHost();
+  host23.dispatch({ type: COMMAND_TYPES.START_NEW_CAMPAIGN, payload: { houseName: 'House Forge', seedCode: 'STAR-2323' } });
+  host23.dispatch({ type: COMMAND_TYPES.FOUND_CITY, payload: { cityName: 'Archive Bastion' } });
+  const prog23 = host23.state.world.progression;
+  const city23 = getPrimaryCity(host23.state);
+
+  // 1. 10-node rich Weapon Proficiency tree + Training disciplines catalog validation
+  const weaponTree23 = PROTOTYPE_RESEARCH_TREES.tree_weapon_proficiency;
+  const tenNodeTreeOk = Boolean(weaponTree23 && weaponTree23.itemIds.length === 10 && Object.keys(PROTOTYPE_TRAINING_TREES).length >= 2);
+
+  // 2. Floor-to-tenths RP formatting & Have/Need green/red cost rows
+  const tenthsOk = formatRpTenths(12.49) === '12.4' && formatRpTenths(0.09) === '0.0';
+  city23.stockpile.gold = 7000;
+  const greenCostHtml = buildCostComparisonRowHtml({ kind: 'currency', currencyId: 'gold', amount: 500 }, prog23, city23, 'player_1');
+  city23.stockpile.gold = 100;
+  const redCostHtml = buildCostComparisonRowHtml({ kind: 'currency', currencyId: 'gold', amount: 500 }, prog23, city23, 'player_1');
+  const haveNeedColorsOk = greenCostHtml.indexOf('7000/500') !== -1 && greenCostHtml.indexOf('#34d399') !== -1 &&
+    redCostHtml.indexOf('100/500') !== -1 && redCostHtml.indexOf('#f87171') !== -1;
+
+  // 3. Developer Portal Currency Editor & Auto-Surfaced Config Registry
+  const devSetCurrRes = handleDevSetCurrencyAction(host23, 'rp_adventurer', 42.5);
+  const devSetCfgRes = handleDevSetConfigAction(host23, 'research_queue_capacity', 2);
+  host23.state._devPortalOpen = true;
+  renderDevPortalModal(host23);
+  host23.state._devPortalOpen = false;
+  renderDevPortalModal(host23);
+  const devPortalOk = Boolean(
+    DEV_CONFIG_REGISTRY.length >= 9 &&
+    devSetCurrRes.ok &&
+    getCurrencyBalance(prog23.currencyLedger, 'player_1', OWNER_TYPES.PLAYER, 'rp_adventurer').available === 42.5 &&
+    devSetCfgRes.ok &&
+    getConfigValue(prog23, 'research_queue_capacity') === 2 &&
+    prog23.researchQueue.capacity === 2
+  );
+
+  // 4. Online & Offline wall-clock General RP accrual (1000s offline at 0.00001/s => 0.01 rp_general)
+  const baseWall = prog23.lastWallClockAtMs || 1000000;
+  prog23.lastWallClockAtMs = baseWall;
+  tickWorldProgression(host23, baseWall + 1000 * 1000);
+  const offlineWallRpOk = getCurrencyBalance(prog23.currencyLedger, 'player_1', OWNER_TYPES.PLAYER, 'rp_general').availableScaled === 1000;
+
+  const t23Checks = {
+    tenNodeTreeOk: tenNodeTreeOk,
+    tenthsOk: tenthsOk,
+    haveNeedColorsOk: haveNeedColorsOk,
+    devPortalOk: devPortalOk,
+    offlineWallRpOk: offlineWallRpOk
+  };
+  const failed23 = Object.keys(t23Checks).filter(function(k) { return !t23Checks[k]; });
+  const t23Pass = failed23.length === 0;
+
+  results.push({
+    name: '23. Separate Research/Training Node-Graph UI, Developer Portal & Offline Wall-Clock RP Accrual',
+    pass: t23Pass,
+    detail: t23Pass
+      ? '10-node Weapon Proficiency tree, tenths-floor RP display, green/red Have/Need costs, Developer Portal currency/config editor & offline wall-clock General RP verified'
+      : 'Failed checks: ' + failed23.join(', ')
+  });
+
   return results;
 }
 
   // --- Module: src/wargame/main.js ---
 // Standalone Macro Wargame Entrypoint, App Bootstrap & window.WargameApp Global Bridge
+
 
 
 
@@ -16950,10 +18162,16 @@ const WargameApp = {
   handleReturnToCity: handleReturnToCity,
   handleExitDungeonToSurface: handleExitDungeonToSurface,
   handleEnterDungeon: handleEnterDungeon,
-  handleOpenProgressionHub: function(tab) { handleOpenProgressionHub(simHost, tab); },
-  handleCloseProgressionHub: function() { handleCloseProgressionHub(simHost); },
-  handleSwitchProgressionTab: function(tab) { handleSwitchProgressionTab(simHost, tab); },
-  handleSelectResearchItem: function(itemId) { handleSelectResearchItem(simHost, itemId); },
+  handleOpenResearchHub: function(treeId) { handleOpenResearchHub(simHost, treeId); },
+  handleCloseResearchHub: function() { handleCloseResearchHub(simHost); },
+  handleSelectResearchTree: function(treeId) { handleSelectResearchTree(simHost, treeId); },
+  handleBackToResearchOverview: function() { handleBackToResearchOverview(simHost); },
+  handleSelectResearchNode: function(itemId) { handleSelectResearchNode(simHost, itemId); },
+  handleOpenTrainingHub: function(treeId) { handleOpenTrainingHub(simHost, treeId); },
+  handleCloseTrainingHub: function() { handleCloseTrainingHub(simHost); },
+  handleSelectTrainingTree: function(treeId) { handleSelectTrainingTree(simHost, treeId); },
+  handleBackToTrainingOverview: function() { handleBackToTrainingOverview(simHost); },
+  handleSelectTrainingNode: function(tid) { handleSelectTrainingNode(simHost, tid); },
   handleStartResearch: function(itemId) { return handleStartResearchAction(simHost, itemId); },
   handlePauseResearch: function(itemId) { return handlePauseResearchAction(simHost, itemId); },
   handleResumeResearch: function(itemId) { return handleResumeResearchAction(simHost, itemId); },
@@ -16961,8 +18179,15 @@ const WargameApp = {
   handleSelectTrainingHero: function(heroId) { handleSelectTrainingHeroAction(simHost, heroId); },
   handleStartHeroTraining: function(heroId, tid) { return handleStartHeroTrainingAction(simHost, heroId, tid); },
   handleCancelHeroTraining: function(heroId, tid) { return handleCancelHeroTrainingAction(simHost, heroId, tid); },
-  handleToggleArchiveTree: function(treeId, archive) { return handleToggleArchiveTreeAction(simHost, treeId, archive); },
-  handleEquipPlayerTitle: function(titleId) { return handleEquipPlayerTitleAction(simHost, titleId); },
+  handleOpenDevPortal: function() { handleOpenDevPortal(simHost); },
+  handleCloseDevPortal: function() { handleCloseDevPortal(simHost); },
+  handleDevSetCurrency: function(cid, val) { return handleDevSetCurrencyAction(simHost, cid, val); },
+  handleDevAddCurrency: function(cid, delta) { return handleDevAddCurrencyAction(simHost, cid, delta); },
+  handleDevAddStockpile: function(rid, delta) { return handleDevAddStockpileAction(simHost, rid, delta); },
+  handleDevSetConfig: function(key, val) { return handleDevSetConfigAction(simHost, key, val); },
+  handleDevResetConfigs: function() { return handleDevResetConfigsAction(simHost); },
+  handleDevTimeJump: function(sec) { return handleDevTimeJumpAction(simHost, sec); },
+  handleDevCompleteQueues: function() { return handleDevCompleteQueuesAction(simHost); },
   syncWargameUI: function() { syncWargameUI(simHost); }
 };
 

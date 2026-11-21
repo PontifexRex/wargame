@@ -181,3 +181,28 @@ Consistent across both `wargame.html` and `index.html`:
    - Dungeon controls retain crisp single-key bindings (`WASD`/Arrows, `1–3` skills, `R` Recall, `I` Character Sheet, `G` Interact/Pickup) with visible keycap badges (`[R]`, `[I]`) on HUD buttons.
 4. **Reduced Motion Respect**:
    - Non-essential decorative animations (shimmer, torch flicker, ambient float) respect `@media (prefers-reduced-motion: reduce)`.
+
+---
+
+## 7. Game UI Look & Feel Standards — Research, Training & Progression Screens
+
+Aethelgard's management screens must feel like a **handcrafted strategy RPG**, never a generic web dashboard or SaaS admin page:
+
+### 7.1 Anti-Slop Layout & Information Architecture Rules
+1. **Atmospheric Scene Header First**: Every major progression screen opens with a full-bleed medieval header illustration (e.g., *Medieval Library / Arcane Laboratory* for Research; *Arms Training Yard* for Training) with floating obsidian-glass title and close controls. Never lead with dry text subtitles that duplicate numbers shown below.
+2. **Concept Separation (No Combined Super-Hubs)**: **Research** (player/organization knowledge) and **Training** (individual Hero/Subject skill drills) are strictly separate top-level screens with parallel, intuitive 2-step flows—never crammed into a single multi-tab modal.
+3. **Zero-Tab 2-Step Drill-Down**:
+   - **Step 1 — Overview**: Compact relevant currency strip + inline Active Queue + visual grid of Active Trees/Tracks (showing emblem, name, `% complete`, and a glowing sparkle state when active in queue). Completed trees stay out of the active overview and belong in a dedicated Stats/Archive screen.
+   - **Step 2 — Tree Node Graph & Docked Detail**: Clicking a Tree/Track opens a scrollable 2D connected node-and-edge graph (scaling cleanly beyond 8–12 nodes) paired with a docked Detail Panel for the selected node and a clear `← Back` control.
+4. **No Clutter Widgets**: Never embed unrelated meta-widgets (such as Title selectors or Research-only onboarding checklists) into the Research/Training Overview. Onboarding belongs in the unified game-wide Tutorial & Task system; Titles belong in their own future Profile/Identity system.
+
+### 7.2 Currency, Rate & Affordability Formatting Rules
+1. **Relevant Currencies Only**: Show only the currencies directly relevant to the screen (e.g., all RP currencies on Research—General, Adventurer, Guild RPs, Alliance RP—without listing unrelated currencies like Gold in the RP strip).
+2. **Floor-to-Tenths Display**: Display RP balances rounded **down** to tenths (`12.4`, never `12.40000`) while preserving full `0.00001` scaled-integer precision internally.
+3. **Effective Rate Display**: Show the **actual net rate after modifiers** (e.g., `+0.00002/sec` for General RP, `+0.001 / action` for Adventurer RP) instead of vague "+modifiers" text; place full modifier breakdowns in hover tooltips.
+4. **Have / Need Affordability Format**: On every item detail cost row, display `<Resource> <Owned>/<Required>` (e.g., `Gold 7000/500`) in **emerald green (`#34d399`)** when affordable and **crimson red (`#f87171`)** when insufficient.
+5. **Multi-Level Pips**: Represent multi-level items visually using filled/open pips (`● ○ ○`) alongside `Lv 1/3` so depth is readable at a glance on the node graph.
+
+### 7.3 Naming & Developer Portal Configuration Rule
+- **Clear Non-Overlapping Naming**: *Research* = Knowledge Trees; *Training* = Individual Hero Drills; *Queue* = Inline Active Slot; *Developer Portal* = Live tuning & testing console.
+- **Auto-Surfaced Configuration Contract**: Whenever a new key gameplay configuration is introduced (accrual rates, activity awards, queue capacities, refund ratios, speed multipliers), it MUST be registered in `src/progression/configRegistry.js` so it is automatically exposed and live-editable in the **Developer Portal**.

@@ -19,20 +19,35 @@ import {
 import { syncWargameUI, updateHeaderFastTick } from './ui/wargameUiSync.js';
 import {
   tickWorldProgression,
-  handleOpenProgressionHub,
-  handleCloseProgressionHub,
-  handleSwitchProgressionTab,
-  handleSelectResearchItem,
+  handleOpenResearchHub,
+  handleCloseResearchHub,
+  handleSelectResearchTree,
+  handleBackToResearchOverview,
+  handleSelectResearchNode,
+  handleOpenTrainingHub,
+  handleCloseTrainingHub,
+  handleSelectTrainingTree,
+  handleBackToTrainingOverview,
+  handleSelectTrainingNode,
   handleStartResearchAction,
   handlePauseResearchAction,
   handleResumeResearchAction,
   handleCancelResearchAction,
   handleSelectTrainingHeroAction,
   handleStartHeroTrainingAction,
-  handleCancelHeroTrainingAction,
-  handleToggleArchiveTreeAction,
-  handleEquipPlayerTitleAction
+  handleCancelHeroTrainingAction
 } from './ui/progressionUi.js';
+import {
+  handleOpenDevPortal,
+  handleCloseDevPortal,
+  handleDevSetCurrencyAction,
+  handleDevAddCurrencyAction,
+  handleDevAddStockpileAction,
+  handleDevSetConfigAction,
+  handleDevResetConfigsAction,
+  handleDevTimeJumpAction,
+  handleDevCompleteQueuesAction
+} from './ui/devPortal.js';
 import { attachCityIsoControls, renderCityIsoCanvas } from './ui/cityIsoCanvas.js';
 import { findOverworldPath, isOverworldTilePassable } from './engine/pathfinding.js';
 import { getSelectedOverworldUnit, getPrimaryCity } from './engine/state.js';
@@ -864,10 +879,16 @@ export const WargameApp = {
   handleReturnToCity: handleReturnToCity,
   handleExitDungeonToSurface: handleExitDungeonToSurface,
   handleEnterDungeon: handleEnterDungeon,
-  handleOpenProgressionHub: function(tab) { handleOpenProgressionHub(simHost, tab); },
-  handleCloseProgressionHub: function() { handleCloseProgressionHub(simHost); },
-  handleSwitchProgressionTab: function(tab) { handleSwitchProgressionTab(simHost, tab); },
-  handleSelectResearchItem: function(itemId) { handleSelectResearchItem(simHost, itemId); },
+  handleOpenResearchHub: function(treeId) { handleOpenResearchHub(simHost, treeId); },
+  handleCloseResearchHub: function() { handleCloseResearchHub(simHost); },
+  handleSelectResearchTree: function(treeId) { handleSelectResearchTree(simHost, treeId); },
+  handleBackToResearchOverview: function() { handleBackToResearchOverview(simHost); },
+  handleSelectResearchNode: function(itemId) { handleSelectResearchNode(simHost, itemId); },
+  handleOpenTrainingHub: function(treeId) { handleOpenTrainingHub(simHost, treeId); },
+  handleCloseTrainingHub: function() { handleCloseTrainingHub(simHost); },
+  handleSelectTrainingTree: function(treeId) { handleSelectTrainingTree(simHost, treeId); },
+  handleBackToTrainingOverview: function() { handleBackToTrainingOverview(simHost); },
+  handleSelectTrainingNode: function(tid) { handleSelectTrainingNode(simHost, tid); },
   handleStartResearch: function(itemId) { return handleStartResearchAction(simHost, itemId); },
   handlePauseResearch: function(itemId) { return handlePauseResearchAction(simHost, itemId); },
   handleResumeResearch: function(itemId) { return handleResumeResearchAction(simHost, itemId); },
@@ -875,8 +896,15 @@ export const WargameApp = {
   handleSelectTrainingHero: function(heroId) { handleSelectTrainingHeroAction(simHost, heroId); },
   handleStartHeroTraining: function(heroId, tid) { return handleStartHeroTrainingAction(simHost, heroId, tid); },
   handleCancelHeroTraining: function(heroId, tid) { return handleCancelHeroTrainingAction(simHost, heroId, tid); },
-  handleToggleArchiveTree: function(treeId, archive) { return handleToggleArchiveTreeAction(simHost, treeId, archive); },
-  handleEquipPlayerTitle: function(titleId) { return handleEquipPlayerTitleAction(simHost, titleId); },
+  handleOpenDevPortal: function() { handleOpenDevPortal(simHost); },
+  handleCloseDevPortal: function() { handleCloseDevPortal(simHost); },
+  handleDevSetCurrency: function(cid, val) { return handleDevSetCurrencyAction(simHost, cid, val); },
+  handleDevAddCurrency: function(cid, delta) { return handleDevAddCurrencyAction(simHost, cid, delta); },
+  handleDevAddStockpile: function(rid, delta) { return handleDevAddStockpileAction(simHost, rid, delta); },
+  handleDevSetConfig: function(key, val) { return handleDevSetConfigAction(simHost, key, val); },
+  handleDevResetConfigs: function() { return handleDevResetConfigsAction(simHost); },
+  handleDevTimeJump: function(sec) { return handleDevTimeJumpAction(simHost, sec); },
+  handleDevCompleteQueues: function() { return handleDevCompleteQueuesAction(simHost); },
   syncWargameUI: function() { syncWargameUI(simHost); }
 };
 
