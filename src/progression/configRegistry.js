@@ -37,13 +37,24 @@ export const DEV_CONFIG_REGISTRY = [
   {
     key: 'activity_rp_monster_defeat',
     category: CONFIG_CATEGORIES.ACCRUAL,
-    label: 'Adventurer RP per Monster Defeated',
+    label: 'Warrior RP per Monster Defeated (Any Class)',
     type: 'number',
     step: 0.001,
     min: 0,
     max: 50,
     defaultValue: 0.005,
-    desc: 'Base Adventurer RP awarded for defeating a dungeon or overworld monster.'
+    desc: 'Base Warrior RP awarded for defeating a monster with any class.'
+  },
+  {
+    key: 'activity_rp_warrior_action',
+    category: CONFIG_CATEGORIES.ACCRUAL,
+    label: 'Warrior RP per Warrior Class Action',
+    type: 'number',
+    step: 0.0005,
+    min: 0,
+    max: 10,
+    defaultValue: 0.002,
+    desc: 'Base Warrior RP awarded for any qualifying action performed by a Warrior class.'
   },
   {
     key: 'activity_rp_research_quest',

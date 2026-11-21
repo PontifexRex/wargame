@@ -454,35 +454,76 @@ export function renderWargameCharacterSheetModal(simHost) {
   }
 }
 
-export function buildUnifiedGuildServicesHtml(simHost, bId, city, bDef, lvl) {
-  const fac = (bDef && bDef.facilities) || {};
-  const tabs = [];
-  if (fac.recruitment && Array.isArray(fac.recruitment.classes)) {
-    tabs.push({ id: 'recruit', label: '⚔️ Recruit' });
+function buildNetResourceOverlayText(bDef, lvl) {
+  if (!bDef) return '';
+  const net = {};
+  if (bDef.productionPerTick) {
+    Object.entries(bDef.productionPerTick).forEach(function(e) {
+      net[e[0]] = (net[e[0]] || 0) + (e[1] * lvl);
+    });
   }
-  if (fac.questBoard) tabs.push({ id: 'quests', label: '📜 Quests' });
-  if (fac.training)   tabs.push({ id: 'training', label: '🎯 Training' });
-  if (fac.research)   tabs.push({ id: 'research', label: '📚 Research' });
-  if (fac.shop)       tabs.push({ id: 'shop', label: '🛒 Shop' });
+  if (bDef.consumptionPerTick) {
+    Object.entries(bDef.consumptionPerTick).forEach(function(e) {
+      net[e[0]] = (net[e[0]] || 0) - (e[1] * lvl);
+    });
+  }
+  const parts = [];
+  Object.entries(net).forEach(function(e) {
+    if (e[1] !== 0) {
+      const sign = e[1] > 0 ? '+' : '';
+      const label = e[0].charAt(0).toUpperCase() + e[0].slice(1);
+      parts.push(sign + e[1] + ' ' + label + '/tick');
+    }
+  });
+  if (bDef.providesPopulation) parts.push('+' + (bDef.providesPopulation * lvl) + ' Max Pop');
+  if (bDef.storageBonus) {
+    Object.entries(bDef.storageBonus).forEach(function(e) {
+      parts.push('+' + (e[1] * lvl) + ' ' + e[0] + ' Cap');
+    });
+  }
+  if (bDef.adjacencyBonus) parts.push('+20% Adjacent Yield');
+  return parts.length > 0 ? ('Net: ' + parts.join(' • ')) : '';
+}
 
-  if (tabs.length === 0) return '';
+export function buildUnifiedGuildServicesHtml(simHost, bId, city, bDef, lvl, activePlot) {
+  const fac = (bDef && bDef.facilities) || {};
+  const hasGuildServices = Boolean(
+    (fac.recruitment && Array.isArray(fac.recruitment.classes)) ||
+    fac.questBoard || fac.training || fac.research || fac.shop
+  );
+  if (!hasGuildServices) return '';
 
-  const requestedTab = simHost && simHost.state ? simHost.state._facilityTab : null;
-  const activeTab = tabs.some(function(t) { return t.id === requestedTab; }) ? requestedTab : tabs[0].id;
-
+  const subPage = simHost && simHost.state ? (simHost.state._facilityTab || null) : null;
   const domain = (fac.questBoard && fac.questBoard.domain)
     || (fac.training && fac.training.domain)
     || (fac.research && fac.research.domain)
     || 'adventurers';
   const catalog = GUILD_SERVICE_CATALOGS[domain] || GUILD_SERVICE_CATALOGS.adventurers;
 
-  const tabBarHtml = tabs.map(function(t) {
-    const isAct = t.id === activeTab;
-    return `<button onclick="window.WargameApp.handleSwitchFacilityTab('${t.id}')" class="px-3 py-1.5 rounded-lg text-[11px] font-mono font-bold uppercase cursor-pointer transition ${isAct ? 'bg-[#fbbf24] text-[#080b11] shadow' : 'bg-[#080b11]/75 hover:bg-[#1a2232] text-[#cbd5e1] border border-[#283347]'}">${t.label}</button>`;
-  }).join('');
+  // Compute Upgrade button state
+  const nextLvl = lvl + 1;
+  const isMaxLvl = nextLvl > (bDef.maxLevel || 5);
+  const upgCost = !isMaxLvl ? computeBuildingUpgradeCost(bId, nextLvl) : null;
+  const upgDur = !isMaxLvl ? computeBuildingDurationMs(bId, nextLvl) : 0;
+  const mhLvl = (city.buildings && (city.buildings.meeting_hall || city.buildings.town_hall)) || 1;
+  const isMH = (bId === 'meeting_hall' || bId === 'town_hall');
+  const cappedByMH = !isMH && nextLvl > mhLvl;
+  const canAffordUpg = Boolean(
+    !isMaxLvl && !cappedByMH && activePlot && !activePlot.underConstruction &&
+    (city.stockpile.wood  || 0) >= (upgCost.wood  || 0) &&
+    (city.stockpile.stone || 0) >= (upgCost.stone || 0) &&
+    (city.stockpile.gold  || 0) >= (upgCost.gold  || 0) &&
+    (city.stockpile.water || 0) >= (upgCost.water || 0) &&
+    (city.stockpile.ore   || 0) >= (upgCost.ore   || 0)
+  );
+  const upgTitle = isMaxLvl
+    ? 'Maximum Level Reached'
+    : (cappedByMH
+      ? ('Requires Meeting Hall Lv ' + nextLvl)
+      : ('Upgrade Lv ' + nextLvl + ': ' + upgCost.wood + 'W, ' + upgCost.stone + 'S' + (upgCost.gold ? (', ' + upgCost.gold + 'G') : '') + ' (' + formatSimDuration(upgDur) + ')'));
 
-  let panelHtml = '';
-  if (activeTab === 'recruit') {
+  // Dedicated Sub-Pages: Recruit / Quest Board / Shop (opened from the clean action row)
+  if (subPage === 'recruit' && fac.recruitment && Array.isArray(fac.recruitment.classes)) {
     const classCards = fac.recruitment.classes.map(function(entry) {
       const cDef = RECRUITABLE_HERO_CLASSES.find(function(c) { return c.classId === entry.classId; });
       if (!cDef) return '';
@@ -490,26 +531,44 @@ export function buildUnifiedGuildServicesHtml(simHost, bId, city, bDef, lvl) {
       const canAfford = unlocked && (city.stockpile.gold || 0) >= cDef.costGold && (city.stockpile.food || 0) >= cDef.costFood;
       const portraitSrc = getProductionImageSrc(getHeroPortraitAssetId(cDef.classId));
       const portraitHtml = portraitSrc
-        ? `<img src="${portraitSrc}" alt="${cDef.name}" class="w-12 h-12 rounded-lg object-cover border border-[#fbbf24]/50 shadow shrink-0 bg-[#080b11]" />`
-        : `<div class="w-12 h-12 rounded-lg bg-[#080b11] border border-[#283347] flex items-center justify-center text-xl shrink-0">${cDef.icon}</div>`;
+        ? `<img src="${portraitSrc}" alt="${cDef.name}" class="w-16 h-16 rounded-lg object-cover border border-[#fbbf24]/50 shadow shrink-0 bg-[#080b11]" />`
+        : `<div class="w-16 h-16 rounded-lg bg-[#080b11] border border-[#283347] flex items-center justify-center text-2xl shrink-0">${cDef.icon}</div>`;
+      const bs = cDef.baseStats || { hp: 80, mp: 20, atk: 10, def: 5 };
       return `
-        <div class="p-2.5 rounded-lg bg-[#111722]/90 border border-[#283347] flex items-center justify-between gap-3 text-xs">
-          <div class="flex items-center gap-2.5 min-w-0">
+        <div class="p-3 rounded-lg bg-[#111722]/92 border border-[#283347] flex flex-wrap items-center justify-between gap-3 text-xs">
+          <div class="flex items-center gap-3 min-w-0 flex-1">
             ${portraitHtml}
-            <div class="min-w-0">
-              <div class="font-bold truncate" style="color:${cDef.color}">${cDef.icon} ${cDef.name} <span class="text-[9px] font-mono text-[#fbbf24]">• ${cDef.title}</span></div>
-              <div class="text-[10px] text-[#94a3b8] truncate">${cDef.specialty || ''}</div>
-              <div class="text-[10px] font-mono text-[#fbbf24] mt-0.5">${unlocked ? ('Oath Cost: ' + cDef.costGold + 'g • ' + cDef.costFood + ' Food') : ('Unlocks at ' + bDef.name + ' Lv ' + entry.minLevel)}</div>
+            <div class="min-w-0 space-y-1">
+              <div class="font-bold text-sm truncate" style="color:${cDef.color}">${cDef.icon} ${cDef.name} <span class="text-[10px] font-mono text-[#fbbf24]">• ${cDef.title}</span></div>
+              <div class="text-[11px] text-[#94a3b8]">${cDef.specialty || ''}</div>
+              <div class="flex flex-wrap items-center gap-2 text-[10px] font-mono text-[#cbd5e1]">
+                <span class="px-1.5 py-0.5 rounded bg-[#080b11] border border-[#1e293b]">HP <strong>${bs.hp}</strong></span>
+                <span class="px-1.5 py-0.5 rounded bg-[#080b11] border border-[#1e293b]">MP <strong>${bs.mp}</strong></span>
+                <span class="px-1.5 py-0.5 rounded bg-[#080b11] border border-[#1e293b]">ATK <strong>${bs.atk}</strong></span>
+                <span class="px-1.5 py-0.5 rounded bg-[#080b11] border border-[#1e293b]">DEF <strong>${bs.def}</strong></span>
+              </div>
+              <div class="text-[10px] font-mono text-[#fbbf24]">${unlocked ? ('Recruit Cost: ' + cDef.costGold + 'g • ' + cDef.costFood + ' Food') : ('Unlocks at ' + bDef.name + ' Lv ' + entry.minLevel)}</div>
             </div>
           </div>
-          <button onclick="window.WargameApp.handleRecruitHero('${cDef.classId}')" ${!canAfford ? 'disabled' : ''} class="px-3 py-1.5 rounded text-[10px] font-mono font-bold uppercase whitespace-nowrap ${canAfford ? 'bg-[#fbbf24] hover:bg-[#f59e0b] text-[#080b11] cursor-pointer' : 'bg-[#1a2232] text-[#64748b] cursor-not-allowed'}">
-            ${unlocked ? '⚔️ Train (60s)' : ('Lv ' + entry.minLevel)}
+          <button onclick="window.WargameApp.handleRecruitHero('${cDef.classId}')" ${!canAfford ? 'disabled' : ''} class="px-4 py-2 rounded-lg text-xs font-mono font-bold uppercase whitespace-nowrap ${canAfford ? 'bg-[#fbbf24] hover:bg-[#f59e0b] text-[#080b11] cursor-pointer' : 'bg-[#1a2232] text-[#64748b] cursor-not-allowed'}">
+            ${unlocked ? '⚔️ Recruit (60s)' : ('Lv ' + entry.minLevel)}
           </button>
         </div>
       `;
     }).join('');
-    panelHtml = `<div class="space-y-1.5">${classCards}</div>`;
-  } else if (activeTab === 'quests') {
+
+    return `
+      <div class="p-3.5 rounded-xl bg-[#080b11]/90 border border-[#fbbf24]/50 space-y-2.5">
+        <div class="flex items-center justify-between">
+          <span class="font-display text-sm font-bold text-[#fbbf24]">⚔️ Recruit Heroes — ${bDef.name}</span>
+          <button onclick="window.WargameApp.handleSwitchFacilityTab('')" class="px-2.5 py-1 rounded bg-[#1a2232] hover:bg-[#283347] text-xs font-mono text-[#e6edf3] cursor-pointer">← Back</button>
+        </div>
+        <div class="space-y-2">${classCards}</div>
+      </div>
+    `;
+  }
+
+  if (subPage === 'quests' && fac.questBoard) {
     const qList = (catalog.quests || []).map(function(q) {
       return `
         <div class="p-2.5 rounded-lg bg-[#111722]/90 border border-[#283347] flex items-center justify-between gap-2 text-xs">
@@ -521,48 +580,18 @@ export function buildUnifiedGuildServicesHtml(simHost, bId, city, bDef, lvl) {
         </div>
       `;
     }).join('');
-    panelHtml = `<div class="space-y-1.5">${qList}</div>`;
-  } else if (activeTab === 'training') {
-    const tList = (catalog.training || []).map(function(tr) {
-      return `
-        <div class="p-2.5 rounded-lg bg-[#111722]/90 border border-[#283347] flex items-center justify-between gap-2 text-xs">
-          <div>
-            <div class="font-bold text-[#38bdf8]">🎯 ${tr.name}</div>
-            <div class="text-[10px] text-[#94a3b8]">${tr.desc}</div>
-          </div>
-          <span class="px-2 py-1 rounded bg-[#080b11] border border-[#fbbf24]/40 text-[10px] font-mono text-[#fbbf24] whitespace-nowrap">${tr.cost}</span>
+    return `
+      <div class="p-3.5 rounded-xl bg-[#080b11]/90 border border-[#fbbf24]/50 space-y-2.5">
+        <div class="flex items-center justify-between">
+          <span class="font-display text-sm font-bold text-[#fbbf24]">📜 Quest Board — ${bDef.name}</span>
+          <button onclick="window.WargameApp.handleSwitchFacilityTab('')" class="px-2.5 py-1 rounded bg-[#1a2232] hover:bg-[#283347] text-xs font-mono text-[#e6edf3] cursor-pointer">← Back</button>
         </div>
-      `;
-    }).join('');
-    panelHtml = `
-      <div class="space-y-1.5">
-        <div class="flex justify-end pb-1">
-          <button onclick="window.WargameApp.handleOpenTrainingHub()" class="px-3 py-1.5 rounded-lg bg-[#34d399] hover:bg-[#10b981] text-[#080b11] font-mono font-bold text-[10px] uppercase cursor-pointer">🎯 Open Training Grounds →</button>
-        </div>
-        ${tList}
+        <div class="space-y-1.5">${qList}</div>
       </div>
     `;
-  } else if (activeTab === 'research') {
-    const rList = (catalog.research || []).map(function(rs) {
-      return `
-        <div class="p-2.5 rounded-lg bg-[#111722]/90 border border-[#283347] flex items-center justify-between gap-2 text-xs">
-          <div>
-            <div class="font-bold text-[#c084fc]">📚 ${rs.name}</div>
-            <div class="text-[10px] text-[#94a3b8]">${rs.desc}</div>
-          </div>
-          <span class="px-2 py-1 rounded bg-[#080b11] border border-[#c084fc]/40 text-[10px] font-mono text-[#c084fc] whitespace-nowrap">${rs.cost}</span>
-        </div>
-      `;
-    }).join('');
-    panelHtml = `
-      <div class="space-y-1.5">
-        <div class="flex justify-end pb-1">
-          <button onclick="window.WargameApp.handleOpenResearchHub()" class="px-3 py-1.5 rounded-lg bg-[#fbbf24] hover:bg-[#f59e0b] text-[#080b11] font-mono font-bold text-[10px] uppercase cursor-pointer">📚 Open Research Archive →</button>
-        </div>
-        ${rList}
-      </div>
-    `;
-  } else if (activeTab === 'shop') {
+  }
+
+  if (subPage === 'shop' && fac.shop) {
     const sList = (catalog.shop || []).map(function(sh) {
       return `
         <div class="p-2.5 rounded-lg bg-[#111722]/90 border border-[#283347] flex items-center justify-between gap-2 text-xs">
@@ -574,15 +603,39 @@ export function buildUnifiedGuildServicesHtml(simHost, bId, city, bDef, lvl) {
         </div>
       `;
     }).join('');
-    panelHtml = `<div class="space-y-1.5">${sList}</div>`;
+    return `
+      <div class="p-3.5 rounded-xl bg-[#080b11]/90 border border-[#fbbf24]/50 space-y-2.5">
+        <div class="flex items-center justify-between">
+          <span class="font-display text-sm font-bold text-[#34d399]">🛒 Quartermaster Shop — ${bDef.name}</span>
+          <button onclick="window.WargameApp.handleSwitchFacilityTab('')" class="px-2.5 py-1 rounded bg-[#1a2232] hover:bg-[#283347] text-xs font-mono text-[#e6edf3] cursor-pointer">← Back</button>
+        </div>
+        <div class="space-y-1.5">${sList}</div>
+      </div>
+    `;
   }
 
-  return `
-    <div class="p-3 rounded-lg bg-[#080b11] border border-[#fbbf24]/40 space-y-2.5">
-      <div class="flex flex-wrap items-center gap-1.5">${tabBarHtml}</div>
-      ${panelHtml}
-    </div>
-  `;
+  // Default Home View: Clean single row of 6 action buttons over the full-bleed interior!
+  const actionBtns = [];
+  if (fac.recruitment && Array.isArray(fac.recruitment.classes)) {
+    actionBtns.push(`<button onclick="window.WargameApp.handleSwitchFacilityTab('recruit')" class="px-3 py-2 rounded-lg bg-[#080b11]/85 hover:bg-[#fbbf24] hover:text-[#080b11] border border-[#fbbf24]/50 text-[#fbbf24] text-xs font-mono font-bold uppercase cursor-pointer transition">⚔️ Recruit</button>`);
+  }
+  if (fac.questBoard) {
+    actionBtns.push(`<button onclick="window.WargameApp.handleSwitchFacilityTab('quests')" class="px-3 py-2 rounded-lg bg-[#080b11]/85 hover:bg-[#fbbf24] hover:text-[#080b11] border border-[#334155] text-[#e6edf3] text-xs font-mono font-bold uppercase cursor-pointer transition">📜 Quest Board</button>`);
+  }
+  if (fac.training) {
+    actionBtns.push(`<button onclick="window.WargameApp.handleCloseFacilityModal(); window.WargameApp.handleOpenTrainingHub()" class="px-3 py-2 rounded-lg bg-[#080b11]/85 hover:bg-[#34d399] hover:text-[#080b11] border border-[#34d399]/50 text-[#34d399] text-xs font-mono font-bold uppercase cursor-pointer transition">🎯 Training</button>`);
+  }
+  if (fac.research) {
+    actionBtns.push(`<button onclick="window.WargameApp.handleCloseFacilityModal(); window.WargameApp.handleOpenResearchHub()" class="px-3 py-2 rounded-lg bg-[#080b11]/85 hover:bg-[#c084fc] hover:text-[#080b11] border border-[#c084fc]/50 text-[#c084fc] text-xs font-mono font-bold uppercase cursor-pointer transition">📚 Research</button>`);
+  }
+  if (fac.shop) {
+    actionBtns.push(`<button onclick="window.WargameApp.handleSwitchFacilityTab('shop')" class="px-3 py-2 rounded-lg bg-[#080b11]/85 hover:bg-[#34d399] hover:text-[#080b11] border border-[#334155] text-[#e6edf3] text-xs font-mono font-bold uppercase cursor-pointer transition">🛒 Shop</button>`);
+  }
+  if (activePlot && !isMaxLvl) {
+    actionBtns.push(`<button title="${upgTitle}" onclick="window.WargameApp.handleQueueBuilding(${activePlot.plotIndex}, '${bId}')" ${!canAffordUpg ? 'disabled' : ''} class="px-3 py-2 rounded-lg text-xs font-mono font-bold uppercase transition ${canAffordUpg ? 'bg-[#fbbf24] hover:bg-[#f59e0b] text-[#080b11] cursor-pointer' : 'bg-[#080b11]/75 text-[#64748b] border border-[#1e293b] cursor-not-allowed'}">⬆️ Upgrade</button>`);
+  }
+
+  return `<div class="flex flex-wrap items-center justify-center gap-2">${actionBtns.join('')}</div>`;
 }
 
 export function renderWargameFacilityModal(simHost) {
@@ -841,35 +894,9 @@ export function renderWargameFacilityModal(simHost) {
     `);
   }
 
-  const guildServicesHtml = buildUnifiedGuildServicesHtml(simHost, bId, city, bDef, lvl);
+  const guildServicesHtml = buildUnifiedGuildServicesHtml(simHost, bId, city, bDef, lvl, activePlot);
   if (guildServicesHtml) {
     sections.push(guildServicesHtml);
-  }
-
-  // Universal Production, Consumption & Upgrade Statistics Panel (works identically for Farms, Wells, Huts, Mines, Guilds, etc.)
-  const prodLines = [];
-  if (bDef.productionPerTick) {
-    Object.entries(bDef.productionPerTick).forEach(function(e) {
-      if (e[1] > 0) prodLines.push('+' + (e[1] * lvl) + ' ' + e[0] + ' / tick');
-    });
-  }
-  if (bDef.providesPopulation) prodLines.push('+' + (bDef.providesPopulation * lvl) + ' Max Population');
-  if (bDef.storageBonus) {
-    Object.entries(bDef.storageBonus).forEach(function(e) {
-      prodLines.push('+' + (e[1] * lvl) + ' ' + e[0] + ' Cap');
-    });
-  }
-  if (bDef.adjacencyBonus) prodLines.push('+20% Adjacent Food/Wood/Stone/Water Output');
-
-  const consumeLines = [];
-  if (bDef.consumptionPerTick) {
-    Object.entries(bDef.consumptionPerTick).forEach(function(e) {
-      if (e[1] > 0) consumeLines.push('-' + (e[1] * lvl) + ' ' + e[0] + ' / tick');
-    });
-  } else if (bDef.providesPopulation) {
-    consumeLines.push('Citizens consume Food & Water per tick');
-  } else {
-    consumeLines.push('None (Zero passive upkeep)');
   }
 
   const nextLvl = lvl + 1;
@@ -888,36 +915,30 @@ export function renderWargameFacilityModal(simHost) {
     (city.stockpile.ore   || 0) >= (upgCost.ore   || 0)
   );
 
-  if (sections.length === 0 || bDef.productionPerTick || bDef.providesPopulation || bDef.adjacencyBonus) {
+  // For non-guild buildings, show a clean compact Upgrade action button (no bulky Producing/Consuming box!)
+  if (!guildServicesHtml && activePlot && !isMaxLvl) {
+    const upgTitle = cappedByMH
+      ? ('Requires Meeting Hall Lv ' + nextLvl)
+      : ('Upgrade Lv ' + nextLvl + ': ' + upgCost.wood + 'W, ' + upgCost.stone + 'S' + (upgCost.gold ? (', ' + upgCost.gold + 'G') : '') + ' (' + formatSimDuration(upgDur) + ')');
     sections.push(`
-      <div class="p-3 rounded-lg bg-[#080b11] border border-[#38bdf8]/40 space-y-2.5">
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
-          <div class="p-2 rounded bg-[#111722]/90 border border-[#283347]">
-            <div class="text-[10px] font-mono uppercase text-[#34d399] font-bold">📈 Producing / Providing</div>
-            <div class="text-[11px] font-mono text-[#e6edf3] mt-1">${prodLines.length > 0 ? prodLines.join(' • ') : 'Civic / Operational Support'}</div>
-          </div>
-          <div class="p-2 rounded bg-[#111722]/90 border border-[#283347]">
-            <div class="text-[10px] font-mono uppercase text-[#fb923c] font-bold">📉 Consuming / Upkeep</div>
-            <div class="text-[11px] font-mono text-[#94a3b8] mt-1">${consumeLines.join(' • ')}</div>
-          </div>
+      <div class="flex flex-wrap items-center justify-between gap-2 px-3 py-2 rounded-lg bg-[#080b11]/80 border border-[#283347]">
+        <div class="text-[11px] font-mono text-[#cbd5e1]">
+          Upgrade Lv ${nextLvl}: <span class="text-[#fbbf24]">${upgCost.wood}W • ${upgCost.stone}S${upgCost.gold ? (' • ' + upgCost.gold + 'G') : ''}</span> • ⏱ ${formatSimDuration(upgDur)}
+          ${cappedByMH ? '<span class="text-[#f87171] ml-1">(Needs Meeting Hall Lv ' + nextLvl + ')</span>' : ''}
         </div>
-        ${!isMaxLvl && activePlot ? `
-          <div class="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-[#1e293b]">
-            <div class="text-[10px] font-mono text-[#cbd5e1]">
-              Upgrade Lv ${nextLvl}: <span class="text-[#fbbf24]">${upgCost.wood}W • ${upgCost.stone}S${upgCost.gold ? (' • ' + upgCost.gold + 'G') : ''}${upgCost.water ? (' • ' + upgCost.water + '💧') : ''}${upgCost.ore ? (' • ' + upgCost.ore + '⛏️') : ''}</span> • ⏱ ${formatSimDuration(upgDur)}
-              ${cappedByMH ? '<span class="text-[#f87171] ml-1">(Requires Meeting Hall Lv ' + nextLvl + ')</span>' : ''}
-            </div>
-            <button onclick="window.WargameApp.handleQueueBuilding(${activePlot.plotIndex}, '${bId}')" ${!canAffordUpg ? 'disabled' : ''} class="px-3 py-1.5 rounded text-[10px] font-mono font-bold uppercase ${canAffordUpg ? 'bg-[#fbbf24] hover:bg-[#f59e0b] text-[#080b11] cursor-pointer' : 'bg-[#1a2232] text-[#64748b] cursor-not-allowed'}">
-              ⬆️ Upgrade to Lv ${nextLvl}
-            </button>
-          </div>
-        ` : (isMaxLvl ? `<div class="text-[10px] font-mono text-[#fbbf24] text-right">★ Maximum Level Reached</div>` : '')}
+        <button title="${upgTitle}" onclick="window.WargameApp.handleQueueBuilding(${activePlot.plotIndex}, '${bId}')" ${!canAffordUpg ? 'disabled' : ''} class="px-3 py-1.5 rounded-lg text-xs font-mono font-bold uppercase ${canAffordUpg ? 'bg-[#fbbf24] hover:bg-[#f59e0b] text-[#080b11] cursor-pointer' : 'bg-[#1a2232] text-[#64748b] cursor-not-allowed'}">
+          ⬆️ Upgrade
+        </button>
       </div>
     `);
   }
 
-  const innerHtml = sections.join('') || `<div class="text-xs text-[#8b949e]">Facility operational.</div>`;
+  const innerHtml = sections.join('');
+  const netOverlayText = buildNetResourceOverlayText(bDef, lvl);
   const showInfo = Boolean(simHost.state && simHost.state._showFacilityInfo);
+  const showDemolishConfirm = Boolean(simHost.state && simHost.state._confirmFacilityDemolish);
+  const canDemolish = Boolean(activePlot && !isMH && !activePlot.underConstruction);
+
   const infoPopoverHtml = showInfo ? `
     <div class="mx-3.5 p-3 rounded-lg bg-[#080b11]/92 backdrop-blur-md border border-[#fbbf24]/60 shadow-xl space-y-1.5 text-xs">
       <div class="flex items-center justify-between">
@@ -928,21 +949,36 @@ export function renderWargameFacilityModal(simHost) {
     </div>
   ` : '';
 
+  const demolishPopoverHtml = (showDemolishConfirm && canDemolish) ? `
+    <div class="mx-3.5 p-3 rounded-lg bg-[#450a0a]/92 backdrop-blur-md border border-[#f87171]/60 shadow-xl flex flex-wrap items-center justify-between gap-2 text-xs">
+      <span class="text-[#fecaca] font-semibold">🗑️ Demolish ${bDef.name} (Lv ${lvl}) for 35% resource salvage?</span>
+      <div class="flex items-center gap-1.5">
+        <button onclick="window.WargameApp.handleDemolishBuilding(${activePlot.plotIndex}); window.WargameApp.handleCloseFacilityModal()" class="px-2.5 py-1 rounded bg-[#f87171] hover:bg-[#ef4444] text-[#080b11] font-mono font-bold text-[10px] uppercase cursor-pointer">Confirm Demolish</button>
+        <button onclick="window.WargameApp.handleToggleFacilityDemolishConfirm()" class="px-2.5 py-1 rounded bg-[#1a2232] text-[#e6edf3] font-mono text-[10px] cursor-pointer">Cancel</button>
+      </div>
+    </div>
+  ` : '';
+
   const unifiedStageHtml = `
-    <div class="relative min-h-[460px] rounded-xl overflow-hidden border border-[#fbbf24]/50 bg-gradient-to-br from-[#161e2e] via-[#0f1520] to-[#080b11] shadow-2xl flex flex-col justify-between">
+    <div class="relative min-h-[480px] rounded-xl overflow-hidden border border-[#fbbf24]/50 bg-gradient-to-br from-[#161e2e] via-[#0f1520] to-[#080b11] shadow-2xl flex flex-col justify-between">
       ${interiorSrc ? `<img src="${interiorSrc}" alt="${bDef.name} Interior" class="absolute inset-0 w-full h-full object-cover object-center" />` : `<div class="absolute inset-0 flex items-center justify-center opacity-10 text-[140px] select-none pointer-events-none">${bDef.icon || '🏛️'}</div>`}
-      <div class="absolute inset-0 bg-gradient-to-b from-[#080b11]/55 via-[#080b11]/20 to-[#080b11]/92"></div>
-      <div class="relative z-10 p-3.5 flex items-center justify-between gap-2">
-        <div class="px-3 py-1.5 rounded-lg bg-[#080b11]/70 backdrop-blur-md border border-[#fbbf24]/40">
-          <div class="text-xs font-display font-bold text-[#fbbf24]">${bDef.icon || '🏛️'} ${bDef.name} <span class="text-[10px] font-mono text-[#e6edf3]/80">• Lv ${lvl} (${city.name})</span></div>
+      <div class="absolute inset-0 bg-gradient-to-b from-[#080b11]/55 via-[#080b11]/15 to-[#080b11]/90"></div>
+      <div class="relative z-10 p-3.5 flex items-start justify-between gap-2">
+        <div class="space-y-1">
+          <div class="px-3 py-1.5 rounded-lg bg-[#080b11]/70 backdrop-blur-md border border-[#fbbf24]/40 inline-block">
+            <div class="text-xs font-display font-bold text-[#fbbf24]">${bDef.icon || '🏛️'} ${bDef.name} <span class="text-[10px] font-mono text-[#e6edf3]/80">• Lv ${lvl} (${city.name})</span></div>
+          </div>
+          ${netOverlayText ? `<div class="px-2.5 py-0.5 text-[11px] font-mono font-bold text-[#34d399] drop-shadow-[0_1px_4px_rgba(0,0,0,0.95)]">${netOverlayText}</div>` : ''}
         </div>
-        <button onclick="window.WargameApp.handleToggleFacilityInfo()" title="Building Info" class="w-8 h-8 rounded-full bg-[#080b11]/80 hover:bg-[#fbbf24] hover:text-[#080b11] backdrop-blur-md border border-[#fbbf24]/50 text-[#fbbf24] font-bold text-xs flex items-center justify-center cursor-pointer transition">ⓘ</button>
+        <div class="flex flex-col items-center gap-1.5">
+          <button onclick="window.WargameApp.handleToggleFacilityInfo()" title="Building Info" class="w-8 h-8 rounded-full bg-[#080b11]/80 hover:bg-[#fbbf24] hover:text-[#080b11] backdrop-blur-md border border-[#fbbf24]/50 text-[#fbbf24] font-bold text-xs flex items-center justify-center cursor-pointer transition">ⓘ</button>
+          ${canDemolish ? `<button onclick="window.WargameApp.handleToggleFacilityDemolishConfirm()" title="Demolish Building" class="w-8 h-8 rounded-full bg-[#080b11]/80 hover:bg-[#f87171] hover:text-[#080b11] backdrop-blur-md border border-[#f87171]/50 text-[#f87171] text-xs flex items-center justify-center cursor-pointer transition">🗑️</button>` : ''}
+        </div>
       </div>
       ${infoPopoverHtml ? `<div class="relative z-20">${infoPopoverHtml}</div>` : ''}
-      <div class="relative z-10 flex-1 min-h-[120px]"></div>
-      <div class="relative z-10 p-3.5 space-y-2.5 [&_>div]:bg-[#080b11]/78 [&_>div]:backdrop-blur-md">
-        ${innerHtml}
-      </div>
+      ${demolishPopoverHtml ? `<div class="relative z-20">${demolishPopoverHtml}</div>` : ''}
+      <div class="relative z-10 flex-1 min-h-[140px]"></div>
+      ${innerHtml ? `<div class="relative z-10 p-3.5 space-y-2">${innerHtml}</div>` : ''}
     </div>
   `;
   setHtmlIfChanged(bodyEl, unifiedStageHtml);
@@ -1689,9 +1725,14 @@ export function renderGuildRecruitmentPanel(simHost) {
   const bId = 'guild_hall';
   const bDef = CITY_BUILDINGS_CATALOG[bId];
   const lvl = (city.buildings && city.buildings[bId]) || 1;
+  const guildPlot = Array.isArray(city.plots) ? city.plots.find(function(p) { return p.buildingId === bId; }) : null;
   const interiorSrc = getProductionImageSrc(bDef.interiorAssetId || getFacilityInteriorAssetId(bId));
-  const servicesHtml = buildUnifiedGuildServicesHtml(simHost, bId, city, bDef, lvl);
+  const servicesHtml = buildUnifiedGuildServicesHtml(simHost, bId, city, bDef, lvl, guildPlot);
+  const netOverlayText = buildNetResourceOverlayText(bDef, lvl);
   const showInfo = Boolean(state && state._showFacilityInfo);
+  const showDemolishConfirm = Boolean(state && state._confirmFacilityDemolish);
+  const canDemolish = Boolean(guildPlot && !guildPlot.underConstruction);
+
   const infoPopoverHtml = showInfo ? `
     <div class="mx-4 p-3 rounded-lg bg-[#080b11]/92 backdrop-blur-md border border-[#fbbf24]/60 shadow-xl space-y-1.5 text-xs">
       <div class="flex items-center justify-between">
@@ -1702,22 +1743,39 @@ export function renderGuildRecruitmentPanel(simHost) {
     </div>
   ` : '';
 
+  const demolishPopoverHtml = (showDemolishConfirm && canDemolish) ? `
+    <div class="mx-4 p-3 rounded-lg bg-[#450a0a]/92 backdrop-blur-md border border-[#f87171]/60 shadow-xl flex flex-wrap items-center justify-between gap-2 text-xs">
+      <span class="text-[#fecaca] font-semibold">🗑️ Demolish ${bDef.name} (Lv ${lvl}) for 35% resource salvage?</span>
+      <div class="flex items-center gap-1.5">
+        <button onclick="window.WargameApp.handleDemolishBuilding(${guildPlot.plotIndex}); window.WargameApp.handleSwitchView('city')" class="px-2.5 py-1 rounded bg-[#f87171] hover:bg-[#ef4444] text-[#080b11] font-mono font-bold text-[10px] uppercase cursor-pointer">Confirm Demolish</button>
+        <button onclick="window.WargameApp.handleToggleFacilityDemolishConfirm()" class="px-2.5 py-1 rounded bg-[#1a2232] text-[#e6edf3] font-mono text-[10px] cursor-pointer">Cancel</button>
+      </div>
+    </div>
+  ` : '';
+
   const unifiedHtml = `
     <div class="relative min-h-[540px] rounded-xl overflow-hidden border border-[#fbbf24]/50 bg-[#080b11] shadow-2xl flex flex-col justify-between">
       ${interiorSrc ? `<img src="${interiorSrc}" alt="${bDef.name} Interior" class="absolute inset-0 w-full h-full object-cover object-center" />` : ''}
-      <div class="absolute inset-0 bg-gradient-to-b from-[#080b11]/55 via-[#080b11]/20 to-[#080b11]/92"></div>
-      <div class="relative z-10 p-4 flex items-center justify-between gap-3">
-        <div class="px-3.5 py-2 rounded-lg bg-[#080b11]/70 backdrop-blur-md border border-[#fbbf24]/40">
-          <div class="text-sm font-display font-bold text-[#fbbf24]">${bDef.icon || '⚔️'} ${bDef.name} <span class="text-[10px] font-mono text-[#e6edf3]/80">• Lv ${lvl} (${city.name})</span></div>
+      <div class="absolute inset-0 bg-gradient-to-b from-[#080b11]/55 via-[#080b11]/15 to-[#080b11]/90"></div>
+      <div class="relative z-10 p-4 flex items-start justify-between gap-3">
+        <div class="space-y-1">
+          <div class="px-3.5 py-2 rounded-lg bg-[#080b11]/70 backdrop-blur-md border border-[#fbbf24]/40 inline-block">
+            <div class="text-sm font-display font-bold text-[#fbbf24]">${bDef.icon || '⚔️'} ${bDef.name} <span class="text-[10px] font-mono text-[#e6edf3]/80">• Lv ${lvl} (${city.name})</span></div>
+          </div>
+          ${netOverlayText ? `<div class="px-2.5 py-0.5 text-[11px] font-mono font-bold text-[#34d399] drop-shadow-[0_1px_4px_rgba(0,0,0,0.95)]">${netOverlayText}</div>` : ''}
         </div>
-        <div class="flex items-center gap-2">
-          <button onclick="window.WargameApp.handleToggleFacilityInfo()" title="Guild Info" class="w-8 h-8 rounded-full bg-[#080b11]/80 hover:bg-[#fbbf24] hover:text-[#080b11] backdrop-blur-md border border-[#fbbf24]/50 text-[#fbbf24] font-bold text-xs flex items-center justify-center cursor-pointer transition">ⓘ</button>
+        <div class="flex items-start gap-2">
+          <div class="flex flex-col items-center gap-1.5">
+            <button onclick="window.WargameApp.handleToggleFacilityInfo()" title="Guild Info" class="w-8 h-8 rounded-full bg-[#080b11]/80 hover:bg-[#fbbf24] hover:text-[#080b11] backdrop-blur-md border border-[#fbbf24]/50 text-[#fbbf24] font-bold text-xs flex items-center justify-center cursor-pointer transition">ⓘ</button>
+            ${canDemolish ? `<button onclick="window.WargameApp.handleToggleFacilityDemolishConfirm()" title="Demolish Building" class="w-8 h-8 rounded-full bg-[#080b11]/80 hover:bg-[#f87171] hover:text-[#080b11] backdrop-blur-md border border-[#f87171]/50 text-[#f87171] text-xs flex items-center justify-center cursor-pointer transition">🗑️</button>` : ''}
+          </div>
           <button onclick="window.WargameApp.handleSwitchView('city')" class="px-3 py-1.5 rounded-lg bg-[#080b11]/75 hover:bg-[#fbbf24] hover:text-[#080b11] backdrop-blur-md text-[#fbbf24] border border-[#fbbf24]/50 text-[11px] font-mono font-bold uppercase cursor-pointer transition whitespace-nowrap">🏰 Exit to City</button>
         </div>
       </div>
       ${infoPopoverHtml ? `<div class="relative z-20">${infoPopoverHtml}</div>` : ''}
-      <div class="relative z-10 flex-1 min-h-[150px]"></div>
-      <div class="relative z-10 p-4 [&_>div]:bg-[#080b11]/78 [&_>div]:backdrop-blur-md">
+      ${demolishPopoverHtml ? `<div class="relative z-20">${demolishPopoverHtml}</div>` : ''}
+      <div class="relative z-10 flex-1 min-h-[180px]"></div>
+      <div class="relative z-10 p-4">
         ${servicesHtml}
       </div>
     </div>

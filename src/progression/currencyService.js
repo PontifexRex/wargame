@@ -41,8 +41,22 @@ export const DEFAULT_CURRENCY_DEFINITIONS = {
   rp_adventurer: {
     currencyId: 'rp_adventurer',
     name: 'Adventurer Research Points',
-    description: 'Field knowledge earned through dungeon delving, exploration, combat, and chest recovery.',
+    description: 'Field knowledge earned through dungeon delving, exploration, and chest recovery.',
     icon: '🧭',
+    category: 'personal_research',
+    decimalPrecision: 5,
+    tradable: false,
+    transferable: false,
+    maximumBalance: null,
+    expirationPolicy: 'none',
+    enabled: true,
+    version: '1.0.0'
+  },
+  rp_warrior: {
+    currencyId: 'rp_warrior',
+    name: 'Warrior Research Points',
+    description: 'Martial combat points earned by killing monsters with any class or performing actions with a Warrior class.',
+    icon: '⚔️',
     category: 'personal_research',
     decimalPrecision: 5,
     tradable: false,

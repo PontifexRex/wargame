@@ -1481,6 +1481,7 @@ export function evaluateWargameSelfTests() {
   // Test 20: Track F Phase 4 — Generic Effects Framework & Separate Hero Training Queue (Inc 10.4)
   // =========================================================================
   const prog20 = createDefaultProgressionState(0);
+  recordCurrencyTransaction(prog20.currencyLedger, { ownerId: 'p1', ownerType: OWNER_TYPES.PLAYER, currencyId: 'rp_warrior', amount: 20, transactionType: TRANSACTION_TYPES.AWARD, source: 'seed', nowMs: 1000 });
   recordCurrencyTransaction(prog20.currencyLedger, { ownerId: 'p1', ownerType: OWNER_TYPES.PLAYER, currencyId: 'rp_adventurer', amount: 20, transactionType: TRANSACTION_TYPES.AWARD, source: 'seed', nowMs: 1000 });
   recordCurrencyTransaction(prog20.currencyLedger, { ownerId: 'p1', ownerType: OWNER_TYPES.PLAYER, currencyId: 'rp_general', amount: 1, transactionType: TRANSACTION_TYPES.AWARD, source: 'seed', nowMs: 1000 });
   recordCurrencyTransaction(prog20.currencyLedger, { ownerId: 'p1', ownerType: OWNER_TYPES.PLAYER, currencyId: 'gold', amount: 500, transactionType: TRANSACTION_TYPES.AWARD, source: 'seed', nowMs: 1000 });
@@ -1770,9 +1771,19 @@ export function evaluateWargameSelfTests() {
   const prog23 = host23.state.world.progression;
   const city23 = getPrimaryCity(host23.state);
 
-  // 1. 10-node rich Weapon Proficiency tree + Training disciplines catalog validation
+  // 1. 10-node rich Weapon Proficiency tree (uses rp_warrior, WAR_MASTER_001 has no phantom WAR_FLANKING_001 parent) + Training disciplines
   const weaponTree23 = PROTOTYPE_RESEARCH_TREES.tree_weapon_proficiency;
-  const tenNodeTreeOk = Boolean(weaponTree23 && weaponTree23.itemIds.length === 10 && Object.keys(PROTOTYPE_TRAINING_TREES).length >= 2);
+  const heavyUsesWarriorRp = PROTOTYPE_RESEARCH_ITEMS.WAR_WEAPON_HEAVY_001.levelDefinitions[0].costs[0].currencyId === 'rp_warrior';
+  const noPhantomFlankingEdge = PROTOTYPE_RESEARCH_ITEMS.WAR_MASTER_001.parentIds.indexOf('WAR_FLANKING_001') === -1;
+  const killAwardsWarrior = awardActivityResearchPoints(prog23, { ownerId: 'player_1', activityType: 'monster_defeated', eventId: 'kill_23', nowMs: 5000 });
+  const warActionAwardsWarrior = awardActivityResearchPoints(prog23, { ownerId: 'player_1', activityType: 'warrior_class_action', eventId: 'wact_23', nowMs: 6000 });
+  const tenNodeTreeOk = Boolean(
+    weaponTree23 && weaponTree23.itemIds.length === 10 &&
+    Object.keys(PROTOTYPE_TRAINING_TREES).length >= 2 &&
+    heavyUsesWarriorRp && noPhantomFlankingEdge &&
+    killAwardsWarrior.ok && killAwardsWarrior.currencyId === 'rp_warrior' &&
+    warActionAwardsWarrior.ok && warActionAwardsWarrior.currencyId === 'rp_warrior'
+  );
 
   // 2. Floor-to-tenths RP formatting & Have/Need green/red cost rows
   const tenthsOk = formatRpTenths(12.49) === '12.4' && formatRpTenths(0.09) === '0.0';

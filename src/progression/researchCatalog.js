@@ -238,9 +238,9 @@ export const PROTOTYPE_RESEARCH_ITEMS = {
     prerequisites: null,
     levelLimit: 3,
     levelDefinitions: [
-      { level: 1, durationSec: 60,   costs: [{ kind: 'currency', currencyId: 'rp_adventurer', amount: 5 },  { kind: 'currency', currencyId: 'gold', amount: 50 }],   benefits: [{ effectType: 'unlock_training', target: 'train_heavy_weapons', op: 'unlock', value: 1 }] },
-      { level: 2, durationSec: 600,  costs: [{ kind: 'currency', currencyId: 'rp_adventurer', amount: 10 }, { kind: 'currency', currencyId: 'gold', amount: 250 }],  benefits: [{ effectType: 'unlock_training', target: 'train_heavy_weapons', op: 'unlock', value: 2 }] },
-      { level: 3, durationSec: 6000, costs: [{ kind: 'currency', currencyId: 'rp_adventurer', amount: 25 }, { kind: 'currency', currencyId: 'gold', amount: 2000 }], benefits: [{ effectType: 'unlock_training', target: 'train_heavy_weapons', op: 'unlock', value: 3 }] }
+      { level: 1, durationSec: 60,   costs: [{ kind: 'currency', currencyId: 'rp_warrior', amount: 5 },  { kind: 'currency', currencyId: 'gold', amount: 50 }],   benefits: [{ effectType: 'unlock_training', target: 'train_heavy_weapons', op: 'unlock', value: 1 }] },
+      { level: 2, durationSec: 600,  costs: [{ kind: 'currency', currencyId: 'rp_warrior', amount: 10 }, { kind: 'currency', currencyId: 'gold', amount: 250 }],  benefits: [{ effectType: 'unlock_training', target: 'train_heavy_weapons', op: 'unlock', value: 2 }] },
+      { level: 3, durationSec: 6000, costs: [{ kind: 'currency', currencyId: 'rp_warrior', amount: 25 }, { kind: 'currency', currencyId: 'gold', amount: 2000 }], benefits: [{ effectType: 'unlock_training', target: 'train_heavy_weapons', op: 'unlock', value: 3 }] }
     ],
     queueType: 'research',
     version: '1.0.0',
@@ -262,9 +262,9 @@ export const PROTOTYPE_RESEARCH_ITEMS = {
     prerequisites: { type: 'research_level', research_item_id: 'WAR_WEAPON_HEAVY_001', operator: '>=', value: 1, label: 'Wield Heavier Weapons' },
     levelLimit: 3,
     levelDefinitions: [
-      { level: 1, durationSec: 120, costs: [{ kind: 'currency', currencyId: 'rp_adventurer', amount: 6 },  { kind: 'currency', currencyId: 'gold', amount: 90 },  { kind: 'stockpile', resourceId: 'ore', amount: 10 }], benefits: [{ effectType: 'attribute_modifier', target: 'hero_crit_pct', op: 'additive', value: 0.04 }] },
-      { level: 2, durationSec: 360, costs: [{ kind: 'currency', currencyId: 'rp_adventurer', amount: 12 }, { kind: 'currency', currencyId: 'gold', amount: 240 }, { kind: 'stockpile', resourceId: 'ingots', amount: 5 }], benefits: [{ effectType: 'attribute_modifier', target: 'hero_crit_pct', op: 'additive', value: 0.04 }] },
-      { level: 3, durationSec: 900, costs: [{ kind: 'currency', currencyId: 'rp_adventurer', amount: 22 }, { kind: 'currency', currencyId: 'gold', amount: 600 }, { kind: 'stockpile', resourceId: 'ingots', amount: 12 }], benefits: [{ effectType: 'attribute_modifier', target: 'hero_crit_pct', op: 'additive', value: 0.05 }] }
+      { level: 1, durationSec: 120, costs: [{ kind: 'currency', currencyId: 'rp_warrior', amount: 6 },  { kind: 'currency', currencyId: 'gold', amount: 90 },  { kind: 'stockpile', resourceId: 'ore', amount: 10 }], benefits: [{ effectType: 'attribute_modifier', target: 'hero_crit_pct', op: 'additive', value: 0.04 }] },
+      { level: 2, durationSec: 360, costs: [{ kind: 'currency', currencyId: 'rp_warrior', amount: 12 }, { kind: 'currency', currencyId: 'gold', amount: 240 }, { kind: 'stockpile', resourceId: 'ingots', amount: 5 }], benefits: [{ effectType: 'attribute_modifier', target: 'hero_crit_pct', op: 'additive', value: 0.04 }] },
+      { level: 3, durationSec: 900, costs: [{ kind: 'currency', currencyId: 'rp_warrior', amount: 22 }, { kind: 'currency', currencyId: 'gold', amount: 600 }, { kind: 'stockpile', resourceId: 'ingots', amount: 12 }], benefits: [{ effectType: 'attribute_modifier', target: 'hero_crit_pct', op: 'additive', value: 0.05 }] }
     ],
     queueType: 'research',
     version: '1.0.0',
@@ -292,8 +292,8 @@ export const PROTOTYPE_RESEARCH_ITEMS = {
     },
     levelLimit: 2,
     levelDefinitions: [
-      { level: 1, durationSec: 240, costs: [{ kind: 'currency', currencyId: 'rp_adventurer', amount: 14 }, { kind: 'currency', currencyId: 'gold', amount: 320 }], benefits: [{ effectType: 'unlock_training', target: 'train_crushing_blows', op: 'unlock', value: 1 }] },
-      { level: 2, durationSec: 720, costs: [{ kind: 'currency', currencyId: 'rp_adventurer', amount: 28 }, { kind: 'currency', currencyId: 'gold', amount: 750 }], benefits: [{ effectType: 'unlock_training', target: 'train_crushing_blows', op: 'unlock', value: 2 }] }
+      { level: 1, durationSec: 240, costs: [{ kind: 'currency', currencyId: 'rp_warrior', amount: 14 }, { kind: 'currency', currencyId: 'gold', amount: 320 }], benefits: [{ effectType: 'unlock_training', target: 'train_crushing_blows', op: 'unlock', value: 1 }] },
+      { level: 2, durationSec: 720, costs: [{ kind: 'currency', currencyId: 'rp_warrior', amount: 28 }, { kind: 'currency', currencyId: 'gold', amount: 750 }], benefits: [{ effectType: 'unlock_training', target: 'train_crushing_blows', op: 'unlock', value: 2 }] }
     ],
     queueType: 'research',
     version: '1.0.0',
@@ -315,9 +315,9 @@ export const PROTOTYPE_RESEARCH_ITEMS = {
     prerequisites: null,
     levelLimit: 3,
     levelDefinitions: [
-      { level: 1, durationSec: 60,  costs: [{ kind: 'currency', currencyId: 'rp_adventurer', amount: 4 },  { kind: 'currency', currencyId: 'gold', amount: 45 }],  benefits: [{ effectType: 'unlock_training', target: 'train_shield_wall', op: 'unlock', value: 1 }] },
-      { level: 2, durationSec: 300, costs: [{ kind: 'currency', currencyId: 'rp_adventurer', amount: 9 },  { kind: 'currency', currencyId: 'gold', amount: 180 }], benefits: [{ effectType: 'unlock_training', target: 'train_shield_wall', op: 'unlock', value: 2 }] },
-      { level: 3, durationSec: 900, costs: [{ kind: 'currency', currencyId: 'rp_adventurer', amount: 18 }, { kind: 'currency', currencyId: 'gold', amount: 520 }], benefits: [{ effectType: 'unlock_training', target: 'train_shield_wall', op: 'unlock', value: 3 }] }
+      { level: 1, durationSec: 60,  costs: [{ kind: 'currency', currencyId: 'rp_warrior', amount: 4 },  { kind: 'currency', currencyId: 'gold', amount: 45 }],  benefits: [{ effectType: 'unlock_training', target: 'train_shield_wall', op: 'unlock', value: 1 }] },
+      { level: 2, durationSec: 300, costs: [{ kind: 'currency', currencyId: 'rp_warrior', amount: 9 },  { kind: 'currency', currencyId: 'gold', amount: 180 }], benefits: [{ effectType: 'unlock_training', target: 'train_shield_wall', op: 'unlock', value: 2 }] },
+      { level: 3, durationSec: 900, costs: [{ kind: 'currency', currencyId: 'rp_warrior', amount: 18 }, { kind: 'currency', currencyId: 'gold', amount: 520 }], benefits: [{ effectType: 'unlock_training', target: 'train_shield_wall', op: 'unlock', value: 3 }] }
     ],
     queueType: 'research',
     version: '1.0.0',
@@ -339,8 +339,8 @@ export const PROTOTYPE_RESEARCH_ITEMS = {
     prerequisites: { type: 'research_level', research_item_id: 'WAR_SHIELD_WALL_001', operator: '>=', value: 1, label: 'Tower Shield Foundations' },
     levelLimit: 2,
     levelDefinitions: [
-      { level: 1, durationSec: 150, costs: [{ kind: 'currency', currencyId: 'rp_adventurer', amount: 7 },  { kind: 'currency', currencyId: 'gold', amount: 110 }, { kind: 'stockpile', resourceId: 'wood', amount: 20 }], benefits: [{ effectType: 'attribute_modifier', target: 'hero_def_pct', op: 'additive', value: 0.06 }] },
-      { level: 2, durationSec: 420, costs: [{ kind: 'currency', currencyId: 'rp_adventurer', amount: 15 }, { kind: 'currency', currencyId: 'gold', amount: 300 }, { kind: 'stockpile', resourceId: 'wood', amount: 45 }], benefits: [{ effectType: 'attribute_modifier', target: 'hero_def_pct', op: 'additive', value: 0.06 }] }
+      { level: 1, durationSec: 150, costs: [{ kind: 'currency', currencyId: 'rp_warrior', amount: 7 },  { kind: 'currency', currencyId: 'gold', amount: 110 }, { kind: 'stockpile', resourceId: 'wood', amount: 20 }], benefits: [{ effectType: 'attribute_modifier', target: 'hero_def_pct', op: 'additive', value: 0.06 }] },
+      { level: 2, durationSec: 420, costs: [{ kind: 'currency', currencyId: 'rp_warrior', amount: 15 }, { kind: 'currency', currencyId: 'gold', amount: 300 }, { kind: 'stockpile', resourceId: 'wood', amount: 45 }], benefits: [{ effectType: 'attribute_modifier', target: 'hero_def_pct', op: 'additive', value: 0.06 }] }
     ],
     queueType: 'research',
     version: '1.0.0',
@@ -368,8 +368,8 @@ export const PROTOTYPE_RESEARCH_ITEMS = {
     },
     levelLimit: 2,
     levelDefinitions: [
-      { level: 1, durationSec: 210, costs: [{ kind: 'currency', currencyId: 'rp_adventurer', amount: 11 }, { kind: 'currency', currencyId: 'gold', amount: 260 }], benefits: [{ effectType: 'unlock_training', target: 'train_armor_conditioning', op: 'unlock', value: 1 }] },
-      { level: 2, durationSec: 600, costs: [{ kind: 'currency', currencyId: 'rp_adventurer', amount: 22 }, { kind: 'currency', currencyId: 'gold', amount: 640 }], benefits: [{ effectType: 'unlock_training', target: 'train_armor_conditioning', op: 'unlock', value: 2 }] }
+      { level: 1, durationSec: 210, costs: [{ kind: 'currency', currencyId: 'rp_warrior', amount: 11 }, { kind: 'currency', currencyId: 'gold', amount: 260 }], benefits: [{ effectType: 'unlock_training', target: 'train_armor_conditioning', op: 'unlock', value: 1 }] },
+      { level: 2, durationSec: 600, costs: [{ kind: 'currency', currencyId: 'rp_warrior', amount: 22 }, { kind: 'currency', currencyId: 'gold', amount: 640 }], benefits: [{ effectType: 'unlock_training', target: 'train_armor_conditioning', op: 'unlock', value: 2 }] }
     ],
     queueType: 'research',
     version: '1.0.0',
@@ -391,9 +391,9 @@ export const PROTOTYPE_RESEARCH_ITEMS = {
     prerequisites: null,
     levelLimit: 3,
     levelDefinitions: [
-      { level: 1, durationSec: 75,  costs: [{ kind: 'currency', currencyId: 'rp_general', amount: 0.04 }, { kind: 'currency', currencyId: 'gold', amount: 50 }],  benefits: [{ effectType: 'training_speed_modifier', target: 'hero', op: 'additive', value: 0.10 }] },
-      { level: 2, durationSec: 240, costs: [{ kind: 'currency', currencyId: 'rp_general', amount: 0.10 }, { kind: 'currency', currencyId: 'gold', amount: 160 }], benefits: [{ effectType: 'training_speed_modifier', target: 'hero', op: 'additive', value: 0.10 }] },
-      { level: 3, durationSec: 600, costs: [{ kind: 'currency', currencyId: 'rp_general', amount: 0.25 }, { kind: 'currency', currencyId: 'gold', amount: 450 }], benefits: [{ effectType: 'training_speed_modifier', target: 'hero', op: 'additive', value: 0.15 }] }
+      { level: 1, durationSec: 75,  costs: [{ kind: 'currency', currencyId: 'rp_warrior', amount: 3 },  { kind: 'currency', currencyId: 'gold', amount: 50 }],  benefits: [{ effectType: 'training_speed_modifier', target: 'hero', op: 'additive', value: 0.10 }] },
+      { level: 2, durationSec: 240, costs: [{ kind: 'currency', currencyId: 'rp_warrior', amount: 8 },  { kind: 'currency', currencyId: 'gold', amount: 160 }], benefits: [{ effectType: 'training_speed_modifier', target: 'hero', op: 'additive', value: 0.10 }] },
+      { level: 3, durationSec: 600, costs: [{ kind: 'currency', currencyId: 'rp_warrior', amount: 18 }, { kind: 'currency', currencyId: 'gold', amount: 450 }], benefits: [{ effectType: 'training_speed_modifier', target: 'hero', op: 'additive', value: 0.15 }] }
     ],
     queueType: 'research',
     version: '1.0.0',
@@ -415,8 +415,8 @@ export const PROTOTYPE_RESEARCH_ITEMS = {
     prerequisites: { type: 'research_level', research_item_id: 'WAR_FIELD_DRILLS_001', operator: '>=', value: 1, label: 'Standardized Yard Drills' },
     levelLimit: 2,
     levelDefinitions: [
-      { level: 1, durationSec: 180, costs: [{ kind: 'currency', currencyId: 'rp_adventurer', amount: 8 },  { kind: 'currency', currencyId: 'gold', amount: 140 }], benefits: [{ effectType: 'attribute_modifier', target: 'hero_atk_pct', op: 'additive', value: 0.05 }] },
-      { level: 2, durationSec: 480, costs: [{ kind: 'currency', currencyId: 'rp_adventurer', amount: 16 }, { kind: 'currency', currencyId: 'gold', amount: 360 }], benefits: [{ effectType: 'attribute_modifier', target: 'hero_atk_pct', op: 'additive', value: 0.05 }] }
+      { level: 1, durationSec: 180, costs: [{ kind: 'currency', currencyId: 'rp_warrior', amount: 8 },  { kind: 'currency', currencyId: 'gold', amount: 140 }], benefits: [{ effectType: 'attribute_modifier', target: 'hero_atk_pct', op: 'additive', value: 0.05 }] },
+      { level: 2, durationSec: 480, costs: [{ kind: 'currency', currencyId: 'rp_warrior', amount: 16 }, { kind: 'currency', currencyId: 'gold', amount: 360 }], benefits: [{ effectType: 'attribute_modifier', target: 'hero_atk_pct', op: 'additive', value: 0.05 }] }
     ],
     queueType: 'research',
     version: '1.0.0',
@@ -428,7 +428,7 @@ export const PROTOTYPE_RESEARCH_ITEMS = {
     domainId: 'warrior',
     branchId: 'br_tactics',
     nodePos: { col: 2, row: 2 },
-    parentIds: ['WAR_FLANKING_001', 'WAR_WEAPON_HEAVY_001'],
+    parentIds: ['WAR_WEAPON_HEAVY_001'],
     name: 'Vanguard Arms Doctrine',
     description: 'Advanced combat doctrine requiring a veteran hero and prior martial or survival research.',
     icon: '🏅',
@@ -450,7 +450,7 @@ export const PROTOTYPE_RESEARCH_ITEMS = {
     },
     levelLimit: 1,
     levelDefinitions: [
-      { level: 1, durationSec: 300, costs: [{ kind: 'currency', currencyId: 'rp_adventurer', amount: 12 }, { kind: 'currency', currencyId: 'gold', amount: 400 }], benefits: [{ effectType: 'attribute_modifier', target: 'hero_atk_pct', op: 'additive', value: 0.08 }] }
+      { level: 1, durationSec: 300, costs: [{ kind: 'currency', currencyId: 'rp_warrior', amount: 12 }, { kind: 'currency', currencyId: 'gold', amount: 400 }], benefits: [{ effectType: 'attribute_modifier', target: 'hero_atk_pct', op: 'additive', value: 0.08 }] }
     ],
     queueType: 'research',
     version: '1.0.0',
@@ -479,7 +479,7 @@ export const PROTOTYPE_RESEARCH_ITEMS = {
     },
     levelLimit: 1,
     levelDefinitions: [
-      { level: 1, durationSec: 1800, costs: [{ kind: 'currency', currencyId: 'rp_adventurer', amount: 45 }, { kind: 'currency', currencyId: 'gold', amount: 2500 }], benefits: [{ effectType: 'attribute_modifier', target: 'hero_atk_pct', op: 'additive', value: 0.15 }] }
+      { level: 1, durationSec: 1800, costs: [{ kind: 'currency', currencyId: 'rp_warrior', amount: 45 }, { kind: 'currency', currencyId: 'gold', amount: 2500 }], benefits: [{ effectType: 'attribute_modifier', target: 'hero_atk_pct', op: 'additive', value: 0.15 }] }
     ],
     queueType: 'research',
     version: '1.0.0',

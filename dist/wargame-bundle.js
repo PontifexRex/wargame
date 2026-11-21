@@ -2445,8 +2445,22 @@ const DEFAULT_CURRENCY_DEFINITIONS = {
   rp_adventurer: {
     currencyId: 'rp_adventurer',
     name: 'Adventurer Research Points',
-    description: 'Field knowledge earned through dungeon delving, exploration, combat, and chest recovery.',
+    description: 'Field knowledge earned through dungeon delving, exploration, and chest recovery.',
     icon: '🧭',
+    category: 'personal_research',
+    decimalPrecision: 5,
+    tradable: false,
+    transferable: false,
+    maximumBalance: null,
+    expirationPolicy: 'none',
+    enabled: true,
+    version: '1.0.0'
+  },
+  rp_warrior: {
+    currencyId: 'rp_warrior',
+    name: 'Warrior Research Points',
+    description: 'Martial combat points earned by killing monsters with any class or performing actions with a Warrior class.',
+    icon: '⚔️',
     category: 'personal_research',
     decimalPrecision: 5,
     tradable: false,
@@ -3546,9 +3560,9 @@ const PROTOTYPE_RESEARCH_ITEMS = {
     prerequisites: null,
     levelLimit: 3,
     levelDefinitions: [
-      { level: 1, durationSec: 60,   costs: [{ kind: 'currency', currencyId: 'rp_adventurer', amount: 5 },  { kind: 'currency', currencyId: 'gold', amount: 50 }],   benefits: [{ effectType: 'unlock_training', target: 'train_heavy_weapons', op: 'unlock', value: 1 }] },
-      { level: 2, durationSec: 600,  costs: [{ kind: 'currency', currencyId: 'rp_adventurer', amount: 10 }, { kind: 'currency', currencyId: 'gold', amount: 250 }],  benefits: [{ effectType: 'unlock_training', target: 'train_heavy_weapons', op: 'unlock', value: 2 }] },
-      { level: 3, durationSec: 6000, costs: [{ kind: 'currency', currencyId: 'rp_adventurer', amount: 25 }, { kind: 'currency', currencyId: 'gold', amount: 2000 }], benefits: [{ effectType: 'unlock_training', target: 'train_heavy_weapons', op: 'unlock', value: 3 }] }
+      { level: 1, durationSec: 60,   costs: [{ kind: 'currency', currencyId: 'rp_warrior', amount: 5 },  { kind: 'currency', currencyId: 'gold', amount: 50 }],   benefits: [{ effectType: 'unlock_training', target: 'train_heavy_weapons', op: 'unlock', value: 1 }] },
+      { level: 2, durationSec: 600,  costs: [{ kind: 'currency', currencyId: 'rp_warrior', amount: 10 }, { kind: 'currency', currencyId: 'gold', amount: 250 }],  benefits: [{ effectType: 'unlock_training', target: 'train_heavy_weapons', op: 'unlock', value: 2 }] },
+      { level: 3, durationSec: 6000, costs: [{ kind: 'currency', currencyId: 'rp_warrior', amount: 25 }, { kind: 'currency', currencyId: 'gold', amount: 2000 }], benefits: [{ effectType: 'unlock_training', target: 'train_heavy_weapons', op: 'unlock', value: 3 }] }
     ],
     queueType: 'research',
     version: '1.0.0',
@@ -3570,9 +3584,9 @@ const PROTOTYPE_RESEARCH_ITEMS = {
     prerequisites: { type: 'research_level', research_item_id: 'WAR_WEAPON_HEAVY_001', operator: '>=', value: 1, label: 'Wield Heavier Weapons' },
     levelLimit: 3,
     levelDefinitions: [
-      { level: 1, durationSec: 120, costs: [{ kind: 'currency', currencyId: 'rp_adventurer', amount: 6 },  { kind: 'currency', currencyId: 'gold', amount: 90 },  { kind: 'stockpile', resourceId: 'ore', amount: 10 }], benefits: [{ effectType: 'attribute_modifier', target: 'hero_crit_pct', op: 'additive', value: 0.04 }] },
-      { level: 2, durationSec: 360, costs: [{ kind: 'currency', currencyId: 'rp_adventurer', amount: 12 }, { kind: 'currency', currencyId: 'gold', amount: 240 }, { kind: 'stockpile', resourceId: 'ingots', amount: 5 }], benefits: [{ effectType: 'attribute_modifier', target: 'hero_crit_pct', op: 'additive', value: 0.04 }] },
-      { level: 3, durationSec: 900, costs: [{ kind: 'currency', currencyId: 'rp_adventurer', amount: 22 }, { kind: 'currency', currencyId: 'gold', amount: 600 }, { kind: 'stockpile', resourceId: 'ingots', amount: 12 }], benefits: [{ effectType: 'attribute_modifier', target: 'hero_crit_pct', op: 'additive', value: 0.05 }] }
+      { level: 1, durationSec: 120, costs: [{ kind: 'currency', currencyId: 'rp_warrior', amount: 6 },  { kind: 'currency', currencyId: 'gold', amount: 90 },  { kind: 'stockpile', resourceId: 'ore', amount: 10 }], benefits: [{ effectType: 'attribute_modifier', target: 'hero_crit_pct', op: 'additive', value: 0.04 }] },
+      { level: 2, durationSec: 360, costs: [{ kind: 'currency', currencyId: 'rp_warrior', amount: 12 }, { kind: 'currency', currencyId: 'gold', amount: 240 }, { kind: 'stockpile', resourceId: 'ingots', amount: 5 }], benefits: [{ effectType: 'attribute_modifier', target: 'hero_crit_pct', op: 'additive', value: 0.04 }] },
+      { level: 3, durationSec: 900, costs: [{ kind: 'currency', currencyId: 'rp_warrior', amount: 22 }, { kind: 'currency', currencyId: 'gold', amount: 600 }, { kind: 'stockpile', resourceId: 'ingots', amount: 12 }], benefits: [{ effectType: 'attribute_modifier', target: 'hero_crit_pct', op: 'additive', value: 0.05 }] }
     ],
     queueType: 'research',
     version: '1.0.0',
@@ -3600,8 +3614,8 @@ const PROTOTYPE_RESEARCH_ITEMS = {
     },
     levelLimit: 2,
     levelDefinitions: [
-      { level: 1, durationSec: 240, costs: [{ kind: 'currency', currencyId: 'rp_adventurer', amount: 14 }, { kind: 'currency', currencyId: 'gold', amount: 320 }], benefits: [{ effectType: 'unlock_training', target: 'train_crushing_blows', op: 'unlock', value: 1 }] },
-      { level: 2, durationSec: 720, costs: [{ kind: 'currency', currencyId: 'rp_adventurer', amount: 28 }, { kind: 'currency', currencyId: 'gold', amount: 750 }], benefits: [{ effectType: 'unlock_training', target: 'train_crushing_blows', op: 'unlock', value: 2 }] }
+      { level: 1, durationSec: 240, costs: [{ kind: 'currency', currencyId: 'rp_warrior', amount: 14 }, { kind: 'currency', currencyId: 'gold', amount: 320 }], benefits: [{ effectType: 'unlock_training', target: 'train_crushing_blows', op: 'unlock', value: 1 }] },
+      { level: 2, durationSec: 720, costs: [{ kind: 'currency', currencyId: 'rp_warrior', amount: 28 }, { kind: 'currency', currencyId: 'gold', amount: 750 }], benefits: [{ effectType: 'unlock_training', target: 'train_crushing_blows', op: 'unlock', value: 2 }] }
     ],
     queueType: 'research',
     version: '1.0.0',
@@ -3623,9 +3637,9 @@ const PROTOTYPE_RESEARCH_ITEMS = {
     prerequisites: null,
     levelLimit: 3,
     levelDefinitions: [
-      { level: 1, durationSec: 60,  costs: [{ kind: 'currency', currencyId: 'rp_adventurer', amount: 4 },  { kind: 'currency', currencyId: 'gold', amount: 45 }],  benefits: [{ effectType: 'unlock_training', target: 'train_shield_wall', op: 'unlock', value: 1 }] },
-      { level: 2, durationSec: 300, costs: [{ kind: 'currency', currencyId: 'rp_adventurer', amount: 9 },  { kind: 'currency', currencyId: 'gold', amount: 180 }], benefits: [{ effectType: 'unlock_training', target: 'train_shield_wall', op: 'unlock', value: 2 }] },
-      { level: 3, durationSec: 900, costs: [{ kind: 'currency', currencyId: 'rp_adventurer', amount: 18 }, { kind: 'currency', currencyId: 'gold', amount: 520 }], benefits: [{ effectType: 'unlock_training', target: 'train_shield_wall', op: 'unlock', value: 3 }] }
+      { level: 1, durationSec: 60,  costs: [{ kind: 'currency', currencyId: 'rp_warrior', amount: 4 },  { kind: 'currency', currencyId: 'gold', amount: 45 }],  benefits: [{ effectType: 'unlock_training', target: 'train_shield_wall', op: 'unlock', value: 1 }] },
+      { level: 2, durationSec: 300, costs: [{ kind: 'currency', currencyId: 'rp_warrior', amount: 9 },  { kind: 'currency', currencyId: 'gold', amount: 180 }], benefits: [{ effectType: 'unlock_training', target: 'train_shield_wall', op: 'unlock', value: 2 }] },
+      { level: 3, durationSec: 900, costs: [{ kind: 'currency', currencyId: 'rp_warrior', amount: 18 }, { kind: 'currency', currencyId: 'gold', amount: 520 }], benefits: [{ effectType: 'unlock_training', target: 'train_shield_wall', op: 'unlock', value: 3 }] }
     ],
     queueType: 'research',
     version: '1.0.0',
@@ -3647,8 +3661,8 @@ const PROTOTYPE_RESEARCH_ITEMS = {
     prerequisites: { type: 'research_level', research_item_id: 'WAR_SHIELD_WALL_001', operator: '>=', value: 1, label: 'Tower Shield Foundations' },
     levelLimit: 2,
     levelDefinitions: [
-      { level: 1, durationSec: 150, costs: [{ kind: 'currency', currencyId: 'rp_adventurer', amount: 7 },  { kind: 'currency', currencyId: 'gold', amount: 110 }, { kind: 'stockpile', resourceId: 'wood', amount: 20 }], benefits: [{ effectType: 'attribute_modifier', target: 'hero_def_pct', op: 'additive', value: 0.06 }] },
-      { level: 2, durationSec: 420, costs: [{ kind: 'currency', currencyId: 'rp_adventurer', amount: 15 }, { kind: 'currency', currencyId: 'gold', amount: 300 }, { kind: 'stockpile', resourceId: 'wood', amount: 45 }], benefits: [{ effectType: 'attribute_modifier', target: 'hero_def_pct', op: 'additive', value: 0.06 }] }
+      { level: 1, durationSec: 150, costs: [{ kind: 'currency', currencyId: 'rp_warrior', amount: 7 },  { kind: 'currency', currencyId: 'gold', amount: 110 }, { kind: 'stockpile', resourceId: 'wood', amount: 20 }], benefits: [{ effectType: 'attribute_modifier', target: 'hero_def_pct', op: 'additive', value: 0.06 }] },
+      { level: 2, durationSec: 420, costs: [{ kind: 'currency', currencyId: 'rp_warrior', amount: 15 }, { kind: 'currency', currencyId: 'gold', amount: 300 }, { kind: 'stockpile', resourceId: 'wood', amount: 45 }], benefits: [{ effectType: 'attribute_modifier', target: 'hero_def_pct', op: 'additive', value: 0.06 }] }
     ],
     queueType: 'research',
     version: '1.0.0',
@@ -3676,8 +3690,8 @@ const PROTOTYPE_RESEARCH_ITEMS = {
     },
     levelLimit: 2,
     levelDefinitions: [
-      { level: 1, durationSec: 210, costs: [{ kind: 'currency', currencyId: 'rp_adventurer', amount: 11 }, { kind: 'currency', currencyId: 'gold', amount: 260 }], benefits: [{ effectType: 'unlock_training', target: 'train_armor_conditioning', op: 'unlock', value: 1 }] },
-      { level: 2, durationSec: 600, costs: [{ kind: 'currency', currencyId: 'rp_adventurer', amount: 22 }, { kind: 'currency', currencyId: 'gold', amount: 640 }], benefits: [{ effectType: 'unlock_training', target: 'train_armor_conditioning', op: 'unlock', value: 2 }] }
+      { level: 1, durationSec: 210, costs: [{ kind: 'currency', currencyId: 'rp_warrior', amount: 11 }, { kind: 'currency', currencyId: 'gold', amount: 260 }], benefits: [{ effectType: 'unlock_training', target: 'train_armor_conditioning', op: 'unlock', value: 1 }] },
+      { level: 2, durationSec: 600, costs: [{ kind: 'currency', currencyId: 'rp_warrior', amount: 22 }, { kind: 'currency', currencyId: 'gold', amount: 640 }], benefits: [{ effectType: 'unlock_training', target: 'train_armor_conditioning', op: 'unlock', value: 2 }] }
     ],
     queueType: 'research',
     version: '1.0.0',
@@ -3699,9 +3713,9 @@ const PROTOTYPE_RESEARCH_ITEMS = {
     prerequisites: null,
     levelLimit: 3,
     levelDefinitions: [
-      { level: 1, durationSec: 75,  costs: [{ kind: 'currency', currencyId: 'rp_general', amount: 0.04 }, { kind: 'currency', currencyId: 'gold', amount: 50 }],  benefits: [{ effectType: 'training_speed_modifier', target: 'hero', op: 'additive', value: 0.10 }] },
-      { level: 2, durationSec: 240, costs: [{ kind: 'currency', currencyId: 'rp_general', amount: 0.10 }, { kind: 'currency', currencyId: 'gold', amount: 160 }], benefits: [{ effectType: 'training_speed_modifier', target: 'hero', op: 'additive', value: 0.10 }] },
-      { level: 3, durationSec: 600, costs: [{ kind: 'currency', currencyId: 'rp_general', amount: 0.25 }, { kind: 'currency', currencyId: 'gold', amount: 450 }], benefits: [{ effectType: 'training_speed_modifier', target: 'hero', op: 'additive', value: 0.15 }] }
+      { level: 1, durationSec: 75,  costs: [{ kind: 'currency', currencyId: 'rp_warrior', amount: 3 },  { kind: 'currency', currencyId: 'gold', amount: 50 }],  benefits: [{ effectType: 'training_speed_modifier', target: 'hero', op: 'additive', value: 0.10 }] },
+      { level: 2, durationSec: 240, costs: [{ kind: 'currency', currencyId: 'rp_warrior', amount: 8 },  { kind: 'currency', currencyId: 'gold', amount: 160 }], benefits: [{ effectType: 'training_speed_modifier', target: 'hero', op: 'additive', value: 0.10 }] },
+      { level: 3, durationSec: 600, costs: [{ kind: 'currency', currencyId: 'rp_warrior', amount: 18 }, { kind: 'currency', currencyId: 'gold', amount: 450 }], benefits: [{ effectType: 'training_speed_modifier', target: 'hero', op: 'additive', value: 0.15 }] }
     ],
     queueType: 'research',
     version: '1.0.0',
@@ -3723,8 +3737,8 @@ const PROTOTYPE_RESEARCH_ITEMS = {
     prerequisites: { type: 'research_level', research_item_id: 'WAR_FIELD_DRILLS_001', operator: '>=', value: 1, label: 'Standardized Yard Drills' },
     levelLimit: 2,
     levelDefinitions: [
-      { level: 1, durationSec: 180, costs: [{ kind: 'currency', currencyId: 'rp_adventurer', amount: 8 },  { kind: 'currency', currencyId: 'gold', amount: 140 }], benefits: [{ effectType: 'attribute_modifier', target: 'hero_atk_pct', op: 'additive', value: 0.05 }] },
-      { level: 2, durationSec: 480, costs: [{ kind: 'currency', currencyId: 'rp_adventurer', amount: 16 }, { kind: 'currency', currencyId: 'gold', amount: 360 }], benefits: [{ effectType: 'attribute_modifier', target: 'hero_atk_pct', op: 'additive', value: 0.05 }] }
+      { level: 1, durationSec: 180, costs: [{ kind: 'currency', currencyId: 'rp_warrior', amount: 8 },  { kind: 'currency', currencyId: 'gold', amount: 140 }], benefits: [{ effectType: 'attribute_modifier', target: 'hero_atk_pct', op: 'additive', value: 0.05 }] },
+      { level: 2, durationSec: 480, costs: [{ kind: 'currency', currencyId: 'rp_warrior', amount: 16 }, { kind: 'currency', currencyId: 'gold', amount: 360 }], benefits: [{ effectType: 'attribute_modifier', target: 'hero_atk_pct', op: 'additive', value: 0.05 }] }
     ],
     queueType: 'research',
     version: '1.0.0',
@@ -3736,7 +3750,7 @@ const PROTOTYPE_RESEARCH_ITEMS = {
     domainId: 'warrior',
     branchId: 'br_tactics',
     nodePos: { col: 2, row: 2 },
-    parentIds: ['WAR_FLANKING_001', 'WAR_WEAPON_HEAVY_001'],
+    parentIds: ['WAR_WEAPON_HEAVY_001'],
     name: 'Vanguard Arms Doctrine',
     description: 'Advanced combat doctrine requiring a veteran hero and prior martial or survival research.',
     icon: '🏅',
@@ -3758,7 +3772,7 @@ const PROTOTYPE_RESEARCH_ITEMS = {
     },
     levelLimit: 1,
     levelDefinitions: [
-      { level: 1, durationSec: 300, costs: [{ kind: 'currency', currencyId: 'rp_adventurer', amount: 12 }, { kind: 'currency', currencyId: 'gold', amount: 400 }], benefits: [{ effectType: 'attribute_modifier', target: 'hero_atk_pct', op: 'additive', value: 0.08 }] }
+      { level: 1, durationSec: 300, costs: [{ kind: 'currency', currencyId: 'rp_warrior', amount: 12 }, { kind: 'currency', currencyId: 'gold', amount: 400 }], benefits: [{ effectType: 'attribute_modifier', target: 'hero_atk_pct', op: 'additive', value: 0.08 }] }
     ],
     queueType: 'research',
     version: '1.0.0',
@@ -3787,7 +3801,7 @@ const PROTOTYPE_RESEARCH_ITEMS = {
     },
     levelLimit: 1,
     levelDefinitions: [
-      { level: 1, durationSec: 1800, costs: [{ kind: 'currency', currencyId: 'rp_adventurer', amount: 45 }, { kind: 'currency', currencyId: 'gold', amount: 2500 }], benefits: [{ effectType: 'attribute_modifier', target: 'hero_atk_pct', op: 'additive', value: 0.15 }] }
+      { level: 1, durationSec: 1800, costs: [{ kind: 'currency', currencyId: 'rp_warrior', amount: 45 }, { kind: 'currency', currencyId: 'gold', amount: 2500 }], benefits: [{ effectType: 'attribute_modifier', target: 'hero_atk_pct', op: 'additive', value: 0.15 }] }
     ],
     queueType: 'research',
     version: '1.0.0',
@@ -9439,12 +9453,23 @@ const DEFAULT_ACTIVITY_AWARD_RULES = {
   },
   monster_defeated: {
     activityType: 'monster_defeated',
-    currencyId: 'rp_adventurer',
+    currencyId: 'rp_warrior',
     baseAmount: 0.005,
     cooldownMs: 0,
     windowMs: 86400000,
     windowCapCount: 300,
     diminishingAfter: 150,
+    diminishingFactor: 0.5,
+    version: '1.0.0'
+  },
+  warrior_class_action: {
+    activityType: 'warrior_class_action',
+    currencyId: 'rp_warrior',
+    baseAmount: 0.002,
+    cooldownMs: 500,
+    windowMs: 86400000,
+    windowCapCount: 500,
+    diminishingAfter: 200,
     diminishingFactor: 0.5,
     version: '1.0.0'
   },
@@ -9632,6 +9657,7 @@ function awardActivityResearchPoints(progression, params) {
   return {
     ok: txRes.ok,
     duplicate: Boolean(txRes.duplicate),
+    currencyId: rule.currencyId,
     awardedScaled: txRes.ok ? amountScaled : 0,
     awarded: txRes.ok ? (amountScaled / Math.pow(10, precision)) : 0,
     throttledReason: null,
@@ -10499,13 +10525,24 @@ const DEV_CONFIG_REGISTRY = [
   {
     key: 'activity_rp_monster_defeat',
     category: CONFIG_CATEGORIES.ACCRUAL,
-    label: 'Adventurer RP per Monster Defeated',
+    label: 'Warrior RP per Monster Defeated (Any Class)',
     type: 'number',
     step: 0.001,
     min: 0,
     max: 50,
     defaultValue: 0.005,
-    desc: 'Base Adventurer RP awarded for defeating a dungeon or overworld monster.'
+    desc: 'Base Warrior RP awarded for defeating a monster with any class.'
+  },
+  {
+    key: 'activity_rp_warrior_action',
+    category: CONFIG_CATEGORIES.ACCRUAL,
+    label: 'Warrior RP per Warrior Class Action',
+    type: 'number',
+    step: 0.0005,
+    min: 0,
+    max: 10,
+    defaultValue: 0.002,
+    desc: 'Base Warrior RP awarded for any qualifying action performed by a Warrior class.'
   },
   {
     key: 'activity_rp_research_quest',
@@ -11190,6 +11227,8 @@ function computeEffectiveRates(prog, city, pid) {
   const baseGenRate = getConfigValue(prog, 'passive_rp_general_per_sec');
   const effectiveGenRate = Math.round((baseGenRate * (1 + genAdditive)) * 10000000) / 10000000;
   const baseAdvAction = getConfigValue(prog, 'activity_rp_dungeon_move');
+  const baseWarKill = getConfigValue(prog, 'activity_rp_monster_defeat');
+  const baseWarAction = getConfigValue(prog, 'activity_rp_warrior_action');
   const globalResMult = getConfigValue(prog, 'global_research_speed_mult');
   const globalTrainMult = getConfigValue(prog, 'global_training_speed_mult');
 
@@ -11198,6 +11237,8 @@ function computeEffectiveRates(prog, city, pid) {
     genAdditive: genAdditive,
     effectiveGenRate: effectiveGenRate,
     baseAdvAction: baseAdvAction,
+    baseWarKill: baseWarKill,
+    baseWarAction: baseWarAction,
     researchSpeedBonus: ((1 + speedAdditive) * globalResMult) - 1,
     trainingSpeedBonus: ((1 + trainSpeedAdditive) * globalTrainMult) - 1
   };
@@ -11449,12 +11490,16 @@ function renderResearchModal(simHost) {
   if (!selectedTreeId || !PROTOTYPE_RESEARCH_TREES[selectedTreeId]) {
     // Relevant RP currencies list only (no Gold!), rounded down to tenths, showing effective rate after modifiers
     const rpDefs = Object.values(DEFAULT_CURRENCY_DEFINITIONS).filter(function(c) {
-      return c.category === 'research_point' && c.enabled !== false;
+      return c.enabled !== false && (
+        c.category === 'personal_research' ||
+        c.category === 'guild_research' ||
+        c.category === 'alliance_research'
+      );
     });
 
     const rpListHtml = rpDefs.map(function(cDef) {
       const bal = getCurrencyBalance(prog.currencyLedger, pid, OWNER_TYPES.PLAYER, cDef.currencyId).available;
-      let rateLabel = 'Earned via guild/alliance activity';
+      let rateLabel = 'Guild / Alliance activity';
       let tooltip = cDef.description || cDef.name;
 
       if (cDef.currencyId === 'rp_general') {
@@ -11462,7 +11507,10 @@ function renderResearchModal(simHost) {
         tooltip = 'Base ' + rates.baseGenRate.toFixed(5) + '/sec • Modifiers: +' + Math.round(rates.genAdditive * 100) + '% (Accrues online & offline)';
       } else if (cDef.currencyId === 'rp_adventurer') {
         rateLabel = '+' + rates.baseAdvAction.toFixed(4) + '/action';
-        tooltip = 'Earned from dungeon exploration, monster kills, discoveries, and quests.';
+        tooltip = 'Earned from dungeon exploration, chests, discoveries, and quests.';
+      } else if (cDef.currencyId === 'rp_warrior') {
+        rateLabel = '+' + rates.baseWarKill.toFixed(4) + '/kill';
+        tooltip = 'Earned from killing monsters with any class (+' + rates.baseWarKill.toFixed(4) + ') or any qualifying action by a Warrior class (+' + rates.baseWarAction.toFixed(4) + ').';
       }
 
       return `
@@ -12119,7 +12167,7 @@ function handleCancelHeroTrainingAction(simHost, heroId, trainingDefinitionId) {
 
 
 
-function renderDevPortalModal(simHost) {
+function renderDevPortalModal(simHost, forceRender) {
   const modal = document.getElementById('wgDevPortalModal');
   if (!modal) return;
   const state = simHost ? simHost.state : null;
@@ -12129,6 +12177,11 @@ function renderDevPortalModal(simHost) {
   }
 
   modal.classList.remove('hidden');
+  // Prevent background 400ms UI sync from wiping out live user input values!
+  if (!forceRender && !state._devPortalNeedsRender) {
+    return;
+  }
+  state._devPortalNeedsRender = false;
   const bodyEl = document.getElementById('wgDevPortalBody');
   if (!bodyEl) return;
 
@@ -12243,12 +12296,14 @@ function renderDevPortalModal(simHost) {
 function handleOpenDevPortal(simHost) {
   if (!simHost || !simHost.state || !simHost.state.world) return;
   simHost.state._devPortalOpen = true;
-  renderDevPortalModal(simHost);
+  simHost.state._devPortalNeedsRender = true;
+  renderDevPortalModal(simHost, true);
 }
 
 function handleCloseDevPortal(simHost) {
   if (!simHost || !simHost.state) return;
   simHost.state._devPortalOpen = false;
+  simHost.state._devPortalNeedsRender = false;
   renderDevPortalModal(simHost);
 }
 
@@ -12283,7 +12338,8 @@ function handleDevSetCurrencyAction(simHost, currencyId, explicitValue) {
   }
   simHost.state._dirty = true;
   simHost.save();
-  renderDevPortalModal(simHost);
+  simHost.state._devPortalNeedsRender = true;
+  renderDevPortalModal(simHost, true);
   return { ok: true, currencyId: currencyId, balance: targetVal };
 }
 
@@ -12304,7 +12360,8 @@ function handleDevAddStockpileAction(simHost, resourceId, delta) {
   }
   simHost.state._dirty = true;
   simHost.save();
-  renderDevPortalModal(simHost);
+  simHost.state._devPortalNeedsRender = true;
+  renderDevPortalModal(simHost, true);
   return { ok: true, resourceId: resourceId, value: city.stockpile[resourceId] };
 }
 
@@ -12319,7 +12376,8 @@ function handleDevSetConfigAction(simHost, key, explicitValue) {
   const res = setConfigValue(prog, key, val);
   simHost.state._dirty = true;
   simHost.save();
-  renderDevPortalModal(simHost);
+  simHost.state._devPortalNeedsRender = true;
+  renderDevPortalModal(simHost, true);
   return res;
 }
 
@@ -12329,7 +12387,8 @@ function handleDevResetConfigsAction(simHost) {
   resetAllConfigValues(prog);
   simHost.state._dirty = true;
   simHost.save();
-  renderDevPortalModal(simHost);
+  simHost.state._devPortalNeedsRender = true;
+  renderDevPortalModal(simHost, true);
   return { ok: true };
 }
 
@@ -12351,7 +12410,8 @@ function handleDevTimeJumpAction(simHost, seconds) {
 
   simHost.state._dirty = true;
   simHost.save();
-  renderDevPortalModal(simHost);
+  simHost.state._devPortalNeedsRender = true;
+  renderDevPortalModal(simHost, true);
   return { ok: true, jumpedSec: seconds };
 }
 
@@ -12364,7 +12424,8 @@ function handleDevCompleteQueuesAction(simHost) {
   advanceTrainingProgress(prog, simNow);
   simHost.state._dirty = true;
   simHost.save();
-  renderDevPortalModal(simHost);
+  simHost.state._devPortalNeedsRender = true;
+  renderDevPortalModal(simHost, true);
   return { ok: true };
 }
 
@@ -14166,35 +14227,76 @@ function renderWargameCharacterSheetModal(simHost) {
   }
 }
 
-function buildUnifiedGuildServicesHtml(simHost, bId, city, bDef, lvl) {
-  const fac = (bDef && bDef.facilities) || {};
-  const tabs = [];
-  if (fac.recruitment && Array.isArray(fac.recruitment.classes)) {
-    tabs.push({ id: 'recruit', label: '⚔️ Recruit' });
+function buildNetResourceOverlayText(bDef, lvl) {
+  if (!bDef) return '';
+  const net = {};
+  if (bDef.productionPerTick) {
+    Object.entries(bDef.productionPerTick).forEach(function(e) {
+      net[e[0]] = (net[e[0]] || 0) + (e[1] * lvl);
+    });
   }
-  if (fac.questBoard) tabs.push({ id: 'quests', label: '📜 Quests' });
-  if (fac.training)   tabs.push({ id: 'training', label: '🎯 Training' });
-  if (fac.research)   tabs.push({ id: 'research', label: '📚 Research' });
-  if (fac.shop)       tabs.push({ id: 'shop', label: '🛒 Shop' });
+  if (bDef.consumptionPerTick) {
+    Object.entries(bDef.consumptionPerTick).forEach(function(e) {
+      net[e[0]] = (net[e[0]] || 0) - (e[1] * lvl);
+    });
+  }
+  const parts = [];
+  Object.entries(net).forEach(function(e) {
+    if (e[1] !== 0) {
+      const sign = e[1] > 0 ? '+' : '';
+      const label = e[0].charAt(0).toUpperCase() + e[0].slice(1);
+      parts.push(sign + e[1] + ' ' + label + '/tick');
+    }
+  });
+  if (bDef.providesPopulation) parts.push('+' + (bDef.providesPopulation * lvl) + ' Max Pop');
+  if (bDef.storageBonus) {
+    Object.entries(bDef.storageBonus).forEach(function(e) {
+      parts.push('+' + (e[1] * lvl) + ' ' + e[0] + ' Cap');
+    });
+  }
+  if (bDef.adjacencyBonus) parts.push('+20% Adjacent Yield');
+  return parts.length > 0 ? ('Net: ' + parts.join(' • ')) : '';
+}
 
-  if (tabs.length === 0) return '';
+function buildUnifiedGuildServicesHtml(simHost, bId, city, bDef, lvl, activePlot) {
+  const fac = (bDef && bDef.facilities) || {};
+  const hasGuildServices = Boolean(
+    (fac.recruitment && Array.isArray(fac.recruitment.classes)) ||
+    fac.questBoard || fac.training || fac.research || fac.shop
+  );
+  if (!hasGuildServices) return '';
 
-  const requestedTab = simHost && simHost.state ? simHost.state._facilityTab : null;
-  const activeTab = tabs.some(function(t) { return t.id === requestedTab; }) ? requestedTab : tabs[0].id;
-
+  const subPage = simHost && simHost.state ? (simHost.state._facilityTab || null) : null;
   const domain = (fac.questBoard && fac.questBoard.domain)
     || (fac.training && fac.training.domain)
     || (fac.research && fac.research.domain)
     || 'adventurers';
   const catalog = GUILD_SERVICE_CATALOGS[domain] || GUILD_SERVICE_CATALOGS.adventurers;
 
-  const tabBarHtml = tabs.map(function(t) {
-    const isAct = t.id === activeTab;
-    return `<button onclick="window.WargameApp.handleSwitchFacilityTab('${t.id}')" class="px-3 py-1.5 rounded-lg text-[11px] font-mono font-bold uppercase cursor-pointer transition ${isAct ? 'bg-[#fbbf24] text-[#080b11] shadow' : 'bg-[#080b11]/75 hover:bg-[#1a2232] text-[#cbd5e1] border border-[#283347]'}">${t.label}</button>`;
-  }).join('');
+  // Compute Upgrade button state
+  const nextLvl = lvl + 1;
+  const isMaxLvl = nextLvl > (bDef.maxLevel || 5);
+  const upgCost = !isMaxLvl ? computeBuildingUpgradeCost(bId, nextLvl) : null;
+  const upgDur = !isMaxLvl ? computeBuildingDurationMs(bId, nextLvl) : 0;
+  const mhLvl = (city.buildings && (city.buildings.meeting_hall || city.buildings.town_hall)) || 1;
+  const isMH = (bId === 'meeting_hall' || bId === 'town_hall');
+  const cappedByMH = !isMH && nextLvl > mhLvl;
+  const canAffordUpg = Boolean(
+    !isMaxLvl && !cappedByMH && activePlot && !activePlot.underConstruction &&
+    (city.stockpile.wood  || 0) >= (upgCost.wood  || 0) &&
+    (city.stockpile.stone || 0) >= (upgCost.stone || 0) &&
+    (city.stockpile.gold  || 0) >= (upgCost.gold  || 0) &&
+    (city.stockpile.water || 0) >= (upgCost.water || 0) &&
+    (city.stockpile.ore   || 0) >= (upgCost.ore   || 0)
+  );
+  const upgTitle = isMaxLvl
+    ? 'Maximum Level Reached'
+    : (cappedByMH
+      ? ('Requires Meeting Hall Lv ' + nextLvl)
+      : ('Upgrade Lv ' + nextLvl + ': ' + upgCost.wood + 'W, ' + upgCost.stone + 'S' + (upgCost.gold ? (', ' + upgCost.gold + 'G') : '') + ' (' + formatSimDuration(upgDur) + ')'));
 
-  let panelHtml = '';
-  if (activeTab === 'recruit') {
+  // Dedicated Sub-Pages: Recruit / Quest Board / Shop (opened from the clean action row)
+  if (subPage === 'recruit' && fac.recruitment && Array.isArray(fac.recruitment.classes)) {
     const classCards = fac.recruitment.classes.map(function(entry) {
       const cDef = RECRUITABLE_HERO_CLASSES.find(function(c) { return c.classId === entry.classId; });
       if (!cDef) return '';
@@ -14202,26 +14304,44 @@ function buildUnifiedGuildServicesHtml(simHost, bId, city, bDef, lvl) {
       const canAfford = unlocked && (city.stockpile.gold || 0) >= cDef.costGold && (city.stockpile.food || 0) >= cDef.costFood;
       const portraitSrc = getProductionImageSrc(getHeroPortraitAssetId(cDef.classId));
       const portraitHtml = portraitSrc
-        ? `<img src="${portraitSrc}" alt="${cDef.name}" class="w-12 h-12 rounded-lg object-cover border border-[#fbbf24]/50 shadow shrink-0 bg-[#080b11]" />`
-        : `<div class="w-12 h-12 rounded-lg bg-[#080b11] border border-[#283347] flex items-center justify-center text-xl shrink-0">${cDef.icon}</div>`;
+        ? `<img src="${portraitSrc}" alt="${cDef.name}" class="w-16 h-16 rounded-lg object-cover border border-[#fbbf24]/50 shadow shrink-0 bg-[#080b11]" />`
+        : `<div class="w-16 h-16 rounded-lg bg-[#080b11] border border-[#283347] flex items-center justify-center text-2xl shrink-0">${cDef.icon}</div>`;
+      const bs = cDef.baseStats || { hp: 80, mp: 20, atk: 10, def: 5 };
       return `
-        <div class="p-2.5 rounded-lg bg-[#111722]/90 border border-[#283347] flex items-center justify-between gap-3 text-xs">
-          <div class="flex items-center gap-2.5 min-w-0">
+        <div class="p-3 rounded-lg bg-[#111722]/92 border border-[#283347] flex flex-wrap items-center justify-between gap-3 text-xs">
+          <div class="flex items-center gap-3 min-w-0 flex-1">
             ${portraitHtml}
-            <div class="min-w-0">
-              <div class="font-bold truncate" style="color:${cDef.color}">${cDef.icon} ${cDef.name} <span class="text-[9px] font-mono text-[#fbbf24]">• ${cDef.title}</span></div>
-              <div class="text-[10px] text-[#94a3b8] truncate">${cDef.specialty || ''}</div>
-              <div class="text-[10px] font-mono text-[#fbbf24] mt-0.5">${unlocked ? ('Oath Cost: ' + cDef.costGold + 'g • ' + cDef.costFood + ' Food') : ('Unlocks at ' + bDef.name + ' Lv ' + entry.minLevel)}</div>
+            <div class="min-w-0 space-y-1">
+              <div class="font-bold text-sm truncate" style="color:${cDef.color}">${cDef.icon} ${cDef.name} <span class="text-[10px] font-mono text-[#fbbf24]">• ${cDef.title}</span></div>
+              <div class="text-[11px] text-[#94a3b8]">${cDef.specialty || ''}</div>
+              <div class="flex flex-wrap items-center gap-2 text-[10px] font-mono text-[#cbd5e1]">
+                <span class="px-1.5 py-0.5 rounded bg-[#080b11] border border-[#1e293b]">HP <strong>${bs.hp}</strong></span>
+                <span class="px-1.5 py-0.5 rounded bg-[#080b11] border border-[#1e293b]">MP <strong>${bs.mp}</strong></span>
+                <span class="px-1.5 py-0.5 rounded bg-[#080b11] border border-[#1e293b]">ATK <strong>${bs.atk}</strong></span>
+                <span class="px-1.5 py-0.5 rounded bg-[#080b11] border border-[#1e293b]">DEF <strong>${bs.def}</strong></span>
+              </div>
+              <div class="text-[10px] font-mono text-[#fbbf24]">${unlocked ? ('Recruit Cost: ' + cDef.costGold + 'g • ' + cDef.costFood + ' Food') : ('Unlocks at ' + bDef.name + ' Lv ' + entry.minLevel)}</div>
             </div>
           </div>
-          <button onclick="window.WargameApp.handleRecruitHero('${cDef.classId}')" ${!canAfford ? 'disabled' : ''} class="px-3 py-1.5 rounded text-[10px] font-mono font-bold uppercase whitespace-nowrap ${canAfford ? 'bg-[#fbbf24] hover:bg-[#f59e0b] text-[#080b11] cursor-pointer' : 'bg-[#1a2232] text-[#64748b] cursor-not-allowed'}">
-            ${unlocked ? '⚔️ Train (60s)' : ('Lv ' + entry.minLevel)}
+          <button onclick="window.WargameApp.handleRecruitHero('${cDef.classId}')" ${!canAfford ? 'disabled' : ''} class="px-4 py-2 rounded-lg text-xs font-mono font-bold uppercase whitespace-nowrap ${canAfford ? 'bg-[#fbbf24] hover:bg-[#f59e0b] text-[#080b11] cursor-pointer' : 'bg-[#1a2232] text-[#64748b] cursor-not-allowed'}">
+            ${unlocked ? '⚔️ Recruit (60s)' : ('Lv ' + entry.minLevel)}
           </button>
         </div>
       `;
     }).join('');
-    panelHtml = `<div class="space-y-1.5">${classCards}</div>`;
-  } else if (activeTab === 'quests') {
+
+    return `
+      <div class="p-3.5 rounded-xl bg-[#080b11]/90 border border-[#fbbf24]/50 space-y-2.5">
+        <div class="flex items-center justify-between">
+          <span class="font-display text-sm font-bold text-[#fbbf24]">⚔️ Recruit Heroes — ${bDef.name}</span>
+          <button onclick="window.WargameApp.handleSwitchFacilityTab('')" class="px-2.5 py-1 rounded bg-[#1a2232] hover:bg-[#283347] text-xs font-mono text-[#e6edf3] cursor-pointer">← Back</button>
+        </div>
+        <div class="space-y-2">${classCards}</div>
+      </div>
+    `;
+  }
+
+  if (subPage === 'quests' && fac.questBoard) {
     const qList = (catalog.quests || []).map(function(q) {
       return `
         <div class="p-2.5 rounded-lg bg-[#111722]/90 border border-[#283347] flex items-center justify-between gap-2 text-xs">
@@ -14233,48 +14353,18 @@ function buildUnifiedGuildServicesHtml(simHost, bId, city, bDef, lvl) {
         </div>
       `;
     }).join('');
-    panelHtml = `<div class="space-y-1.5">${qList}</div>`;
-  } else if (activeTab === 'training') {
-    const tList = (catalog.training || []).map(function(tr) {
-      return `
-        <div class="p-2.5 rounded-lg bg-[#111722]/90 border border-[#283347] flex items-center justify-between gap-2 text-xs">
-          <div>
-            <div class="font-bold text-[#38bdf8]">🎯 ${tr.name}</div>
-            <div class="text-[10px] text-[#94a3b8]">${tr.desc}</div>
-          </div>
-          <span class="px-2 py-1 rounded bg-[#080b11] border border-[#fbbf24]/40 text-[10px] font-mono text-[#fbbf24] whitespace-nowrap">${tr.cost}</span>
+    return `
+      <div class="p-3.5 rounded-xl bg-[#080b11]/90 border border-[#fbbf24]/50 space-y-2.5">
+        <div class="flex items-center justify-between">
+          <span class="font-display text-sm font-bold text-[#fbbf24]">📜 Quest Board — ${bDef.name}</span>
+          <button onclick="window.WargameApp.handleSwitchFacilityTab('')" class="px-2.5 py-1 rounded bg-[#1a2232] hover:bg-[#283347] text-xs font-mono text-[#e6edf3] cursor-pointer">← Back</button>
         </div>
-      `;
-    }).join('');
-    panelHtml = `
-      <div class="space-y-1.5">
-        <div class="flex justify-end pb-1">
-          <button onclick="window.WargameApp.handleOpenTrainingHub()" class="px-3 py-1.5 rounded-lg bg-[#34d399] hover:bg-[#10b981] text-[#080b11] font-mono font-bold text-[10px] uppercase cursor-pointer">🎯 Open Training Grounds →</button>
-        </div>
-        ${tList}
+        <div class="space-y-1.5">${qList}</div>
       </div>
     `;
-  } else if (activeTab === 'research') {
-    const rList = (catalog.research || []).map(function(rs) {
-      return `
-        <div class="p-2.5 rounded-lg bg-[#111722]/90 border border-[#283347] flex items-center justify-between gap-2 text-xs">
-          <div>
-            <div class="font-bold text-[#c084fc]">📚 ${rs.name}</div>
-            <div class="text-[10px] text-[#94a3b8]">${rs.desc}</div>
-          </div>
-          <span class="px-2 py-1 rounded bg-[#080b11] border border-[#c084fc]/40 text-[10px] font-mono text-[#c084fc] whitespace-nowrap">${rs.cost}</span>
-        </div>
-      `;
-    }).join('');
-    panelHtml = `
-      <div class="space-y-1.5">
-        <div class="flex justify-end pb-1">
-          <button onclick="window.WargameApp.handleOpenResearchHub()" class="px-3 py-1.5 rounded-lg bg-[#fbbf24] hover:bg-[#f59e0b] text-[#080b11] font-mono font-bold text-[10px] uppercase cursor-pointer">📚 Open Research Archive →</button>
-        </div>
-        ${rList}
-      </div>
-    `;
-  } else if (activeTab === 'shop') {
+  }
+
+  if (subPage === 'shop' && fac.shop) {
     const sList = (catalog.shop || []).map(function(sh) {
       return `
         <div class="p-2.5 rounded-lg bg-[#111722]/90 border border-[#283347] flex items-center justify-between gap-2 text-xs">
@@ -14286,15 +14376,39 @@ function buildUnifiedGuildServicesHtml(simHost, bId, city, bDef, lvl) {
         </div>
       `;
     }).join('');
-    panelHtml = `<div class="space-y-1.5">${sList}</div>`;
+    return `
+      <div class="p-3.5 rounded-xl bg-[#080b11]/90 border border-[#fbbf24]/50 space-y-2.5">
+        <div class="flex items-center justify-between">
+          <span class="font-display text-sm font-bold text-[#34d399]">🛒 Quartermaster Shop — ${bDef.name}</span>
+          <button onclick="window.WargameApp.handleSwitchFacilityTab('')" class="px-2.5 py-1 rounded bg-[#1a2232] hover:bg-[#283347] text-xs font-mono text-[#e6edf3] cursor-pointer">← Back</button>
+        </div>
+        <div class="space-y-1.5">${sList}</div>
+      </div>
+    `;
   }
 
-  return `
-    <div class="p-3 rounded-lg bg-[#080b11] border border-[#fbbf24]/40 space-y-2.5">
-      <div class="flex flex-wrap items-center gap-1.5">${tabBarHtml}</div>
-      ${panelHtml}
-    </div>
-  `;
+  // Default Home View: Clean single row of 6 action buttons over the full-bleed interior!
+  const actionBtns = [];
+  if (fac.recruitment && Array.isArray(fac.recruitment.classes)) {
+    actionBtns.push(`<button onclick="window.WargameApp.handleSwitchFacilityTab('recruit')" class="px-3 py-2 rounded-lg bg-[#080b11]/85 hover:bg-[#fbbf24] hover:text-[#080b11] border border-[#fbbf24]/50 text-[#fbbf24] text-xs font-mono font-bold uppercase cursor-pointer transition">⚔️ Recruit</button>`);
+  }
+  if (fac.questBoard) {
+    actionBtns.push(`<button onclick="window.WargameApp.handleSwitchFacilityTab('quests')" class="px-3 py-2 rounded-lg bg-[#080b11]/85 hover:bg-[#fbbf24] hover:text-[#080b11] border border-[#334155] text-[#e6edf3] text-xs font-mono font-bold uppercase cursor-pointer transition">📜 Quest Board</button>`);
+  }
+  if (fac.training) {
+    actionBtns.push(`<button onclick="window.WargameApp.handleCloseFacilityModal(); window.WargameApp.handleOpenTrainingHub()" class="px-3 py-2 rounded-lg bg-[#080b11]/85 hover:bg-[#34d399] hover:text-[#080b11] border border-[#34d399]/50 text-[#34d399] text-xs font-mono font-bold uppercase cursor-pointer transition">🎯 Training</button>`);
+  }
+  if (fac.research) {
+    actionBtns.push(`<button onclick="window.WargameApp.handleCloseFacilityModal(); window.WargameApp.handleOpenResearchHub()" class="px-3 py-2 rounded-lg bg-[#080b11]/85 hover:bg-[#c084fc] hover:text-[#080b11] border border-[#c084fc]/50 text-[#c084fc] text-xs font-mono font-bold uppercase cursor-pointer transition">📚 Research</button>`);
+  }
+  if (fac.shop) {
+    actionBtns.push(`<button onclick="window.WargameApp.handleSwitchFacilityTab('shop')" class="px-3 py-2 rounded-lg bg-[#080b11]/85 hover:bg-[#34d399] hover:text-[#080b11] border border-[#334155] text-[#e6edf3] text-xs font-mono font-bold uppercase cursor-pointer transition">🛒 Shop</button>`);
+  }
+  if (activePlot && !isMaxLvl) {
+    actionBtns.push(`<button title="${upgTitle}" onclick="window.WargameApp.handleQueueBuilding(${activePlot.plotIndex}, '${bId}')" ${!canAffordUpg ? 'disabled' : ''} class="px-3 py-2 rounded-lg text-xs font-mono font-bold uppercase transition ${canAffordUpg ? 'bg-[#fbbf24] hover:bg-[#f59e0b] text-[#080b11] cursor-pointer' : 'bg-[#080b11]/75 text-[#64748b] border border-[#1e293b] cursor-not-allowed'}">⬆️ Upgrade</button>`);
+  }
+
+  return `<div class="flex flex-wrap items-center justify-center gap-2">${actionBtns.join('')}</div>`;
 }
 
 function renderWargameFacilityModal(simHost) {
@@ -14553,35 +14667,9 @@ function renderWargameFacilityModal(simHost) {
     `);
   }
 
-  const guildServicesHtml = buildUnifiedGuildServicesHtml(simHost, bId, city, bDef, lvl);
+  const guildServicesHtml = buildUnifiedGuildServicesHtml(simHost, bId, city, bDef, lvl, activePlot);
   if (guildServicesHtml) {
     sections.push(guildServicesHtml);
-  }
-
-  // Universal Production, Consumption & Upgrade Statistics Panel (works identically for Farms, Wells, Huts, Mines, Guilds, etc.)
-  const prodLines = [];
-  if (bDef.productionPerTick) {
-    Object.entries(bDef.productionPerTick).forEach(function(e) {
-      if (e[1] > 0) prodLines.push('+' + (e[1] * lvl) + ' ' + e[0] + ' / tick');
-    });
-  }
-  if (bDef.providesPopulation) prodLines.push('+' + (bDef.providesPopulation * lvl) + ' Max Population');
-  if (bDef.storageBonus) {
-    Object.entries(bDef.storageBonus).forEach(function(e) {
-      prodLines.push('+' + (e[1] * lvl) + ' ' + e[0] + ' Cap');
-    });
-  }
-  if (bDef.adjacencyBonus) prodLines.push('+20% Adjacent Food/Wood/Stone/Water Output');
-
-  const consumeLines = [];
-  if (bDef.consumptionPerTick) {
-    Object.entries(bDef.consumptionPerTick).forEach(function(e) {
-      if (e[1] > 0) consumeLines.push('-' + (e[1] * lvl) + ' ' + e[0] + ' / tick');
-    });
-  } else if (bDef.providesPopulation) {
-    consumeLines.push('Citizens consume Food & Water per tick');
-  } else {
-    consumeLines.push('None (Zero passive upkeep)');
   }
 
   const nextLvl = lvl + 1;
@@ -14600,36 +14688,30 @@ function renderWargameFacilityModal(simHost) {
     (city.stockpile.ore   || 0) >= (upgCost.ore   || 0)
   );
 
-  if (sections.length === 0 || bDef.productionPerTick || bDef.providesPopulation || bDef.adjacencyBonus) {
+  // For non-guild buildings, show a clean compact Upgrade action button (no bulky Producing/Consuming box!)
+  if (!guildServicesHtml && activePlot && !isMaxLvl) {
+    const upgTitle = cappedByMH
+      ? ('Requires Meeting Hall Lv ' + nextLvl)
+      : ('Upgrade Lv ' + nextLvl + ': ' + upgCost.wood + 'W, ' + upgCost.stone + 'S' + (upgCost.gold ? (', ' + upgCost.gold + 'G') : '') + ' (' + formatSimDuration(upgDur) + ')');
     sections.push(`
-      <div class="p-3 rounded-lg bg-[#080b11] border border-[#38bdf8]/40 space-y-2.5">
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
-          <div class="p-2 rounded bg-[#111722]/90 border border-[#283347]">
-            <div class="text-[10px] font-mono uppercase text-[#34d399] font-bold">📈 Producing / Providing</div>
-            <div class="text-[11px] font-mono text-[#e6edf3] mt-1">${prodLines.length > 0 ? prodLines.join(' • ') : 'Civic / Operational Support'}</div>
-          </div>
-          <div class="p-2 rounded bg-[#111722]/90 border border-[#283347]">
-            <div class="text-[10px] font-mono uppercase text-[#fb923c] font-bold">📉 Consuming / Upkeep</div>
-            <div class="text-[11px] font-mono text-[#94a3b8] mt-1">${consumeLines.join(' • ')}</div>
-          </div>
+      <div class="flex flex-wrap items-center justify-between gap-2 px-3 py-2 rounded-lg bg-[#080b11]/80 border border-[#283347]">
+        <div class="text-[11px] font-mono text-[#cbd5e1]">
+          Upgrade Lv ${nextLvl}: <span class="text-[#fbbf24]">${upgCost.wood}W • ${upgCost.stone}S${upgCost.gold ? (' • ' + upgCost.gold + 'G') : ''}</span> • ⏱ ${formatSimDuration(upgDur)}
+          ${cappedByMH ? '<span class="text-[#f87171] ml-1">(Needs Meeting Hall Lv ' + nextLvl + ')</span>' : ''}
         </div>
-        ${!isMaxLvl && activePlot ? `
-          <div class="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-[#1e293b]">
-            <div class="text-[10px] font-mono text-[#cbd5e1]">
-              Upgrade Lv ${nextLvl}: <span class="text-[#fbbf24]">${upgCost.wood}W • ${upgCost.stone}S${upgCost.gold ? (' • ' + upgCost.gold + 'G') : ''}${upgCost.water ? (' • ' + upgCost.water + '💧') : ''}${upgCost.ore ? (' • ' + upgCost.ore + '⛏️') : ''}</span> • ⏱ ${formatSimDuration(upgDur)}
-              ${cappedByMH ? '<span class="text-[#f87171] ml-1">(Requires Meeting Hall Lv ' + nextLvl + ')</span>' : ''}
-            </div>
-            <button onclick="window.WargameApp.handleQueueBuilding(${activePlot.plotIndex}, '${bId}')" ${!canAffordUpg ? 'disabled' : ''} class="px-3 py-1.5 rounded text-[10px] font-mono font-bold uppercase ${canAffordUpg ? 'bg-[#fbbf24] hover:bg-[#f59e0b] text-[#080b11] cursor-pointer' : 'bg-[#1a2232] text-[#64748b] cursor-not-allowed'}">
-              ⬆️ Upgrade to Lv ${nextLvl}
-            </button>
-          </div>
-        ` : (isMaxLvl ? `<div class="text-[10px] font-mono text-[#fbbf24] text-right">★ Maximum Level Reached</div>` : '')}
+        <button title="${upgTitle}" onclick="window.WargameApp.handleQueueBuilding(${activePlot.plotIndex}, '${bId}')" ${!canAffordUpg ? 'disabled' : ''} class="px-3 py-1.5 rounded-lg text-xs font-mono font-bold uppercase ${canAffordUpg ? 'bg-[#fbbf24] hover:bg-[#f59e0b] text-[#080b11] cursor-pointer' : 'bg-[#1a2232] text-[#64748b] cursor-not-allowed'}">
+          ⬆️ Upgrade
+        </button>
       </div>
     `);
   }
 
-  const innerHtml = sections.join('') || `<div class="text-xs text-[#8b949e]">Facility operational.</div>`;
+  const innerHtml = sections.join('');
+  const netOverlayText = buildNetResourceOverlayText(bDef, lvl);
   const showInfo = Boolean(simHost.state && simHost.state._showFacilityInfo);
+  const showDemolishConfirm = Boolean(simHost.state && simHost.state._confirmFacilityDemolish);
+  const canDemolish = Boolean(activePlot && !isMH && !activePlot.underConstruction);
+
   const infoPopoverHtml = showInfo ? `
     <div class="mx-3.5 p-3 rounded-lg bg-[#080b11]/92 backdrop-blur-md border border-[#fbbf24]/60 shadow-xl space-y-1.5 text-xs">
       <div class="flex items-center justify-between">
@@ -14640,21 +14722,36 @@ function renderWargameFacilityModal(simHost) {
     </div>
   ` : '';
 
+  const demolishPopoverHtml = (showDemolishConfirm && canDemolish) ? `
+    <div class="mx-3.5 p-3 rounded-lg bg-[#450a0a]/92 backdrop-blur-md border border-[#f87171]/60 shadow-xl flex flex-wrap items-center justify-between gap-2 text-xs">
+      <span class="text-[#fecaca] font-semibold">🗑️ Demolish ${bDef.name} (Lv ${lvl}) for 35% resource salvage?</span>
+      <div class="flex items-center gap-1.5">
+        <button onclick="window.WargameApp.handleDemolishBuilding(${activePlot.plotIndex}); window.WargameApp.handleCloseFacilityModal()" class="px-2.5 py-1 rounded bg-[#f87171] hover:bg-[#ef4444] text-[#080b11] font-mono font-bold text-[10px] uppercase cursor-pointer">Confirm Demolish</button>
+        <button onclick="window.WargameApp.handleToggleFacilityDemolishConfirm()" class="px-2.5 py-1 rounded bg-[#1a2232] text-[#e6edf3] font-mono text-[10px] cursor-pointer">Cancel</button>
+      </div>
+    </div>
+  ` : '';
+
   const unifiedStageHtml = `
-    <div class="relative min-h-[460px] rounded-xl overflow-hidden border border-[#fbbf24]/50 bg-gradient-to-br from-[#161e2e] via-[#0f1520] to-[#080b11] shadow-2xl flex flex-col justify-between">
+    <div class="relative min-h-[480px] rounded-xl overflow-hidden border border-[#fbbf24]/50 bg-gradient-to-br from-[#161e2e] via-[#0f1520] to-[#080b11] shadow-2xl flex flex-col justify-between">
       ${interiorSrc ? `<img src="${interiorSrc}" alt="${bDef.name} Interior" class="absolute inset-0 w-full h-full object-cover object-center" />` : `<div class="absolute inset-0 flex items-center justify-center opacity-10 text-[140px] select-none pointer-events-none">${bDef.icon || '🏛️'}</div>`}
-      <div class="absolute inset-0 bg-gradient-to-b from-[#080b11]/55 via-[#080b11]/20 to-[#080b11]/92"></div>
-      <div class="relative z-10 p-3.5 flex items-center justify-between gap-2">
-        <div class="px-3 py-1.5 rounded-lg bg-[#080b11]/70 backdrop-blur-md border border-[#fbbf24]/40">
-          <div class="text-xs font-display font-bold text-[#fbbf24]">${bDef.icon || '🏛️'} ${bDef.name} <span class="text-[10px] font-mono text-[#e6edf3]/80">• Lv ${lvl} (${city.name})</span></div>
+      <div class="absolute inset-0 bg-gradient-to-b from-[#080b11]/55 via-[#080b11]/15 to-[#080b11]/90"></div>
+      <div class="relative z-10 p-3.5 flex items-start justify-between gap-2">
+        <div class="space-y-1">
+          <div class="px-3 py-1.5 rounded-lg bg-[#080b11]/70 backdrop-blur-md border border-[#fbbf24]/40 inline-block">
+            <div class="text-xs font-display font-bold text-[#fbbf24]">${bDef.icon || '🏛️'} ${bDef.name} <span class="text-[10px] font-mono text-[#e6edf3]/80">• Lv ${lvl} (${city.name})</span></div>
+          </div>
+          ${netOverlayText ? `<div class="px-2.5 py-0.5 text-[11px] font-mono font-bold text-[#34d399] drop-shadow-[0_1px_4px_rgba(0,0,0,0.95)]">${netOverlayText}</div>` : ''}
         </div>
-        <button onclick="window.WargameApp.handleToggleFacilityInfo()" title="Building Info" class="w-8 h-8 rounded-full bg-[#080b11]/80 hover:bg-[#fbbf24] hover:text-[#080b11] backdrop-blur-md border border-[#fbbf24]/50 text-[#fbbf24] font-bold text-xs flex items-center justify-center cursor-pointer transition">ⓘ</button>
+        <div class="flex flex-col items-center gap-1.5">
+          <button onclick="window.WargameApp.handleToggleFacilityInfo()" title="Building Info" class="w-8 h-8 rounded-full bg-[#080b11]/80 hover:bg-[#fbbf24] hover:text-[#080b11] backdrop-blur-md border border-[#fbbf24]/50 text-[#fbbf24] font-bold text-xs flex items-center justify-center cursor-pointer transition">ⓘ</button>
+          ${canDemolish ? `<button onclick="window.WargameApp.handleToggleFacilityDemolishConfirm()" title="Demolish Building" class="w-8 h-8 rounded-full bg-[#080b11]/80 hover:bg-[#f87171] hover:text-[#080b11] backdrop-blur-md border border-[#f87171]/50 text-[#f87171] text-xs flex items-center justify-center cursor-pointer transition">🗑️</button>` : ''}
+        </div>
       </div>
       ${infoPopoverHtml ? `<div class="relative z-20">${infoPopoverHtml}</div>` : ''}
-      <div class="relative z-10 flex-1 min-h-[120px]"></div>
-      <div class="relative z-10 p-3.5 space-y-2.5 [&_>div]:bg-[#080b11]/78 [&_>div]:backdrop-blur-md">
-        ${innerHtml}
-      </div>
+      ${demolishPopoverHtml ? `<div class="relative z-20">${demolishPopoverHtml}</div>` : ''}
+      <div class="relative z-10 flex-1 min-h-[140px]"></div>
+      ${innerHtml ? `<div class="relative z-10 p-3.5 space-y-2">${innerHtml}</div>` : ''}
     </div>
   `;
   setHtmlIfChanged(bodyEl, unifiedStageHtml);
@@ -15401,9 +15498,14 @@ function renderGuildRecruitmentPanel(simHost) {
   const bId = 'guild_hall';
   const bDef = CITY_BUILDINGS_CATALOG[bId];
   const lvl = (city.buildings && city.buildings[bId]) || 1;
+  const guildPlot = Array.isArray(city.plots) ? city.plots.find(function(p) { return p.buildingId === bId; }) : null;
   const interiorSrc = getProductionImageSrc(bDef.interiorAssetId || getFacilityInteriorAssetId(bId));
-  const servicesHtml = buildUnifiedGuildServicesHtml(simHost, bId, city, bDef, lvl);
+  const servicesHtml = buildUnifiedGuildServicesHtml(simHost, bId, city, bDef, lvl, guildPlot);
+  const netOverlayText = buildNetResourceOverlayText(bDef, lvl);
   const showInfo = Boolean(state && state._showFacilityInfo);
+  const showDemolishConfirm = Boolean(state && state._confirmFacilityDemolish);
+  const canDemolish = Boolean(guildPlot && !guildPlot.underConstruction);
+
   const infoPopoverHtml = showInfo ? `
     <div class="mx-4 p-3 rounded-lg bg-[#080b11]/92 backdrop-blur-md border border-[#fbbf24]/60 shadow-xl space-y-1.5 text-xs">
       <div class="flex items-center justify-between">
@@ -15414,22 +15516,39 @@ function renderGuildRecruitmentPanel(simHost) {
     </div>
   ` : '';
 
+  const demolishPopoverHtml = (showDemolishConfirm && canDemolish) ? `
+    <div class="mx-4 p-3 rounded-lg bg-[#450a0a]/92 backdrop-blur-md border border-[#f87171]/60 shadow-xl flex flex-wrap items-center justify-between gap-2 text-xs">
+      <span class="text-[#fecaca] font-semibold">🗑️ Demolish ${bDef.name} (Lv ${lvl}) for 35% resource salvage?</span>
+      <div class="flex items-center gap-1.5">
+        <button onclick="window.WargameApp.handleDemolishBuilding(${guildPlot.plotIndex}); window.WargameApp.handleSwitchView('city')" class="px-2.5 py-1 rounded bg-[#f87171] hover:bg-[#ef4444] text-[#080b11] font-mono font-bold text-[10px] uppercase cursor-pointer">Confirm Demolish</button>
+        <button onclick="window.WargameApp.handleToggleFacilityDemolishConfirm()" class="px-2.5 py-1 rounded bg-[#1a2232] text-[#e6edf3] font-mono text-[10px] cursor-pointer">Cancel</button>
+      </div>
+    </div>
+  ` : '';
+
   const unifiedHtml = `
     <div class="relative min-h-[540px] rounded-xl overflow-hidden border border-[#fbbf24]/50 bg-[#080b11] shadow-2xl flex flex-col justify-between">
       ${interiorSrc ? `<img src="${interiorSrc}" alt="${bDef.name} Interior" class="absolute inset-0 w-full h-full object-cover object-center" />` : ''}
-      <div class="absolute inset-0 bg-gradient-to-b from-[#080b11]/55 via-[#080b11]/20 to-[#080b11]/92"></div>
-      <div class="relative z-10 p-4 flex items-center justify-between gap-3">
-        <div class="px-3.5 py-2 rounded-lg bg-[#080b11]/70 backdrop-blur-md border border-[#fbbf24]/40">
-          <div class="text-sm font-display font-bold text-[#fbbf24]">${bDef.icon || '⚔️'} ${bDef.name} <span class="text-[10px] font-mono text-[#e6edf3]/80">• Lv ${lvl} (${city.name})</span></div>
+      <div class="absolute inset-0 bg-gradient-to-b from-[#080b11]/55 via-[#080b11]/15 to-[#080b11]/90"></div>
+      <div class="relative z-10 p-4 flex items-start justify-between gap-3">
+        <div class="space-y-1">
+          <div class="px-3.5 py-2 rounded-lg bg-[#080b11]/70 backdrop-blur-md border border-[#fbbf24]/40 inline-block">
+            <div class="text-sm font-display font-bold text-[#fbbf24]">${bDef.icon || '⚔️'} ${bDef.name} <span class="text-[10px] font-mono text-[#e6edf3]/80">• Lv ${lvl} (${city.name})</span></div>
+          </div>
+          ${netOverlayText ? `<div class="px-2.5 py-0.5 text-[11px] font-mono font-bold text-[#34d399] drop-shadow-[0_1px_4px_rgba(0,0,0,0.95)]">${netOverlayText}</div>` : ''}
         </div>
-        <div class="flex items-center gap-2">
-          <button onclick="window.WargameApp.handleToggleFacilityInfo()" title="Guild Info" class="w-8 h-8 rounded-full bg-[#080b11]/80 hover:bg-[#fbbf24] hover:text-[#080b11] backdrop-blur-md border border-[#fbbf24]/50 text-[#fbbf24] font-bold text-xs flex items-center justify-center cursor-pointer transition">ⓘ</button>
+        <div class="flex items-start gap-2">
+          <div class="flex flex-col items-center gap-1.5">
+            <button onclick="window.WargameApp.handleToggleFacilityInfo()" title="Guild Info" class="w-8 h-8 rounded-full bg-[#080b11]/80 hover:bg-[#fbbf24] hover:text-[#080b11] backdrop-blur-md border border-[#fbbf24]/50 text-[#fbbf24] font-bold text-xs flex items-center justify-center cursor-pointer transition">ⓘ</button>
+            ${canDemolish ? `<button onclick="window.WargameApp.handleToggleFacilityDemolishConfirm()" title="Demolish Building" class="w-8 h-8 rounded-full bg-[#080b11]/80 hover:bg-[#f87171] hover:text-[#080b11] backdrop-blur-md border border-[#f87171]/50 text-[#f87171] text-xs flex items-center justify-center cursor-pointer transition">🗑️</button>` : ''}
+          </div>
           <button onclick="window.WargameApp.handleSwitchView('city')" class="px-3 py-1.5 rounded-lg bg-[#080b11]/75 hover:bg-[#fbbf24] hover:text-[#080b11] backdrop-blur-md text-[#fbbf24] border border-[#fbbf24]/50 text-[11px] font-mono font-bold uppercase cursor-pointer transition whitespace-nowrap">🏰 Exit to City</button>
         </div>
       </div>
       ${infoPopoverHtml ? `<div class="relative z-20">${infoPopoverHtml}</div>` : ''}
-      <div class="relative z-10 flex-1 min-h-[150px]"></div>
-      <div class="relative z-10 p-4 [&_>div]:bg-[#080b11]/78 [&_>div]:backdrop-blur-md">
+      ${demolishPopoverHtml ? `<div class="relative z-20">${demolishPopoverHtml}</div>` : ''}
+      <div class="relative z-10 flex-1 min-h-[180px]"></div>
+      <div class="relative z-10 p-4">
         ${servicesHtml}
       </div>
     </div>
@@ -16982,6 +17101,7 @@ function evaluateWargameSelfTests() {
   // Test 20: Track F Phase 4 — Generic Effects Framework & Separate Hero Training Queue (Inc 10.4)
   // =========================================================================
   const prog20 = createDefaultProgressionState(0);
+  recordCurrencyTransaction(prog20.currencyLedger, { ownerId: 'p1', ownerType: OWNER_TYPES.PLAYER, currencyId: 'rp_warrior', amount: 20, transactionType: TRANSACTION_TYPES.AWARD, source: 'seed', nowMs: 1000 });
   recordCurrencyTransaction(prog20.currencyLedger, { ownerId: 'p1', ownerType: OWNER_TYPES.PLAYER, currencyId: 'rp_adventurer', amount: 20, transactionType: TRANSACTION_TYPES.AWARD, source: 'seed', nowMs: 1000 });
   recordCurrencyTransaction(prog20.currencyLedger, { ownerId: 'p1', ownerType: OWNER_TYPES.PLAYER, currencyId: 'rp_general', amount: 1, transactionType: TRANSACTION_TYPES.AWARD, source: 'seed', nowMs: 1000 });
   recordCurrencyTransaction(prog20.currencyLedger, { ownerId: 'p1', ownerType: OWNER_TYPES.PLAYER, currencyId: 'gold', amount: 500, transactionType: TRANSACTION_TYPES.AWARD, source: 'seed', nowMs: 1000 });
@@ -17271,9 +17391,19 @@ function evaluateWargameSelfTests() {
   const prog23 = host23.state.world.progression;
   const city23 = getPrimaryCity(host23.state);
 
-  // 1. 10-node rich Weapon Proficiency tree + Training disciplines catalog validation
+  // 1. 10-node rich Weapon Proficiency tree (uses rp_warrior, WAR_MASTER_001 has no phantom WAR_FLANKING_001 parent) + Training disciplines
   const weaponTree23 = PROTOTYPE_RESEARCH_TREES.tree_weapon_proficiency;
-  const tenNodeTreeOk = Boolean(weaponTree23 && weaponTree23.itemIds.length === 10 && Object.keys(PROTOTYPE_TRAINING_TREES).length >= 2);
+  const heavyUsesWarriorRp = PROTOTYPE_RESEARCH_ITEMS.WAR_WEAPON_HEAVY_001.levelDefinitions[0].costs[0].currencyId === 'rp_warrior';
+  const noPhantomFlankingEdge = PROTOTYPE_RESEARCH_ITEMS.WAR_MASTER_001.parentIds.indexOf('WAR_FLANKING_001') === -1;
+  const killAwardsWarrior = awardActivityResearchPoints(prog23, { ownerId: 'player_1', activityType: 'monster_defeated', eventId: 'kill_23', nowMs: 5000 });
+  const warActionAwardsWarrior = awardActivityResearchPoints(prog23, { ownerId: 'player_1', activityType: 'warrior_class_action', eventId: 'wact_23', nowMs: 6000 });
+  const tenNodeTreeOk = Boolean(
+    weaponTree23 && weaponTree23.itemIds.length === 10 &&
+    Object.keys(PROTOTYPE_TRAINING_TREES).length >= 2 &&
+    heavyUsesWarriorRp && noPhantomFlankingEdge &&
+    killAwardsWarrior.ok && killAwardsWarrior.currencyId === 'rp_warrior' &&
+    warActionAwardsWarrior.ok && warActionAwardsWarrior.currencyId === 'rp_warrior'
+  );
 
   // 2. Floor-to-tenths RP formatting & Have/Need green/red cost rows
   const tenthsOk = formatRpTenths(12.49) === '12.4' && formatRpTenths(0.09) === '0.0';
@@ -17677,6 +17807,14 @@ function handleSwitchFacilityTab(tabId) {
 function handleToggleFacilityInfo() {
   if (!simHost.state) return;
   simHost.state._showFacilityInfo = !simHost.state._showFacilityInfo;
+  if (simHost.state._showFacilityInfo) simHost.state._confirmFacilityDemolish = false;
+  syncWargameUI(simHost);
+}
+
+function handleToggleFacilityDemolishConfirm() {
+  if (!simHost.state) return;
+  simHost.state._confirmFacilityDemolish = !simHost.state._confirmFacilityDemolish;
+  if (simHost.state._confirmFacilityDemolish) simHost.state._showFacilityInfo = false;
   syncWargameUI(simHost);
 }
 
@@ -17716,6 +17854,9 @@ function handleToggleCityProjection() {
 function handleCloseFacilityModal() {
   if (!simHost.state) return;
   delete simHost.state._openFacilityId;
+  simHost.state._confirmFacilityDemolish = false;
+  simHost.state._showFacilityInfo = false;
+  simHost.state._facilityTab = null;
   simHost.state._dirty = true;
   syncWargameUI(simHost);
 }
@@ -18141,6 +18282,7 @@ const WargameApp = {
   handleOpenFacilityModal: handleOpenFacilityModal,
   handleSwitchFacilityTab: handleSwitchFacilityTab,
   handleToggleFacilityInfo: handleToggleFacilityInfo,
+  handleToggleFacilityDemolishConfirm: handleToggleFacilityDemolishConfirm,
   handleOpenScreenInfo: handleOpenScreenInfo,
   handleCloseScreenInfo: handleCloseScreenInfo,
   handleToggleMobileDrawer: handleToggleMobileDrawer,

@@ -394,6 +394,14 @@ export function handleSwitchFacilityTab(tabId) {
 export function handleToggleFacilityInfo() {
   if (!simHost.state) return;
   simHost.state._showFacilityInfo = !simHost.state._showFacilityInfo;
+  if (simHost.state._showFacilityInfo) simHost.state._confirmFacilityDemolish = false;
+  syncWargameUI(simHost);
+}
+
+export function handleToggleFacilityDemolishConfirm() {
+  if (!simHost.state) return;
+  simHost.state._confirmFacilityDemolish = !simHost.state._confirmFacilityDemolish;
+  if (simHost.state._confirmFacilityDemolish) simHost.state._showFacilityInfo = false;
   syncWargameUI(simHost);
 }
 
@@ -433,6 +441,9 @@ export function handleToggleCityProjection() {
 export function handleCloseFacilityModal() {
   if (!simHost.state) return;
   delete simHost.state._openFacilityId;
+  simHost.state._confirmFacilityDemolish = false;
+  simHost.state._showFacilityInfo = false;
+  simHost.state._facilityTab = null;
   simHost.state._dirty = true;
   syncWargameUI(simHost);
 }
@@ -858,6 +869,7 @@ export const WargameApp = {
   handleOpenFacilityModal: handleOpenFacilityModal,
   handleSwitchFacilityTab: handleSwitchFacilityTab,
   handleToggleFacilityInfo: handleToggleFacilityInfo,
+  handleToggleFacilityDemolishConfirm: handleToggleFacilityDemolishConfirm,
   handleOpenScreenInfo: handleOpenScreenInfo,
   handleCloseScreenInfo: handleCloseScreenInfo,
   handleToggleMobileDrawer: handleToggleMobileDrawer,

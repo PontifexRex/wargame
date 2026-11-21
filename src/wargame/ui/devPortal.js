@@ -23,7 +23,7 @@ import { advanceTrainingProgress } from '../../progression/trainingService.js';
 import { processPassiveAccrual } from '../../progression/accrualService.js';
 import { getPrimaryCity } from '../engine/state.js';
 
-export function renderDevPortalModal(simHost) {
+export function renderDevPortalModal(simHost, forceRender) {
   const modal = document.getElementById('wgDevPortalModal');
   if (!modal) return;
   const state = simHost ? simHost.state : null;
@@ -33,6 +33,11 @@ export function renderDevPortalModal(simHost) {
   }
 
   modal.classList.remove('hidden');
+  // Prevent background 400ms UI sync from wiping out live user input values!
+  if (!forceRender && !state._devPortalNeedsRender) {
+    return;
+  }
+  state._devPortalNeedsRender = false;
   const bodyEl = document.getElementById('wgDevPortalBody');
   if (!bodyEl) return;
 
@@ -147,12 +152,14 @@ export function renderDevPortalModal(simHost) {
 export function handleOpenDevPortal(simHost) {
   if (!simHost || !simHost.state || !simHost.state.world) return;
   simHost.state._devPortalOpen = true;
-  renderDevPortalModal(simHost);
+  simHost.state._devPortalNeedsRender = true;
+  renderDevPortalModal(simHost, true);
 }
 
 export function handleCloseDevPortal(simHost) {
   if (!simHost || !simHost.state) return;
   simHost.state._devPortalOpen = false;
+  simHost.state._devPortalNeedsRender = false;
   renderDevPortalModal(simHost);
 }
 
@@ -187,7 +194,8 @@ export function handleDevSetCurrencyAction(simHost, currencyId, explicitValue) {
   }
   simHost.state._dirty = true;
   simHost.save();
-  renderDevPortalModal(simHost);
+  simHost.state._devPortalNeedsRender = true;
+  renderDevPortalModal(simHost, true);
   return { ok: true, currencyId: currencyId, balance: targetVal };
 }
 
@@ -208,7 +216,8 @@ export function handleDevAddStockpileAction(simHost, resourceId, delta) {
   }
   simHost.state._dirty = true;
   simHost.save();
-  renderDevPortalModal(simHost);
+  simHost.state._devPortalNeedsRender = true;
+  renderDevPortalModal(simHost, true);
   return { ok: true, resourceId: resourceId, value: city.stockpile[resourceId] };
 }
 
@@ -223,7 +232,8 @@ export function handleDevSetConfigAction(simHost, key, explicitValue) {
   const res = setConfigValue(prog, key, val);
   simHost.state._dirty = true;
   simHost.save();
-  renderDevPortalModal(simHost);
+  simHost.state._devPortalNeedsRender = true;
+  renderDevPortalModal(simHost, true);
   return res;
 }
 
@@ -233,7 +243,8 @@ export function handleDevResetConfigsAction(simHost) {
   resetAllConfigValues(prog);
   simHost.state._dirty = true;
   simHost.save();
-  renderDevPortalModal(simHost);
+  simHost.state._devPortalNeedsRender = true;
+  renderDevPortalModal(simHost, true);
   return { ok: true };
 }
 
@@ -255,7 +266,8 @@ export function handleDevTimeJumpAction(simHost, seconds) {
 
   simHost.state._dirty = true;
   simHost.save();
-  renderDevPortalModal(simHost);
+  simHost.state._devPortalNeedsRender = true;
+  renderDevPortalModal(simHost, true);
   return { ok: true, jumpedSec: seconds };
 }
 
@@ -268,6 +280,7 @@ export function handleDevCompleteQueuesAction(simHost) {
   advanceTrainingProgress(prog, simNow);
   simHost.state._dirty = true;
   simHost.save();
-  renderDevPortalModal(simHost);
+  simHost.state._devPortalNeedsRender = true;
+  renderDevPortalModal(simHost, true);
   return { ok: true };
 }

@@ -118,6 +118,8 @@ function computeEffectiveRates(prog, city, pid) {
   const baseGenRate = getConfigValue(prog, 'passive_rp_general_per_sec');
   const effectiveGenRate = Math.round((baseGenRate * (1 + genAdditive)) * 10000000) / 10000000;
   const baseAdvAction = getConfigValue(prog, 'activity_rp_dungeon_move');
+  const baseWarKill = getConfigValue(prog, 'activity_rp_monster_defeat');
+  const baseWarAction = getConfigValue(prog, 'activity_rp_warrior_action');
   const globalResMult = getConfigValue(prog, 'global_research_speed_mult');
   const globalTrainMult = getConfigValue(prog, 'global_training_speed_mult');
 
@@ -126,6 +128,8 @@ function computeEffectiveRates(prog, city, pid) {
     genAdditive: genAdditive,
     effectiveGenRate: effectiveGenRate,
     baseAdvAction: baseAdvAction,
+    baseWarKill: baseWarKill,
+    baseWarAction: baseWarAction,
     researchSpeedBonus: ((1 + speedAdditive) * globalResMult) - 1,
     trainingSpeedBonus: ((1 + trainSpeedAdditive) * globalTrainMult) - 1
   };
@@ -377,12 +381,16 @@ export function renderResearchModal(simHost) {
   if (!selectedTreeId || !PROTOTYPE_RESEARCH_TREES[selectedTreeId]) {
     // Relevant RP currencies list only (no Gold!), rounded down to tenths, showing effective rate after modifiers
     const rpDefs = Object.values(DEFAULT_CURRENCY_DEFINITIONS).filter(function(c) {
-      return c.category === 'research_point' && c.enabled !== false;
+      return c.enabled !== false && (
+        c.category === 'personal_research' ||
+        c.category === 'guild_research' ||
+        c.category === 'alliance_research'
+      );
     });
 
     const rpListHtml = rpDefs.map(function(cDef) {
       const bal = getCurrencyBalance(prog.currencyLedger, pid, OWNER_TYPES.PLAYER, cDef.currencyId).available;
-      let rateLabel = 'Earned via guild/alliance activity';
+      let rateLabel = 'Guild / Alliance activity';
       let tooltip = cDef.description || cDef.name;
 
       if (cDef.currencyId === 'rp_general') {
@@ -390,7 +398,10 @@ export function renderResearchModal(simHost) {
         tooltip = 'Base ' + rates.baseGenRate.toFixed(5) + '/sec • Modifiers: +' + Math.round(rates.genAdditive * 100) + '% (Accrues online & offline)';
       } else if (cDef.currencyId === 'rp_adventurer') {
         rateLabel = '+' + rates.baseAdvAction.toFixed(4) + '/action';
-        tooltip = 'Earned from dungeon exploration, monster kills, discoveries, and quests.';
+        tooltip = 'Earned from dungeon exploration, chests, discoveries, and quests.';
+      } else if (cDef.currencyId === 'rp_warrior') {
+        rateLabel = '+' + rates.baseWarKill.toFixed(4) + '/kill';
+        tooltip = 'Earned from killing monsters with any class (+' + rates.baseWarKill.toFixed(4) + ') or any qualifying action by a Warrior class (+' + rates.baseWarAction.toFixed(4) + ').';
       }
 
       return `

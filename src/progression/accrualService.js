@@ -32,12 +32,23 @@ export const DEFAULT_ACTIVITY_AWARD_RULES = {
   },
   monster_defeated: {
     activityType: 'monster_defeated',
-    currencyId: 'rp_adventurer',
+    currencyId: 'rp_warrior',
     baseAmount: 0.005,
     cooldownMs: 0,
     windowMs: 86400000,
     windowCapCount: 300,
     diminishingAfter: 150,
+    diminishingFactor: 0.5,
+    version: '1.0.0'
+  },
+  warrior_class_action: {
+    activityType: 'warrior_class_action',
+    currencyId: 'rp_warrior',
+    baseAmount: 0.002,
+    cooldownMs: 500,
+    windowMs: 86400000,
+    windowCapCount: 500,
+    diminishingAfter: 200,
     diminishingFactor: 0.5,
     version: '1.0.0'
   },
@@ -225,6 +236,7 @@ export function awardActivityResearchPoints(progression, params) {
   return {
     ok: txRes.ok,
     duplicate: Boolean(txRes.duplicate),
+    currencyId: rule.currencyId,
     awardedScaled: txRes.ok ? amountScaled : 0,
     awarded: txRes.ok ? (amountScaled / Math.pow(10, precision)) : 0,
     throttledReason: null,
