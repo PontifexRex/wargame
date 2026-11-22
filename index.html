@@ -591,7 +591,7 @@
 
         <!-- 2D CANVAS VIEWPORT -->
         <div class="relative w-full flex justify-center items-center bg-[#04060a] rounded-lg border border-[#283347] overflow-hidden shadow-inner">
-          <canvas id="dungeonCanvas" width="672" height="480" class="max-w-full h-auto cursor-crosshair"></canvas>
+          <canvas id="dungeonCanvas" width="672" height="480" class="max-w-full h-auto cursor-crosshair"></canvas><div class="absolute bottom-2 right-2 z-10 flex items-center gap-1.5"><a href="./wargame.html" class="px-2.5 py-1 rounded-lg bg-[#080b11]/85 hover:bg-[#fbbf24] hover:text-[#080b11] backdrop-blur border border-[#fbbf24]/50 text-[11px] font-mono font-bold text-[#fbbf24] shadow transition">🗺️ World</a><a href="./wargame.html#city" class="px-2.5 py-1 rounded-lg bg-[#080b11]/85 hover:bg-[#fbbf24] hover:text-[#080b11] backdrop-blur border border-[#fbbf24]/50 text-[11px] font-mono font-bold text-[#fbbf24] shadow transition">🏛️ City</a></div>
           <div class="absolute bottom-2 left-2 pointer-events-none bg-[#080b11]/85 backdrop-blur px-2.5 py-1 rounded border border-[#283347] text-[10px] font-mono-num text-[#8b949e] hidden sm:flex items-center gap-2.5">
             <span><strong class="text-[#e6edf3]">WASD / Click:</strong> Act • <strong class="text-[#60a5fa]">Distant Click:</strong> Auto-Walk</span>
             <span><strong class="text-[#60a5fa]">M:</strong> Map</span>
@@ -659,7 +659,7 @@
               <button onclick="window.Aethelgard.handlePlayerAction(0, 1, event)" class="w-9 h-7 rounded bg-[#1a2232] hover:bg-[#283347] text-xs font-mono-num font-bold" title="Move Down (Shift+Click to Fast-Run)">↓</button>
             </div>
             <button onclick="window.Aethelgard.handlePlayerAction(1, 0, event)" class="w-9 h-8 rounded bg-[#1a2232] hover:bg-[#283347] text-xs font-mono-num font-bold" title="Move Right (Shift+Click to Fast-Run)">→</button>
-            <button onclick="window.Aethelgard.waitTurn()" class="px-2.5 h-8 rounded bg-[#111722] hover:bg-[#1a2232] border border-[#283347] text-[10px] font-mono-num text-[#8b949e] hover:text-[#e6edf3]">WAIT</button><div class="w-full flex items-center justify-center gap-2 pt-2 mt-2 border-t border-[#283347]"><a href="./wargame.html" class="px-2.5 py-1 rounded bg-[#1a2232] hover:bg-[#fbbf24] hover:text-[#080b11] border border-[#283347] text-[11px] font-mono font-bold text-[#e6edf3]">🗺️ World</a><a href="./wargame.html#city" class="px-2.5 py-1 rounded bg-[#1a2232] hover:bg-[#fbbf24] hover:text-[#080b11] border border-[#283347] text-[11px] font-mono font-bold text-[#e6edf3]">🏛️ City</a><span class="px-2.5 py-1 rounded bg-[#f87171]/20 border border-[#f87171]/50 text-[11px] font-mono font-bold text-[#f87171]">⚔️ Dungeon</span></div>
+            <button onclick="window.Aethelgard.waitTurn()" class="px-2.5 h-8 rounded bg-[#111722] hover:bg-[#1a2232] border border-[#283347] text-[10px] font-mono-num text-[#8b949e] hover:text-[#e6edf3]">WAIT</button>
           </div>
         </div>
       </div>

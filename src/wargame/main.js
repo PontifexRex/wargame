@@ -176,13 +176,10 @@ export function handleCancelMarch() {
 }
 
 export function handleSelectCityPlot(plotIndex) {
-  const city = getPrimaryCity(simHost.state);
-  const inMoveMode = Boolean(city && city.moveSourcePlotIndex !== null && city.moveSourcePlotIndex !== undefined);
   simHost.dispatch({
     type: COMMAND_TYPES.SELECT_CITY_PLOT,
     payload: { plotIndex: plotIndex }
   });
-  simHost.state._plotPopupOpen = !inMoveMode;
   simHost.state._dirty = true;
   syncWargameUI(simHost);
 }
@@ -287,6 +284,7 @@ export function handleOpenHeroSheet(heroId) {
   }
   if (!targetId) return;
   simHost.state._openHeroSheetId = targetId;
+  simHost.state._confirmRetireHero = false;
   simHost.state._dirty = true;
   syncWargameUI(simHost);
 }
@@ -294,7 +292,14 @@ export function handleOpenHeroSheet(heroId) {
 export function handleCloseHeroSheet() {
   if (!simHost.state) return;
   delete simHost.state._openHeroSheetId;
+  simHost.state._confirmRetireHero = false;
   simHost.state._dirty = true;
+  syncWargameUI(simHost);
+}
+
+export function handleToggleRetireHeroConfirm() {
+  if (!simHost.state) return;
+  simHost.state._confirmRetireHero = !simHost.state._confirmRetireHero;
   syncWargameUI(simHost);
 }
 
@@ -882,6 +887,7 @@ export const WargameApp = {
   handleSelectPartyByHero: handleSelectPartyByHero,
   handleOpenHeroSheet: handleOpenHeroSheet,
   handleCloseHeroSheet: handleCloseHeroSheet,
+  handleToggleRetireHeroConfirm: handleToggleRetireHeroConfirm,
   handleEquipHeroItem: handleEquipHeroItem,
   handleUnequipHeroItem: handleUnequipHeroItem,
   handleAutoEquipHero: handleAutoEquipHero,

@@ -98,8 +98,8 @@
         </div>
       </div>
 
-      <!-- VIEW SWITCHER TABS (Desktop/Tablet; Mobile uses Bottom Thumb-Zone Bar) -->
-      <div class="wg-desktop-view-tabs hidden md:flex items-center gap-1 bg-[#080b11] p-1 rounded-lg border border-[#283347]">
+      <!-- VIEW SWITCHER TABS (Hidden — replaced by corner map toggle overlay) -->
+      <div class="hidden">
         <button id="wgBtnViewOverworld" onclick="window.WargameApp.handleSwitchView('overworld')" class="px-3 py-1.5 text-xs font-bold rounded bg-[#fbbf24] text-[#080b11] shadow btn-tactical">
           🗺️ World Map
         </button>
@@ -205,7 +205,6 @@
         <div class="card-surface p-3.5 space-y-2">
           <div class="flex items-center justify-between border-b border-[#283347] pb-2">
             <h3 class="text-xs font-bold uppercase tracking-wider text-[#60a5fa]">Sworn Vanguard Heroes</h3>
-            <span class="text-[10px] font-mono text-[#8b949e]">Guild Roster</span>
           </div>
           <div id="wgHeroesRosterList" class="space-y-2 max-h-[220px] overflow-y-auto pr-1">
             <!-- Dynamically populated -->
@@ -236,6 +235,8 @@
               <span><strong class="text-[#fbbf24]">WASD:</strong> Step Unit</span>
               <span><strong class="text-[#38bdf8]">Space:</strong> Pause Clock</span>
             </div>
+            <!-- Corner Map Toggle Overlay (World <-> City / Active Dungeon) -->
+            <div id="wgOverworldMapDock" class="absolute bottom-2 right-2 z-10 flex items-center gap-1.5"></div>
           </div>
 
           <!-- Movement D-Pad Control -->
@@ -251,17 +252,14 @@
 
           <!-- Discovered Dungeons Quick-March Bar -->
           <div id="wgDiscoveredDungeonsBar" class="p-2 rounded bg-[#080b11] border border-[#283347] space-y-1.5 hidden"></div>
-
-          <!-- Quick Map Switcher Dock (World / City / Active Dungeon) -->
-          <div id="wgOverworldMapDock" class="flex items-center justify-center gap-2 pt-2 border-t border-[#283347]"></div>
         </div>
 
-        <!-- VIEW 2: FULL-WIDTH CITY MAP PANEL (8x8 SPATIAL GRID + POPUP PLOT ACTIONS) -->
+        <!-- VIEW 2: FULL-WIDTH CITY MAP PANEL (8x8 SPATIAL GRID + BOTTOM PLOT ACTIONS BAR) -->
         <div id="wgPanelCity" class="card-surface p-3 md:p-4 flex flex-col gap-3 hidden">
           <div class="flex flex-wrap items-center justify-between gap-2 border-b border-[#283347] pb-2.5">
             <div>
               <h2 id="wgCityPanelTitle" class="font-display text-base md:text-lg font-bold text-[#fbbf24]">Oakhaven Bastion — 8x8 Spatial Grid</h2>
-              <p class="text-[11px] text-[#8b949e]">Click any plot or structure on the map to build, enter, upgrade, relocate, inspect levels, or demolish.</p>
+              <p class="text-[11px] text-[#8b949e]">Click any plot or structure on the map to view available actions below.</p>
             </div>
             <div class="flex items-center gap-2">
               <button id="wgBtnCityProjectionToggle" onclick="window.WargameApp.handleToggleCityProjection()" class="px-2.5 py-1 rounded bg-[#1a2232] hover:bg-[#fbbf24] hover:text-[#080b11] text-[#fbbf24] border border-[#fbbf24]/40 text-xs font-mono font-bold cursor-pointer transition">
@@ -278,24 +276,32 @@
             <button data-action="cancel-move-mode" onclick="window.WargameApp.handleCancelMoveMode()" class="px-2.5 py-1 rounded bg-[#1a2232] hover:bg-[#283347] text-xs font-mono font-bold text-[#e6edf3] cursor-pointer">Cancel</button>
           </div>
 
-          <!-- Full-Width 2:1 Isometric City Canvas (Default View) -->
-          <div id="wgCityIsoContainer" class="relative w-full bg-[#182b20] rounded-xl border border-[#fbbf24]/40 overflow-hidden shadow-inner">
-            <canvas id="wgCityIsoCanvas" width="840" height="500" class="w-full h-auto cursor-pointer"></canvas>
-            <div class="absolute bottom-2 left-2 pointer-events-none bg-[#080b11]/80 backdrop-blur px-2.5 py-1 rounded border border-[#283347] text-[10px] font-mono text-[#cbd5e1] hidden sm:flex items-center gap-2.5">
-              <span><strong class="text-[#fbbf24]">Click Plot / Building:</strong> Open Actions</span>
-              <span><strong class="text-[#34d399]">Drag / Wheel:</strong> Pan &amp; Zoom</span>
+          <!-- Full-Width City Map Container with Corner Toggle Overlay -->
+          <div class="relative w-full">
+            <!-- 2:1 Isometric City Canvas (Default View) -->
+            <div id="wgCityIsoContainer" class="relative w-full bg-[#182b20] rounded-xl border border-[#fbbf24]/40 overflow-hidden shadow-inner">
+              <canvas id="wgCityIsoCanvas" width="840" height="500" class="w-full h-auto cursor-pointer"></canvas>
+              <div class="absolute bottom-2 left-2 pointer-events-none bg-[#080b11]/80 backdrop-blur px-2.5 py-1 rounded border border-[#283347] text-[10px] font-mono text-[#cbd5e1] hidden sm:flex items-center gap-2.5">
+                <span><strong class="text-[#fbbf24]">Click Plot / Building:</strong> Select</span>
+                <span><strong class="text-[#34d399]">Drag / Wheel:</strong> Pan &amp; Zoom</span>
+              </div>
             </div>
+
+            <!-- Legacy Flat 8x8 Grid Fallback (Toggleable via Isometric/Flat button) -->
+            <div id="wgCityFlatContainer" class="hidden p-3 bg-[#080b11] rounded-xl border border-[#283347] shadow-inner max-w-[600px] w-full mx-auto">
+              <div id="wgCityPlotsGrid" class="grid grid-cols-8 gap-1.5 aspect-square">
+                <!-- 64 Spatial Plot Tiles dynamically populated -->
+              </div>
+            </div>
+
+            <!-- Corner Map Toggle Overlay (City <-> World / Active Dungeon) -->
+            <div id="wgCityMapDock" class="absolute bottom-2 right-2 z-10 flex items-center gap-1.5"></div>
           </div>
 
-          <!-- Legacy Flat 8x8 Grid Fallback (Toggleable via Isometric/Flat button) -->
-          <div id="wgCityFlatContainer" class="hidden p-3 bg-[#080b11] rounded-xl border border-[#283347] shadow-inner max-w-[600px] w-full mx-auto">
-            <div id="wgCityPlotsGrid" class="grid grid-cols-8 gap-1.5 aspect-square">
-              <!-- 64 Spatial Plot Tiles dynamically populated -->
-            </div>
+          <!-- Bottom Plot Actions Panel (Inline below the City Map — NOT a popup!) -->
+          <div id="wgCityPlotInspector" class="p-3.5 rounded-xl bg-[#080b11] border border-[#283347] flex flex-col gap-2.5">
+            <!-- Dynamically populated inline plot/building actions -->
           </div>
-
-          <!-- Quick Map Switcher Dock (World / City / Active Dungeon) -->
-          <div id="wgCityMapDock" class="flex items-center justify-center gap-2 pt-2 border-t border-[#283347]"></div>
         </div>
 
         <!-- VIEW 3: UNIFIED GUILD INTERIOR SCREEN (Config-Driven Stage) -->
@@ -387,6 +393,8 @@
             <div id="wgSheetPaperDollGrid" class="absolute inset-0 pointer-events-none"></div>
           </div>
           <div id="wgSheetStatsGrid" class="grid grid-cols-4 gap-1.5"></div>
+          <!-- Safe Retire Hero Zone (Requires Confirmation Warning) -->
+          <div id="wgSheetRetireZone" class="pt-2 border-t border-[#1e293b]"></div>
         </div>
         <!-- Right Column: Prestige Cosmetics & Hero Pack Equipment -->
         <div class="md:col-span-6 flex flex-col gap-3">
@@ -416,19 +424,6 @@
             <div id="wgSheetCityStorageList" class="space-y-1.5 max-h-[150px] overflow-y-auto pr-1"></div>
           </div>
         </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- Contextual City Plot / Building Action Popup (Opens when clicking a plot or building on the full-width City Map) -->
-  <div id="wgPlotActionModal" class="hidden fixed inset-0 z-50 flex items-end md:items-center justify-center bg-black/75 backdrop-blur-sm p-0 md:p-4">
-    <div class="w-full md:max-w-lg bg-[#0e1524] border-t md:border border-[#fbbf24]/50 rounded-t-2xl md:rounded-xl shadow-2xl overflow-hidden flex flex-col max-h-[88dvh]">
-      <div class="flex items-center justify-between px-4 py-2.5 bg-[#080b11] border-b border-[#283347]">
-        <span class="text-xs font-mono uppercase tracking-wider font-bold text-[#fbbf24]">🏛️ City Plot Actions</span>
-        <button id="wgPlotActionCloseBtn" onclick="window.WargameApp.handleClosePlotPopup()" class="px-2.5 py-1 rounded bg-[#1a2232] hover:bg-[#283347] text-xs font-mono font-bold text-[#e6edf3] cursor-pointer">✕ Close</button>
-      </div>
-      <div id="wgCityPlotInspector" class="p-4 flex flex-col gap-3 overflow-y-auto">
-        <!-- Dynamically populated plot/building action popup -->
       </div>
     </div>
   </div>

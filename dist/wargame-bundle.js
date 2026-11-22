@@ -14283,6 +14283,28 @@ function renderWargameCharacterSheetModal(simHost) {
       }
     }
   }
+
+  // Safe Retire Hero Zone (Requires explicit warning confirmation on Character Sheet)
+  const retireEl = document.getElementById('wgSheetRetireZone');
+  if (retireEl) {
+    const confirmRetire = Boolean(simHost.state && simHost.state._confirmRetireHero);
+    const retireHtml = confirmRetire
+      ? `
+        <div class="p-2.5 rounded-lg bg-[#450a0a]/85 border border-[#f87171]/60 space-y-2 text-xs">
+          <div class="text-[#fecaca] font-semibold">⚠️ Permanently retire <strong>${rawHero.name}</strong>? This cannot be undone. Equipped gear will be moved safely to City Vault Storage.</div>
+          <div class="flex items-center justify-end gap-2">
+            <button onclick="window.WargameApp.handleToggleRetireHeroConfirm()" class="px-2.5 py-1 rounded bg-[#1a2232] hover:bg-[#283347] text-[#e6edf3] text-[10px] font-mono cursor-pointer">Cancel</button>
+            <button onclick="window.WargameApp.handleDismissHero('${rawHero.id}')" class="px-2.5 py-1 rounded bg-[#f87171] hover:bg-[#ef4444] text-[#080b11] text-[10px] font-mono font-bold uppercase cursor-pointer">Confirm Retire</button>
+          </div>
+        </div>
+      `
+      : `
+        <div class="flex justify-end">
+          <button onclick="window.WargameApp.handleToggleRetireHeroConfirm()" class="px-2.5 py-1 rounded bg-[#1a2232] hover:bg-[#450a0a] text-[#f87171]/80 hover:text-[#f87171] border border-[#f87171]/30 text-[10px] font-mono cursor-pointer">Retire Hero...</button>
+        </div>
+      `;
+    setHtmlIfChanged(retireEl, retireHtml);
+  }
 }
 
 function buildNetResourceOverlayText(bDef, lvl) {
@@ -14525,21 +14547,25 @@ function renderQuickMapDocks(simHost) {
   const hasCity = Object.keys(state.world.cities || {}).length > 0;
   const activeDungeonParty = (ow.units || []).find(function(u) { return u.alive && u.status === 'in_dungeon'; });
 
-  const makeDockHtml = function(activeKey) {
-    const worldBtn = `<button onclick="window.WargameApp.handleSwitchView('overworld')" class="px-3 py-1.5 rounded-lg text-xs font-mono font-bold transition cursor-pointer ${activeKey === 'overworld' ? 'bg-[#fbbf24] text-[#080b11]' : 'bg-[#1a2232] hover:bg-[#283347] text-[#e6edf3] border border-[#283347]'}">🗺️ World</button>`;
-    const cityBtn = hasCity
-      ? `<button onclick="window.WargameApp.handleSwitchView('city')" class="px-3 py-1.5 rounded-lg text-xs font-mono font-bold transition cursor-pointer ${activeKey === 'city' ? 'bg-[#fbbf24] text-[#080b11]' : 'bg-[#1a2232] hover:bg-[#283347] text-[#e6edf3] border border-[#283347]'}">🏛️ City</button>`
-      : '';
-    const dngBtn = activeDungeonParty
-      ? `<button onclick="window.WargameApp.handleEnterDungeon('${activeDungeonParty.activeDungeonPoiId || ''}')" class="px-3 py-1.5 rounded-lg bg-[#f87171]/20 hover:bg-[#f87171] hover:text-[#080b11] border border-[#f87171]/50 text-xs font-mono font-bold text-[#f87171] transition cursor-pointer">⚔️ Dungeon</button>`
-      : '';
-    return worldBtn + cityBtn + dngBtn;
-  };
+  const dngBtn = activeDungeonParty
+    ? `<button onclick="window.WargameApp.handleEnterDungeon('${activeDungeonParty.activeDungeonPoiId || ''}')" class="px-2.5 py-1.5 rounded-lg bg-[#080b11]/85 hover:bg-[#f87171] hover:text-[#080b11] backdrop-blur border border-[#f87171]/60 text-xs font-mono font-bold text-[#f87171] shadow transition cursor-pointer">⚔️ Dungeon</button>`
+    : '';
 
+  // Single toggle button in bottom-right corner of Overworld -> goes to City
   const owDock = document.getElementById('wgOverworldMapDock');
-  if (owDock) setHtmlIfChanged(owDock, makeDockHtml('overworld'));
+  if (owDock) {
+    const owHtml = (hasCity
+      ? `<button onclick="window.WargameApp.handleSwitchView('city')" class="px-2.5 py-1.5 rounded-lg bg-[#080b11]/85 hover:bg-[#fbbf24] hover:text-[#080b11] backdrop-blur border border-[#fbbf24]/60 text-xs font-mono font-bold text-[#fbbf24] shadow transition cursor-pointer">🏛️ City</button>`
+      : '') + dngBtn;
+    setHtmlIfChanged(owDock, owHtml);
+  }
+
+  // Single toggle button in bottom-right corner of City -> goes to World Map
   const cityDock = document.getElementById('wgCityMapDock');
-  if (cityDock) setHtmlIfChanged(cityDock, makeDockHtml('city'));
+  if (cityDock) {
+    const cityHtml = `<button onclick="window.WargameApp.handleSwitchView('overworld')" class="px-2.5 py-1.5 rounded-lg bg-[#080b11]/85 hover:bg-[#fbbf24] hover:text-[#080b11] backdrop-blur border border-[#fbbf24]/60 text-xs font-mono font-bold text-[#fbbf24] shadow transition cursor-pointer">🗺️ World</button>` + dngBtn;
+    setHtmlIfChanged(cityDock, cityHtml);
+  }
 }
 
 function buildUnifiedBuildingStageHtml(simHost, bId, city) {
@@ -15186,10 +15212,8 @@ function renderLeftCommandSidebar(simHost) {
               </div>
             </div>
             <div class="flex items-center gap-1">
-              <button data-action="set-leader" data-hero-id="${h.id}" onclick="window.WargameApp.handleSetOverallLeader('${h.id}')" class="px-1.5 py-1 rounded bg-[#1a2232] hover:bg-[#283347] text-[#fbbf24] text-[10px] font-mono font-bold cursor-pointer" title="Designate as Overall Leader">${(world.roster && world.roster.overallLeaderHeroId === h.id) ? '👑' : '☆'}</button>
-              <button data-action="open-hero-sheet" data-hero-id="${h.id}" onclick="window.WargameApp.handleOpenHeroSheet('${h.id}')" class="px-2 py-1 rounded bg-[#1a2232] hover:bg-[#283347] text-[#fbbf24] border border-[#fbbf24]/30 text-[10px] font-mono font-bold cursor-pointer" title="Open Shared Character Sheet">👤 Sheet</button>
+              <button data-action="open-hero-sheet" data-hero-id="${h.id}" onclick="window.WargameApp.handleOpenHeroSheet('${h.id}')" class="px-2 py-1 rounded bg-[#1a2232] hover:bg-[#283347] text-[#fbbf24] border border-[#fbbf24]/30 text-[10px] font-mono font-bold cursor-pointer" title="View Hero">View</button>
               <button data-action="select-party" data-hero-id="${h.id}" onclick="window.WargameApp.handleSelectPartyByHero('${h.id}')" class="px-2 py-1 rounded bg-[#1a2232] hover:bg-[#283347] text-[#60a5fa] text-[10px] font-mono font-bold cursor-pointer">Select</button>
-              <button data-action="dismiss-hero" data-hero-id="${h.id}" onclick="window.WargameApp.handleDismissHero('${h.id}')" class="px-1.5 py-1 rounded bg-[#1a2232] hover:bg-[#f87171]/20 text-[#f87171] text-[10px] font-mono font-bold cursor-pointer" title="Dismiss Hero (Gear saved to City Vault)">✕</button>
             </div>
           </div>
         `;
@@ -15613,10 +15637,6 @@ function renderCityBuilderPanel(simHost) {
   }
 
   setHtmlIfChanged(inspectorEl, inspectorHtml);
-  const plotModal = document.getElementById('wgPlotActionModal');
-  if (plotModal) {
-    plotModal.classList.toggle('hidden', !Boolean(state._plotPopupOpen && state.activeView === WARGAME_VIEWS.CITY));
-  }
 }
 
 function renderGuildRecruitmentPanel(simHost) {
@@ -17647,13 +17667,10 @@ function handleCancelMarch() {
 }
 
 function handleSelectCityPlot(plotIndex) {
-  const city = getPrimaryCity(simHost.state);
-  const inMoveMode = Boolean(city && city.moveSourcePlotIndex !== null && city.moveSourcePlotIndex !== undefined);
   simHost.dispatch({
     type: COMMAND_TYPES.SELECT_CITY_PLOT,
     payload: { plotIndex: plotIndex }
   });
-  simHost.state._plotPopupOpen = !inMoveMode;
   simHost.state._dirty = true;
   syncWargameUI(simHost);
 }
@@ -17758,6 +17775,7 @@ function handleOpenHeroSheet(heroId) {
   }
   if (!targetId) return;
   simHost.state._openHeroSheetId = targetId;
+  simHost.state._confirmRetireHero = false;
   simHost.state._dirty = true;
   syncWargameUI(simHost);
 }
@@ -17765,7 +17783,14 @@ function handleOpenHeroSheet(heroId) {
 function handleCloseHeroSheet() {
   if (!simHost.state) return;
   delete simHost.state._openHeroSheetId;
+  simHost.state._confirmRetireHero = false;
   simHost.state._dirty = true;
+  syncWargameUI(simHost);
+}
+
+function handleToggleRetireHeroConfirm() {
+  if (!simHost.state) return;
+  simHost.state._confirmRetireHero = !simHost.state._confirmRetireHero;
   syncWargameUI(simHost);
 }
 
@@ -18353,6 +18378,7 @@ const WargameApp = {
   handleSelectPartyByHero: handleSelectPartyByHero,
   handleOpenHeroSheet: handleOpenHeroSheet,
   handleCloseHeroSheet: handleCloseHeroSheet,
+  handleToggleRetireHeroConfirm: handleToggleRetireHeroConfirm,
   handleEquipHeroItem: handleEquipHeroItem,
   handleUnequipHeroItem: handleUnequipHeroItem,
   handleAutoEquipHero: handleAutoEquipHero,

@@ -207,6 +207,7 @@ Track E (Art Direction & Mobile UX)     ──► Stage E.6 (Painted Tier 2 Iso/
   - **Support Screen**: Bug reporting, diagnostics export, customer support tickets.
   - **Communications Screen**: Real-time chat channels, direct messages, Guild/Alliance forums & notices.
   - **Comprehensive Stats & Completed Trees Screen**: Full career analytics, completed research archives, and provenance history.
+  - **City Detail & Empire Management Screen**: View a list of all owned cities, inspect each city's resources and garrisoned troops at a glance, and rename cities.
 
 ---
 
