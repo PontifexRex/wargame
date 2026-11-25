@@ -1089,6 +1089,7 @@ function packFloorForStorage(floor) {
   return {
     packed: true,
     depth: floor.depth || 1,
+    biomeId: floor.biomeId || null,
     width: w,
     height: h,
     roomCount: floor.roomCount || 0,
@@ -1127,6 +1128,7 @@ function hydrateFloorFromStorage(rawFloor) {
   return {
     packed: false,
     depth: rawFloor.depth || 1,
+    biomeId: rawFloor.biomeId || null,
     width: w,
     height: h,
     roomCount: rawFloor.roomCount || 0,
@@ -4026,12 +4028,14 @@ function serializeStateForStorage(state = gameState) {
       currentFloor: dng.currentFloor,
       deepestFloor: dng.deepestFloor || dng.currentFloor || 1,
       isCleared: !!dng.isCleared,
+      waypoints: dng.waypoints ? JSON.parse(JSON.stringify(dng.waypoints)) : {},
       floors: packedFloors
     };
   });
 
   return {
     version: state.version || SCHEMA_VERSION,
+    playerId: state.playerId || CANONICAL_PLAYER_ID,
     turn: state.turn || 0,
     inGuild: state.inGuild !== false,
     audioEnabled: state.audioEnabled !== false,
@@ -4042,7 +4046,9 @@ function serializeStateForStorage(state = gameState) {
     guildVault: state.guildVault,
     guildResearch: state.guildResearch,
     guildBounties: state.guildBounties,
-    codex: state.codex ? JSON.parse(JSON.stringify(state.codex)) : createDefaultCodexState()
+    codex: state.codex ? JSON.parse(JSON.stringify(state.codex)) : createDefaultCodexState(),
+    wargameSession: state.wargameSession ? JSON.parse(JSON.stringify(state.wargameSession)) : null,
+    uiSettings: state.uiSettings ? JSON.parse(JSON.stringify(state.uiSettings)) : { armorySortBy: 'slot' }
   };
 }
 
@@ -4080,6 +4086,125 @@ function loadGame() {
     console.warn('Save load warning:', e);
   }
   return false;
+}
+
+
+function packDungeonWorldSnapshot(state = gameState) {
+  if (!state || typeof state !== 'object') return null;
+  const serialized = serializeStateForStorage(state);
+  const hasActiveSession = Boolean(
+    state.wargameSession &&
+    state.wargameSession.active &&
+    state.wargameSession.inProcess &&
+    !state.inGuild &&
+    state.hero
+  );
+  let activeSession = null;
+  if (hasActiveSession) {
+    const h = state.hero;
+    activeSession = {
+      sessionId: state.wargameSession.sessionId || null,
+      playerId: state.wargameSession.playerId || state.playerId || CANONICAL_PLAYER_ID,
+      campaignId: state.wargameSession.campaignId || null,
+      unitId: state.wargameSession.partyUnitId || null,
+      heroId: state.wargameSession.heroId || h.id || null,
+      poiId: state.wargameSession.dungeonPoiId || null,
+      dungeonId: state.activeDungeonId || state.wargameSession.dungeonId || 'dng_starfall',
+      dungeonName: state.wargameSession.dungeonName || (state.dungeon && state.dungeon.name) || 'The Starfall Vaults',
+      dungeonCoords: state.wargameSession.dungeonCoords ? { x: state.wargameSession.dungeonCoords.x, y: state.wargameSession.dungeonCoords.y } : null,
+      currentFloor: (state.dungeon && state.dungeon.currentFloor) || 1,
+      wargameSession: JSON.parse(JSON.stringify(state.wargameSession)),
+      hero: JSON.parse(JSON.stringify(h))
+    };
+  }
+  return {
+    version: 1,
+    activeDungeonId: serialized.activeDungeonId,
+    turn: serialized.turn || 0,
+    dungeons: serialized.dungeons,
+    codex: serialized.codex,
+    activeSession: activeSession
+  };
+}
+
+function hydrateDungeonWorldSnapshot(snapshot, targetState = gameState) {
+  if (!snapshot || typeof snapshot !== 'object' || !targetState) return { ok: false, hasActiveSession: false };
+  if (!snapshot.dungeons || typeof snapshot.dungeons !== 'object') return { ok: false, hasActiveSession: false };
+
+  const clonedDungeons = JSON.parse(JSON.stringify(snapshot.dungeons));
+  const dIds = Object.keys(clonedDungeons);
+  if (dIds.length === 0) return { ok: false, hasActiveSession: false };
+
+  for (let i = 0; i < dIds.length; i++) {
+    const dng = clonedDungeons[dIds[i]];
+    if (!dng) continue;
+    if (!dng.waypoints || typeof dng.waypoints !== 'object') dng.waypoints = {};
+    if (!dng.floors || typeof dng.floors !== 'object') dng.floors = {};
+  }
+
+  targetState.dungeons = clonedDungeons;
+  targetState.activeDungeonId = (snapshot.activeDungeonId && clonedDungeons[snapshot.activeDungeonId])
+    ? snapshot.activeDungeonId
+    : dIds[0];
+  targetState.turn = typeof snapshot.turn === 'number' ? snapshot.turn : 0;
+  targetState.codex = snapshot.codex ? JSON.parse(JSON.stringify(snapshot.codex)) : createDefaultCodexState();
+  syncActiveDungeonAlias(targetState);
+
+  const sess = snapshot.activeSession;
+  const sessionValid = Boolean(
+    sess &&
+    typeof sess === 'object' &&
+    sess.hero &&
+    sess.unitId &&
+    sess.dungeonId &&
+    clonedDungeons[sess.dungeonId]
+  );
+
+  if (sessionValid) {
+    targetState.activeDungeonId = sess.dungeonId;
+    syncActiveDungeonAlias(targetState);
+    if (targetState.dungeon && typeof sess.currentFloor === 'number' && sess.currentFloor >= 1) {
+      targetState.dungeon.currentFloor = sess.currentFloor;
+      if (targetState.dungeon.floors && targetState.dungeon.floors[sess.currentFloor]) {
+        ensureDungeonFloorHydrated(targetState.dungeon, sess.currentFloor);
+      }
+    }
+    targetState.hero = JSON.parse(JSON.stringify(sess.hero));
+    if (targetState.hero && targetState.hero.equipment) {
+      const eqKeys = ['weapon', 'armor', 'helm', 'boots', 'accessory', 'pickaxe'];
+      for (let i = 0; i < eqKeys.length; i++) {
+        if (targetState.hero.equipment[eqKeys[i]]) {
+          normalizeEquipmentSockets(targetState.hero.equipment[eqKeys[i]]);
+        }
+      }
+    }
+    targetState.wargameSession = sess.wargameSession
+      ? JSON.parse(JSON.stringify(sess.wargameSession))
+      : {
+          active: true,
+          inProcess: true,
+          sessionId: sess.sessionId || null,
+          playerId: sess.playerId || CANONICAL_PLAYER_ID,
+          campaignId: sess.campaignId || null,
+          partyUnitId: sess.unitId,
+          heroId: sess.heroId || targetState.hero.id,
+          dungeonPoiId: sess.poiId || null,
+          dungeonId: sess.dungeonId,
+          dungeonName: sess.dungeonName || 'The Starfall Vaults',
+          dungeonCoords: sess.dungeonCoords || null
+        };
+    targetState.wargameSession.active = true;
+    targetState.wargameSession.inProcess = true;
+    targetState.inGuild = false;
+    recomputeHeroDerivedStats(false, targetState);
+    return { ok: true, hasActiveSession: true, session: sess };
+  }
+
+  targetState.inGuild = true;
+  if (targetState.wargameSession) {
+    targetState.wargameSession.active = false;
+  }
+  return { ok: true, hasActiveSession: false, session: null };
 }
 
   // --- Module: src/engine/audio.js ---

@@ -4,7 +4,8 @@ import {
   CAMPAIGN_PHASES,
   WARGAME_VIEWS,
   STREAM_TOPICS,
-  COMMAND_TYPES
+  COMMAND_TYPES,
+  WARGAME_STORAGE_KEY
 } from '../constants.js';
 import { createWargameSimHost } from '../engine/simHost.js';
 import { createMinHeapPriorityQueue } from '../engine/scheduler.js';
@@ -15,7 +16,7 @@ import {
   ensureCanonicalPlayerIdentity
 } from '../../core/canonicalIdentity.js';
 import { APP_CONTEXTS, createAppContextController } from '../../core/appContext.js';
-import { createDefaultGameState } from '../../engine/state.js';
+import { createDefaultGameState, ensureDungeonFloorHydrated } from '../../engine/state.js';
 import { extractToGuild, handleHeroDefeat, useRecallScroll, traversePortal } from '../../engine/actions.js';
 import { useStairsAtPlayer } from '../../engine/combat.js';
 import { createPortalInstance } from '../../engine/objects.js';
@@ -2453,6 +2454,398 @@ export function evaluateWargameSelfTests() {
     detail: t27Pass
       ? '6-way hex neighbors, reciprocity, boundaries, hex A* (detour/unreachable/cost), 6-dir & legacy step validation, hex vision rings & diagonal hex interpolation verified'
       : 'Failed checks: ' + failed27.join(', ')
+  });
+
+  // =========================================================================
+  // Test 28: Save/Load Integrity — Full Campaign Round-Trip, Continued Play & Idempotency (Task 04)
+  // =========================================================================
+  const prevSavedRaw28 = (typeof localStorage !== 'undefined') ? localStorage.getItem(WARGAME_STORAGE_KEY) : null;
+  let t28Checks = {};
+  try {
+    const host28 = createWargameSimHost();
+    const dng28 = createDefaultGameState();
+    host28.attachDungeonState(dng28);
+    host28.dispatch({ type: COMMAND_TYPES.START_NEW_CAMPAIGN, payload: { houseName: 'House Persist', worldName: 'Save Realm', seedCode: 'STAR-2800' } });
+    host28.dispatch({ type: COMMAND_TYPES.FOUND_CITY, payload: { cityName: 'Bastion Keep' } });
+    const city28 = getPrimaryCity(host28.state);
+    city28.stockpile.wood = 500;
+    city28.stockpile.stone = 500;
+    city28.stockpile.food = 500;
+    city28.stockpile.gold = 500;
+    city28.buildings.hut = 1;
+    city28.buildings.garden = 1;
+    city28.buildings.well = 1;
+    city28.buildings.lumber_camp = 1;
+    city28.buildings.quarry = 1;
+    city28.population = { current: 20, max: 25, growthProgress: 0, starving: false };
+
+    // Build Adventurers Guild & complete it so we can recruit heroes
+    host28.dispatch({ type: COMMAND_TYPES.QUEUE_BUILDING, payload: { plotIndex: 4, buildingId: 'guild_hall' } });
+    host28.stepClock(60000);
+    host28.dispatch({ type: COMMAND_TYPES.RECRUIT_HERO, payload: { classId: 'adventurer', heroName: 'Aldric' } });
+    host28.stepClock(70000);
+
+    // Queue an active building (warehouse Lv 0 -> 1) AND an active recruitment so both queues are mid-flight on save
+    const emptyPlotIdx28 = city28.plots.findIndex(function(p) { return p && !p.buildingId; });
+    host28.dispatch({ type: COMMAND_TYPES.QUEUE_BUILDING, payload: { plotIndex: emptyPlotIdx28 >= 0 ? emptyPlotIdx28 : 10, buildingId: 'warehouse' } });
+    host28.dispatch({ type: COMMAND_TYPES.RECRUIT_HERO, payload: { classId: 'adventurer', heroName: 'Lyra' } });
+
+    const hero28 = host28.state.world.heroes[0];
+    hero28.bonusStats = { str: 3, dex: 1, int: 0, vit: 2 };
+    hero28.statPoints = 2;
+    hero28.talentPoints = 1;
+    hero28.xp = 45;
+    city28.storage.items.push({ uid: 'item_persist_28', id: 'iron_sword', name: 'Persisted Blade', slot: 'weapon', rarity: 'rare', stats: { atk: 9 } });
+
+    // Start a real-time hex march for the hero party unit
+    const unit28 = host28.state.world.overworld.units.find(function(u) { return u && u.alive && u.leaderHeroId === hero28.id; });
+    const nbrs28 = getHexNeighbors(unit28.x, unit28.y, host28.state.world.overworld);
+    const marchDest28 = nbrs28.find(function(n) {
+      const t = host28.state.world.overworld.tiles[n.y][n.x];
+      return t !== OW_TERRAIN_MOUNTAINS && t !== 'water';
+    }) || nbrs28[0];
+    host28.dispatch({ type: COMMAND_TYPES.ORDER_UNIT_MARCH, payload: { unitId: unit28.id, targetX: marchDest28.x, targetY: marchDest28.y } });
+
+    const savedTime28 = host28.state.world.clock.simTimeMs;
+    const saveOk28 = host28.save();
+
+    // Load into a completely fresh SimHost + DungeonState
+    const host28b = createWargameSimHost();
+    const dng28b = createDefaultGameState();
+    host28b.attachDungeonState(dng28b);
+    const loadOk28 = host28b.load();
+
+    const w28b = host28b.state.world;
+    const city28b = getPrimaryCity(host28b.state);
+    const hero28b = w28b && w28b.heroes ? w28b.heroes[0] : null;
+    const unit28b = w28b && w28b.overworld ? w28b.overworld.units.find(function(u) { return u && u.id === unit28.id; }) : null;
+
+    const roundTripOk28 = Boolean(
+      saveOk28 && loadOk28 &&
+      w28b && w28b.player.id === CANONICAL_PLAYER_ID &&
+      w28b.seedCode === 'STAR-2800' &&
+      w28b.clock.simTimeMs === savedTime28 &&
+      city28b && city28b.name === 'Bastion Keep' &&
+      city28b.buildQueue.length === 1 &&
+      city28b.recruitmentQueue.length === 1 &&
+      city28b.storage.items.some(function(it) { return it.uid === 'item_persist_28'; }) &&
+      hero28b && hero28b.bonusStats && hero28b.bonusStats.str === 3 &&
+      hero28b.statPoints === 2 && hero28b.talentPoints === 1 && hero28b.xp === 45 &&
+      unit28b && unit28b.status === 'marching' && unit28b.marchPlan &&
+      unit28b.marchPlan.targetX === marchDest28.x && unit28b.marchPlan.targetY === marchDest28.y &&
+      host28b.scheduler.size() >= 3
+    );
+
+    // Continued play after load: advance clock so march, building, and recruitment all complete
+    host28b.stepClock(120000);
+    const continuedPlayOk28 = Boolean(
+      unit28b && unit28b.status === 'idle' &&
+      unit28b.x === marchDest28.x && unit28b.y === marchDest28.y &&
+      city28b.buildQueue.length === 0 &&
+      (city28b.buildings.warehouse || 0) >= 1 &&
+      city28b.recruitmentQueue.length === 0 &&
+      w28b.heroes.length === 2
+    );
+
+    // Repeated save/load cycles (3x) must be idempotent with zero entity/item/job duplication
+    const heroCntBefore = w28b.heroes.length;
+    const partyCntBefore = w28b.parties.length;
+    const unitCntBefore = w28b.overworld.units.length;
+    const itemCntBefore = city28b.storage.items.length;
+    const jobCntBefore = host28b.scheduler.size();
+    let repeatOk28 = true;
+    for (let cyc = 0; cyc < 3; cyc++) {
+      if (!host28b.save() || !host28b.load()) repeatOk28 = false;
+    }
+    const city28c = getPrimaryCity(host28b.state);
+    const idempotentOk28 = Boolean(
+      repeatOk28 &&
+      host28b.state.world.heroes.length === heroCntBefore &&
+      host28b.state.world.parties.length === partyCntBefore &&
+      host28b.state.world.overworld.units.length === unitCntBefore &&
+      city28c.storage.items.length === itemCntBefore &&
+      host28b.scheduler.size() === jobCntBefore
+    );
+
+    t28Checks = {
+      roundTripOk: roundTripOk28,
+      continuedPlayOk: continuedPlayOk28,
+      idempotentOk: idempotentOk28
+    };
+  } finally {
+    if (typeof localStorage !== 'undefined') {
+      if (prevSavedRaw28 === null) localStorage.removeItem(WARGAME_STORAGE_KEY);
+      else localStorage.setItem(WARGAME_STORAGE_KEY, prevSavedRaw28);
+    }
+  }
+  const failed28 = Object.keys(t28Checks).filter(function(k) { return !t28Checks[k]; });
+  const t28Pass = failed28.length === 0 && Object.keys(t28Checks).length > 0;
+
+  results.push({
+    name: '28. Save/Load Full Campaign Round-Trip, Continued Play & Repeated Idempotency (Task 04)',
+    pass: t28Pass,
+    detail: t28Pass
+      ? 'Full campaign state, active queues, hex march + scheduler jobs, hero progression, continued post-load play & 3x save/load idempotency verified'
+      : 'Failed checks: ' + failed28.join(', ')
+  });
+
+  // =========================================================================
+  // Test 29: Unified Dungeon Persistence, Mid-Dungeon Resume, Legacy/Orphan Recovery, Malformed Saves & Atomic Rollback (Task 04)
+  // =========================================================================
+  const prevSavedRaw29 = (typeof localStorage !== 'undefined') ? localStorage.getItem(WARGAME_STORAGE_KEY) : null;
+  let t29Checks = {};
+  try {
+    // 1. Mid-dungeon save, full RLE + activeSession restore, and post-restore extraction
+    const host29 = createWargameSimHost();
+    const dng29 = createDefaultGameState();
+    host29.attachDungeonState(dng29);
+    const ctx29 = createAppContextController({ simHost: host29, dungeonState: dng29 });
+
+    host29.dispatch({ type: COMMAND_TYPES.START_NEW_CAMPAIGN, payload: { houseName: 'House Vault', worldName: 'Delve Realm', seedCode: 'STAR-2900' } });
+    host29.dispatch({ type: COMMAND_TYPES.FOUND_CITY, payload: { cityName: 'Delver Gate' } });
+    const city29 = getPrimaryCity(host29.state);
+    city29.stockpile.wood = 400; city29.stockpile.stone = 400; city29.stockpile.food = 400; city29.stockpile.gold = 400;
+    city29.buildings.hut = 1; city29.buildings.garden = 1; city29.buildings.well = 1;
+    city29.buildings.lumber_camp = 1; city29.buildings.quarry = 1;
+    city29.population = { current: 20, max: 25, growthProgress: 0, starving: false };
+    host29.dispatch({ type: COMMAND_TYPES.QUEUE_BUILDING, payload: { plotIndex: 4, buildingId: 'guild_hall' } });
+    host29.stepClock(60000);
+    host29.dispatch({ type: COMMAND_TYPES.RECRUIT_HERO, payload: { classId: 'adventurer', heroName: 'Bram' } });
+    host29.stepClock(70000);
+
+    const poi29 = host29.state.world.overworld.pois.find(function(p) { return p && p.type === 'dungeon_entrance'; });
+    const unit29 = host29.state.world.overworld.units.find(function(u) { return u && u.alive && u.leaderHeroId; });
+    unit29.x = poi29.x;
+    unit29.y = poi29.y;
+
+    const enter29 = ctx29.enterDungeon({ unitId: unit29.id, poiId: poi29.id });
+    const floorBefore29 = ensureDungeonFloorHydrated(dng29.dungeon, dng29.dungeon.currentFloor);
+    const savedBiome29 = floorBefore29 ? (floorBefore29.biomeId || null) : null;
+    const savedX29 = dng29.hero.x;
+    const savedY29 = dng29.hero.y;
+    dng29.hero.hp = Math.max(1, dng29.hero.hp - 5);
+    const savedHp29 = dng29.hero.hp;
+    dng29.turn = 14;
+    if (!dng29.dungeon.waypoints || typeof dng29.dungeon.waypoints !== 'object') dng29.dungeon.waypoints = {};
+    dng29.dungeon.waypoints.wp_floor1 = { id: 'wp_floor1', floor: 1, x: savedX29, y: savedY29, attuned: true };
+    dng29.hero.expeditionPack.push({ id: 'copper_ore', name: 'Copper Ore', qty: 4, value: 12 });
+    const savedSessionId29 = enter29.sessionId;
+
+    const midSaveOk29 = host29.save();
+    const validMidSaveRaw29 = localStorage.getItem(WARGAME_STORAGE_KEY);
+
+    // Restore into a brand-new host + dungeonState + appContext
+    const host29b = createWargameSimHost();
+    const dng29b = createDefaultGameState();
+    host29b.attachDungeonState(dng29b);
+    const ctx29b = createAppContextController({ simHost: host29b, dungeonState: dng29b });
+    const midLoadOk29 = host29b.load();
+    const restoreRes29 = ctx29b.restoreDungeonSession();
+    const floorAfter29 = ensureDungeonFloorHydrated(dng29b.dungeon, dng29b.dungeon.currentFloor);
+
+    const midDungeonRestoreOk = Boolean(
+      enter29.ok && midSaveOk29 && midLoadOk29 && restoreRes29.ok && restoreRes29.restoredDungeon &&
+      ctx29b.getActiveContext() === APP_CONTEXTS.DUNGEON &&
+      dng29b.hero && dng29b.hero.x === savedX29 && dng29b.hero.y === savedY29 &&
+      dng29b.hero.hp === savedHp29 && dng29b.turn === 14 &&
+      dng29b.dungeon && dng29b.dungeon.waypoints && dng29b.dungeon.waypoints.wp_floor1 && dng29b.dungeon.waypoints.wp_floor1.attuned === true &&
+      dng29b.hero.expeditionPack.some(function(it) { return it.id === 'copper_ore' && it.qty === 4; }) &&
+      floorAfter29 && Array.isArray(floorAfter29.tiles) && floorAfter29.tiles.length > 0 &&
+      (floorAfter29.biomeId || null) === savedBiome29
+    );
+
+    // Extract after mid-dungeon restore -> rewards apply once cleanly, duplicate exit rejected
+    const hero29bId = host29b.state.world.heroes[0].id;
+    const exitAfterRestore29 = ctx29b.exitDungeon({
+      sessionId: savedSessionId29,
+      outcome: 'extracted',
+      method: 'Floor 1 Ascending Stairs (<)',
+      partyUnitId: unit29.id,
+      heroId: hero29bId,
+      heroLevel: dng29b.hero.level,
+      heroXp: dng29b.hero.xp,
+      dungeonId: dng29b.activeDungeonId,
+      dungeonPoiId: poi29.id,
+      lootSummary: { gold: 55, ore: 4, gems: 0, gearCount: 0, salvagedGold: 0 },
+      extractedGear: [],
+      heroEquipment: dng29b.hero.equipment
+    });
+    const dupExitAfterRestore29 = ctx29b.exitDungeon({
+      sessionId: savedSessionId29,
+      outcome: 'extracted',
+      partyUnitId: unit29.id,
+      heroId: hero29bId,
+      lootSummary: { gold: 55, ore: 4, gems: 0, gearCount: 0, salvagedGold: 0 }
+    });
+    const unitAfterExit29 = host29b.state.world.overworld.units.find(function(u) { return u && u.id === unit29.id; });
+    const postRestoreExtractOk = Boolean(
+      exitAfterRestore29.ok && !dupExitAfterRestore29.ok && dupExitAfterRestore29.duplicate &&
+      ctx29b.getActiveContext() === APP_CONTEXTS.STRATEGY &&
+      unitAfterExit29 && unitAfterExit29.status !== 'in_dungeon'
+    );
+
+    // 2. Legacy save migration + deterministic orphaned in_dungeon recovery
+    const legacyObj29 = JSON.parse(validMidSaveRaw29);
+    legacyObj29.world.player.id = 'player_local';
+    const legacyCityKey29 = Object.keys(legacyObj29.world.cities)[0];
+    legacyObj29.world.cities[legacyCityKey29].plots = legacyObj29.world.cities[legacyCityKey29].plots.slice(0, 8);
+    delete legacyObj29.world.heroes[0].bonusStats;
+    delete legacyObj29.world.heroes[0].statPoints;
+    legacyObj29.world.heroes[0].level = 4;
+    legacyObj29.world.heroes[0].xp = 99;
+    delete legacyObj29.world.dungeonWorld;
+    localStorage.setItem(WARGAME_STORAGE_KEY, JSON.stringify(legacyObj29));
+
+    const host29c = createWargameSimHost();
+    const dng29c = createDefaultGameState();
+    host29c.attachDungeonState(dng29c);
+    const ctx29c = createAppContextController({ simHost: host29c, dungeonState: dng29c });
+    const legacyLoadOk = host29c.load();
+    const legacyRestoreRes = ctx29c.restoreDungeonSession();
+    const legacyUnit = host29c.state.world.overworld.units.find(function(u) { return u && u.id === unit29.id; });
+    const legacyHero = host29c.state.world.heroes[0];
+    const legacyCityAfter = getPrimaryCity(host29c.state);
+    const legacyRecoveryOk = Boolean(
+      legacyLoadOk && legacyRestoreRes.ok && !legacyRestoreRes.restoredDungeon &&
+      ctx29c.getActiveContext() === APP_CONTEXTS.STRATEGY &&
+      host29c.state.world.player.id === CANONICAL_PLAYER_ID &&
+      legacyCityAfter && legacyCityAfter.plots.length === 64 &&
+      legacyHero.level === 4 && legacyHero.xp === 99 &&
+      legacyHero.bonusStats && typeof legacyHero.statPoints === 'number' &&
+      legacyUnit && legacyUnit.status === 'idle' &&
+      legacyUnit.x === poi29.x && legacyUnit.y === poi29.y
+    );
+
+    // 3. Orphaned marching unit recovery (valid path reschedules; invalid non-adjacent path resets safely)
+    const orphanValidObj = JSON.parse(validMidSaveRaw29);
+    delete orphanValidObj.world.dungeonWorld;
+    const ouValid = orphanValidObj.world.overworld.units.find(function(u) { return u && u.id === unit29.id; });
+    const ow29 = orphanValidObj.world.overworld;
+    const vNbr = getHexNeighbors(ouValid.x, ouValid.y, ow29).find(function(n) {
+      return ow29.tiles[n.y][n.x] !== OW_TERRAIN_MOUNTAINS && ow29.tiles[n.y][n.x] !== 'water';
+    });
+    ouValid.status = 'marching';
+    ouValid.dungeonPoiId = null;
+    ouValid.marchPlan = {
+      targetX: vNbr.x, targetY: vNbr.y,
+      remainingPath: [{ x: vNbr.x, y: vNbr.y }],
+      stepDurationMs: 3000, stepStartMs: orphanValidObj.world.clock.simTimeMs,
+      stepEndMs: orphanValidObj.world.clock.simTimeMs + 3000,
+      fromX: ouValid.x, fromY: ouValid.y
+    };
+    orphanValidObj.world.scheduledJobs = [];
+    localStorage.setItem(WARGAME_STORAGE_KEY, JSON.stringify(orphanValidObj));
+    const host29m1 = createWargameSimHost();
+    const loadOrphanValidOk = host29m1.load();
+    const recUnitValid = host29m1.state.world.overworld.units.find(function(u) { return u && u.id === unit29.id; });
+    const orphanValidRecoveredOk = Boolean(
+      loadOrphanValidOk && recUnitValid.status === 'marching' && host29m1.scheduler.size() >= 1
+    );
+
+    const orphanInvalidObj = JSON.parse(validMidSaveRaw29);
+    delete orphanInvalidObj.world.dungeonWorld;
+    const ouBad = orphanInvalidObj.world.overworld.units.find(function(u) { return u && u.id === unit29.id; });
+    ouBad.status = 'marching';
+    ouBad.dungeonPoiId = null;
+    ouBad.marchPlan = {
+      targetX: 0, targetY: 0,
+      remainingPath: [{ x: (ouBad.x + 10) % 20, y: (ouBad.y + 10) % 20 }], // non-adjacent teleport
+      stepDurationMs: 3000, stepStartMs: 0, stepEndMs: 3000
+    };
+    orphanInvalidObj.world.scheduledJobs = [];
+    localStorage.setItem(WARGAME_STORAGE_KEY, JSON.stringify(orphanInvalidObj));
+    const host29m2 = createWargameSimHost();
+    const loadOrphanBadOk = host29m2.load();
+    const recUnitBad = host29m2.state.world.overworld.units.find(function(u) { return u && u.id === unit29.id; });
+    const orphanInvalidRecoveredOk = Boolean(
+      loadOrphanBadOk && recUnitBad.status === 'idle' && recUnitBad.marchPlan === null
+    );
+
+    // 4. Malformed saves & strict atomic rollback (live state & scheduler 100% untouched on failed load)
+    const liveSeedBefore = host29b.state.world.seedCode;
+    const liveTimeBefore = host29b.state.world.clock.simTimeMs;
+    const liveJobsBefore = host29b.scheduler.size();
+    const liveHeroesBefore = host29b.state.world.heroes.length;
+    const badPayloads = [
+      '{not-valid-json',
+      '{}',
+      '{"world":null}',
+      JSON.stringify({ schemaVersion: 1, campaignPhase: 'active_world', world: { clock: { simTimeMs: 0 }, overworld: { width: 10, height: 10, tiles: null, explored: null, units: [] }, cities: [], heroes: [], parties: [] } })
+    ];
+    let atomicRollbackOk = true;
+    for (let bi = 0; bi < badPayloads.length; bi++) {
+      localStorage.setItem(WARGAME_STORAGE_KEY, badPayloads[bi]);
+      const badLoad = host29b.load();
+      if (badLoad !== false ||
+          host29b.state.world.seedCode !== liveSeedBefore ||
+          host29b.state.world.clock.simTimeMs !== liveTimeBefore ||
+          host29b.scheduler.size() !== liveJobsBefore ||
+          host29b.state.world.heroes.length !== liveHeroesBefore) {
+        atomicRollbackOk = false;
+      }
+    }
+
+    // 5. Safe recovery if context initialization fails after state commit
+    localStorage.setItem(WARGAME_STORAGE_KEY, validMidSaveRaw29);
+    const host29d = createWargameSimHost();
+    const dng29d = createDefaultGameState();
+    host29d.attachDungeonState(dng29d);
+    const ctx29d = createAppContextController({
+      simHost: host29d,
+      dungeonState: dng29d,
+      onEnsureDungeonInitialized: function() { throw new Error('simulated_context_init_crash'); }
+    });
+    const load29dOk = host29d.load();
+    const crashRestoreRes = ctx29d.restoreDungeonSession();
+    const unit29d = host29d.state.world.overworld.units.find(function(u) { return u && u.id === unit29.id; });
+    const contextInitFailureRecoveryOk = Boolean(
+      load29dOk && !crashRestoreRes.ok && crashRestoreRes.recoveredToSurface &&
+      ctx29d.getActiveContext() === APP_CONTEXTS.STRATEGY &&
+      unit29d && unit29d.status === 'idle' &&
+      host29d.state.world.heroes.length >= 1
+    );
+
+    // 6. Save failure propagation (storage quota error returns false & preserves last valid save)
+    host29b.save();
+    const validRawBeforeQuota = localStorage.getItem(WARGAME_STORAGE_KEY);
+    const origSetItem = localStorage.setItem;
+    let quotaSaveReturnedFalse = false;
+    try {
+      localStorage.setItem = function() { throw new Error('QuotaExceededError'); };
+      quotaSaveReturnedFalse = (host29b.save() === false);
+    } finally {
+      localStorage.setItem = origSetItem;
+    }
+    const saveFailurePropagationOk = Boolean(
+      quotaSaveReturnedFalse &&
+      localStorage.getItem(WARGAME_STORAGE_KEY) === validRawBeforeQuota
+    );
+
+    t29Checks = {
+      midDungeonRestoreOk: midDungeonRestoreOk,
+      postRestoreExtractOk: postRestoreExtractOk,
+      legacyRecoveryOk: legacyRecoveryOk,
+      orphanValidRecoveredOk: orphanValidRecoveredOk,
+      orphanInvalidRecoveredOk: orphanInvalidRecoveredOk,
+      atomicRollbackOk: atomicRollbackOk,
+      contextInitFailureRecoveryOk: contextInitFailureRecoveryOk,
+      saveFailurePropagationOk: saveFailurePropagationOk
+    };
+  } finally {
+    if (typeof localStorage !== 'undefined') {
+      if (prevSavedRaw29 === null) localStorage.removeItem(WARGAME_STORAGE_KEY);
+      else localStorage.setItem(WARGAME_STORAGE_KEY, prevSavedRaw29);
+    }
+  }
+  const failed29 = Object.keys(t29Checks).filter(function(k) { return !t29Checks[k]; });
+  const t29Pass = failed29.length === 0 && Object.keys(t29Checks).length > 0;
+
+  results.push({
+    name: '29. Unified Dungeon Persistence, Mid-Dungeon Resume, Legacy/Orphan Recovery, Malformed Saves & Atomic Rollback (Task 04)',
+    pass: t29Pass,
+    detail: t29Pass
+      ? 'Mid-dungeon RLE + activeSession resume & extraction, legacy migration, orphaned activity recovery, malformed save atomic rollback, context-init crash recovery & quota failure propagation verified'
+      : 'Failed checks: ' + failed29.join(', ')
   });
 
   return results;

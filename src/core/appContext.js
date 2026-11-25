@@ -222,6 +222,112 @@ export function createAppContextController(options) {
     };
   }
 
+  function restoreDungeonSession() {
+    const hasWorld = Boolean(
+      simHost && simHost.state && simHost.state.world && simHost.state.campaignPhase !== CAMPAIGN_PHASES.TITLE
+    );
+    if (!hasWorld) {
+      activeSession = null;
+      activeContext = APP_CONTEXTS.TITLE;
+      if (onContextChanged) onContextChanged(activeContext, null);
+      return { ok: true, restoredDungeon: false };
+    }
+
+    const ws = dungeonState && dungeonState.wargameSession ? dungeonState.wargameSession : null;
+    const hasActiveSnapshot = Boolean(
+      ws && ws.active && ws.inProcess && !dungeonState.inGuild && dungeonState.hero
+    );
+
+    if (!hasActiveSnapshot) {
+      activeSession = null;
+      activeContext = APP_CONTEXTS.STRATEGY;
+      if (onContextChanged) onContextChanged(activeContext, null);
+      return { ok: true, restoredDungeon: false };
+    }
+
+    const units = (simHost.state.world.overworld && Array.isArray(simHost.state.world.overworld.units))
+      ? simHost.state.world.overworld.units : [];
+    const targetUnit = units.find(function(u) {
+      return u && u.alive && u.id === ws.partyUnitId && u.status === 'in_dungeon';
+    });
+
+    if (!targetUnit) {
+      ws.active = false;
+      dungeonState.inGuild = true;
+      activeSession = null;
+      activeContext = APP_CONTEXTS.STRATEGY;
+      if (onContextChanged) onContextChanged(activeContext, null);
+      return { ok: true, restoredDungeon: false, recoveredToSurface: true };
+    }
+
+    let sessionId = ws.sessionId;
+    if (!sessionId) {
+      nextSessionSeq += 1;
+      sessionId = 'dng_sess_' + nextSessionSeq;
+      ws.sessionId = sessionId;
+    } else {
+      const m = /_(\d+)$/.exec(String(sessionId));
+      if (m) {
+        const parsedSeq = parseInt(m[1], 10);
+        if (!isNaN(parsedSeq) && parsedSeq >= nextSessionSeq) {
+          nextSessionSeq = parsedSeq;
+        }
+      }
+    }
+
+    try {
+      if (!dungeonInitialized && onEnsureDungeonInitialized) {
+        onEnsureDungeonInitialized();
+        dungeonInitialized = true;
+      }
+
+      activeSession = {
+        sessionId: sessionId,
+        unitId: targetUnit.id,
+        heroId: ws.heroId || targetUnit.leaderHeroId || null,
+        poiId: ws.poiId || targetUnit.dungeonPoiId || null,
+        dungeonId: ws.dungeonId || (dungeonState.dungeon && dungeonState.dungeon.id) || 'dng_starfall',
+        exitResolved: false
+      };
+      activeContext = APP_CONTEXTS.DUNGEON;
+
+      if (onContextChanged) {
+        onContextChanged(activeContext, activeSession);
+      }
+
+      return {
+        ok: true,
+        restoredDungeon: true,
+        sessionId: sessionId,
+        unitId: targetUnit.id,
+        heroId: activeSession.heroId,
+        dungeonId: activeSession.dungeonId
+      };
+    } catch (err) {
+      // Safe deterministic recovery if context initialization fails after state commit
+      simHost.dispatch({
+        type: COMMAND_TYPES.EXIT_DUNGEON_TO_SURFACE,
+        payload: { unitId: targetUnit.id }
+      });
+      ws.active = false;
+      dungeonState.inGuild = true;
+      activeSession = null;
+      activeContext = APP_CONTEXTS.STRATEGY;
+      if (simHost && typeof simHost.save === 'function') {
+        simHost.save();
+      }
+      if (onContextChanged) {
+        try { onContextChanged(activeContext, null); } catch (cbErr) {}
+      }
+      return {
+        ok: false,
+        restoredDungeon: false,
+        recoveredToSurface: true,
+        reason: (err && err.message) || 'restore_context_init_failed'
+      };
+    }
+  }
+
   return {
     getActiveContext: getActiveContext,
     getActiveSession: getActiveSession,
@@ -229,6 +335,7 @@ export function createAppContextController(options) {
     syncFromCampaignPhase: syncFromCampaignPhase,
     setContext: setContext,
     enterDungeon: enterDungeon,
-    exitDungeon: exitDungeon
+    exitDungeon: exitDungeon,
+    restoreDungeonSession: restoreDungeonSession
   };
 }

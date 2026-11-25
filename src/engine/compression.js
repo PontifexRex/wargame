@@ -108,6 +108,7 @@ export function packFloorForStorage(floor) {
   return {
     packed: true,
     depth: floor.depth || 1,
+    biomeId: floor.biomeId || null,
     width: w,
     height: h,
     roomCount: floor.roomCount || 0,
@@ -146,6 +147,7 @@ export function hydrateFloorFromStorage(rawFloor) {
   return {
     packed: false,
     depth: rawFloor.depth || 1,
+    biomeId: rawFloor.biomeId || null,
     width: w,
     height: h,
     roomCount: rawFloor.roomCount || 0,

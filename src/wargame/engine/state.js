@@ -18,11 +18,13 @@ import {
   BASE_MAX_HERO_ROSTER,
   CITY_STORAGE_BASE_CAPACITY
 } from '../constants.js';
-import { generateOverworldMap } from './pathfinding.js';
+import { generateOverworldMap, isOverworldTilePassable } from './pathfinding.js';
+import { isInOverworldBounds, areHexesAdjacent } from './hexSpatial.js';
 import { createInitialTasksState } from './taskEngine.js';
 import { CITY_PLOT_SLOTS, CITY_BUILDINGS_CATALOG } from '../data/buildings.js';
 import { createDefaultProgressionState, ensureProgressionState } from '../../progression/progressionState.js';
 import { CANONICAL_PLAYER_ID, ensureCanonicalPlayerIdentity } from '../../core/canonicalIdentity.js';
+import { packDungeonWorldSnapshot } from '../../engine/state.js';
 
 export function createTitleScreenState() {
   return {
@@ -296,24 +298,284 @@ export function buildSerializableWargameState(state) {
   return clean;
 }
 
-export function saveWargameState(state, scheduler = null) {
-  if (typeof localStorage === 'undefined' || !state || !state.world) return false;
-  if (scheduler) {
-    state.world.scheduledJobs = scheduler.serializeJobs();
+export function validateWargameSavePayload(parsed) {
+  if (!parsed || typeof parsed !== 'object') return { ok: false, reason: 'not_an_object' };
+  const w = parsed.world;
+  if (!w || typeof w !== 'object') return { ok: false, reason: 'missing_world' };
+  if (!w.clock || typeof w.clock !== 'object' || typeof w.clock.simTimeMs !== 'number' || !isFinite(w.clock.simTimeMs)) {
+    return { ok: false, reason: 'invalid_clock' };
   }
-  state.world.clock.lastRealTimestamp = Date.now();
-  const payload = buildSerializableWargameState(state);
-  localStorage.setItem(WARGAME_STORAGE_KEY, JSON.stringify(payload));
-  return true;
+  const ow = w.overworld;
+  if (!ow || typeof ow !== 'object' || typeof ow.width !== 'number' || typeof ow.height !== 'number' || ow.width <= 0 || ow.height <= 0) {
+    return { ok: false, reason: 'invalid_overworld_dimensions' };
+  }
+  if (!Array.isArray(ow.tiles) || ow.tiles.length !== ow.height) {
+    return { ok: false, reason: 'invalid_overworld_tiles' };
+  }
+  if (!Array.isArray(ow.explored) || ow.explored.length !== ow.height) {
+    return { ok: false, reason: 'invalid_overworld_explored' };
+  }
+  for (let y = 0; y < ow.height; y++) {
+    if (!Array.isArray(ow.tiles[y]) || ow.tiles[y].length !== ow.width) {
+      return { ok: false, reason: 'corrupt_tile_row_' + y };
+    }
+    if (!Array.isArray(ow.explored[y]) || ow.explored[y].length !== ow.width) {
+      return { ok: false, reason: 'corrupt_explored_row_' + y };
+    }
+  }
+  if (!Array.isArray(ow.units)) return { ok: false, reason: 'invalid_units' };
+  if (w.cities !== undefined && (typeof w.cities !== 'object' || w.cities === null || Array.isArray(w.cities))) {
+    return { ok: false, reason: 'invalid_cities' };
+  }
+  if (w.heroes !== undefined && !Array.isArray(w.heroes)) return { ok: false, reason: 'invalid_heroes' };
+  if (w.parties !== undefined && !Array.isArray(w.parties)) return { ok: false, reason: 'invalid_parties' };
+  return { ok: true };
 }
 
-export function loadWargameState(scheduler = null) {
+export function reconcileLoadedWorldIntegrity(parsed) {
+  const w = parsed.world;
+  const ow = w.overworld;
+  const simTimeMs = (w.clock && typeof w.clock.simTimeMs === 'number') ? w.clock.simTimeMs : 0;
+
+  if (!w.cities || typeof w.cities !== 'object') w.cities = {};
+  if (!Array.isArray(w.heroes)) w.heroes = [];
+  if (!Array.isArray(w.parties)) w.parties = [];
+
+  // 1. Reconcile activeCityId
+  const cityIds = Object.keys(w.cities);
+  if (w.activeCityId && !w.cities[w.activeCityId]) {
+    w.activeCityId = cityIds.length > 0 ? cityIds[0] : null;
+  } else if (!w.activeCityId && cityIds.length > 0) {
+    w.activeCityId = cityIds[0];
+  }
+
+  // 2. Reconcile hero IDs, roster leader & party memberships (never delete valid entities)
+  const heroIdSet = {};
+  for (let i = 0; i < w.heroes.length; i++) {
+    if (w.heroes[i] && w.heroes[i].id) heroIdSet[w.heroes[i].id] = true;
+  }
+  if (w.roster) {
+    if (w.roster.overallLeaderHeroId && !heroIdSet[w.roster.overallLeaderHeroId]) {
+      w.roster.overallLeaderHeroId = w.heroes.length > 0 ? w.heroes[0].id : null;
+    }
+  }
+  for (let pi = 0; pi < w.parties.length; pi++) {
+    const party = w.parties[pi];
+    if (!party) continue;
+    if (Array.isArray(party.memberIds)) {
+      const seen = {};
+      party.memberIds = party.memberIds.filter(function(mid) {
+        if (!heroIdSet[mid] || seen[mid]) return false;
+        seen[mid] = true;
+        return true;
+      });
+    } else {
+      party.memberIds = [];
+    }
+    if (party.leaderHeroId && !heroIdSet[party.leaderHeroId]) {
+      party.leaderHeroId = party.memberIds.length > 0 ? party.memberIds[0] : null;
+    }
+  }
+
+  // 3. Reconcile selectedUnitId
+  const units = Array.isArray(ow.units) ? ow.units : [];
+  const hasSelected = Boolean(ow.selectedUnitId && units.some(function(u) { return u && u.id === ow.selectedUnitId && u.alive; }));
+  if (!hasSelected) {
+    const firstAlive = units.find(function(u) { return u && u.alive; });
+    ow.selectedUnitId = firstAlive ? firstAlive.id : null;
+  }
+
+  // 4. Deduplicate scheduledJobs by jobId
+  const rawJobs = Array.isArray(w.scheduledJobs) ? w.scheduledJobs : [];
+  const jobMap = {};
+  const cleanJobs = [];
+  for (let ji = 0; ji < rawJobs.length; ji++) {
+    const j = rawJobs[ji];
+    if (!j || !j.jobId || typeof j.dueSimTimeMs !== 'number' || !isFinite(j.dueSimTimeMs)) continue;
+    if (jobMap[j.jobId]) continue;
+    jobMap[j.jobId] = j;
+    cleanJobs.push(j);
+  }
+
+  // 5. Reconcile interrupted marches & active dungeon sessions
+  const dngWorld = w.dungeonWorld && typeof w.dungeonWorld === 'object' ? w.dungeonWorld : null;
+  const activeSess = dngWorld && dngWorld.activeSession && typeof dngWorld.activeSession === 'object' ? dngWorld.activeSession : null;
+  const sessDungeonExists = Boolean(activeSess && activeSess.dungeonId && dngWorld.dungeons && dngWorld.dungeons[activeSess.dungeonId] && activeSess.hero);
+
+  for (let ui = 0; ui < units.length; ui++) {
+    const u = units[ui];
+    if (!u || !u.alive) continue;
+
+    if (u.status === 'marching') {
+      const mp = u.marchPlan;
+      let pathValid = Boolean(mp && Array.isArray(mp.remainingPath) && mp.remainingPath.length > 0);
+      if (pathValid) {
+        let px = u.x;
+        let py = u.y;
+        for (let si = 0; si < mp.remainingPath.length; si++) {
+          const st = mp.remainingPath[si];
+          if (!st || !isInOverworldBounds(ow, st.x, st.y) || !isOverworldTilePassable(ow, st.x, st.y) || !areHexesAdjacent(px, py, st.x, st.y)) {
+            pathValid = false;
+            break;
+          }
+          px = st.x;
+          py = st.y;
+        }
+      }
+      if (!pathValid) {
+        u.status = 'idle';
+        u.marchPlan = null;
+      } else if (!mp.activeJobId || !jobMap[mp.activeJobId]) {
+        const nextStep = mp.remainingPath[0];
+        const stepDur = Math.max(250, nextStep.stepDurationMs || 3000);
+        const recoveryJobId = 'job_recover_march_' + u.id + '_' + simTimeMs;
+        const dueMs = Math.max(simTimeMs + 250, mp.stepDueSimTimeMs || (simTimeMs + stepDur));
+        const recJob = {
+          jobId: recoveryJobId,
+          jobType: 'UNIT_MARCH_STEP',
+          ownerId: u.id,
+          startSimTimeMs: simTimeMs,
+          dueSimTimeMs: dueMs,
+          durationMs: Math.max(1, dueMs - simTimeMs),
+          payload: { unitId: u.id, targetX: nextStep.x, targetY: nextStep.y }
+        };
+        mp.activeJobId = recoveryJobId;
+        mp.fromX = u.x;
+        mp.fromY = u.y;
+        mp.toX = nextStep.x;
+        mp.toY = nextStep.y;
+        mp.stepStartSimTimeMs = simTimeMs;
+        mp.stepDueSimTimeMs = dueMs;
+        jobMap[recoveryJobId] = recJob;
+        cleanJobs.push(recJob);
+      }
+    } else if (u.status === 'in_dungeon') {
+      const matchesSession = Boolean(sessDungeonExists && activeSess.unitId === u.id);
+      if (!matchesSession) {
+        // Deterministic safe fallback: return party to idle at dungeon entrance POI without losing permanent progression/gear
+        const poi = (ow.pois || []).find(function(p) {
+          return p && p.type === 'dungeon_entrance' && (p.id === u.activeDungeonPoiId || p.dungeonId === u.activeDungeonId);
+        });
+        if (poi && isInOverworldBounds(ow, poi.x, poi.y)) {
+          u.x = poi.x;
+          u.y = poi.y;
+        }
+        u.status = 'idle';
+        u.marchPlan = null;
+        u.activeDungeonPoiId = null;
+        u.activeDungeonId = null;
+      }
+    }
+  }
+
+  // 6. Reconcile orphaned active city build/recruitment queue items
+  for (let ci = 0; ci < cityIds.length; ci++) {
+    const c = w.cities[cityIds[ci]];
+    if (!c) continue;
+    if (Array.isArray(c.buildQueue)) {
+      for (let bi = 0; bi < c.buildQueue.length; bi++) {
+        const bq = c.buildQueue[bi];
+        if (bq && bq.status === 'building' && (!bq.jobId || !jobMap[bq.jobId])) {
+          const recJobId = bq.jobId || ('job_recover_build_' + c.id + '_' + bi);
+          const dueMs = Math.max(simTimeMs + 250, bq.dueSimTimeMs || (simTimeMs + 5000));
+          const recJob = {
+            jobId: recJobId,
+            jobType: bq.actionType === 'demolish' ? 'BUILDING_DEMOLISH_COMPLETE' : (bq.actionType === 'move' ? 'BUILDING_MOVE_COMPLETE' : 'BUILDING_COMPLETE'),
+            ownerId: c.id,
+            startSimTimeMs: bq.startSimTimeMs || simTimeMs,
+            dueSimTimeMs: dueMs,
+            durationMs: Math.max(1, dueMs - (bq.startSimTimeMs || simTimeMs)),
+            payload: {
+              cityId: c.id,
+              plotIndex: bq.plotIndex,
+              sourcePlotIndex: bq.sourcePlotIndex,
+              targetPlotIndex: bq.targetPlotIndex,
+              buildingId: bq.buildingId,
+              targetLevel: bq.targetLevel,
+              queueItemId: bq.queueItemId
+            }
+          };
+          bq.jobId = recJobId;
+          bq.dueSimTimeMs = dueMs;
+          jobMap[recJobId] = recJob;
+          cleanJobs.push(recJob);
+        }
+      }
+    }
+    if (Array.isArray(c.recruitmentQueue)) {
+      for (let ri = 0; ri < c.recruitmentQueue.length; ri++) {
+        const rq = c.recruitmentQueue[ri];
+        if (rq && rq.status === 'training' && (!rq.jobId || !jobMap[rq.jobId])) {
+          const recJobId = rq.jobId || ('job_recover_recruit_' + c.id + '_' + ri);
+          const dueMs = Math.max(simTimeMs + 250, rq.dueSimTimeMs || (simTimeMs + 10000));
+          const recJob = {
+            jobId: recJobId,
+            jobType: 'HERO_RECRUIT_COMPLETE',
+            ownerId: c.id,
+            startSimTimeMs: rq.startSimTimeMs || simTimeMs,
+            dueSimTimeMs: dueMs,
+            durationMs: Math.max(1, dueMs - (rq.startSimTimeMs || simTimeMs)),
+            payload: {
+              cityId: c.id,
+              classId: rq.classId,
+              heroName: rq.heroName,
+              queueItemId: rq.queueItemId
+            }
+          };
+          rq.jobId = recJobId;
+          rq.dueSimTimeMs = dueMs;
+          jobMap[recJobId] = recJob;
+          cleanJobs.push(recJob);
+        }
+      }
+    }
+  }
+
+  w.scheduledJobs = cleanJobs;
+  return cleanJobs;
+}
+
+export function saveWargameState(state, scheduler = null, dungeonState = null) {
+  if (typeof localStorage === 'undefined' || !state || !state.world) return false;
+  try {
+    const payload = buildSerializableWargameState(state);
+    if (!payload || !payload.world) return false;
+    const jobs = scheduler ? scheduler.serializeJobs() : (Array.isArray(state.world.scheduledJobs) ? state.world.scheduledJobs : []);
+    const nowTs = Date.now();
+    // Stage updated metadata on payload without corrupting last valid save if serialization or storage throws
+    const worldCopy = Object.assign({}, payload.world, {
+      scheduledJobs: jobs,
+      clock: Object.assign({}, payload.world.clock, { lastRealTimestamp: nowTs })
+    });
+    if (dungeonState && dungeonState.dungeons) {
+      const dngSnap = packDungeonWorldSnapshot(dungeonState);
+      if (dngSnap) {
+        worldCopy.dungeonWorld = dngSnap;
+      }
+    }
+    payload.world = worldCopy;
+    const serialized = JSON.stringify(payload);
+    localStorage.setItem(WARGAME_STORAGE_KEY, serialized);
+    state.world.scheduledJobs = jobs;
+    state.world.clock.lastRealTimestamp = nowTs;
+    if (worldCopy.dungeonWorld) {
+      state.world.dungeonWorld = worldCopy.dungeonWorld;
+    }
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+export function loadWargameState(scheduler = null, options = null) {
   if (typeof localStorage === 'undefined') return null;
+  const opts = options || {};
   const raw = localStorage.getItem(WARGAME_STORAGE_KEY);
   if (!raw) return null;
   try {
     const parsed = JSON.parse(raw);
-    if (!parsed || !parsed.world) return null;
+    const validation = validateWargameSavePayload(parsed);
+    if (!validation.ok) return null;
     if (parsed.world.realmStockpile) {
       if (typeof parsed.world.realmStockpile.water !== 'number') parsed.world.realmStockpile.water = 50;
       if (typeof parsed.world.realmStockpile.ore !== 'number')   parsed.world.realmStockpile.ore = 20;
@@ -362,6 +624,16 @@ export function loadWargameState(scheduler = null) {
         }
         if (!Array.isArray(hh.bagGear)) {
           hh.bagGear = [];
+        }
+        // Backfill Task 02 hero progression fields ONLY when absent (never overwrite existing progression!)
+        if (typeof hh.maxXp !== 'number' || hh.maxXp <= 0) hh.maxXp = 60;
+        if (!hh.bonusStats || typeof hh.bonusStats !== 'object') {
+          hh.bonusStats = { str: 0, dex: 0, int: 0, vit: 0 };
+        }
+        if (typeof hh.statPoints !== 'number') hh.statPoints = 0;
+        if (typeof hh.talentPoints !== 'number') hh.talentPoints = 0;
+        if (!hh.talentsAllocated || typeof hh.talentsAllocated !== 'object') {
+          hh.talentsAllocated = {};
         }
       }
     }
@@ -419,8 +691,9 @@ export function loadWargameState(scheduler = null) {
     if (parsed.world) {
       ensureCanonicalPlayerIdentity(parsed.world);
       ensureProgressionState(parsed.world);
+      reconcileLoadedWorldIntegrity(parsed);
     }
-    if (scheduler && Array.isArray(parsed.world.scheduledJobs)) {
+    if (scheduler && !opts.deferSchedulerHydrate && Array.isArray(parsed.world.scheduledJobs)) {
       scheduler.hydrateJobs(parsed.world.scheduledJobs);
     }
     return parsed;

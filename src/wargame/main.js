@@ -90,6 +90,7 @@ import {
 } from '../ui/renderer.js';
 
 export const simHost = createWargameSimHost();
+simHost.attachDungeonState(gameState);
 
 const dungeonChronicleEntries = [];
 let dungeonCanvasWired = false;
@@ -437,6 +438,7 @@ export function handleStartNewCampaignSubmit(e) {
   const seedCode  = (seedInput && seedInput.value) || ('STAR-' + Math.floor(1000 + Math.random() * 8999));
   const simSpeed  = speedSelect ? parseFloat(speedSelect.value) || 1 : 1;
 
+  simHost.resetAttachedDungeonState();
   simHost.dispatch({
     type: COMMAND_TYPES.START_NEW_CAMPAIGN,
     payload: {
@@ -447,6 +449,7 @@ export function handleStartNewCampaignSubmit(e) {
     }
   });
 
+  appContext.restoreDungeonSession();
   simHost.save();
   syncWargameUI(simHost);
 }
@@ -454,6 +457,7 @@ export function handleStartNewCampaignSubmit(e) {
 export function handleContinueCampaignClick() {
   const loaded = simHost.load();
   if (loaded) {
+    appContext.restoreDungeonSession();
     simHost.state._dirty = true;
     syncWargameUI(simHost);
   }
@@ -465,6 +469,7 @@ export function handleResetToTitle() {
   }
   simHost.state.campaignPhase = CAMPAIGN_PHASES.TITLE;
   simHost.state.world = null;
+  appContext.restoreDungeonSession();
   syncWargameUI(simHost);
 }
 
@@ -1347,6 +1352,11 @@ function wargameMainLoop(timestamp) {
 
   if (appContext.getActiveContext() === APP_CONTEXTS.DUNGEON) {
     renderDungeonCanvas();
+    autoSaveAccumulatorMs += elapsedRealMs;
+    if (autoSaveAccumulatorMs >= 5000) {
+      autoSaveAccumulatorMs = 0;
+      simHost.save();
+    }
   } else if (simHost.state.world && simHost.state.campaignPhase !== CAMPAIGN_PHASES.TITLE) {
     appContext.syncFromCampaignPhase();
     simHost.stepClock(elapsedRealMs);

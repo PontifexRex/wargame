@@ -3451,8 +3451,4096 @@ function ensureCanonicalPlayerIdentity(world) {
   return canonicalId;
 }
 
+  // --- Module: src/constants.js ---
+// Core constants, viewport dimensions, map scale presets, tile IDs, and rarity definitions
+
+const SCHEMA_VERSION = 'v0.5.0-inc5';
+const STORAGE_KEY = 'aethelgard_save_v6';
+
+const TILE_SIZE = 32;
+const VIEWPORT_WIDTH = 21;
+const VIEWPORT_HEIGHT = 15;
+
+// Legacy viewport aliases + new exploration-scale default floor dimensions
+const GRID_W = VIEWPORT_WIDTH;
+const GRID_H = VIEWPORT_HEIGHT;
+const DEFAULT_MAP_W = 80;
+const DEFAULT_MAP_H = 60;
+
+// Soft configurable cap on simultaneously chartered custom expeditions (not a structural limit; can be raised to 500+)
+const DEFAULT_MAX_CHARTERED_DUNGEONS = 12;
+
+// Bestiary & Codex Mastery Constants
+const CODEX_MASTERY_KILLS = 5;
+const CODEX_MASTERY_DMG_MULT = 1.08;
+
+const MAP_SIZE_PRESETS = {
+  small:     { id: 'small',     name: 'Small Outpost',        width: 48,  height: 36,  desc: '48x36 (~5.5x classic) • 14–18 chambers' },
+  standard:  { id: 'standard',  name: 'Standard Delve',       width: 80,  height: 60,  desc: '80x60 (~15x classic) • Multi-wing halls & vaults' },
+  sprawling: { id: 'sprawling', name: 'Sprawling Labyrinth',  width: 128, height: 96,  desc: '128x96 (~39x classic) • Deep avenues & caverns' },
+  colossal:  { id: 'colossal',  name: 'Colossal Megadungeon', width: 192, height: 144, desc: '192x144 (~88x classic) • Massive subterranean expanse' }
+};
+
+// Tile Constants
+const TILE_WALL = 0;
+const TILE_FLOOR = 1;
+const TILE_STAIRS_UP = 2;
+const TILE_STAIRS_DOWN = 3;
+const TILE_CHEST = 4;
+const TILE_CHEST_OPEN = 5;
+const TILE_SHRINE = 6;
+const TILE_SHRINE_USED = 7;
+const TILE_TRAP_HIDDEN = 8;
+const TILE_TRAP_VISIBLE = 9;
+const TILE_ORE_COPPER = 10;
+const TILE_ORE_IRON = 11;
+const TILE_ORE_MITHRIL = 12;
+const TILE_ORE_STAR = 13;
+const TILE_ORE_ASTRAL = 14;
+const TILE_ORE_GEODE = 15;
+const TILE_TRAP_DISARMED = 16;
+
+// Economy Constants
+const LAPIDARY_UNSOCKET_COST = 15;
+const BOUNTY_REROLL_COST = 25;
+
+// Rarity Definitions
+const RARITY = {
+  common:   { id: 'common',   name: 'Common',            color: '#94a3b8', mult: 1.0, affixes: 0 },
+  uncommon: { id: 'uncommon', name: 'Uncommon',          color: '#4ade80', mult: 1.4, affixes: 1 },
+  rare:     { id: 'rare',     name: 'Rare',              color: '#60a5fa', mult: 2.0, affixes: 2 },
+  epic:     { id: 'epic',     name: 'Epic',              color: '#c084fc', mult: 3.2, affixes: 3 },
+  relic:    { id: 'relic',    name: 'Star-Forged Relic', color: '#fbbf24', mult: 5.5, affixes: 4 }
+};
+
+  // --- Module: src/data/classes.js ---
+// Complete 5 Playable Classes Registry (Fighter, Thief, Mage, Ranger, Paladin)
+
+const CLASSES = {
+  fighter: {
+    id: 'fighter',
+    name: 'Fighter',
+    title: 'Iron Vanguard',
+    color: '#f87171',
+    baseStats: { str: 15, dex: 10, int: 8, vit: 14 },
+    hpBase: 120,
+    mpBase: 35,
+    vision: 5,
+    starterGear: {
+      weapon:    { uid: 'w_start_f', name: 'Iron Broadsword', slot: 'weapon', rarity: 'common', atk: 8, str: 2, value: 20, affixes: [] },
+      armor:     { uid: 'a_start_f', name: 'Riveted Mail', slot: 'armor', rarity: 'common', def: 6, vit: 1, value: 20, affixes: [] },
+      helm:      { uid: 'h_start_f', name: 'Iron Coif', slot: 'helm', rarity: 'common', def: 2, value: 12, affixes: [] },
+      boots:     { uid: 'b_start_f', name: 'Heavy Sabatons', slot: 'boots', rarity: 'common', def: 2, value: 12, affixes: [] },
+      accessory: { uid: 'acc_start_f', name: 'Vanguard Signet', slot: 'accessory', rarity: 'common', atk: 1, crit: 2, value: 15, affixes: [] },
+      pickaxe:   { uid: 'pick_start_f', name: 'Iron Pickaxe', slot: 'pickaxe', rarity: 'common', curDur: 30, maxDur: 30, value: 25, affixes: [] }
+    },
+    passiveName: 'Unstoppable Stride',
+    passiveDesc: '+10 Max HP & reduces incoming physical damage by 15%.',
+    skillName: 'Whirlwind Cleave',
+    skillCost: 10,
+    skillRange: 1,
+    skillDesc: 'Cleaves all adjacent foes for 150% weapon damage and stuns them for 1 turn.'
+  },
+  thief: {
+    id: 'thief',
+    name: 'Thief',
+    title: 'Shadow Strider',
+    color: '#c084fc',
+    baseStats: { str: 9, dex: 16, int: 11, vit: 10 },
+    hpBase: 90,
+    mpBase: 45,
+    vision: 6,
+    starterGear: {
+      weapon:    { uid: 'w_start_t', name: 'Obsidian Stiletto', slot: 'weapon', rarity: 'common', atk: 7, crit: 8, value: 20, affixes: [] },
+      armor:     { uid: 'a_start_t', name: 'Shadow Leather', slot: 'armor', rarity: 'common', def: 3, dodge: 6, value: 20, affixes: [] },
+      helm:      { uid: 'h_start_t', name: 'Nightblade Cowl', slot: 'helm', rarity: 'common', def: 1, crit: 3, value: 12, affixes: [] },
+      boots:     { uid: 'b_start_t', name: 'Silent Footwraps', slot: 'boots', rarity: 'common', def: 1, dodge: 5, value: 12, affixes: [] },
+      accessory: { uid: 'acc_start_t', name: 'Prospector Die', slot: 'accessory', rarity: 'common', crit: 4, value: 15, affixes: [] },
+      pickaxe:   { uid: 'pick_start_t', name: 'Iron Pickaxe', slot: 'pickaxe', rarity: 'common', curDur: 28, maxDur: 28, value: 25, affixes: [] }
+    },
+    passiveName: 'Opportunist',
+    passiveDesc: '+15% Critical Strike chance & +25% gold found in chests.',
+    skillName: 'Shadowstep Strike',
+    skillCost: 12,
+    skillRange: 3,
+    skillDesc: 'Teleports to a free floor tile adjacent to a target within 3 tiles and strikes for 220% Crit damage.'
+  },
+  mage: {
+    id: 'mage',
+    name: 'Mage',
+    title: 'Starweaver Adept',
+    color: '#60a5fa',
+    baseStats: { str: 7, dex: 10, int: 17, vit: 10 },
+    hpBase: 82,
+    mpBase: 80,
+    vision: 6,
+    starterGear: {
+      weapon:    { uid: 'w_start_m', name: 'Astral Runestaff', slot: 'weapon', rarity: 'common', atk: 5, int: 3, value: 20, affixes: [] },
+      armor:     { uid: 'a_start_m', name: 'Starweaver Robes', slot: 'armor', rarity: 'common', def: 2, maxMp: 15, value: 20, affixes: [] },
+      helm:      { uid: 'h_start_m', name: 'Circlet of Will', slot: 'helm', rarity: 'common', def: 1, int: 2, value: 12, affixes: [] },
+      boots:     { uid: 'b_start_m', name: 'Leyline Slippers', slot: 'boots', rarity: 'common', def: 1, maxMp: 10, value: 12, affixes: [] },
+      accessory: { uid: 'acc_start_m', name: 'Vespera Shard', slot: 'accessory', rarity: 'common', maxMp: 15, value: 15, affixes: [] },
+      pickaxe:   { uid: 'pick_start_m', name: 'Iron Pickaxe', slot: 'pickaxe', rarity: 'common', curDur: 25, maxDur: 25, value: 25, affixes: [] }
+    },
+    passiveName: 'Arcane Surge',
+    passiveDesc: 'Regenerates +2 MP each turn and adds INT scaling to basic attacks.',
+    skillName: 'Starfall Nova',
+    skillCost: 16,
+    skillRange: 4,
+    skillDesc: 'Unleashes an astral detonation hitting all visible enemies within 4 tiles for 200% spell damage + Burn.'
+  },
+  ranger: {
+    id: 'ranger',
+    name: 'Ranger',
+    title: 'Deepwood Pathfinder',
+    color: '#34d399',
+    baseStats: { str: 12, dex: 15, int: 11, vit: 11 },
+    hpBase: 95,
+    mpBase: 45,
+    vision: 7,
+    starterGear: {
+      weapon:    { uid: 'w_start_r', name: 'Recurve Shortbow', slot: 'weapon', rarity: 'common', atk: 6, dex: 2, value: 20, affixes: [] },
+      armor:     { uid: 'a_start_r', name: 'Scout Gambeson', slot: 'armor', rarity: 'common', def: 4, dodge: 4, value: 20, affixes: [] },
+      helm:      { uid: 'h_start_r', name: 'Falconer Cap', slot: 'helm', rarity: 'common', def: 1, visionBonus: 1, value: 12, affixes: [] },
+      boots:     { uid: 'b_start_r', name: 'Trailrunner Boots', slot: 'boots', rarity: 'common', def: 1, dodge: 5, value: 12, affixes: [] },
+      accessory: { uid: 'acc_start_r', name: 'Quiver Trinket', slot: 'accessory', rarity: 'common', crit: 5, value: 15, affixes: [] },
+      pickaxe:   { uid: 'pick_start_r', name: 'Iron Pickaxe', slot: 'pickaxe', rarity: 'common', curDur: 25, maxDur: 25, value: 25, affixes: [] }
+    },
+    passiveName: 'Eagle Eye',
+    passiveDesc: '7-tile Torchlight vision & +15% Evasion.',
+    skillName: 'Starfall Volley',
+    skillCost: 14,
+    skillRange: 5,
+    skillDesc: 'Looses a piercing astral salvo striking up to 3 visible foes within 5 tiles for 180% weapon damage.'
+  },
+  paladin: {
+    id: 'paladin',
+    name: 'Paladin',
+    title: 'Dawn Warden',
+    color: '#fbbf24',
+    baseStats: { str: 14, dex: 9, int: 12, vit: 15 },
+    hpBase: 125,
+    mpBase: 50,
+    vision: 5,
+    starterGear: {
+      weapon:    { uid: 'w_start_p', name: 'Blessed Mace', slot: 'weapon', rarity: 'common', atk: 7, str: 1, value: 20, affixes: [] },
+      armor:     { uid: 'a_start_p', name: 'Crusader Hauberk', slot: 'armor', rarity: 'common', def: 7, vit: 1, value: 22, affixes: [] },
+      helm:      { uid: 'h_start_p', name: 'Steel Sallet', slot: 'helm', rarity: 'common', def: 3, value: 14, affixes: [] },
+      boots:     { uid: 'b_start_p', name: 'Plated Greaves', slot: 'boots', rarity: 'common', def: 2, value: 14, affixes: [] },
+      accessory: { uid: 'acc_start_p', name: 'Solar Medallion', slot: 'accessory', rarity: 'common', maxHp: 12, value: 18, affixes: [] },
+      pickaxe:   { uid: 'pick_start_p', name: 'Iron Pickaxe', slot: 'pickaxe', rarity: 'common', curDur: 28, maxDur: 28, value: 25, affixes: [] }
+    },
+    passiveName: 'Aura of Radiance',
+    passiveDesc: '+10 Armor & regenerates +1 HP every 3 turns.',
+    skillName: 'Holy Smite',
+    skillCost: 16,
+    skillRange: 1,
+    skillDesc: 'Strikes an adjacent foe for 240% holy damage and restores 15% of your Max HP.'
+  },
+  adventurer: {
+    id: 'adventurer',
+    name: 'Adventurer',
+    title: 'Starfall Delver',
+    color: '#38bdf8',
+    baseStats: { str: 12, dex: 12, int: 11, vit: 13 },
+    hpBase: 108,
+    mpBase: 50,
+    vision: 6,
+    starterGear: {
+      weapon:    { uid: 'w_start_a', name: 'Delver Shortsword', slot: 'weapon', rarity: 'common', atk: 7, dex: 1, value: 20, affixes: [] },
+      armor:     { uid: 'a_start_a', name: 'Expedition Brigandine', slot: 'armor', rarity: 'common', def: 5, vit: 1, value: 20, affixes: [] },
+      helm:      { uid: 'h_start_a', name: 'Lantern Cap', slot: 'helm', rarity: 'common', def: 2, visionBonus: 1, value: 12, affixes: [] },
+      boots:     { uid: 'b_start_a', name: 'Wayfarer Boots', slot: 'boots', rarity: 'common', def: 2, value: 12, affixes: [] },
+      accessory: { uid: 'acc_start_a', name: 'Guild Compass', slot: 'accessory', rarity: 'common', crit: 3, value: 15, affixes: [] },
+      pickaxe:   { uid: 'pick_start_a', name: 'Reinforced Pickaxe', slot: 'pickaxe', rarity: 'common', curDur: 34, maxDur: 34, value: 25, affixes: [] }
+    },
+    passiveName: 'Delver Grit',
+    passiveDesc: 'Balanced dungeon explorer with +1 Torchlight vision and durable mining pickaxe.',
+    skillName: 'Torch Flare',
+    skillCost: 11,
+    skillRange: 1,
+    skillDesc: 'Blasts an adjacent foe with searing torchlight for 180% damage and stuns them for 1 turn.'
+  }
+};
+
+  // --- Module: src/data/gems.js ---
+// Astral Gem Catalog,Subterranean Shrine Variants, and Runic Trap Specifications
+
+const GEM_IDS = ['ruby', 'emerald', 'sapphire', 'topaz', 'void_diamond'];
+
+const GEM_CATALOG = {
+  ruby: {
+    id: 'ruby',
+    name: 'Ruby of Might',
+    shortName: 'Ruby',
+    color: '#ef4444',
+    baseValue: 65,
+    bonuses: { atk: 4, str: 2 },
+    desc: '+4 ATK, +2 STR'
+  },
+  emerald: {
+    id: 'emerald',
+    name: 'Emerald of the Wind',
+    shortName: 'Emerald',
+    color: '#10b981',
+    baseValue: 65,
+    bonuses: { crit: 5, dodge: 4, dex: 2 },
+    desc: '+5% Crit, +4% Dodge, +2 DEX'
+  },
+  sapphire: {
+    id: 'sapphire',
+    name: 'Sapphire of Will',
+    shortName: 'Sapphire',
+    color: '#3b82f6',
+    baseValue: 65,
+    bonuses: { maxMp: 18, int: 3 },
+    desc: '+18 Max MP, +3 INT'
+  },
+  topaz: {
+    id: 'topaz',
+    name: 'Topaz of Dawn',
+    shortName: 'Topaz',
+    color: '#f59e0b',
+    baseValue: 65,
+    bonuses: { maxHp: 24, def: 3, vit: 2 },
+    desc: '+24 Max HP, +3 DEF, +2 VIT'
+  },
+  void_diamond: {
+    id: 'void_diamond',
+    name: 'Void Diamond',
+    shortName: 'Void Diamond',
+    color: '#e879f9',
+    baseValue: 140,
+    bonuses: { atk: 5, def: 4, crit: 4, visionBonus: 1 },
+    desc: '+5 ATK, +4 DEF, +4% Crit, +1 Vision'
+  }
+};
+
+const GEM_DISPLAY = [
+  { id: 'ruby',         name: 'Ruby',         color: '#ef4444' },
+  { id: 'emerald',      name: 'Emerald',      color: '#10b981' },
+  { id: 'sapphire',     name: 'Sapphire',     color: '#3b82f6' },
+  { id: 'topaz',        name: 'Topaz',        color: '#f59e0b' },
+  { id: 'void_diamond', name: 'Void Diamond', color: '#e879f9' }
+];
+
+const SHRINE_CATALOG = {
+  sanctuary: {
+    id: 'sanctuary',
+    name: 'Shrine of Celestial Renewal',
+    color: '#34d399',
+    desc: 'Restores 50% Max HP & Max MP and purges negative afflictions.'
+  },
+  starfire: {
+    id: 'starfire',
+    name: 'Shrine of Starfire',
+    color: '#fbbf24',
+    statusId: 'shrine_starfire',
+    statusName: 'Starfire Blessing',
+    duration: 25,
+    bonuses: { atk: 6, crit: 12 },
+    desc: 'Grants +6 ATK and +12% Crit for 25 turns.'
+  },
+  aegis: {
+    id: 'aegis',
+    name: 'Shrine of the Astral Aegis',
+    color: '#60a5fa',
+    statusId: 'shrine_aegis',
+    statusName: 'Astral Aegis',
+    duration: 25,
+    bonuses: { def: 6, visionBonus: 1 },
+    desc: 'Grants +6 DEF and +1 Vision Radius for 25 turns.'
+  }
+};
+
+const TRAP_CATALOG = {
+  spike: {
+    id: 'spike',
+    name: 'Runic Spike Trap',
+    color: '#f87171',
+    baseDmg: 12,
+    depthScale: 4,
+    statusId: 'bleed',
+    statusDuration: 3,
+    desc: 'Piercing floor spikes that deal physical damage and inflict Bleed.'
+  },
+  flame: {
+    id: 'flame',
+    name: 'Runic Flame Vent',
+    color: '#fb923c',
+    baseDmg: 10,
+    depthScale: 4,
+    statusId: 'burn',
+    statusDuration: 3,
+    desc: 'Searing rune-fire glyph that deals fire damage and inflicts Burn.'
+  }
+};
+
+  // --- Module: src/data/bounties.js ---
+// Procedural Guild Notice Board Contract Templates & Generator
+
+const BOUNTY_SLAY_TEMPLATES = [
+  { targetId: 'crawler',     label: 'Vault Crawlers',     minQty: 4, maxQty: 6, minPermit: 5,  baseGold: 85 },
+  { targetId: 'archer',      label: 'Ranged Cultists & Archers', minQty: 3, maxQty: 5, minPermit: 5, baseGold: 95 },
+  { targetId: 'monster_any', label: 'Subterranean Hostiles', minQty: 6, maxQty: 9, minPermit: 5, baseGold: 100 }
+];
+
+const BOUNTY_ORE_TEMPLATES = [
+  { targetId: 'copper',      label: 'Copper Ore',     minQty: 4, maxQty: 6, reqGeo: 0, baseGold: 80 },
+  { targetId: 'iron',        label: 'Iron Ore',       minQty: 3, maxQty: 5, reqGeo: 1, baseGold: 115 },
+  { targetId: 'mithril',     label: 'Mithril Ore',    minQty: 3, maxQty: 4, reqGeo: 2, baseGold: 165 },
+  { targetId: 'geode',       label: 'Relic Geodes',   minQty: 2, maxQty: 3, reqGeo: 2, baseGold: 175 },
+  { targetId: 'starcrystal', name: 'Star-Crystal', label: 'Star-Crystal', minQty: 2, maxQty: 3, reqGeo: 3, baseGold: 220 }
+];
+
+const BOUNTY_SPECIAL_TEMPLATES = [
+  { kind: 'slay',       targetId: 'elite',      titlePrefix: 'Champion Hunt', descVerb: 'Vanquish', label: 'Elite Champions', minQty: 1, maxQty: 2, minGeo: 0, baseGold: 140 },
+  { kind: 'open_chest', targetId: 'chest',      titlePrefix: 'Relic Recovery', descVerb: 'Open',    label: 'Gilded Vault Chests', minQty: 2, maxQty: 3, minGeo: 0, baseGold: 110 }
+];
+
+let bountySeqCounter = 100;
+
+function buildProceduralBountySet(geologyRank = 0, cartographyRank = 0) {
+  const contracts = [];
+  const tierScale = 1 + cartographyRank * 0.25;
+
+  // Slot 1: Monster Cull Contract (Vault Gold Reward)
+  const slayTpl = BOUNTY_SLAY_TEMPLATES[Math.floor(Math.random() * BOUNTY_SLAY_TEMPLATES.length)];
+  const slayQty = slayTpl.minQty + Math.floor(Math.random() * (slayTpl.maxQty - slayTpl.minQty + 1));
+  const slayGold = Math.round(slayTpl.baseGold * tierScale);
+  contracts.push({
+    id: `bty_${Date.now()}_${bountySeqCounter++}`,
+    kind: 'slay',
+    targetId: slayTpl.targetId,
+    title: `Cull: ${slayTpl.label}`,
+    desc: `Slay ${slayQty} ${slayTpl.label} in the vaults.`,
+    reqQty: slayQty,
+    curQty: 0,
+    completed: false,
+    rewardType: 'gold',
+    rewardId: 'gold',
+    rewardQty: slayGold,
+    rewardLabel: `+${slayGold} Vault Gold`
+  });
+
+  // Slot 2: Geological Quota Contract (Rare Material or Uncut Gem Reward)
+  const unlockedOres = BOUNTY_ORE_TEMPLATES.filter(o => geologyRank >= o.reqGeo);
+  const orePool = unlockedOres.length > 0 ? unlockedOres : [BOUNTY_ORE_TEMPLATES[0]];
+  const oreTpl = orePool[Math.floor(Math.random() * orePool.length)];
+  const oreQty = oreTpl.minQty + Math.floor(Math.random() * (oreTpl.maxQty - oreTpl.minQty + 1));
+
+  const gemChoices = [
+    { id: 'ruby', name: 'Ruby of Might' },
+    { id: 'emerald', name: 'Emerald of the Wind' },
+    { id: 'sapphire', name: 'Sapphire of Will' },
+    { id: 'topaz', name: 'Topaz of Dawn' }
+  ];
+  if (cartographyRank >= 2) {
+    gemChoices.push({ id: 'void_diamond', name: 'Void Diamond' });
+  }
+  const chosenGem = gemChoices[Math.floor(Math.random() * gemChoices.length)];
+
+  contracts.push({
+    id: `bty_${Date.now()}_${bountySeqCounter++}`,
+    kind: 'mine',
+    targetId: oreTpl.targetId,
+    title: `Quota: ${oreTpl.label}`,
+    desc: `Mine ${oreQty} ${oreTpl.label} veins.`,
+    reqQty: oreQty,
+    curQty: 0,
+    completed: false,
+    rewardType: 'gem',
+    rewardId: chosenGem.id,
+    rewardQty: 1,
+    rewardLabel: `+1 ${chosenGem.name}`
+  });
+
+  // Slot 3: High-Value Tactical Contract (Talent Tome or Bonus Gold + Star-Crystal)
+  const specTpl = BOUNTY_SPECIAL_TEMPLATES[Math.floor(Math.random() * BOUNTY_SPECIAL_TEMPLATES.length)];
+  const specQty = specTpl.minQty + Math.floor(Math.random() * (specTpl.maxQty - specTpl.minQty + 1));
+  const awardTome = Math.random() < 0.6;
+
+  contracts.push({
+    id: `bty_${Date.now()}_${bountySeqCounter++}`,
+    kind: specTpl.kind,
+    targetId: specTpl.targetId,
+    title: `${specTpl.titlePrefix}`,
+    desc: `${specTpl.descVerb} ${specQty} ${specTpl.label}.`,
+    reqQty: specQty,
+    curQty: 0,
+    completed: false,
+    rewardType: awardTome ? 'talent_tome' : 'ore',
+    rewardId: awardTome ? 'talent' : (geologyRank >= 2 ? 'starcrystal' : 'mithril'),
+    rewardQty: awardTome ? 1 : 2,
+    rewardLabel: awardTome
+      ? '+1 Talent Tome (+1 Talent Pt)'
+      : (geologyRank >= 2 ? '+2 Star-Crystal' : '+2 Mithril Ore')
+  });
+
+  return contracts;
+}
+
+  // --- Module: src/data/dungeons.js ---
+// Declarative Dungeon Profiles, Layout Styles, Monster/Ore Rosters & Custom Charter Builder
+
+
+
+const LAYOUT_STYLES = {
+  masonry_vaults: {
+    id: 'masonry_vaults',
+    name: 'Masonry Vaults & Avenues',
+    desc: 'Structured halls, pillared plazas, 2-tile main avenues, and looping corridors.'
+  },
+  excavation_quarry: {
+    id: 'excavation_quarry',
+    name: 'Dwarven Mining Quarry',
+    desc: 'Long cross-cut excavation drifts with high wall perimeter and rich ore motherlodes.'
+  },
+  crystalline_caverns: {
+    id: 'crystalline_caverns',
+    name: 'Crystalline & Mycelium Caverns',
+    desc: 'Organic chamfered grottoes, winding tunnels, and dense subterranean shrines.'
+  },
+  grand_ruins: {
+    id: 'grand_ruins',
+    name: 'Grand Colonnade Ruins',
+    desc: 'Vast pillared courts, side sanctums, and heavily guarded Treasure Vaults.'
+  }
+};
+
+const MONSTER_FAMILY_POOLS = {
+  balanced: [
+    { id: 'vault_crawler',     weight: 30, minFloor: 1 },
+    { id: 'starfall_archer',   weight: 22, minFloor: 1 },
+    { id: 'brood_skitterer',   weight: 16, minFloor: 1 },
+    { id: 'dwarven_automaton', weight: 14, minFloor: 2 },
+    { id: 'abyssal_cultist',   weight: 18, minFloor: 3 },
+    { id: 'crypt_stalker',     weight: 14, minFloor: 3 },
+    { id: 'void_hexer',        weight: 12, minFloor: 5 }
+  ],
+  beasts: [
+    { id: 'vault_crawler',     weight: 36, minFloor: 1 },
+    { id: 'brood_skitterer',   weight: 32, minFloor: 1 },
+    { id: 'spore_lurker',      weight: 28, minFloor: 1 },
+    { id: 'starfall_archer',   weight: 12, minFloor: 2 }
+  ],
+  dwarven_forge: [
+    { id: 'dwarven_automaton', weight: 35, minFloor: 1 },
+    { id: 'ember_pyromancer',  weight: 26, minFloor: 1 },
+    { id: 'vault_crawler',     weight: 18, minFloor: 1 },
+    { id: 'magma_golem',       weight: 24, minFloor: 2 }
+  ],
+  astral_cult: [
+    { id: 'starfall_archer',   weight: 24, minFloor: 1 },
+    { id: 'abyssal_cultist',   weight: 32, minFloor: 1 },
+    { id: 'astral_wraith',     weight: 24, minFloor: 1 },
+    { id: 'void_hexer',        weight: 22, minFloor: 2 }
+  ],
+  ancient_crypt: [
+    { id: 'crypt_stalker',     weight: 34, minFloor: 1 },
+    { id: 'bone_warden',       weight: 32, minFloor: 1 },
+    { id: 'abyssal_cultist',   weight: 20, minFloor: 1 },
+    { id: 'astral_wraith',     weight: 18, minFloor: 2 }
+  ]
+};
+
+const ORE_FOCUS_TABLES = {
+  balanced: [
+    { tile: TILE_ORE_COPPER,  weight: 38, minFloor: 1 },
+    { tile: TILE_ORE_IRON,    weight: 28, minFloor: 1 },
+    { tile: TILE_ORE_MITHRIL, weight: 16, minFloor: 2 },
+    { tile: TILE_ORE_GEODE,   weight: 14, minFloor: 2 },
+    { tile: TILE_ORE_STAR,    weight: 12, minFloor: 3 },
+    { tile: TILE_ORE_ASTRAL,  weight: 8,  minFloor: 5 }
+  ],
+  copper_iron: [
+    { tile: TILE_ORE_COPPER,  weight: 50, minFloor: 1 },
+    { tile: TILE_ORE_IRON,    weight: 38, minFloor: 1 },
+    { tile: TILE_ORE_GEODE,   weight: 12, minFloor: 2 },
+    { tile: TILE_ORE_MITHRIL, weight: 8,  minFloor: 3 }
+  ],
+  mithril_geode: [
+    { tile: TILE_ORE_IRON,    weight: 22, minFloor: 1 },
+    { tile: TILE_ORE_MITHRIL, weight: 36, minFloor: 1 },
+    { tile: TILE_ORE_GEODE,   weight: 34, minFloor: 1 },
+    { tile: TILE_ORE_STAR,    weight: 12, minFloor: 3 }
+  ],
+  astral_crystal: [
+    { tile: TILE_ORE_MITHRIL, weight: 20, minFloor: 1 },
+    { tile: TILE_ORE_GEODE,   weight: 20, minFloor: 1 },
+    { tile: TILE_ORE_STAR,    weight: 36, minFloor: 1 },
+    { tile: TILE_ORE_ASTRAL,  weight: 28, minFloor: 2 }
+  ]
+};
+
+const BIOME_PALETTES = {
+  dwarven_catacombs: {
+    id: 'dwarven_catacombs',
+    name: 'Dwarven Catacombs',
+    subtitle: 'Ancient Masonry Strata',
+    wallFill: '#1b2434',
+    wallCap: '#293548',
+    wallBase: '#0d131d',
+    wallAccent: null,
+    floor1: '#0e1420',
+    floor2: '#111826',
+    floorBorder: '#192234',
+    minimapWall: '#253247',
+    minimapFloor: '#111a2b',
+    torchR: 251, torchG: 191, torchB: 36,
+    badgeColor: '#fbbf24'
+  },
+  crystalline_caverns: {
+    id: 'crystalline_caverns',
+    name: 'Crystalline Caverns',
+    subtitle: 'Bioluminescent Indigo & Quartz Deeps',
+    wallFill: '#1e1b4b',
+    wallCap: '#3730a3',
+    wallBase: '#0f0c29',
+    wallAccent: '#38bdf8',
+    floor1: '#0c1226',
+    floor2: '#101730',
+    floorBorder: '#1e2942',
+    minimapWall: '#312e81',
+    minimapFloor: '#0f172a',
+    torchR: 56, torchG: 189, torchB: 248,
+    badgeColor: '#38bdf8'
+  },
+  molten_forgeworks: {
+    id: 'molten_forgeworks',
+    name: 'Molten Forgeworks',
+    subtitle: 'Basalt Foundry & Slag Seams',
+    wallFill: '#2a1612',
+    wallCap: '#451a03',
+    wallBase: '#150906',
+    wallAccent: '#f97316',
+    floor1: '#160c0a',
+    floor2: '#1d100d',
+    floorBorder: '#2d1814',
+    minimapWall: '#7c2d12',
+    minimapFloor: '#1c1917',
+    torchR: 249, torchG: 115, torchB: 22,
+    badgeColor: '#f97316'
+  },
+  vespera_crater: {
+    id: 'vespera_crater',
+    name: 'The Vespera Crater',
+    subtitle: 'Cosmic Abyssal Void Glass',
+    wallFill: '#1e1033',
+    wallCap: '#4c1d95',
+    wallBase: '#0d0617',
+    wallAccent: '#c084fc',
+    floor1: '#0d0818',
+    floor2: '#130c24',
+    floorBorder: '#261545',
+    minimapWall: '#581c87',
+    minimapFloor: '#180d2c',
+    torchR: 192, torchG: 132, torchB: 252,
+    badgeColor: '#c084fc'
+  }
+};
+
+function resolveFloorBiome(cfgOrDungeon, depth = 1) {
+  const cfg = (cfgOrDungeon && cfgOrDungeon.config) ? cfgOrDungeon.config : (cfgOrDungeon || {});
+  if (cfg.biomeId && BIOME_PALETTES[cfg.biomeId]) {
+    return cfg.biomeId;
+  }
+  const prof = cfg.profileId || '';
+  if (prof === 'sunken_quarry') return 'dwarven_catacombs';
+  if (prof === 'mycelium_labyrinth') return 'crystalline_caverns';
+  if (prof === 'molten_crucible') return 'molten_forgeworks';
+  if (prof === 'citadel_ruins' || prof === 'abyssal_rift') return 'vespera_crater';
+
+  const d = Math.max(1, Number(depth) || 1);
+  if (d <= 5) return 'dwarven_catacombs';
+  if (d <= 10) return 'crystalline_caverns';
+  if (d <= 15) return 'molten_forgeworks';
+  return 'vespera_crater';
+}
+
+const CURATED_DUNGEON_PROFILES = {
+  starfall_vaults: {
+    profileId: 'starfall_vaults',
+    name: 'The Starfall Vaults',
+    subtitle: 'Primary Astral Shaft • Multi-Wing Masonry Halls',
+    themeColor: '#fbbf24',
+    seedPrefix: 'STAR',
+    reqCartography: 0,
+    width: 80,
+    height: 60,
+    sizeTier: 'standard',
+    maxDepth: 999,
+    baseDangerDepth: 0,
+    respectsCartographyPermit: true,
+    layoutStyle: 'masonry_vaults',
+    loopRatio: 0.35,
+    vaultRoomCount: 1,
+    monsterFamily: 'balanced',
+    monsterDensityMult: 1.0,
+    eliteChance: 0.22,
+    oreFocus: 'balanced',
+    veinDensityMult: 1.0,
+    motherlodeChance: 0.45,
+    chestDensityMult: 1.0,
+    lootRarityBonus: 0,
+    shrineDensityMult: 1.0,
+    trapDensityMult: 1.0,
+    allowedTraps: ['spike', 'flame'],
+    bossSchedule: {
+      5: 'boss_colossus',
+      10: 'boss_weaver',
+      15: 'boss_ignis',
+      20: 'boss_vespera'
+    }
+  },
+  sunken_quarry: {
+    profileId: 'sunken_quarry',
+    name: 'Sunken Copper Quarry',
+    subtitle: 'Abandoned Dwarven Drift • Rich Copper & Iron Seams',
+    themeColor: '#f59e0b',
+    seedPrefix: 'QUAR',
+    reqCartography: 0,
+    width: 48,
+    height: 36,
+    sizeTier: 'small',
+    maxDepth: 4,
+    baseDangerDepth: 0,
+    respectsCartographyPermit: false,
+    layoutStyle: 'excavation_quarry',
+    loopRatio: 0.40,
+    vaultRoomCount: 1,
+    monsterFamily: 'dwarven_forge',
+    monsterDensityMult: 0.9,
+    eliteChance: 0.18,
+    oreFocus: 'copper_iron',
+    veinDensityMult: 1.55,
+    motherlodeChance: 0.75,
+    chestDensityMult: 0.95,
+    lootRarityBonus: 0,
+    shrineDensityMult: 1.0,
+    trapDensityMult: 0.85,
+    allowedTraps: ['spike', 'flame'],
+    bossSchedule: {
+      4: 'boss_runelord'
+    }
+  },
+  mycelium_labyrinth: {
+    profileId: 'mycelium_labyrinth',
+    name: 'Whispering Mycelium Labyrinth',
+    subtitle: 'Sprawling Bioluminescent Grottoes • Geodes & Shrines',
+    themeColor: '#34d399',
+    seedPrefix: 'MYCE',
+    reqCartography: 1,
+    width: 128,
+    height: 96,
+    sizeTier: 'sprawling',
+    maxDepth: 5,
+    baseDangerDepth: 1,
+    respectsCartographyPermit: false,
+    layoutStyle: 'crystalline_caverns',
+    loopRatio: 0.42,
+    vaultRoomCount: 2,
+    monsterFamily: 'beasts',
+    monsterDensityMult: 1.05,
+    eliteChance: 0.25,
+    oreFocus: 'mithril_geode',
+    veinDensityMult: 1.25,
+    motherlodeChance: 0.60,
+    chestDensityMult: 1.15,
+    lootRarityBonus: 0.08,
+    shrineDensityMult: 1.5,
+    trapDensityMult: 1.1,
+    allowedTraps: ['spike'],
+    bossSchedule: {
+      5: 'boss_broodmother'
+    }
+  },
+  citadel_ruins: {
+    profileId: 'citadel_ruins',
+    name: 'Citadel of the Fallen Star',
+    subtitle: 'Colossal 2-Floor Sunken Metropolis • High-Tier Vaults',
+    themeColor: '#c084fc',
+    seedPrefix: 'CITA',
+    reqCartography: 1,
+    width: 192,
+    height: 144,
+    sizeTier: 'colossal',
+    maxDepth: 2,
+    baseDangerDepth: 3,
+    respectsCartographyPermit: false,
+    layoutStyle: 'grand_ruins',
+    loopRatio: 0.45,
+    vaultRoomCount: 4,
+    monsterFamily: 'ancient_crypt',
+    monsterDensityMult: 1.1,
+    eliteChance: 0.30,
+    oreFocus: 'astral_crystal',
+    veinDensityMult: 1.2,
+    motherlodeChance: 0.65,
+    chestDensityMult: 1.4,
+    lootRarityBonus: 0.16,
+    shrineDensityMult: 1.35,
+    trapDensityMult: 1.2,
+    allowedTraps: ['spike', 'flame'],
+    bossSchedule: {
+      2: 'boss_weaver'
+    }
+  },
+  molten_crucible: {
+    profileId: 'molten_crucible',
+    name: 'The Molten Forgeworks',
+    subtitle: 'Blazing Slag Vents & Ancient Foundries • Magma Golems',
+    themeColor: '#f97316',
+    seedPrefix: 'FORG',
+    reqCartography: 2,
+    width: 96,
+    height: 72,
+    sizeTier: 'standard',
+    maxDepth: 6,
+    baseDangerDepth: 2,
+    respectsCartographyPermit: false,
+    layoutStyle: 'excavation_quarry',
+    loopRatio: 0.38,
+    vaultRoomCount: 2,
+    monsterFamily: 'dwarven_forge',
+    monsterDensityMult: 1.1,
+    eliteChance: 0.28,
+    oreFocus: 'mithril_geode',
+    veinDensityMult: 1.35,
+    motherlodeChance: 0.65,
+    chestDensityMult: 1.2,
+    lootRarityBonus: 0.12,
+    shrineDensityMult: 1.25,
+    trapDensityMult: 1.2,
+    allowedTraps: ['flame'],
+    biomeId: 'molten_forgeworks',
+    bossSchedule: {
+      6: 'boss_ignis'
+    }
+  },
+  abyssal_rift: {
+    profileId: 'abyssal_rift',
+    name: 'The Abyssal Rift',
+    subtitle: 'Endless Void Fracture • Infinite Strata & Scaling Hazards',
+    themeColor: '#c084fc',
+    seedPrefix: 'ABYS',
+    reqCartography: 1,
+    width: 80,
+    height: 60,
+    sizeTier: 'standard',
+    maxDepth: 999,
+    baseDangerDepth: 3,
+    respectsCartographyPermit: false,
+    layoutStyle: 'grand_ruins',
+    loopRatio: 0.40,
+    vaultRoomCount: 2,
+    monsterFamily: 'astral_cult',
+    monsterDensityMult: 1.2,
+    eliteChance: 0.35,
+    oreFocus: 'astral_crystal',
+    veinDensityMult: 1.35,
+    motherlodeChance: 0.55,
+    chestDensityMult: 1.25,
+    lootRarityBonus: 0.15,
+    shrineDensityMult: 1.1,
+    trapDensityMult: 1.25,
+    allowedTraps: ['spike', 'flame'],
+    biomeId: 'vespera_crater',
+    bossSchedule: {
+      5: 'boss_colossus',
+      10: 'boss_weaver',
+      15: 'boss_ignis',
+      20: 'boss_vespera',
+      25: 'boss_weaver',
+      30: 'boss_ignis',
+      35: 'boss_colossus',
+      40: 'boss_vespera'
+    }
+  }
+};
+
+function normalizeDungeonConfig(rawCfg) {
+  const base = CURATED_DUNGEON_PROFILES.starfall_vaults;
+  const src = rawCfg || {};
+
+  const width = Math.max(15, Math.min(500, Math.round(Number(src.width) || base.width || DEFAULT_MAP_W)));
+  const height = Math.max(15, Math.min(500, Math.round(Number(src.height) || base.height || DEFAULT_MAP_H)));
+  const maxDepth = Math.max(1, Math.min(999, Math.round(Number(src.maxDepth) || base.maxDepth)));
+  const layoutStyle = LAYOUT_STYLES[src.layoutStyle] ? src.layoutStyle : base.layoutStyle;
+  const monsterFamily = MONSTER_FAMILY_POOLS[src.monsterFamily] ? src.monsterFamily : base.monsterFamily;
+  const oreFocus = ORE_FOCUS_TABLES[src.oreFocus] ? src.oreFocus : base.oreFocus;
+
+  const monsterPool = Array.isArray(src.monsterPool) && src.monsterPool.length > 0
+    ? src.monsterPool
+    : MONSTER_FAMILY_POOLS[monsterFamily];
+
+  const oreTable = Array.isArray(src.oreTable) && src.oreTable.length > 0
+    ? src.oreTable
+    : ORE_FOCUS_TABLES[oreFocus];
+
+  return {
+    profileId: src.profileId || 'custom_charter',
+    biomeId: src.biomeId || null,
+    name: src.name || base.name,
+    subtitle: src.subtitle || `${width}x${height} • Max Depth ${maxDepth}`,
+    themeColor: src.themeColor || '#60a5fa',
+    seedPrefix: src.seedPrefix || 'CHRT',
+    reqCartography: typeof src.reqCartography === 'number' ? src.reqCartography : 0,
+    width,
+    height,
+    sizeTier: src.sizeTier || 'custom',
+    maxDepth,
+    baseDangerDepth: typeof src.baseDangerDepth === 'number' ? src.baseDangerDepth : 0,
+    respectsCartographyPermit: src.respectsCartographyPermit !== undefined ? !!src.respectsCartographyPermit : false,
+    layoutStyle,
+    loopRatio: typeof src.loopRatio === 'number' ? src.loopRatio : 0.35,
+    vaultRoomCount: typeof src.vaultRoomCount === 'number' ? src.vaultRoomCount : Math.max(1, Math.round((width * height) / 4800)),
+    monsterFamily,
+    monsterPool,
+    monsterDensityMult: typeof src.monsterDensityMult === 'number' ? src.monsterDensityMult : 1.0,
+    eliteChance: typeof src.eliteChance === 'number' ? src.eliteChance : 0.22,
+    oreFocus,
+    oreTable,
+    veinDensityMult: typeof src.veinDensityMult === 'number' ? src.veinDensityMult : 1.0,
+    motherlodeChance: typeof src.motherlodeChance === 'number' ? src.motherlodeChance : 0.50,
+    chestDensityMult: typeof src.chestDensityMult === 'number' ? src.chestDensityMult : 1.0,
+    lootRarityBonus: typeof src.lootRarityBonus === 'number' ? src.lootRarityBonus : 0,
+    lootSlotBias: src.lootSlotBias || null,
+    shrineDensityMult: typeof src.shrineDensityMult === 'number' ? src.shrineDensityMult : 1.0,
+    trapDensityMult: typeof src.trapDensityMult === 'number' ? src.trapDensityMult : 1.0,
+    allowedTraps: Array.isArray(src.allowedTraps) && src.allowedTraps.length > 0 ? src.allowedTraps : ['spike', 'flame'],
+    bossSchedule: src.bossSchedule ? Object.assign({}, src.bossSchedule) : {}
+  };
+}
+
+let dungeonInstSeq = 100;
+
+function createDungeonInstance(profileOrConfig, options = {}) {
+  const baseProfile = typeof profileOrConfig === 'string'
+    ? (CURATED_DUNGEON_PROFILES[profileOrConfig] || CURATED_DUNGEON_PROFILES.starfall_vaults)
+    : (profileOrConfig || CURATED_DUNGEON_PROFILES.starfall_vaults);
+
+  const mergedCfg = normalizeDungeonConfig(Object.assign({}, baseProfile, options.configOverrides || {}));
+  const id = options.id || `dng_${mergedCfg.profileId}_${Date.now()}_${dungeonInstSeq++}`;
+  const seedCode = options.seedCode || randomSeedCode(mergedCfg.seedPrefix || 'STAR');
+  const numericSeed = options.numericSeed || hashSeedString(seedCode, 0);
+
+  return {
+    id,
+    name: mergedCfg.name,
+    profileId: mergedCfg.profileId,
+    originType: options.originType || (CURATED_DUNGEON_PROFILES[mergedCfg.profileId] ? 'curated' : 'chartered'),
+    worldCoords: options.worldCoords || null, // Ready for future World Map { x, y, regionId }
+    seedCode,
+    numericSeed,
+    config: mergedCfg,
+    currentFloor: 1,
+    deepestFloor: 1,
+    isCleared: false,
+    floors: {},
+    waypoints: {}
+  };
+}
+
+function buildCharteredDungeonInstance(opts = {}) {
+  const preset = opts.sizePreset && MAP_SIZE_PRESETS[opts.sizePreset] ? MAP_SIZE_PRESETS[opts.sizePreset] : null;
+  const width = opts.width ? Number(opts.width) : (preset ? preset.width : 80);
+  const height = opts.height ? Number(opts.height) : (preset ? preset.height : 60);
+  const maxDepth = Math.max(1, Math.min(999, Number(opts.maxDepth) || 5));
+
+  const styleKeys = Object.keys(LAYOUT_STYLES);
+  const famKeys = Object.keys(MONSTER_FAMILY_POOLS);
+  const oreKeys = Object.keys(ORE_FOCUS_TABLES);
+
+  const layoutStyle = LAYOUT_STYLES[opts.layoutStyle] ? opts.layoutStyle : styleKeys[Math.floor(Math.random() * styleKeys.length)];
+  const monsterFamily = MONSTER_FAMILY_POOLS[opts.monsterFamily] ? opts.monsterFamily : famKeys[Math.floor(Math.random() * famKeys.length)];
+  const oreFocus = ORE_FOCUS_TABLES[opts.oreFocus] ? opts.oreFocus : oreKeys[Math.floor(Math.random() * oreKeys.length)];
+  const richness = opts.richness === 'high' ? 1.45 : (opts.richness === 'extreme' ? 1.85 : 1.0);
+
+  const adjPool = ['Forgotten', 'Sunken', 'Obsidian', 'Shattered', 'Astral', 'Gilded', 'Whispering', 'eldritch'];
+  const nounPool = {
+    masonry_vaults: 'Vaults',
+    excavation_quarry: 'Delve',
+    crystalline_caverns: 'Grottoes',
+    grand_ruins: 'Sanctum'
+  };
+  const autoTitle = opts.name && String(opts.name).trim()
+    ? String(opts.name).trim()
+    : `${adjPool[Math.floor(Math.random() * adjPool.length)].replace(/^e/, 'E')} ${nounPool[layoutStyle] || 'Expanse'}`;
+
+  const bossPool = ['boss_colossus', 'boss_runelord', 'boss_broodmother', 'boss_weaver'];
+  const finalBoss = bossPool[Math.min(bossPool.length - 1, Math.floor((maxDepth - 1) / 3) % bossPool.length)];
+  const bossSchedule = {};
+  bossSchedule[maxDepth] = finalBoss;
+
+  const customCfg = normalizeDungeonConfig({
+    profileId: 'custom_charter',
+    name: autoTitle,
+    subtitle: `Chartered ${width}x${height} • ${LAYOUT_STYLES[layoutStyle].name}`,
+    themeColor: '#60a5fa',
+    seedPrefix: 'CHRT',
+    width,
+    height,
+    sizeTier: preset ? preset.id : 'custom',
+    maxDepth,
+    baseDangerDepth: Number(opts.baseDangerDepth) || 0,
+    respectsCartographyPermit: false,
+    layoutStyle,
+    monsterFamily,
+    oreFocus,
+    veinDensityMult: richness,
+    chestDensityMult: richness,
+    lootRarityBonus: richness > 1.2 ? 0.10 : 0,
+    bossSchedule
+  });
+
+  return createDungeonInstance(customCfg, {
+    originType: 'chartered',
+    seedCode: opts.seedCode || randomSeedCode('CHRT')
+  });
+}
+
+  // --- Module: src/engine/compression.js ---
+// Compact Run-Length Encoding (RLE) & Lazy Floor Hydration for Large Multi-Dungeon Saves
+
+
+function createUint8Grid(width, height, fillVal = 0) {
+  const rows = new Array(height);
+  for (let y = 0; y < height; y++) {
+    const row = new Uint8Array(width);
+    if (fillVal !== 0) row.fill(fillVal);
+    rows[y] = row;
+  }
+  return rows;
+}
+
+function encodeGridToRle(grid, width, height, boolMode = false) {
+  if (!grid || height <= 0 || width <= 0) return '';
+  const parts = [];
+  let curVal = -1;
+  let runLen = 0;
+
+  for (let y = 0; y < height; y++) {
+    const row = grid[y];
+    for (let x = 0; x < width; x++) {
+      const raw = row ? row[x] : 0;
+      const v = boolMode ? (raw ? 1 : 0) : (raw | 0);
+      if (v === curVal) {
+        runLen += 1;
+      } else {
+        if (runLen > 0) {
+          parts.push(runLen > 1 ? `${curVal}:${runLen}` : `${curVal}`);
+        }
+        curVal = v;
+        runLen = 1;
+      }
+    }
+  }
+  if (runLen > 0) {
+    parts.push(runLen > 1 ? `${curVal}:${runLen}` : `${curVal}`);
+  }
+  return parts.join(',');
+}
+
+function decodeRleToGrid(rleStr, width, height) {
+  const rows = createUint8Grid(width, height, 0);
+  if (!rleStr || typeof rleStr !== 'string') return rows;
+
+  const total = width * height;
+  let cellIdx = 0;
+  let i = 0;
+  const len = rleStr.length;
+
+  while (i < len && cellIdx < total) {
+    let val = 0;
+    while (i < len) {
+      const c = rleStr.charCodeAt(i);
+      if (c >= 48 && c <= 57) {
+        val = val * 10 + (c - 48);
+        i += 1;
+      } else {
+        break;
+      }
+    }
+
+    let count = 1;
+    if (i < len && rleStr.charCodeAt(i) === 58) { // ':'
+      i += 1;
+      count = 0;
+      while (i < len) {
+        const c = rleStr.charCodeAt(i);
+        if (c >= 48 && c <= 57) {
+          count = count * 10 + (c - 48);
+          i += 1;
+        } else {
+          break;
+        }
+      }
+      if (count <= 0) count = 1;
+    }
+
+    if (i < len && rleStr.charCodeAt(i) === 44) { // ','
+      i += 1;
+    }
+
+    const endIdx = Math.min(total, cellIdx + count);
+    if (val !== 0) {
+      while (cellIdx < endIdx) {
+        const r = (cellIdx / width) | 0;
+        const col = cellIdx - r * width;
+        rows[r][col] = val;
+        cellIdx += 1;
+      }
+    } else {
+      cellIdx = endIdx;
+    }
+  }
+
+  return rows;
+}
+
+function packFloorForStorage(floor) {
+  if (!floor) return null;
+  if (floor.packed && typeof floor.tilesRle === 'string') {
+    return floor;
+  }
+  const h = floor.height || (floor.tiles ? floor.tiles.length : DEFAULT_MAP_H);
+  const w = floor.width || (floor.tiles && floor.tiles[0] ? floor.tiles[0].length : DEFAULT_MAP_W);
+
+  return {
+    packed: true,
+    depth: floor.depth || 1,
+    biomeId: floor.biomeId || null,
+    width: w,
+    height: h,
+    roomCount: floor.roomCount || 0,
+    upPos: floor.upPos || { x: 2, y: 2 },
+    downPos: floor.downPos || { x: w - 3, y: h - 3 },
+    hasDownStairs: floor.hasDownStairs !== undefined ? !!floor.hasDownStairs : true,
+    shrines: floor.shrines || {},
+    traps: floor.traps || {},
+    vaults: floor.vaults || [],
+    objects: Array.isArray(floor.objects) ? floor.objects : [],
+    monsters: Array.isArray(floor.monsters) ? floor.monsters : [],
+    oresMined: floor.oresMined || 0,
+    tilesRle: encodeGridToRle(floor.tiles, w, h, false),
+    exploredRle: encodeGridToRle(floor.explored, w, h, true)
+  };
+}
+
+function hydrateFloorFromStorage(rawFloor) {
+  if (!rawFloor) return null;
+  if (!rawFloor.packed && rawFloor.tiles && rawFloor.tiles.length > 0) {
+    const h = rawFloor.height || rawFloor.tiles.length;
+    const w = rawFloor.width || rawFloor.tiles[0].length;
+    rawFloor.packed = false;
+    rawFloor.width = w;
+    rawFloor.height = h;
+    rawFloor.shrines = rawFloor.shrines || {};
+    rawFloor.traps = rawFloor.traps || {};
+    rawFloor.vaults = rawFloor.vaults || [];
+    rawFloor.objects = Array.isArray(rawFloor.objects) ? rawFloor.objects : [];
+    if (rawFloor.hasDownStairs === undefined) rawFloor.hasDownStairs = true;
+    return rawFloor;
+  }
+
+  const w = rawFloor.width || DEFAULT_MAP_W;
+  const h = rawFloor.height || DEFAULT_MAP_H;
+  return {
+    packed: false,
+    depth: rawFloor.depth || 1,
+    biomeId: rawFloor.biomeId || null,
+    width: w,
+    height: h,
+    roomCount: rawFloor.roomCount || 0,
+    tiles: decodeRleToGrid(rawFloor.tilesRle || '', w, h),
+    explored: decodeRleToGrid(rawFloor.exploredRle || '', w, h),
+    upPos: rawFloor.upPos || { x: 2, y: 2 },
+    downPos: rawFloor.downPos || { x: w - 3, y: h - 3 },
+    hasDownStairs: rawFloor.hasDownStairs !== undefined ? !!rawFloor.hasDownStairs : true,
+    shrines: rawFloor.shrines || {},
+    traps: rawFloor.traps || {},
+    vaults: rawFloor.vaults || [],
+    objects: Array.isArray(rawFloor.objects) ? rawFloor.objects : [],
+    monsters: Array.isArray(rawFloor.monsters) ? rawFloor.monsters : [],
+    oresMined: rawFloor.oresMined || 0
+  };
+}
+
+  // --- Module: src/data/lootTables.js ---
+// Declarative Weighted Loot Tables for Breakable Props, Dungeon Containers & Treasure Chests (ADR-0012)
+
+const LOOT_TABLES = {
+  loot_barrel_junk: {
+    id: 'loot_barrel_junk',
+    name: 'Barrel Rummage & Trash',
+    entries: [
+      { id: 'junk_splintered_mug', name: 'Splintered Wooden Mug',  kind: 'trash',      weight: 30, value: 0 },
+      { id: 'junk_moldy_rations',  name: 'Moldy Hardtack',         kind: 'trash',      weight: 25, value: 0 },
+      { id: 'junk_bent_nails',     name: 'Bent Iron Nails',        kind: 'trash',      weight: 20, value: 1 },
+      { id: 'coin_copper_handful', name: 'Tarnished Copper Coins', kind: 'gold',       weight: 18, minGold: 2, maxGold: 5 },
+      { id: 'salvage_torch_oil',   name: 'Intact Torch Oil Flask', kind: 'trade',      weight: 5,  value: 6 },
+      { id: 'tonic_minor',         name: 'Dusty Healing Tonic',    kind: 'consumable', weight: 2,  consumableKey: 'potions', qty: 1 }
+    ]
+  },
+  loot_crate_salvage: {
+    id: 'loot_crate_salvage',
+    name: 'Supply Crate Salvage',
+    entries: [
+      { id: 'junk_broken_tool',    name: 'Cracked Pick Handle',    kind: 'trash',      weight: 22, value: 1 },
+      { id: 'coin_dwarven_bits',   name: 'Dwarven Trade Coins',    kind: 'gold',       weight: 40, minGold: 5, maxGold: 12 },
+      { id: 'salvage_copper_ore',  name: 'Loose Copper Chunk',     kind: 'ore',        weight: 20, oreId: 'copper', qty: 1, value: 5 },
+      { id: 'salvage_iron_scrap',  name: 'Forged Iron Scrap',      kind: 'trade',      weight: 12, value: 8 },
+      { id: 'tonic_supply',        name: 'Guild Healing Tonic',    kind: 'consumable', weight: 6,  consumableKey: 'potions', qty: 1 }
+    ]
+  },
+  loot_dungeon_chest: {
+    id: 'loot_dungeon_chest',
+    name: 'Dungeon Vault Chest',
+    entries: [
+      { id: 'chest_gold_pouch',    name: 'Gilded Coin Coffer',     kind: 'gold',       weight: 45, minGold: 25, maxGold: 55 },
+      { id: 'chest_relic_gear',    name: 'Vault Equipment Cache',  kind: 'gear',       weight: 35 },
+      { id: 'chest_mineral_satchel', name: 'Refined Ore Satchel',  kind: 'ore',        weight: 12, oreId: 'iron', qty: 3, value: 10 },
+      { id: 'chest_recall_scroll', name: 'Astral Recall Scroll',   kind: 'consumable', weight: 8,  consumableKey: 'recalls', qty: 1 }
+    ]
+  }
+};
+
+function rollLootTable(tableId, depth = 1, randFn = Math.random) {
+  const table = LOOT_TABLES[tableId];
+  if (!table || !Array.isArray(table.entries) || table.entries.length === 0) return null;
+
+  let totalWeight = 0;
+  for (let i = 0; i < table.entries.length; i++) {
+    totalWeight += (table.entries[i].weight || 1);
+  }
+  if (totalWeight <= 0) return null;
+
+  const r = (typeof randFn === 'function' ? randFn() : Math.random()) * totalWeight;
+  let acc = 0;
+  let picked = table.entries[0];
+  for (let i = 0; i < table.entries.length; i++) {
+    acc += (table.entries[i].weight || 1);
+    if (r <= acc) {
+      picked = table.entries[i];
+      break;
+    }
+  }
+
+  const out = Object.assign({}, picked);
+  if (out.kind === 'gold') {
+    const minG = out.minGold || 1;
+    const maxG = Math.max(minG, out.maxGold || minG);
+    const scale = 1 + Math.max(0, (depth || 1) - 1) * 0.12;
+    const raw = minG + Math.floor((typeof randFn === 'function' ? randFn() : Math.random()) * (maxG - minG + 1));
+    out.goldAmount = Math.max(1, Math.round(raw * scale));
+  }
+  return out;
+}
+
+  // --- Module: src/data/definitions.js ---
+// Object Definitions Catalog & Schema Registries (ADR-0010)
+// Defines immutable templates for Items, Keys, Containers, Devices, Mechanisms, and Pickups.
+
+const OBJECT_CATEGORIES = {
+  ITEM: 'item',
+  WORLD_OBJECT: 'world_object'
+};
+
+const ITEM_CATEGORIES = {
+  CONSUMABLE: 'consumable',
+  EQUIPMENT:  'equipment',
+  MATERIAL:   'material',
+  KEY:        'key',
+  TOOL:       'tool',
+  QUEST:      'quest',
+  ARTIFACT:   'artifact',
+  CURRENCY:   'currency'
+};
+
+const WORLD_OBJECT_TYPES = {
+  STATIC:    'static',
+  DOOR:      'door',
+  PORTAL:    'portal',
+  CONTAINER: 'container',
+  MECHANISM: 'mechanism',
+  DEVICE:    'device',
+  PICKUP:    'pickup',
+  PROP:      'prop',
+  HAZARD:    'hazard'
+};
+
+const OBJECT_DEFINITIONS = {};
+
+function registerObjectDefinition(def) {
+  if (!def || !def.definitionId) {
+    throw new Error('registerObjectDefinition requires a definition with definitionId');
+  }
+  const isItem = def.category === OBJECT_CATEGORIES.ITEM;
+  const normalized = Object.assign({
+    stackable: isItem ? Boolean(def.stackable !== false) : false,
+    carryable: isItem ? true : false
+  }, def);
+  OBJECT_DEFINITIONS[normalized.definitionId] = Object.freeze(normalized);
+  return OBJECT_DEFINITIONS[normalized.definitionId];
+}
+
+function getObjectDefinition(defId) {
+  return OBJECT_DEFINITIONS[defId] || null;
+}
+
+function hasObjectDefinition(defId) {
+  return Boolean(OBJECT_DEFINITIONS[defId]);
+}
+
+// ============================================================================
+// CORE DEFINITION TEMPLATES
+// ============================================================================
+
+// 1. KEY DEFINITIONS (Credentials & Keys for Locks & Vaults)
+registerObjectDefinition({
+  definitionId: 'key_iron_common',
+  category: OBJECT_CATEGORIES.ITEM,
+  itemCategory: ITEM_CATEGORIES.KEY,
+  name: 'Iron Skeleton Key',
+  namePlural: 'Iron Skeleton Keys',
+  description: 'A sturdy iron skeleton key capable of opening common dungeon doors and chests.',
+  icon: '🗝️',
+  rarity: 'common',
+  baseValue: 15,
+  isStackable: true,
+  maxStackSize: 10,
+  tags: ['key', 'metal', 'common_key', 'key.common_iron'],
+  defaultComponents: {
+    key: {
+      keyTag: 'key.common_iron',
+      securityLevel: 1,
+      consumeOnUse: true
+    }
+  }
+});
+
+registerObjectDefinition({
+  definitionId: 'key_vault_dwarven',
+  category: OBJECT_CATEGORIES.ITEM,
+  itemCategory: ITEM_CATEGORIES.KEY,
+  name: 'Dwarven Vault Key',
+  namePlural: 'Dwarven Vault Keys',
+  description: 'An intricately notched brass key bearing the seal of the Dwarven Guild Cartographers.',
+  icon: '🗝️',
+  rarity: 'rare',
+  baseValue: 60,
+  isStackable: true,
+  maxStackSize: 5,
+  tags: ['key', 'dwarven', 'vault_key', 'key.dwarven_vault'],
+  defaultComponents: {
+    key: {
+      keyTag: 'key.dwarven_vault',
+      securityLevel: 2,
+      consumeOnUse: true
+    }
+  }
+});
+
+registerObjectDefinition({
+  definitionId: 'key_rune_celestial',
+  category: OBJECT_CATEGORIES.ITEM,
+  itemCategory: ITEM_CATEGORIES.KEY,
+  name: 'Celestial Rune Sigil',
+  namePlural: 'Celestial Rune Sigils',
+  description: 'A glowing triangular star-stone pulsing with astral resonance.',
+  icon: '💠',
+  rarity: 'epic',
+  baseValue: 180,
+  isStackable: true,
+  maxStackSize: 3,
+  tags: ['key', 'astral', 'rune_key', 'key.celestial_rune'],
+  defaultComponents: {
+    key: {
+      keyTag: 'key.celestial_rune',
+      securityLevel: 3,
+      consumeOnUse: true
+    }
+  }
+});
+
+// 2. WORLD PICKUP DEFINITION (Ground Item Wrapper)
+registerObjectDefinition({
+  definitionId: 'pickup_world_item',
+  category: OBJECT_CATEGORIES.WORLD_OBJECT,
+  objectType: WORLD_OBJECT_TYPES.PICKUP,
+  name: 'Item Pickup',
+  description: 'An item resting upon the dungeon floor.',
+  tags: ['pickup', 'ground_loot'],
+  defaultPermeability: {
+    movement: true,
+    lineOfSight: true,
+    light: true,
+    sound: true,
+    projectiles: true,
+    magic: true
+  },
+  defaultComponents: {
+    interactable: {
+      prompt: 'Pick up item',
+      autoTriggerOnStep: true,
+      actions: {
+        pickup: {
+          id: 'pickup',
+          name: 'Take Item',
+          requirements: null,
+          costs: null,
+          effects: [{ type: 'pickupItem' }]
+        }
+      }
+    }
+  }
+});
+
+// 3. CONTAINER DEFINITION (Gilded Vault Chest)
+registerObjectDefinition({
+  definitionId: 'container_vault_chest',
+  category: OBJECT_CATEGORIES.WORLD_OBJECT,
+  objectType: WORLD_OBJECT_TYPES.CONTAINER,
+  name: 'Gilded Vault Chest',
+  description: 'A banded ironbound oak chest containing ancient vault treasures.',
+  tags: ['chest', 'container', 'treasure'],
+  defaultState: {
+    mechanical: 'closed',
+    security: 'unlocked',
+    structural: 'intact'
+  },
+  defaultPermeability: {
+    movement: false, // Closed chest blocks movement
+    lineOfSight: true,
+    light: true,
+    sound: true,
+    projectiles: true,
+    magic: true
+  },
+  defaultComponents: {
+    durability: { hp: 40, maxHp: 40, armor: 4 },
+    interactable: {
+      prompt: 'Open chest',
+      autoTriggerOnStep: false,
+      actions: {
+        open: {
+          id: 'open',
+          name: 'Open Chest',
+          requirements: {
+            op: 'OR',
+            rules: [
+              { type: 'objectState', axis: 'security', value: 'unlocked' },
+              { type: 'hasItemTag', tag: 'key.common_iron' }
+            ]
+          },
+          costs: null,
+          effects: [
+            { type: 'changeState', axis: 'mechanical', value: 'open' },
+            { type: 'grantChestLoot' }
+          ]
+        }
+      }
+    }
+  }
+});
+
+// 4. DEVICE DEFINITIONS (Subterranean Astral Shrines)
+registerObjectDefinition({
+  definitionId: 'device_shrine_celestial',
+  category: OBJECT_CATEGORIES.WORLD_OBJECT,
+  objectType: WORLD_OBJECT_TYPES.DEVICE,
+  name: 'Celestial Renewal Shrine',
+  description: 'A carved quartz dais radiating soothing lunar luminescence.',
+  tags: ['shrine', 'celestial', 'healing'],
+  defaultState: {
+    mechanical: 'closed', // 'closed' means active/unused
+    security: 'unlocked',
+    structural: 'intact'
+  },
+  defaultPermeability: {
+    movement: false,
+    lineOfSight: true,
+    light: true,
+    sound: true,
+    projectiles: true,
+    magic: true
+  },
+  defaultComponents: {
+    interactable: {
+      prompt: 'Pray at Shrine',
+      actions: {
+        bless: {
+          id: 'bless',
+          name: 'Receive Blessing',
+          requirements: { type: 'objectState', axis: 'mechanical', value: 'closed' },
+          costs: null,
+          effects: [
+            { type: 'changeState', axis: 'mechanical', value: 'open' }, // 'open' means used
+            { type: 'applyShrineBlessing', shrineId: 'shrine_renewal' }
+          ]
+        }
+      }
+    }
+  }
+});
+
+registerObjectDefinition({
+  definitionId: 'device_shrine_starfire',
+  category: OBJECT_CATEGORIES.WORLD_OBJECT,
+  objectType: WORLD_OBJECT_TYPES.DEVICE,
+  name: 'Starfire Blessing Shrine',
+  description: 'A blazing obelisk crowned with an incandescent astralite flame.',
+  tags: ['shrine', 'starfire', 'combat_buff'],
+  defaultState: {
+    mechanical: 'closed',
+    security: 'unlocked',
+    structural: 'intact'
+  },
+  defaultPermeability: {
+    movement: false,
+    lineOfSight: true,
+    light: true,
+    sound: true,
+    projectiles: true,
+    magic: true
+  },
+  defaultComponents: {
+    interactable: {
+      prompt: 'Claim Starfire',
+      actions: {
+        bless: {
+          id: 'bless',
+          name: 'Receive Starfire',
+          requirements: { type: 'objectState', axis: 'mechanical', value: 'closed' },
+          costs: null,
+          effects: [
+            { type: 'changeState', axis: 'mechanical', value: 'open' },
+            { type: 'applyShrineBlessing', shrineId: 'shrine_starfire' }
+          ]
+        }
+      }
+    }
+  }
+});
+
+registerObjectDefinition({
+  definitionId: 'device_shrine_aegis',
+  category: OBJECT_CATEGORIES.WORLD_OBJECT,
+  objectType: WORLD_OBJECT_TYPES.DEVICE,
+  name: 'Astral Aegis Shrine',
+  description: 'A crystalline pillar casting a protective shield of diamond light.',
+  tags: ['shrine', 'aegis', 'defense_buff'],
+  defaultState: {
+    mechanical: 'closed',
+    security: 'unlocked',
+    structural: 'intact'
+  },
+  defaultPermeability: {
+    movement: false,
+    lineOfSight: true,
+    light: true,
+    sound: true,
+    projectiles: true,
+    magic: true
+  },
+  defaultComponents: {
+    interactable: {
+      prompt: 'Attune Aegis',
+      actions: {
+        bless: {
+          id: 'bless',
+          name: 'Attune Shield',
+          requirements: { type: 'objectState', axis: 'mechanical', value: 'closed' },
+          costs: null,
+          effects: [
+            { type: 'changeState', axis: 'mechanical', value: 'open' },
+            { type: 'applyShrineBlessing', shrineId: 'shrine_aegis' }
+          ]
+        }
+      }
+    }
+  }
+});
+
+// 5. MECHANISM DEFINITIONS (Runic Traps)
+registerObjectDefinition({
+  definitionId: 'mechanism_trap_spikes',
+  category: OBJECT_CATEGORIES.WORLD_OBJECT,
+  objectType: WORLD_OBJECT_TYPES.MECHANISM,
+  name: 'Subterranean Spike Trap',
+  description: 'Concealed pressure-plate mechanism driving spring-loaded steel spikes.',
+  tags: ['trap', 'spikes', 'physical'],
+  defaultState: {
+    mechanical: 'closed', // ready to trigger
+    security: 'unlocked',
+    discovery: 'unknown', // hidden until spotted
+    structural: 'intact'
+  },
+  defaultPermeability: {
+    movement: true,
+    lineOfSight: true,
+    light: true,
+    sound: true,
+    projectiles: true,
+    magic: true
+  },
+  defaultComponents: {
+    trap: {
+      trapId: 'spikes',
+      damage: 18,
+      effect: 'bleed',
+      detectDc: 12,
+      disarmDc: 13
+    },
+    interactable: {
+      prompt: 'Disarm Spike Trap',
+      actions: {
+        disarm: {
+          id: 'disarm',
+          name: 'Disarm Trap',
+          requirements: {
+            op: 'OR',
+            rules: [
+              { type: 'requiredClass', classId: 'thief' },
+              { type: 'requiredClass', classId: 'ranger' },
+              { type: 'minStat', stat: 'dex', value: 16 }
+            ]
+          },
+          costs: null,
+          effects: [
+            { type: 'changeState', axis: 'mechanical', value: 'disabled' },
+            { type: 'disarmTrap' }
+          ]
+        }
+      }
+    }
+  }
+});
+
+registerObjectDefinition({
+  definitionId: 'mechanism_trap_flame',
+  category: OBJECT_CATEGORIES.WORLD_OBJECT,
+  objectType: WORLD_OBJECT_TYPES.MECHANISM,
+  name: 'Runic Flame Jet Trap',
+  description: 'Ancient carved floor rune triggering a column of pressurized magma flame.',
+  tags: ['trap', 'flame', 'elemental'],
+  defaultState: {
+    mechanical: 'closed',
+    security: 'unlocked',
+    discovery: 'unknown',
+    structural: 'intact'
+  },
+  defaultPermeability: {
+    movement: true,
+    lineOfSight: true,
+    light: true,
+    sound: true,
+    projectiles: true,
+    magic: true
+  },
+  defaultComponents: {
+    trap: {
+      trapId: 'flame',
+      damage: 24,
+      effect: 'burn',
+      detectDc: 14,
+      disarmDc: 15
+    },
+    interactable: {
+      prompt: 'Disarm Flame Rune',
+      actions: {
+        disarm: {
+          id: 'disarm',
+          name: 'Disarm Flame Rune',
+          requirements: {
+            op: 'OR',
+            rules: [
+              { type: 'requiredClass', classId: 'thief' },
+              { type: 'minStat', stat: 'dex', value: 18 }
+            ]
+          },
+          costs: null,
+          effects: [
+            { type: 'changeState', axis: 'mechanical', value: 'disabled' },
+            { type: 'disarmTrap' }
+          ]
+        }
+      }
+    }
+  }
+});
+
+// ============================================================================
+// 6. DOOR DEFINITIONS (Multi-State Barriers, Portcullises & Secret Entrances)
+// ============================================================================
+
+registerObjectDefinition({
+  definitionId: 'door_wood_hinged',
+  category: OBJECT_CATEGORIES.WORLD_OBJECT,
+  objectType: WORLD_OBJECT_TYPES.DOOR,
+  name: 'Wooden Dungeon Door',
+  description: 'A reinforced oak plank door bound with forged iron bands.',
+  tags: ['door', 'wood', 'hinged', 'bashable'],
+  defaultState: {
+    mechanical: 'closed',
+    security: 'unlocked',
+    discovery: 'revealed',
+    structural: 'intact'
+  },
+  defaultPermeability: {
+    movement: false,
+    lineOfSight: false,
+    light: false,
+    sound: true,
+    projectiles: false,
+    magic: false
+  },
+  defaultComponents: {
+    durability: { hp: 35, maxHp: 35, armor: 2, canBeForced: true },
+    lock: {
+      lockType: 'mechanical',
+      keyTag: 'key.common_iron',
+      pickDifficulty: 12,
+      forceDifficulty: 14
+    },
+    interactable: {
+      prompt: 'Operate Wooden Door',
+      actions: {
+        open: {
+          id: 'open',
+          name: 'Open Door',
+          requirements: { type: 'objectState', axis: 'security', value: 'unlocked' },
+          costs: null,
+          effects: [
+            { type: 'changeState', axis: 'mechanical', value: 'open' },
+            { type: 'updatePermeability', movement: true, lineOfSight: true, light: true, projectiles: true, magic: true }
+          ]
+        },
+        close: {
+          id: 'close',
+          name: 'Close Door',
+          requirements: { type: 'objectState', axis: 'mechanical', value: 'open' },
+          costs: null,
+          effects: [
+            { type: 'changeState', axis: 'mechanical', value: 'closed' },
+            { type: 'updatePermeability', movement: false, lineOfSight: false, light: false, projectiles: false, magic: false }
+          ]
+        },
+        unlock: {
+          id: 'unlock',
+          name: 'Unlock with Key',
+          requirements: { type: 'hasItemTag', tag: 'key.common_iron' },
+          costs: null,
+          effects: [
+            { type: 'changeState', axis: 'security', value: 'unlocked' }
+          ]
+        },
+        pick_lock: {
+          id: 'pick_lock',
+          name: 'Pick Lock',
+          requirements: {
+            op: 'OR',
+            rules: [
+              { type: 'requiredClass', classId: 'thief' },
+              { type: 'minStat', stat: 'dex', value: 15 }
+            ]
+          },
+          costs: null,
+          effects: [
+            { type: 'changeState', axis: 'security', value: 'unlocked' }
+          ]
+        },
+        bash: {
+          id: 'bash',
+          name: 'Force / Bash Door',
+          requirements: null,
+          costs: null,
+          effects: [
+            { type: 'bashDoor' }
+          ]
+        }
+      }
+    }
+  }
+});
+
+registerObjectDefinition({
+  definitionId: 'door_iron_reinforced',
+  category: OBJECT_CATEGORIES.WORLD_OBJECT,
+  objectType: WORLD_OBJECT_TYPES.DOOR,
+  name: 'Reinforced Iron Door',
+  description: 'A heavy riveted iron plate door with a dual-tumbler keyway.',
+  tags: ['door', 'metal', 'reinforced', 'vault_door', 'bashable'],
+  defaultState: {
+    mechanical: 'closed',
+    security: 'locked',
+    discovery: 'revealed',
+    structural: 'intact'
+  },
+  defaultPermeability: {
+    movement: false,
+    lineOfSight: false,
+    light: false,
+    sound: false,
+    projectiles: false,
+    magic: false
+  },
+  defaultComponents: {
+    durability: { hp: 80, maxHp: 80, armor: 8, canBeForced: true },
+    lock: {
+      lockType: 'mechanical',
+      keyTag: 'key.common_iron',
+      pickDifficulty: 16,
+      forceDifficulty: 20
+    },
+    interactable: {
+      prompt: 'Operate Iron Door',
+      actions: {
+        open: {
+          id: 'open',
+          name: 'Open Door',
+          requirements: { type: 'objectState', axis: 'security', value: 'unlocked' },
+          costs: null,
+          effects: [
+            { type: 'changeState', axis: 'mechanical', value: 'open' },
+            { type: 'updatePermeability', movement: true, lineOfSight: true, light: true, projectiles: true, magic: true }
+          ]
+        },
+        close: {
+          id: 'close',
+          name: 'Close Door',
+          requirements: { type: 'objectState', axis: 'mechanical', value: 'open' },
+          costs: null,
+          effects: [
+            { type: 'changeState', axis: 'mechanical', value: 'closed' },
+            { type: 'updatePermeability', movement: false, lineOfSight: false, light: false, projectiles: false, magic: false }
+          ]
+        },
+        unlock: {
+          id: 'unlock',
+          name: 'Unlock with Iron Key',
+          requirements: { type: 'hasItemTag', tag: 'key.common_iron' },
+          costs: null,
+          effects: [
+            { type: 'changeState', axis: 'security', value: 'unlocked' }
+          ]
+        },
+        pick_lock: {
+          id: 'pick_lock',
+          name: 'Pick Heavy Lock',
+          requirements: {
+            op: 'AND',
+            rules: [
+              { type: 'requiredClass', classId: 'thief' },
+              { type: 'minStat', stat: 'dex', value: 16 }
+            ]
+          },
+          costs: null,
+          effects: [
+            { type: 'changeState', axis: 'security', value: 'unlocked' }
+          ]
+        },
+        bash: {
+          id: 'bash',
+          name: 'Bash Iron Door',
+          requirements: null,
+          costs: null,
+          effects: [
+            { type: 'bashDoor' }
+          ]
+        }
+      }
+    }
+  }
+});
+
+registerObjectDefinition({
+  definitionId: 'door_iron_portcullis',
+  category: OBJECT_CATEGORIES.WORLD_OBJECT,
+  objectType: WORLD_OBJECT_TYPES.DOOR,
+  name: 'Iron Portcullis',
+  description: 'A heavy vertical wrought-iron grating allowing clear line of sight while preventing physical entry.',
+  tags: ['door', 'metal', 'portcullis', 'grated'],
+  defaultState: {
+    mechanical: 'closed',
+    security: 'unlocked',
+    discovery: 'revealed',
+    structural: 'intact'
+  },
+  defaultPermeability: {
+    movement: false,     // Closed portcullis blocks physical footsteps!
+    lineOfSight: true,  // Grate allows full line of sight!
+    light: true,        // Torchlight penetrates the bars!
+    sound: true,        // Sounds travel freely!
+    projectiles: true,  // Arrows and spell attacks shoot straight through the bars!
+    magic: true
+  },
+  defaultComponents: {
+    durability: { hp: 120, maxHp: 120, armor: 10, canBeForced: false },
+    lock: {
+      lockType: 'mechanism',
+      keyTag: 'key.portcullis_lever'
+    },
+    interactable: {
+      prompt: 'Inspect Portcullis',
+      actions: {
+        open: {
+          id: 'open',
+          name: 'Lift Portcullis',
+          requirements: { type: 'objectState', axis: 'security', value: 'unlocked' },
+          costs: null,
+          effects: [
+            { type: 'changeState', axis: 'mechanical', value: 'open' },
+            { type: 'updatePermeability', movement: true, lineOfSight: true, light: true, projectiles: true, magic: true }
+          ]
+        },
+        close: {
+          id: 'close',
+          name: 'Drop Portcullis',
+          requirements: { type: 'objectState', axis: 'mechanical', value: 'open' },
+          costs: null,
+          effects: [
+            { type: 'changeState', axis: 'mechanical', value: 'closed' },
+            { type: 'updatePermeability', movement: false, lineOfSight: true, light: true, projectiles: true, magic: true }
+          ]
+        }
+      }
+    }
+  }
+});
+
+registerObjectDefinition({
+  definitionId: 'door_secret_stone',
+  category: OBJECT_CATEGORIES.WORLD_OBJECT,
+  objectType: WORLD_OBJECT_TYPES.DOOR,
+  name: 'Concealed Secret Door',
+  description: 'A revolving masonry panel chiseled to blend indistinguishably into the surrounding ashlar dungeon walls.',
+  tags: ['door', 'secret', 'stone', 'hidden'],
+  defaultState: {
+    mechanical: 'closed',
+    security: 'unlocked',
+    discovery: 'unknown',
+    structural: 'intact'
+  },
+  defaultPermeability: {
+    movement: false,
+    lineOfSight: false,
+    light: false,
+    sound: false,
+    projectiles: false,
+    magic: false
+  },
+  defaultComponents: {
+    discovery: {
+      detectDc: 13,
+      isSecret: true
+    },
+    durability: { hp: 60, maxHp: 60, armor: 6, canBeForced: true },
+    interactable: {
+      prompt: 'Secret Stone Passage',
+      actions: {
+        reveal: {
+          id: 'reveal',
+          name: 'Reveal Secret Door',
+          requirements: {
+            op: 'OR',
+            rules: [
+              { type: 'requiredClass', classId: 'thief' },
+              { type: 'requiredClass', classId: 'ranger' },
+              { type: 'minStat', stat: 'int', value: 14 }
+            ]
+          },
+          costs: null,
+          effects: [
+            { type: 'changeState', axis: 'discovery', value: 'revealed' }
+          ]
+        },
+        open: {
+          id: 'open',
+          name: 'Pivot Secret Wall',
+          requirements: { type: 'objectState', axis: 'discovery', value: 'revealed' },
+          costs: null,
+          effects: [
+            { type: 'changeState', axis: 'mechanical', value: 'open' },
+            { type: 'updatePermeability', movement: true, lineOfSight: true, light: true, projectiles: true, magic: true }
+          ]
+        },
+        close: {
+          id: 'close',
+          name: 'Close Secret Wall',
+          requirements: { type: 'objectState', axis: 'mechanical', value: 'open' },
+          costs: null,
+          effects: [
+            { type: 'changeState', axis: 'mechanical', value: 'closed' },
+            { type: 'updatePermeability', movement: false, lineOfSight: false, light: false, projectiles: false, magic: false }
+          ]
+        }
+      }
+    }
+  }
+});
+
+registerObjectDefinition({
+  definitionId: 'door_vault_ancient',
+  category: OBJECT_CATEGORIES.WORLD_OBJECT,
+  objectType: WORLD_OBJECT_TYPES.DOOR,
+  name: 'Ancient Dwarven Vault Door',
+  description: 'A massive 4-inch solid brass and mithril security portal with complex celestial astronomical tumblers.',
+  tags: ['door', 'dwarven', 'vault', 'heavy'],
+  defaultState: {
+    mechanical: 'closed',
+    security: 'locked',
+    discovery: 'revealed',
+    structural: 'intact'
+  },
+  defaultPermeability: {
+    movement: false,
+    lineOfSight: false,
+    light: false,
+    sound: false,
+    projectiles: false,
+    magic: false
+  },
+  defaultComponents: {
+    durability: { hp: 160, maxHp: 160, armor: 14, canBeForced: false },
+    lock: {
+      lockType: 'dwarven_vault',
+      keyTag: 'key.dwarven_vault',
+      pickDifficulty: 20
+    },
+    interactable: {
+      prompt: 'Dwarven Vault Door',
+      actions: {
+        open: {
+          id: 'open',
+          name: 'Disengage Vault Seals',
+          requirements: { type: 'objectState', axis: 'security', value: 'unlocked' },
+          costs: null,
+          effects: [
+            { type: 'changeState', axis: 'mechanical', value: 'open' },
+            { type: 'updatePermeability', movement: true, lineOfSight: true, light: true, projectiles: true, magic: true }
+          ]
+        },
+        close: {
+          id: 'close',
+          name: 'Engage Vault Seals',
+          requirements: { type: 'objectState', axis: 'mechanical', value: 'open' },
+          costs: null,
+          effects: [
+            { type: 'changeState', axis: 'mechanical', value: 'closed' },
+            { type: 'updatePermeability', movement: false, lineOfSight: false, light: false, projectiles: false, magic: false }
+          ]
+        },
+        unlock: {
+          id: 'unlock',
+          name: 'Unlock with Dwarven Vault Key',
+          requirements: { type: 'hasItemTag', tag: 'key.dwarven_vault' },
+          costs: null,
+          effects: [
+            { type: 'changeState', axis: 'security', value: 'unlocked' }
+          ]
+        },
+        pick_lock: {
+          id: 'pick_lock',
+          name: 'Pick Dwarven Tumblers',
+          requirements: {
+            op: 'AND',
+            rules: [
+              { type: 'requiredClass', classId: 'thief' },
+              { type: 'minStat', stat: 'dex', value: 20 }
+            ]
+          },
+          costs: null,
+          effects: [
+            { type: 'changeState', axis: 'security', value: 'unlocked' }
+          ]
+        }
+      }
+    }
+  }
+});
+
+// ============================================================================
+// 7. PORTAL & WAYPOINT DEFINITIONS (Fast-Travel, Rifts & Boss Extractions)
+// ============================================================================
+
+registerObjectDefinition({
+  definitionId: 'portal_ancient_waypoint',
+  category: OBJECT_CATEGORIES.WORLD_OBJECT,
+  objectType: WORLD_OBJECT_TYPES.PORTAL,
+  name: 'Ancient Celestial Waypoint',
+  description: 'A resonant stellar monolith inscribed with astronomical cartographic coordinates connecting to the Guild Waypoint Network.',
+  tags: ['portal', 'waypoint', 'celestial', 'monolith', 'fast_travel'],
+  defaultState: {
+    mechanical: 'active',
+    security: 'unlocked',
+    discovery: 'unknown',
+    power: 'powered',
+    structural: 'indestructible'
+  },
+  defaultPermeability: {
+    movement: true,
+    lineOfSight: true,
+    light: true,
+    sound: true,
+    projectiles: true,
+    magic: true
+  },
+  defaultComponents: {
+    traversal: {
+      portalType: 'waypoint',
+      networkId: 'astral_waypoints',
+      endpointType: 'bi_directional',
+      transitionType: 'instant',
+      allowsReturn: true
+    },
+    interactable: {
+      prompt: 'Attune Celestial Waypoint',
+      actions: {
+        attune: {
+          id: 'attune',
+          name: 'Attune Waypoint',
+          requirements: null,
+          costs: null,
+          effects: [
+            { type: 'attuneWaypoint' },
+            { type: 'changeState', axis: 'discovery', value: 'revealed' }
+          ]
+        },
+        traverse: {
+          id: 'traverse',
+          name: 'Travel via Waypoint Network',
+          requirements: { type: 'objectState', axis: 'discovery', value: 'revealed' },
+          costs: null,
+          effects: [
+            { type: 'traverseWaypoint' }
+          ]
+        }
+      }
+    }
+  }
+});
+
+registerObjectDefinition({
+  definitionId: 'portal_astral_rift',
+  category: OBJECT_CATEGORIES.WORLD_OBJECT,
+  objectType: WORLD_OBJECT_TYPES.PORTAL,
+  name: 'Unstable Astral Rift',
+  description: 'A fluctuating dimensional fissure tearing through the vault floor. Will collapse after finite traversals.',
+  tags: ['portal', 'rift', 'astral', 'unstable', 'limited_charges'],
+  defaultState: {
+    mechanical: 'active',
+    security: 'unlocked',
+    discovery: 'revealed',
+    power: 'powered',
+    structural: 'volatile'
+  },
+  defaultPermeability: {
+    movement: true,
+    lineOfSight: true,
+    light: true,
+    sound: true,
+    projectiles: true,
+    magic: true
+  },
+  defaultComponents: {
+    traversal: {
+      portalType: 'rift',
+      networkId: 'isolated_rift',
+      endpointType: 'one_way',
+      transitionType: 'rift_jump',
+      charges: 2,
+      maxCharges: 2,
+      collapseOnDeplete: true
+    },
+    interactable: {
+      prompt: 'Step into Astral Rift',
+      actions: {
+        traverse: {
+          id: 'traverse',
+          name: 'Enter Astral Rift',
+          requirements: { type: 'objectState', axis: 'mechanical', value: 'active' },
+          costs: null,
+          effects: [
+            { type: 'traverseRift' }
+          ]
+        }
+      }
+    }
+  }
+});
+
+registerObjectDefinition({
+  definitionId: 'portal_boss_extraction',
+  category: OBJECT_CATEGORIES.WORLD_OBJECT,
+  objectType: WORLD_OBJECT_TYPES.PORTAL,
+  name: 'Astral Sanctum Gateway',
+  description: 'A triumphant golden beacon portal materialized from the defeated boss guardian\'s residual astral energy.',
+  tags: ['portal', 'extraction', 'boss', 'sanctum', 'triumphant'],
+  defaultState: {
+    mechanical: 'active',
+    security: 'unlocked',
+    discovery: 'revealed',
+    power: 'powered',
+    structural: 'indestructible'
+  },
+  defaultPermeability: {
+    movement: true,
+    lineOfSight: true,
+    light: true,
+    sound: true,
+    projectiles: true,
+    magic: true
+  },
+  defaultComponents: {
+    traversal: {
+      portalType: 'extraction',
+      destination: 'guild',
+      endpointType: 'one_way',
+      transitionType: 'extraction'
+    },
+    interactable: {
+      prompt: 'Ascend to Surface',
+      actions: {
+        traverse: {
+          id: 'traverse',
+          name: 'Extract to Oakhaven',
+          requirements: null,
+          costs: null,
+          effects: [
+            { type: 'extractHero', reason: 'Astral Sanctum Gateway' }
+          ]
+        }
+      }
+    }
+  }
+});
+
+// =========================================================================
+// Increment 8.3: Linked Mechanisms, Destructible Props & Environmental Hazards
+// =========================================================================
+
+registerObjectDefinition({
+  definitionId: 'mech_wall_lever',
+  category: OBJECT_CATEGORIES.WORLD_OBJECT,
+  objectType: WORLD_OBJECT_TYPES.MECHANISM,
+  name: 'Iron Wall Lever',
+  description: 'A heavy dwarven counterweight lever linked by hidden chains to nearby portcullises or secret vaults.',
+  tags: ['mechanism', 'lever', 'interactive'],
+  defaultState: {
+    mechanical: 'idle',
+    security: 'unlocked',
+    discovery: 'revealed',
+    structural: 'intact',
+    power: 'unpowered'
+  },
+  defaultPermeability: {
+    movement: true,
+    lineOfSight: true,
+    light: true,
+    sound: true,
+    projectiles: true,
+    magic: true
+  },
+  defaultComponents: {
+    mechanism: { mechanismType: 'lever', linkedTargetIds: [] },
+    interactable: {
+      prompt: 'Pull Lever',
+      actions: {
+        pull: {
+          id: 'pull',
+          name: 'Pull Iron Lever',
+          requirements: null,
+          costs: null,
+          effects: [{ type: 'toggleLinked' }]
+        }
+      }
+    }
+  }
+});
+
+registerObjectDefinition({
+  definitionId: 'mech_pressure_plate',
+  category: OBJECT_CATEGORIES.WORLD_OBJECT,
+  objectType: WORLD_OBJECT_TYPES.MECHANISM,
+  name: 'Dwarven Pressure Plate',
+  description: 'A recessed flagstone trigger plate that actuates linked dungeon gates when stepped on.',
+  tags: ['mechanism', 'pressure_plate', 'trigger'],
+  defaultState: {
+    mechanical: 'idle',
+    security: 'unlocked',
+    discovery: 'revealed',
+    structural: 'intact',
+    power: 'unpowered'
+  },
+  defaultPermeability: {
+    movement: true,
+    lineOfSight: true,
+    light: true,
+    sound: true,
+    projectiles: true,
+    magic: true
+  },
+  defaultComponents: {
+    mechanism: { mechanismType: 'pressure_plate', linkedTargetIds: [] },
+    interactable: {
+      prompt: 'Step on Plate',
+      actions: {
+        trigger: {
+          id: 'trigger',
+          name: 'Depress Pressure Plate',
+          requirements: null,
+          costs: null,
+          effects: [{ type: 'toggleLinked' }]
+        }
+      }
+    }
+  }
+});
+
+registerObjectDefinition({
+  definitionId: 'prop_supply_crate',
+  category: OBJECT_CATEGORIES.WORLD_OBJECT,
+  objectType: WORLD_OBJECT_TYPES.PROP,
+  name: 'Iron-Bound Supply Crate',
+  description: 'A sturdy dwarven supply crate that blocks footsteps but can be smashed open for salvage.',
+  tags: ['prop', 'destructible', 'wood', 'lootable'],
+  defaultState: {
+    mechanical: 'closed',
+    security: 'unlocked',
+    discovery: 'revealed',
+    structural: 'intact',
+    power: 'unpowered'
+  },
+  defaultPermeability: {
+    movement: false,
+    lineOfSight: true,
+    light: true,
+    sound: true,
+    projectiles: true,
+    magic: true
+  },
+  defaultComponents: {
+    durability: { hp: 18, maxHp: 18, armor: 1, canBeForced: true },
+    prop: { propType: 'crate' },
+    lootable: { dropChance: 0.55, lootTableId: 'loot_crate_salvage', rolls: 1 },
+    interactable: {
+      prompt: 'Smash Crate',
+      actions: {
+        bash: {
+          id: 'bash',
+          name: 'Smash Supply Crate',
+          requirements: null,
+          costs: null,
+          effects: [{ type: 'damageProp' }]
+        }
+      }
+    }
+  }
+});
+
+registerObjectDefinition({
+  definitionId: 'prop_oil_barrel',
+  category: OBJECT_CATEGORIES.WORLD_OBJECT,
+  objectType: WORLD_OBJECT_TYPES.PROP,
+  name: 'Volatile Oil Barrel',
+  description: 'A pitch-sealed lantern-oil cask. Smashing it ruptures flammable oil across adjacent tiles.',
+  tags: ['prop', 'destructible', 'volatile', 'oil'],
+  defaultState: {
+    mechanical: 'closed',
+    security: 'unlocked',
+    discovery: 'revealed',
+    structural: 'intact',
+    power: 'unpowered'
+  },
+  defaultPermeability: {
+    movement: false,
+    lineOfSight: true,
+    light: true,
+    sound: true,
+    projectiles: true,
+    magic: true
+  },
+  defaultComponents: {
+    durability: { hp: 12, maxHp: 12, armor: 0, canBeForced: true },
+    prop: { propType: 'oil_barrel', spawnsHazard: 'hazard_oil_slick' },
+    lootable: null,
+    interactable: {
+      prompt: 'Rupture Oil Barrel',
+      actions: {
+        bash: {
+          id: 'bash',
+          name: 'Smash Oil Barrel',
+          requirements: null,
+          costs: null,
+          effects: [{ type: 'damageProp' }]
+        }
+      }
+    }
+  }
+});
+
+registerObjectDefinition({
+  definitionId: 'prop_wood_barricade',
+  category: OBJECT_CATEGORIES.WORLD_OBJECT,
+  objectType: WORLD_OBJECT_TYPES.PROP,
+  name: 'Splintered Barricade',
+  description: 'A hastily nailed timber barricade blocking passage while allowing ranged fire over the top.',
+  tags: ['prop', 'destructible', 'cover', 'wood'],
+  defaultState: {
+    mechanical: 'closed',
+    security: 'unlocked',
+    discovery: 'revealed',
+    structural: 'intact',
+    power: 'unpowered'
+  },
+  defaultPermeability: {
+    movement: false,
+    lineOfSight: true,
+    light: true,
+    sound: true,
+    projectiles: true,
+    magic: true
+  },
+  defaultComponents: {
+    durability: { hp: 26, maxHp: 26, armor: 2, canBeForced: true },
+    prop: { propType: 'barricade' },
+    interactable: {
+      prompt: 'Break Barricade',
+      actions: {
+        bash: {
+          id: 'bash',
+          name: 'Break Barricade',
+          requirements: null,
+          costs: null,
+          effects: [{ type: 'damageProp' }]
+        }
+      }
+    }
+  }
+});
+
+registerObjectDefinition({
+  definitionId: 'hazard_oil_slick',
+  category: OBJECT_CATEGORIES.WORLD_OBJECT,
+  objectType: WORLD_OBJECT_TYPES.HAZARD,
+  name: 'Flammable Oil Slick',
+  description: 'A viscous pool of lamp oil. Footing is treacherous, and any flame ignites it violently.',
+  tags: ['hazard', 'oil', 'flammable'],
+  defaultState: {
+    mechanical: 'active',
+    security: 'unlocked',
+    discovery: 'revealed',
+    structural: 'intact',
+    power: 'unpowered'
+  },
+  defaultPermeability: {
+    movement: true,
+    lineOfSight: true,
+    light: true,
+    sound: true,
+    projectiles: true,
+    magic: true
+  },
+  defaultComponents: {
+    hazard: { hazardType: 'oil', damage: 0, statusId: 'weakened', statusTurns: 2, igniteDamage: 18 }
+  }
+});
+
+registerObjectDefinition({
+  definitionId: 'hazard_slag_vent',
+  category: OBJECT_CATEGORIES.WORLD_OBJECT,
+  objectType: WORLD_OBJECT_TYPES.HAZARD,
+  name: 'Molten Slag Vent',
+  description: 'A glowing geothermal grate searing any hero or monster that steps across it.',
+  tags: ['hazard', 'fire', 'molten'],
+  defaultState: {
+    mechanical: 'active',
+    security: 'unlocked',
+    discovery: 'revealed',
+    structural: 'intact',
+    power: 'powered'
+  },
+  defaultPermeability: {
+    movement: true,
+    lineOfSight: true,
+    light: true,
+    sound: true,
+    projectiles: true,
+    magic: true
+  },
+  defaultComponents: {
+    hazard: { hazardType: 'fire', damage: 10, statusId: 'burn', statusTurns: 3 }
+  }
+});
+
+registerObjectDefinition({
+  definitionId: 'hazard_spore_cloud',
+  category: OBJECT_CATEGORIES.WORLD_OBJECT,
+  objectType: WORLD_OBJECT_TYPES.HAZARD,
+  name: 'Toxic Spore Cloud',
+  description: 'A swirling patch of subterranean fungal spores poisoning any creature that moves through it.',
+  tags: ['hazard', 'poison', 'fungal'],
+  defaultState: {
+    mechanical: 'active',
+    security: 'unlocked',
+    discovery: 'revealed',
+    structural: 'intact',
+    power: 'unpowered'
+  },
+  defaultPermeability: {
+    movement: true,
+    lineOfSight: true,
+    light: true,
+    sound: true,
+    projectiles: true,
+    magic: true
+  },
+  defaultComponents: {
+    hazard: { hazardType: 'poison', damage: 7, statusId: 'poison', statusTurns: 3 }
+  }
+});
+
+registerObjectDefinition({
+  definitionId: 'prop_wooden_barrel',
+  category: OBJECT_CATEGORIES.WORLD_OBJECT,
+  objectType: WORLD_OBJECT_TYPES.PROP,
+  name: 'Wooden Storage Barrel',
+  description: 'An oak cask left behind by dwarven miners. Smashing it has a chance to uncover minor salvage or worthless junk.',
+  tags: ['prop', 'destructible', 'wood', 'barrel', 'lootable'],
+  defaultState: {
+    mechanical: 'closed',
+    security: 'unlocked',
+    discovery: 'revealed',
+    structural: 'intact',
+    power: 'unpowered'
+  },
+  defaultPermeability: {
+    movement: false,
+    lineOfSight: true,
+    light: true,
+    sound: true,
+    projectiles: true,
+    magic: true
+  },
+  defaultComponents: {
+    durability: { hp: 12, maxHp: 12, armor: 0, canBeForced: true },
+    prop: { propType: 'wooden_barrel' },
+    lootable: { dropChance: 0.35, lootTableId: 'loot_barrel_junk', rolls: 1 },
+    interactable: {
+      prompt: 'Smash Barrel',
+      actions: {
+        bash: {
+          id: 'bash',
+          name: 'Smash Wooden Barrel',
+          requirements: null,
+          costs: null,
+          effects: [{ type: 'damageProp' }]
+        }
+      }
+    }
+  }
+});
+
+registerObjectDefinition({
+  definitionId: 'container_dungeon_chest',
+  category: OBJECT_CATEGORIES.WORLD_OBJECT,
+  objectType: WORLD_OBJECT_TYPES.CONTAINER,
+  name: 'Gilded Vault Chest',
+  description: 'A banded oak treasure chest containing subterranean coin, ore, or relics.',
+  tags: ['container', 'chest', 'lootable'],
+  stackable: false,
+  carryable: false,
+  defaultState: {
+    mechanical: 'closed',
+    security: 'unlocked',
+    discovery: 'revealed',
+    structural: 'intact',
+    power: 'unpowered'
+  },
+  defaultPermeability: {
+    movement: false,
+    lineOfSight: true,
+    light: true,
+    sound: true,
+    projectiles: true,
+    magic: true
+  },
+  defaultComponents: {
+    lootable: { dropChance: 1.0, lootTableId: 'loot_dungeon_chest', rolls: 1 },
+    interactable: {
+      prompt: 'Open Chest',
+      actions: {
+        open: {
+          id: 'open',
+          name: 'Open Vault Chest',
+          requirements: { type: 'objectState', axis: 'mechanical', value: 'closed' },
+          costs: null,
+          effects: [{ type: 'changeState', axis: 'mechanical', value: 'open' }]
+        }
+      }
+    }
+  }
+});
+
+  // --- Module: src/engine/objects.js ---
+// Foundational Game Object & Runtime Instance Engine (ADR-0010)
+// Manages object instances, spatial floor queries, item pickups, and the ItemStack stacking engine.
+
+
+
+
+let instanceSeq = 1000;
+
+function nextInstanceId(prefix = 'obj') {
+  return `${prefix}_${Date.now()}_${instanceSeq++}`;
+}
+
+// ============================================================================
+// INSTANCE FACTORIES
+// ============================================================================
+
+function createWorldObjectInstance(defId, options = {}) {
+  const def = getObjectDefinition(defId);
+  const defObj = def || {};
+
+  const inst = {
+    instanceId: options.instanceId || nextInstanceId(defObj.objectType || 'obj'),
+    definitionId: defId,
+    objectType: options.objectType || defObj.objectType || WORLD_OBJECT_TYPES.STATIC,
+    name: options.name || defObj.name || 'World Object',
+    x: typeof options.x === 'number' ? options.x : 0,
+    y: typeof options.y === 'number' ? options.y : 0,
+    worldId: options.worldId || 'world_prime',
+    locationId: options.locationId || null,
+    ownerId: options.ownerId || null,
+    factionId: options.factionId || null,
+    revision: typeof options.revision === 'number' ? options.revision : 1,
+    persistencePolicy: options.persistencePolicy || 'floor_persistent',
+    tags: Array.isArray(options.tags)
+      ? options.tags.slice()
+      : (defObj.tags ? defObj.tags.slice() : []),
+    runtimeState: Object.assign(
+      {
+        mechanical: 'closed',
+        security: 'unlocked',
+        discovery: 'revealed',
+        structural: 'intact',
+        power: 'unpowered'
+      },
+      defObj.defaultState || {},
+      options.runtimeState || {}
+    ),
+    permeability: Object.assign(
+      {
+        movement: true,
+        lineOfSight: true,
+        light: true,
+        sound: true,
+        projectiles: true,
+        magic: true
+      },
+      defObj.defaultPermeability || {},
+      options.permeability || {}
+    ),
+    components: (function() {
+      const mc = {};
+      if (defObj.defaultComponents) {
+        const dKeys = Object.keys(defObj.defaultComponents);
+        for (let di = 0; di < dKeys.length; di++) {
+          const dk = dKeys[di];
+          mc[dk] = Object.assign({}, defObj.defaultComponents[dk]);
+        }
+      }
+      if (options.components) {
+        const oKeys = Object.keys(options.components);
+        for (let oi = 0; oi < oKeys.length; oi++) {
+          const ok = oKeys[oi];
+          mc[ok] = Object.assign(mc[ok] || {}, options.components[ok]);
+        }
+      }
+      if (options.traversal) {
+        mc.traversal = Object.assign(mc.traversal || {}, options.traversal);
+      }
+      return mc;
+    })(),
+    customData: Object.assign({}, options.customData || {})
+  };
+
+  return inst;
+}
+
+function createItemInstance(defOrItem, options = {}) {
+  let defId = null;
+  let baseObj = {};
+
+  if (typeof defOrItem === 'string') {
+    defId = defOrItem;
+    baseObj = getObjectDefinition(defId) || {};
+  } else if (defOrItem && typeof defOrItem === 'object') {
+    defId = defOrItem.definitionId || defOrItem.id || 'custom_item';
+    baseObj = defOrItem;
+  }
+
+  const def = getObjectDefinition(defId);
+  const defData = def || {};
+
+  const inst = Object.assign({}, baseObj, {
+    instanceId: options.instanceId || baseObj.instanceId || baseObj.uid || nextInstanceId('item'),
+    definitionId: defId,
+    name: options.name || baseObj.name || defData.name || 'Unknown Item',
+    quantity: typeof options.quantity === 'number'
+      ? options.quantity
+      : (typeof baseObj.quantity === 'number' ? baseObj.quantity : 1),
+    quality: options.quality || baseObj.quality || 'normal',
+    rarity: options.rarity || baseObj.rarity || defData.rarity || 'common',
+    itemLevel: options.itemLevel || baseObj.itemLevel || 1,
+    durability: typeof options.durability === 'number'
+      ? options.durability
+      : (typeof baseObj.curDur === 'number' ? baseObj.curDur : null),
+    charges: typeof options.charges === 'number'
+      ? options.charges
+      : (typeof baseObj.charges === 'number' ? baseObj.charges : null),
+    isStackable: options.isStackable !== undefined
+      ? Boolean(options.isStackable)
+      : (baseObj.isStackable !== undefined ? Boolean(baseObj.isStackable) : Boolean(defData.isStackable)),
+    maxStackSize: options.maxStackSize || baseObj.maxStackSize || defData.maxStackSize || 99,
+    affixes: Array.isArray(options.affixes)
+      ? options.affixes.slice()
+      : (Array.isArray(baseObj.affixes) ? baseObj.affixes.slice() : []),
+    sockets: Array.isArray(options.sockets)
+      ? options.sockets.slice()
+      : (Array.isArray(baseObj.sockets) ? baseObj.sockets.slice() : []),
+    locked: Boolean(options.locked || baseObj.locked),
+    boundState: options.boundState || baseObj.boundState || 'unbound',
+    tags: Array.isArray(options.tags)
+      ? options.tags.slice()
+      : (Array.isArray(baseObj.tags) ? baseObj.tags.slice() : (defData.tags ? defData.tags.slice() : [])),
+    components: Object.assign({}, defData.defaultComponents || {}, baseObj.components || {}, options.components || {}),
+    customData: Object.assign({}, baseObj.customData || {}, options.customData || {})
+  });
+
+  // Preserve legacy uid alias for full backward-compatibility with UI/Armory
+  if (!inst.uid) {
+    inst.uid = inst.instanceId;
+  }
+
+  return inst;
+}
+
+function createWorldItemPickupInstance(itemInstance, x, y, options = {}) {
+  const normItem = itemInstance && itemInstance.instanceId ? itemInstance : createItemInstance(itemInstance);
+  const def = getObjectDefinition('pickup_world_item');
+
+  const pickupObj = createWorldObjectInstance('pickup_world_item', {
+    x: x,
+    y: y,
+    name: normItem.name,
+    objectType: WORLD_OBJECT_TYPES.PICKUP,
+    tags: ['pickup', normItem.rarity || 'common'].concat(normItem.tags || []),
+    components: Object.assign({}, def ? def.defaultComponents : {}, {
+      pickup: {
+        item: normItem
+      }
+    }),
+    customData: options.customData || {}
+  });
+
+  return pickupObj;
+}
+
+function spawnGroundItem(floor, itemOrDefId, x, y, options = {}) {
+  const itemInst = typeof itemOrDefId === 'string' ? createItemInstance(itemOrDefId) : itemOrDefId;
+  const pickup = createWorldItemPickupInstance(itemInst, x, y, options);
+  if (floor) {
+    addWorldObject(floor, pickup);
+  }
+  return pickup;
+}
+
+// ============================================================================
+// SPATIAL FLOOR OBJECT QUERIES & MANAGEMENT
+// ============================================================================
+
+function ensureFloorObjects(floor) {
+  if (!floor) return [];
+  if (!Array.isArray(floor.objects)) {
+    floor.objects = [];
+  }
+  return floor.objects;
+}
+
+function getObjectsAt(floor, x, y, filterFn = null) {
+  const objs = ensureFloorObjects(floor);
+  const matches = [];
+  for (let i = 0; i < objs.length; i++) {
+    const o = objs[i];
+    if (o && o.x === x && o.y === y) {
+      if (!filterFn || filterFn(o)) {
+        matches.push(o);
+      }
+    }
+  }
+  return matches;
+}
+
+function getFirstObjectAt(floor, x, y, objectType = null) {
+  const objs = ensureFloorObjects(floor);
+  for (let i = 0; i < objs.length; i++) {
+    const o = objs[i];
+    if (o && o.x === x && o.y === y) {
+      if (!objectType || o.objectType === objectType) {
+        return o;
+      }
+    }
+  }
+  return null;
+}
+
+function isObjectStackable(obj) {
+  if (!obj) return false;
+  if (typeof obj.stackable === 'boolean') return obj.stackable;
+  const def = obj.definitionId ? getObjectDefinition(obj.definitionId) : null;
+  if (def && typeof def.stackable === 'boolean') return def.stackable;
+  return obj.category === OBJECT_CATEGORIES.ITEM;
+}
+
+function isObjectCarryable(obj) {
+  if (!obj) return false;
+  if (typeof obj.carryable === 'boolean') return obj.carryable;
+  const def = obj.definitionId ? getObjectDefinition(obj.definitionId) : null;
+  if (def && typeof def.carryable === 'boolean') return def.carryable;
+  return obj.category === OBJECT_CATEGORIES.ITEM || obj.objectType === WORLD_OBJECT_TYPES.PICKUP;
+}
+
+function addWorldObject(floor, obj) {
+  if (!floor || !obj) return null;
+  const objs = ensureFloorObjects(floor);
+  // Enforce non-stackable world object uniqueness per tile (e.g., never allow two chests in the same spot!)
+  if (!isObjectStackable(obj)) {
+    const duplicate = objs.some(function(o) {
+      return o && o.x === obj.x && o.y === obj.y && o.objectType === obj.objectType && !isObjectStackable(o);
+    });
+    if (duplicate) return null;
+  }
+  objs.push(obj);
+  return obj;
+}
+
+function removeWorldObject(floor, instanceIdOrObj) {
+  if (!floor) return false;
+  const objs = ensureFloorObjects(floor);
+  const targetId = typeof instanceIdOrObj === 'string'
+    ? instanceIdOrObj
+    : (instanceIdOrObj ? instanceIdOrObj.instanceId : null);
+
+  if (!targetId) return false;
+
+  for (let i = 0; i < objs.length; i++) {
+    if (objs[i] && objs[i].instanceId === targetId) {
+      objs.splice(i, 1);
+      return true;
+    }
+  }
+  return false;
+}
+
+function findObjectById(floor, instanceId) {
+  if (!floor || !instanceId) return null;
+  const objs = ensureFloorObjects(floor);
+  for (let i = 0; i < objs.length; i++) {
+    if (objs[i] && objs[i].instanceId === instanceId) {
+      return objs[i];
+    }
+  }
+  return null;
+}
+
+// ============================================================================
+// ITEMSTACK STACKING ENGINE
+// ============================================================================
+
+function canItemsStack(a, b) {
+  if (!a || !b) return false;
+
+  // Equipment with equipment slots (weapon, armor, helm, boots, accessory, pickaxe) never stack
+  if (a.slot || b.slot) return false;
+
+  // Must share identical definition or base item ID
+  const aDef = a.definitionId || a.id;
+  const bDef = b.definitionId || b.id;
+  if (!aDef || !bDef || aDef !== bDef) return false;
+
+  // Explicit non-stackable flags
+  if (a.isStackable === false || b.isStackable === false) return false;
+
+  // Rarity and quality must match
+  if ((a.rarity || 'common') !== (b.rarity || 'common')) return false;
+  if ((a.quality || 'normal') !== (b.quality || 'normal')) return false;
+
+  // Binding states must match
+  if ((a.boundState || 'unbound') !== (b.boundState || 'unbound')) return false;
+
+  // Unique rolled affixes or socketed gems prevent stacking
+  const aAff = Array.isArray(a.affixes) ? a.affixes.length : 0;
+  const bAff = Array.isArray(b.affixes) ? b.affixes.length : 0;
+  if (aAff > 0 || bAff > 0) return false;
+
+  const aSock = Array.isArray(a.sockets) ? a.sockets.length : 0;
+  const bSock = Array.isArray(b.sockets) ? b.sockets.length : 0;
+  if (aSock > 0 || bSock > 0) return false;
+
+  return true;
+}
+
+function mergeItemStacks(target, source, maxStackSize = 99) {
+  if (!canItemsStack(target, source)) return 0;
+
+  const targetCap = target.maxStackSize || maxStackSize;
+  const currentQty = typeof target.quantity === 'number' ? target.quantity : 1;
+  const spaceLeft = Math.max(0, targetCap - currentQty);
+  if (spaceLeft <= 0) return 0;
+
+  const sourceQty = typeof source.quantity === 'number' ? source.quantity : 1;
+  const amountToMove = Math.min(spaceLeft, sourceQty);
+
+  target.quantity = currentQty + amountToMove;
+  source.quantity = sourceQty - amountToMove;
+
+  return amountToMove;
+}
+
+function splitItemStack(stack, qtyToSplit) {
+  if (!stack || typeof qtyToSplit !== 'number' || qtyToSplit <= 0) return null;
+  const currentQty = typeof stack.quantity === 'number' ? stack.quantity : 1;
+  if (qtyToSplit >= currentQty) return null;
+
+  stack.quantity = currentQty - qtyToSplit;
+
+  const splitInst = createItemInstance(stack, {
+    quantity: qtyToSplit,
+    instanceId: nextInstanceId('item_split')
+  });
+
+  return splitInst;
+}
+
+// ============================================================================
+// LEGACY FLOOR OBJECT AUTO-MIGRATION
+// ============================================================================
+
+function hydrateLegacyFloorObjects(floor) {
+  if (!floor || !floor.tiles) return [];
+  const objs = ensureFloorObjects(floor);
+
+  // If floor already has objects (e.g. from new generator or save), retain them
+  const existingCoords = {};
+  for (let i = 0; i < objs.length; i++) {
+    const o = objs[i];
+    if (o) existingCoords[`${o.x},${o.y}`] = true;
+  }
+
+  const fh = floor.height || floor.tiles.length;
+  const fw = floor.width || (floor.tiles[0] ? floor.tiles[0].length : 0);
+
+  for (let y = 0; y < fh; y++) {
+    const row = floor.tiles[y];
+    if (!row) continue;
+    for (let x = 0; x < fw; x++) {
+      const coordKey = `${x},${y}`;
+      if (existingCoords[coordKey]) continue;
+
+      const t = row[x];
+      if (t === TILE_CHEST || t === TILE_CHEST_OPEN) {
+        const chestObj = createWorldObjectInstance('container_vault_chest', {
+          x: x,
+          y: y,
+          runtimeState: {
+            mechanical: t === TILE_CHEST_OPEN ? 'open' : 'closed',
+            security: 'unlocked',
+            structural: 'intact'
+          }
+        });
+        objs.push(chestObj);
+        existingCoords[coordKey] = true;
+      } else if (t === TILE_SHRINE || t === TILE_SHRINE_USED) {
+        // Look up shrine type from floor.shrines map if present
+        const sMeta = (floor.shrines && floor.shrines[coordKey]) || {};
+        let defId = 'device_shrine_celestial';
+        if (sMeta.id === 'shrine_starfire') defId = 'device_shrine_starfire';
+        else if (sMeta.id === 'shrine_aegis') defId = 'device_shrine_aegis';
+
+        const shrineObj = createWorldObjectInstance(defId, {
+          x: x,
+          y: y,
+          runtimeState: {
+            mechanical: t === TILE_SHRINE_USED ? 'open' : 'closed', // 'open' = used
+            security: 'unlocked',
+            structural: 'intact'
+          }
+        });
+        objs.push(shrineObj);
+        existingCoords[coordKey] = true;
+      } else if (t === TILE_TRAP_HIDDEN || t === TILE_TRAP_VISIBLE || t === TILE_TRAP_DISARMED) {
+        const tMeta = (floor.traps && floor.traps[coordKey]) || {};
+        let defId = 'mechanism_trap_spikes';
+        if (tMeta.id === 'flame') defId = 'mechanism_trap_flame';
+
+        const trapObj = createWorldObjectInstance(defId, {
+          x: x,
+          y: y,
+          runtimeState: {
+            mechanical: t === TILE_TRAP_DISARMED ? 'disabled' : 'closed',
+            security: 'unlocked',
+            discovery: t === TILE_TRAP_HIDDEN ? 'unknown' : 'revealed',
+            structural: 'intact'
+          }
+        });
+        objs.push(trapObj);
+        existingCoords[coordKey] = true;
+      }
+    }
+  }
+
+  return objs;
+}
+
+// ============================================================================
+// DOOR HELPERS & PERMEABILITY QUERIES
+// ============================================================================
+
+function createDoorInstance(defId = 'door_wood_hinged', x = 0, y = 0, options = {}) {
+  const door = createWorldObjectInstance(defId, Object.assign({}, options, {
+    x: x,
+    y: y,
+    objectType: WORLD_OBJECT_TYPES.DOOR
+  }));
+  return door;
+}
+
+function isDoorWalkable(door) {
+  if (!door) return true;
+  if (door.objectType !== WORLD_OBJECT_TYPES.DOOR) return true;
+
+  const st = door.runtimeState || {};
+  if (st.mechanical === 'open') return true;
+  if (st.structural === 'destroyed' || st.structural === 'breached') return true;
+  if (door.permeability && door.permeability.movement === true) return true;
+
+  return false;
+}
+
+function isDoorOpaque(door) {
+  if (!door) return false;
+  if (door.objectType !== WORLD_OBJECT_TYPES.DOOR) return false;
+
+  const st = door.runtimeState || {};
+  // If door is open, destroyed, or breached, vision passes through
+  if (st.mechanical === 'open') return false;
+  if (st.structural === 'destroyed' || st.structural === 'breached') return false;
+
+  // If door has lineOfSight permeability (such as portcullis bars), vision passes through
+  if (door.permeability && door.permeability.lineOfSight === true) return false;
+
+  return true;
+}
+
+function isDoorTraversable(door) {
+  if (!door) return { traversable: true };
+  const walkable = isDoorWalkable(door);
+  if (walkable) return { traversable: true };
+
+  const st = door.runtimeState || {};
+  let reason = 'closed';
+  if (st.security === 'locked') reason = 'locked';
+  else if (st.security === 'sealed') reason = 'sealed';
+  else if (st.mechanical === 'jammed') reason = 'jammed';
+  else if (st.discovery === 'unknown') reason = 'secret_wall';
+
+  return { traversable: false, reason: reason };
+}
+
+// ============================================================================
+// PORTAL & WAYPOINT HELPERS (Fast-Travel & Astral Traversal)
+// ============================================================================
+
+function createPortalInstance(defId = 'portal_ancient_waypoint', x = 0, y = 0, options = {}) {
+  const portal = createWorldObjectInstance(defId, Object.assign({}, options, {
+    x: x,
+    y: y,
+    objectType: WORLD_OBJECT_TYPES.PORTAL
+  }));
+  return portal;
+}
+
+function isPortal(obj) {
+  return Boolean(obj && obj.objectType === WORLD_OBJECT_TYPES.PORTAL);
+}
+
+function isPortalActive(portal) {
+  if (!portal || !isPortal(portal)) return false;
+  const st = portal.runtimeState || {};
+  return st.mechanical === 'active';
+}
+
+function registerDiscoveredWaypoint(floorDepth, x, y, waypointObj, state) {
+  if (!state || !state.dungeon) return false;
+  if (!state.dungeon.waypoints) {
+    state.dungeon.waypoints = {};
+  }
+  const key = `f${floorDepth}`;
+  const existing = state.dungeon.waypoints[key];
+  if (existing && existing.attuned) return false;
+
+  state.dungeon.waypoints[key] = {
+    depth: floorDepth,
+    x: x,
+    y: y,
+    attuned: true,
+    instanceId: waypointObj ? waypointObj.instanceId : `wp_${floorDepth}`,
+    name: (waypointObj && waypointObj.name) || `Floor ${floorDepth} Celestial Waypoint`,
+    discoveredAtTurn: state.turn || 0
+  };
+  return true;
+}
+
+function getDiscoveredWaypoints(state) {
+  if (!state || !state.dungeon || !state.dungeon.waypoints) return [];
+  const wps = state.dungeon.waypoints;
+  const list = [];
+  const keys = Object.keys(wps);
+  for (let i = 0; i < keys.length; i++) {
+    const wp = wps[keys[i]];
+    if (wp && wp.attuned) {
+      list.push(wp);
+    }
+  }
+  list.sort((a, b) => a.depth - b.depth);
+  return list;
+}
+
+// =========================================================================
+// Increment 8.3: Mechanisms, Destructible Props & Environmental Hazards
+// =========================================================================
+
+function createMechanismInstance(defId = 'mech_wall_lever', x = 0, y = 0, options = {}) {
+  const inst = createWorldObjectInstance(defId, Object.assign({}, options, {
+    x: x,
+    y: y,
+    objectType: WORLD_OBJECT_TYPES.MECHANISM
+  }));
+  if (inst && options.linkedTargetIds && Array.isArray(options.linkedTargetIds)) {
+    if (!inst.components) inst.components = {};
+    if (!inst.components.mechanism) inst.components.mechanism = { mechanismType: 'lever', linkedTargetIds: [] };
+    inst.components.mechanism.linkedTargetIds = options.linkedTargetIds.slice();
+  }
+  return inst;
+}
+
+function createPropInstance(defId = 'prop_supply_crate', x = 0, y = 0, options = {}) {
+  return createWorldObjectInstance(defId, Object.assign({}, options, {
+    x: x,
+    y: y,
+    objectType: WORLD_OBJECT_TYPES.PROP
+  }));
+}
+
+function createContainerInstance(defId = 'container_dungeon_chest', x = 0, y = 0, options = {}) {
+  return createWorldObjectInstance(defId, Object.assign({}, options, {
+    x: x,
+    y: y,
+    objectType: WORLD_OBJECT_TYPES.CONTAINER
+  }));
+}
+
+function isClosedContainer(obj) {
+  return Boolean(obj && obj.objectType === WORLD_OBJECT_TYPES.CONTAINER && obj.runtimeState && obj.runtimeState.mechanical === 'closed');
+}
+
+function resolveLootableComponent(obj, floor, state, randFn = Math.random) {
+  const lootCfg = obj && obj.components && obj.components.lootable;
+  if (!lootCfg || !lootCfg.lootTableId) return { dropped: false, items: [], gold: 0 };
+
+  const chance = typeof lootCfg.dropChance === 'number' ? lootCfg.dropChance : 1.0;
+  const rolls = Math.max(1, lootCfg.rolls || 1);
+  const depth = (floor && floor.depth) || 1;
+  const droppedItems = [];
+  let goldGained = 0;
+
+  for (let r = 0; r < rolls; r++) {
+    const rollVal = typeof randFn === 'function' ? randFn() : Math.random();
+    if (rollVal > chance) continue;
+    const entry = rollLootTable(lootCfg.lootTableId, depth, randFn);
+    if (!entry) continue;
+
+    if (entry.kind === 'gold') {
+      const amt = entry.goldAmount || 3;
+      goldGained += amt;
+      if (state && state.hero && Array.isArray(state.hero.expeditionPack)) {
+        state.hero.expeditionPack.push({ id: entry.id, name: entry.name, qty: 1, val: amt });
+      } else if (state && state.guildVault) {
+        state.guildVault.gold = (state.guildVault.gold || 0) + amt;
+      }
+      droppedItems.push(entry);
+    } else if (entry.kind === 'consumable' && state && state.hero && state.hero.consumables) {
+      const k = entry.consumableKey || 'potions';
+      state.hero.consumables[k] = (state.hero.consumables[k] || 0) + (entry.qty || 1);
+      droppedItems.push(entry);
+    } else if (entry.kind === 'ore' && state && state.hero && Array.isArray(state.hero.expeditionPack)) {
+      const existing = state.hero.expeditionPack.find(function(it) { return it.id === entry.oreId; });
+      if (existing) existing.qty += (entry.qty || 1);
+      else state.hero.expeditionPack.push({ id: entry.oreId || 'copper', name: entry.name, qty: entry.qty || 1, val: entry.value || 5 });
+      droppedItems.push(entry);
+    } else if (entry.kind === 'trash' || entry.kind === 'trade') {
+      if (state && state.hero && Array.isArray(state.hero.expeditionPack)) {
+        state.hero.expeditionPack.push({ id: entry.id, name: entry.name, qty: 1, val: entry.value || 0, isTrash: entry.kind === 'trash' });
+      }
+      droppedItems.push(entry);
+    } else if (entry.kind === 'gear') {
+      if (state && state.hero && Array.isArray(state.hero.expeditionGear)) {
+        state.hero.expeditionGear.push({
+          uid: 'chest_gear_' + Date.now() + '_' + Math.floor((typeof randFn === 'function' ? randFn() : Math.random()) * 10000),
+          slot: 'weapon',
+          name: 'Vault-Forged Blade',
+          rarity: 'uncommon',
+          atk: 8 + Math.floor(depth * 1.5),
+          def: 1,
+          value: 45 + depth * 10
+        });
+      }
+      droppedItems.push(entry);
+    }
+  }
+
+  return { dropped: droppedItems.length > 0, items: droppedItems, gold: goldGained };
+}
+
+function openContainerObject(containerObj, floor, state, randFn = Math.random) {
+  if (!isClosedContainer(containerObj)) return { opened: false, loot: null };
+  containerObj.runtimeState.mechanical = 'open';
+  if (!containerObj.permeability) containerObj.permeability = {};
+  containerObj.permeability.movement = true;
+  const loot = resolveLootableComponent(containerObj, floor, state, randFn);
+  return { opened: true, loot: loot };
+}
+
+function createHazardInstance(defId = 'hazard_slag_vent', x = 0, y = 0, options = {}) {
+  return createWorldObjectInstance(defId, Object.assign({}, options, {
+    x: x,
+    y: y,
+    objectType: WORLD_OBJECT_TYPES.HAZARD
+  }));
+}
+
+function isMechanism(obj) {
+  return Boolean(obj && obj.objectType === WORLD_OBJECT_TYPES.MECHANISM);
+}
+
+function isDestructibleProp(obj) {
+  return Boolean(obj && obj.objectType === WORLD_OBJECT_TYPES.PROP && obj.runtimeState && obj.runtimeState.structural !== 'destroyed');
+}
+
+function isEnvironmentalHazard(obj) {
+  return Boolean(obj && obj.objectType === WORLD_OBJECT_TYPES.HAZARD && obj.runtimeState && obj.runtimeState.mechanical === 'active');
+}
+
+function toggleLinkedMechanisms(mechObj, floor) {
+  if (!mechObj || !isMechanism(mechObj) || !floor || !Array.isArray(floor.objects)) {
+    return { toggled: 0, targetIds: [] };
+  }
+  const st = mechObj.runtimeState || {};
+  const nextMechState = st.mechanical === 'pulled' ? 'idle' : 'pulled';
+  st.mechanical = nextMechState;
+
+  const linkIds = (mechObj.components && mechObj.components.mechanism && Array.isArray(mechObj.components.mechanism.linkedTargetIds))
+    ? mechObj.components.mechanism.linkedTargetIds
+    : [];
+  const affected = [];
+
+  for (let i = 0; i < linkIds.length; i++) {
+    const tid = linkIds[i];
+    const target = floor.objects.find(function(o) { return o.instanceId === tid; });
+    if (!target) continue;
+    if (!target.runtimeState) target.runtimeState = {};
+    if (!target.permeability) target.permeability = {};
+
+    const opening = nextMechState === 'pulled';
+    if (target.runtimeState.discovery === 'unknown') {
+      target.runtimeState.discovery = 'revealed';
+    }
+    if (opening) {
+      target.runtimeState.security = 'unlocked';
+      target.runtimeState.mechanical = 'open';
+      target.permeability.movement = true;
+      target.permeability.lineOfSight = true;
+      target.permeability.light = true;
+      target.permeability.projectiles = true;
+      target.permeability.magic = true;
+    } else {
+      target.runtimeState.mechanical = 'closed';
+      target.permeability.movement = false;
+      if (target.definitionId !== 'door_iron_portcullis') {
+        target.permeability.lineOfSight = false;
+        target.permeability.light = false;
+      }
+    }
+    affected.push(tid);
+  }
+
+  return { toggled: affected.length, state: nextMechState, targetIds: affected };
+}
+
+function damageDestructibleProp(propObj, rawDamage, floor, state) {
+  if (!propObj || !isDestructibleProp(propObj)) return { destroyed: false, damage: 0 };
+  const dur = (propObj.components && propObj.components.durability) || { hp: 15, maxHp: 15, armor: 0 };
+  const dmg = Math.max(1, Math.round(rawDamage || 10) - (dur.armor || 0));
+  dur.hp = Math.max(0, (dur.hp || 0) - dmg);
+
+  if (dur.hp > 0) {
+    if (propObj.runtimeState) propObj.runtimeState.structural = 'damaged';
+    return { destroyed: false, damage: dmg, remainingHp: dur.hp };
+  }
+
+  if (!propObj.runtimeState) propObj.runtimeState = {};
+  propObj.runtimeState.structural = 'destroyed';
+  propObj.runtimeState.mechanical = 'open';
+  if (!propObj.permeability) propObj.permeability = {};
+  propObj.permeability.movement = true;
+  propObj.permeability.lineOfSight = true;
+  propObj.permeability.light = true;
+  propObj.permeability.projectiles = true;
+  propObj.permeability.magic = true;
+
+  const propCfg = (propObj.components && propObj.components.prop) || {};
+  let spawnedHazards = 0;
+  let goldLooted = 0;
+  const lootRes = resolveLootableComponent(propObj, floor, state);
+  goldLooted += (lootRes.gold || 0);
+  if (propCfg.goldDrop && state && state.guildVault) {
+    goldLooted += propCfg.goldDrop;
+    state.guildVault.gold = (state.guildVault.gold || 0) + propCfg.goldDrop;
+  }
+
+  if (propCfg.spawnsHazard && floor && Array.isArray(floor.objects)) {
+    const offsets = [
+      { dx: 0, dy: 0 }, { dx: 1, dy: 0 }, { dx: -1, dy: 0 }, { dx: 0, dy: 1 }, { dx: 0, dy: -1 }
+    ];
+    for (let i = 0; i < offsets.length; i++) {
+      const hx = propObj.x + offsets[i].dx;
+      const hy = propObj.y + offsets[i].dy;
+      if (floor.tiles && floor.tiles[hy] && floor.tiles[hy][hx] !== 0) {
+        const exists = floor.objects.some(function(o) {
+          return o.x === hx && o.y === hy && o.definitionId === propCfg.spawnsHazard;
+        });
+        if (!exists) {
+          floor.objects.push(createHazardInstance(propCfg.spawnsHazard, hx, hy));
+          spawnedHazards++;
+        }
+      }
+    }
+  }
+
+  return {
+    destroyed: true,
+    damage: dmg,
+    goldLooted: goldLooted,
+    lootResult: lootRes,
+    spawnedHazards: spawnedHazards
+  };
+}
+
+function resolveHazardStepEffects(actor, x, y, floor) {
+  if (!actor || !floor || !Array.isArray(floor.objects)) return { triggered: false, damage: 0, statuses: [] };
+  const hazards = floor.objects.filter(function(o) {
+    return o.x === x && o.y === y && isEnvironmentalHazard(o);
+  });
+  if (hazards.length === 0) return { triggered: false, damage: 0, statuses: [] };
+
+  let totalDmg = 0;
+  const appliedStatuses = [];
+
+  for (let i = 0; i < hazards.length; i++) {
+    const hz = hazards[i];
+    const hCfg = (hz.components && hz.components.hazard) || {};
+    let dmg = hCfg.damage || 0;
+
+    // If actor is burning and steps into an oil slick, ignite for burst fire damage!
+    const actorStatuses = Array.isArray(actor.statuses) ? actor.statuses : [];
+    const isBurning = actorStatuses.some(function(s) { return s.id === 'burn'; });
+    if (hCfg.hazardType === 'oil' && isBurning) {
+      dmg += (hCfg.igniteDamage || 18);
+      hz.runtimeState.mechanical = 'spent';
+    }
+
+    if (dmg > 0) {
+      actor.hp = Math.max(0, (actor.hp || 0) - dmg);
+      totalDmg += dmg;
+    }
+
+    if (hCfg.statusId) {
+      if (!Array.isArray(actor.statuses)) actor.statuses = [];
+      const existing = actor.statuses.find(function(s) { return s.id === hCfg.statusId; });
+      if (existing) {
+        existing.turns = Math.max(existing.turns || 0, hCfg.statusTurns || 2);
+      } else {
+        actor.statuses.push({ id: hCfg.statusId, turns: hCfg.statusTurns || 2 });
+      }
+      appliedStatuses.push(hCfg.statusId);
+    }
+  }
+
+  return { triggered: true, damage: totalDmg, statuses: appliedStatuses };
+}
+
+  // --- Module: src/engine/state.js ---
+// Game State Schema (Multi-Dungeon Atlas v5/v6), Save Migration, RLE Persistence & Derived Hero Stats
+
+
+
+
+
+
+
+
+
+
+let itemSeq = 1000;
+
+function nextItemUid(prefix = 'gear') {
+  return `${prefix}_${Date.now()}_${itemSeq++}`;
+}
+
+function normalizeEquipmentSockets(item) {
+  if (!item) return null;
+  item.locked = Boolean(item.locked);
+  if (item.slot === 'pickaxe') {
+    item.maxSockets = 0;
+    item.sockets = [];
+    return item;
+  }
+  if (typeof item.maxSockets !== 'number') {
+    if (item.rarity === 'relic') item.maxSockets = 2;
+    else if (item.rarity === 'epic' || item.rarity === 'rare') item.maxSockets = 1;
+    else item.maxSockets = 0;
+  }
+  if (!Array.isArray(item.sockets)) {
+    item.sockets = [];
+  }
+  return item;
+}
+
+function createDefaultCodexState() {
+  const kills = {};
+  return {
+    totalMonstersSlain: 0,
+    totalBossesSlain: 0,
+    totalElitesSlain: 0,
+    totalOresMined: 0,
+    totalGemsUnearthed: 0,
+    totalChestsOpened: 0,
+    totalShrinesActivated: 0,
+    totalExtractions: 0,
+    totalDefeats: 0,
+    deepestFloorByDungeon: {},
+    monsterKills: kills,
+    killsByArchetype: kills,
+    oreMinedById: {},
+    relicsUnlocked: []
+  };
+}
+
+function ensureCodexState(state) {
+  if (!state) return createDefaultCodexState();
+  if (!state.codex || typeof state.codex !== 'object') {
+    state.codex = createDefaultCodexState();
+  } else {
+    const c = state.codex;
+    c.totalMonstersSlain = c.totalMonstersSlain || 0;
+    c.totalBossesSlain = c.totalBossesSlain || 0;
+    c.totalElitesSlain = c.totalElitesSlain || 0;
+    c.totalOresMined = c.totalOresMined || 0;
+    c.totalGemsUnearthed = c.totalGemsUnearthed || 0;
+    c.totalChestsOpened = c.totalChestsOpened || 0;
+    c.totalShrinesActivated = c.totalShrinesActivated || 0;
+    c.totalExtractions = c.totalExtractions || 0;
+    c.totalDefeats = c.totalDefeats || 0;
+    if (!c.deepestFloorByDungeon || typeof c.deepestFloorByDungeon !== 'object') c.deepestFloorByDungeon = {};
+    if (!c.monsterKills || typeof c.monsterKills !== 'object') {
+      c.monsterKills = c.killsByArchetype || {};
+    }
+    if (!c.killsByArchetype || typeof c.killsByArchetype !== 'object') {
+      c.killsByArchetype = c.monsterKills;
+    }
+    if (!c.oreMinedById || typeof c.oreMinedById !== 'object') c.oreMinedById = {};
+    if (!Array.isArray(c.relicsUnlocked)) c.relicsUnlocked = [];
+  }
+  return state.codex;
+}
+
+function getCodexMasteryMultiplier(monsterId, state) {
+  const targetState = state || gameState;
+  if (!targetState || !targetState.codex) return 1.0;
+  const killsMap = targetState.codex.monsterKills || targetState.codex.killsByArchetype;
+  if (!killsMap) return 1.0;
+  const kills = killsMap[monsterId] || 0;
+  const isBoss = typeof monsterId === 'string' && monsterId.indexOf('boss_') === 0;
+  const req = isBoss ? 1 : CODEX_MASTERY_KILLS;
+  return kills >= req ? CODEX_MASTERY_DMG_MULT : 1.0;
+}
+
+function recordRelicUnlock(item, floorDepth = 1, dungeonName = 'The Starfall Vaults', state) {
+  const targetState = state || gameState;
+  if (!item || item.rarity !== 'relic' || !targetState) return;
+  const codex = ensureCodexState(targetState);
+  const exists = codex.relicsUnlocked.some(r => r.name === item.name);
+  if (!exists) {
+    codex.relicsUnlocked.push({
+      name: item.name,
+      slot: item.slot,
+      atk: item.atk || 0,
+      def: item.def || 0,
+      floor: floorDepth || 1,
+      dungeonName: dungeonName || (targetState.dungeon && targetState.dungeon.name) || 'Subterranean Delve'
+    });
+    if (codex.relicsUnlocked.length > 50) {
+      codex.relicsUnlocked.shift();
+    }
+  }
+}
+
+function createDefaultDungeonsRegistry() {
+  return {
+    dng_starfall: createDungeonInstance('starfall_vaults', { id: 'dng_starfall', originType: 'curated' }),
+    dng_quarry:   createDungeonInstance('sunken_quarry',   { id: 'dng_quarry',   originType: 'curated' }),
+    dng_mycelium: createDungeonInstance('mycelium_labyrinth', { id: 'dng_mycelium', originType: 'curated' }),
+    dng_citadel:  createDungeonInstance('citadel_ruins',   { id: 'dng_citadel',  originType: 'curated' }),
+    dng_molten:   createDungeonInstance('molten_crucible', { id: 'dng_molten',   originType: 'curated' }),
+    dng_abyss:    createDungeonInstance('abyssal_rift',    { id: 'dng_abyss',    originType: 'curated' })
+  };
+}
+
+function ensureDungeonFloorHydrated(dungeonObj, depth) {
+  if (!dungeonObj || !dungeonObj.floors || !dungeonObj.floors[depth]) return null;
+  dungeonObj.floors[depth] = hydrateFloorFromStorage(dungeonObj.floors[depth]);
+  const fl = dungeonObj.floors[depth];
+  if (fl) {
+    hydrateLegacyFloorObjects(fl);
+  }
+  return fl;
+}
+
+function syncActiveDungeonAlias(state) {
+  if (!state) return null;
+  if (!state.dungeons || Object.keys(state.dungeons).length === 0) {
+    state.dungeons = createDefaultDungeonsRegistry();
+  }
+  if (!state.activeDungeonId || !state.dungeons[state.activeDungeonId]) {
+    const firstKey = state.dungeons.dng_starfall ? 'dng_starfall' : Object.keys(state.dungeons)[0];
+    state.activeDungeonId = firstKey;
+  }
+
+  // Keep inactive dungeons compactly RLE-packed in memory so hundreds of dungeons stay lightweight
+  Object.keys(state.dungeons).forEach(dId => {
+    const dng = state.dungeons[dId];
+    if (!dng || !dng.floors) return;
+    if (dId !== state.activeDungeonId) {
+      Object.keys(dng.floors).forEach(fk => {
+        if (dng.floors[fk] && !dng.floors[fk].packed) {
+          dng.floors[fk] = packFloorForStorage(dng.floors[fk]);
+        }
+      });
+    }
+  });
+
+  const active = state.dungeons[state.activeDungeonId];
+  ensureDungeonFloorHydrated(active, active.currentFloor || 1);
+  state.dungeon = active;
+  return active;
+}
+
+function createDefaultGameState() {
+  const dungeons = createDefaultDungeonsRegistry();
+  const activeId = 'dng_starfall';
+  return {
+    version: SCHEMA_VERSION,
+    playerId: CANONICAL_PLAYER_ID,
+    turn: 0,
+    inGuild: true,
+    audioEnabled: true,
+    maxCharteredDungeons: DEFAULT_MAX_CHARTERED_DUNGEONS,
+    hero: null,
+    activeDungeonId: activeId,
+    dungeons,
+    dungeon: dungeons[activeId],
+    guildVault: {
+      gold: 35,
+      copper: 0,
+      iron: 0,
+      mithril: 0,
+      geode: 0,
+      starcrystal: 0,
+      astralite: 0,
+      gems: {
+        ruby: 0,
+        emerald: 0,
+        sapphire: 0,
+        topaz: 0,
+        void_diamond: 0
+      },
+      armory: []
+    },
+    guildResearch: {
+      cartography: 0,
+      geology: 0,
+      toolsmithing: 0,
+      assay: 0,
+      quartermaster: 0,
+      vanguard: 0
+    },
+    guildBounties: buildProceduralBountySet(0, 0),
+    codex: createDefaultCodexState(),
+    wargameSession: null,
+    uiSettings: {
+      armorySortBy: 'slot'
+    }
+  };
+}
+
+const gameState = createDefaultGameState();
+
+function setGameState(nextState) {
+  if (!nextState) return gameState;
+  Object.keys(gameState).forEach(k => {
+    delete gameState[k];
+  });
+  Object.assign(gameState, nextState);
+  syncActiveDungeonAlias(gameState);
+  return gameState;
+}
+
+function migrateSaveData(raw) {
+  if (!raw) return null;
+  const data = typeof raw === 'string' ? JSON.parse(raw) : JSON.parse(JSON.stringify(raw));
+
+  const migrated = createDefaultGameState();
+  migrated.turn = data.turn || 0;
+  migrated.inGuild = data.inGuild !== undefined ? data.inGuild : (data.location !== 'dungeon');
+  migrated.audioEnabled = data.audioEnabled !== undefined ? data.audioEnabled : true;
+  migrated.maxCharteredDungeons = typeof data.maxCharteredDungeons === 'number'
+    ? data.maxCharteredDungeons
+    : DEFAULT_MAX_CHARTERED_DUNGEONS;
+
+  migrated.uiSettings = data.uiSettings || { armorySortBy: 'slot' };
+  if (!migrated.uiSettings.armorySortBy) migrated.uiSettings.armorySortBy = 'slot';
+  migrated.wargameSession = (data.wargameSession && typeof data.wargameSession === 'object')
+    ? Object.assign({}, data.wargameSession)
+    : null;
+
+  // Migrate Vault & Bank
+  const srcVault = data.guildVault || data.bank || {};
+  migrated.guildVault.gold = srcVault.gold !== undefined ? srcVault.gold : 35;
+  migrated.guildVault.copper = srcVault.copper || 0;
+  migrated.guildVault.iron = srcVault.iron || 0;
+  migrated.guildVault.mithril = srcVault.mithril || 0;
+  migrated.guildVault.geode = srcVault.geode || 0;
+  migrated.guildVault.starcrystal = srcVault.starcrystal || 0;
+  migrated.guildVault.astralite = srcVault.astralite || 0;
+
+  const srcGems = srcVault.gems || {};
+  GEM_IDS.forEach(gId => {
+    migrated.guildVault.gems[gId] = srcGems[gId] || 0;
+  });
+
+  const rawArmory = Array.isArray(srcVault.armory)
+    ? srcVault.armory
+    : (Array.isArray(srcVault.equipment) ? srcVault.equipment : []);
+  migrated.guildVault.armory = rawArmory.map(g => normalizeEquipmentSockets(g));
+
+  // Migrate old v1/v2 bank items array into mineral/gem counts
+  if (Array.isArray(srcVault.items)) {
+    srcVault.items.forEach(it => {
+      const cleanId = (it.id || '')
+        .replace('_ore', '')
+        .replace('relic_geode', 'geode')
+        .replace('star', 'starcrystal')
+        .replace('astral', 'astralite');
+      if (migrated.guildVault.gems[cleanId] !== undefined) {
+        migrated.guildVault.gems[cleanId] += (it.count || it.qty || 1);
+      } else if (migrated.guildVault[cleanId] !== undefined && typeof migrated.guildVault[cleanId] === 'number') {
+        migrated.guildVault[cleanId] += (it.count || it.qty || 1);
+      }
+    });
+  }
+
+  // Migrate Research
+  const srcRes = data.guildResearch || data.research || {};
+  migrated.guildResearch = {
+    cartography:   srcRes.cartography !== undefined ? srcRes.cartography : (srcRes.vault_cartography || srcRes.max_depth || 0),
+    geology:       srcRes.geology !== undefined ? srcRes.geology : (srcRes.metallurgy_geology || 0),
+    toolsmithing:  srcRes.toolsmithing !== undefined ? srcRes.toolsmithing : (srcRes.pickaxe_temper || 0),
+    assay:         srcRes.assay !== undefined ? srcRes.assay : (srcRes.appraisal || srcRes.ore_appraisal || 0),
+    quartermaster: srcRes.quartermaster || 0,
+    vanguard:      srcRes.vanguard !== undefined ? srcRes.vanguard : (srcRes.vanguard_insurance || 0)
+  };
+
+  // Migrate Bounties
+  if (Array.isArray(data.guildBounties) && data.guildBounties.length > 0) {
+    migrated.guildBounties = data.guildBounties.map(b => Object.assign({
+      curQty: 0,
+      reqQty: 1,
+      completed: false
+    }, b));
+  } else {
+    migrated.guildBounties = buildProceduralBountySet(
+      migrated.guildResearch.geology,
+      migrated.guildResearch.cartography
+    );
+  }
+
+  // Migrate Hero
+  if (data.hero) {
+    const clsId = CLASSES[data.hero.classId] ? data.hero.classId : 'fighter';
+    const cls = CLASSES[clsId];
+    const eqSource = data.hero.equipment || data.hero.equipped || {};
+    migrated.hero = {
+      name: data.hero.name || cls.name,
+      classId: clsId,
+      level: data.hero.level || 1,
+      xp: data.hero.xp || 0,
+      maxXp: data.hero.maxXp || data.hero.xpNext || 60,
+      statPoints: data.hero.statPoints || 0,
+      bonusStats: data.hero.bonusStats || { str: 0, dex: 0, int: 0, vit: 0 },
+      hp: data.hero.hp || cls.hpBase,
+      maxHp: data.hero.maxHp || cls.hpBase,
+      mp: data.hero.mp || cls.mpBase,
+      maxMp: data.hero.maxMp || cls.mpBase,
+      atk: data.hero.atk || 12,
+      def: data.hero.def || 6,
+      crit: data.hero.crit || 5,
+      dodge: data.hero.dodge || 5,
+      talentPoints: data.hero.talentPoints !== undefined ? data.hero.talentPoints : (data.hero.talentPointsAvailable || 0),
+      talentsAllocated: data.hero.talentsAllocated || {},
+      consumables: {
+        potions: (data.hero.consumables && data.hero.consumables.potions !== undefined)
+          ? data.hero.consumables.potions
+          : (srcVault.potions !== undefined ? srcVault.potions : 2),
+        recalls: (data.hero.consumables && data.hero.consumables.recalls !== undefined)
+          ? data.hero.consumables.recalls
+          : (srcVault.recallScrolls !== undefined ? srcVault.recallScrolls : 1)
+      },
+      equipment: {
+        weapon:    normalizeEquipmentSockets(eqSource.weapon    || JSON.parse(JSON.stringify(cls.starterGear.weapon))),
+        armor:     normalizeEquipmentSockets(eqSource.armor     || JSON.parse(JSON.stringify(cls.starterGear.armor))),
+        helm:      normalizeEquipmentSockets(eqSource.helm      || JSON.parse(JSON.stringify(cls.starterGear.helm))),
+        boots:     normalizeEquipmentSockets(eqSource.boots     || JSON.parse(JSON.stringify(cls.starterGear.boots))),
+        accessory: normalizeEquipmentSockets(eqSource.accessory || JSON.parse(JSON.stringify(cls.starterGear.accessory))),
+        pickaxe:   normalizeEquipmentSockets(eqSource.pickaxe   || JSON.parse(JSON.stringify(cls.starterGear.pickaxe)))
+      },
+      expeditionPack: Array.isArray(data.hero.expeditionPack) ? data.hero.expeditionPack : [],
+      expeditionGear: Array.isArray(data.hero.expeditionGear)
+        ? data.hero.expeditionGear.map(g => normalizeEquipmentSockets(g))
+        : [],
+      statuses: Array.isArray(data.hero.statuses) ? data.hero.statuses : [],
+      usedDivineIntervention: !!data.hero.usedDivineIntervention,
+      x: data.hero.x || 1,
+      y: data.hero.y || 1
+    };
+  }
+
+  // Migrate Multi-Dungeon Registry OR Legacy Single Dungeon
+  if (data.dungeons && typeof data.dungeons === 'object' && Object.keys(data.dungeons).length > 0) {
+    Object.keys(data.dungeons).forEach(dId => {
+      const rawDng = data.dungeons[dId];
+      if (!rawDng) return;
+      const baseProf = CURATED_DUNGEON_PROFILES[rawDng.profileId] || {};
+      const normCfg = normalizeDungeonConfig(Object.assign({}, baseProf, rawDng.config || {}));
+      const seedCode = rawDng.seedCode || 'STAR-4812';
+      migrated.dungeons[dId] = {
+        id: dId,
+        name: rawDng.name || normCfg.name,
+        profileId: rawDng.profileId || normCfg.profileId,
+        originType: rawDng.originType || (CURATED_DUNGEON_PROFILES[normCfg.profileId] ? 'curated' : 'chartered'),
+        worldCoords: rawDng.worldCoords || null,
+        seedCode,
+        numericSeed: rawDng.numericSeed || hashSeedString(seedCode, 0),
+        config: normCfg,
+        currentFloor: rawDng.currentFloor || 1,
+        deepestFloor: rawDng.deepestFloor || rawDng.currentFloor || 1,
+        isCleared: !!rawDng.isCleared,
+        floors: rawDng.floors || {},
+        waypoints: rawDng.waypoints || {}
+      };
+    });
+    migrated.activeDungeonId = data.activeDungeonId && migrated.dungeons[data.activeDungeonId]
+      ? data.activeDungeonId
+      : Object.keys(migrated.dungeons)[0];
+
+    const defaultDngs = createDefaultDungeonsRegistry();
+    Object.keys(defaultDngs).forEach(defId => {
+      if (!migrated.dungeons[defId]) {
+        migrated.dungeons[defId] = defaultDngs[defId];
+      }
+    });
+  } else if (data.dungeon && data.dungeon.floors) {
+    const targetDng = migrated.dungeons.dng_starfall;
+    targetDng.seedCode = data.dungeon.seedCode || 'STAR-4812';
+    targetDng.numericSeed = hashSeedString(targetDng.seedCode, 0);
+    targetDng.currentFloor = data.dungeon.currentFloor || data.dungeon.currentDepth || 1;
+    targetDng.deepestFloor = Math.max(1, targetDng.currentFloor, Object.keys(data.dungeon.floors).length);
+    targetDng.floors = {};
+    targetDng.waypoints = data.dungeon.waypoints || {};
+    Object.keys(data.dungeon.floors).forEach(fk => {
+      targetDng.floors[fk] = hydrateFloorFromStorage(data.dungeon.floors[fk]);
+    });
+    migrated.activeDungeonId = 'dng_starfall';
+  }
+
+  syncActiveDungeonAlias(migrated);
+
+  // Migrate Codex & Hall of Records
+  migrated.codex = createDefaultCodexState();
+  if (data.codex && typeof data.codex === 'object') {
+    Object.assign(migrated.codex, data.codex);
+    ensureCodexState(migrated);
+  }
+
+  migrated.version = SCHEMA_VERSION;
+  return migrated;
+}
+
+function getPickaxeMaxDurability(state = gameState) {
+  const pick = state && state.hero && state.hero.equipment ? state.hero.equipment.pickaxe : null;
+  if (!pick) return 25;
+  const toolRank = (state && state.guildResearch && state.guildResearch.toolsmithing) || 0;
+  return Math.round(pick.maxDur * (1 + toolRank * 0.5));
+}
+
+function recomputeHeroDerivedStats(fullRestore = false, state = gameState) {
+  const h = state.hero;
+  if (!h) return;
+  const cls = CLASSES[h.classId] || CLASSES.fighter;
+  const bonus = h.bonusStats || { str: 0, dex: 0, int: 0, vit: 0 };
+
+  let str = cls.baseStats.str + (h.level - 1) * 2 + (bonus.str || 0);
+  let dex = cls.baseStats.dex + (h.level - 1) * 2 + (bonus.dex || 0);
+  let int = cls.baseStats.int + (h.level - 1) * 2 + (bonus.int || 0);
+  let vit = cls.baseStats.vit + (h.level - 1) * 2 + (bonus.vit || 0);
+
+  let flatAtk = 0, flatDef = 0, flatCrit = 0, flatDodge = 0, flatHp = 0, flatMp = 0, visionBonus = 0;
+  let flatThorns = 0, flatLeech = 0, flatWard = 0;
+
+  // Passive Class Bonuses
+  if (h.classId === 'fighter') flatHp += 10;
+  if (h.classId === 'thief')   flatCrit += 15;
+  if (h.classId === 'ranger')  flatDodge += 15;
+  if (h.classId === 'paladin') flatDef += 10;
+
+  // Talent Bonuses
+  const t = h.talentsAllocated || {};
+  if (t.f_a1) flatHp += t.f_a1 * 12;
+  if (t.f_a2) flatAtk += t.f_a2 * 3;
+  if (t.t_b1) flatCrit += t.t_b1 * 5;
+  if (t.t_b3) flatDodge += t.t_b3 * 10;
+  if (t.m_c1) flatMp += t.m_c1 * 15;
+  if (t.r_d1) { flatDodge += t.r_d1 * 4; visionBonus += t.r_d1; }
+  if (t.p_e1) { flatDef += t.p_e1 * 4; flatHp += t.p_e1 * 8; }
+  if (t.p_e2) flatAtk += t.p_e2 * 4;
+
+  // Sum 6-Slot Equipment & Socketed Astral Gems
+  for (const slot of ['weapon', 'armor', 'helm', 'boots', 'accessory']) {
+    const it = h.equipment[slot];
+    if (!it) continue;
+    if (it.str) str += it.str;
+    if (it.dex) dex += it.dex;
+    if (it.int) int += it.int;
+    if (it.vit) vit += it.vit;
+    if (it.atk) flatAtk += it.atk;
+    if (it.def) flatDef += it.def;
+    if (it.crit) flatCrit += it.crit;
+    if (it.dodge) flatDodge += it.dodge;
+    if (it.maxHp) flatHp += it.maxHp;
+    if (it.maxMp) flatMp += it.maxMp;
+    if (it.visionBonus) visionBonus += it.visionBonus;
+    if (it.thorns) flatThorns += it.thorns;
+    if (it.leech) flatLeech += it.leech;
+    if (it.ward) flatWard += it.ward;
+
+    if (Array.isArray(it.sockets)) {
+      for (let sIdx = 0; sIdx < it.sockets.length; sIdx++) {
+        const gem = GEM_CATALOG[it.sockets[sIdx]];
+        if (!gem || !gem.bonuses) continue;
+        const gb = gem.bonuses;
+        if (gb.str) str += gb.str;
+        if (gb.dex) dex += gb.dex;
+        if (gb.int) int += gb.int;
+        if (gb.vit) vit += gb.vit;
+        if (gb.atk) flatAtk += gb.atk;
+        if (gb.def) flatDef += gb.def;
+        if (gb.crit) flatCrit += gb.crit;
+        if (gb.dodge) flatDodge += gb.dodge;
+        if (gb.maxHp) flatHp += gb.maxHp;
+        if (gb.maxMp) flatMp += gb.maxMp;
+        if (gb.visionBonus) visionBonus += gb.visionBonus;
+      }
+    }
+  }
+
+  // Active Astral Shrine Status Buffs
+  if (Array.isArray(h.statuses)) {
+    for (let i = 0; i < h.statuses.length; i++) {
+      const st = h.statuses[i];
+      if (st.id === 'shrine_starfire') {
+        flatAtk += 6;
+        flatCrit += 12;
+      } else if (st.id === 'shrine_aegis') {
+        flatDef += 6;
+        visionBonus += 1;
+      } else if (st.id === 'chilled') {
+        flatDodge -= 15;
+      }
+    }
+  }
+
+  h.computedStr = str;
+  h.computedDex = dex;
+  h.computedInt = int;
+  h.computedVit = vit;
+  h.visionRadius = (cls.vision || 5) + visionBonus;
+
+  h.maxHp = cls.hpBase + (vit * 4) + flatHp;
+  h.maxMp = cls.mpBase + (int * 3) + flatMp;
+  h.thorns = flatThorns;
+  h.leech = flatLeech;
+  h.ward = flatWard;
+
+  const primaryOffensive = h.classId === 'mage'
+    ? Math.round(int * 1.1 + str * 0.3)
+    : h.classId === 'ranger' || h.classId === 'thief'
+      ? Math.round(dex * 0.9 + str * 0.4)
+      : Math.round(str * 0.95 + dex * 0.35);
+
+  h.atk = primaryOffensive + flatAtk;
+  h.def = Math.round(vit * 0.45) + flatDef;
+  h.crit = Math.min(75, 5 + Math.round(dex * 0.45) + flatCrit);
+  h.dodge = Math.max(0, Math.min(60, 4 + Math.round(dex * 0.35) + flatDodge));
+
+  if (fullRestore) {
+    h.hp = h.maxHp;
+    h.mp = h.maxMp;
+  } else {
+    h.hp = Math.min(h.hp, h.maxHp);
+    h.mp = Math.min(h.mp, h.maxMp);
+  }
+}
+
+function serializeStateForStorage(state = gameState) {
+  const packedDungeons = {};
+  const srcDungeons = state.dungeons || {};
+  Object.keys(srcDungeons).forEach(dId => {
+    const dng = srcDungeons[dId];
+    if (!dng) return;
+    const packedFloors = {};
+    if (dng.floors) {
+      Object.keys(dng.floors).forEach(fk => {
+        packedFloors[fk] = packFloorForStorage(dng.floors[fk]);
+      });
+    }
+    packedDungeons[dId] = {
+      id: dng.id,
+      name: dng.name,
+      profileId: dng.profileId,
+      originType: dng.originType,
+      worldCoords: dng.worldCoords || null,
+      seedCode: dng.seedCode,
+      numericSeed: dng.numericSeed,
+      config: dng.config,
+      currentFloor: dng.currentFloor,
+      deepestFloor: dng.deepestFloor || dng.currentFloor || 1,
+      isCleared: !!dng.isCleared,
+      waypoints: dng.waypoints ? JSON.parse(JSON.stringify(dng.waypoints)) : {},
+      floors: packedFloors
+    };
+  });
+
+  return {
+    version: state.version || SCHEMA_VERSION,
+    playerId: state.playerId || CANONICAL_PLAYER_ID,
+    turn: state.turn || 0,
+    inGuild: state.inGuild !== false,
+    audioEnabled: state.audioEnabled !== false,
+    maxCharteredDungeons: state.maxCharteredDungeons || DEFAULT_MAX_CHARTERED_DUNGEONS,
+    activeDungeonId: state.activeDungeonId,
+    dungeons: packedDungeons,
+    hero: state.hero,
+    guildVault: state.guildVault,
+    guildResearch: state.guildResearch,
+    guildBounties: state.guildBounties,
+    codex: state.codex ? JSON.parse(JSON.stringify(state.codex)) : createDefaultCodexState(),
+    wargameSession: state.wargameSession ? JSON.parse(JSON.stringify(state.wargameSession)) : null,
+    uiSettings: state.uiSettings ? JSON.parse(JSON.stringify(state.uiSettings)) : { armorySortBy: 'slot' }
+  };
+}
+
+function saveGame(state = gameState) {
+  try {
+    if (typeof localStorage !== 'undefined') {
+      const payload = serializeStateForStorage(state);
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+    }
+  } catch (e) {
+    // Ignore storage quota or sandbox errors
+  }
+}
+
+function loadGame() {
+  try {
+    if (typeof localStorage !== 'undefined') {
+      const raw =
+        localStorage.getItem(STORAGE_KEY) ||
+        localStorage.getItem('aethelgard_save_v5') ||
+        localStorage.getItem('aethelgard_save_v4') ||
+        localStorage.getItem('aethelgard_save_v3') ||
+        localStorage.getItem('aethelgard_save_v2') ||
+        localStorage.getItem('aethelgard_save');
+      if (raw) {
+        const migrated = migrateSaveData(raw);
+        setGameState(migrated);
+        if (gameState.hero) {
+          recomputeHeroDerivedStats(false, gameState);
+          return true;
+        }
+      }
+    }
+  } catch (e) {
+    console.warn('Save load warning:', e);
+  }
+  return false;
+}
+
+
+function packDungeonWorldSnapshot(state = gameState) {
+  if (!state || typeof state !== 'object') return null;
+  const serialized = serializeStateForStorage(state);
+  const hasActiveSession = Boolean(
+    state.wargameSession &&
+    state.wargameSession.active &&
+    state.wargameSession.inProcess &&
+    !state.inGuild &&
+    state.hero
+  );
+  let activeSession = null;
+  if (hasActiveSession) {
+    const h = state.hero;
+    activeSession = {
+      sessionId: state.wargameSession.sessionId || null,
+      playerId: state.wargameSession.playerId || state.playerId || CANONICAL_PLAYER_ID,
+      campaignId: state.wargameSession.campaignId || null,
+      unitId: state.wargameSession.partyUnitId || null,
+      heroId: state.wargameSession.heroId || h.id || null,
+      poiId: state.wargameSession.dungeonPoiId || null,
+      dungeonId: state.activeDungeonId || state.wargameSession.dungeonId || 'dng_starfall',
+      dungeonName: state.wargameSession.dungeonName || (state.dungeon && state.dungeon.name) || 'The Starfall Vaults',
+      dungeonCoords: state.wargameSession.dungeonCoords ? { x: state.wargameSession.dungeonCoords.x, y: state.wargameSession.dungeonCoords.y } : null,
+      currentFloor: (state.dungeon && state.dungeon.currentFloor) || 1,
+      wargameSession: JSON.parse(JSON.stringify(state.wargameSession)),
+      hero: JSON.parse(JSON.stringify(h))
+    };
+  }
+  return {
+    version: 1,
+    activeDungeonId: serialized.activeDungeonId,
+    turn: serialized.turn || 0,
+    dungeons: serialized.dungeons,
+    codex: serialized.codex,
+    activeSession: activeSession
+  };
+}
+
+function hydrateDungeonWorldSnapshot(snapshot, targetState = gameState) {
+  if (!snapshot || typeof snapshot !== 'object' || !targetState) return { ok: false, hasActiveSession: false };
+  if (!snapshot.dungeons || typeof snapshot.dungeons !== 'object') return { ok: false, hasActiveSession: false };
+
+  const clonedDungeons = JSON.parse(JSON.stringify(snapshot.dungeons));
+  const dIds = Object.keys(clonedDungeons);
+  if (dIds.length === 0) return { ok: false, hasActiveSession: false };
+
+  for (let i = 0; i < dIds.length; i++) {
+    const dng = clonedDungeons[dIds[i]];
+    if (!dng) continue;
+    if (!dng.waypoints || typeof dng.waypoints !== 'object') dng.waypoints = {};
+    if (!dng.floors || typeof dng.floors !== 'object') dng.floors = {};
+  }
+
+  targetState.dungeons = clonedDungeons;
+  targetState.activeDungeonId = (snapshot.activeDungeonId && clonedDungeons[snapshot.activeDungeonId])
+    ? snapshot.activeDungeonId
+    : dIds[0];
+  targetState.turn = typeof snapshot.turn === 'number' ? snapshot.turn : 0;
+  targetState.codex = snapshot.codex ? JSON.parse(JSON.stringify(snapshot.codex)) : createDefaultCodexState();
+  syncActiveDungeonAlias(targetState);
+
+  const sess = snapshot.activeSession;
+  const sessionValid = Boolean(
+    sess &&
+    typeof sess === 'object' &&
+    sess.hero &&
+    sess.unitId &&
+    sess.dungeonId &&
+    clonedDungeons[sess.dungeonId]
+  );
+
+  if (sessionValid) {
+    targetState.activeDungeonId = sess.dungeonId;
+    syncActiveDungeonAlias(targetState);
+    if (targetState.dungeon && typeof sess.currentFloor === 'number' && sess.currentFloor >= 1) {
+      targetState.dungeon.currentFloor = sess.currentFloor;
+      if (targetState.dungeon.floors && targetState.dungeon.floors[sess.currentFloor]) {
+        ensureDungeonFloorHydrated(targetState.dungeon, sess.currentFloor);
+      }
+    }
+    targetState.hero = JSON.parse(JSON.stringify(sess.hero));
+    if (targetState.hero && targetState.hero.equipment) {
+      const eqKeys = ['weapon', 'armor', 'helm', 'boots', 'accessory', 'pickaxe'];
+      for (let i = 0; i < eqKeys.length; i++) {
+        if (targetState.hero.equipment[eqKeys[i]]) {
+          normalizeEquipmentSockets(targetState.hero.equipment[eqKeys[i]]);
+        }
+      }
+    }
+    targetState.wargameSession = sess.wargameSession
+      ? JSON.parse(JSON.stringify(sess.wargameSession))
+      : {
+          active: true,
+          inProcess: true,
+          sessionId: sess.sessionId || null,
+          playerId: sess.playerId || CANONICAL_PLAYER_ID,
+          campaignId: sess.campaignId || null,
+          partyUnitId: sess.unitId,
+          heroId: sess.heroId || targetState.hero.id,
+          dungeonPoiId: sess.poiId || null,
+          dungeonId: sess.dungeonId,
+          dungeonName: sess.dungeonName || 'The Starfall Vaults',
+          dungeonCoords: sess.dungeonCoords || null
+        };
+    targetState.wargameSession.active = true;
+    targetState.wargameSession.inProcess = true;
+    targetState.inGuild = false;
+    recomputeHeroDerivedStats(false, targetState);
+    return { ok: true, hasActiveSession: true, session: sess };
+  }
+
+  targetState.inGuild = true;
+  if (targetState.wargameSession) {
+    targetState.wargameSession.active = false;
+  }
+  return { ok: true, hasActiveSession: false, session: null };
+}
+
   // --- Module: src/wargame/engine/state.js ---
 // Wargame Authoritative State Store, Universe -> World -> Cities -> Units Hierarchy & Save Serialization
+
+
 
 
 
@@ -3732,24 +7820,284 @@ function buildSerializableWargameState(state) {
   return clean;
 }
 
-function saveWargameState(state, scheduler = null) {
-  if (typeof localStorage === 'undefined' || !state || !state.world) return false;
-  if (scheduler) {
-    state.world.scheduledJobs = scheduler.serializeJobs();
+function validateWargameSavePayload(parsed) {
+  if (!parsed || typeof parsed !== 'object') return { ok: false, reason: 'not_an_object' };
+  const w = parsed.world;
+  if (!w || typeof w !== 'object') return { ok: false, reason: 'missing_world' };
+  if (!w.clock || typeof w.clock !== 'object' || typeof w.clock.simTimeMs !== 'number' || !isFinite(w.clock.simTimeMs)) {
+    return { ok: false, reason: 'invalid_clock' };
   }
-  state.world.clock.lastRealTimestamp = Date.now();
-  const payload = buildSerializableWargameState(state);
-  localStorage.setItem(WARGAME_STORAGE_KEY, JSON.stringify(payload));
-  return true;
+  const ow = w.overworld;
+  if (!ow || typeof ow !== 'object' || typeof ow.width !== 'number' || typeof ow.height !== 'number' || ow.width <= 0 || ow.height <= 0) {
+    return { ok: false, reason: 'invalid_overworld_dimensions' };
+  }
+  if (!Array.isArray(ow.tiles) || ow.tiles.length !== ow.height) {
+    return { ok: false, reason: 'invalid_overworld_tiles' };
+  }
+  if (!Array.isArray(ow.explored) || ow.explored.length !== ow.height) {
+    return { ok: false, reason: 'invalid_overworld_explored' };
+  }
+  for (let y = 0; y < ow.height; y++) {
+    if (!Array.isArray(ow.tiles[y]) || ow.tiles[y].length !== ow.width) {
+      return { ok: false, reason: 'corrupt_tile_row_' + y };
+    }
+    if (!Array.isArray(ow.explored[y]) || ow.explored[y].length !== ow.width) {
+      return { ok: false, reason: 'corrupt_explored_row_' + y };
+    }
+  }
+  if (!Array.isArray(ow.units)) return { ok: false, reason: 'invalid_units' };
+  if (w.cities !== undefined && (typeof w.cities !== 'object' || w.cities === null || Array.isArray(w.cities))) {
+    return { ok: false, reason: 'invalid_cities' };
+  }
+  if (w.heroes !== undefined && !Array.isArray(w.heroes)) return { ok: false, reason: 'invalid_heroes' };
+  if (w.parties !== undefined && !Array.isArray(w.parties)) return { ok: false, reason: 'invalid_parties' };
+  return { ok: true };
 }
 
-function loadWargameState(scheduler = null) {
+function reconcileLoadedWorldIntegrity(parsed) {
+  const w = parsed.world;
+  const ow = w.overworld;
+  const simTimeMs = (w.clock && typeof w.clock.simTimeMs === 'number') ? w.clock.simTimeMs : 0;
+
+  if (!w.cities || typeof w.cities !== 'object') w.cities = {};
+  if (!Array.isArray(w.heroes)) w.heroes = [];
+  if (!Array.isArray(w.parties)) w.parties = [];
+
+  // 1. Reconcile activeCityId
+  const cityIds = Object.keys(w.cities);
+  if (w.activeCityId && !w.cities[w.activeCityId]) {
+    w.activeCityId = cityIds.length > 0 ? cityIds[0] : null;
+  } else if (!w.activeCityId && cityIds.length > 0) {
+    w.activeCityId = cityIds[0];
+  }
+
+  // 2. Reconcile hero IDs, roster leader & party memberships (never delete valid entities)
+  const heroIdSet = {};
+  for (let i = 0; i < w.heroes.length; i++) {
+    if (w.heroes[i] && w.heroes[i].id) heroIdSet[w.heroes[i].id] = true;
+  }
+  if (w.roster) {
+    if (w.roster.overallLeaderHeroId && !heroIdSet[w.roster.overallLeaderHeroId]) {
+      w.roster.overallLeaderHeroId = w.heroes.length > 0 ? w.heroes[0].id : null;
+    }
+  }
+  for (let pi = 0; pi < w.parties.length; pi++) {
+    const party = w.parties[pi];
+    if (!party) continue;
+    if (Array.isArray(party.memberIds)) {
+      const seen = {};
+      party.memberIds = party.memberIds.filter(function(mid) {
+        if (!heroIdSet[mid] || seen[mid]) return false;
+        seen[mid] = true;
+        return true;
+      });
+    } else {
+      party.memberIds = [];
+    }
+    if (party.leaderHeroId && !heroIdSet[party.leaderHeroId]) {
+      party.leaderHeroId = party.memberIds.length > 0 ? party.memberIds[0] : null;
+    }
+  }
+
+  // 3. Reconcile selectedUnitId
+  const units = Array.isArray(ow.units) ? ow.units : [];
+  const hasSelected = Boolean(ow.selectedUnitId && units.some(function(u) { return u && u.id === ow.selectedUnitId && u.alive; }));
+  if (!hasSelected) {
+    const firstAlive = units.find(function(u) { return u && u.alive; });
+    ow.selectedUnitId = firstAlive ? firstAlive.id : null;
+  }
+
+  // 4. Deduplicate scheduledJobs by jobId
+  const rawJobs = Array.isArray(w.scheduledJobs) ? w.scheduledJobs : [];
+  const jobMap = {};
+  const cleanJobs = [];
+  for (let ji = 0; ji < rawJobs.length; ji++) {
+    const j = rawJobs[ji];
+    if (!j || !j.jobId || typeof j.dueSimTimeMs !== 'number' || !isFinite(j.dueSimTimeMs)) continue;
+    if (jobMap[j.jobId]) continue;
+    jobMap[j.jobId] = j;
+    cleanJobs.push(j);
+  }
+
+  // 5. Reconcile interrupted marches & active dungeon sessions
+  const dngWorld = w.dungeonWorld && typeof w.dungeonWorld === 'object' ? w.dungeonWorld : null;
+  const activeSess = dngWorld && dngWorld.activeSession && typeof dngWorld.activeSession === 'object' ? dngWorld.activeSession : null;
+  const sessDungeonExists = Boolean(activeSess && activeSess.dungeonId && dngWorld.dungeons && dngWorld.dungeons[activeSess.dungeonId] && activeSess.hero);
+
+  for (let ui = 0; ui < units.length; ui++) {
+    const u = units[ui];
+    if (!u || !u.alive) continue;
+
+    if (u.status === 'marching') {
+      const mp = u.marchPlan;
+      let pathValid = Boolean(mp && Array.isArray(mp.remainingPath) && mp.remainingPath.length > 0);
+      if (pathValid) {
+        let px = u.x;
+        let py = u.y;
+        for (let si = 0; si < mp.remainingPath.length; si++) {
+          const st = mp.remainingPath[si];
+          if (!st || !isInOverworldBounds(ow, st.x, st.y) || !isOverworldTilePassable(ow, st.x, st.y) || !areHexesAdjacent(px, py, st.x, st.y)) {
+            pathValid = false;
+            break;
+          }
+          px = st.x;
+          py = st.y;
+        }
+      }
+      if (!pathValid) {
+        u.status = 'idle';
+        u.marchPlan = null;
+      } else if (!mp.activeJobId || !jobMap[mp.activeJobId]) {
+        const nextStep = mp.remainingPath[0];
+        const stepDur = Math.max(250, nextStep.stepDurationMs || 3000);
+        const recoveryJobId = 'job_recover_march_' + u.id + '_' + simTimeMs;
+        const dueMs = Math.max(simTimeMs + 250, mp.stepDueSimTimeMs || (simTimeMs + stepDur));
+        const recJob = {
+          jobId: recoveryJobId,
+          jobType: 'UNIT_MARCH_STEP',
+          ownerId: u.id,
+          startSimTimeMs: simTimeMs,
+          dueSimTimeMs: dueMs,
+          durationMs: Math.max(1, dueMs - simTimeMs),
+          payload: { unitId: u.id, targetX: nextStep.x, targetY: nextStep.y }
+        };
+        mp.activeJobId = recoveryJobId;
+        mp.fromX = u.x;
+        mp.fromY = u.y;
+        mp.toX = nextStep.x;
+        mp.toY = nextStep.y;
+        mp.stepStartSimTimeMs = simTimeMs;
+        mp.stepDueSimTimeMs = dueMs;
+        jobMap[recoveryJobId] = recJob;
+        cleanJobs.push(recJob);
+      }
+    } else if (u.status === 'in_dungeon') {
+      const matchesSession = Boolean(sessDungeonExists && activeSess.unitId === u.id);
+      if (!matchesSession) {
+        // Deterministic safe fallback: return party to idle at dungeon entrance POI without losing permanent progression/gear
+        const poi = (ow.pois || []).find(function(p) {
+          return p && p.type === 'dungeon_entrance' && (p.id === u.activeDungeonPoiId || p.dungeonId === u.activeDungeonId);
+        });
+        if (poi && isInOverworldBounds(ow, poi.x, poi.y)) {
+          u.x = poi.x;
+          u.y = poi.y;
+        }
+        u.status = 'idle';
+        u.marchPlan = null;
+        u.activeDungeonPoiId = null;
+        u.activeDungeonId = null;
+      }
+    }
+  }
+
+  // 6. Reconcile orphaned active city build/recruitment queue items
+  for (let ci = 0; ci < cityIds.length; ci++) {
+    const c = w.cities[cityIds[ci]];
+    if (!c) continue;
+    if (Array.isArray(c.buildQueue)) {
+      for (let bi = 0; bi < c.buildQueue.length; bi++) {
+        const bq = c.buildQueue[bi];
+        if (bq && bq.status === 'building' && (!bq.jobId || !jobMap[bq.jobId])) {
+          const recJobId = bq.jobId || ('job_recover_build_' + c.id + '_' + bi);
+          const dueMs = Math.max(simTimeMs + 250, bq.dueSimTimeMs || (simTimeMs + 5000));
+          const recJob = {
+            jobId: recJobId,
+            jobType: bq.actionType === 'demolish' ? 'BUILDING_DEMOLISH_COMPLETE' : (bq.actionType === 'move' ? 'BUILDING_MOVE_COMPLETE' : 'BUILDING_COMPLETE'),
+            ownerId: c.id,
+            startSimTimeMs: bq.startSimTimeMs || simTimeMs,
+            dueSimTimeMs: dueMs,
+            durationMs: Math.max(1, dueMs - (bq.startSimTimeMs || simTimeMs)),
+            payload: {
+              cityId: c.id,
+              plotIndex: bq.plotIndex,
+              sourcePlotIndex: bq.sourcePlotIndex,
+              targetPlotIndex: bq.targetPlotIndex,
+              buildingId: bq.buildingId,
+              targetLevel: bq.targetLevel,
+              queueItemId: bq.queueItemId
+            }
+          };
+          bq.jobId = recJobId;
+          bq.dueSimTimeMs = dueMs;
+          jobMap[recJobId] = recJob;
+          cleanJobs.push(recJob);
+        }
+      }
+    }
+    if (Array.isArray(c.recruitmentQueue)) {
+      for (let ri = 0; ri < c.recruitmentQueue.length; ri++) {
+        const rq = c.recruitmentQueue[ri];
+        if (rq && rq.status === 'training' && (!rq.jobId || !jobMap[rq.jobId])) {
+          const recJobId = rq.jobId || ('job_recover_recruit_' + c.id + '_' + ri);
+          const dueMs = Math.max(simTimeMs + 250, rq.dueSimTimeMs || (simTimeMs + 10000));
+          const recJob = {
+            jobId: recJobId,
+            jobType: 'HERO_RECRUIT_COMPLETE',
+            ownerId: c.id,
+            startSimTimeMs: rq.startSimTimeMs || simTimeMs,
+            dueSimTimeMs: dueMs,
+            durationMs: Math.max(1, dueMs - (rq.startSimTimeMs || simTimeMs)),
+            payload: {
+              cityId: c.id,
+              classId: rq.classId,
+              heroName: rq.heroName,
+              queueItemId: rq.queueItemId
+            }
+          };
+          rq.jobId = recJobId;
+          rq.dueSimTimeMs = dueMs;
+          jobMap[recJobId] = recJob;
+          cleanJobs.push(recJob);
+        }
+      }
+    }
+  }
+
+  w.scheduledJobs = cleanJobs;
+  return cleanJobs;
+}
+
+function saveWargameState(state, scheduler = null, dungeonState = null) {
+  if (typeof localStorage === 'undefined' || !state || !state.world) return false;
+  try {
+    const payload = buildSerializableWargameState(state);
+    if (!payload || !payload.world) return false;
+    const jobs = scheduler ? scheduler.serializeJobs() : (Array.isArray(state.world.scheduledJobs) ? state.world.scheduledJobs : []);
+    const nowTs = Date.now();
+    // Stage updated metadata on payload without corrupting last valid save if serialization or storage throws
+    const worldCopy = Object.assign({}, payload.world, {
+      scheduledJobs: jobs,
+      clock: Object.assign({}, payload.world.clock, { lastRealTimestamp: nowTs })
+    });
+    if (dungeonState && dungeonState.dungeons) {
+      const dngSnap = packDungeonWorldSnapshot(dungeonState);
+      if (dngSnap) {
+        worldCopy.dungeonWorld = dngSnap;
+      }
+    }
+    payload.world = worldCopy;
+    const serialized = JSON.stringify(payload);
+    localStorage.setItem(WARGAME_STORAGE_KEY, serialized);
+    state.world.scheduledJobs = jobs;
+    state.world.clock.lastRealTimestamp = nowTs;
+    if (worldCopy.dungeonWorld) {
+      state.world.dungeonWorld = worldCopy.dungeonWorld;
+    }
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+function loadWargameState(scheduler = null, options = null) {
   if (typeof localStorage === 'undefined') return null;
+  const opts = options || {};
   const raw = localStorage.getItem(WARGAME_STORAGE_KEY);
   if (!raw) return null;
   try {
     const parsed = JSON.parse(raw);
-    if (!parsed || !parsed.world) return null;
+    const validation = validateWargameSavePayload(parsed);
+    if (!validation.ok) return null;
     if (parsed.world.realmStockpile) {
       if (typeof parsed.world.realmStockpile.water !== 'number') parsed.world.realmStockpile.water = 50;
       if (typeof parsed.world.realmStockpile.ore !== 'number')   parsed.world.realmStockpile.ore = 20;
@@ -3798,6 +8146,16 @@ function loadWargameState(scheduler = null) {
         }
         if (!Array.isArray(hh.bagGear)) {
           hh.bagGear = [];
+        }
+        // Backfill Task 02 hero progression fields ONLY when absent (never overwrite existing progression!)
+        if (typeof hh.maxXp !== 'number' || hh.maxXp <= 0) hh.maxXp = 60;
+        if (!hh.bonusStats || typeof hh.bonusStats !== 'object') {
+          hh.bonusStats = { str: 0, dex: 0, int: 0, vit: 0 };
+        }
+        if (typeof hh.statPoints !== 'number') hh.statPoints = 0;
+        if (typeof hh.talentPoints !== 'number') hh.talentPoints = 0;
+        if (!hh.talentsAllocated || typeof hh.talentsAllocated !== 'object') {
+          hh.talentsAllocated = {};
         }
       }
     }
@@ -3855,8 +8213,9 @@ function loadWargameState(scheduler = null) {
     if (parsed.world) {
       ensureCanonicalPlayerIdentity(parsed.world);
       ensureProgressionState(parsed.world);
+      reconcileLoadedWorldIntegrity(parsed);
     }
-    if (scheduler && Array.isArray(parsed.world.scheduledJobs)) {
+    if (scheduler && !opts.deferSchedulerHydrate && Array.isArray(parsed.world.scheduledJobs)) {
       scheduler.hydrateJobs(parsed.world.scheduledJobs);
     }
     return parsed;
@@ -8985,10 +13344,23 @@ function advanceSimulationClock(deltaRealMs, state, scheduler, eventStream) {
 
 
 
+
 function createWargameSimHost(initialState = null) {
   const state = initialState || createTitleScreenState();
   const scheduler = createSimulationScheduler();
   const eventStream = createWorldEventStream(500);
+  let attachedDungeonState = null;
+
+  function attachDungeonState(dungeonStateRef) {
+    attachedDungeonState = dungeonStateRef || null;
+  }
+
+  function resetAttachedDungeonState() {
+    if (!attachedDungeonState) return;
+    const fresh = createDefaultGameState();
+    Object.keys(attachedDungeonState).forEach(function(k) { delete attachedDungeonState[k]; });
+    Object.assign(attachedDungeonState, fresh);
+  }
 
   function dispatch(commandEnvelope) {
     return dispatchWargameCommand(commandEnvelope, state, scheduler, eventStream);
@@ -8999,22 +13371,106 @@ function createWargameSimHost(initialState = null) {
   }
 
   function save() {
-    return saveWargameState(state, scheduler);
+    return saveWargameState(state, scheduler, attachedDungeonState);
+  }
+
+  function surfaceUnitsOnWorld(worldObj) {
+    if (!worldObj || !worldObj.overworld || !Array.isArray(worldObj.overworld.units)) return;
+    const pois = Array.isArray(worldObj.overworld.pois) ? worldObj.overworld.pois : [];
+    for (let i = 0; i < worldObj.overworld.units.length; i++) {
+      const u = worldObj.overworld.units[i];
+      if (!u || !u.alive || u.status !== 'in_dungeon') continue;
+      if (u.dungeonPoiId) {
+        const poi = pois.find(function(p) { return p && p.id === u.dungeonPoiId; });
+        if (poi && typeof poi.x === 'number' && typeof poi.y === 'number') {
+          u.x = poi.x;
+          u.y = poi.y;
+        }
+      }
+      u.status = 'idle';
+      u.movePlan = null;
+      u.activeJobId = null;
+      u.dungeonPoiId = null;
+    }
   }
 
   function load() {
-    const loaded = loadWargameState(scheduler);
+    // Phase 1: Stage & validate campaign state without mutating live state or scheduler
+    const loaded = loadWargameState(null, { deferSchedulerHydrate: true });
     if (!loaded) return false;
-    Object.keys(state).forEach(function(k) { delete state[k]; });
-    Object.assign(state, loaded);
-    evaluateTaskDAG(state, eventStream);
-    return true;
+
+    // Phase 2: Stage dungeon-world hydration into an isolated sandbox before committing
+    let stagedDungeon = null;
+    if (attachedDungeonState) {
+      stagedDungeon = createDefaultGameState();
+      if (loaded.world && loaded.world.dungeonWorld) {
+        const hRes = hydrateDungeonWorldSnapshot(loaded.world.dungeonWorld, stagedDungeon);
+        if (!hRes || !hRes.ok) {
+          // Deterministic fallback: discard corrupt dungeon slice and safely surface any in_dungeon unit
+          stagedDungeon = createDefaultGameState();
+          loaded.world.dungeonWorld = null;
+          surfaceUnitsOnWorld(loaded.world);
+        } else if (stagedDungeon.wargameSession && stagedDungeon.wargameSession.active) {
+          // Verify matching in_dungeon unit exists and is alive
+          const targetUnitId = stagedDungeon.wargameSession.partyUnitId;
+          const units = (loaded.world.overworld && Array.isArray(loaded.world.overworld.units))
+            ? loaded.world.overworld.units : [];
+          const matchUnit = units.find(function(u) {
+            return u && u.alive && u.id === targetUnitId && u.status === 'in_dungeon';
+          });
+          if (!matchUnit) {
+            stagedDungeon.wargameSession.active = false;
+            stagedDungeon.inGuild = true;
+            surfaceUnitsOnWorld(loaded.world);
+          }
+        }
+      }
+    }
+
+    // Phase 3: Atomic commit with rollback guard
+    const prevStateBackup = {};
+    Object.keys(state).forEach(function(k) { prevStateBackup[k] = state[k]; });
+    const prevJobsBackup = scheduler.serializeJobs();
+    const prevDungeonBackup = attachedDungeonState ? {} : null;
+    if (attachedDungeonState) {
+      Object.keys(attachedDungeonState).forEach(function(k) { prevDungeonBackup[k] = attachedDungeonState[k]; });
+    }
+
+    try {
+      Object.keys(state).forEach(function(k) { delete state[k]; });
+      Object.assign(state, loaded);
+
+      const stagedJobs = (loaded.world && Array.isArray(loaded.world.scheduledJobs))
+        ? loaded.world.scheduledJobs
+        : [];
+      scheduler.hydrateJobs(stagedJobs);
+
+      if (attachedDungeonState && stagedDungeon) {
+        Object.keys(attachedDungeonState).forEach(function(k) { delete attachedDungeonState[k]; });
+        Object.assign(attachedDungeonState, stagedDungeon);
+      }
+
+      evaluateTaskDAG(state, eventStream);
+      return true;
+    } catch (err) {
+      // Roll back live state, scheduler, and dungeon state on unexpected commit failure
+      Object.keys(state).forEach(function(k) { delete state[k]; });
+      Object.assign(state, prevStateBackup);
+      scheduler.hydrateJobs(prevJobsBackup);
+      if (attachedDungeonState && prevDungeonBackup) {
+        Object.keys(attachedDungeonState).forEach(function(k) { delete attachedDungeonState[k]; });
+        Object.assign(attachedDungeonState, prevDungeonBackup);
+      }
+      return false;
+    }
   }
 
   return {
     state: state,
     scheduler: scheduler,
     eventStream: eventStream,
+    attachDungeonState: attachDungeonState,
+    resetAttachedDungeonState: resetAttachedDungeonState,
     dispatch: dispatch,
     stepClock: stepClock,
     save: save,
@@ -12806,218 +17262,6 @@ function handleDevCompleteQueuesAction(simHost) {
   return { ok: true };
 }
 
-  // --- Module: src/constants.js ---
-// Core constants, viewport dimensions, map scale presets, tile IDs, and rarity definitions
-
-const SCHEMA_VERSION = 'v0.5.0-inc5';
-const STORAGE_KEY = 'aethelgard_save_v6';
-
-const TILE_SIZE = 32;
-const VIEWPORT_WIDTH = 21;
-const VIEWPORT_HEIGHT = 15;
-
-// Legacy viewport aliases + new exploration-scale default floor dimensions
-const GRID_W = VIEWPORT_WIDTH;
-const GRID_H = VIEWPORT_HEIGHT;
-const DEFAULT_MAP_W = 80;
-const DEFAULT_MAP_H = 60;
-
-// Soft configurable cap on simultaneously chartered custom expeditions (not a structural limit; can be raised to 500+)
-const DEFAULT_MAX_CHARTERED_DUNGEONS = 12;
-
-// Bestiary & Codex Mastery Constants
-const CODEX_MASTERY_KILLS = 5;
-const CODEX_MASTERY_DMG_MULT = 1.08;
-
-const MAP_SIZE_PRESETS = {
-  small:     { id: 'small',     name: 'Small Outpost',        width: 48,  height: 36,  desc: '48x36 (~5.5x classic) • 14–18 chambers' },
-  standard:  { id: 'standard',  name: 'Standard Delve',       width: 80,  height: 60,  desc: '80x60 (~15x classic) • Multi-wing halls & vaults' },
-  sprawling: { id: 'sprawling', name: 'Sprawling Labyrinth',  width: 128, height: 96,  desc: '128x96 (~39x classic) • Deep avenues & caverns' },
-  colossal:  { id: 'colossal',  name: 'Colossal Megadungeon', width: 192, height: 144, desc: '192x144 (~88x classic) • Massive subterranean expanse' }
-};
-
-// Tile Constants
-const TILE_WALL = 0;
-const TILE_FLOOR = 1;
-const TILE_STAIRS_UP = 2;
-const TILE_STAIRS_DOWN = 3;
-const TILE_CHEST = 4;
-const TILE_CHEST_OPEN = 5;
-const TILE_SHRINE = 6;
-const TILE_SHRINE_USED = 7;
-const TILE_TRAP_HIDDEN = 8;
-const TILE_TRAP_VISIBLE = 9;
-const TILE_ORE_COPPER = 10;
-const TILE_ORE_IRON = 11;
-const TILE_ORE_MITHRIL = 12;
-const TILE_ORE_STAR = 13;
-const TILE_ORE_ASTRAL = 14;
-const TILE_ORE_GEODE = 15;
-const TILE_TRAP_DISARMED = 16;
-
-// Economy Constants
-const LAPIDARY_UNSOCKET_COST = 15;
-const BOUNTY_REROLL_COST = 25;
-
-// Rarity Definitions
-const RARITY = {
-  common:   { id: 'common',   name: 'Common',            color: '#94a3b8', mult: 1.0, affixes: 0 },
-  uncommon: { id: 'uncommon', name: 'Uncommon',          color: '#4ade80', mult: 1.4, affixes: 1 },
-  rare:     { id: 'rare',     name: 'Rare',              color: '#60a5fa', mult: 2.0, affixes: 2 },
-  epic:     { id: 'epic',     name: 'Epic',              color: '#c084fc', mult: 3.2, affixes: 3 },
-  relic:    { id: 'relic',    name: 'Star-Forged Relic', color: '#fbbf24', mult: 5.5, affixes: 4 }
-};
-
-  // --- Module: src/data/classes.js ---
-// Complete 5 Playable Classes Registry (Fighter, Thief, Mage, Ranger, Paladin)
-
-const CLASSES = {
-  fighter: {
-    id: 'fighter',
-    name: 'Fighter',
-    title: 'Iron Vanguard',
-    color: '#f87171',
-    baseStats: { str: 15, dex: 10, int: 8, vit: 14 },
-    hpBase: 120,
-    mpBase: 35,
-    vision: 5,
-    starterGear: {
-      weapon:    { uid: 'w_start_f', name: 'Iron Broadsword', slot: 'weapon', rarity: 'common', atk: 8, str: 2, value: 20, affixes: [] },
-      armor:     { uid: 'a_start_f', name: 'Riveted Mail', slot: 'armor', rarity: 'common', def: 6, vit: 1, value: 20, affixes: [] },
-      helm:      { uid: 'h_start_f', name: 'Iron Coif', slot: 'helm', rarity: 'common', def: 2, value: 12, affixes: [] },
-      boots:     { uid: 'b_start_f', name: 'Heavy Sabatons', slot: 'boots', rarity: 'common', def: 2, value: 12, affixes: [] },
-      accessory: { uid: 'acc_start_f', name: 'Vanguard Signet', slot: 'accessory', rarity: 'common', atk: 1, crit: 2, value: 15, affixes: [] },
-      pickaxe:   { uid: 'pick_start_f', name: 'Iron Pickaxe', slot: 'pickaxe', rarity: 'common', curDur: 30, maxDur: 30, value: 25, affixes: [] }
-    },
-    passiveName: 'Unstoppable Stride',
-    passiveDesc: '+10 Max HP & reduces incoming physical damage by 15%.',
-    skillName: 'Whirlwind Cleave',
-    skillCost: 10,
-    skillRange: 1,
-    skillDesc: 'Cleaves all adjacent foes for 150% weapon damage and stuns them for 1 turn.'
-  },
-  thief: {
-    id: 'thief',
-    name: 'Thief',
-    title: 'Shadow Strider',
-    color: '#c084fc',
-    baseStats: { str: 9, dex: 16, int: 11, vit: 10 },
-    hpBase: 90,
-    mpBase: 45,
-    vision: 6,
-    starterGear: {
-      weapon:    { uid: 'w_start_t', name: 'Obsidian Stiletto', slot: 'weapon', rarity: 'common', atk: 7, crit: 8, value: 20, affixes: [] },
-      armor:     { uid: 'a_start_t', name: 'Shadow Leather', slot: 'armor', rarity: 'common', def: 3, dodge: 6, value: 20, affixes: [] },
-      helm:      { uid: 'h_start_t', name: 'Nightblade Cowl', slot: 'helm', rarity: 'common', def: 1, crit: 3, value: 12, affixes: [] },
-      boots:     { uid: 'b_start_t', name: 'Silent Footwraps', slot: 'boots', rarity: 'common', def: 1, dodge: 5, value: 12, affixes: [] },
-      accessory: { uid: 'acc_start_t', name: 'Prospector Die', slot: 'accessory', rarity: 'common', crit: 4, value: 15, affixes: [] },
-      pickaxe:   { uid: 'pick_start_t', name: 'Iron Pickaxe', slot: 'pickaxe', rarity: 'common', curDur: 28, maxDur: 28, value: 25, affixes: [] }
-    },
-    passiveName: 'Opportunist',
-    passiveDesc: '+15% Critical Strike chance & +25% gold found in chests.',
-    skillName: 'Shadowstep Strike',
-    skillCost: 12,
-    skillRange: 3,
-    skillDesc: 'Teleports to a free floor tile adjacent to a target within 3 tiles and strikes for 220% Crit damage.'
-  },
-  mage: {
-    id: 'mage',
-    name: 'Mage',
-    title: 'Starweaver Adept',
-    color: '#60a5fa',
-    baseStats: { str: 7, dex: 10, int: 17, vit: 10 },
-    hpBase: 82,
-    mpBase: 80,
-    vision: 6,
-    starterGear: {
-      weapon:    { uid: 'w_start_m', name: 'Astral Runestaff', slot: 'weapon', rarity: 'common', atk: 5, int: 3, value: 20, affixes: [] },
-      armor:     { uid: 'a_start_m', name: 'Starweaver Robes', slot: 'armor', rarity: 'common', def: 2, maxMp: 15, value: 20, affixes: [] },
-      helm:      { uid: 'h_start_m', name: 'Circlet of Will', slot: 'helm', rarity: 'common', def: 1, int: 2, value: 12, affixes: [] },
-      boots:     { uid: 'b_start_m', name: 'Leyline Slippers', slot: 'boots', rarity: 'common', def: 1, maxMp: 10, value: 12, affixes: [] },
-      accessory: { uid: 'acc_start_m', name: 'Vespera Shard', slot: 'accessory', rarity: 'common', maxMp: 15, value: 15, affixes: [] },
-      pickaxe:   { uid: 'pick_start_m', name: 'Iron Pickaxe', slot: 'pickaxe', rarity: 'common', curDur: 25, maxDur: 25, value: 25, affixes: [] }
-    },
-    passiveName: 'Arcane Surge',
-    passiveDesc: 'Regenerates +2 MP each turn and adds INT scaling to basic attacks.',
-    skillName: 'Starfall Nova',
-    skillCost: 16,
-    skillRange: 4,
-    skillDesc: 'Unleashes an astral detonation hitting all visible enemies within 4 tiles for 200% spell damage + Burn.'
-  },
-  ranger: {
-    id: 'ranger',
-    name: 'Ranger',
-    title: 'Deepwood Pathfinder',
-    color: '#34d399',
-    baseStats: { str: 12, dex: 15, int: 11, vit: 11 },
-    hpBase: 95,
-    mpBase: 45,
-    vision: 7,
-    starterGear: {
-      weapon:    { uid: 'w_start_r', name: 'Recurve Shortbow', slot: 'weapon', rarity: 'common', atk: 6, dex: 2, value: 20, affixes: [] },
-      armor:     { uid: 'a_start_r', name: 'Scout Gambeson', slot: 'armor', rarity: 'common', def: 4, dodge: 4, value: 20, affixes: [] },
-      helm:      { uid: 'h_start_r', name: 'Falconer Cap', slot: 'helm', rarity: 'common', def: 1, visionBonus: 1, value: 12, affixes: [] },
-      boots:     { uid: 'b_start_r', name: 'Trailrunner Boots', slot: 'boots', rarity: 'common', def: 1, dodge: 5, value: 12, affixes: [] },
-      accessory: { uid: 'acc_start_r', name: 'Quiver Trinket', slot: 'accessory', rarity: 'common', crit: 5, value: 15, affixes: [] },
-      pickaxe:   { uid: 'pick_start_r', name: 'Iron Pickaxe', slot: 'pickaxe', rarity: 'common', curDur: 25, maxDur: 25, value: 25, affixes: [] }
-    },
-    passiveName: 'Eagle Eye',
-    passiveDesc: '7-tile Torchlight vision & +15% Evasion.',
-    skillName: 'Starfall Volley',
-    skillCost: 14,
-    skillRange: 5,
-    skillDesc: 'Looses a piercing astral salvo striking up to 3 visible foes within 5 tiles for 180% weapon damage.'
-  },
-  paladin: {
-    id: 'paladin',
-    name: 'Paladin',
-    title: 'Dawn Warden',
-    color: '#fbbf24',
-    baseStats: { str: 14, dex: 9, int: 12, vit: 15 },
-    hpBase: 125,
-    mpBase: 50,
-    vision: 5,
-    starterGear: {
-      weapon:    { uid: 'w_start_p', name: 'Blessed Mace', slot: 'weapon', rarity: 'common', atk: 7, str: 1, value: 20, affixes: [] },
-      armor:     { uid: 'a_start_p', name: 'Crusader Hauberk', slot: 'armor', rarity: 'common', def: 7, vit: 1, value: 22, affixes: [] },
-      helm:      { uid: 'h_start_p', name: 'Steel Sallet', slot: 'helm', rarity: 'common', def: 3, value: 14, affixes: [] },
-      boots:     { uid: 'b_start_p', name: 'Plated Greaves', slot: 'boots', rarity: 'common', def: 2, value: 14, affixes: [] },
-      accessory: { uid: 'acc_start_p', name: 'Solar Medallion', slot: 'accessory', rarity: 'common', maxHp: 12, value: 18, affixes: [] },
-      pickaxe:   { uid: 'pick_start_p', name: 'Iron Pickaxe', slot: 'pickaxe', rarity: 'common', curDur: 28, maxDur: 28, value: 25, affixes: [] }
-    },
-    passiveName: 'Aura of Radiance',
-    passiveDesc: '+10 Armor & regenerates +1 HP every 3 turns.',
-    skillName: 'Holy Smite',
-    skillCost: 16,
-    skillRange: 1,
-    skillDesc: 'Strikes an adjacent foe for 240% holy damage and restores 15% of your Max HP.'
-  },
-  adventurer: {
-    id: 'adventurer',
-    name: 'Adventurer',
-    title: 'Starfall Delver',
-    color: '#38bdf8',
-    baseStats: { str: 12, dex: 12, int: 11, vit: 13 },
-    hpBase: 108,
-    mpBase: 50,
-    vision: 6,
-    starterGear: {
-      weapon:    { uid: 'w_start_a', name: 'Delver Shortsword', slot: 'weapon', rarity: 'common', atk: 7, dex: 1, value: 20, affixes: [] },
-      armor:     { uid: 'a_start_a', name: 'Expedition Brigandine', slot: 'armor', rarity: 'common', def: 5, vit: 1, value: 20, affixes: [] },
-      helm:      { uid: 'h_start_a', name: 'Lantern Cap', slot: 'helm', rarity: 'common', def: 2, visionBonus: 1, value: 12, affixes: [] },
-      boots:     { uid: 'b_start_a', name: 'Wayfarer Boots', slot: 'boots', rarity: 'common', def: 2, value: 12, affixes: [] },
-      accessory: { uid: 'acc_start_a', name: 'Guild Compass', slot: 'accessory', rarity: 'common', crit: 3, value: 15, affixes: [] },
-      pickaxe:   { uid: 'pick_start_a', name: 'Reinforced Pickaxe', slot: 'pickaxe', rarity: 'common', curDur: 34, maxDur: 34, value: 25, affixes: [] }
-    },
-    passiveName: 'Delver Grit',
-    passiveDesc: 'Balanced dungeon explorer with +1 Torchlight vision and durable mining pickaxe.',
-    skillName: 'Torch Flare',
-    skillCost: 11,
-    skillRange: 1,
-    skillDesc: 'Blasts an adjacent foe with searing torchlight for 180% damage and stuns them for 1 turn.'
-  }
-};
-
   // --- Module: src/data/items.js ---
 // Equipment Affix Pools, Quartermaster Shop Catalog, and Elite Monster Affixes
 
@@ -16095,3755 +20339,6 @@ function formatEventSummary(ev) {
     return '— [Blocked] ' + p.reason;
   }
   return '';
-}
-
-  // --- Module: src/data/gems.js ---
-// Astral Gem Catalog,Subterranean Shrine Variants, and Runic Trap Specifications
-
-const GEM_IDS = ['ruby', 'emerald', 'sapphire', 'topaz', 'void_diamond'];
-
-const GEM_CATALOG = {
-  ruby: {
-    id: 'ruby',
-    name: 'Ruby of Might',
-    shortName: 'Ruby',
-    color: '#ef4444',
-    baseValue: 65,
-    bonuses: { atk: 4, str: 2 },
-    desc: '+4 ATK, +2 STR'
-  },
-  emerald: {
-    id: 'emerald',
-    name: 'Emerald of the Wind',
-    shortName: 'Emerald',
-    color: '#10b981',
-    baseValue: 65,
-    bonuses: { crit: 5, dodge: 4, dex: 2 },
-    desc: '+5% Crit, +4% Dodge, +2 DEX'
-  },
-  sapphire: {
-    id: 'sapphire',
-    name: 'Sapphire of Will',
-    shortName: 'Sapphire',
-    color: '#3b82f6',
-    baseValue: 65,
-    bonuses: { maxMp: 18, int: 3 },
-    desc: '+18 Max MP, +3 INT'
-  },
-  topaz: {
-    id: 'topaz',
-    name: 'Topaz of Dawn',
-    shortName: 'Topaz',
-    color: '#f59e0b',
-    baseValue: 65,
-    bonuses: { maxHp: 24, def: 3, vit: 2 },
-    desc: '+24 Max HP, +3 DEF, +2 VIT'
-  },
-  void_diamond: {
-    id: 'void_diamond',
-    name: 'Void Diamond',
-    shortName: 'Void Diamond',
-    color: '#e879f9',
-    baseValue: 140,
-    bonuses: { atk: 5, def: 4, crit: 4, visionBonus: 1 },
-    desc: '+5 ATK, +4 DEF, +4% Crit, +1 Vision'
-  }
-};
-
-const GEM_DISPLAY = [
-  { id: 'ruby',         name: 'Ruby',         color: '#ef4444' },
-  { id: 'emerald',      name: 'Emerald',      color: '#10b981' },
-  { id: 'sapphire',     name: 'Sapphire',     color: '#3b82f6' },
-  { id: 'topaz',        name: 'Topaz',        color: '#f59e0b' },
-  { id: 'void_diamond', name: 'Void Diamond', color: '#e879f9' }
-];
-
-const SHRINE_CATALOG = {
-  sanctuary: {
-    id: 'sanctuary',
-    name: 'Shrine of Celestial Renewal',
-    color: '#34d399',
-    desc: 'Restores 50% Max HP & Max MP and purges negative afflictions.'
-  },
-  starfire: {
-    id: 'starfire',
-    name: 'Shrine of Starfire',
-    color: '#fbbf24',
-    statusId: 'shrine_starfire',
-    statusName: 'Starfire Blessing',
-    duration: 25,
-    bonuses: { atk: 6, crit: 12 },
-    desc: 'Grants +6 ATK and +12% Crit for 25 turns.'
-  },
-  aegis: {
-    id: 'aegis',
-    name: 'Shrine of the Astral Aegis',
-    color: '#60a5fa',
-    statusId: 'shrine_aegis',
-    statusName: 'Astral Aegis',
-    duration: 25,
-    bonuses: { def: 6, visionBonus: 1 },
-    desc: 'Grants +6 DEF and +1 Vision Radius for 25 turns.'
-  }
-};
-
-const TRAP_CATALOG = {
-  spike: {
-    id: 'spike',
-    name: 'Runic Spike Trap',
-    color: '#f87171',
-    baseDmg: 12,
-    depthScale: 4,
-    statusId: 'bleed',
-    statusDuration: 3,
-    desc: 'Piercing floor spikes that deal physical damage and inflict Bleed.'
-  },
-  flame: {
-    id: 'flame',
-    name: 'Runic Flame Vent',
-    color: '#fb923c',
-    baseDmg: 10,
-    depthScale: 4,
-    statusId: 'burn',
-    statusDuration: 3,
-    desc: 'Searing rune-fire glyph that deals fire damage and inflicts Burn.'
-  }
-};
-
-  // --- Module: src/data/bounties.js ---
-// Procedural Guild Notice Board Contract Templates & Generator
-
-const BOUNTY_SLAY_TEMPLATES = [
-  { targetId: 'crawler',     label: 'Vault Crawlers',     minQty: 4, maxQty: 6, minPermit: 5,  baseGold: 85 },
-  { targetId: 'archer',      label: 'Ranged Cultists & Archers', minQty: 3, maxQty: 5, minPermit: 5, baseGold: 95 },
-  { targetId: 'monster_any', label: 'Subterranean Hostiles', minQty: 6, maxQty: 9, minPermit: 5, baseGold: 100 }
-];
-
-const BOUNTY_ORE_TEMPLATES = [
-  { targetId: 'copper',      label: 'Copper Ore',     minQty: 4, maxQty: 6, reqGeo: 0, baseGold: 80 },
-  { targetId: 'iron',        label: 'Iron Ore',       minQty: 3, maxQty: 5, reqGeo: 1, baseGold: 115 },
-  { targetId: 'mithril',     label: 'Mithril Ore',    minQty: 3, maxQty: 4, reqGeo: 2, baseGold: 165 },
-  { targetId: 'geode',       label: 'Relic Geodes',   minQty: 2, maxQty: 3, reqGeo: 2, baseGold: 175 },
-  { targetId: 'starcrystal', name: 'Star-Crystal', label: 'Star-Crystal', minQty: 2, maxQty: 3, reqGeo: 3, baseGold: 220 }
-];
-
-const BOUNTY_SPECIAL_TEMPLATES = [
-  { kind: 'slay',       targetId: 'elite',      titlePrefix: 'Champion Hunt', descVerb: 'Vanquish', label: 'Elite Champions', minQty: 1, maxQty: 2, minGeo: 0, baseGold: 140 },
-  { kind: 'open_chest', targetId: 'chest',      titlePrefix: 'Relic Recovery', descVerb: 'Open',    label: 'Gilded Vault Chests', minQty: 2, maxQty: 3, minGeo: 0, baseGold: 110 }
-];
-
-let bountySeqCounter = 100;
-
-function buildProceduralBountySet(geologyRank = 0, cartographyRank = 0) {
-  const contracts = [];
-  const tierScale = 1 + cartographyRank * 0.25;
-
-  // Slot 1: Monster Cull Contract (Vault Gold Reward)
-  const slayTpl = BOUNTY_SLAY_TEMPLATES[Math.floor(Math.random() * BOUNTY_SLAY_TEMPLATES.length)];
-  const slayQty = slayTpl.minQty + Math.floor(Math.random() * (slayTpl.maxQty - slayTpl.minQty + 1));
-  const slayGold = Math.round(slayTpl.baseGold * tierScale);
-  contracts.push({
-    id: `bty_${Date.now()}_${bountySeqCounter++}`,
-    kind: 'slay',
-    targetId: slayTpl.targetId,
-    title: `Cull: ${slayTpl.label}`,
-    desc: `Slay ${slayQty} ${slayTpl.label} in the vaults.`,
-    reqQty: slayQty,
-    curQty: 0,
-    completed: false,
-    rewardType: 'gold',
-    rewardId: 'gold',
-    rewardQty: slayGold,
-    rewardLabel: `+${slayGold} Vault Gold`
-  });
-
-  // Slot 2: Geological Quota Contract (Rare Material or Uncut Gem Reward)
-  const unlockedOres = BOUNTY_ORE_TEMPLATES.filter(o => geologyRank >= o.reqGeo);
-  const orePool = unlockedOres.length > 0 ? unlockedOres : [BOUNTY_ORE_TEMPLATES[0]];
-  const oreTpl = orePool[Math.floor(Math.random() * orePool.length)];
-  const oreQty = oreTpl.minQty + Math.floor(Math.random() * (oreTpl.maxQty - oreTpl.minQty + 1));
-
-  const gemChoices = [
-    { id: 'ruby', name: 'Ruby of Might' },
-    { id: 'emerald', name: 'Emerald of the Wind' },
-    { id: 'sapphire', name: 'Sapphire of Will' },
-    { id: 'topaz', name: 'Topaz of Dawn' }
-  ];
-  if (cartographyRank >= 2) {
-    gemChoices.push({ id: 'void_diamond', name: 'Void Diamond' });
-  }
-  const chosenGem = gemChoices[Math.floor(Math.random() * gemChoices.length)];
-
-  contracts.push({
-    id: `bty_${Date.now()}_${bountySeqCounter++}`,
-    kind: 'mine',
-    targetId: oreTpl.targetId,
-    title: `Quota: ${oreTpl.label}`,
-    desc: `Mine ${oreQty} ${oreTpl.label} veins.`,
-    reqQty: oreQty,
-    curQty: 0,
-    completed: false,
-    rewardType: 'gem',
-    rewardId: chosenGem.id,
-    rewardQty: 1,
-    rewardLabel: `+1 ${chosenGem.name}`
-  });
-
-  // Slot 3: High-Value Tactical Contract (Talent Tome or Bonus Gold + Star-Crystal)
-  const specTpl = BOUNTY_SPECIAL_TEMPLATES[Math.floor(Math.random() * BOUNTY_SPECIAL_TEMPLATES.length)];
-  const specQty = specTpl.minQty + Math.floor(Math.random() * (specTpl.maxQty - specTpl.minQty + 1));
-  const awardTome = Math.random() < 0.6;
-
-  contracts.push({
-    id: `bty_${Date.now()}_${bountySeqCounter++}`,
-    kind: specTpl.kind,
-    targetId: specTpl.targetId,
-    title: `${specTpl.titlePrefix}`,
-    desc: `${specTpl.descVerb} ${specQty} ${specTpl.label}.`,
-    reqQty: specQty,
-    curQty: 0,
-    completed: false,
-    rewardType: awardTome ? 'talent_tome' : 'ore',
-    rewardId: awardTome ? 'talent' : (geologyRank >= 2 ? 'starcrystal' : 'mithril'),
-    rewardQty: awardTome ? 1 : 2,
-    rewardLabel: awardTome
-      ? '+1 Talent Tome (+1 Talent Pt)'
-      : (geologyRank >= 2 ? '+2 Star-Crystal' : '+2 Mithril Ore')
-  });
-
-  return contracts;
-}
-
-  // --- Module: src/data/dungeons.js ---
-// Declarative Dungeon Profiles, Layout Styles, Monster/Ore Rosters & Custom Charter Builder
-
-
-
-const LAYOUT_STYLES = {
-  masonry_vaults: {
-    id: 'masonry_vaults',
-    name: 'Masonry Vaults & Avenues',
-    desc: 'Structured halls, pillared plazas, 2-tile main avenues, and looping corridors.'
-  },
-  excavation_quarry: {
-    id: 'excavation_quarry',
-    name: 'Dwarven Mining Quarry',
-    desc: 'Long cross-cut excavation drifts with high wall perimeter and rich ore motherlodes.'
-  },
-  crystalline_caverns: {
-    id: 'crystalline_caverns',
-    name: 'Crystalline & Mycelium Caverns',
-    desc: 'Organic chamfered grottoes, winding tunnels, and dense subterranean shrines.'
-  },
-  grand_ruins: {
-    id: 'grand_ruins',
-    name: 'Grand Colonnade Ruins',
-    desc: 'Vast pillared courts, side sanctums, and heavily guarded Treasure Vaults.'
-  }
-};
-
-const MONSTER_FAMILY_POOLS = {
-  balanced: [
-    { id: 'vault_crawler',     weight: 30, minFloor: 1 },
-    { id: 'starfall_archer',   weight: 22, minFloor: 1 },
-    { id: 'brood_skitterer',   weight: 16, minFloor: 1 },
-    { id: 'dwarven_automaton', weight: 14, minFloor: 2 },
-    { id: 'abyssal_cultist',   weight: 18, minFloor: 3 },
-    { id: 'crypt_stalker',     weight: 14, minFloor: 3 },
-    { id: 'void_hexer',        weight: 12, minFloor: 5 }
-  ],
-  beasts: [
-    { id: 'vault_crawler',     weight: 36, minFloor: 1 },
-    { id: 'brood_skitterer',   weight: 32, minFloor: 1 },
-    { id: 'spore_lurker',      weight: 28, minFloor: 1 },
-    { id: 'starfall_archer',   weight: 12, minFloor: 2 }
-  ],
-  dwarven_forge: [
-    { id: 'dwarven_automaton', weight: 35, minFloor: 1 },
-    { id: 'ember_pyromancer',  weight: 26, minFloor: 1 },
-    { id: 'vault_crawler',     weight: 18, minFloor: 1 },
-    { id: 'magma_golem',       weight: 24, minFloor: 2 }
-  ],
-  astral_cult: [
-    { id: 'starfall_archer',   weight: 24, minFloor: 1 },
-    { id: 'abyssal_cultist',   weight: 32, minFloor: 1 },
-    { id: 'astral_wraith',     weight: 24, minFloor: 1 },
-    { id: 'void_hexer',        weight: 22, minFloor: 2 }
-  ],
-  ancient_crypt: [
-    { id: 'crypt_stalker',     weight: 34, minFloor: 1 },
-    { id: 'bone_warden',       weight: 32, minFloor: 1 },
-    { id: 'abyssal_cultist',   weight: 20, minFloor: 1 },
-    { id: 'astral_wraith',     weight: 18, minFloor: 2 }
-  ]
-};
-
-const ORE_FOCUS_TABLES = {
-  balanced: [
-    { tile: TILE_ORE_COPPER,  weight: 38, minFloor: 1 },
-    { tile: TILE_ORE_IRON,    weight: 28, minFloor: 1 },
-    { tile: TILE_ORE_MITHRIL, weight: 16, minFloor: 2 },
-    { tile: TILE_ORE_GEODE,   weight: 14, minFloor: 2 },
-    { tile: TILE_ORE_STAR,    weight: 12, minFloor: 3 },
-    { tile: TILE_ORE_ASTRAL,  weight: 8,  minFloor: 5 }
-  ],
-  copper_iron: [
-    { tile: TILE_ORE_COPPER,  weight: 50, minFloor: 1 },
-    { tile: TILE_ORE_IRON,    weight: 38, minFloor: 1 },
-    { tile: TILE_ORE_GEODE,   weight: 12, minFloor: 2 },
-    { tile: TILE_ORE_MITHRIL, weight: 8,  minFloor: 3 }
-  ],
-  mithril_geode: [
-    { tile: TILE_ORE_IRON,    weight: 22, minFloor: 1 },
-    { tile: TILE_ORE_MITHRIL, weight: 36, minFloor: 1 },
-    { tile: TILE_ORE_GEODE,   weight: 34, minFloor: 1 },
-    { tile: TILE_ORE_STAR,    weight: 12, minFloor: 3 }
-  ],
-  astral_crystal: [
-    { tile: TILE_ORE_MITHRIL, weight: 20, minFloor: 1 },
-    { tile: TILE_ORE_GEODE,   weight: 20, minFloor: 1 },
-    { tile: TILE_ORE_STAR,    weight: 36, minFloor: 1 },
-    { tile: TILE_ORE_ASTRAL,  weight: 28, minFloor: 2 }
-  ]
-};
-
-const BIOME_PALETTES = {
-  dwarven_catacombs: {
-    id: 'dwarven_catacombs',
-    name: 'Dwarven Catacombs',
-    subtitle: 'Ancient Masonry Strata',
-    wallFill: '#1b2434',
-    wallCap: '#293548',
-    wallBase: '#0d131d',
-    wallAccent: null,
-    floor1: '#0e1420',
-    floor2: '#111826',
-    floorBorder: '#192234',
-    minimapWall: '#253247',
-    minimapFloor: '#111a2b',
-    torchR: 251, torchG: 191, torchB: 36,
-    badgeColor: '#fbbf24'
-  },
-  crystalline_caverns: {
-    id: 'crystalline_caverns',
-    name: 'Crystalline Caverns',
-    subtitle: 'Bioluminescent Indigo & Quartz Deeps',
-    wallFill: '#1e1b4b',
-    wallCap: '#3730a3',
-    wallBase: '#0f0c29',
-    wallAccent: '#38bdf8',
-    floor1: '#0c1226',
-    floor2: '#101730',
-    floorBorder: '#1e2942',
-    minimapWall: '#312e81',
-    minimapFloor: '#0f172a',
-    torchR: 56, torchG: 189, torchB: 248,
-    badgeColor: '#38bdf8'
-  },
-  molten_forgeworks: {
-    id: 'molten_forgeworks',
-    name: 'Molten Forgeworks',
-    subtitle: 'Basalt Foundry & Slag Seams',
-    wallFill: '#2a1612',
-    wallCap: '#451a03',
-    wallBase: '#150906',
-    wallAccent: '#f97316',
-    floor1: '#160c0a',
-    floor2: '#1d100d',
-    floorBorder: '#2d1814',
-    minimapWall: '#7c2d12',
-    minimapFloor: '#1c1917',
-    torchR: 249, torchG: 115, torchB: 22,
-    badgeColor: '#f97316'
-  },
-  vespera_crater: {
-    id: 'vespera_crater',
-    name: 'The Vespera Crater',
-    subtitle: 'Cosmic Abyssal Void Glass',
-    wallFill: '#1e1033',
-    wallCap: '#4c1d95',
-    wallBase: '#0d0617',
-    wallAccent: '#c084fc',
-    floor1: '#0d0818',
-    floor2: '#130c24',
-    floorBorder: '#261545',
-    minimapWall: '#581c87',
-    minimapFloor: '#180d2c',
-    torchR: 192, torchG: 132, torchB: 252,
-    badgeColor: '#c084fc'
-  }
-};
-
-function resolveFloorBiome(cfgOrDungeon, depth = 1) {
-  const cfg = (cfgOrDungeon && cfgOrDungeon.config) ? cfgOrDungeon.config : (cfgOrDungeon || {});
-  if (cfg.biomeId && BIOME_PALETTES[cfg.biomeId]) {
-    return cfg.biomeId;
-  }
-  const prof = cfg.profileId || '';
-  if (prof === 'sunken_quarry') return 'dwarven_catacombs';
-  if (prof === 'mycelium_labyrinth') return 'crystalline_caverns';
-  if (prof === 'molten_crucible') return 'molten_forgeworks';
-  if (prof === 'citadel_ruins' || prof === 'abyssal_rift') return 'vespera_crater';
-
-  const d = Math.max(1, Number(depth) || 1);
-  if (d <= 5) return 'dwarven_catacombs';
-  if (d <= 10) return 'crystalline_caverns';
-  if (d <= 15) return 'molten_forgeworks';
-  return 'vespera_crater';
-}
-
-const CURATED_DUNGEON_PROFILES = {
-  starfall_vaults: {
-    profileId: 'starfall_vaults',
-    name: 'The Starfall Vaults',
-    subtitle: 'Primary Astral Shaft • Multi-Wing Masonry Halls',
-    themeColor: '#fbbf24',
-    seedPrefix: 'STAR',
-    reqCartography: 0,
-    width: 80,
-    height: 60,
-    sizeTier: 'standard',
-    maxDepth: 999,
-    baseDangerDepth: 0,
-    respectsCartographyPermit: true,
-    layoutStyle: 'masonry_vaults',
-    loopRatio: 0.35,
-    vaultRoomCount: 1,
-    monsterFamily: 'balanced',
-    monsterDensityMult: 1.0,
-    eliteChance: 0.22,
-    oreFocus: 'balanced',
-    veinDensityMult: 1.0,
-    motherlodeChance: 0.45,
-    chestDensityMult: 1.0,
-    lootRarityBonus: 0,
-    shrineDensityMult: 1.0,
-    trapDensityMult: 1.0,
-    allowedTraps: ['spike', 'flame'],
-    bossSchedule: {
-      5: 'boss_colossus',
-      10: 'boss_weaver',
-      15: 'boss_ignis',
-      20: 'boss_vespera'
-    }
-  },
-  sunken_quarry: {
-    profileId: 'sunken_quarry',
-    name: 'Sunken Copper Quarry',
-    subtitle: 'Abandoned Dwarven Drift • Rich Copper & Iron Seams',
-    themeColor: '#f59e0b',
-    seedPrefix: 'QUAR',
-    reqCartography: 0,
-    width: 48,
-    height: 36,
-    sizeTier: 'small',
-    maxDepth: 4,
-    baseDangerDepth: 0,
-    respectsCartographyPermit: false,
-    layoutStyle: 'excavation_quarry',
-    loopRatio: 0.40,
-    vaultRoomCount: 1,
-    monsterFamily: 'dwarven_forge',
-    monsterDensityMult: 0.9,
-    eliteChance: 0.18,
-    oreFocus: 'copper_iron',
-    veinDensityMult: 1.55,
-    motherlodeChance: 0.75,
-    chestDensityMult: 0.95,
-    lootRarityBonus: 0,
-    shrineDensityMult: 1.0,
-    trapDensityMult: 0.85,
-    allowedTraps: ['spike', 'flame'],
-    bossSchedule: {
-      4: 'boss_runelord'
-    }
-  },
-  mycelium_labyrinth: {
-    profileId: 'mycelium_labyrinth',
-    name: 'Whispering Mycelium Labyrinth',
-    subtitle: 'Sprawling Bioluminescent Grottoes • Geodes & Shrines',
-    themeColor: '#34d399',
-    seedPrefix: 'MYCE',
-    reqCartography: 1,
-    width: 128,
-    height: 96,
-    sizeTier: 'sprawling',
-    maxDepth: 5,
-    baseDangerDepth: 1,
-    respectsCartographyPermit: false,
-    layoutStyle: 'crystalline_caverns',
-    loopRatio: 0.42,
-    vaultRoomCount: 2,
-    monsterFamily: 'beasts',
-    monsterDensityMult: 1.05,
-    eliteChance: 0.25,
-    oreFocus: 'mithril_geode',
-    veinDensityMult: 1.25,
-    motherlodeChance: 0.60,
-    chestDensityMult: 1.15,
-    lootRarityBonus: 0.08,
-    shrineDensityMult: 1.5,
-    trapDensityMult: 1.1,
-    allowedTraps: ['spike'],
-    bossSchedule: {
-      5: 'boss_broodmother'
-    }
-  },
-  citadel_ruins: {
-    profileId: 'citadel_ruins',
-    name: 'Citadel of the Fallen Star',
-    subtitle: 'Colossal 2-Floor Sunken Metropolis • High-Tier Vaults',
-    themeColor: '#c084fc',
-    seedPrefix: 'CITA',
-    reqCartography: 1,
-    width: 192,
-    height: 144,
-    sizeTier: 'colossal',
-    maxDepth: 2,
-    baseDangerDepth: 3,
-    respectsCartographyPermit: false,
-    layoutStyle: 'grand_ruins',
-    loopRatio: 0.45,
-    vaultRoomCount: 4,
-    monsterFamily: 'ancient_crypt',
-    monsterDensityMult: 1.1,
-    eliteChance: 0.30,
-    oreFocus: 'astral_crystal',
-    veinDensityMult: 1.2,
-    motherlodeChance: 0.65,
-    chestDensityMult: 1.4,
-    lootRarityBonus: 0.16,
-    shrineDensityMult: 1.35,
-    trapDensityMult: 1.2,
-    allowedTraps: ['spike', 'flame'],
-    bossSchedule: {
-      2: 'boss_weaver'
-    }
-  },
-  molten_crucible: {
-    profileId: 'molten_crucible',
-    name: 'The Molten Forgeworks',
-    subtitle: 'Blazing Slag Vents & Ancient Foundries • Magma Golems',
-    themeColor: '#f97316',
-    seedPrefix: 'FORG',
-    reqCartography: 2,
-    width: 96,
-    height: 72,
-    sizeTier: 'standard',
-    maxDepth: 6,
-    baseDangerDepth: 2,
-    respectsCartographyPermit: false,
-    layoutStyle: 'excavation_quarry',
-    loopRatio: 0.38,
-    vaultRoomCount: 2,
-    monsterFamily: 'dwarven_forge',
-    monsterDensityMult: 1.1,
-    eliteChance: 0.28,
-    oreFocus: 'mithril_geode',
-    veinDensityMult: 1.35,
-    motherlodeChance: 0.65,
-    chestDensityMult: 1.2,
-    lootRarityBonus: 0.12,
-    shrineDensityMult: 1.25,
-    trapDensityMult: 1.2,
-    allowedTraps: ['flame'],
-    biomeId: 'molten_forgeworks',
-    bossSchedule: {
-      6: 'boss_ignis'
-    }
-  },
-  abyssal_rift: {
-    profileId: 'abyssal_rift',
-    name: 'The Abyssal Rift',
-    subtitle: 'Endless Void Fracture • Infinite Strata & Scaling Hazards',
-    themeColor: '#c084fc',
-    seedPrefix: 'ABYS',
-    reqCartography: 1,
-    width: 80,
-    height: 60,
-    sizeTier: 'standard',
-    maxDepth: 999,
-    baseDangerDepth: 3,
-    respectsCartographyPermit: false,
-    layoutStyle: 'grand_ruins',
-    loopRatio: 0.40,
-    vaultRoomCount: 2,
-    monsterFamily: 'astral_cult',
-    monsterDensityMult: 1.2,
-    eliteChance: 0.35,
-    oreFocus: 'astral_crystal',
-    veinDensityMult: 1.35,
-    motherlodeChance: 0.55,
-    chestDensityMult: 1.25,
-    lootRarityBonus: 0.15,
-    shrineDensityMult: 1.1,
-    trapDensityMult: 1.25,
-    allowedTraps: ['spike', 'flame'],
-    biomeId: 'vespera_crater',
-    bossSchedule: {
-      5: 'boss_colossus',
-      10: 'boss_weaver',
-      15: 'boss_ignis',
-      20: 'boss_vespera',
-      25: 'boss_weaver',
-      30: 'boss_ignis',
-      35: 'boss_colossus',
-      40: 'boss_vespera'
-    }
-  }
-};
-
-function normalizeDungeonConfig(rawCfg) {
-  const base = CURATED_DUNGEON_PROFILES.starfall_vaults;
-  const src = rawCfg || {};
-
-  const width = Math.max(15, Math.min(500, Math.round(Number(src.width) || base.width || DEFAULT_MAP_W)));
-  const height = Math.max(15, Math.min(500, Math.round(Number(src.height) || base.height || DEFAULT_MAP_H)));
-  const maxDepth = Math.max(1, Math.min(999, Math.round(Number(src.maxDepth) || base.maxDepth)));
-  const layoutStyle = LAYOUT_STYLES[src.layoutStyle] ? src.layoutStyle : base.layoutStyle;
-  const monsterFamily = MONSTER_FAMILY_POOLS[src.monsterFamily] ? src.monsterFamily : base.monsterFamily;
-  const oreFocus = ORE_FOCUS_TABLES[src.oreFocus] ? src.oreFocus : base.oreFocus;
-
-  const monsterPool = Array.isArray(src.monsterPool) && src.monsterPool.length > 0
-    ? src.monsterPool
-    : MONSTER_FAMILY_POOLS[monsterFamily];
-
-  const oreTable = Array.isArray(src.oreTable) && src.oreTable.length > 0
-    ? src.oreTable
-    : ORE_FOCUS_TABLES[oreFocus];
-
-  return {
-    profileId: src.profileId || 'custom_charter',
-    biomeId: src.biomeId || null,
-    name: src.name || base.name,
-    subtitle: src.subtitle || `${width}x${height} • Max Depth ${maxDepth}`,
-    themeColor: src.themeColor || '#60a5fa',
-    seedPrefix: src.seedPrefix || 'CHRT',
-    reqCartography: typeof src.reqCartography === 'number' ? src.reqCartography : 0,
-    width,
-    height,
-    sizeTier: src.sizeTier || 'custom',
-    maxDepth,
-    baseDangerDepth: typeof src.baseDangerDepth === 'number' ? src.baseDangerDepth : 0,
-    respectsCartographyPermit: src.respectsCartographyPermit !== undefined ? !!src.respectsCartographyPermit : false,
-    layoutStyle,
-    loopRatio: typeof src.loopRatio === 'number' ? src.loopRatio : 0.35,
-    vaultRoomCount: typeof src.vaultRoomCount === 'number' ? src.vaultRoomCount : Math.max(1, Math.round((width * height) / 4800)),
-    monsterFamily,
-    monsterPool,
-    monsterDensityMult: typeof src.monsterDensityMult === 'number' ? src.monsterDensityMult : 1.0,
-    eliteChance: typeof src.eliteChance === 'number' ? src.eliteChance : 0.22,
-    oreFocus,
-    oreTable,
-    veinDensityMult: typeof src.veinDensityMult === 'number' ? src.veinDensityMult : 1.0,
-    motherlodeChance: typeof src.motherlodeChance === 'number' ? src.motherlodeChance : 0.50,
-    chestDensityMult: typeof src.chestDensityMult === 'number' ? src.chestDensityMult : 1.0,
-    lootRarityBonus: typeof src.lootRarityBonus === 'number' ? src.lootRarityBonus : 0,
-    lootSlotBias: src.lootSlotBias || null,
-    shrineDensityMult: typeof src.shrineDensityMult === 'number' ? src.shrineDensityMult : 1.0,
-    trapDensityMult: typeof src.trapDensityMult === 'number' ? src.trapDensityMult : 1.0,
-    allowedTraps: Array.isArray(src.allowedTraps) && src.allowedTraps.length > 0 ? src.allowedTraps : ['spike', 'flame'],
-    bossSchedule: src.bossSchedule ? Object.assign({}, src.bossSchedule) : {}
-  };
-}
-
-let dungeonInstSeq = 100;
-
-function createDungeonInstance(profileOrConfig, options = {}) {
-  const baseProfile = typeof profileOrConfig === 'string'
-    ? (CURATED_DUNGEON_PROFILES[profileOrConfig] || CURATED_DUNGEON_PROFILES.starfall_vaults)
-    : (profileOrConfig || CURATED_DUNGEON_PROFILES.starfall_vaults);
-
-  const mergedCfg = normalizeDungeonConfig(Object.assign({}, baseProfile, options.configOverrides || {}));
-  const id = options.id || `dng_${mergedCfg.profileId}_${Date.now()}_${dungeonInstSeq++}`;
-  const seedCode = options.seedCode || randomSeedCode(mergedCfg.seedPrefix || 'STAR');
-  const numericSeed = options.numericSeed || hashSeedString(seedCode, 0);
-
-  return {
-    id,
-    name: mergedCfg.name,
-    profileId: mergedCfg.profileId,
-    originType: options.originType || (CURATED_DUNGEON_PROFILES[mergedCfg.profileId] ? 'curated' : 'chartered'),
-    worldCoords: options.worldCoords || null, // Ready for future World Map { x, y, regionId }
-    seedCode,
-    numericSeed,
-    config: mergedCfg,
-    currentFloor: 1,
-    deepestFloor: 1,
-    isCleared: false,
-    floors: {},
-    waypoints: {}
-  };
-}
-
-function buildCharteredDungeonInstance(opts = {}) {
-  const preset = opts.sizePreset && MAP_SIZE_PRESETS[opts.sizePreset] ? MAP_SIZE_PRESETS[opts.sizePreset] : null;
-  const width = opts.width ? Number(opts.width) : (preset ? preset.width : 80);
-  const height = opts.height ? Number(opts.height) : (preset ? preset.height : 60);
-  const maxDepth = Math.max(1, Math.min(999, Number(opts.maxDepth) || 5));
-
-  const styleKeys = Object.keys(LAYOUT_STYLES);
-  const famKeys = Object.keys(MONSTER_FAMILY_POOLS);
-  const oreKeys = Object.keys(ORE_FOCUS_TABLES);
-
-  const layoutStyle = LAYOUT_STYLES[opts.layoutStyle] ? opts.layoutStyle : styleKeys[Math.floor(Math.random() * styleKeys.length)];
-  const monsterFamily = MONSTER_FAMILY_POOLS[opts.monsterFamily] ? opts.monsterFamily : famKeys[Math.floor(Math.random() * famKeys.length)];
-  const oreFocus = ORE_FOCUS_TABLES[opts.oreFocus] ? opts.oreFocus : oreKeys[Math.floor(Math.random() * oreKeys.length)];
-  const richness = opts.richness === 'high' ? 1.45 : (opts.richness === 'extreme' ? 1.85 : 1.0);
-
-  const adjPool = ['Forgotten', 'Sunken', 'Obsidian', 'Shattered', 'Astral', 'Gilded', 'Whispering', 'eldritch'];
-  const nounPool = {
-    masonry_vaults: 'Vaults',
-    excavation_quarry: 'Delve',
-    crystalline_caverns: 'Grottoes',
-    grand_ruins: 'Sanctum'
-  };
-  const autoTitle = opts.name && String(opts.name).trim()
-    ? String(opts.name).trim()
-    : `${adjPool[Math.floor(Math.random() * adjPool.length)].replace(/^e/, 'E')} ${nounPool[layoutStyle] || 'Expanse'}`;
-
-  const bossPool = ['boss_colossus', 'boss_runelord', 'boss_broodmother', 'boss_weaver'];
-  const finalBoss = bossPool[Math.min(bossPool.length - 1, Math.floor((maxDepth - 1) / 3) % bossPool.length)];
-  const bossSchedule = {};
-  bossSchedule[maxDepth] = finalBoss;
-
-  const customCfg = normalizeDungeonConfig({
-    profileId: 'custom_charter',
-    name: autoTitle,
-    subtitle: `Chartered ${width}x${height} • ${LAYOUT_STYLES[layoutStyle].name}`,
-    themeColor: '#60a5fa',
-    seedPrefix: 'CHRT',
-    width,
-    height,
-    sizeTier: preset ? preset.id : 'custom',
-    maxDepth,
-    baseDangerDepth: Number(opts.baseDangerDepth) || 0,
-    respectsCartographyPermit: false,
-    layoutStyle,
-    monsterFamily,
-    oreFocus,
-    veinDensityMult: richness,
-    chestDensityMult: richness,
-    lootRarityBonus: richness > 1.2 ? 0.10 : 0,
-    bossSchedule
-  });
-
-  return createDungeonInstance(customCfg, {
-    originType: 'chartered',
-    seedCode: opts.seedCode || randomSeedCode('CHRT')
-  });
-}
-
-  // --- Module: src/engine/compression.js ---
-// Compact Run-Length Encoding (RLE) & Lazy Floor Hydration for Large Multi-Dungeon Saves
-
-
-function createUint8Grid(width, height, fillVal = 0) {
-  const rows = new Array(height);
-  for (let y = 0; y < height; y++) {
-    const row = new Uint8Array(width);
-    if (fillVal !== 0) row.fill(fillVal);
-    rows[y] = row;
-  }
-  return rows;
-}
-
-function encodeGridToRle(grid, width, height, boolMode = false) {
-  if (!grid || height <= 0 || width <= 0) return '';
-  const parts = [];
-  let curVal = -1;
-  let runLen = 0;
-
-  for (let y = 0; y < height; y++) {
-    const row = grid[y];
-    for (let x = 0; x < width; x++) {
-      const raw = row ? row[x] : 0;
-      const v = boolMode ? (raw ? 1 : 0) : (raw | 0);
-      if (v === curVal) {
-        runLen += 1;
-      } else {
-        if (runLen > 0) {
-          parts.push(runLen > 1 ? `${curVal}:${runLen}` : `${curVal}`);
-        }
-        curVal = v;
-        runLen = 1;
-      }
-    }
-  }
-  if (runLen > 0) {
-    parts.push(runLen > 1 ? `${curVal}:${runLen}` : `${curVal}`);
-  }
-  return parts.join(',');
-}
-
-function decodeRleToGrid(rleStr, width, height) {
-  const rows = createUint8Grid(width, height, 0);
-  if (!rleStr || typeof rleStr !== 'string') return rows;
-
-  const total = width * height;
-  let cellIdx = 0;
-  let i = 0;
-  const len = rleStr.length;
-
-  while (i < len && cellIdx < total) {
-    let val = 0;
-    while (i < len) {
-      const c = rleStr.charCodeAt(i);
-      if (c >= 48 && c <= 57) {
-        val = val * 10 + (c - 48);
-        i += 1;
-      } else {
-        break;
-      }
-    }
-
-    let count = 1;
-    if (i < len && rleStr.charCodeAt(i) === 58) { // ':'
-      i += 1;
-      count = 0;
-      while (i < len) {
-        const c = rleStr.charCodeAt(i);
-        if (c >= 48 && c <= 57) {
-          count = count * 10 + (c - 48);
-          i += 1;
-        } else {
-          break;
-        }
-      }
-      if (count <= 0) count = 1;
-    }
-
-    if (i < len && rleStr.charCodeAt(i) === 44) { // ','
-      i += 1;
-    }
-
-    const endIdx = Math.min(total, cellIdx + count);
-    if (val !== 0) {
-      while (cellIdx < endIdx) {
-        const r = (cellIdx / width) | 0;
-        const col = cellIdx - r * width;
-        rows[r][col] = val;
-        cellIdx += 1;
-      }
-    } else {
-      cellIdx = endIdx;
-    }
-  }
-
-  return rows;
-}
-
-function packFloorForStorage(floor) {
-  if (!floor) return null;
-  if (floor.packed && typeof floor.tilesRle === 'string') {
-    return floor;
-  }
-  const h = floor.height || (floor.tiles ? floor.tiles.length : DEFAULT_MAP_H);
-  const w = floor.width || (floor.tiles && floor.tiles[0] ? floor.tiles[0].length : DEFAULT_MAP_W);
-
-  return {
-    packed: true,
-    depth: floor.depth || 1,
-    width: w,
-    height: h,
-    roomCount: floor.roomCount || 0,
-    upPos: floor.upPos || { x: 2, y: 2 },
-    downPos: floor.downPos || { x: w - 3, y: h - 3 },
-    hasDownStairs: floor.hasDownStairs !== undefined ? !!floor.hasDownStairs : true,
-    shrines: floor.shrines || {},
-    traps: floor.traps || {},
-    vaults: floor.vaults || [],
-    objects: Array.isArray(floor.objects) ? floor.objects : [],
-    monsters: Array.isArray(floor.monsters) ? floor.monsters : [],
-    oresMined: floor.oresMined || 0,
-    tilesRle: encodeGridToRle(floor.tiles, w, h, false),
-    exploredRle: encodeGridToRle(floor.explored, w, h, true)
-  };
-}
-
-function hydrateFloorFromStorage(rawFloor) {
-  if (!rawFloor) return null;
-  if (!rawFloor.packed && rawFloor.tiles && rawFloor.tiles.length > 0) {
-    const h = rawFloor.height || rawFloor.tiles.length;
-    const w = rawFloor.width || rawFloor.tiles[0].length;
-    rawFloor.packed = false;
-    rawFloor.width = w;
-    rawFloor.height = h;
-    rawFloor.shrines = rawFloor.shrines || {};
-    rawFloor.traps = rawFloor.traps || {};
-    rawFloor.vaults = rawFloor.vaults || [];
-    rawFloor.objects = Array.isArray(rawFloor.objects) ? rawFloor.objects : [];
-    if (rawFloor.hasDownStairs === undefined) rawFloor.hasDownStairs = true;
-    return rawFloor;
-  }
-
-  const w = rawFloor.width || DEFAULT_MAP_W;
-  const h = rawFloor.height || DEFAULT_MAP_H;
-  return {
-    packed: false,
-    depth: rawFloor.depth || 1,
-    width: w,
-    height: h,
-    roomCount: rawFloor.roomCount || 0,
-    tiles: decodeRleToGrid(rawFloor.tilesRle || '', w, h),
-    explored: decodeRleToGrid(rawFloor.exploredRle || '', w, h),
-    upPos: rawFloor.upPos || { x: 2, y: 2 },
-    downPos: rawFloor.downPos || { x: w - 3, y: h - 3 },
-    hasDownStairs: rawFloor.hasDownStairs !== undefined ? !!rawFloor.hasDownStairs : true,
-    shrines: rawFloor.shrines || {},
-    traps: rawFloor.traps || {},
-    vaults: rawFloor.vaults || [],
-    objects: Array.isArray(rawFloor.objects) ? rawFloor.objects : [],
-    monsters: Array.isArray(rawFloor.monsters) ? rawFloor.monsters : [],
-    oresMined: rawFloor.oresMined || 0
-  };
-}
-
-  // --- Module: src/data/lootTables.js ---
-// Declarative Weighted Loot Tables for Breakable Props, Dungeon Containers & Treasure Chests (ADR-0012)
-
-const LOOT_TABLES = {
-  loot_barrel_junk: {
-    id: 'loot_barrel_junk',
-    name: 'Barrel Rummage & Trash',
-    entries: [
-      { id: 'junk_splintered_mug', name: 'Splintered Wooden Mug',  kind: 'trash',      weight: 30, value: 0 },
-      { id: 'junk_moldy_rations',  name: 'Moldy Hardtack',         kind: 'trash',      weight: 25, value: 0 },
-      { id: 'junk_bent_nails',     name: 'Bent Iron Nails',        kind: 'trash',      weight: 20, value: 1 },
-      { id: 'coin_copper_handful', name: 'Tarnished Copper Coins', kind: 'gold',       weight: 18, minGold: 2, maxGold: 5 },
-      { id: 'salvage_torch_oil',   name: 'Intact Torch Oil Flask', kind: 'trade',      weight: 5,  value: 6 },
-      { id: 'tonic_minor',         name: 'Dusty Healing Tonic',    kind: 'consumable', weight: 2,  consumableKey: 'potions', qty: 1 }
-    ]
-  },
-  loot_crate_salvage: {
-    id: 'loot_crate_salvage',
-    name: 'Supply Crate Salvage',
-    entries: [
-      { id: 'junk_broken_tool',    name: 'Cracked Pick Handle',    kind: 'trash',      weight: 22, value: 1 },
-      { id: 'coin_dwarven_bits',   name: 'Dwarven Trade Coins',    kind: 'gold',       weight: 40, minGold: 5, maxGold: 12 },
-      { id: 'salvage_copper_ore',  name: 'Loose Copper Chunk',     kind: 'ore',        weight: 20, oreId: 'copper', qty: 1, value: 5 },
-      { id: 'salvage_iron_scrap',  name: 'Forged Iron Scrap',      kind: 'trade',      weight: 12, value: 8 },
-      { id: 'tonic_supply',        name: 'Guild Healing Tonic',    kind: 'consumable', weight: 6,  consumableKey: 'potions', qty: 1 }
-    ]
-  },
-  loot_dungeon_chest: {
-    id: 'loot_dungeon_chest',
-    name: 'Dungeon Vault Chest',
-    entries: [
-      { id: 'chest_gold_pouch',    name: 'Gilded Coin Coffer',     kind: 'gold',       weight: 45, minGold: 25, maxGold: 55 },
-      { id: 'chest_relic_gear',    name: 'Vault Equipment Cache',  kind: 'gear',       weight: 35 },
-      { id: 'chest_mineral_satchel', name: 'Refined Ore Satchel',  kind: 'ore',        weight: 12, oreId: 'iron', qty: 3, value: 10 },
-      { id: 'chest_recall_scroll', name: 'Astral Recall Scroll',   kind: 'consumable', weight: 8,  consumableKey: 'recalls', qty: 1 }
-    ]
-  }
-};
-
-function rollLootTable(tableId, depth = 1, randFn = Math.random) {
-  const table = LOOT_TABLES[tableId];
-  if (!table || !Array.isArray(table.entries) || table.entries.length === 0) return null;
-
-  let totalWeight = 0;
-  for (let i = 0; i < table.entries.length; i++) {
-    totalWeight += (table.entries[i].weight || 1);
-  }
-  if (totalWeight <= 0) return null;
-
-  const r = (typeof randFn === 'function' ? randFn() : Math.random()) * totalWeight;
-  let acc = 0;
-  let picked = table.entries[0];
-  for (let i = 0; i < table.entries.length; i++) {
-    acc += (table.entries[i].weight || 1);
-    if (r <= acc) {
-      picked = table.entries[i];
-      break;
-    }
-  }
-
-  const out = Object.assign({}, picked);
-  if (out.kind === 'gold') {
-    const minG = out.minGold || 1;
-    const maxG = Math.max(minG, out.maxGold || minG);
-    const scale = 1 + Math.max(0, (depth || 1) - 1) * 0.12;
-    const raw = minG + Math.floor((typeof randFn === 'function' ? randFn() : Math.random()) * (maxG - minG + 1));
-    out.goldAmount = Math.max(1, Math.round(raw * scale));
-  }
-  return out;
-}
-
-  // --- Module: src/data/definitions.js ---
-// Object Definitions Catalog & Schema Registries (ADR-0010)
-// Defines immutable templates for Items, Keys, Containers, Devices, Mechanisms, and Pickups.
-
-const OBJECT_CATEGORIES = {
-  ITEM: 'item',
-  WORLD_OBJECT: 'world_object'
-};
-
-const ITEM_CATEGORIES = {
-  CONSUMABLE: 'consumable',
-  EQUIPMENT:  'equipment',
-  MATERIAL:   'material',
-  KEY:        'key',
-  TOOL:       'tool',
-  QUEST:      'quest',
-  ARTIFACT:   'artifact',
-  CURRENCY:   'currency'
-};
-
-const WORLD_OBJECT_TYPES = {
-  STATIC:    'static',
-  DOOR:      'door',
-  PORTAL:    'portal',
-  CONTAINER: 'container',
-  MECHANISM: 'mechanism',
-  DEVICE:    'device',
-  PICKUP:    'pickup',
-  PROP:      'prop',
-  HAZARD:    'hazard'
-};
-
-const OBJECT_DEFINITIONS = {};
-
-function registerObjectDefinition(def) {
-  if (!def || !def.definitionId) {
-    throw new Error('registerObjectDefinition requires a definition with definitionId');
-  }
-  const isItem = def.category === OBJECT_CATEGORIES.ITEM;
-  const normalized = Object.assign({
-    stackable: isItem ? Boolean(def.stackable !== false) : false,
-    carryable: isItem ? true : false
-  }, def);
-  OBJECT_DEFINITIONS[normalized.definitionId] = Object.freeze(normalized);
-  return OBJECT_DEFINITIONS[normalized.definitionId];
-}
-
-function getObjectDefinition(defId) {
-  return OBJECT_DEFINITIONS[defId] || null;
-}
-
-function hasObjectDefinition(defId) {
-  return Boolean(OBJECT_DEFINITIONS[defId]);
-}
-
-// ============================================================================
-// CORE DEFINITION TEMPLATES
-// ============================================================================
-
-// 1. KEY DEFINITIONS (Credentials & Keys for Locks & Vaults)
-registerObjectDefinition({
-  definitionId: 'key_iron_common',
-  category: OBJECT_CATEGORIES.ITEM,
-  itemCategory: ITEM_CATEGORIES.KEY,
-  name: 'Iron Skeleton Key',
-  namePlural: 'Iron Skeleton Keys',
-  description: 'A sturdy iron skeleton key capable of opening common dungeon doors and chests.',
-  icon: '🗝️',
-  rarity: 'common',
-  baseValue: 15,
-  isStackable: true,
-  maxStackSize: 10,
-  tags: ['key', 'metal', 'common_key', 'key.common_iron'],
-  defaultComponents: {
-    key: {
-      keyTag: 'key.common_iron',
-      securityLevel: 1,
-      consumeOnUse: true
-    }
-  }
-});
-
-registerObjectDefinition({
-  definitionId: 'key_vault_dwarven',
-  category: OBJECT_CATEGORIES.ITEM,
-  itemCategory: ITEM_CATEGORIES.KEY,
-  name: 'Dwarven Vault Key',
-  namePlural: 'Dwarven Vault Keys',
-  description: 'An intricately notched brass key bearing the seal of the Dwarven Guild Cartographers.',
-  icon: '🗝️',
-  rarity: 'rare',
-  baseValue: 60,
-  isStackable: true,
-  maxStackSize: 5,
-  tags: ['key', 'dwarven', 'vault_key', 'key.dwarven_vault'],
-  defaultComponents: {
-    key: {
-      keyTag: 'key.dwarven_vault',
-      securityLevel: 2,
-      consumeOnUse: true
-    }
-  }
-});
-
-registerObjectDefinition({
-  definitionId: 'key_rune_celestial',
-  category: OBJECT_CATEGORIES.ITEM,
-  itemCategory: ITEM_CATEGORIES.KEY,
-  name: 'Celestial Rune Sigil',
-  namePlural: 'Celestial Rune Sigils',
-  description: 'A glowing triangular star-stone pulsing with astral resonance.',
-  icon: '💠',
-  rarity: 'epic',
-  baseValue: 180,
-  isStackable: true,
-  maxStackSize: 3,
-  tags: ['key', 'astral', 'rune_key', 'key.celestial_rune'],
-  defaultComponents: {
-    key: {
-      keyTag: 'key.celestial_rune',
-      securityLevel: 3,
-      consumeOnUse: true
-    }
-  }
-});
-
-// 2. WORLD PICKUP DEFINITION (Ground Item Wrapper)
-registerObjectDefinition({
-  definitionId: 'pickup_world_item',
-  category: OBJECT_CATEGORIES.WORLD_OBJECT,
-  objectType: WORLD_OBJECT_TYPES.PICKUP,
-  name: 'Item Pickup',
-  description: 'An item resting upon the dungeon floor.',
-  tags: ['pickup', 'ground_loot'],
-  defaultPermeability: {
-    movement: true,
-    lineOfSight: true,
-    light: true,
-    sound: true,
-    projectiles: true,
-    magic: true
-  },
-  defaultComponents: {
-    interactable: {
-      prompt: 'Pick up item',
-      autoTriggerOnStep: true,
-      actions: {
-        pickup: {
-          id: 'pickup',
-          name: 'Take Item',
-          requirements: null,
-          costs: null,
-          effects: [{ type: 'pickupItem' }]
-        }
-      }
-    }
-  }
-});
-
-// 3. CONTAINER DEFINITION (Gilded Vault Chest)
-registerObjectDefinition({
-  definitionId: 'container_vault_chest',
-  category: OBJECT_CATEGORIES.WORLD_OBJECT,
-  objectType: WORLD_OBJECT_TYPES.CONTAINER,
-  name: 'Gilded Vault Chest',
-  description: 'A banded ironbound oak chest containing ancient vault treasures.',
-  tags: ['chest', 'container', 'treasure'],
-  defaultState: {
-    mechanical: 'closed',
-    security: 'unlocked',
-    structural: 'intact'
-  },
-  defaultPermeability: {
-    movement: false, // Closed chest blocks movement
-    lineOfSight: true,
-    light: true,
-    sound: true,
-    projectiles: true,
-    magic: true
-  },
-  defaultComponents: {
-    durability: { hp: 40, maxHp: 40, armor: 4 },
-    interactable: {
-      prompt: 'Open chest',
-      autoTriggerOnStep: false,
-      actions: {
-        open: {
-          id: 'open',
-          name: 'Open Chest',
-          requirements: {
-            op: 'OR',
-            rules: [
-              { type: 'objectState', axis: 'security', value: 'unlocked' },
-              { type: 'hasItemTag', tag: 'key.common_iron' }
-            ]
-          },
-          costs: null,
-          effects: [
-            { type: 'changeState', axis: 'mechanical', value: 'open' },
-            { type: 'grantChestLoot' }
-          ]
-        }
-      }
-    }
-  }
-});
-
-// 4. DEVICE DEFINITIONS (Subterranean Astral Shrines)
-registerObjectDefinition({
-  definitionId: 'device_shrine_celestial',
-  category: OBJECT_CATEGORIES.WORLD_OBJECT,
-  objectType: WORLD_OBJECT_TYPES.DEVICE,
-  name: 'Celestial Renewal Shrine',
-  description: 'A carved quartz dais radiating soothing lunar luminescence.',
-  tags: ['shrine', 'celestial', 'healing'],
-  defaultState: {
-    mechanical: 'closed', // 'closed' means active/unused
-    security: 'unlocked',
-    structural: 'intact'
-  },
-  defaultPermeability: {
-    movement: false,
-    lineOfSight: true,
-    light: true,
-    sound: true,
-    projectiles: true,
-    magic: true
-  },
-  defaultComponents: {
-    interactable: {
-      prompt: 'Pray at Shrine',
-      actions: {
-        bless: {
-          id: 'bless',
-          name: 'Receive Blessing',
-          requirements: { type: 'objectState', axis: 'mechanical', value: 'closed' },
-          costs: null,
-          effects: [
-            { type: 'changeState', axis: 'mechanical', value: 'open' }, // 'open' means used
-            { type: 'applyShrineBlessing', shrineId: 'shrine_renewal' }
-          ]
-        }
-      }
-    }
-  }
-});
-
-registerObjectDefinition({
-  definitionId: 'device_shrine_starfire',
-  category: OBJECT_CATEGORIES.WORLD_OBJECT,
-  objectType: WORLD_OBJECT_TYPES.DEVICE,
-  name: 'Starfire Blessing Shrine',
-  description: 'A blazing obelisk crowned with an incandescent astralite flame.',
-  tags: ['shrine', 'starfire', 'combat_buff'],
-  defaultState: {
-    mechanical: 'closed',
-    security: 'unlocked',
-    structural: 'intact'
-  },
-  defaultPermeability: {
-    movement: false,
-    lineOfSight: true,
-    light: true,
-    sound: true,
-    projectiles: true,
-    magic: true
-  },
-  defaultComponents: {
-    interactable: {
-      prompt: 'Claim Starfire',
-      actions: {
-        bless: {
-          id: 'bless',
-          name: 'Receive Starfire',
-          requirements: { type: 'objectState', axis: 'mechanical', value: 'closed' },
-          costs: null,
-          effects: [
-            { type: 'changeState', axis: 'mechanical', value: 'open' },
-            { type: 'applyShrineBlessing', shrineId: 'shrine_starfire' }
-          ]
-        }
-      }
-    }
-  }
-});
-
-registerObjectDefinition({
-  definitionId: 'device_shrine_aegis',
-  category: OBJECT_CATEGORIES.WORLD_OBJECT,
-  objectType: WORLD_OBJECT_TYPES.DEVICE,
-  name: 'Astral Aegis Shrine',
-  description: 'A crystalline pillar casting a protective shield of diamond light.',
-  tags: ['shrine', 'aegis', 'defense_buff'],
-  defaultState: {
-    mechanical: 'closed',
-    security: 'unlocked',
-    structural: 'intact'
-  },
-  defaultPermeability: {
-    movement: false,
-    lineOfSight: true,
-    light: true,
-    sound: true,
-    projectiles: true,
-    magic: true
-  },
-  defaultComponents: {
-    interactable: {
-      prompt: 'Attune Aegis',
-      actions: {
-        bless: {
-          id: 'bless',
-          name: 'Attune Shield',
-          requirements: { type: 'objectState', axis: 'mechanical', value: 'closed' },
-          costs: null,
-          effects: [
-            { type: 'changeState', axis: 'mechanical', value: 'open' },
-            { type: 'applyShrineBlessing', shrineId: 'shrine_aegis' }
-          ]
-        }
-      }
-    }
-  }
-});
-
-// 5. MECHANISM DEFINITIONS (Runic Traps)
-registerObjectDefinition({
-  definitionId: 'mechanism_trap_spikes',
-  category: OBJECT_CATEGORIES.WORLD_OBJECT,
-  objectType: WORLD_OBJECT_TYPES.MECHANISM,
-  name: 'Subterranean Spike Trap',
-  description: 'Concealed pressure-plate mechanism driving spring-loaded steel spikes.',
-  tags: ['trap', 'spikes', 'physical'],
-  defaultState: {
-    mechanical: 'closed', // ready to trigger
-    security: 'unlocked',
-    discovery: 'unknown', // hidden until spotted
-    structural: 'intact'
-  },
-  defaultPermeability: {
-    movement: true,
-    lineOfSight: true,
-    light: true,
-    sound: true,
-    projectiles: true,
-    magic: true
-  },
-  defaultComponents: {
-    trap: {
-      trapId: 'spikes',
-      damage: 18,
-      effect: 'bleed',
-      detectDc: 12,
-      disarmDc: 13
-    },
-    interactable: {
-      prompt: 'Disarm Spike Trap',
-      actions: {
-        disarm: {
-          id: 'disarm',
-          name: 'Disarm Trap',
-          requirements: {
-            op: 'OR',
-            rules: [
-              { type: 'requiredClass', classId: 'thief' },
-              { type: 'requiredClass', classId: 'ranger' },
-              { type: 'minStat', stat: 'dex', value: 16 }
-            ]
-          },
-          costs: null,
-          effects: [
-            { type: 'changeState', axis: 'mechanical', value: 'disabled' },
-            { type: 'disarmTrap' }
-          ]
-        }
-      }
-    }
-  }
-});
-
-registerObjectDefinition({
-  definitionId: 'mechanism_trap_flame',
-  category: OBJECT_CATEGORIES.WORLD_OBJECT,
-  objectType: WORLD_OBJECT_TYPES.MECHANISM,
-  name: 'Runic Flame Jet Trap',
-  description: 'Ancient carved floor rune triggering a column of pressurized magma flame.',
-  tags: ['trap', 'flame', 'elemental'],
-  defaultState: {
-    mechanical: 'closed',
-    security: 'unlocked',
-    discovery: 'unknown',
-    structural: 'intact'
-  },
-  defaultPermeability: {
-    movement: true,
-    lineOfSight: true,
-    light: true,
-    sound: true,
-    projectiles: true,
-    magic: true
-  },
-  defaultComponents: {
-    trap: {
-      trapId: 'flame',
-      damage: 24,
-      effect: 'burn',
-      detectDc: 14,
-      disarmDc: 15
-    },
-    interactable: {
-      prompt: 'Disarm Flame Rune',
-      actions: {
-        disarm: {
-          id: 'disarm',
-          name: 'Disarm Flame Rune',
-          requirements: {
-            op: 'OR',
-            rules: [
-              { type: 'requiredClass', classId: 'thief' },
-              { type: 'minStat', stat: 'dex', value: 18 }
-            ]
-          },
-          costs: null,
-          effects: [
-            { type: 'changeState', axis: 'mechanical', value: 'disabled' },
-            { type: 'disarmTrap' }
-          ]
-        }
-      }
-    }
-  }
-});
-
-// ============================================================================
-// 6. DOOR DEFINITIONS (Multi-State Barriers, Portcullises & Secret Entrances)
-// ============================================================================
-
-registerObjectDefinition({
-  definitionId: 'door_wood_hinged',
-  category: OBJECT_CATEGORIES.WORLD_OBJECT,
-  objectType: WORLD_OBJECT_TYPES.DOOR,
-  name: 'Wooden Dungeon Door',
-  description: 'A reinforced oak plank door bound with forged iron bands.',
-  tags: ['door', 'wood', 'hinged', 'bashable'],
-  defaultState: {
-    mechanical: 'closed',
-    security: 'unlocked',
-    discovery: 'revealed',
-    structural: 'intact'
-  },
-  defaultPermeability: {
-    movement: false,
-    lineOfSight: false,
-    light: false,
-    sound: true,
-    projectiles: false,
-    magic: false
-  },
-  defaultComponents: {
-    durability: { hp: 35, maxHp: 35, armor: 2, canBeForced: true },
-    lock: {
-      lockType: 'mechanical',
-      keyTag: 'key.common_iron',
-      pickDifficulty: 12,
-      forceDifficulty: 14
-    },
-    interactable: {
-      prompt: 'Operate Wooden Door',
-      actions: {
-        open: {
-          id: 'open',
-          name: 'Open Door',
-          requirements: { type: 'objectState', axis: 'security', value: 'unlocked' },
-          costs: null,
-          effects: [
-            { type: 'changeState', axis: 'mechanical', value: 'open' },
-            { type: 'updatePermeability', movement: true, lineOfSight: true, light: true, projectiles: true, magic: true }
-          ]
-        },
-        close: {
-          id: 'close',
-          name: 'Close Door',
-          requirements: { type: 'objectState', axis: 'mechanical', value: 'open' },
-          costs: null,
-          effects: [
-            { type: 'changeState', axis: 'mechanical', value: 'closed' },
-            { type: 'updatePermeability', movement: false, lineOfSight: false, light: false, projectiles: false, magic: false }
-          ]
-        },
-        unlock: {
-          id: 'unlock',
-          name: 'Unlock with Key',
-          requirements: { type: 'hasItemTag', tag: 'key.common_iron' },
-          costs: null,
-          effects: [
-            { type: 'changeState', axis: 'security', value: 'unlocked' }
-          ]
-        },
-        pick_lock: {
-          id: 'pick_lock',
-          name: 'Pick Lock',
-          requirements: {
-            op: 'OR',
-            rules: [
-              { type: 'requiredClass', classId: 'thief' },
-              { type: 'minStat', stat: 'dex', value: 15 }
-            ]
-          },
-          costs: null,
-          effects: [
-            { type: 'changeState', axis: 'security', value: 'unlocked' }
-          ]
-        },
-        bash: {
-          id: 'bash',
-          name: 'Force / Bash Door',
-          requirements: null,
-          costs: null,
-          effects: [
-            { type: 'bashDoor' }
-          ]
-        }
-      }
-    }
-  }
-});
-
-registerObjectDefinition({
-  definitionId: 'door_iron_reinforced',
-  category: OBJECT_CATEGORIES.WORLD_OBJECT,
-  objectType: WORLD_OBJECT_TYPES.DOOR,
-  name: 'Reinforced Iron Door',
-  description: 'A heavy riveted iron plate door with a dual-tumbler keyway.',
-  tags: ['door', 'metal', 'reinforced', 'vault_door', 'bashable'],
-  defaultState: {
-    mechanical: 'closed',
-    security: 'locked',
-    discovery: 'revealed',
-    structural: 'intact'
-  },
-  defaultPermeability: {
-    movement: false,
-    lineOfSight: false,
-    light: false,
-    sound: false,
-    projectiles: false,
-    magic: false
-  },
-  defaultComponents: {
-    durability: { hp: 80, maxHp: 80, armor: 8, canBeForced: true },
-    lock: {
-      lockType: 'mechanical',
-      keyTag: 'key.common_iron',
-      pickDifficulty: 16,
-      forceDifficulty: 20
-    },
-    interactable: {
-      prompt: 'Operate Iron Door',
-      actions: {
-        open: {
-          id: 'open',
-          name: 'Open Door',
-          requirements: { type: 'objectState', axis: 'security', value: 'unlocked' },
-          costs: null,
-          effects: [
-            { type: 'changeState', axis: 'mechanical', value: 'open' },
-            { type: 'updatePermeability', movement: true, lineOfSight: true, light: true, projectiles: true, magic: true }
-          ]
-        },
-        close: {
-          id: 'close',
-          name: 'Close Door',
-          requirements: { type: 'objectState', axis: 'mechanical', value: 'open' },
-          costs: null,
-          effects: [
-            { type: 'changeState', axis: 'mechanical', value: 'closed' },
-            { type: 'updatePermeability', movement: false, lineOfSight: false, light: false, projectiles: false, magic: false }
-          ]
-        },
-        unlock: {
-          id: 'unlock',
-          name: 'Unlock with Iron Key',
-          requirements: { type: 'hasItemTag', tag: 'key.common_iron' },
-          costs: null,
-          effects: [
-            { type: 'changeState', axis: 'security', value: 'unlocked' }
-          ]
-        },
-        pick_lock: {
-          id: 'pick_lock',
-          name: 'Pick Heavy Lock',
-          requirements: {
-            op: 'AND',
-            rules: [
-              { type: 'requiredClass', classId: 'thief' },
-              { type: 'minStat', stat: 'dex', value: 16 }
-            ]
-          },
-          costs: null,
-          effects: [
-            { type: 'changeState', axis: 'security', value: 'unlocked' }
-          ]
-        },
-        bash: {
-          id: 'bash',
-          name: 'Bash Iron Door',
-          requirements: null,
-          costs: null,
-          effects: [
-            { type: 'bashDoor' }
-          ]
-        }
-      }
-    }
-  }
-});
-
-registerObjectDefinition({
-  definitionId: 'door_iron_portcullis',
-  category: OBJECT_CATEGORIES.WORLD_OBJECT,
-  objectType: WORLD_OBJECT_TYPES.DOOR,
-  name: 'Iron Portcullis',
-  description: 'A heavy vertical wrought-iron grating allowing clear line of sight while preventing physical entry.',
-  tags: ['door', 'metal', 'portcullis', 'grated'],
-  defaultState: {
-    mechanical: 'closed',
-    security: 'unlocked',
-    discovery: 'revealed',
-    structural: 'intact'
-  },
-  defaultPermeability: {
-    movement: false,     // Closed portcullis blocks physical footsteps!
-    lineOfSight: true,  // Grate allows full line of sight!
-    light: true,        // Torchlight penetrates the bars!
-    sound: true,        // Sounds travel freely!
-    projectiles: true,  // Arrows and spell attacks shoot straight through the bars!
-    magic: true
-  },
-  defaultComponents: {
-    durability: { hp: 120, maxHp: 120, armor: 10, canBeForced: false },
-    lock: {
-      lockType: 'mechanism',
-      keyTag: 'key.portcullis_lever'
-    },
-    interactable: {
-      prompt: 'Inspect Portcullis',
-      actions: {
-        open: {
-          id: 'open',
-          name: 'Lift Portcullis',
-          requirements: { type: 'objectState', axis: 'security', value: 'unlocked' },
-          costs: null,
-          effects: [
-            { type: 'changeState', axis: 'mechanical', value: 'open' },
-            { type: 'updatePermeability', movement: true, lineOfSight: true, light: true, projectiles: true, magic: true }
-          ]
-        },
-        close: {
-          id: 'close',
-          name: 'Drop Portcullis',
-          requirements: { type: 'objectState', axis: 'mechanical', value: 'open' },
-          costs: null,
-          effects: [
-            { type: 'changeState', axis: 'mechanical', value: 'closed' },
-            { type: 'updatePermeability', movement: false, lineOfSight: true, light: true, projectiles: true, magic: true }
-          ]
-        }
-      }
-    }
-  }
-});
-
-registerObjectDefinition({
-  definitionId: 'door_secret_stone',
-  category: OBJECT_CATEGORIES.WORLD_OBJECT,
-  objectType: WORLD_OBJECT_TYPES.DOOR,
-  name: 'Concealed Secret Door',
-  description: 'A revolving masonry panel chiseled to blend indistinguishably into the surrounding ashlar dungeon walls.',
-  tags: ['door', 'secret', 'stone', 'hidden'],
-  defaultState: {
-    mechanical: 'closed',
-    security: 'unlocked',
-    discovery: 'unknown',
-    structural: 'intact'
-  },
-  defaultPermeability: {
-    movement: false,
-    lineOfSight: false,
-    light: false,
-    sound: false,
-    projectiles: false,
-    magic: false
-  },
-  defaultComponents: {
-    discovery: {
-      detectDc: 13,
-      isSecret: true
-    },
-    durability: { hp: 60, maxHp: 60, armor: 6, canBeForced: true },
-    interactable: {
-      prompt: 'Secret Stone Passage',
-      actions: {
-        reveal: {
-          id: 'reveal',
-          name: 'Reveal Secret Door',
-          requirements: {
-            op: 'OR',
-            rules: [
-              { type: 'requiredClass', classId: 'thief' },
-              { type: 'requiredClass', classId: 'ranger' },
-              { type: 'minStat', stat: 'int', value: 14 }
-            ]
-          },
-          costs: null,
-          effects: [
-            { type: 'changeState', axis: 'discovery', value: 'revealed' }
-          ]
-        },
-        open: {
-          id: 'open',
-          name: 'Pivot Secret Wall',
-          requirements: { type: 'objectState', axis: 'discovery', value: 'revealed' },
-          costs: null,
-          effects: [
-            { type: 'changeState', axis: 'mechanical', value: 'open' },
-            { type: 'updatePermeability', movement: true, lineOfSight: true, light: true, projectiles: true, magic: true }
-          ]
-        },
-        close: {
-          id: 'close',
-          name: 'Close Secret Wall',
-          requirements: { type: 'objectState', axis: 'mechanical', value: 'open' },
-          costs: null,
-          effects: [
-            { type: 'changeState', axis: 'mechanical', value: 'closed' },
-            { type: 'updatePermeability', movement: false, lineOfSight: false, light: false, projectiles: false, magic: false }
-          ]
-        }
-      }
-    }
-  }
-});
-
-registerObjectDefinition({
-  definitionId: 'door_vault_ancient',
-  category: OBJECT_CATEGORIES.WORLD_OBJECT,
-  objectType: WORLD_OBJECT_TYPES.DOOR,
-  name: 'Ancient Dwarven Vault Door',
-  description: 'A massive 4-inch solid brass and mithril security portal with complex celestial astronomical tumblers.',
-  tags: ['door', 'dwarven', 'vault', 'heavy'],
-  defaultState: {
-    mechanical: 'closed',
-    security: 'locked',
-    discovery: 'revealed',
-    structural: 'intact'
-  },
-  defaultPermeability: {
-    movement: false,
-    lineOfSight: false,
-    light: false,
-    sound: false,
-    projectiles: false,
-    magic: false
-  },
-  defaultComponents: {
-    durability: { hp: 160, maxHp: 160, armor: 14, canBeForced: false },
-    lock: {
-      lockType: 'dwarven_vault',
-      keyTag: 'key.dwarven_vault',
-      pickDifficulty: 20
-    },
-    interactable: {
-      prompt: 'Dwarven Vault Door',
-      actions: {
-        open: {
-          id: 'open',
-          name: 'Disengage Vault Seals',
-          requirements: { type: 'objectState', axis: 'security', value: 'unlocked' },
-          costs: null,
-          effects: [
-            { type: 'changeState', axis: 'mechanical', value: 'open' },
-            { type: 'updatePermeability', movement: true, lineOfSight: true, light: true, projectiles: true, magic: true }
-          ]
-        },
-        close: {
-          id: 'close',
-          name: 'Engage Vault Seals',
-          requirements: { type: 'objectState', axis: 'mechanical', value: 'open' },
-          costs: null,
-          effects: [
-            { type: 'changeState', axis: 'mechanical', value: 'closed' },
-            { type: 'updatePermeability', movement: false, lineOfSight: false, light: false, projectiles: false, magic: false }
-          ]
-        },
-        unlock: {
-          id: 'unlock',
-          name: 'Unlock with Dwarven Vault Key',
-          requirements: { type: 'hasItemTag', tag: 'key.dwarven_vault' },
-          costs: null,
-          effects: [
-            { type: 'changeState', axis: 'security', value: 'unlocked' }
-          ]
-        },
-        pick_lock: {
-          id: 'pick_lock',
-          name: 'Pick Dwarven Tumblers',
-          requirements: {
-            op: 'AND',
-            rules: [
-              { type: 'requiredClass', classId: 'thief' },
-              { type: 'minStat', stat: 'dex', value: 20 }
-            ]
-          },
-          costs: null,
-          effects: [
-            { type: 'changeState', axis: 'security', value: 'unlocked' }
-          ]
-        }
-      }
-    }
-  }
-});
-
-// ============================================================================
-// 7. PORTAL & WAYPOINT DEFINITIONS (Fast-Travel, Rifts & Boss Extractions)
-// ============================================================================
-
-registerObjectDefinition({
-  definitionId: 'portal_ancient_waypoint',
-  category: OBJECT_CATEGORIES.WORLD_OBJECT,
-  objectType: WORLD_OBJECT_TYPES.PORTAL,
-  name: 'Ancient Celestial Waypoint',
-  description: 'A resonant stellar monolith inscribed with astronomical cartographic coordinates connecting to the Guild Waypoint Network.',
-  tags: ['portal', 'waypoint', 'celestial', 'monolith', 'fast_travel'],
-  defaultState: {
-    mechanical: 'active',
-    security: 'unlocked',
-    discovery: 'unknown',
-    power: 'powered',
-    structural: 'indestructible'
-  },
-  defaultPermeability: {
-    movement: true,
-    lineOfSight: true,
-    light: true,
-    sound: true,
-    projectiles: true,
-    magic: true
-  },
-  defaultComponents: {
-    traversal: {
-      portalType: 'waypoint',
-      networkId: 'astral_waypoints',
-      endpointType: 'bi_directional',
-      transitionType: 'instant',
-      allowsReturn: true
-    },
-    interactable: {
-      prompt: 'Attune Celestial Waypoint',
-      actions: {
-        attune: {
-          id: 'attune',
-          name: 'Attune Waypoint',
-          requirements: null,
-          costs: null,
-          effects: [
-            { type: 'attuneWaypoint' },
-            { type: 'changeState', axis: 'discovery', value: 'revealed' }
-          ]
-        },
-        traverse: {
-          id: 'traverse',
-          name: 'Travel via Waypoint Network',
-          requirements: { type: 'objectState', axis: 'discovery', value: 'revealed' },
-          costs: null,
-          effects: [
-            { type: 'traverseWaypoint' }
-          ]
-        }
-      }
-    }
-  }
-});
-
-registerObjectDefinition({
-  definitionId: 'portal_astral_rift',
-  category: OBJECT_CATEGORIES.WORLD_OBJECT,
-  objectType: WORLD_OBJECT_TYPES.PORTAL,
-  name: 'Unstable Astral Rift',
-  description: 'A fluctuating dimensional fissure tearing through the vault floor. Will collapse after finite traversals.',
-  tags: ['portal', 'rift', 'astral', 'unstable', 'limited_charges'],
-  defaultState: {
-    mechanical: 'active',
-    security: 'unlocked',
-    discovery: 'revealed',
-    power: 'powered',
-    structural: 'volatile'
-  },
-  defaultPermeability: {
-    movement: true,
-    lineOfSight: true,
-    light: true,
-    sound: true,
-    projectiles: true,
-    magic: true
-  },
-  defaultComponents: {
-    traversal: {
-      portalType: 'rift',
-      networkId: 'isolated_rift',
-      endpointType: 'one_way',
-      transitionType: 'rift_jump',
-      charges: 2,
-      maxCharges: 2,
-      collapseOnDeplete: true
-    },
-    interactable: {
-      prompt: 'Step into Astral Rift',
-      actions: {
-        traverse: {
-          id: 'traverse',
-          name: 'Enter Astral Rift',
-          requirements: { type: 'objectState', axis: 'mechanical', value: 'active' },
-          costs: null,
-          effects: [
-            { type: 'traverseRift' }
-          ]
-        }
-      }
-    }
-  }
-});
-
-registerObjectDefinition({
-  definitionId: 'portal_boss_extraction',
-  category: OBJECT_CATEGORIES.WORLD_OBJECT,
-  objectType: WORLD_OBJECT_TYPES.PORTAL,
-  name: 'Astral Sanctum Gateway',
-  description: 'A triumphant golden beacon portal materialized from the defeated boss guardian\'s residual astral energy.',
-  tags: ['portal', 'extraction', 'boss', 'sanctum', 'triumphant'],
-  defaultState: {
-    mechanical: 'active',
-    security: 'unlocked',
-    discovery: 'revealed',
-    power: 'powered',
-    structural: 'indestructible'
-  },
-  defaultPermeability: {
-    movement: true,
-    lineOfSight: true,
-    light: true,
-    sound: true,
-    projectiles: true,
-    magic: true
-  },
-  defaultComponents: {
-    traversal: {
-      portalType: 'extraction',
-      destination: 'guild',
-      endpointType: 'one_way',
-      transitionType: 'extraction'
-    },
-    interactable: {
-      prompt: 'Ascend to Surface',
-      actions: {
-        traverse: {
-          id: 'traverse',
-          name: 'Extract to Oakhaven',
-          requirements: null,
-          costs: null,
-          effects: [
-            { type: 'extractHero', reason: 'Astral Sanctum Gateway' }
-          ]
-        }
-      }
-    }
-  }
-});
-
-// =========================================================================
-// Increment 8.3: Linked Mechanisms, Destructible Props & Environmental Hazards
-// =========================================================================
-
-registerObjectDefinition({
-  definitionId: 'mech_wall_lever',
-  category: OBJECT_CATEGORIES.WORLD_OBJECT,
-  objectType: WORLD_OBJECT_TYPES.MECHANISM,
-  name: 'Iron Wall Lever',
-  description: 'A heavy dwarven counterweight lever linked by hidden chains to nearby portcullises or secret vaults.',
-  tags: ['mechanism', 'lever', 'interactive'],
-  defaultState: {
-    mechanical: 'idle',
-    security: 'unlocked',
-    discovery: 'revealed',
-    structural: 'intact',
-    power: 'unpowered'
-  },
-  defaultPermeability: {
-    movement: true,
-    lineOfSight: true,
-    light: true,
-    sound: true,
-    projectiles: true,
-    magic: true
-  },
-  defaultComponents: {
-    mechanism: { mechanismType: 'lever', linkedTargetIds: [] },
-    interactable: {
-      prompt: 'Pull Lever',
-      actions: {
-        pull: {
-          id: 'pull',
-          name: 'Pull Iron Lever',
-          requirements: null,
-          costs: null,
-          effects: [{ type: 'toggleLinked' }]
-        }
-      }
-    }
-  }
-});
-
-registerObjectDefinition({
-  definitionId: 'mech_pressure_plate',
-  category: OBJECT_CATEGORIES.WORLD_OBJECT,
-  objectType: WORLD_OBJECT_TYPES.MECHANISM,
-  name: 'Dwarven Pressure Plate',
-  description: 'A recessed flagstone trigger plate that actuates linked dungeon gates when stepped on.',
-  tags: ['mechanism', 'pressure_plate', 'trigger'],
-  defaultState: {
-    mechanical: 'idle',
-    security: 'unlocked',
-    discovery: 'revealed',
-    structural: 'intact',
-    power: 'unpowered'
-  },
-  defaultPermeability: {
-    movement: true,
-    lineOfSight: true,
-    light: true,
-    sound: true,
-    projectiles: true,
-    magic: true
-  },
-  defaultComponents: {
-    mechanism: { mechanismType: 'pressure_plate', linkedTargetIds: [] },
-    interactable: {
-      prompt: 'Step on Plate',
-      actions: {
-        trigger: {
-          id: 'trigger',
-          name: 'Depress Pressure Plate',
-          requirements: null,
-          costs: null,
-          effects: [{ type: 'toggleLinked' }]
-        }
-      }
-    }
-  }
-});
-
-registerObjectDefinition({
-  definitionId: 'prop_supply_crate',
-  category: OBJECT_CATEGORIES.WORLD_OBJECT,
-  objectType: WORLD_OBJECT_TYPES.PROP,
-  name: 'Iron-Bound Supply Crate',
-  description: 'A sturdy dwarven supply crate that blocks footsteps but can be smashed open for salvage.',
-  tags: ['prop', 'destructible', 'wood', 'lootable'],
-  defaultState: {
-    mechanical: 'closed',
-    security: 'unlocked',
-    discovery: 'revealed',
-    structural: 'intact',
-    power: 'unpowered'
-  },
-  defaultPermeability: {
-    movement: false,
-    lineOfSight: true,
-    light: true,
-    sound: true,
-    projectiles: true,
-    magic: true
-  },
-  defaultComponents: {
-    durability: { hp: 18, maxHp: 18, armor: 1, canBeForced: true },
-    prop: { propType: 'crate' },
-    lootable: { dropChance: 0.55, lootTableId: 'loot_crate_salvage', rolls: 1 },
-    interactable: {
-      prompt: 'Smash Crate',
-      actions: {
-        bash: {
-          id: 'bash',
-          name: 'Smash Supply Crate',
-          requirements: null,
-          costs: null,
-          effects: [{ type: 'damageProp' }]
-        }
-      }
-    }
-  }
-});
-
-registerObjectDefinition({
-  definitionId: 'prop_oil_barrel',
-  category: OBJECT_CATEGORIES.WORLD_OBJECT,
-  objectType: WORLD_OBJECT_TYPES.PROP,
-  name: 'Volatile Oil Barrel',
-  description: 'A pitch-sealed lantern-oil cask. Smashing it ruptures flammable oil across adjacent tiles.',
-  tags: ['prop', 'destructible', 'volatile', 'oil'],
-  defaultState: {
-    mechanical: 'closed',
-    security: 'unlocked',
-    discovery: 'revealed',
-    structural: 'intact',
-    power: 'unpowered'
-  },
-  defaultPermeability: {
-    movement: false,
-    lineOfSight: true,
-    light: true,
-    sound: true,
-    projectiles: true,
-    magic: true
-  },
-  defaultComponents: {
-    durability: { hp: 12, maxHp: 12, armor: 0, canBeForced: true },
-    prop: { propType: 'oil_barrel', spawnsHazard: 'hazard_oil_slick' },
-    lootable: null,
-    interactable: {
-      prompt: 'Rupture Oil Barrel',
-      actions: {
-        bash: {
-          id: 'bash',
-          name: 'Smash Oil Barrel',
-          requirements: null,
-          costs: null,
-          effects: [{ type: 'damageProp' }]
-        }
-      }
-    }
-  }
-});
-
-registerObjectDefinition({
-  definitionId: 'prop_wood_barricade',
-  category: OBJECT_CATEGORIES.WORLD_OBJECT,
-  objectType: WORLD_OBJECT_TYPES.PROP,
-  name: 'Splintered Barricade',
-  description: 'A hastily nailed timber barricade blocking passage while allowing ranged fire over the top.',
-  tags: ['prop', 'destructible', 'cover', 'wood'],
-  defaultState: {
-    mechanical: 'closed',
-    security: 'unlocked',
-    discovery: 'revealed',
-    structural: 'intact',
-    power: 'unpowered'
-  },
-  defaultPermeability: {
-    movement: false,
-    lineOfSight: true,
-    light: true,
-    sound: true,
-    projectiles: true,
-    magic: true
-  },
-  defaultComponents: {
-    durability: { hp: 26, maxHp: 26, armor: 2, canBeForced: true },
-    prop: { propType: 'barricade' },
-    interactable: {
-      prompt: 'Break Barricade',
-      actions: {
-        bash: {
-          id: 'bash',
-          name: 'Break Barricade',
-          requirements: null,
-          costs: null,
-          effects: [{ type: 'damageProp' }]
-        }
-      }
-    }
-  }
-});
-
-registerObjectDefinition({
-  definitionId: 'hazard_oil_slick',
-  category: OBJECT_CATEGORIES.WORLD_OBJECT,
-  objectType: WORLD_OBJECT_TYPES.HAZARD,
-  name: 'Flammable Oil Slick',
-  description: 'A viscous pool of lamp oil. Footing is treacherous, and any flame ignites it violently.',
-  tags: ['hazard', 'oil', 'flammable'],
-  defaultState: {
-    mechanical: 'active',
-    security: 'unlocked',
-    discovery: 'revealed',
-    structural: 'intact',
-    power: 'unpowered'
-  },
-  defaultPermeability: {
-    movement: true,
-    lineOfSight: true,
-    light: true,
-    sound: true,
-    projectiles: true,
-    magic: true
-  },
-  defaultComponents: {
-    hazard: { hazardType: 'oil', damage: 0, statusId: 'weakened', statusTurns: 2, igniteDamage: 18 }
-  }
-});
-
-registerObjectDefinition({
-  definitionId: 'hazard_slag_vent',
-  category: OBJECT_CATEGORIES.WORLD_OBJECT,
-  objectType: WORLD_OBJECT_TYPES.HAZARD,
-  name: 'Molten Slag Vent',
-  description: 'A glowing geothermal grate searing any hero or monster that steps across it.',
-  tags: ['hazard', 'fire', 'molten'],
-  defaultState: {
-    mechanical: 'active',
-    security: 'unlocked',
-    discovery: 'revealed',
-    structural: 'intact',
-    power: 'powered'
-  },
-  defaultPermeability: {
-    movement: true,
-    lineOfSight: true,
-    light: true,
-    sound: true,
-    projectiles: true,
-    magic: true
-  },
-  defaultComponents: {
-    hazard: { hazardType: 'fire', damage: 10, statusId: 'burn', statusTurns: 3 }
-  }
-});
-
-registerObjectDefinition({
-  definitionId: 'hazard_spore_cloud',
-  category: OBJECT_CATEGORIES.WORLD_OBJECT,
-  objectType: WORLD_OBJECT_TYPES.HAZARD,
-  name: 'Toxic Spore Cloud',
-  description: 'A swirling patch of subterranean fungal spores poisoning any creature that moves through it.',
-  tags: ['hazard', 'poison', 'fungal'],
-  defaultState: {
-    mechanical: 'active',
-    security: 'unlocked',
-    discovery: 'revealed',
-    structural: 'intact',
-    power: 'unpowered'
-  },
-  defaultPermeability: {
-    movement: true,
-    lineOfSight: true,
-    light: true,
-    sound: true,
-    projectiles: true,
-    magic: true
-  },
-  defaultComponents: {
-    hazard: { hazardType: 'poison', damage: 7, statusId: 'poison', statusTurns: 3 }
-  }
-});
-
-registerObjectDefinition({
-  definitionId: 'prop_wooden_barrel',
-  category: OBJECT_CATEGORIES.WORLD_OBJECT,
-  objectType: WORLD_OBJECT_TYPES.PROP,
-  name: 'Wooden Storage Barrel',
-  description: 'An oak cask left behind by dwarven miners. Smashing it has a chance to uncover minor salvage or worthless junk.',
-  tags: ['prop', 'destructible', 'wood', 'barrel', 'lootable'],
-  defaultState: {
-    mechanical: 'closed',
-    security: 'unlocked',
-    discovery: 'revealed',
-    structural: 'intact',
-    power: 'unpowered'
-  },
-  defaultPermeability: {
-    movement: false,
-    lineOfSight: true,
-    light: true,
-    sound: true,
-    projectiles: true,
-    magic: true
-  },
-  defaultComponents: {
-    durability: { hp: 12, maxHp: 12, armor: 0, canBeForced: true },
-    prop: { propType: 'wooden_barrel' },
-    lootable: { dropChance: 0.35, lootTableId: 'loot_barrel_junk', rolls: 1 },
-    interactable: {
-      prompt: 'Smash Barrel',
-      actions: {
-        bash: {
-          id: 'bash',
-          name: 'Smash Wooden Barrel',
-          requirements: null,
-          costs: null,
-          effects: [{ type: 'damageProp' }]
-        }
-      }
-    }
-  }
-});
-
-registerObjectDefinition({
-  definitionId: 'container_dungeon_chest',
-  category: OBJECT_CATEGORIES.WORLD_OBJECT,
-  objectType: WORLD_OBJECT_TYPES.CONTAINER,
-  name: 'Gilded Vault Chest',
-  description: 'A banded oak treasure chest containing subterranean coin, ore, or relics.',
-  tags: ['container', 'chest', 'lootable'],
-  stackable: false,
-  carryable: false,
-  defaultState: {
-    mechanical: 'closed',
-    security: 'unlocked',
-    discovery: 'revealed',
-    structural: 'intact',
-    power: 'unpowered'
-  },
-  defaultPermeability: {
-    movement: false,
-    lineOfSight: true,
-    light: true,
-    sound: true,
-    projectiles: true,
-    magic: true
-  },
-  defaultComponents: {
-    lootable: { dropChance: 1.0, lootTableId: 'loot_dungeon_chest', rolls: 1 },
-    interactable: {
-      prompt: 'Open Chest',
-      actions: {
-        open: {
-          id: 'open',
-          name: 'Open Vault Chest',
-          requirements: { type: 'objectState', axis: 'mechanical', value: 'closed' },
-          costs: null,
-          effects: [{ type: 'changeState', axis: 'mechanical', value: 'open' }]
-        }
-      }
-    }
-  }
-});
-
-  // --- Module: src/engine/objects.js ---
-// Foundational Game Object & Runtime Instance Engine (ADR-0010)
-// Manages object instances, spatial floor queries, item pickups, and the ItemStack stacking engine.
-
-
-
-
-let instanceSeq = 1000;
-
-function nextInstanceId(prefix = 'obj') {
-  return `${prefix}_${Date.now()}_${instanceSeq++}`;
-}
-
-// ============================================================================
-// INSTANCE FACTORIES
-// ============================================================================
-
-function createWorldObjectInstance(defId, options = {}) {
-  const def = getObjectDefinition(defId);
-  const defObj = def || {};
-
-  const inst = {
-    instanceId: options.instanceId || nextInstanceId(defObj.objectType || 'obj'),
-    definitionId: defId,
-    objectType: options.objectType || defObj.objectType || WORLD_OBJECT_TYPES.STATIC,
-    name: options.name || defObj.name || 'World Object',
-    x: typeof options.x === 'number' ? options.x : 0,
-    y: typeof options.y === 'number' ? options.y : 0,
-    worldId: options.worldId || 'world_prime',
-    locationId: options.locationId || null,
-    ownerId: options.ownerId || null,
-    factionId: options.factionId || null,
-    revision: typeof options.revision === 'number' ? options.revision : 1,
-    persistencePolicy: options.persistencePolicy || 'floor_persistent',
-    tags: Array.isArray(options.tags)
-      ? options.tags.slice()
-      : (defObj.tags ? defObj.tags.slice() : []),
-    runtimeState: Object.assign(
-      {
-        mechanical: 'closed',
-        security: 'unlocked',
-        discovery: 'revealed',
-        structural: 'intact',
-        power: 'unpowered'
-      },
-      defObj.defaultState || {},
-      options.runtimeState || {}
-    ),
-    permeability: Object.assign(
-      {
-        movement: true,
-        lineOfSight: true,
-        light: true,
-        sound: true,
-        projectiles: true,
-        magic: true
-      },
-      defObj.defaultPermeability || {},
-      options.permeability || {}
-    ),
-    components: (function() {
-      const mc = {};
-      if (defObj.defaultComponents) {
-        const dKeys = Object.keys(defObj.defaultComponents);
-        for (let di = 0; di < dKeys.length; di++) {
-          const dk = dKeys[di];
-          mc[dk] = Object.assign({}, defObj.defaultComponents[dk]);
-        }
-      }
-      if (options.components) {
-        const oKeys = Object.keys(options.components);
-        for (let oi = 0; oi < oKeys.length; oi++) {
-          const ok = oKeys[oi];
-          mc[ok] = Object.assign(mc[ok] || {}, options.components[ok]);
-        }
-      }
-      if (options.traversal) {
-        mc.traversal = Object.assign(mc.traversal || {}, options.traversal);
-      }
-      return mc;
-    })(),
-    customData: Object.assign({}, options.customData || {})
-  };
-
-  return inst;
-}
-
-function createItemInstance(defOrItem, options = {}) {
-  let defId = null;
-  let baseObj = {};
-
-  if (typeof defOrItem === 'string') {
-    defId = defOrItem;
-    baseObj = getObjectDefinition(defId) || {};
-  } else if (defOrItem && typeof defOrItem === 'object') {
-    defId = defOrItem.definitionId || defOrItem.id || 'custom_item';
-    baseObj = defOrItem;
-  }
-
-  const def = getObjectDefinition(defId);
-  const defData = def || {};
-
-  const inst = Object.assign({}, baseObj, {
-    instanceId: options.instanceId || baseObj.instanceId || baseObj.uid || nextInstanceId('item'),
-    definitionId: defId,
-    name: options.name || baseObj.name || defData.name || 'Unknown Item',
-    quantity: typeof options.quantity === 'number'
-      ? options.quantity
-      : (typeof baseObj.quantity === 'number' ? baseObj.quantity : 1),
-    quality: options.quality || baseObj.quality || 'normal',
-    rarity: options.rarity || baseObj.rarity || defData.rarity || 'common',
-    itemLevel: options.itemLevel || baseObj.itemLevel || 1,
-    durability: typeof options.durability === 'number'
-      ? options.durability
-      : (typeof baseObj.curDur === 'number' ? baseObj.curDur : null),
-    charges: typeof options.charges === 'number'
-      ? options.charges
-      : (typeof baseObj.charges === 'number' ? baseObj.charges : null),
-    isStackable: options.isStackable !== undefined
-      ? Boolean(options.isStackable)
-      : (baseObj.isStackable !== undefined ? Boolean(baseObj.isStackable) : Boolean(defData.isStackable)),
-    maxStackSize: options.maxStackSize || baseObj.maxStackSize || defData.maxStackSize || 99,
-    affixes: Array.isArray(options.affixes)
-      ? options.affixes.slice()
-      : (Array.isArray(baseObj.affixes) ? baseObj.affixes.slice() : []),
-    sockets: Array.isArray(options.sockets)
-      ? options.sockets.slice()
-      : (Array.isArray(baseObj.sockets) ? baseObj.sockets.slice() : []),
-    locked: Boolean(options.locked || baseObj.locked),
-    boundState: options.boundState || baseObj.boundState || 'unbound',
-    tags: Array.isArray(options.tags)
-      ? options.tags.slice()
-      : (Array.isArray(baseObj.tags) ? baseObj.tags.slice() : (defData.tags ? defData.tags.slice() : [])),
-    components: Object.assign({}, defData.defaultComponents || {}, baseObj.components || {}, options.components || {}),
-    customData: Object.assign({}, baseObj.customData || {}, options.customData || {})
-  });
-
-  // Preserve legacy uid alias for full backward-compatibility with UI/Armory
-  if (!inst.uid) {
-    inst.uid = inst.instanceId;
-  }
-
-  return inst;
-}
-
-function createWorldItemPickupInstance(itemInstance, x, y, options = {}) {
-  const normItem = itemInstance && itemInstance.instanceId ? itemInstance : createItemInstance(itemInstance);
-  const def = getObjectDefinition('pickup_world_item');
-
-  const pickupObj = createWorldObjectInstance('pickup_world_item', {
-    x: x,
-    y: y,
-    name: normItem.name,
-    objectType: WORLD_OBJECT_TYPES.PICKUP,
-    tags: ['pickup', normItem.rarity || 'common'].concat(normItem.tags || []),
-    components: Object.assign({}, def ? def.defaultComponents : {}, {
-      pickup: {
-        item: normItem
-      }
-    }),
-    customData: options.customData || {}
-  });
-
-  return pickupObj;
-}
-
-function spawnGroundItem(floor, itemOrDefId, x, y, options = {}) {
-  const itemInst = typeof itemOrDefId === 'string' ? createItemInstance(itemOrDefId) : itemOrDefId;
-  const pickup = createWorldItemPickupInstance(itemInst, x, y, options);
-  if (floor) {
-    addWorldObject(floor, pickup);
-  }
-  return pickup;
-}
-
-// ============================================================================
-// SPATIAL FLOOR OBJECT QUERIES & MANAGEMENT
-// ============================================================================
-
-function ensureFloorObjects(floor) {
-  if (!floor) return [];
-  if (!Array.isArray(floor.objects)) {
-    floor.objects = [];
-  }
-  return floor.objects;
-}
-
-function getObjectsAt(floor, x, y, filterFn = null) {
-  const objs = ensureFloorObjects(floor);
-  const matches = [];
-  for (let i = 0; i < objs.length; i++) {
-    const o = objs[i];
-    if (o && o.x === x && o.y === y) {
-      if (!filterFn || filterFn(o)) {
-        matches.push(o);
-      }
-    }
-  }
-  return matches;
-}
-
-function getFirstObjectAt(floor, x, y, objectType = null) {
-  const objs = ensureFloorObjects(floor);
-  for (let i = 0; i < objs.length; i++) {
-    const o = objs[i];
-    if (o && o.x === x && o.y === y) {
-      if (!objectType || o.objectType === objectType) {
-        return o;
-      }
-    }
-  }
-  return null;
-}
-
-function isObjectStackable(obj) {
-  if (!obj) return false;
-  if (typeof obj.stackable === 'boolean') return obj.stackable;
-  const def = obj.definitionId ? getObjectDefinition(obj.definitionId) : null;
-  if (def && typeof def.stackable === 'boolean') return def.stackable;
-  return obj.category === OBJECT_CATEGORIES.ITEM;
-}
-
-function isObjectCarryable(obj) {
-  if (!obj) return false;
-  if (typeof obj.carryable === 'boolean') return obj.carryable;
-  const def = obj.definitionId ? getObjectDefinition(obj.definitionId) : null;
-  if (def && typeof def.carryable === 'boolean') return def.carryable;
-  return obj.category === OBJECT_CATEGORIES.ITEM || obj.objectType === WORLD_OBJECT_TYPES.PICKUP;
-}
-
-function addWorldObject(floor, obj) {
-  if (!floor || !obj) return null;
-  const objs = ensureFloorObjects(floor);
-  // Enforce non-stackable world object uniqueness per tile (e.g., never allow two chests in the same spot!)
-  if (!isObjectStackable(obj)) {
-    const duplicate = objs.some(function(o) {
-      return o && o.x === obj.x && o.y === obj.y && o.objectType === obj.objectType && !isObjectStackable(o);
-    });
-    if (duplicate) return null;
-  }
-  objs.push(obj);
-  return obj;
-}
-
-function removeWorldObject(floor, instanceIdOrObj) {
-  if (!floor) return false;
-  const objs = ensureFloorObjects(floor);
-  const targetId = typeof instanceIdOrObj === 'string'
-    ? instanceIdOrObj
-    : (instanceIdOrObj ? instanceIdOrObj.instanceId : null);
-
-  if (!targetId) return false;
-
-  for (let i = 0; i < objs.length; i++) {
-    if (objs[i] && objs[i].instanceId === targetId) {
-      objs.splice(i, 1);
-      return true;
-    }
-  }
-  return false;
-}
-
-function findObjectById(floor, instanceId) {
-  if (!floor || !instanceId) return null;
-  const objs = ensureFloorObjects(floor);
-  for (let i = 0; i < objs.length; i++) {
-    if (objs[i] && objs[i].instanceId === instanceId) {
-      return objs[i];
-    }
-  }
-  return null;
-}
-
-// ============================================================================
-// ITEMSTACK STACKING ENGINE
-// ============================================================================
-
-function canItemsStack(a, b) {
-  if (!a || !b) return false;
-
-  // Equipment with equipment slots (weapon, armor, helm, boots, accessory, pickaxe) never stack
-  if (a.slot || b.slot) return false;
-
-  // Must share identical definition or base item ID
-  const aDef = a.definitionId || a.id;
-  const bDef = b.definitionId || b.id;
-  if (!aDef || !bDef || aDef !== bDef) return false;
-
-  // Explicit non-stackable flags
-  if (a.isStackable === false || b.isStackable === false) return false;
-
-  // Rarity and quality must match
-  if ((a.rarity || 'common') !== (b.rarity || 'common')) return false;
-  if ((a.quality || 'normal') !== (b.quality || 'normal')) return false;
-
-  // Binding states must match
-  if ((a.boundState || 'unbound') !== (b.boundState || 'unbound')) return false;
-
-  // Unique rolled affixes or socketed gems prevent stacking
-  const aAff = Array.isArray(a.affixes) ? a.affixes.length : 0;
-  const bAff = Array.isArray(b.affixes) ? b.affixes.length : 0;
-  if (aAff > 0 || bAff > 0) return false;
-
-  const aSock = Array.isArray(a.sockets) ? a.sockets.length : 0;
-  const bSock = Array.isArray(b.sockets) ? b.sockets.length : 0;
-  if (aSock > 0 || bSock > 0) return false;
-
-  return true;
-}
-
-function mergeItemStacks(target, source, maxStackSize = 99) {
-  if (!canItemsStack(target, source)) return 0;
-
-  const targetCap = target.maxStackSize || maxStackSize;
-  const currentQty = typeof target.quantity === 'number' ? target.quantity : 1;
-  const spaceLeft = Math.max(0, targetCap - currentQty);
-  if (spaceLeft <= 0) return 0;
-
-  const sourceQty = typeof source.quantity === 'number' ? source.quantity : 1;
-  const amountToMove = Math.min(spaceLeft, sourceQty);
-
-  target.quantity = currentQty + amountToMove;
-  source.quantity = sourceQty - amountToMove;
-
-  return amountToMove;
-}
-
-function splitItemStack(stack, qtyToSplit) {
-  if (!stack || typeof qtyToSplit !== 'number' || qtyToSplit <= 0) return null;
-  const currentQty = typeof stack.quantity === 'number' ? stack.quantity : 1;
-  if (qtyToSplit >= currentQty) return null;
-
-  stack.quantity = currentQty - qtyToSplit;
-
-  const splitInst = createItemInstance(stack, {
-    quantity: qtyToSplit,
-    instanceId: nextInstanceId('item_split')
-  });
-
-  return splitInst;
-}
-
-// ============================================================================
-// LEGACY FLOOR OBJECT AUTO-MIGRATION
-// ============================================================================
-
-function hydrateLegacyFloorObjects(floor) {
-  if (!floor || !floor.tiles) return [];
-  const objs = ensureFloorObjects(floor);
-
-  // If floor already has objects (e.g. from new generator or save), retain them
-  const existingCoords = {};
-  for (let i = 0; i < objs.length; i++) {
-    const o = objs[i];
-    if (o) existingCoords[`${o.x},${o.y}`] = true;
-  }
-
-  const fh = floor.height || floor.tiles.length;
-  const fw = floor.width || (floor.tiles[0] ? floor.tiles[0].length : 0);
-
-  for (let y = 0; y < fh; y++) {
-    const row = floor.tiles[y];
-    if (!row) continue;
-    for (let x = 0; x < fw; x++) {
-      const coordKey = `${x},${y}`;
-      if (existingCoords[coordKey]) continue;
-
-      const t = row[x];
-      if (t === TILE_CHEST || t === TILE_CHEST_OPEN) {
-        const chestObj = createWorldObjectInstance('container_vault_chest', {
-          x: x,
-          y: y,
-          runtimeState: {
-            mechanical: t === TILE_CHEST_OPEN ? 'open' : 'closed',
-            security: 'unlocked',
-            structural: 'intact'
-          }
-        });
-        objs.push(chestObj);
-        existingCoords[coordKey] = true;
-      } else if (t === TILE_SHRINE || t === TILE_SHRINE_USED) {
-        // Look up shrine type from floor.shrines map if present
-        const sMeta = (floor.shrines && floor.shrines[coordKey]) || {};
-        let defId = 'device_shrine_celestial';
-        if (sMeta.id === 'shrine_starfire') defId = 'device_shrine_starfire';
-        else if (sMeta.id === 'shrine_aegis') defId = 'device_shrine_aegis';
-
-        const shrineObj = createWorldObjectInstance(defId, {
-          x: x,
-          y: y,
-          runtimeState: {
-            mechanical: t === TILE_SHRINE_USED ? 'open' : 'closed', // 'open' = used
-            security: 'unlocked',
-            structural: 'intact'
-          }
-        });
-        objs.push(shrineObj);
-        existingCoords[coordKey] = true;
-      } else if (t === TILE_TRAP_HIDDEN || t === TILE_TRAP_VISIBLE || t === TILE_TRAP_DISARMED) {
-        const tMeta = (floor.traps && floor.traps[coordKey]) || {};
-        let defId = 'mechanism_trap_spikes';
-        if (tMeta.id === 'flame') defId = 'mechanism_trap_flame';
-
-        const trapObj = createWorldObjectInstance(defId, {
-          x: x,
-          y: y,
-          runtimeState: {
-            mechanical: t === TILE_TRAP_DISARMED ? 'disabled' : 'closed',
-            security: 'unlocked',
-            discovery: t === TILE_TRAP_HIDDEN ? 'unknown' : 'revealed',
-            structural: 'intact'
-          }
-        });
-        objs.push(trapObj);
-        existingCoords[coordKey] = true;
-      }
-    }
-  }
-
-  return objs;
-}
-
-// ============================================================================
-// DOOR HELPERS & PERMEABILITY QUERIES
-// ============================================================================
-
-function createDoorInstance(defId = 'door_wood_hinged', x = 0, y = 0, options = {}) {
-  const door = createWorldObjectInstance(defId, Object.assign({}, options, {
-    x: x,
-    y: y,
-    objectType: WORLD_OBJECT_TYPES.DOOR
-  }));
-  return door;
-}
-
-function isDoorWalkable(door) {
-  if (!door) return true;
-  if (door.objectType !== WORLD_OBJECT_TYPES.DOOR) return true;
-
-  const st = door.runtimeState || {};
-  if (st.mechanical === 'open') return true;
-  if (st.structural === 'destroyed' || st.structural === 'breached') return true;
-  if (door.permeability && door.permeability.movement === true) return true;
-
-  return false;
-}
-
-function isDoorOpaque(door) {
-  if (!door) return false;
-  if (door.objectType !== WORLD_OBJECT_TYPES.DOOR) return false;
-
-  const st = door.runtimeState || {};
-  // If door is open, destroyed, or breached, vision passes through
-  if (st.mechanical === 'open') return false;
-  if (st.structural === 'destroyed' || st.structural === 'breached') return false;
-
-  // If door has lineOfSight permeability (such as portcullis bars), vision passes through
-  if (door.permeability && door.permeability.lineOfSight === true) return false;
-
-  return true;
-}
-
-function isDoorTraversable(door) {
-  if (!door) return { traversable: true };
-  const walkable = isDoorWalkable(door);
-  if (walkable) return { traversable: true };
-
-  const st = door.runtimeState || {};
-  let reason = 'closed';
-  if (st.security === 'locked') reason = 'locked';
-  else if (st.security === 'sealed') reason = 'sealed';
-  else if (st.mechanical === 'jammed') reason = 'jammed';
-  else if (st.discovery === 'unknown') reason = 'secret_wall';
-
-  return { traversable: false, reason: reason };
-}
-
-// ============================================================================
-// PORTAL & WAYPOINT HELPERS (Fast-Travel & Astral Traversal)
-// ============================================================================
-
-function createPortalInstance(defId = 'portal_ancient_waypoint', x = 0, y = 0, options = {}) {
-  const portal = createWorldObjectInstance(defId, Object.assign({}, options, {
-    x: x,
-    y: y,
-    objectType: WORLD_OBJECT_TYPES.PORTAL
-  }));
-  return portal;
-}
-
-function isPortal(obj) {
-  return Boolean(obj && obj.objectType === WORLD_OBJECT_TYPES.PORTAL);
-}
-
-function isPortalActive(portal) {
-  if (!portal || !isPortal(portal)) return false;
-  const st = portal.runtimeState || {};
-  return st.mechanical === 'active';
-}
-
-function registerDiscoveredWaypoint(floorDepth, x, y, waypointObj, state) {
-  if (!state || !state.dungeon) return false;
-  if (!state.dungeon.waypoints) {
-    state.dungeon.waypoints = {};
-  }
-  const key = `f${floorDepth}`;
-  const existing = state.dungeon.waypoints[key];
-  if (existing && existing.attuned) return false;
-
-  state.dungeon.waypoints[key] = {
-    depth: floorDepth,
-    x: x,
-    y: y,
-    attuned: true,
-    instanceId: waypointObj ? waypointObj.instanceId : `wp_${floorDepth}`,
-    name: (waypointObj && waypointObj.name) || `Floor ${floorDepth} Celestial Waypoint`,
-    discoveredAtTurn: state.turn || 0
-  };
-  return true;
-}
-
-function getDiscoveredWaypoints(state) {
-  if (!state || !state.dungeon || !state.dungeon.waypoints) return [];
-  const wps = state.dungeon.waypoints;
-  const list = [];
-  const keys = Object.keys(wps);
-  for (let i = 0; i < keys.length; i++) {
-    const wp = wps[keys[i]];
-    if (wp && wp.attuned) {
-      list.push(wp);
-    }
-  }
-  list.sort((a, b) => a.depth - b.depth);
-  return list;
-}
-
-// =========================================================================
-// Increment 8.3: Mechanisms, Destructible Props & Environmental Hazards
-// =========================================================================
-
-function createMechanismInstance(defId = 'mech_wall_lever', x = 0, y = 0, options = {}) {
-  const inst = createWorldObjectInstance(defId, Object.assign({}, options, {
-    x: x,
-    y: y,
-    objectType: WORLD_OBJECT_TYPES.MECHANISM
-  }));
-  if (inst && options.linkedTargetIds && Array.isArray(options.linkedTargetIds)) {
-    if (!inst.components) inst.components = {};
-    if (!inst.components.mechanism) inst.components.mechanism = { mechanismType: 'lever', linkedTargetIds: [] };
-    inst.components.mechanism.linkedTargetIds = options.linkedTargetIds.slice();
-  }
-  return inst;
-}
-
-function createPropInstance(defId = 'prop_supply_crate', x = 0, y = 0, options = {}) {
-  return createWorldObjectInstance(defId, Object.assign({}, options, {
-    x: x,
-    y: y,
-    objectType: WORLD_OBJECT_TYPES.PROP
-  }));
-}
-
-function createContainerInstance(defId = 'container_dungeon_chest', x = 0, y = 0, options = {}) {
-  return createWorldObjectInstance(defId, Object.assign({}, options, {
-    x: x,
-    y: y,
-    objectType: WORLD_OBJECT_TYPES.CONTAINER
-  }));
-}
-
-function isClosedContainer(obj) {
-  return Boolean(obj && obj.objectType === WORLD_OBJECT_TYPES.CONTAINER && obj.runtimeState && obj.runtimeState.mechanical === 'closed');
-}
-
-function resolveLootableComponent(obj, floor, state, randFn = Math.random) {
-  const lootCfg = obj && obj.components && obj.components.lootable;
-  if (!lootCfg || !lootCfg.lootTableId) return { dropped: false, items: [], gold: 0 };
-
-  const chance = typeof lootCfg.dropChance === 'number' ? lootCfg.dropChance : 1.0;
-  const rolls = Math.max(1, lootCfg.rolls || 1);
-  const depth = (floor && floor.depth) || 1;
-  const droppedItems = [];
-  let goldGained = 0;
-
-  for (let r = 0; r < rolls; r++) {
-    const rollVal = typeof randFn === 'function' ? randFn() : Math.random();
-    if (rollVal > chance) continue;
-    const entry = rollLootTable(lootCfg.lootTableId, depth, randFn);
-    if (!entry) continue;
-
-    if (entry.kind === 'gold') {
-      const amt = entry.goldAmount || 3;
-      goldGained += amt;
-      if (state && state.hero && Array.isArray(state.hero.expeditionPack)) {
-        state.hero.expeditionPack.push({ id: entry.id, name: entry.name, qty: 1, val: amt });
-      } else if (state && state.guildVault) {
-        state.guildVault.gold = (state.guildVault.gold || 0) + amt;
-      }
-      droppedItems.push(entry);
-    } else if (entry.kind === 'consumable' && state && state.hero && state.hero.consumables) {
-      const k = entry.consumableKey || 'potions';
-      state.hero.consumables[k] = (state.hero.consumables[k] || 0) + (entry.qty || 1);
-      droppedItems.push(entry);
-    } else if (entry.kind === 'ore' && state && state.hero && Array.isArray(state.hero.expeditionPack)) {
-      const existing = state.hero.expeditionPack.find(function(it) { return it.id === entry.oreId; });
-      if (existing) existing.qty += (entry.qty || 1);
-      else state.hero.expeditionPack.push({ id: entry.oreId || 'copper', name: entry.name, qty: entry.qty || 1, val: entry.value || 5 });
-      droppedItems.push(entry);
-    } else if (entry.kind === 'trash' || entry.kind === 'trade') {
-      if (state && state.hero && Array.isArray(state.hero.expeditionPack)) {
-        state.hero.expeditionPack.push({ id: entry.id, name: entry.name, qty: 1, val: entry.value || 0, isTrash: entry.kind === 'trash' });
-      }
-      droppedItems.push(entry);
-    } else if (entry.kind === 'gear') {
-      if (state && state.hero && Array.isArray(state.hero.expeditionGear)) {
-        state.hero.expeditionGear.push({
-          uid: 'chest_gear_' + Date.now() + '_' + Math.floor((typeof randFn === 'function' ? randFn() : Math.random()) * 10000),
-          slot: 'weapon',
-          name: 'Vault-Forged Blade',
-          rarity: 'uncommon',
-          atk: 8 + Math.floor(depth * 1.5),
-          def: 1,
-          value: 45 + depth * 10
-        });
-      }
-      droppedItems.push(entry);
-    }
-  }
-
-  return { dropped: droppedItems.length > 0, items: droppedItems, gold: goldGained };
-}
-
-function openContainerObject(containerObj, floor, state, randFn = Math.random) {
-  if (!isClosedContainer(containerObj)) return { opened: false, loot: null };
-  containerObj.runtimeState.mechanical = 'open';
-  if (!containerObj.permeability) containerObj.permeability = {};
-  containerObj.permeability.movement = true;
-  const loot = resolveLootableComponent(containerObj, floor, state, randFn);
-  return { opened: true, loot: loot };
-}
-
-function createHazardInstance(defId = 'hazard_slag_vent', x = 0, y = 0, options = {}) {
-  return createWorldObjectInstance(defId, Object.assign({}, options, {
-    x: x,
-    y: y,
-    objectType: WORLD_OBJECT_TYPES.HAZARD
-  }));
-}
-
-function isMechanism(obj) {
-  return Boolean(obj && obj.objectType === WORLD_OBJECT_TYPES.MECHANISM);
-}
-
-function isDestructibleProp(obj) {
-  return Boolean(obj && obj.objectType === WORLD_OBJECT_TYPES.PROP && obj.runtimeState && obj.runtimeState.structural !== 'destroyed');
-}
-
-function isEnvironmentalHazard(obj) {
-  return Boolean(obj && obj.objectType === WORLD_OBJECT_TYPES.HAZARD && obj.runtimeState && obj.runtimeState.mechanical === 'active');
-}
-
-function toggleLinkedMechanisms(mechObj, floor) {
-  if (!mechObj || !isMechanism(mechObj) || !floor || !Array.isArray(floor.objects)) {
-    return { toggled: 0, targetIds: [] };
-  }
-  const st = mechObj.runtimeState || {};
-  const nextMechState = st.mechanical === 'pulled' ? 'idle' : 'pulled';
-  st.mechanical = nextMechState;
-
-  const linkIds = (mechObj.components && mechObj.components.mechanism && Array.isArray(mechObj.components.mechanism.linkedTargetIds))
-    ? mechObj.components.mechanism.linkedTargetIds
-    : [];
-  const affected = [];
-
-  for (let i = 0; i < linkIds.length; i++) {
-    const tid = linkIds[i];
-    const target = floor.objects.find(function(o) { return o.instanceId === tid; });
-    if (!target) continue;
-    if (!target.runtimeState) target.runtimeState = {};
-    if (!target.permeability) target.permeability = {};
-
-    const opening = nextMechState === 'pulled';
-    if (target.runtimeState.discovery === 'unknown') {
-      target.runtimeState.discovery = 'revealed';
-    }
-    if (opening) {
-      target.runtimeState.security = 'unlocked';
-      target.runtimeState.mechanical = 'open';
-      target.permeability.movement = true;
-      target.permeability.lineOfSight = true;
-      target.permeability.light = true;
-      target.permeability.projectiles = true;
-      target.permeability.magic = true;
-    } else {
-      target.runtimeState.mechanical = 'closed';
-      target.permeability.movement = false;
-      if (target.definitionId !== 'door_iron_portcullis') {
-        target.permeability.lineOfSight = false;
-        target.permeability.light = false;
-      }
-    }
-    affected.push(tid);
-  }
-
-  return { toggled: affected.length, state: nextMechState, targetIds: affected };
-}
-
-function damageDestructibleProp(propObj, rawDamage, floor, state) {
-  if (!propObj || !isDestructibleProp(propObj)) return { destroyed: false, damage: 0 };
-  const dur = (propObj.components && propObj.components.durability) || { hp: 15, maxHp: 15, armor: 0 };
-  const dmg = Math.max(1, Math.round(rawDamage || 10) - (dur.armor || 0));
-  dur.hp = Math.max(0, (dur.hp || 0) - dmg);
-
-  if (dur.hp > 0) {
-    if (propObj.runtimeState) propObj.runtimeState.structural = 'damaged';
-    return { destroyed: false, damage: dmg, remainingHp: dur.hp };
-  }
-
-  if (!propObj.runtimeState) propObj.runtimeState = {};
-  propObj.runtimeState.structural = 'destroyed';
-  propObj.runtimeState.mechanical = 'open';
-  if (!propObj.permeability) propObj.permeability = {};
-  propObj.permeability.movement = true;
-  propObj.permeability.lineOfSight = true;
-  propObj.permeability.light = true;
-  propObj.permeability.projectiles = true;
-  propObj.permeability.magic = true;
-
-  const propCfg = (propObj.components && propObj.components.prop) || {};
-  let spawnedHazards = 0;
-  let goldLooted = 0;
-  const lootRes = resolveLootableComponent(propObj, floor, state);
-  goldLooted += (lootRes.gold || 0);
-  if (propCfg.goldDrop && state && state.guildVault) {
-    goldLooted += propCfg.goldDrop;
-    state.guildVault.gold = (state.guildVault.gold || 0) + propCfg.goldDrop;
-  }
-
-  if (propCfg.spawnsHazard && floor && Array.isArray(floor.objects)) {
-    const offsets = [
-      { dx: 0, dy: 0 }, { dx: 1, dy: 0 }, { dx: -1, dy: 0 }, { dx: 0, dy: 1 }, { dx: 0, dy: -1 }
-    ];
-    for (let i = 0; i < offsets.length; i++) {
-      const hx = propObj.x + offsets[i].dx;
-      const hy = propObj.y + offsets[i].dy;
-      if (floor.tiles && floor.tiles[hy] && floor.tiles[hy][hx] !== 0) {
-        const exists = floor.objects.some(function(o) {
-          return o.x === hx && o.y === hy && o.definitionId === propCfg.spawnsHazard;
-        });
-        if (!exists) {
-          floor.objects.push(createHazardInstance(propCfg.spawnsHazard, hx, hy));
-          spawnedHazards++;
-        }
-      }
-    }
-  }
-
-  return {
-    destroyed: true,
-    damage: dmg,
-    goldLooted: goldLooted,
-    lootResult: lootRes,
-    spawnedHazards: spawnedHazards
-  };
-}
-
-function resolveHazardStepEffects(actor, x, y, floor) {
-  if (!actor || !floor || !Array.isArray(floor.objects)) return { triggered: false, damage: 0, statuses: [] };
-  const hazards = floor.objects.filter(function(o) {
-    return o.x === x && o.y === y && isEnvironmentalHazard(o);
-  });
-  if (hazards.length === 0) return { triggered: false, damage: 0, statuses: [] };
-
-  let totalDmg = 0;
-  const appliedStatuses = [];
-
-  for (let i = 0; i < hazards.length; i++) {
-    const hz = hazards[i];
-    const hCfg = (hz.components && hz.components.hazard) || {};
-    let dmg = hCfg.damage || 0;
-
-    // If actor is burning and steps into an oil slick, ignite for burst fire damage!
-    const actorStatuses = Array.isArray(actor.statuses) ? actor.statuses : [];
-    const isBurning = actorStatuses.some(function(s) { return s.id === 'burn'; });
-    if (hCfg.hazardType === 'oil' && isBurning) {
-      dmg += (hCfg.igniteDamage || 18);
-      hz.runtimeState.mechanical = 'spent';
-    }
-
-    if (dmg > 0) {
-      actor.hp = Math.max(0, (actor.hp || 0) - dmg);
-      totalDmg += dmg;
-    }
-
-    if (hCfg.statusId) {
-      if (!Array.isArray(actor.statuses)) actor.statuses = [];
-      const existing = actor.statuses.find(function(s) { return s.id === hCfg.statusId; });
-      if (existing) {
-        existing.turns = Math.max(existing.turns || 0, hCfg.statusTurns || 2);
-      } else {
-        actor.statuses.push({ id: hCfg.statusId, turns: hCfg.statusTurns || 2 });
-      }
-      appliedStatuses.push(hCfg.statusId);
-    }
-  }
-
-  return { triggered: true, damage: totalDmg, statuses: appliedStatuses };
-}
-
-  // --- Module: src/engine/state.js ---
-// Game State Schema (Multi-Dungeon Atlas v5/v6), Save Migration, RLE Persistence & Derived Hero Stats
-
-
-
-
-
-
-
-
-
-
-let itemSeq = 1000;
-
-function nextItemUid(prefix = 'gear') {
-  return `${prefix}_${Date.now()}_${itemSeq++}`;
-}
-
-function normalizeEquipmentSockets(item) {
-  if (!item) return null;
-  item.locked = Boolean(item.locked);
-  if (item.slot === 'pickaxe') {
-    item.maxSockets = 0;
-    item.sockets = [];
-    return item;
-  }
-  if (typeof item.maxSockets !== 'number') {
-    if (item.rarity === 'relic') item.maxSockets = 2;
-    else if (item.rarity === 'epic' || item.rarity === 'rare') item.maxSockets = 1;
-    else item.maxSockets = 0;
-  }
-  if (!Array.isArray(item.sockets)) {
-    item.sockets = [];
-  }
-  return item;
-}
-
-function createDefaultCodexState() {
-  const kills = {};
-  return {
-    totalMonstersSlain: 0,
-    totalBossesSlain: 0,
-    totalElitesSlain: 0,
-    totalOresMined: 0,
-    totalGemsUnearthed: 0,
-    totalChestsOpened: 0,
-    totalShrinesActivated: 0,
-    totalExtractions: 0,
-    totalDefeats: 0,
-    deepestFloorByDungeon: {},
-    monsterKills: kills,
-    killsByArchetype: kills,
-    oreMinedById: {},
-    relicsUnlocked: []
-  };
-}
-
-function ensureCodexState(state) {
-  if (!state) return createDefaultCodexState();
-  if (!state.codex || typeof state.codex !== 'object') {
-    state.codex = createDefaultCodexState();
-  } else {
-    const c = state.codex;
-    c.totalMonstersSlain = c.totalMonstersSlain || 0;
-    c.totalBossesSlain = c.totalBossesSlain || 0;
-    c.totalElitesSlain = c.totalElitesSlain || 0;
-    c.totalOresMined = c.totalOresMined || 0;
-    c.totalGemsUnearthed = c.totalGemsUnearthed || 0;
-    c.totalChestsOpened = c.totalChestsOpened || 0;
-    c.totalShrinesActivated = c.totalShrinesActivated || 0;
-    c.totalExtractions = c.totalExtractions || 0;
-    c.totalDefeats = c.totalDefeats || 0;
-    if (!c.deepestFloorByDungeon || typeof c.deepestFloorByDungeon !== 'object') c.deepestFloorByDungeon = {};
-    if (!c.monsterKills || typeof c.monsterKills !== 'object') {
-      c.monsterKills = c.killsByArchetype || {};
-    }
-    if (!c.killsByArchetype || typeof c.killsByArchetype !== 'object') {
-      c.killsByArchetype = c.monsterKills;
-    }
-    if (!c.oreMinedById || typeof c.oreMinedById !== 'object') c.oreMinedById = {};
-    if (!Array.isArray(c.relicsUnlocked)) c.relicsUnlocked = [];
-  }
-  return state.codex;
-}
-
-function getCodexMasteryMultiplier(monsterId, state) {
-  const targetState = state || gameState;
-  if (!targetState || !targetState.codex) return 1.0;
-  const killsMap = targetState.codex.monsterKills || targetState.codex.killsByArchetype;
-  if (!killsMap) return 1.0;
-  const kills = killsMap[monsterId] || 0;
-  const isBoss = typeof monsterId === 'string' && monsterId.indexOf('boss_') === 0;
-  const req = isBoss ? 1 : CODEX_MASTERY_KILLS;
-  return kills >= req ? CODEX_MASTERY_DMG_MULT : 1.0;
-}
-
-function recordRelicUnlock(item, floorDepth = 1, dungeonName = 'The Starfall Vaults', state) {
-  const targetState = state || gameState;
-  if (!item || item.rarity !== 'relic' || !targetState) return;
-  const codex = ensureCodexState(targetState);
-  const exists = codex.relicsUnlocked.some(r => r.name === item.name);
-  if (!exists) {
-    codex.relicsUnlocked.push({
-      name: item.name,
-      slot: item.slot,
-      atk: item.atk || 0,
-      def: item.def || 0,
-      floor: floorDepth || 1,
-      dungeonName: dungeonName || (targetState.dungeon && targetState.dungeon.name) || 'Subterranean Delve'
-    });
-    if (codex.relicsUnlocked.length > 50) {
-      codex.relicsUnlocked.shift();
-    }
-  }
-}
-
-function createDefaultDungeonsRegistry() {
-  return {
-    dng_starfall: createDungeonInstance('starfall_vaults', { id: 'dng_starfall', originType: 'curated' }),
-    dng_quarry:   createDungeonInstance('sunken_quarry',   { id: 'dng_quarry',   originType: 'curated' }),
-    dng_mycelium: createDungeonInstance('mycelium_labyrinth', { id: 'dng_mycelium', originType: 'curated' }),
-    dng_citadel:  createDungeonInstance('citadel_ruins',   { id: 'dng_citadel',  originType: 'curated' }),
-    dng_molten:   createDungeonInstance('molten_crucible', { id: 'dng_molten',   originType: 'curated' }),
-    dng_abyss:    createDungeonInstance('abyssal_rift',    { id: 'dng_abyss',    originType: 'curated' })
-  };
-}
-
-function ensureDungeonFloorHydrated(dungeonObj, depth) {
-  if (!dungeonObj || !dungeonObj.floors || !dungeonObj.floors[depth]) return null;
-  dungeonObj.floors[depth] = hydrateFloorFromStorage(dungeonObj.floors[depth]);
-  const fl = dungeonObj.floors[depth];
-  if (fl) {
-    hydrateLegacyFloorObjects(fl);
-  }
-  return fl;
-}
-
-function syncActiveDungeonAlias(state) {
-  if (!state) return null;
-  if (!state.dungeons || Object.keys(state.dungeons).length === 0) {
-    state.dungeons = createDefaultDungeonsRegistry();
-  }
-  if (!state.activeDungeonId || !state.dungeons[state.activeDungeonId]) {
-    const firstKey = state.dungeons.dng_starfall ? 'dng_starfall' : Object.keys(state.dungeons)[0];
-    state.activeDungeonId = firstKey;
-  }
-
-  // Keep inactive dungeons compactly RLE-packed in memory so hundreds of dungeons stay lightweight
-  Object.keys(state.dungeons).forEach(dId => {
-    const dng = state.dungeons[dId];
-    if (!dng || !dng.floors) return;
-    if (dId !== state.activeDungeonId) {
-      Object.keys(dng.floors).forEach(fk => {
-        if (dng.floors[fk] && !dng.floors[fk].packed) {
-          dng.floors[fk] = packFloorForStorage(dng.floors[fk]);
-        }
-      });
-    }
-  });
-
-  const active = state.dungeons[state.activeDungeonId];
-  ensureDungeonFloorHydrated(active, active.currentFloor || 1);
-  state.dungeon = active;
-  return active;
-}
-
-function createDefaultGameState() {
-  const dungeons = createDefaultDungeonsRegistry();
-  const activeId = 'dng_starfall';
-  return {
-    version: SCHEMA_VERSION,
-    playerId: CANONICAL_PLAYER_ID,
-    turn: 0,
-    inGuild: true,
-    audioEnabled: true,
-    maxCharteredDungeons: DEFAULT_MAX_CHARTERED_DUNGEONS,
-    hero: null,
-    activeDungeonId: activeId,
-    dungeons,
-    dungeon: dungeons[activeId],
-    guildVault: {
-      gold: 35,
-      copper: 0,
-      iron: 0,
-      mithril: 0,
-      geode: 0,
-      starcrystal: 0,
-      astralite: 0,
-      gems: {
-        ruby: 0,
-        emerald: 0,
-        sapphire: 0,
-        topaz: 0,
-        void_diamond: 0
-      },
-      armory: []
-    },
-    guildResearch: {
-      cartography: 0,
-      geology: 0,
-      toolsmithing: 0,
-      assay: 0,
-      quartermaster: 0,
-      vanguard: 0
-    },
-    guildBounties: buildProceduralBountySet(0, 0),
-    codex: createDefaultCodexState(),
-    wargameSession: null,
-    uiSettings: {
-      armorySortBy: 'slot'
-    }
-  };
-}
-
-const gameState = createDefaultGameState();
-
-function setGameState(nextState) {
-  if (!nextState) return gameState;
-  Object.keys(gameState).forEach(k => {
-    delete gameState[k];
-  });
-  Object.assign(gameState, nextState);
-  syncActiveDungeonAlias(gameState);
-  return gameState;
-}
-
-function migrateSaveData(raw) {
-  if (!raw) return null;
-  const data = typeof raw === 'string' ? JSON.parse(raw) : JSON.parse(JSON.stringify(raw));
-
-  const migrated = createDefaultGameState();
-  migrated.turn = data.turn || 0;
-  migrated.inGuild = data.inGuild !== undefined ? data.inGuild : (data.location !== 'dungeon');
-  migrated.audioEnabled = data.audioEnabled !== undefined ? data.audioEnabled : true;
-  migrated.maxCharteredDungeons = typeof data.maxCharteredDungeons === 'number'
-    ? data.maxCharteredDungeons
-    : DEFAULT_MAX_CHARTERED_DUNGEONS;
-
-  migrated.uiSettings = data.uiSettings || { armorySortBy: 'slot' };
-  if (!migrated.uiSettings.armorySortBy) migrated.uiSettings.armorySortBy = 'slot';
-  migrated.wargameSession = (data.wargameSession && typeof data.wargameSession === 'object')
-    ? Object.assign({}, data.wargameSession)
-    : null;
-
-  // Migrate Vault & Bank
-  const srcVault = data.guildVault || data.bank || {};
-  migrated.guildVault.gold = srcVault.gold !== undefined ? srcVault.gold : 35;
-  migrated.guildVault.copper = srcVault.copper || 0;
-  migrated.guildVault.iron = srcVault.iron || 0;
-  migrated.guildVault.mithril = srcVault.mithril || 0;
-  migrated.guildVault.geode = srcVault.geode || 0;
-  migrated.guildVault.starcrystal = srcVault.starcrystal || 0;
-  migrated.guildVault.astralite = srcVault.astralite || 0;
-
-  const srcGems = srcVault.gems || {};
-  GEM_IDS.forEach(gId => {
-    migrated.guildVault.gems[gId] = srcGems[gId] || 0;
-  });
-
-  const rawArmory = Array.isArray(srcVault.armory)
-    ? srcVault.armory
-    : (Array.isArray(srcVault.equipment) ? srcVault.equipment : []);
-  migrated.guildVault.armory = rawArmory.map(g => normalizeEquipmentSockets(g));
-
-  // Migrate old v1/v2 bank items array into mineral/gem counts
-  if (Array.isArray(srcVault.items)) {
-    srcVault.items.forEach(it => {
-      const cleanId = (it.id || '')
-        .replace('_ore', '')
-        .replace('relic_geode', 'geode')
-        .replace('star', 'starcrystal')
-        .replace('astral', 'astralite');
-      if (migrated.guildVault.gems[cleanId] !== undefined) {
-        migrated.guildVault.gems[cleanId] += (it.count || it.qty || 1);
-      } else if (migrated.guildVault[cleanId] !== undefined && typeof migrated.guildVault[cleanId] === 'number') {
-        migrated.guildVault[cleanId] += (it.count || it.qty || 1);
-      }
-    });
-  }
-
-  // Migrate Research
-  const srcRes = data.guildResearch || data.research || {};
-  migrated.guildResearch = {
-    cartography:   srcRes.cartography !== undefined ? srcRes.cartography : (srcRes.vault_cartography || srcRes.max_depth || 0),
-    geology:       srcRes.geology !== undefined ? srcRes.geology : (srcRes.metallurgy_geology || 0),
-    toolsmithing:  srcRes.toolsmithing !== undefined ? srcRes.toolsmithing : (srcRes.pickaxe_temper || 0),
-    assay:         srcRes.assay !== undefined ? srcRes.assay : (srcRes.appraisal || srcRes.ore_appraisal || 0),
-    quartermaster: srcRes.quartermaster || 0,
-    vanguard:      srcRes.vanguard !== undefined ? srcRes.vanguard : (srcRes.vanguard_insurance || 0)
-  };
-
-  // Migrate Bounties
-  if (Array.isArray(data.guildBounties) && data.guildBounties.length > 0) {
-    migrated.guildBounties = data.guildBounties.map(b => Object.assign({
-      curQty: 0,
-      reqQty: 1,
-      completed: false
-    }, b));
-  } else {
-    migrated.guildBounties = buildProceduralBountySet(
-      migrated.guildResearch.geology,
-      migrated.guildResearch.cartography
-    );
-  }
-
-  // Migrate Hero
-  if (data.hero) {
-    const clsId = CLASSES[data.hero.classId] ? data.hero.classId : 'fighter';
-    const cls = CLASSES[clsId];
-    const eqSource = data.hero.equipment || data.hero.equipped || {};
-    migrated.hero = {
-      name: data.hero.name || cls.name,
-      classId: clsId,
-      level: data.hero.level || 1,
-      xp: data.hero.xp || 0,
-      maxXp: data.hero.maxXp || data.hero.xpNext || 60,
-      statPoints: data.hero.statPoints || 0,
-      bonusStats: data.hero.bonusStats || { str: 0, dex: 0, int: 0, vit: 0 },
-      hp: data.hero.hp || cls.hpBase,
-      maxHp: data.hero.maxHp || cls.hpBase,
-      mp: data.hero.mp || cls.mpBase,
-      maxMp: data.hero.maxMp || cls.mpBase,
-      atk: data.hero.atk || 12,
-      def: data.hero.def || 6,
-      crit: data.hero.crit || 5,
-      dodge: data.hero.dodge || 5,
-      talentPoints: data.hero.talentPoints !== undefined ? data.hero.talentPoints : (data.hero.talentPointsAvailable || 0),
-      talentsAllocated: data.hero.talentsAllocated || {},
-      consumables: {
-        potions: (data.hero.consumables && data.hero.consumables.potions !== undefined)
-          ? data.hero.consumables.potions
-          : (srcVault.potions !== undefined ? srcVault.potions : 2),
-        recalls: (data.hero.consumables && data.hero.consumables.recalls !== undefined)
-          ? data.hero.consumables.recalls
-          : (srcVault.recallScrolls !== undefined ? srcVault.recallScrolls : 1)
-      },
-      equipment: {
-        weapon:    normalizeEquipmentSockets(eqSource.weapon    || JSON.parse(JSON.stringify(cls.starterGear.weapon))),
-        armor:     normalizeEquipmentSockets(eqSource.armor     || JSON.parse(JSON.stringify(cls.starterGear.armor))),
-        helm:      normalizeEquipmentSockets(eqSource.helm      || JSON.parse(JSON.stringify(cls.starterGear.helm))),
-        boots:     normalizeEquipmentSockets(eqSource.boots     || JSON.parse(JSON.stringify(cls.starterGear.boots))),
-        accessory: normalizeEquipmentSockets(eqSource.accessory || JSON.parse(JSON.stringify(cls.starterGear.accessory))),
-        pickaxe:   normalizeEquipmentSockets(eqSource.pickaxe   || JSON.parse(JSON.stringify(cls.starterGear.pickaxe)))
-      },
-      expeditionPack: Array.isArray(data.hero.expeditionPack) ? data.hero.expeditionPack : [],
-      expeditionGear: Array.isArray(data.hero.expeditionGear)
-        ? data.hero.expeditionGear.map(g => normalizeEquipmentSockets(g))
-        : [],
-      statuses: Array.isArray(data.hero.statuses) ? data.hero.statuses : [],
-      usedDivineIntervention: !!data.hero.usedDivineIntervention,
-      x: data.hero.x || 1,
-      y: data.hero.y || 1
-    };
-  }
-
-  // Migrate Multi-Dungeon Registry OR Legacy Single Dungeon
-  if (data.dungeons && typeof data.dungeons === 'object' && Object.keys(data.dungeons).length > 0) {
-    Object.keys(data.dungeons).forEach(dId => {
-      const rawDng = data.dungeons[dId];
-      if (!rawDng) return;
-      const baseProf = CURATED_DUNGEON_PROFILES[rawDng.profileId] || {};
-      const normCfg = normalizeDungeonConfig(Object.assign({}, baseProf, rawDng.config || {}));
-      const seedCode = rawDng.seedCode || 'STAR-4812';
-      migrated.dungeons[dId] = {
-        id: dId,
-        name: rawDng.name || normCfg.name,
-        profileId: rawDng.profileId || normCfg.profileId,
-        originType: rawDng.originType || (CURATED_DUNGEON_PROFILES[normCfg.profileId] ? 'curated' : 'chartered'),
-        worldCoords: rawDng.worldCoords || null,
-        seedCode,
-        numericSeed: rawDng.numericSeed || hashSeedString(seedCode, 0),
-        config: normCfg,
-        currentFloor: rawDng.currentFloor || 1,
-        deepestFloor: rawDng.deepestFloor || rawDng.currentFloor || 1,
-        isCleared: !!rawDng.isCleared,
-        floors: rawDng.floors || {},
-        waypoints: rawDng.waypoints || {}
-      };
-    });
-    migrated.activeDungeonId = data.activeDungeonId && migrated.dungeons[data.activeDungeonId]
-      ? data.activeDungeonId
-      : Object.keys(migrated.dungeons)[0];
-
-    const defaultDngs = createDefaultDungeonsRegistry();
-    Object.keys(defaultDngs).forEach(defId => {
-      if (!migrated.dungeons[defId]) {
-        migrated.dungeons[defId] = defaultDngs[defId];
-      }
-    });
-  } else if (data.dungeon && data.dungeon.floors) {
-    const targetDng = migrated.dungeons.dng_starfall;
-    targetDng.seedCode = data.dungeon.seedCode || 'STAR-4812';
-    targetDng.numericSeed = hashSeedString(targetDng.seedCode, 0);
-    targetDng.currentFloor = data.dungeon.currentFloor || data.dungeon.currentDepth || 1;
-    targetDng.deepestFloor = Math.max(1, targetDng.currentFloor, Object.keys(data.dungeon.floors).length);
-    targetDng.floors = {};
-    targetDng.waypoints = data.dungeon.waypoints || {};
-    Object.keys(data.dungeon.floors).forEach(fk => {
-      targetDng.floors[fk] = hydrateFloorFromStorage(data.dungeon.floors[fk]);
-    });
-    migrated.activeDungeonId = 'dng_starfall';
-  }
-
-  syncActiveDungeonAlias(migrated);
-
-  // Migrate Codex & Hall of Records
-  migrated.codex = createDefaultCodexState();
-  if (data.codex && typeof data.codex === 'object') {
-    Object.assign(migrated.codex, data.codex);
-    ensureCodexState(migrated);
-  }
-
-  migrated.version = SCHEMA_VERSION;
-  return migrated;
-}
-
-function getPickaxeMaxDurability(state = gameState) {
-  const pick = state && state.hero && state.hero.equipment ? state.hero.equipment.pickaxe : null;
-  if (!pick) return 25;
-  const toolRank = (state && state.guildResearch && state.guildResearch.toolsmithing) || 0;
-  return Math.round(pick.maxDur * (1 + toolRank * 0.5));
-}
-
-function recomputeHeroDerivedStats(fullRestore = false, state = gameState) {
-  const h = state.hero;
-  if (!h) return;
-  const cls = CLASSES[h.classId] || CLASSES.fighter;
-  const bonus = h.bonusStats || { str: 0, dex: 0, int: 0, vit: 0 };
-
-  let str = cls.baseStats.str + (h.level - 1) * 2 + (bonus.str || 0);
-  let dex = cls.baseStats.dex + (h.level - 1) * 2 + (bonus.dex || 0);
-  let int = cls.baseStats.int + (h.level - 1) * 2 + (bonus.int || 0);
-  let vit = cls.baseStats.vit + (h.level - 1) * 2 + (bonus.vit || 0);
-
-  let flatAtk = 0, flatDef = 0, flatCrit = 0, flatDodge = 0, flatHp = 0, flatMp = 0, visionBonus = 0;
-  let flatThorns = 0, flatLeech = 0, flatWard = 0;
-
-  // Passive Class Bonuses
-  if (h.classId === 'fighter') flatHp += 10;
-  if (h.classId === 'thief')   flatCrit += 15;
-  if (h.classId === 'ranger')  flatDodge += 15;
-  if (h.classId === 'paladin') flatDef += 10;
-
-  // Talent Bonuses
-  const t = h.talentsAllocated || {};
-  if (t.f_a1) flatHp += t.f_a1 * 12;
-  if (t.f_a2) flatAtk += t.f_a2 * 3;
-  if (t.t_b1) flatCrit += t.t_b1 * 5;
-  if (t.t_b3) flatDodge += t.t_b3 * 10;
-  if (t.m_c1) flatMp += t.m_c1 * 15;
-  if (t.r_d1) { flatDodge += t.r_d1 * 4; visionBonus += t.r_d1; }
-  if (t.p_e1) { flatDef += t.p_e1 * 4; flatHp += t.p_e1 * 8; }
-  if (t.p_e2) flatAtk += t.p_e2 * 4;
-
-  // Sum 6-Slot Equipment & Socketed Astral Gems
-  for (const slot of ['weapon', 'armor', 'helm', 'boots', 'accessory']) {
-    const it = h.equipment[slot];
-    if (!it) continue;
-    if (it.str) str += it.str;
-    if (it.dex) dex += it.dex;
-    if (it.int) int += it.int;
-    if (it.vit) vit += it.vit;
-    if (it.atk) flatAtk += it.atk;
-    if (it.def) flatDef += it.def;
-    if (it.crit) flatCrit += it.crit;
-    if (it.dodge) flatDodge += it.dodge;
-    if (it.maxHp) flatHp += it.maxHp;
-    if (it.maxMp) flatMp += it.maxMp;
-    if (it.visionBonus) visionBonus += it.visionBonus;
-    if (it.thorns) flatThorns += it.thorns;
-    if (it.leech) flatLeech += it.leech;
-    if (it.ward) flatWard += it.ward;
-
-    if (Array.isArray(it.sockets)) {
-      for (let sIdx = 0; sIdx < it.sockets.length; sIdx++) {
-        const gem = GEM_CATALOG[it.sockets[sIdx]];
-        if (!gem || !gem.bonuses) continue;
-        const gb = gem.bonuses;
-        if (gb.str) str += gb.str;
-        if (gb.dex) dex += gb.dex;
-        if (gb.int) int += gb.int;
-        if (gb.vit) vit += gb.vit;
-        if (gb.atk) flatAtk += gb.atk;
-        if (gb.def) flatDef += gb.def;
-        if (gb.crit) flatCrit += gb.crit;
-        if (gb.dodge) flatDodge += gb.dodge;
-        if (gb.maxHp) flatHp += gb.maxHp;
-        if (gb.maxMp) flatMp += gb.maxMp;
-        if (gb.visionBonus) visionBonus += gb.visionBonus;
-      }
-    }
-  }
-
-  // Active Astral Shrine Status Buffs
-  if (Array.isArray(h.statuses)) {
-    for (let i = 0; i < h.statuses.length; i++) {
-      const st = h.statuses[i];
-      if (st.id === 'shrine_starfire') {
-        flatAtk += 6;
-        flatCrit += 12;
-      } else if (st.id === 'shrine_aegis') {
-        flatDef += 6;
-        visionBonus += 1;
-      } else if (st.id === 'chilled') {
-        flatDodge -= 15;
-      }
-    }
-  }
-
-  h.computedStr = str;
-  h.computedDex = dex;
-  h.computedInt = int;
-  h.computedVit = vit;
-  h.visionRadius = (cls.vision || 5) + visionBonus;
-
-  h.maxHp = cls.hpBase + (vit * 4) + flatHp;
-  h.maxMp = cls.mpBase + (int * 3) + flatMp;
-  h.thorns = flatThorns;
-  h.leech = flatLeech;
-  h.ward = flatWard;
-
-  const primaryOffensive = h.classId === 'mage'
-    ? Math.round(int * 1.1 + str * 0.3)
-    : h.classId === 'ranger' || h.classId === 'thief'
-      ? Math.round(dex * 0.9 + str * 0.4)
-      : Math.round(str * 0.95 + dex * 0.35);
-
-  h.atk = primaryOffensive + flatAtk;
-  h.def = Math.round(vit * 0.45) + flatDef;
-  h.crit = Math.min(75, 5 + Math.round(dex * 0.45) + flatCrit);
-  h.dodge = Math.max(0, Math.min(60, 4 + Math.round(dex * 0.35) + flatDodge));
-
-  if (fullRestore) {
-    h.hp = h.maxHp;
-    h.mp = h.maxMp;
-  } else {
-    h.hp = Math.min(h.hp, h.maxHp);
-    h.mp = Math.min(h.mp, h.maxMp);
-  }
-}
-
-function serializeStateForStorage(state = gameState) {
-  const packedDungeons = {};
-  const srcDungeons = state.dungeons || {};
-  Object.keys(srcDungeons).forEach(dId => {
-    const dng = srcDungeons[dId];
-    if (!dng) return;
-    const packedFloors = {};
-    if (dng.floors) {
-      Object.keys(dng.floors).forEach(fk => {
-        packedFloors[fk] = packFloorForStorage(dng.floors[fk]);
-      });
-    }
-    packedDungeons[dId] = {
-      id: dng.id,
-      name: dng.name,
-      profileId: dng.profileId,
-      originType: dng.originType,
-      worldCoords: dng.worldCoords || null,
-      seedCode: dng.seedCode,
-      numericSeed: dng.numericSeed,
-      config: dng.config,
-      currentFloor: dng.currentFloor,
-      deepestFloor: dng.deepestFloor || dng.currentFloor || 1,
-      isCleared: !!dng.isCleared,
-      floors: packedFloors
-    };
-  });
-
-  return {
-    version: state.version || SCHEMA_VERSION,
-    turn: state.turn || 0,
-    inGuild: state.inGuild !== false,
-    audioEnabled: state.audioEnabled !== false,
-    maxCharteredDungeons: state.maxCharteredDungeons || DEFAULT_MAX_CHARTERED_DUNGEONS,
-    activeDungeonId: state.activeDungeonId,
-    dungeons: packedDungeons,
-    hero: state.hero,
-    guildVault: state.guildVault,
-    guildResearch: state.guildResearch,
-    guildBounties: state.guildBounties,
-    codex: state.codex ? JSON.parse(JSON.stringify(state.codex)) : createDefaultCodexState()
-  };
-}
-
-function saveGame(state = gameState) {
-  try {
-    if (typeof localStorage !== 'undefined') {
-      const payload = serializeStateForStorage(state);
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
-    }
-  } catch (e) {
-    // Ignore storage quota or sandbox errors
-  }
-}
-
-function loadGame() {
-  try {
-    if (typeof localStorage !== 'undefined') {
-      const raw =
-        localStorage.getItem(STORAGE_KEY) ||
-        localStorage.getItem('aethelgard_save_v5') ||
-        localStorage.getItem('aethelgard_save_v4') ||
-        localStorage.getItem('aethelgard_save_v3') ||
-        localStorage.getItem('aethelgard_save_v2') ||
-        localStorage.getItem('aethelgard_save');
-      if (raw) {
-        const migrated = migrateSaveData(raw);
-        setGameState(migrated);
-        if (gameState.hero) {
-          recomputeHeroDerivedStats(false, gameState);
-          return true;
-        }
-      }
-    }
-  } catch (e) {
-    console.warn('Save load warning:', e);
-  }
-  return false;
 }
 
   // --- Module: src/data/ores.js ---
@@ -23599,6 +24094,112 @@ function createAppContextController(options) {
     };
   }
 
+  function restoreDungeonSession() {
+    const hasWorld = Boolean(
+      simHost && simHost.state && simHost.state.world && simHost.state.campaignPhase !== CAMPAIGN_PHASES.TITLE
+    );
+    if (!hasWorld) {
+      activeSession = null;
+      activeContext = APP_CONTEXTS.TITLE;
+      if (onContextChanged) onContextChanged(activeContext, null);
+      return { ok: true, restoredDungeon: false };
+    }
+
+    const ws = dungeonState && dungeonState.wargameSession ? dungeonState.wargameSession : null;
+    const hasActiveSnapshot = Boolean(
+      ws && ws.active && ws.inProcess && !dungeonState.inGuild && dungeonState.hero
+    );
+
+    if (!hasActiveSnapshot) {
+      activeSession = null;
+      activeContext = APP_CONTEXTS.STRATEGY;
+      if (onContextChanged) onContextChanged(activeContext, null);
+      return { ok: true, restoredDungeon: false };
+    }
+
+    const units = (simHost.state.world.overworld && Array.isArray(simHost.state.world.overworld.units))
+      ? simHost.state.world.overworld.units : [];
+    const targetUnit = units.find(function(u) {
+      return u && u.alive && u.id === ws.partyUnitId && u.status === 'in_dungeon';
+    });
+
+    if (!targetUnit) {
+      ws.active = false;
+      dungeonState.inGuild = true;
+      activeSession = null;
+      activeContext = APP_CONTEXTS.STRATEGY;
+      if (onContextChanged) onContextChanged(activeContext, null);
+      return { ok: true, restoredDungeon: false, recoveredToSurface: true };
+    }
+
+    let sessionId = ws.sessionId;
+    if (!sessionId) {
+      nextSessionSeq += 1;
+      sessionId = 'dng_sess_' + nextSessionSeq;
+      ws.sessionId = sessionId;
+    } else {
+      const m = /_(\d+)$/.exec(String(sessionId));
+      if (m) {
+        const parsedSeq = parseInt(m[1], 10);
+        if (!isNaN(parsedSeq) && parsedSeq >= nextSessionSeq) {
+          nextSessionSeq = parsedSeq;
+        }
+      }
+    }
+
+    try {
+      if (!dungeonInitialized && onEnsureDungeonInitialized) {
+        onEnsureDungeonInitialized();
+        dungeonInitialized = true;
+      }
+
+      activeSession = {
+        sessionId: sessionId,
+        unitId: targetUnit.id,
+        heroId: ws.heroId || targetUnit.leaderHeroId || null,
+        poiId: ws.poiId || targetUnit.dungeonPoiId || null,
+        dungeonId: ws.dungeonId || (dungeonState.dungeon && dungeonState.dungeon.id) || 'dng_starfall',
+        exitResolved: false
+      };
+      activeContext = APP_CONTEXTS.DUNGEON;
+
+      if (onContextChanged) {
+        onContextChanged(activeContext, activeSession);
+      }
+
+      return {
+        ok: true,
+        restoredDungeon: true,
+        sessionId: sessionId,
+        unitId: targetUnit.id,
+        heroId: activeSession.heroId,
+        dungeonId: activeSession.dungeonId
+      };
+    } catch (err) {
+      // Safe deterministic recovery if context initialization fails after state commit
+      simHost.dispatch({
+        type: COMMAND_TYPES.EXIT_DUNGEON_TO_SURFACE,
+        payload: { unitId: targetUnit.id }
+      });
+      ws.active = false;
+      dungeonState.inGuild = true;
+      activeSession = null;
+      activeContext = APP_CONTEXTS.STRATEGY;
+      if (simHost && typeof simHost.save === 'function') {
+        simHost.save();
+      }
+      if (onContextChanged) {
+        try { onContextChanged(activeContext, null); } catch (cbErr) {}
+      }
+      return {
+        ok: false,
+        restoredDungeon: false,
+        recoveredToSurface: true,
+        reason: (err && err.message) || 'restore_context_init_failed'
+      };
+    }
+  }
+
   return {
     getActiveContext: getActiveContext,
     getActiveSession: getActiveSession,
@@ -23606,7 +24207,8 @@ function createAppContextController(options) {
     syncFromCampaignPhase: syncFromCampaignPhase,
     setContext: setContext,
     enterDungeon: enterDungeon,
-    exitDungeon: exitDungeon
+    exitDungeon: exitDungeon,
+    restoreDungeonSession: restoreDungeonSession
   };
 }
 
@@ -28127,6 +28729,398 @@ function evaluateWargameSelfTests() {
       : 'Failed checks: ' + failed27.join(', ')
   });
 
+  // =========================================================================
+  // Test 28: Save/Load Integrity — Full Campaign Round-Trip, Continued Play & Idempotency (Task 04)
+  // =========================================================================
+  const prevSavedRaw28 = (typeof localStorage !== 'undefined') ? localStorage.getItem(WARGAME_STORAGE_KEY) : null;
+  let t28Checks = {};
+  try {
+    const host28 = createWargameSimHost();
+    const dng28 = createDefaultGameState();
+    host28.attachDungeonState(dng28);
+    host28.dispatch({ type: COMMAND_TYPES.START_NEW_CAMPAIGN, payload: { houseName: 'House Persist', worldName: 'Save Realm', seedCode: 'STAR-2800' } });
+    host28.dispatch({ type: COMMAND_TYPES.FOUND_CITY, payload: { cityName: 'Bastion Keep' } });
+    const city28 = getPrimaryCity(host28.state);
+    city28.stockpile.wood = 500;
+    city28.stockpile.stone = 500;
+    city28.stockpile.food = 500;
+    city28.stockpile.gold = 500;
+    city28.buildings.hut = 1;
+    city28.buildings.garden = 1;
+    city28.buildings.well = 1;
+    city28.buildings.lumber_camp = 1;
+    city28.buildings.quarry = 1;
+    city28.population = { current: 20, max: 25, growthProgress: 0, starving: false };
+
+    // Build Adventurers Guild & complete it so we can recruit heroes
+    host28.dispatch({ type: COMMAND_TYPES.QUEUE_BUILDING, payload: { plotIndex: 4, buildingId: 'guild_hall' } });
+    host28.stepClock(60000);
+    host28.dispatch({ type: COMMAND_TYPES.RECRUIT_HERO, payload: { classId: 'adventurer', heroName: 'Aldric' } });
+    host28.stepClock(70000);
+
+    // Queue an active building (warehouse Lv 0 -> 1) AND an active recruitment so both queues are mid-flight on save
+    const emptyPlotIdx28 = city28.plots.findIndex(function(p) { return p && !p.buildingId; });
+    host28.dispatch({ type: COMMAND_TYPES.QUEUE_BUILDING, payload: { plotIndex: emptyPlotIdx28 >= 0 ? emptyPlotIdx28 : 10, buildingId: 'warehouse' } });
+    host28.dispatch({ type: COMMAND_TYPES.RECRUIT_HERO, payload: { classId: 'adventurer', heroName: 'Lyra' } });
+
+    const hero28 = host28.state.world.heroes[0];
+    hero28.bonusStats = { str: 3, dex: 1, int: 0, vit: 2 };
+    hero28.statPoints = 2;
+    hero28.talentPoints = 1;
+    hero28.xp = 45;
+    city28.storage.items.push({ uid: 'item_persist_28', id: 'iron_sword', name: 'Persisted Blade', slot: 'weapon', rarity: 'rare', stats: { atk: 9 } });
+
+    // Start a real-time hex march for the hero party unit
+    const unit28 = host28.state.world.overworld.units.find(function(u) { return u && u.alive && u.leaderHeroId === hero28.id; });
+    const nbrs28 = getHexNeighbors(unit28.x, unit28.y, host28.state.world.overworld);
+    const marchDest28 = nbrs28.find(function(n) {
+      const t = host28.state.world.overworld.tiles[n.y][n.x];
+      return t !== OW_TERRAIN_MOUNTAINS && t !== 'water';
+    }) || nbrs28[0];
+    host28.dispatch({ type: COMMAND_TYPES.ORDER_UNIT_MARCH, payload: { unitId: unit28.id, targetX: marchDest28.x, targetY: marchDest28.y } });
+
+    const savedTime28 = host28.state.world.clock.simTimeMs;
+    const saveOk28 = host28.save();
+
+    // Load into a completely fresh SimHost + DungeonState
+    const host28b = createWargameSimHost();
+    const dng28b = createDefaultGameState();
+    host28b.attachDungeonState(dng28b);
+    const loadOk28 = host28b.load();
+
+    const w28b = host28b.state.world;
+    const city28b = getPrimaryCity(host28b.state);
+    const hero28b = w28b && w28b.heroes ? w28b.heroes[0] : null;
+    const unit28b = w28b && w28b.overworld ? w28b.overworld.units.find(function(u) { return u && u.id === unit28.id; }) : null;
+
+    const roundTripOk28 = Boolean(
+      saveOk28 && loadOk28 &&
+      w28b && w28b.player.id === CANONICAL_PLAYER_ID &&
+      w28b.seedCode === 'STAR-2800' &&
+      w28b.clock.simTimeMs === savedTime28 &&
+      city28b && city28b.name === 'Bastion Keep' &&
+      city28b.buildQueue.length === 1 &&
+      city28b.recruitmentQueue.length === 1 &&
+      city28b.storage.items.some(function(it) { return it.uid === 'item_persist_28'; }) &&
+      hero28b && hero28b.bonusStats && hero28b.bonusStats.str === 3 &&
+      hero28b.statPoints === 2 && hero28b.talentPoints === 1 && hero28b.xp === 45 &&
+      unit28b && unit28b.status === 'marching' && unit28b.marchPlan &&
+      unit28b.marchPlan.targetX === marchDest28.x && unit28b.marchPlan.targetY === marchDest28.y &&
+      host28b.scheduler.size() >= 3
+    );
+
+    // Continued play after load: advance clock so march, building, and recruitment all complete
+    host28b.stepClock(120000);
+    const continuedPlayOk28 = Boolean(
+      unit28b && unit28b.status === 'idle' &&
+      unit28b.x === marchDest28.x && unit28b.y === marchDest28.y &&
+      city28b.buildQueue.length === 0 &&
+      (city28b.buildings.warehouse || 0) >= 1 &&
+      city28b.recruitmentQueue.length === 0 &&
+      w28b.heroes.length === 2
+    );
+
+    // Repeated save/load cycles (3x) must be idempotent with zero entity/item/job duplication
+    const heroCntBefore = w28b.heroes.length;
+    const partyCntBefore = w28b.parties.length;
+    const unitCntBefore = w28b.overworld.units.length;
+    const itemCntBefore = city28b.storage.items.length;
+    const jobCntBefore = host28b.scheduler.size();
+    let repeatOk28 = true;
+    for (let cyc = 0; cyc < 3; cyc++) {
+      if (!host28b.save() || !host28b.load()) repeatOk28 = false;
+    }
+    const city28c = getPrimaryCity(host28b.state);
+    const idempotentOk28 = Boolean(
+      repeatOk28 &&
+      host28b.state.world.heroes.length === heroCntBefore &&
+      host28b.state.world.parties.length === partyCntBefore &&
+      host28b.state.world.overworld.units.length === unitCntBefore &&
+      city28c.storage.items.length === itemCntBefore &&
+      host28b.scheduler.size() === jobCntBefore
+    );
+
+    t28Checks = {
+      roundTripOk: roundTripOk28,
+      continuedPlayOk: continuedPlayOk28,
+      idempotentOk: idempotentOk28
+    };
+  } finally {
+    if (typeof localStorage !== 'undefined') {
+      if (prevSavedRaw28 === null) localStorage.removeItem(WARGAME_STORAGE_KEY);
+      else localStorage.setItem(WARGAME_STORAGE_KEY, prevSavedRaw28);
+    }
+  }
+  const failed28 = Object.keys(t28Checks).filter(function(k) { return !t28Checks[k]; });
+  const t28Pass = failed28.length === 0 && Object.keys(t28Checks).length > 0;
+
+  results.push({
+    name: '28. Save/Load Full Campaign Round-Trip, Continued Play & Repeated Idempotency (Task 04)',
+    pass: t28Pass,
+    detail: t28Pass
+      ? 'Full campaign state, active queues, hex march + scheduler jobs, hero progression, continued post-load play & 3x save/load idempotency verified'
+      : 'Failed checks: ' + failed28.join(', ')
+  });
+
+  // =========================================================================
+  // Test 29: Unified Dungeon Persistence, Mid-Dungeon Resume, Legacy/Orphan Recovery, Malformed Saves & Atomic Rollback (Task 04)
+  // =========================================================================
+  const prevSavedRaw29 = (typeof localStorage !== 'undefined') ? localStorage.getItem(WARGAME_STORAGE_KEY) : null;
+  let t29Checks = {};
+  try {
+    // 1. Mid-dungeon save, full RLE + activeSession restore, and post-restore extraction
+    const host29 = createWargameSimHost();
+    const dng29 = createDefaultGameState();
+    host29.attachDungeonState(dng29);
+    const ctx29 = createAppContextController({ simHost: host29, dungeonState: dng29 });
+
+    host29.dispatch({ type: COMMAND_TYPES.START_NEW_CAMPAIGN, payload: { houseName: 'House Vault', worldName: 'Delve Realm', seedCode: 'STAR-2900' } });
+    host29.dispatch({ type: COMMAND_TYPES.FOUND_CITY, payload: { cityName: 'Delver Gate' } });
+    const city29 = getPrimaryCity(host29.state);
+    city29.stockpile.wood = 400; city29.stockpile.stone = 400; city29.stockpile.food = 400; city29.stockpile.gold = 400;
+    city29.buildings.hut = 1; city29.buildings.garden = 1; city29.buildings.well = 1;
+    city29.buildings.lumber_camp = 1; city29.buildings.quarry = 1;
+    city29.population = { current: 20, max: 25, growthProgress: 0, starving: false };
+    host29.dispatch({ type: COMMAND_TYPES.QUEUE_BUILDING, payload: { plotIndex: 4, buildingId: 'guild_hall' } });
+    host29.stepClock(60000);
+    host29.dispatch({ type: COMMAND_TYPES.RECRUIT_HERO, payload: { classId: 'adventurer', heroName: 'Bram' } });
+    host29.stepClock(70000);
+
+    const poi29 = host29.state.world.overworld.pois.find(function(p) { return p && p.type === 'dungeon_entrance'; });
+    const unit29 = host29.state.world.overworld.units.find(function(u) { return u && u.alive && u.leaderHeroId; });
+    unit29.x = poi29.x;
+    unit29.y = poi29.y;
+
+    const enter29 = ctx29.enterDungeon({ unitId: unit29.id, poiId: poi29.id });
+    const floorBefore29 = ensureDungeonFloorHydrated(dng29.dungeon, dng29.dungeon.currentFloor);
+    const savedBiome29 = floorBefore29 ? (floorBefore29.biomeId || null) : null;
+    const savedX29 = dng29.hero.x;
+    const savedY29 = dng29.hero.y;
+    dng29.hero.hp = Math.max(1, dng29.hero.hp - 5);
+    const savedHp29 = dng29.hero.hp;
+    dng29.turn = 14;
+    if (!dng29.dungeon.waypoints || typeof dng29.dungeon.waypoints !== 'object') dng29.dungeon.waypoints = {};
+    dng29.dungeon.waypoints.wp_floor1 = { id: 'wp_floor1', floor: 1, x: savedX29, y: savedY29, attuned: true };
+    dng29.hero.expeditionPack.push({ id: 'copper_ore', name: 'Copper Ore', qty: 4, value: 12 });
+    const savedSessionId29 = enter29.sessionId;
+
+    const midSaveOk29 = host29.save();
+    const validMidSaveRaw29 = localStorage.getItem(WARGAME_STORAGE_KEY);
+
+    // Restore into a brand-new host + dungeonState + appContext
+    const host29b = createWargameSimHost();
+    const dng29b = createDefaultGameState();
+    host29b.attachDungeonState(dng29b);
+    const ctx29b = createAppContextController({ simHost: host29b, dungeonState: dng29b });
+    const midLoadOk29 = host29b.load();
+    const restoreRes29 = ctx29b.restoreDungeonSession();
+    const floorAfter29 = ensureDungeonFloorHydrated(dng29b.dungeon, dng29b.dungeon.currentFloor);
+
+    const midDungeonRestoreOk = Boolean(
+      enter29.ok && midSaveOk29 && midLoadOk29 && restoreRes29.ok && restoreRes29.restoredDungeon &&
+      ctx29b.getActiveContext() === APP_CONTEXTS.DUNGEON &&
+      dng29b.hero && dng29b.hero.x === savedX29 && dng29b.hero.y === savedY29 &&
+      dng29b.hero.hp === savedHp29 && dng29b.turn === 14 &&
+      dng29b.dungeon && dng29b.dungeon.waypoints && dng29b.dungeon.waypoints.wp_floor1 && dng29b.dungeon.waypoints.wp_floor1.attuned === true &&
+      dng29b.hero.expeditionPack.some(function(it) { return it.id === 'copper_ore' && it.qty === 4; }) &&
+      floorAfter29 && Array.isArray(floorAfter29.tiles) && floorAfter29.tiles.length > 0 &&
+      (floorAfter29.biomeId || null) === savedBiome29
+    );
+
+    // Extract after mid-dungeon restore -> rewards apply once cleanly, duplicate exit rejected
+    const hero29bId = host29b.state.world.heroes[0].id;
+    const exitAfterRestore29 = ctx29b.exitDungeon({
+      sessionId: savedSessionId29,
+      outcome: 'extracted',
+      method: 'Floor 1 Ascending Stairs (<)',
+      partyUnitId: unit29.id,
+      heroId: hero29bId,
+      heroLevel: dng29b.hero.level,
+      heroXp: dng29b.hero.xp,
+      dungeonId: dng29b.activeDungeonId,
+      dungeonPoiId: poi29.id,
+      lootSummary: { gold: 55, ore: 4, gems: 0, gearCount: 0, salvagedGold: 0 },
+      extractedGear: [],
+      heroEquipment: dng29b.hero.equipment
+    });
+    const dupExitAfterRestore29 = ctx29b.exitDungeon({
+      sessionId: savedSessionId29,
+      outcome: 'extracted',
+      partyUnitId: unit29.id,
+      heroId: hero29bId,
+      lootSummary: { gold: 55, ore: 4, gems: 0, gearCount: 0, salvagedGold: 0 }
+    });
+    const unitAfterExit29 = host29b.state.world.overworld.units.find(function(u) { return u && u.id === unit29.id; });
+    const postRestoreExtractOk = Boolean(
+      exitAfterRestore29.ok && !dupExitAfterRestore29.ok && dupExitAfterRestore29.duplicate &&
+      ctx29b.getActiveContext() === APP_CONTEXTS.STRATEGY &&
+      unitAfterExit29 && unitAfterExit29.status !== 'in_dungeon'
+    );
+
+    // 2. Legacy save migration + deterministic orphaned in_dungeon recovery
+    const legacyObj29 = JSON.parse(validMidSaveRaw29);
+    legacyObj29.world.player.id = 'player_local';
+    const legacyCityKey29 = Object.keys(legacyObj29.world.cities)[0];
+    legacyObj29.world.cities[legacyCityKey29].plots = legacyObj29.world.cities[legacyCityKey29].plots.slice(0, 8);
+    delete legacyObj29.world.heroes[0].bonusStats;
+    delete legacyObj29.world.heroes[0].statPoints;
+    legacyObj29.world.heroes[0].level = 4;
+    legacyObj29.world.heroes[0].xp = 99;
+    delete legacyObj29.world.dungeonWorld;
+    localStorage.setItem(WARGAME_STORAGE_KEY, JSON.stringify(legacyObj29));
+
+    const host29c = createWargameSimHost();
+    const dng29c = createDefaultGameState();
+    host29c.attachDungeonState(dng29c);
+    const ctx29c = createAppContextController({ simHost: host29c, dungeonState: dng29c });
+    const legacyLoadOk = host29c.load();
+    const legacyRestoreRes = ctx29c.restoreDungeonSession();
+    const legacyUnit = host29c.state.world.overworld.units.find(function(u) { return u && u.id === unit29.id; });
+    const legacyHero = host29c.state.world.heroes[0];
+    const legacyCityAfter = getPrimaryCity(host29c.state);
+    const legacyRecoveryOk = Boolean(
+      legacyLoadOk && legacyRestoreRes.ok && !legacyRestoreRes.restoredDungeon &&
+      ctx29c.getActiveContext() === APP_CONTEXTS.STRATEGY &&
+      host29c.state.world.player.id === CANONICAL_PLAYER_ID &&
+      legacyCityAfter && legacyCityAfter.plots.length === 64 &&
+      legacyHero.level === 4 && legacyHero.xp === 99 &&
+      legacyHero.bonusStats && typeof legacyHero.statPoints === 'number' &&
+      legacyUnit && legacyUnit.status === 'idle' &&
+      legacyUnit.x === poi29.x && legacyUnit.y === poi29.y
+    );
+
+    // 3. Orphaned marching unit recovery (valid path reschedules; invalid non-adjacent path resets safely)
+    const orphanValidObj = JSON.parse(validMidSaveRaw29);
+    delete orphanValidObj.world.dungeonWorld;
+    const ouValid = orphanValidObj.world.overworld.units.find(function(u) { return u && u.id === unit29.id; });
+    const ow29 = orphanValidObj.world.overworld;
+    const vNbr = getHexNeighbors(ouValid.x, ouValid.y, ow29).find(function(n) {
+      return ow29.tiles[n.y][n.x] !== OW_TERRAIN_MOUNTAINS && ow29.tiles[n.y][n.x] !== 'water';
+    });
+    ouValid.status = 'marching';
+    ouValid.dungeonPoiId = null;
+    ouValid.marchPlan = {
+      targetX: vNbr.x, targetY: vNbr.y,
+      remainingPath: [{ x: vNbr.x, y: vNbr.y }],
+      stepDurationMs: 3000, stepStartMs: orphanValidObj.world.clock.simTimeMs,
+      stepEndMs: orphanValidObj.world.clock.simTimeMs + 3000,
+      fromX: ouValid.x, fromY: ouValid.y
+    };
+    orphanValidObj.world.scheduledJobs = [];
+    localStorage.setItem(WARGAME_STORAGE_KEY, JSON.stringify(orphanValidObj));
+    const host29m1 = createWargameSimHost();
+    const loadOrphanValidOk = host29m1.load();
+    const recUnitValid = host29m1.state.world.overworld.units.find(function(u) { return u && u.id === unit29.id; });
+    const orphanValidRecoveredOk = Boolean(
+      loadOrphanValidOk && recUnitValid.status === 'marching' && host29m1.scheduler.size() >= 1
+    );
+
+    const orphanInvalidObj = JSON.parse(validMidSaveRaw29);
+    delete orphanInvalidObj.world.dungeonWorld;
+    const ouBad = orphanInvalidObj.world.overworld.units.find(function(u) { return u && u.id === unit29.id; });
+    ouBad.status = 'marching';
+    ouBad.dungeonPoiId = null;
+    ouBad.marchPlan = {
+      targetX: 0, targetY: 0,
+      remainingPath: [{ x: (ouBad.x + 10) % 20, y: (ouBad.y + 10) % 20 }], // non-adjacent teleport
+      stepDurationMs: 3000, stepStartMs: 0, stepEndMs: 3000
+    };
+    orphanInvalidObj.world.scheduledJobs = [];
+    localStorage.setItem(WARGAME_STORAGE_KEY, JSON.stringify(orphanInvalidObj));
+    const host29m2 = createWargameSimHost();
+    const loadOrphanBadOk = host29m2.load();
+    const recUnitBad = host29m2.state.world.overworld.units.find(function(u) { return u && u.id === unit29.id; });
+    const orphanInvalidRecoveredOk = Boolean(
+      loadOrphanBadOk && recUnitBad.status === 'idle' && recUnitBad.marchPlan === null
+    );
+
+    // 4. Malformed saves & strict atomic rollback (live state & scheduler 100% untouched on failed load)
+    const liveSeedBefore = host29b.state.world.seedCode;
+    const liveTimeBefore = host29b.state.world.clock.simTimeMs;
+    const liveJobsBefore = host29b.scheduler.size();
+    const liveHeroesBefore = host29b.state.world.heroes.length;
+    const badPayloads = [
+      '{not-valid-json',
+      '{}',
+      '{"world":null}',
+      JSON.stringify({ schemaVersion: 1, campaignPhase: 'active_world', world: { clock: { simTimeMs: 0 }, overworld: { width: 10, height: 10, tiles: null, explored: null, units: [] }, cities: [], heroes: [], parties: [] } })
+    ];
+    let atomicRollbackOk = true;
+    for (let bi = 0; bi < badPayloads.length; bi++) {
+      localStorage.setItem(WARGAME_STORAGE_KEY, badPayloads[bi]);
+      const badLoad = host29b.load();
+      if (badLoad !== false ||
+          host29b.state.world.seedCode !== liveSeedBefore ||
+          host29b.state.world.clock.simTimeMs !== liveTimeBefore ||
+          host29b.scheduler.size() !== liveJobsBefore ||
+          host29b.state.world.heroes.length !== liveHeroesBefore) {
+        atomicRollbackOk = false;
+      }
+    }
+
+    // 5. Safe recovery if context initialization fails after state commit
+    localStorage.setItem(WARGAME_STORAGE_KEY, validMidSaveRaw29);
+    const host29d = createWargameSimHost();
+    const dng29d = createDefaultGameState();
+    host29d.attachDungeonState(dng29d);
+    const ctx29d = createAppContextController({
+      simHost: host29d,
+      dungeonState: dng29d,
+      onEnsureDungeonInitialized: function() { throw new Error('simulated_context_init_crash'); }
+    });
+    const load29dOk = host29d.load();
+    const crashRestoreRes = ctx29d.restoreDungeonSession();
+    const unit29d = host29d.state.world.overworld.units.find(function(u) { return u && u.id === unit29.id; });
+    const contextInitFailureRecoveryOk = Boolean(
+      load29dOk && !crashRestoreRes.ok && crashRestoreRes.recoveredToSurface &&
+      ctx29d.getActiveContext() === APP_CONTEXTS.STRATEGY &&
+      unit29d && unit29d.status === 'idle' &&
+      host29d.state.world.heroes.length >= 1
+    );
+
+    // 6. Save failure propagation (storage quota error returns false & preserves last valid save)
+    host29b.save();
+    const validRawBeforeQuota = localStorage.getItem(WARGAME_STORAGE_KEY);
+    const origSetItem = localStorage.setItem;
+    let quotaSaveReturnedFalse = false;
+    try {
+      localStorage.setItem = function() { throw new Error('QuotaExceededError'); };
+      quotaSaveReturnedFalse = (host29b.save() === false);
+    } finally {
+      localStorage.setItem = origSetItem;
+    }
+    const saveFailurePropagationOk = Boolean(
+      quotaSaveReturnedFalse &&
+      localStorage.getItem(WARGAME_STORAGE_KEY) === validRawBeforeQuota
+    );
+
+    t29Checks = {
+      midDungeonRestoreOk: midDungeonRestoreOk,
+      postRestoreExtractOk: postRestoreExtractOk,
+      legacyRecoveryOk: legacyRecoveryOk,
+      orphanValidRecoveredOk: orphanValidRecoveredOk,
+      orphanInvalidRecoveredOk: orphanInvalidRecoveredOk,
+      atomicRollbackOk: atomicRollbackOk,
+      contextInitFailureRecoveryOk: contextInitFailureRecoveryOk,
+      saveFailurePropagationOk: saveFailurePropagationOk
+    };
+  } finally {
+    if (typeof localStorage !== 'undefined') {
+      if (prevSavedRaw29 === null) localStorage.removeItem(WARGAME_STORAGE_KEY);
+      else localStorage.setItem(WARGAME_STORAGE_KEY, prevSavedRaw29);
+    }
+  }
+  const failed29 = Object.keys(t29Checks).filter(function(k) { return !t29Checks[k]; });
+  const t29Pass = failed29.length === 0 && Object.keys(t29Checks).length > 0;
+
+  results.push({
+    name: '29. Unified Dungeon Persistence, Mid-Dungeon Resume, Legacy/Orphan Recovery, Malformed Saves & Atomic Rollback (Task 04)',
+    pass: t29Pass,
+    detail: t29Pass
+      ? 'Mid-dungeon RLE + activeSession resume & extraction, legacy migration, orphaned activity recovery, malformed save atomic rollback, context-init crash recovery & quota failure propagation verified'
+      : 'Failed checks: ' + failed29.join(', ')
+  });
+
   return results;
 }
 
@@ -30496,6 +31490,7 @@ function renderDungeonCanvas() {
 
 
 const simHost = createWargameSimHost();
+simHost.attachDungeonState(gameState);
 
 const dungeonChronicleEntries = [];
 let dungeonCanvasWired = false;
@@ -30843,6 +31838,7 @@ function handleStartNewCampaignSubmit(e) {
   const seedCode  = (seedInput && seedInput.value) || ('STAR-' + Math.floor(1000 + Math.random() * 8999));
   const simSpeed  = speedSelect ? parseFloat(speedSelect.value) || 1 : 1;
 
+  simHost.resetAttachedDungeonState();
   simHost.dispatch({
     type: COMMAND_TYPES.START_NEW_CAMPAIGN,
     payload: {
@@ -30853,6 +31849,7 @@ function handleStartNewCampaignSubmit(e) {
     }
   });
 
+  appContext.restoreDungeonSession();
   simHost.save();
   syncWargameUI(simHost);
 }
@@ -30860,6 +31857,7 @@ function handleStartNewCampaignSubmit(e) {
 function handleContinueCampaignClick() {
   const loaded = simHost.load();
   if (loaded) {
+    appContext.restoreDungeonSession();
     simHost.state._dirty = true;
     syncWargameUI(simHost);
   }
@@ -30871,6 +31869,7 @@ function handleResetToTitle() {
   }
   simHost.state.campaignPhase = CAMPAIGN_PHASES.TITLE;
   simHost.state.world = null;
+  appContext.restoreDungeonSession();
   syncWargameUI(simHost);
 }
 
@@ -31753,6 +32752,11 @@ function wargameMainLoop(timestamp) {
 
   if (appContext.getActiveContext() === APP_CONTEXTS.DUNGEON) {
     renderDungeonCanvas();
+    autoSaveAccumulatorMs += elapsedRealMs;
+    if (autoSaveAccumulatorMs >= 5000) {
+      autoSaveAccumulatorMs = 0;
+      simHost.save();
+    }
   } else if (simHost.state.world && simHost.state.campaignPhase !== CAMPAIGN_PHASES.TITLE) {
     appContext.syncFromCampaignPhase();
     simHost.stepClock(elapsedRealMs);
