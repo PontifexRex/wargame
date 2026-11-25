@@ -557,3 +557,49 @@ export function getCityTroopInventorySummary(world, city) {
     capacity: capacity
   };
 }
+
+// Reusable Deployed Army Display Number helpers (Task 05B-1-C1)
+// Display numbers are strictly user-facing labels derived from currently active deployed armies
+// and are completely separate from the persistent, never-reused internal army.id.
+export function isActiveDeployedArmy(unit) {
+  return Boolean(
+    unit &&
+    unit.unitType === 'army' &&
+    unit.alive &&
+    !unit.reintegrated &&
+    unit.status !== 'retired'
+  );
+}
+
+export function parseArmyDisplayNumber(unit) {
+  if (!unit) return null;
+  if (typeof unit.displayNumber === 'number' && isFinite(unit.displayNumber) && unit.displayNumber >= 1 && Math.floor(unit.displayNumber) === unit.displayNumber) {
+    return unit.displayNumber;
+  }
+  const label = String(unit.shortName || unit.name || '');
+  const m = label.match(/#(\d+)/);
+  if (m && m[1]) {
+    const parsed = parseInt(m[1], 10);
+    if (isFinite(parsed) && parsed >= 1) return parsed;
+  }
+  return null;
+}
+
+export function allocateLowestArmyDisplayNumber(units, excludeArmyId) {
+  const used = {};
+  const list = Array.isArray(units) ? units : [];
+  for (let i = 0; i < list.length; i++) {
+    const u = list[i];
+    if (!isActiveDeployedArmy(u)) continue;
+    if (excludeArmyId && u.id === excludeArmyId) continue;
+    const n = parseArmyDisplayNumber(u);
+    if (n !== null) {
+      used[n] = true;
+    }
+  }
+  let candidate = 1;
+  while (used[candidate]) {
+    candidate++;
+  }
+  return candidate;
+}

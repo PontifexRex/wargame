@@ -3524,6 +3524,52 @@ function getCityTroopInventorySummary(world, city) {
   };
 }
 
+// Reusable Deployed Army Display Number helpers (Task 05B-1-C1)
+// Display numbers are strictly user-facing labels derived from currently active deployed armies
+// and are completely separate from the persistent, never-reused internal army.id.
+function isActiveDeployedArmy(unit) {
+  return Boolean(
+    unit &&
+    unit.unitType === 'army' &&
+    unit.alive &&
+    !unit.reintegrated &&
+    unit.status !== 'retired'
+  );
+}
+
+function parseArmyDisplayNumber(unit) {
+  if (!unit) return null;
+  if (typeof unit.displayNumber === 'number' && isFinite(unit.displayNumber) && unit.displayNumber >= 1 && Math.floor(unit.displayNumber) === unit.displayNumber) {
+    return unit.displayNumber;
+  }
+  const label = String(unit.shortName || unit.name || '');
+  const m = label.match(/#(\d+)/);
+  if (m && m[1]) {
+    const parsed = parseInt(m[1], 10);
+    if (isFinite(parsed) && parsed >= 1) return parsed;
+  }
+  return null;
+}
+
+function allocateLowestArmyDisplayNumber(units, excludeArmyId) {
+  const used = {};
+  const list = Array.isArray(units) ? units : [];
+  for (let i = 0; i < list.length; i++) {
+    const u = list[i];
+    if (!isActiveDeployedArmy(u)) continue;
+    if (excludeArmyId && u.id === excludeArmyId) continue;
+    const n = parseArmyDisplayNumber(u);
+    if (n !== null) {
+      used[n] = true;
+    }
+  }
+  let candidate = 1;
+  while (used[candidate]) {
+    candidate++;
+  }
+  return candidate;
+}
+
   // --- Module: src/progression/currencyService.js ---
 // =============================================================================
 // GENERIC FIXED-PRECISION CURRENCY & TRANSACTION LEDGER SERVICE (Inc 10.1 / ADR-0015)
@@ -8899,6 +8945,34 @@ function reconcileLoadedWorldIntegrity(parsed) {
     }
   }
 
+  // 7c. Reconcile active deployed army displayNumber (Task 05B-1-C1):
+  // Backfill displayNumber for legacy pre-C1 saves from shortName/name and guarantee no duplicate
+  // display numbers among simultaneously active deployed armies.
+  const usedActiveDisplayNums = {};
+  const armiesNeedingDisplayNum = [];
+  for (let ui = 0; ui < units.length; ui++) {
+    const au = units[ui];
+    if (!isActiveDeployedArmy(au)) continue;
+    const parsedNum = parseArmyDisplayNumber(au);
+    if (parsedNum !== null && !usedActiveDisplayNums[parsedNum]) {
+      usedActiveDisplayNums[parsedNum] = true;
+      au.displayNumber = parsedNum;
+      if (!au.name) au.name = 'Field Army #' + parsedNum;
+      if (!au.shortName) au.shortName = 'Army #' + parsedNum;
+    } else {
+      armiesNeedingDisplayNum.push(au);
+    }
+  }
+  for (let ai = 0; ai < armiesNeedingDisplayNum.length; ai++) {
+    const au = armiesNeedingDisplayNum[ai];
+    let cand = 1;
+    while (usedActiveDisplayNums[cand]) cand++;
+    usedActiveDisplayNums[cand] = true;
+    au.displayNumber = cand;
+    au.name = 'Field Army #' + cand;
+    au.shortName = 'Army #' + cand;
+  }
+
   w.scheduledJobs = cleanJobs;
   return cleanJobs;
 }
@@ -14014,9 +14088,17 @@ function dispatchWargameCommand(commandEnvelope, state, scheduler, eventStream) 
     }
 
     // Atomic transfer: deduct from Barracks & create Army-located troopGroups
+    // Internal armyId is strictly monotonic & unique (never reused); displayNumber is the lowest
+    // available positive integer among currently active deployed armies (Task 05B-1-C1).
     const existingArmies = (ow.units || []).filter(function(u) { return u && u.unitType === 'army'; }).length;
     const armySeq = existingArmies + 1;
-    const armyId = 'army_' + armySeq + '_' + simTimeMs + '_' + Math.floor(Math.random() * 10000);
+    let armyId = 'army_' + armySeq + '_' + simTimeMs + '_' + Math.floor(Math.random() * 10000);
+    let idSalt = 0;
+    while ((ow.units || []).some(function(u) { return u && u.id === armyId; })) {
+      idSalt++;
+      armyId = 'army_' + armySeq + '_' + simTimeMs + '_' + Math.floor(Math.random() * 10000) + '_' + idSalt;
+    }
+    const displayNumber = allocateLowestArmyDisplayNumber(ow.units);
     if (!Array.isArray(world.troopGroups)) world.troopGroups = [];
 
     for (let i = 0; i < aggregatedList.length; i++) {
@@ -14043,8 +14125,9 @@ function dispatchWargameCommand(commandEnvelope, state, scheduler, eventStream) 
       id: armyId,
       ownerPlayerId: ownerId,
       unitType: 'army',
-      name: 'Field Army #' + armySeq,
-      shortName: 'Army #' + armySeq,
+      displayNumber: displayNumber,
+      name: 'Field Army #' + displayNumber,
+      shortName: 'Army #' + displayNumber,
       homeCityId: city.id,
       x: city.x,
       y: city.y,
@@ -14094,6 +14177,7 @@ function dispatchWargameCommand(commandEnvelope, state, scheduler, eventStream) 
     if (eventStream) {
       eventStream.publish(STREAM_TOPICS.ARMY_DEPLOYED, {
         armyId: armyUnit.id,
+        displayNumber: armyUnit.displayNumber,
         armyName: armyUnit.shortName,
         homeCityId: city.id,
         homeCityName: city.name,
@@ -14106,6 +14190,7 @@ function dispatchWargameCommand(commandEnvelope, state, scheduler, eventStream) 
 
     return accept({
       armyId: armyUnit.id,
+      displayNumber: armyUnit.displayNumber,
       army: armyUnit,
       totalTroops: totalTroops,
       stepsCount: path.length
@@ -32581,6 +32666,195 @@ function evaluateWargameSelfTests() {
     detail: t35Pass
       ? 'Save/load across marching, objective_in_progress & returning stages, orphaned army troop group recovery, orphaned objective job rescheduling & idempotency verified'
       : 'Failed checks: ' + failed35.join(', ')
+  });
+
+  // =========================================================================
+  // Test 36: Reusable Deployed Army Display Numbers & Unique ID Separation (Task 05B-1-C1)
+  // =========================================================================
+  const prevSavedRaw36 = (typeof localStorage !== 'undefined') ? localStorage.getItem(WARGAME_STORAGE_KEY) : null;
+  let t36Checks = {};
+  try {
+    const host36 = createWargameSimHost();
+    host36.dispatch({ type: COMMAND_TYPES.START_NEW_CAMPAIGN, payload: { houseName: 'House Numbering', worldName: 'Reuse Realm', seedCode: 'STAR-3600' } });
+    host36.dispatch({ type: COMMAND_TYPES.FOUND_CITY, payload: { cityName: 'Bannerkeep' } });
+    const city36 = getPrimaryCity(host36.state);
+    const ow36 = host36.state.world.overworld;
+    city36.stockpile.wood = 800; city36.stockpile.stone = 800; city36.stockpile.food = 800; city36.stockpile.gold = 800;
+    city36.buildings.quarry = 1;
+    const pB36 = city36.plots.findIndex(function(p) { return p && !p.buildingId; });
+    host36.dispatch({ type: COMMAND_TYPES.QUEUE_BUILDING, payload: { plotIndex: pB36, buildingId: 'barracks' } });
+    host36.stepClock(15000);
+    const pFC36 = city36.plots.findIndex(function(p) { return p && !p.buildingId; });
+    host36.dispatch({ type: COMMAND_TYPES.QUEUE_BUILDING, payload: { plotIndex: pFC36, buildingId: 'fighter_camp' } });
+    host36.stepClock(15000);
+    host36.dispatch({ type: COMMAND_TYPES.TRAIN_TROOPS, payload: { troopDefId: 'infantry', level: 1, quantity: 8 } });
+    host36.stepClock(80000);
+
+    const passableNbrs36 = getHexNeighbors(city36.x, city36.y, ow36).filter(function(n) {
+      const t = ow36.tiles[n.y][n.x];
+      return t !== OW_TERRAIN_MOUNTAINS && t !== 'water' && t !== 4 && t !== 5;
+    });
+    const dest36 = passableNbrs36[0];
+    const allSeenIds36 = {};
+    const recordIdUnique36 = function(id) {
+      if (!id || allSeenIds36[id]) return false;
+      allSeenIds36[id] = true;
+      return true;
+    };
+
+    // 1. First deployed army -> #1
+    const depA = host36.dispatch({
+      type: COMMAND_TYPES.DEPLOY_ARMY,
+      payload: { homeCityId: city36.id, targetX: dest36.x, targetY: dest36.y, stayDeployed: true, troops: [{ troopDefId: 'infantry', level: 1, quantity: 1 }] }
+    });
+    const a1 = depA.data && depA.data.army;
+    const firstGetsOne36 = Boolean(
+      depA.ok && a1 && recordIdUnique36(a1.id) &&
+      a1.displayNumber === 1 && a1.shortName === 'Army #1' && a1.name === 'Field Army #1'
+    );
+
+    // 2. Second simultaneously deployed army -> #2
+    const depB = host36.dispatch({
+      type: COMMAND_TYPES.DEPLOY_ARMY,
+      payload: { homeCityId: city36.id, targetX: dest36.x, targetY: dest36.y, stayDeployed: true, troops: [{ troopDefId: 'infantry', level: 1, quantity: 1 }] }
+    });
+    const a2 = depB.data && depB.data.army;
+    const secondGetsTwo36 = Boolean(
+      depB.ok && a2 && recordIdUnique36(a2.id) &&
+      a2.displayNumber === 2 && a2.shortName === 'Army #2' && a2.name === 'Field Army #2'
+    );
+
+    // Let Army #1 & #2 arrive and finish patrol (stayDeployed: true)
+    host36.stepClock(20000);
+
+    // 3. Failed deployment (too many troops / city hex) must NOT consume a display number
+    const badDep1 = host36.dispatch({
+      type: COMMAND_TYPES.DEPLOY_ARMY,
+      payload: { homeCityId: city36.id, targetX: dest36.x, targetY: dest36.y, stayDeployed: true, troops: [{ troopDefId: 'infantry', level: 1, quantity: 99 }] }
+    });
+    const badDep2 = host36.dispatch({
+      type: COMMAND_TYPES.DEPLOY_ARMY,
+      payload: { homeCityId: city36.id, targetX: city36.x, targetY: city36.y, stayDeployed: true, troops: [{ troopDefId: 'infantry', level: 1, quantity: 1 }] }
+    });
+
+    // 4. Start returning Army #1 (status === 'returning', NOT yet reintegrated) -> #1 must stay reserved, so next deploy gets #3!
+    const retA1Start = host36.dispatch({ type: COMMAND_TYPES.RETURN_ARMY_HOME, payload: { armyId: a1.id } });
+    const depC = host36.dispatch({
+      type: COMMAND_TYPES.DEPLOY_ARMY,
+      payload: { homeCityId: city36.id, targetX: dest36.x, targetY: dest36.y, stayDeployed: true, troops: [{ troopDefId: 'infantry', level: 1, quantity: 1 }] }
+    });
+    const a3 = depC.data && depC.data.army;
+    const returningStillReserves36 = Boolean(
+      !badDep1.ok && !badDep2.ok &&
+      retA1Start.ok && a1.status === 'returning' &&
+      depC.ok && a3 && recordIdUnique36(a3.id) &&
+      a3.displayNumber === 3 && a3.shortName === 'Army #3'
+    );
+
+    // 5. Complete Army #1 return & reintegration (while #2 and #3 remain deployed) -> next deploy reuses #1 with a distinct army.id!
+    host36.stepClock(20000);
+    const depD = host36.dispatch({
+      type: COMMAND_TYPES.DEPLOY_ARMY,
+      payload: { homeCityId: city36.id, targetX: dest36.x, targetY: dest36.y, stayDeployed: true, troops: [{ troopDefId: 'infantry', level: 1, quantity: 1 }] }
+    });
+    const a4 = depD.data && depD.data.army;
+    const reuseOneWhileTwoThreeActive36 = Boolean(
+      !a1.alive && a1.reintegrated === true &&
+      depD.ok && a4 && recordIdUnique36(a4.id) &&
+      a4.id !== a1.id &&
+      a4.displayNumber === 1 && a4.shortName === 'Army #1'
+    );
+
+    // 6. Return Army #2 (leaving #1 and #3 active) -> next deploy reuses #2 (lowest gap) with distinct army.id!
+    host36.dispatch({ type: COMMAND_TYPES.RETURN_ARMY_HOME, payload: { armyId: a2.id } });
+    host36.stepClock(20000);
+    const depE = host36.dispatch({
+      type: COMMAND_TYPES.DEPLOY_ARMY,
+      payload: { homeCityId: city36.id, targetX: dest36.x, targetY: dest36.y, stayDeployed: true, troops: [{ troopDefId: 'infantry', level: 1, quantity: 1 }] }
+    });
+    const a5 = depE.data && depE.data.army;
+    const reuseGapTwo36 = Boolean(
+      !a2.alive && a2.reintegrated === true &&
+      depE.ok && a5 && recordIdUnique36(a5.id) &&
+      a5.id !== a2.id &&
+      a5.displayNumber === 2 && a5.shortName === 'Army #2'
+    );
+
+    // Verify zero duplicate display numbers among all currently active armies (#1, #2, #3)
+    const activeNums36 = host36.state.world.overworld.units
+      .filter(function(u) { return u && u.unitType === 'army' && u.alive && !u.reintegrated; })
+      .map(function(u) { return u.displayNumber; })
+      .sort(function(x, y) { return x - y; });
+    const noActiveDuplicates36 = activeNums36.length === 3 && activeNums36[0] === 1 && activeNums36[1] === 2 && activeNums36[2] === 3;
+
+    // 7. Save/Load persistence: return Army #1 (a4), save with #2 (a5) and #3 (a3) active (and simulate legacy save missing displayNumber on a3)
+    host36.dispatch({ type: COMMAND_TYPES.RETURN_ARMY_HOME, payload: { armyId: a4.id } });
+    host36.stepClock(20000);
+    host36.save();
+    const raw36 = JSON.parse(localStorage.getItem(WARGAME_STORAGE_KEY));
+    const savedA3 = raw36.world.overworld.units.find(function(u) { return u && u.id === a3.id; });
+    if (savedA3) delete savedA3.displayNumber; // simulate pre-C1 save without displayNumber field
+    localStorage.setItem(WARGAME_STORAGE_KEY, JSON.stringify(raw36));
+
+    const host36b = createWargameSimHost();
+    const loaded36 = host36b.load();
+    const loadedA3 = host36b.state.world.overworld.units.find(function(u) { return u && u.id === a3.id; });
+    const loadedA5 = host36b.state.world.overworld.units.find(function(u) { return u && u.id === a5.id; });
+    const city36b = getPrimaryCity(host36b.state);
+    const depAfterLoad = host36b.dispatch({
+      type: COMMAND_TYPES.DEPLOY_ARMY,
+      payload: { homeCityId: city36b.id, targetX: dest36.x, targetY: dest36.y, stayDeployed: true, troops: [{ troopDefId: 'infantry', level: 1, quantity: 1 }] }
+    });
+    const a6 = depAfterLoad.data && depAfterLoad.data.army;
+    const saveLoadPreserveAndReuse36 = Boolean(
+      loaded36 &&
+      loadedA3 && loadedA3.displayNumber === 3 &&
+      loadedA5 && loadedA5.displayNumber === 2 &&
+      depAfterLoad.ok && a6 && recordIdUnique36(a6.id) &&
+      a6.displayNumber === 1 && a6.shortName === 'Army #1'
+    );
+
+    // 8. Return ALL deployed armies -> next deploy receives #1
+    host36b.stepClock(20000);
+    host36b.dispatch({ type: COMMAND_TYPES.RETURN_ARMY_HOME, payload: { armyId: loadedA3.id } });
+    host36b.dispatch({ type: COMMAND_TYPES.RETURN_ARMY_HOME, payload: { armyId: loadedA5.id } });
+    host36b.dispatch({ type: COMMAND_TYPES.RETURN_ARMY_HOME, payload: { armyId: a6.id } });
+    host36b.stepClock(20000);
+    const depAllClear = host36b.dispatch({
+      type: COMMAND_TYPES.DEPLOY_ARMY,
+      payload: { homeCityId: city36b.id, targetX: dest36.x, targetY: dest36.y, stayDeployed: true, troops: [{ troopDefId: 'infantry', level: 1, quantity: 1 }] }
+    });
+    const a7 = depAllClear.data && depAllClear.data.army;
+    const allReturnedResetsToOne36 = Boolean(
+      depAllClear.ok && a7 && recordIdUnique36(a7.id) &&
+      a7.displayNumber === 1 && a7.shortName === 'Army #1'
+    );
+
+    t36Checks = {
+      firstGetsOne: firstGetsOne36,
+      secondGetsTwo: secondGetsTwo36,
+      returningStillReserves: returningStillReserves36,
+      reuseOneWhileTwoThreeActive: reuseOneWhileTwoThreeActive36,
+      reuseGapTwo: reuseGapTwo36,
+      noActiveDuplicates: noActiveDuplicates36,
+      saveLoadPreserveAndReuse: saveLoadPreserveAndReuse36,
+      allReturnedResetsToOne: allReturnedResetsToOne36
+    };
+  } finally {
+    if (typeof localStorage !== 'undefined') {
+      if (prevSavedRaw36 === null) localStorage.removeItem(WARGAME_STORAGE_KEY);
+      else localStorage.setItem(WARGAME_STORAGE_KEY, prevSavedRaw36);
+    }
+  }
+  const failed36 = Object.keys(t36Checks).filter(function(k) { return !t36Checks[k]; });
+  const t36Pass = failed36.length === 0 && Object.keys(t36Checks).length > 0;
+
+  results.push({
+    name: '36. Reusable Deployed Army Display Numbers, Unique ID Separation & Save/Load Backfill (Task 05B-1-C1)',
+    pass: t36Pass,
+    detail: t36Pass
+      ? 'Lowest-available display number allocation, returning-status reservation, gap reuse (#1/#2), failed-deploy non-consumption, unique never-reused army.id & save/load backfill verified'
+      : 'Failed checks: ' + failed36.join(', ')
   });
 
   return results;

@@ -23,7 +23,13 @@ import { generateOverworldMap, isOverworldTilePassable } from './pathfinding.js'
 import { isInOverworldBounds, areHexesAdjacent } from './hexSpatial.js';
 import { createInitialTasksState } from './taskEngine.js';
 import { CITY_PLOT_SLOTS, CITY_BUILDINGS_CATALOG } from '../data/buildings.js';
-import { getTroopDefinition, normalizeLegacyTroopDefId, TROOP_LOCATION_TYPES } from '../data/troops.js';
+import {
+  getTroopDefinition,
+  normalizeLegacyTroopDefId,
+  TROOP_LOCATION_TYPES,
+  isActiveDeployedArmy,
+  parseArmyDisplayNumber
+} from '../data/troops.js';
 import { createDefaultProgressionState, ensureProgressionState } from '../../progression/progressionState.js';
 import { CANONICAL_PLAYER_ID, ensureCanonicalPlayerIdentity } from '../../core/canonicalIdentity.js';
 import { packDungeonWorldSnapshot } from '../../engine/state.js';
@@ -691,6 +697,34 @@ export function reconcileLoadedWorldIntegrity(parsed) {
       au.status = 'retired';
       au.marchPlan = null;
     }
+  }
+
+  // 7c. Reconcile active deployed army displayNumber (Task 05B-1-C1):
+  // Backfill displayNumber for legacy pre-C1 saves from shortName/name and guarantee no duplicate
+  // display numbers among simultaneously active deployed armies.
+  const usedActiveDisplayNums = {};
+  const armiesNeedingDisplayNum = [];
+  for (let ui = 0; ui < units.length; ui++) {
+    const au = units[ui];
+    if (!isActiveDeployedArmy(au)) continue;
+    const parsedNum = parseArmyDisplayNumber(au);
+    if (parsedNum !== null && !usedActiveDisplayNums[parsedNum]) {
+      usedActiveDisplayNums[parsedNum] = true;
+      au.displayNumber = parsedNum;
+      if (!au.name) au.name = 'Field Army #' + parsedNum;
+      if (!au.shortName) au.shortName = 'Army #' + parsedNum;
+    } else {
+      armiesNeedingDisplayNum.push(au);
+    }
+  }
+  for (let ai = 0; ai < armiesNeedingDisplayNum.length; ai++) {
+    const au = armiesNeedingDisplayNum[ai];
+    let cand = 1;
+    while (usedActiveDisplayNums[cand]) cand++;
+    usedActiveDisplayNums[cand] = true;
+    au.displayNumber = cand;
+    au.name = 'Field Army #' + cand;
+    au.shortName = 'Army #' + cand;
   }
 
   w.scheduledJobs = cleanJobs;

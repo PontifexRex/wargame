@@ -68,7 +68,8 @@ import {
   getCityTroopCapacityUsage,
   TROOP_LOCATION_TYPES,
   ARMY_OBJECTIVE_TYPES,
-  ARMY_OBJECTIVE_STATUS
+  ARMY_OBJECTIVE_STATUS,
+  allocateLowestArmyDisplayNumber
 } from '../data/troops.js';
 import {
   scheduleNextMarchStep,
@@ -1422,9 +1423,17 @@ export function dispatchWargameCommand(commandEnvelope, state, scheduler, eventS
     }
 
     // Atomic transfer: deduct from Barracks & create Army-located troopGroups
+    // Internal armyId is strictly monotonic & unique (never reused); displayNumber is the lowest
+    // available positive integer among currently active deployed armies (Task 05B-1-C1).
     const existingArmies = (ow.units || []).filter(function(u) { return u && u.unitType === 'army'; }).length;
     const armySeq = existingArmies + 1;
-    const armyId = 'army_' + armySeq + '_' + simTimeMs + '_' + Math.floor(Math.random() * 10000);
+    let armyId = 'army_' + armySeq + '_' + simTimeMs + '_' + Math.floor(Math.random() * 10000);
+    let idSalt = 0;
+    while ((ow.units || []).some(function(u) { return u && u.id === armyId; })) {
+      idSalt++;
+      armyId = 'army_' + armySeq + '_' + simTimeMs + '_' + Math.floor(Math.random() * 10000) + '_' + idSalt;
+    }
+    const displayNumber = allocateLowestArmyDisplayNumber(ow.units);
     if (!Array.isArray(world.troopGroups)) world.troopGroups = [];
 
     for (let i = 0; i < aggregatedList.length; i++) {
@@ -1451,8 +1460,9 @@ export function dispatchWargameCommand(commandEnvelope, state, scheduler, eventS
       id: armyId,
       ownerPlayerId: ownerId,
       unitType: 'army',
-      name: 'Field Army #' + armySeq,
-      shortName: 'Army #' + armySeq,
+      displayNumber: displayNumber,
+      name: 'Field Army #' + displayNumber,
+      shortName: 'Army #' + displayNumber,
       homeCityId: city.id,
       x: city.x,
       y: city.y,
@@ -1502,6 +1512,7 @@ export function dispatchWargameCommand(commandEnvelope, state, scheduler, eventS
     if (eventStream) {
       eventStream.publish(STREAM_TOPICS.ARMY_DEPLOYED, {
         armyId: armyUnit.id,
+        displayNumber: armyUnit.displayNumber,
         armyName: armyUnit.shortName,
         homeCityId: city.id,
         homeCityName: city.name,
@@ -1514,6 +1525,7 @@ export function dispatchWargameCommand(commandEnvelope, state, scheduler, eventS
 
     return accept({
       armyId: armyUnit.id,
+      displayNumber: armyUnit.displayNumber,
       army: armyUnit,
       totalTroops: totalTroops,
       stepsCount: path.length
