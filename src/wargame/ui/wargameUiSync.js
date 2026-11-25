@@ -23,6 +23,21 @@ import {
   getBuildingLevelsTable
 } from '../data/buildings.js';
 import {
+  TROOP_AVAILABILITY_STATES,
+  getAllTroopDefinitions,
+  getTroopDefinition,
+  getTroopMaxUnlockedLevel,
+  computeTroopStatsForLevel,
+  computeTroopCostForLevel,
+  computeCityTrainingSpeedMultiplier,
+  computeTroopTrainingDurationMs,
+  computeTroopUpgradeCost,
+  computeTroopUpgradeDurationMs,
+  computeMaxUpgradeableQuantity,
+  evaluateTroopAvailability,
+  getCityTroopInventorySummary
+} from '../data/troops.js';
+import {
   getPrimaryCity,
   getSelectedOverworldUnit,
   getEffectiveStockpile,
@@ -742,6 +757,7 @@ export function renderQuickMapDocks(simHost) {
 }
 
 export function buildUnifiedBuildingStageHtml(simHost, bId, city) {
+  const world = (simHost && simHost.state) ? simHost.state.world : null;
   const bDef = bId ? CITY_BUILDINGS_CATALOG[bId] : null;
   if (!bId || !city || !bDef) return '';
 
@@ -976,6 +992,292 @@ export function buildUnifiedBuildingStageHtml(simHost, bId, city) {
           <span class="text-[#fbbf24]">Max Party Size: ${maxSize} Heroes</span>
         </div>
         ${partiesHtml}
+      </div>
+    `);
+  }
+
+  if (bDef.facilities && bDef.facilities.troopRecruitment) {
+    const inv = getCityTroopInventorySummary(world, city);
+    const usage = inv.capacity;
+    const speedMult = computeCityTrainingSpeedMultiplier(city);
+    const allTroopDefs = getAllTroopDefinitions();
+    const unlockedTroopDefs = allTroopDefs.filter(function(td) {
+      return getTroopMaxUnlockedLevel(city, td) >= 1;
+    });
+    const tq = Array.isArray(city.troopTrainingQueue) ? city.troopTrainingQueue : [];
+    const maxSlots = city.maxTroopQueueSlots || 3;
+    const simTimeMs = (world && world.clock) ? world.clock.simTimeMs : 0;
+    const capPct = usage.maxCapacity > 0 ? Math.min(100, Math.round((usage.totalUsed / usage.maxCapacity) * 100)) : 0;
+    const qtyStore = (simHost.state && simHost.state._recruitQtyByTroop) ? simHost.state._recruitQtyByTroop : {};
+    const lvlStore = (simHost.state && simHost.state._recruitLevelByTroop) ? simHost.state._recruitLevelByTroop : {};
+    const upgQtyStore = (simHost.state && simHost.state._upgradeQtyByKey) ? simHost.state._upgradeQtyByKey : {};
+
+    // 1. Barracks Troop Inventory Table (strictly by Type AND Level)
+    const inventoryRowsHtml = inv.byTypeAndLevel.length === 0
+      ? '<tr class="border-t border-[#1e293b]"><td colspan="7" class="py-2 text-center text-[#8b949e] italic">No troops in Barracks inventory yet.</td></tr>'
+      : inv.byTypeAndLevel.map(function(row) {
+          return `
+            <tr class="border-t border-[#1e293b]">
+              <td class="py-1 pr-2 text-[#e6edf3] font-semibold">${row.icon} ${row.name}</td>
+              <td class="py-1 px-1.5 text-center text-[#fbbf24]">Lv ${row.level}</td>
+              <td class="py-1 px-1.5 text-right text-[#34d399]">${row.trained}</td>
+              <td class="py-1 px-1.5 text-right text-[#fbbf24]">${row.training}</td>
+              <td class="py-1 px-1.5 text-right text-[#c084fc]">${row.upgradingIn}</td>
+              <td class="py-1 px-1.5 text-right text-[#38bdf8] font-bold">${row.projectedTotal}</td>
+              <td class="py-1 pl-2 text-right whitespace-nowrap">
+                ${row.trained > 0 ? `
+                  <button data-action="disband-troops" data-troop-def-id="${row.troopDefId}" data-level="${row.level}" data-qty="1" onclick="window.WargameApp.handleDisbandTroopsByLevel('${row.troopDefId}', ${row.level}, 1)" class="px-1.5 py-0.5 rounded bg-[#1a2232] hover:bg-[#450a0a] text-[#f87171] border border-[#f87171]/40 text-[9px] cursor-pointer">-1</button>
+                  <button data-action="disband-troops" data-troop-def-id="${row.troopDefId}" data-level="${row.level}" data-qty="${row.trained}" onclick="window.WargameApp.handleDisbandTroopsByLevel('${row.troopDefId}', ${row.level}, ${row.trained})" class="px-1.5 py-0.5 rounded bg-[#1a2232] hover:bg-[#450a0a] text-[#f87171] border border-[#f87171]/40 text-[9px] cursor-pointer">All</button>
+                ` : '<span class="text-[#64748b] text-[9px]">—</span>'}
+              </td>
+            </tr>
+          `;
+        }).join('');
+
+    // 2. Recruitment Cards (ONLY unlocked troop types shown; hidden until required camp is built)
+    const recruitCardsHtml = unlockedTroopDefs.length === 0
+      ? '<div class="p-2.5 rounded bg-[#111722] border border-[#283347] text-[11px] text-[#8b949e]">No troop types unlocked yet. Build a <strong>Fighter Camp</strong> to unlock Basic Infantry or an <strong>Archer Camp</strong> to unlock Archers.</div>'
+      : unlockedTroopDefs.map(function(td) {
+          const maxUnlockedLvl = getTroopMaxUnlockedLevel(city, td);
+          const storedLvl = lvlStore[td.id];
+          const selLvl = (typeof storedLvl === 'number' && storedLvl >= 1 && storedLvl <= maxUnlockedLvl)
+            ? storedLvl
+            : maxUnlockedLvl;
+          const durMs = computeTroopTrainingDurationMs(city, td, selLvl);
+          const lvlStats = computeTroopStatsForLevel(td, selLvl);
+          const unitCostMap = computeTroopCostForLevel(td, selLvl);
+          const baseEval = evaluateTroopAvailability(world, city, td, 1, selLvl);
+          const maxRec = baseEval.maxRecruitable;
+          const rawSel = typeof qtyStore[td.id] === 'number' ? qtyStore[td.id] : 1;
+          const selQty = maxRec >= 1 ? Math.max(1, Math.min(maxRec, Math.floor(rawSel))) : 1;
+          const avail = evaluateTroopAvailability(world, city, td, selQty, selLvl);
+          const canTrain = avail.state === TROOP_AVAILABILITY_STATES.AVAILABLE;
+          const weight = td.capacityWeight || 1;
+          const costEntries = Object.keys(unitCostMap);
+
+          let levelOptionsHtml = '';
+          for (let lv = maxUnlockedLvl; lv >= 1; lv--) {
+            levelOptionsHtml += `<option value="${lv}" ${lv === selLvl ? 'selected' : ''}>Lv ${lv}${lv === maxUnlockedLvl ? ' (Max)' : ''}</option>`;
+          }
+
+          let statusBadgeHtml = '<span class="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase bg-[#064e3b] text-[#34d399]">Available</span>';
+          let statusNote = '';
+          if (avail.state === TROOP_AVAILABILITY_STATES.QUEUE_FULL) {
+            statusBadgeHtml = '<span class="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase bg-[#1e293b] text-[#94a3b8]">Queue Full</span>';
+            statusNote = 'Shared military queue full (' + tq.length + '/' + maxSlots + ')';
+          } else if (avail.state === TROOP_AVAILABILITY_STATES.INSUFFICIENT_CAPACITY) {
+            statusBadgeHtml = '<span class="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase bg-[#451a03] text-[#fb923c]">Insufficient Capacity</span>';
+            statusNote = 'Need +' + avail.capacityNeeded + ' capacity (' + usage.available + ' free of ' + usage.maxCapacity + ') — upgrade Barracks or disband troops';
+          } else if (avail.state === TROOP_AVAILABILITY_STATES.INSUFFICIENT_RESOURCES) {
+            const missText = avail.missingResources.map(function(m) { return m.need + ' ' + m.resource + ' (have ' + m.have + ')'; }).join(', ');
+            statusBadgeHtml = '<span class="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase bg-[#450a0a] text-[#f87171]">Insufficient Resources</span>';
+            statusNote = 'Short on ' + missText;
+          }
+
+          const unitCostParts = costEntries.map(function(rk) {
+            return (unitCostMap[rk] || 0) + ' ' + rk;
+          }).join(' • ');
+
+          const previewCostParts = costEntries.map(function(rk) {
+            const totalNeed = (unitCostMap[rk] || 0) * selQty;
+            const have = (city.stockpile && city.stockpile[rk]) || 0;
+            const rem = have - totalNeed;
+            const cls = rem < 0 ? 'text-[#f87171]' : 'text-[#cbd5e1]';
+            return '<span class="' + cls + '">' + rk + ': <strong>' + totalNeed + '</strong> <span class="text-[#8b949e]">(' + have + ' → ' + Math.max(0, rem) + ')</span></span>';
+          }).join(' • ');
+
+          return `
+            <div class="p-2.5 rounded bg-[#111722] border border-[#283347] space-y-2 text-xs">
+              <div class="flex flex-wrap items-center justify-between gap-2 font-mono">
+                <span class="font-bold text-[#e6edf3]">${td.icon} ${td.name} <span class="text-[10px] text-[#8b949e]">(${td.roleLabel || td.role})</span></span>
+                <div class="flex items-center gap-1.5">
+                  <label class="text-[10px] text-[#8b949e]">Level:
+                    <select data-troop-level="${td.id}" onchange="window.WargameApp.handleSetTroopRecruitLevel('${td.id}', this.value)" class="ml-1 px-1.5 py-0.5 rounded bg-[#080b11] border border-[#283347] text-[#fbbf24] text-[10px] font-mono cursor-pointer">${levelOptionsHtml}</select>
+                  </label>
+                  ${statusBadgeHtml}
+                  <span class="text-[10px] text-[#34d399]">⏱ ${formatSimDuration(durMs)}/unit</span>
+                </div>
+              </div>
+              <div class="text-[10px] text-[#8b949e] font-mono">Lv ${selLvl} Stats: HP ${lvlStats.hp} • ATK ${lvlStats.atk} • DEF ${lvlStats.def} • Cap ${weight}/unit | Unit Cost: ${unitCostParts}</div>
+              <div class="space-y-1.5 pt-0.5">
+                <div class="flex flex-wrap items-center gap-2 font-mono">
+                  <span class="text-[10px] text-[#8b949e]">Qty:</span>
+                  <input type="range" data-troop-slider="${td.id}" min="1" max="${Math.max(1, maxRec)}" value="${selQty}" ${maxRec < 1 ? 'disabled' : ''} oninput="window.WargameApp.handleSetTroopRecruitQty('${td.id}', this.value)" class="flex-1 min-w-[90px] accent-[#f87171] cursor-pointer" />
+                  <input type="number" data-troop-qty="${td.id}" min="1" max="${Math.max(1, maxRec)}" value="${selQty}" ${maxRec < 1 ? 'disabled' : ''} oninput="window.WargameApp.handleSetTroopRecruitQty('${td.id}', this.value)" class="w-14 px-1.5 py-0.5 rounded bg-[#080b11] border border-[#283347] text-[#e6edf3] text-center text-[11px]" />
+                  <button type="button" onclick="window.WargameApp.handleSetTroopRecruitQty('${td.id}', ${Math.max(1, maxRec)})" ${maxRec < 1 ? 'disabled' : ''} class="px-2 py-0.5 rounded text-[10px] ${maxRec >= 1 ? 'bg-[#1a2232] hover:bg-[#283347] text-[#fbbf24] border border-[#fbbf24]/40 cursor-pointer' : 'bg-[#1a2232] text-[#64748b] cursor-not-allowed'}">Max (${maxRec})</button>
+                  <button data-action="train-troops" data-troop-def-id="${td.id}" data-level="${selLvl}" data-qty="${selQty}" onclick="window.WargameApp.handleTrainTroops('${td.id}', ${selQty}, ${selLvl})" ${canTrain ? '' : 'disabled'} class="px-3 py-1 rounded text-[10px] font-bold uppercase ${canTrain ? 'bg-[#f87171] hover:bg-[#ef4444] text-[#080b11] cursor-pointer' : 'bg-[#1a2232] text-[#64748b] cursor-not-allowed'}">Recruit ×${selQty} (Lv ${selLvl})</button>
+                </div>
+                <div class="p-1.5 rounded bg-[#080b11] border border-[#1e293b] text-[10px] font-mono space-y-0.5">
+                  <div>Total Cost (×${selQty} Lv ${selLvl}): ${previewCostParts}</div>
+                  <div class="text-[#8b949e]">Capacity: +${selQty * weight} (${usage.totalUsed + (selQty * weight)}/${usage.maxCapacity}) • Est. Time: <span class="text-[#34d399]">${formatSimDuration(durMs * selQty)}</span></div>
+                </div>
+                ${statusNote ? `<div class="text-[10px] font-mono text-[#fbbf24]">⚠️ ${statusNote}</div>` : ''}
+              </div>
+            </div>
+          `;
+        }).join('');
+
+    // 3. Upgrade Eligible Lower-Level Barracks Troops (shares the same city military queue)
+    const upgradeEligibleRows = inv.byTypeAndLevel.filter(function(r) {
+      return r.trained > 0 && r.maxUnlockedLevel > r.level;
+    });
+    const upgradeCardsHtml = upgradeEligibleRows.length === 0
+      ? '<div class="text-[11px] text-[#8b949e] italic">No lower-level Barracks troops eligible for upgrade. Upgrade your Fighter Camp or Archer Camp to unlock higher troop levels.</div>'
+      : upgradeEligibleRows.map(function(row) {
+          const td = getTroopDefinition(row.troopDefId);
+          const toLvl = row.maxUnlockedLevel;
+          const upgCost = computeTroopUpgradeCost(td, row.level, toLvl);
+          const upgDur = computeTroopUpgradeDurationMs(city, td, row.level, toLvl);
+          const maxUpg = computeMaxUpgradeableQuantity(world, city, td, row.level, toLvl);
+          const upgKey = row.troopDefId + ':' + row.level;
+          const rawUpgQty = typeof upgQtyStore[upgKey] === 'number' ? upgQtyStore[upgKey] : maxUpg;
+          const selUpgQty = maxUpg >= 1 ? Math.max(1, Math.min(maxUpg, Math.floor(rawUpgQty))) : 1;
+          const canUpg = maxUpg >= 1 && tq.length < maxSlots;
+          const costParts = Object.keys(upgCost).filter(function(rk) { return (upgCost[rk] || 0) > 0; }).map(function(rk) {
+            return rk + ': ' + ((upgCost[rk] || 0) * selUpgQty);
+          }).join(' • ') || 'No extra resource cost';
+          return `
+            <div class="p-2 rounded bg-[#111722] border border-[#c084fc]/40 space-y-1.5 text-xs font-mono">
+              <div class="flex flex-wrap items-center justify-between gap-2">
+                <span class="text-[#e6edf3] font-bold">${row.icon} ${row.name} <span class="text-[#fbbf24]">Lv ${row.level}</span> → <span class="text-[#c084fc]">Lv ${toLvl}</span> <span class="text-[10px] text-[#8b949e]">(${row.trained} eligible)</span></span>
+                <span class="text-[10px] text-[#34d399]">⏱ ${formatSimDuration(upgDur * selUpgQty)}</span>
+              </div>
+              <div class="flex flex-wrap items-center gap-2">
+                <span class="text-[10px] text-[#8b949e]">Qty:</span>
+                <input type="range" data-troop-upgrade-slider="${upgKey}" min="1" max="${Math.max(1, maxUpg)}" value="${selUpgQty}" ${!canUpg ? 'disabled' : ''} oninput="window.WargameApp.handleSetTroopUpgradeQty('${row.troopDefId}', ${row.level}, this.value)" class="flex-1 min-w-[80px] accent-[#c084fc] cursor-pointer" />
+                <input type="number" data-troop-upgrade-qty="${upgKey}" min="1" max="${Math.max(1, maxUpg)}" value="${selUpgQty}" ${!canUpg ? 'disabled' : ''} oninput="window.WargameApp.handleSetTroopUpgradeQty('${row.troopDefId}', ${row.level}, this.value)" class="w-14 px-1.5 py-0.5 rounded bg-[#080b11] border border-[#283347] text-[#e6edf3] text-center text-[11px]" />
+                <button data-action="upgrade-troops" data-troop-def-id="${row.troopDefId}" data-from-level="${row.level}" data-to-level="${toLvl}" data-qty="${selUpgQty}" onclick="window.WargameApp.handleUpgradeTroops('${row.troopDefId}', ${row.level}, ${selUpgQty}, ${toLvl})" ${canUpg ? '' : 'disabled'} class="px-2.5 py-1 rounded text-[10px] font-bold uppercase ${canUpg ? 'bg-[#c084fc] hover:bg-[#a855f7] text-[#080b11] cursor-pointer' : 'bg-[#1a2232] text-[#64748b] cursor-not-allowed'}">Upgrade ×${selUpgQty}</button>
+              </div>
+              <div class="text-[10px] text-[#8b949e]">Upgrade Cost (×${selUpgQty}): <span class="text-[#cbd5e1]">${costParts}</span> • +0 Capacity</div>
+            </div>
+          `;
+        }).join('');
+
+    // 4. Shared City Military Queue (Recruitment & Upgrades sequentially)
+    const queueRowsHtml = tq.length === 0
+      ? '<div class="text-[11px] text-[#8b949e] italic">Military production queue is idle.</div>'
+      : tq.map(function(item, qIdx) {
+          const done = item.completedCount || 0;
+          const total = item.quantity || 1;
+          const isUpg = item.jobKind === 'upgrade';
+          const badge = isUpg
+            ? '<span class="px-1 py-0.5 rounded bg-[#3b0764] text-[#e9d5ff] text-[9px] uppercase">Upgrade</span>'
+            : '<span class="px-1 py-0.5 rounded bg-[#450a0a] text-[#fecaca] text-[9px] uppercase">Recruit</span>';
+          const descLabel = isUpg
+            ? ((item.troopName || item.troopDefId) + ' Lv ' + (item.fromLevel || 1) + '→' + (item.toLevel || 2))
+            : ((item.troopName || item.troopDefId) + ' Lv ' + (item.level || 1));
+          const isActive = (item.status === 'training' || item.status === 'upgrading');
+          if (isActive) {
+            const dur = Math.max(1, (item.dueSimTimeMs || 0) - (item.startSimTimeMs || 0));
+            const rem = Math.max(0, (item.dueSimTimeMs || 0) - simTimeMs);
+            const pct = Math.min(100, Math.round(((dur - rem) / dur) * 100));
+            const barColor = isUpg ? '#c084fc' : '#f87171';
+            return `
+              <div class="p-2 rounded bg-[#111722] border ${isUpg ? 'border-[#c084fc]/50' : 'border-[#f87171]/50'} space-y-1 text-[11px] font-mono">
+                <div class="flex items-center justify-between gap-2">
+                  <span class="text-[#e6edf3] font-bold">#${qIdx + 1} ${badge} ${descLabel} (${done}/${total})</span>
+                  <div class="flex items-center gap-2">
+                    <span class="text-[#34d399]">${formatSimDuration(rem)}</span>
+                    <button data-action="cancel-troop-training" data-queue-item-id="${item.queueItemId}" onclick="window.WargameApp.handleCancelTroopTraining('${item.queueItemId}')" class="px-1.5 py-0.5 rounded bg-[#450a0a] hover:bg-[#7f1d1d] text-[#fecaca] text-[10px] cursor-pointer">Cancel</button>
+                  </div>
+                </div>
+                <div class="w-full h-1.5 bg-[#080b11] rounded-full overflow-hidden"><div class="h-full" style="width:${pct}%;background:${barColor}"></div></div>
+              </div>
+            `;
+          }
+          return `
+            <div class="p-2 rounded bg-[#111722] border border-[#283347] flex items-center justify-between text-[11px] font-mono">
+              <span class="text-[#cbd5e1]">#${qIdx + 1} ${badge} ${descLabel} ×${total}</span>
+              <button data-action="cancel-troop-training" data-queue-item-id="${item.queueItemId}" onclick="window.WargameApp.handleCancelTroopTraining('${item.queueItemId}')" class="px-1.5 py-0.5 rounded bg-[#1a2232] hover:bg-[#450a0a] text-[#f87171] text-[10px] cursor-pointer">Cancel</button>
+            </div>
+          `;
+        }).join('');
+
+    sections.push(`
+      <div class="p-3 rounded-lg bg-[#080b11] border border-[#f87171]/40 space-y-3">
+        <div class="space-y-1">
+          <div class="flex flex-wrap items-center justify-between gap-2 text-xs font-mono">
+            <span class="text-[#f87171] font-bold">🛡️ Barracks — Central Recruitment, Upgrades & Troop Inventory</span>
+            <span class="text-[#fbbf24]">Barracks Capacity: ${usage.totalUsed} / ${usage.maxCapacity} (${usage.available} free)</span>
+          </div>
+          <p class="text-[11px] text-[#8b949e]">All military recruitment and troop upgrades share this city's Barracks production queue. Specialized camps unlock troop types and higher levels.</p>
+        </div>
+        <div class="w-full h-1.5 bg-[#111722] rounded-full overflow-hidden">
+          <div class="h-full bg-[#f87171]" style="width:${capPct}%"></div>
+        </div>
+        <div class="p-2 rounded bg-[#111722] border border-[#283347] space-y-1">
+          <div class="flex items-center justify-between text-[10px] font-mono uppercase">
+            <span class="text-[#38bdf8] font-bold">Barracks Troop Inventory (By Type & Level)</span>
+            <span class="text-[#8b949e] normal-case">Total Trained: <strong class="text-[#34d399]">${inv.totals.trained}</strong></span>
+          </div>
+          <table class="w-full text-[11px] font-mono">
+            <thead>
+              <tr class="text-[10px] text-[#8b949e]">
+                <th class="text-left pb-1">Troop Type</th>
+                <th class="text-center pb-1 px-1.5">Level</th>
+                <th class="text-right pb-1 px-1.5">Trained</th>
+                <th class="text-right pb-1 px-1.5">Training</th>
+                <th class="text-right pb-1 px-1.5">Upgrading</th>
+                <th class="text-right pb-1 px-1.5">Projected</th>
+                <th class="text-right pb-1 pl-2">Disband</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${inventoryRowsHtml}
+              <tr class="border-t border-[#334155] font-bold">
+                <td class="pt-1 pr-2 text-[#e6edf3]" colspan="2">Total</td>
+                <td class="pt-1 px-1.5 text-right text-[#34d399]">${inv.totals.trained}</td>
+                <td class="pt-1 px-1.5 text-right text-[#fbbf24]">${inv.totals.training}</td>
+                <td class="pt-1 px-1.5 text-right text-[#c084fc]">${inv.totals.upgrading}</td>
+                <td class="pt-1 px-1.5 text-right text-[#38bdf8]">${inv.totals.projectedTotal}</td>
+                <td></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        ${speedMult > 1
+          ? `<div class="px-2 py-1 rounded bg-[#064e3b]/40 border border-[#34d399]/30 text-[10px] font-mono text-[#34d399]">🎯 Fighter Camp Bonus Active: ${Math.round(speedMult * 100)}% training speed</div>`
+          : ''}
+        <div class="space-y-1.5">
+          <div class="text-[10px] font-mono uppercase text-[#cbd5e1] font-bold">Recruit Troops</div>
+          ${recruitCardsHtml}
+        </div>
+        <div class="pt-2 border-t border-[#283347] space-y-1.5">
+          <div class="text-[10px] font-mono uppercase text-[#c084fc] font-bold">Upgrade Existing Barracks Troops</div>
+          ${upgradeCardsHtml}
+        </div>
+        <div class="pt-2 border-t border-[#283347] space-y-1.5">
+          <div class="flex items-center justify-between text-[10px] font-mono uppercase">
+            <span class="text-[#f87171] font-bold">Shared Military Queue (${tq.length}/${maxSlots})</span>
+            <span class="text-[#8b949e] normal-case">Sequential (1 active job at a time)</span>
+          </div>
+          ${queueRowsHtml}
+        </div>
+      </div>
+    `);
+  }
+
+  if (bId === 'fighter_camp') {
+    const speedMult = computeCityTrainingSpeedMultiplier(city);
+    sections.push(`
+      <div class="p-3 rounded-lg bg-[#080b11] border border-[#f43f5e]/40 space-y-1.5 text-xs">
+        <div class="flex items-center justify-between font-mono">
+          <span class="text-[#f43f5e] font-bold">🎯 Military Drill Grounds</span>
+          <span class="text-[#34d399]">Unlocks: Basic Infantry Lv 1–${lvl} • Speed: ${Math.round(speedMult * 100)}%</span>
+        </div>
+        <p class="text-[11px] text-[#8b949e]">Unlocks <strong>Basic Infantry</strong> up to Level ${lvl} and grants +25% troop training speed per level. All recruitment and upgrades are managed centrally in the <strong>Barracks</strong>.</p>
+      </div>
+    `);
+  }
+
+  if (bId === 'archer_camp') {
+    sections.push(`
+      <div class="p-3 rounded-lg bg-[#080b11] border border-[#34d399]/40 space-y-1.5 text-xs">
+        <div class="flex items-center justify-between font-mono">
+          <span class="text-[#34d399] font-bold">🏹 Archery Drill Range</span>
+          <span class="text-[#fbbf24]">Unlocks: Archers Lv 1–${lvl}</span>
+        </div>
+        <p class="text-[11px] text-[#8b949e]">Unlocks <strong>Archers</strong> up to Level ${lvl}. All troop recruitment and upgrades are managed centrally in the <strong>Barracks</strong>.</p>
       </div>
     `);
   }
@@ -1320,6 +1622,57 @@ export function renderLeftCommandSidebar(simHost) {
           <div class="space-y-1">
             <div class="text-[10px] font-mono uppercase text-[#60a5fa] font-bold">🛡️ Hero Training (${rq.length}/${city.maxRecruitQueueSlots || 3})</div>
             ${recruitItems.join('')}
+          </div>
+        `);
+      }
+    }
+
+    // 2B. Shared Military Production Queue (Recruitment & Upgrades)
+    for (let c = 0; c < cities.length; c++) {
+      const city = cities[c];
+      const tq = city.troopTrainingQueue || [];
+      if (tq.length > 0) {
+        const troopItems = [];
+        for (let q = 0; q < tq.length; q++) {
+          const item = tq[q];
+          const done = item.completedCount || 0;
+          const total = item.quantity || 1;
+          const isUpg = item.jobKind === 'upgrade';
+          const label = isUpg
+            ? ('⬆️ ' + (item.troopName || item.troopDefId) + ' Lv ' + (item.fromLevel || 1) + '→' + (item.toLevel || 2))
+            : ('🛡️ ' + (item.troopName || item.troopDefId) + ' Lv ' + (item.level || 1));
+          if (item.status === 'training' || item.status === 'upgrading') {
+            const dur = Math.max(1, (item.dueSimTimeMs || 0) - (item.startSimTimeMs || 0));
+            const rem = Math.max(0, (item.dueSimTimeMs || 0) - simTimeMs);
+            const pct = Math.min(100, Math.round(((dur - rem) / dur) * 100));
+            const accent = isUpg ? '#c084fc' : '#f87171';
+            troopItems.push(`
+              <div class="p-2 rounded bg-[#080b11] border ${isUpg ? 'border-[#c084fc]/50' : 'border-[#f87171]/50'} space-y-1">
+                <div class="flex justify-between items-center text-[11px] font-mono">
+                  <span style="color:${accent}" class="font-bold">${label} (${done}/${total})</span>
+                  <div class="flex items-center gap-1.5">
+                    <span class="text-[#34d399]">${formatSimDuration(rem)}</span>
+                    <button data-action="cancel-troop-training" data-queue-item-id="${item.queueItemId}" onclick="window.WargameApp.handleCancelTroopTraining('${item.queueItemId}')" class="text-[#f87171] hover:underline text-[10px] ml-1 cursor-pointer">✕</button>
+                  </div>
+                </div>
+                <div class="w-full h-1.5 bg-[#111722] rounded-full overflow-hidden">
+                  <div class="h-full" style="width:${pct}%;background:${accent}"></div>
+                </div>
+              </div>
+            `);
+          } else {
+            troopItems.push(`
+              <div class="p-2 rounded bg-[#080b11] border border-[#283347] flex justify-between items-center text-[11px] font-mono">
+                <span class="text-[#8b949e]">⏳ ${label} ×${total}</span>
+                <button data-action="cancel-troop-training" data-queue-item-id="${item.queueItemId}" onclick="window.WargameApp.handleCancelTroopTraining('${item.queueItemId}')" class="text-[#f87171] hover:underline text-[10px] cursor-pointer">Cancel</button>
+              </div>
+            `);
+          }
+        }
+        sectionsHtml.push(`
+          <div class="space-y-1">
+            <div class="text-[10px] font-mono uppercase text-[#f87171] font-bold">⚔️ Barracks Queue (${tq.length}/${city.maxTroopQueueSlots || 3})</div>
+            ${troopItems.join('')}
           </div>
         `);
       }
@@ -1818,10 +2171,18 @@ export function renderGuildRecruitmentPanel(simHost) {
   const gridEl = document.getElementById('wgGuildClassesGrid');
   if (!city || !gridEl) return;
 
-  // ONE single unified full-screen template for ALL building interiors (Guilds, Forges, Farms, Academy, Market, etc.)!
-  const bId = state._openFacilityId || 'guild_hall';
-  const unifiedHtml = buildUnifiedBuildingStageHtml(simHost, bId, city);
-  setHtmlIfChanged(gridEl, unifiedHtml);
+  // Never arbitrarily default to Adventurers Guild when no valid facility is open!
+  const requestedId = state._openFacilityId || null;
+  if (!requestedId || !CITY_BUILDINGS_CATALOG[requestedId]) {
+    state.activeView = WARGAME_VIEWS.CITY;
+    state._openFacilityId = null;
+    state._openFacilityPlotIndex = null;
+    return;
+  }
+  const unifiedHtml = buildUnifiedBuildingStageHtml(simHost, requestedId, city);
+  if (unifiedHtml) {
+    setHtmlIfChanged(gridEl, unifiedHtml);
+  }
 }
 
 export function renderRightTasksAndStreamSidebar(simHost) {
@@ -1899,6 +2260,27 @@ export function formatEventSummary(ev) {
   }
   if (ev.topic === STREAM_TOPICS.HERO_RECRUITED) {
     return '— Recruited ' + p.heroName + ' (' + p.classId + ')!';
+  }
+  if (ev.topic === STREAM_TOPICS.TROOP_TRAINING_STARTED) {
+    return '— Queued ' + (p.quantity || 1) + '× ' + (p.troopName || p.troopDefId) + ' Lv ' + (p.level || 1) + ' at Barracks';
+  }
+  if (ev.topic === STREAM_TOPICS.TROOP_TRAINING_CANCELLED) {
+    return '— Cancelled ' + (p.cancelledCount || 0) + '× ' + (p.troopName || p.troopDefId) + ' recruitment';
+  }
+  if (ev.topic === STREAM_TOPICS.TROOP_TRAINED) {
+    return '— Trained ' + (p.troopName || p.troopDefId) + ' Lv ' + (p.level || 1) + ' (' + (p.completedCount || 1) + '/' + (p.quantity || 1) + ') -> Barracks ×' + (p.groupCount || 1);
+  }
+  if (ev.topic === STREAM_TOPICS.TROOP_UPGRADE_STARTED) {
+    return '— Queued upgrade: ' + (p.quantity || 1) + '× ' + (p.troopName || p.troopDefId) + ' Lv ' + (p.fromLevel || 1) + '→' + (p.toLevel || 2);
+  }
+  if (ev.topic === STREAM_TOPICS.TROOP_UPGRADE_CANCELLED) {
+    return '— Cancelled upgrade of ' + (p.cancelledCount || 0) + '× ' + (p.troopName || p.troopDefId) + ' (returned to Lv ' + (p.fromLevel || 1) + ')';
+  }
+  if (ev.topic === STREAM_TOPICS.TROOP_UPGRADE_COMPLETED) {
+    return '— Upgraded ' + (p.troopName || p.troopDefId) + ' Lv ' + (p.fromLevel || 1) + '→' + (p.toLevel || 2) + ' (' + (p.completedCount || 1) + '/' + (p.quantity || 1) + ')';
+  }
+  if (ev.topic === STREAM_TOPICS.TROOPS_DISBANDED) {
+    return '— Disbanded ' + (p.disbandedCount || 1) + '× ' + (p.troopDefId || 'troops') + (p.level ? (' Lv ' + p.level) : '') + ' from Barracks';
   }
   if (ev.topic === STREAM_TOPICS.DUNGEON_DISCOVERED) {
     return '— Discovered Vault: ' + p.dungeonName + ' at (' + p.x + ',' + p.y + ')!';

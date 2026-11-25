@@ -8,6 +8,12 @@ import {
   WINDMILL_ADJACENCY_BONUS
 } from '../constants.js';
 import { CITY_BUILDINGS_CATALOG } from '../data/buildings.js';
+import {
+  getTroopDefinition,
+  computeTroopTrainingDurationMs,
+  computeTroopUpgradeDurationMs,
+  TROOP_LOCATION_TYPES
+} from '../data/troops.js';
 import { UNIT_ARCHETYPES, RECRUITABLE_HERO_CLASSES } from '../data/terrain.js';
 import { revealOverworldVision } from './pathfinding.js';
 import { evaluateTaskDAG } from './taskEngine.js';
@@ -764,6 +770,224 @@ export function resolveRecruitHeroJob(job, state, scheduler, eventStream) {
 
   if (city) {
     activateNextCityRecruitQueueItem(city, state, scheduler);
+  }
+
+  state._dirty = true;
+  saveWargameState(state, scheduler);
+  evaluateTaskDAG(state, eventStream);
+}
+
+export function activateNextCityTroopQueueItem(city, state, scheduler) {
+  if (!city || !Array.isArray(city.troopTrainingQueue) || city.troopTrainingQueue.length === 0) return null;
+
+  const front = city.troopTrainingQueue[0];
+  if (front.status === 'training' || front.status === 'upgrading') return front;
+
+  const troopDef = getTroopDefinition(front.troopDefId);
+  const simTimeMs = state.world.clock.simTimeMs;
+  const isUpgrade = front.jobKind === 'upgrade';
+  const dur = isUpgrade
+    ? Math.max(1500, front.durationMsPerUnit || computeTroopUpgradeDurationMs(city, troopDef, front.fromLevel || 1, front.toLevel || 2))
+    : Math.max(1500, front.durationMsPerUnit || computeTroopTrainingDurationMs(city, troopDef, front.level || 1));
+
+  const job = scheduler.scheduleJob({
+    jobId: (isUpgrade ? 'troop_upg_' : 'troop_') + city.id + '_' + front.troopDefId + '_' + simTimeMs + '_' + Math.floor(Math.random() * 10000),
+    jobType: isUpgrade ? 'TROOP_UPGRADE_UNIT_COMPLETE' : 'TROOP_TRAIN_UNIT_COMPLETE',
+    ownerId: city.id,
+    startSimTimeMs: simTimeMs,
+    dueSimTimeMs: simTimeMs + dur,
+    payload: {
+      cityId: city.id,
+      queueItemId: front.queueItemId,
+      troopDefId: front.troopDefId
+    }
+  });
+
+  front.status = isUpgrade ? 'upgrading' : 'training';
+  front.jobId = job.jobId;
+  front.durationMsPerUnit = dur;
+  front.startSimTimeMs = simTimeMs;
+  front.dueSimTimeMs = simTimeMs + dur;
+
+  return front;
+}
+
+export function addBarracksTroopsAtLevel(world, ownerId, cityId, troopDefId, level, count, simTimeMs) {
+  const qty = Math.floor(Number(count || 0));
+  if (!world || !cityId || !troopDefId || qty <= 0) return null;
+  const lvl = Math.max(1, Math.floor(Number(level || 1)));
+  if (!Array.isArray(world.troopGroups)) world.troopGroups = [];
+
+  let targetGroup = world.troopGroups.find(function(g) {
+    return g &&
+      g.ownerPlayerId === ownerId &&
+      g.locationType === TROOP_LOCATION_TYPES.BARRACKS &&
+      g.locationId === cityId &&
+      g.troopDefId === troopDefId &&
+      (g.level || 1) === lvl;
+  });
+
+  if (targetGroup) {
+    targetGroup.count = (targetGroup.count || 0) + qty;
+  } else {
+    targetGroup = {
+      id: 'tg_' + cityId + '_' + troopDefId + '_lv' + lvl + '_' + (simTimeMs || 0) + '_' + Math.floor(Math.random() * 10000),
+      ownerPlayerId: ownerId,
+      troopDefId: troopDefId,
+      count: qty,
+      level: lvl,
+      xp: 0,
+      condition: 100,
+      locationType: TROOP_LOCATION_TYPES.BARRACKS,
+      locationId: cityId,
+      createdAtSimMs: simTimeMs || 0
+    };
+    world.troopGroups.push(targetGroup);
+  }
+  return targetGroup;
+}
+
+export function resolveTroopTrainUnitJob(job, state, scheduler, eventStream) {
+  if (!state || !state.world) return;
+  const p = job.payload || {};
+  const world = state.world;
+  const city = (world.cities && world.cities[p.cityId]) || getPrimaryCity(state);
+  if (!city || !Array.isArray(city.troopTrainingQueue)) return;
+
+  const idx = city.troopTrainingQueue.findIndex(function(q) {
+    return q && q.jobKind !== 'upgrade' && (q.queueItemId === p.queueItemId || q.jobId === job.jobId);
+  });
+  if (idx === -1) return;
+
+  const item = city.troopTrainingQueue[idx];
+  // Idempotency guard: prevent duplicate completion if job is replayed
+  if ((item.completedCount || 0) >= (item.quantity || 0)) return;
+  if (item.jobId && job.jobId && item.jobId !== job.jobId) return;
+
+  const troopDef = getTroopDefinition(item.troopDefId);
+  if (!troopDef) {
+    city.troopTrainingQueue.splice(idx, 1);
+    activateNextCityTroopQueueItem(city, state, scheduler);
+    return;
+  }
+
+  const targetLevel = Math.max(1, Math.floor(item.level || 1));
+  const ownerId = getCanonicalPlayerId(state);
+  const targetGroup = addBarracksTroopsAtLevel(world, ownerId, city.id, troopDef.id, targetLevel, 1, job.dueSimTimeMs);
+
+  item.completedCount = (item.completedCount || 0) + 1;
+  if (!world.stats) world.stats = {};
+  world.stats.troopsTrained = (world.stats.troopsTrained || 0) + 1;
+
+  if (eventStream) {
+    eventStream.publish(STREAM_TOPICS.TROOP_TRAINED, {
+      cityId: city.id,
+      troopGroupId: targetGroup ? targetGroup.id : null,
+      troopDefId: troopDef.id,
+      troopName: troopDef.name,
+      level: targetLevel,
+      completedCount: item.completedCount,
+      quantity: item.quantity,
+      groupCount: targetGroup ? targetGroup.count : 1
+    }, job.dueSimTimeMs);
+  }
+
+  if (item.completedCount < item.quantity) {
+    const nextDur = computeTroopTrainingDurationMs(city, troopDef, targetLevel);
+    const nextJob = scheduler.scheduleJob({
+      jobId: 'troop_' + city.id + '_' + troopDef.id + '_' + job.dueSimTimeMs + '_' + Math.floor(Math.random() * 10000),
+      jobType: 'TROOP_TRAIN_UNIT_COMPLETE',
+      ownerId: city.id,
+      startSimTimeMs: job.dueSimTimeMs,
+      dueSimTimeMs: job.dueSimTimeMs + nextDur,
+      payload: {
+        cityId: city.id,
+        queueItemId: item.queueItemId,
+        troopDefId: troopDef.id
+      }
+    });
+    item.status = 'training';
+    item.jobId = nextJob.jobId;
+    item.durationMsPerUnit = nextDur;
+    item.startSimTimeMs = job.dueSimTimeMs;
+    item.dueSimTimeMs = job.dueSimTimeMs + nextDur;
+  } else {
+    city.troopTrainingQueue.splice(idx, 1);
+    activateNextCityTroopQueueItem(city, state, scheduler);
+  }
+
+  state._dirty = true;
+  saveWargameState(state, scheduler);
+  evaluateTaskDAG(state, eventStream);
+}
+
+export function resolveTroopUpgradeUnitJob(job, state, scheduler, eventStream) {
+  if (!state || !state.world) return;
+  const p = job.payload || {};
+  const world = state.world;
+  const city = (world.cities && world.cities[p.cityId]) || getPrimaryCity(state);
+  if (!city || !Array.isArray(city.troopTrainingQueue)) return;
+
+  const idx = city.troopTrainingQueue.findIndex(function(q) {
+    return q && q.jobKind === 'upgrade' && (q.queueItemId === p.queueItemId || q.jobId === job.jobId);
+  });
+  if (idx === -1) return;
+
+  const item = city.troopTrainingQueue[idx];
+  // Idempotency guard: prevent duplicate troop creation if job fires more than once
+  if ((item.completedCount || 0) >= (item.quantity || 0)) return;
+  if (item.jobId && job.jobId && item.jobId !== job.jobId) return;
+
+  const troopDef = getTroopDefinition(item.troopDefId);
+  if (!troopDef) {
+    city.troopTrainingQueue.splice(idx, 1);
+    activateNextCityTroopQueueItem(city, state, scheduler);
+    return;
+  }
+
+  const fromLevel = Math.max(1, Math.floor(item.fromLevel || 1));
+  const toLevel = Math.max(fromLevel + 1, Math.floor(item.toLevel || (fromLevel + 1)));
+  const ownerId = getCanonicalPlayerId(state);
+  const targetGroup = addBarracksTroopsAtLevel(world, ownerId, city.id, troopDef.id, toLevel, 1, job.dueSimTimeMs);
+
+  item.completedCount = (item.completedCount || 0) + 1;
+
+  if (eventStream) {
+    eventStream.publish(STREAM_TOPICS.TROOP_UPGRADE_COMPLETED, {
+      cityId: city.id,
+      troopGroupId: targetGroup ? targetGroup.id : null,
+      troopDefId: troopDef.id,
+      troopName: troopDef.name,
+      fromLevel: fromLevel,
+      toLevel: toLevel,
+      completedCount: item.completedCount,
+      quantity: item.quantity,
+      groupCount: targetGroup ? targetGroup.count : 1
+    }, job.dueSimTimeMs);
+  }
+
+  if (item.completedCount < item.quantity) {
+    const nextDur = computeTroopUpgradeDurationMs(city, troopDef, fromLevel, toLevel);
+    const nextJob = scheduler.scheduleJob({
+      jobId: 'troop_upg_' + city.id + '_' + troopDef.id + '_' + job.dueSimTimeMs + '_' + Math.floor(Math.random() * 10000),
+      jobType: 'TROOP_UPGRADE_UNIT_COMPLETE',
+      ownerId: city.id,
+      startSimTimeMs: job.dueSimTimeMs,
+      dueSimTimeMs: job.dueSimTimeMs + nextDur,
+      payload: {
+        cityId: city.id,
+        queueItemId: item.queueItemId,
+        troopDefId: troopDef.id
+      }
+    });
+    item.status = 'upgrading';
+    item.jobId = nextJob.jobId;
+    item.durationMsPerUnit = nextDur;
+    item.startSimTimeMs = job.dueSimTimeMs;
+    item.dueSimTimeMs = job.dueSimTimeMs + nextDur;
+  } else {
+    city.troopTrainingQueue.splice(idx, 1);
+    activateNextCityTroopQueueItem(city, state, scheduler);
   }
 
   state._dirty = true;

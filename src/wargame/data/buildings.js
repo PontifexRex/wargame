@@ -314,8 +314,11 @@ export const CITY_BUILDINGS_CATALOG = {
     baseBuildTimeMs: 5000,
     baseCost: { wood: 35, stone: 30, gold: 15 },
     troopCapacityBonus: 10,
-    requires: { meeting_hall: 1, guild_hall: 1 },
-    desc: 'Quarters for standing garrisons. Increases maximum troop limit by +10 per level.'
+    requires: { meeting_hall: 1, quarry: 1 },
+    facilities: {
+      troopRecruitment: true
+    },
+    desc: 'Central military recruitment, upgrade, and troop management facility. Expands Barracks troop capacity by +10 per level.'
   },
   fighter_camp: {
     id: 'fighter_camp',
@@ -328,7 +331,19 @@ export const CITY_BUILDINGS_CATALOG = {
     baseCost: { wood: 25, stone: 20, gold: 10 },
     trainingSpeedBonus: 0.25,
     requires: { meeting_hall: 1, barracks: 1 },
-    desc: 'Drills combat recruits to accelerate troop recruitment and training speed.'
+    desc: 'Unlocks Basic Infantry (Lv 1–5 matching camp level) at the Barracks and accelerates troop training speed (+25% per level).'
+  },
+  archer_camp: {
+    id: 'archer_camp',
+    name: 'Archer Camp',
+    icon: '🏹',
+    category: 'military',
+    color: '#34d399',
+    maxLevel: 5,
+    baseBuildTimeMs: 4500,
+    baseCost: { wood: 30, stone: 20, gold: 15 },
+    requires: { meeting_hall: 1, barracks: 1 },
+    desc: 'Unlocks Archers (Lv 1–5 matching camp level) for recruitment and upgrading at the Barracks.'
   },
 
   // ---------------------------------------------------------------------------

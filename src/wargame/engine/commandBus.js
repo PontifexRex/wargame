@@ -10,6 +10,8 @@ import {
   BASE_HERO_RECRUIT_DURATION_MS,
   BASE_BUILD_QUEUE_LIMIT,
   BASE_RECRUIT_QUEUE_LIMIT,
+  BASE_TROOP_QUEUE_LIMIT,
+  MAX_TROOP_BATCH_SIZE,
   DEMOLISH_SALVAGE_RATIO,
   CANCEL_CLEANUP_TIME_RATIO,
   BASE_MOVE_BUILDING_DURATION_MS,
@@ -55,6 +57,18 @@ import {
   areHexesAdjacent
 } from './hexSpatial.js';
 import {
+  getTroopDefinition,
+  getMissingTroopPrerequisites,
+  getTroopMaxUnlockedLevel,
+  computeTroopCostForLevel,
+  computeTroopTrainingDurationMs,
+  computeTroopUpgradeCost,
+  computeTroopUpgradeDurationMs,
+  getCityTroopCountAtLevel,
+  getCityTroopCapacityUsage,
+  TROOP_LOCATION_TYPES
+} from '../data/troops.js';
+import {
   scheduleNextMarchStep,
   resolveMarchStepJob,
   depositUnitCargoAtCity,
@@ -64,6 +78,10 @@ import {
   resolveBuildingMoveJob,
   activateNextCityRecruitQueueItem,
   resolveRecruitHeroJob,
+  activateNextCityTroopQueueItem,
+  addBarracksTroopsAtLevel,
+  resolveTroopTrainUnitJob,
+  resolveTroopUpgradeUnitJob,
   processResourceProductionTick
 } from './queues.js';
 import {
@@ -354,6 +372,8 @@ export function dispatchWargameCommand(commandEnvelope, state, scheduler, eventS
       maxBuildQueueSlots: BASE_BUILD_QUEUE_LIMIT || 3,
       recruitmentQueue: [],
       maxRecruitQueueSlots: BASE_RECRUIT_QUEUE_LIMIT || 3,
+      troopTrainingQueue: [],
+      maxTroopQueueSlots: BASE_TROOP_QUEUE_LIMIT || 3,
       storage: createInventoryContainer('city_storage_' + cityId, cityName + ' Vault Storage', CITY_STORAGE_BASE_CAPACITY || 200)
     };
 
@@ -928,6 +948,401 @@ export function dispatchWargameCommand(commandEnvelope, state, scheduler, eventS
       refundGold: refGold,
       refundFood: refFood,
       stockpile: city.stockpile
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // 9B1. MILITARY TROOP RECRUITMENT, UPGRADING, CANCELLATION & DISBANDING (Task 05A / C2 / C3)
+  // One shared city military queue (city.troopTrainingQueue) for both recruit & upgrade jobs.
+  // ---------------------------------------------------------------------------
+  function deductBarracksTroopsAtLevel(ownerId, cityId, troopDefId, level, qty) {
+    if (!Array.isArray(world.troopGroups)) return false;
+    let remaining = qty;
+    for (let i = world.troopGroups.length - 1; i >= 0 && remaining > 0; i--) {
+      const g = world.troopGroups[i];
+      if (!g || g.ownerPlayerId !== ownerId || g.locationType !== TROOP_LOCATION_TYPES.BARRACKS) continue;
+      if (g.locationId !== cityId || g.troopDefId !== troopDefId || (g.level || 1) !== level) continue;
+      const take = Math.min(g.count || 0, remaining);
+      if (take > 0) {
+        g.count -= take;
+        remaining -= take;
+        if (g.count <= 0) {
+          world.troopGroups.splice(i, 1);
+        }
+      }
+    }
+    return remaining === 0;
+  }
+
+  if (cmdType === COMMAND_TYPES.TRAIN_TROOPS) {
+    const city = (payload.cityId && world.cities[payload.cityId]) || getPrimaryCity(state);
+    if (!city) {
+      return reject('You must found a Bastion City before training military troops');
+    }
+    if (city.ownerPlayerId && city.ownerPlayerId !== getCanonicalPlayerId(state)) {
+      return reject('You do not control this city');
+    }
+
+    const troopDef = getTroopDefinition(payload.troopDefId);
+    if (!troopDef) {
+      return reject('Unknown troop type: ' + payload.troopDefId);
+    }
+
+    const rawQty = payload.quantity !== undefined ? Number(payload.quantity) : 1;
+    if (!isFinite(rawQty) || rawQty < 1 || Math.floor(rawQty) !== rawQty) {
+      return reject('Training quantity must be a positive whole number');
+    }
+    const quantity = Math.floor(rawQty);
+
+    const missingPrereqs = getMissingTroopPrerequisites(city, troopDef);
+    if (missingPrereqs.length > 0) {
+      const reqText = missingPrereqs.map(function(m) { return m.buildingName + ' Lv ' + m.requiredLevel; }).join(', ');
+      return reject('Requires ' + reqText + ' to recruit ' + troopDef.name);
+    }
+
+    const maxUnlockedLevel = getTroopMaxUnlockedLevel(city, troopDef);
+    const rawLevel = (payload.level !== undefined && payload.level !== null) ? Number(payload.level) : maxUnlockedLevel;
+    if (!isFinite(rawLevel) || Math.floor(rawLevel) !== rawLevel || rawLevel < 1 || rawLevel > maxUnlockedLevel) {
+      return reject(troopDef.name + ' Lv ' + rawLevel + ' is not unlocked (Max unlocked: Lv ' + maxUnlockedLevel + ')');
+    }
+    const targetLevel = Math.floor(rawLevel);
+
+    if (!Array.isArray(city.troopTrainingQueue)) {
+      city.troopTrainingQueue = [];
+    }
+    const maxSlots = city.maxTroopQueueSlots || BASE_TROOP_QUEUE_LIMIT || 3;
+    if (city.troopTrainingQueue.length >= maxSlots) {
+      return reject('Barracks military queue is full (' + city.troopTrainingQueue.length + '/' + maxSlots + ')');
+    }
+
+    const usage = getCityTroopCapacityUsage(world, city);
+    const neededCap = quantity * (troopDef.capacityWeight || 1);
+    if (usage.totalUsed + neededCap > usage.maxCapacity) {
+      return reject('Insufficient Barracks troop capacity (' + usage.totalUsed + '/' + usage.maxCapacity + ', need +' + neededCap + ')');
+    }
+
+    const unitCostMap = computeTroopCostForLevel(troopDef, targetLevel);
+    const costKeys = Object.keys(unitCostMap);
+    for (let ck = 0; ck < costKeys.length; ck++) {
+      const resKey = costKeys[ck];
+      const need = (unitCostMap[resKey] || 0) * quantity;
+      if (need > 0 && (city.stockpile[resKey] || 0) < need) {
+        return reject('Insufficient ' + resKey + ' to recruit ' + quantity + '× ' + troopDef.name + ' Lv ' + targetLevel + ' (Need ' + need + ')');
+      }
+    }
+
+    const costPerUnit = {};
+    for (let ck = 0; ck < costKeys.length; ck++) {
+      const resKey = costKeys[ck];
+      const unitAmt = unitCostMap[resKey] || 0;
+      if (unitAmt > 0) {
+        costPerUnit[resKey] = unitAmt;
+        city.stockpile[resKey] = (city.stockpile[resKey] || 0) - (unitAmt * quantity);
+      }
+    }
+
+    const durPerUnit = computeTroopTrainingDurationMs(city, troopDef, targetLevel);
+    const queueItem = {
+      queueItemId: 'ttrain_' + city.id + '_' + troopDef.id + '_lv' + targetLevel + '_' + simTimeMs + '_' + Math.floor(Math.random() * 10000),
+      cityId: city.id,
+      jobKind: 'recruit',
+      troopDefId: troopDef.id,
+      troopName: troopDef.name,
+      level: targetLevel,
+      quantity: quantity,
+      completedCount: 0,
+      costPerUnit: costPerUnit,
+      durationMsPerUnit: durPerUnit,
+      status: 'queued',
+      jobId: null,
+      startSimTimeMs: null,
+      dueSimTimeMs: null
+    };
+
+    city.troopTrainingQueue.push(queueItem);
+    activateNextCityTroopQueueItem(city, state, scheduler);
+
+    if (eventStream) {
+      eventStream.publish(STREAM_TOPICS.TROOP_TRAINING_STARTED, {
+        cityId: city.id,
+        queueItemId: queueItem.queueItemId,
+        troopDefId: troopDef.id,
+        troopName: troopDef.name,
+        level: targetLevel,
+        quantity: quantity,
+        durationMsPerUnit: durPerUnit
+      }, simTimeMs);
+    }
+
+    evaluateTaskDAG(state, eventStream);
+
+    return accept({
+      queueItem: queueItem,
+      stockpile: city.stockpile
+    });
+  }
+
+  if (cmdType === COMMAND_TYPES.UPGRADE_TROOPS) {
+    const city = (payload.cityId && world.cities[payload.cityId]) || getPrimaryCity(state);
+    if (!city) {
+      return reject('You must found a Bastion City before upgrading military troops');
+    }
+    const ownerId = getCanonicalPlayerId(state);
+    if (city.ownerPlayerId && city.ownerPlayerId !== ownerId) {
+      return reject('You do not control this city');
+    }
+
+    const troopDef = getTroopDefinition(payload.troopDefId);
+    if (!troopDef) {
+      return reject('Unknown troop type: ' + payload.troopDefId);
+    }
+
+    const missingPrereqs = getMissingTroopPrerequisites(city, troopDef);
+    if (missingPrereqs.length > 0) {
+      const reqText = missingPrereqs.map(function(m) { return m.buildingName + ' Lv ' + m.requiredLevel; }).join(', ');
+      return reject('Requires ' + reqText + ' to upgrade ' + troopDef.name);
+    }
+
+    const maxUnlockedLevel = getTroopMaxUnlockedLevel(city, troopDef);
+    const fromLevel = Math.floor(Number(payload.fromLevel || 0));
+    const toLevel = (payload.toLevel !== undefined && payload.toLevel !== null)
+      ? Math.floor(Number(payload.toLevel))
+      : maxUnlockedLevel;
+    if (!isFinite(fromLevel) || !isFinite(toLevel) || fromLevel < 1 || toLevel <= fromLevel || toLevel > maxUnlockedLevel) {
+      return reject('Invalid upgrade levels (Lv ' + fromLevel + ' -> Lv ' + toLevel + '; max unlocked: Lv ' + maxUnlockedLevel + ')');
+    }
+
+    const rawQty = payload.quantity !== undefined ? Number(payload.quantity) : 1;
+    if (!isFinite(rawQty) || rawQty < 1 || Math.floor(rawQty) !== rawQty) {
+      return reject('Upgrade quantity must be a positive whole number');
+    }
+    const quantity = Math.floor(rawQty);
+
+    if (!Array.isArray(city.troopTrainingQueue)) {
+      city.troopTrainingQueue = [];
+    }
+    const maxSlots = city.maxTroopQueueSlots || BASE_TROOP_QUEUE_LIMIT || 3;
+    if (city.troopTrainingQueue.length >= maxSlots) {
+      return reject('Barracks military queue is full (' + city.troopTrainingQueue.length + '/' + maxSlots + ')');
+    }
+
+    const availableAtLevel = getCityTroopCountAtLevel(world, city.id, troopDef.id, fromLevel);
+    if (availableAtLevel < quantity) {
+      return reject('Only ' + availableAtLevel + '× ' + troopDef.name + ' Lv ' + fromLevel + ' available in Barracks');
+    }
+
+    const upgCostMap = computeTroopUpgradeCost(troopDef, fromLevel, toLevel);
+    const costKeys = Object.keys(upgCostMap);
+    for (let ck = 0; ck < costKeys.length; ck++) {
+      const resKey = costKeys[ck];
+      const need = (upgCostMap[resKey] || 0) * quantity;
+      if (need > 0 && (city.stockpile[resKey] || 0) < need) {
+        return reject('Insufficient ' + resKey + ' to upgrade ' + quantity + '× ' + troopDef.name + ' (Need ' + need + ')');
+      }
+    }
+
+    // Atomic reservation: deduct source troops & upgrade resources together
+    const deducted = deductBarracksTroopsAtLevel(ownerId, city.id, troopDef.id, fromLevel, quantity);
+    if (!deducted) {
+      return reject('Unable to reserve source troops for upgrade');
+    }
+
+    const costPerUnit = {};
+    for (let ck = 0; ck < costKeys.length; ck++) {
+      const resKey = costKeys[ck];
+      const unitAmt = upgCostMap[resKey] || 0;
+      if (unitAmt > 0) {
+        costPerUnit[resKey] = unitAmt;
+        city.stockpile[resKey] = (city.stockpile[resKey] || 0) - (unitAmt * quantity);
+      }
+    }
+
+    const durPerUnit = computeTroopUpgradeDurationMs(city, troopDef, fromLevel, toLevel);
+    const queueItem = {
+      queueItemId: 'tupg_' + city.id + '_' + troopDef.id + '_' + fromLevel + 'to' + toLevel + '_' + simTimeMs + '_' + Math.floor(Math.random() * 10000),
+      cityId: city.id,
+      jobKind: 'upgrade',
+      troopDefId: troopDef.id,
+      troopName: troopDef.name,
+      fromLevel: fromLevel,
+      toLevel: toLevel,
+      quantity: quantity,
+      completedCount: 0,
+      costPerUnit: costPerUnit,
+      durationMsPerUnit: durPerUnit,
+      status: 'queued',
+      jobId: null,
+      startSimTimeMs: null,
+      dueSimTimeMs: null
+    };
+
+    city.troopTrainingQueue.push(queueItem);
+    activateNextCityTroopQueueItem(city, state, scheduler);
+
+    if (eventStream) {
+      eventStream.publish(STREAM_TOPICS.TROOP_UPGRADE_STARTED, {
+        cityId: city.id,
+        queueItemId: queueItem.queueItemId,
+        troopDefId: troopDef.id,
+        troopName: troopDef.name,
+        fromLevel: fromLevel,
+        toLevel: toLevel,
+        quantity: quantity,
+        durationMsPerUnit: durPerUnit
+      }, simTimeMs);
+    }
+
+    return accept({
+      queueItem: queueItem,
+      stockpile: city.stockpile
+    });
+  }
+
+  if (cmdType === COMMAND_TYPES.CANCEL_TROOP_TRAINING || cmdType === COMMAND_TYPES.CANCEL_TROOP_UPGRADE) {
+    const city = (payload.cityId && world.cities[payload.cityId]) || getPrimaryCity(state);
+    if (!city || !Array.isArray(city.troopTrainingQueue) || city.troopTrainingQueue.length === 0) {
+      return reject('No queued military job to cancel');
+    }
+
+    const qId = payload.queueItemId;
+    const idx = qId
+      ? city.troopTrainingQueue.findIndex(function(q) { return q && q.queueItemId === qId; })
+      : city.troopTrainingQueue.length - 1;
+
+    if (idx === -1) return reject('Military queue item not found');
+    const removed = city.troopTrainingQueue.splice(idx, 1)[0];
+    const isUpgrade = removed.jobKind === 'upgrade';
+    const remainingTotal = Math.max(0, (removed.quantity || 0) - (removed.completedCount || 0));
+
+    let unstartedUnits = remainingTotal;
+    let activeRefundRatio = 0;
+    const isActive = (removed.status === 'training' || removed.status === 'upgrading');
+    if (isActive && remainingTotal > 0) {
+      if (removed.jobId && scheduler) {
+        scheduler.cancelJob(removed.jobId);
+      }
+      unstartedUnits = Math.max(0, remainingTotal - 1);
+      const elapsed = Math.max(0, simTimeMs - (removed.startSimTimeMs || simTimeMs));
+      const totalDur = Math.max(1, removed.durationMsPerUnit || 8000);
+      activeRefundRatio = Math.max(0, Math.min(1, 1.0 - (elapsed / totalDur)));
+    }
+
+    // Conservation rule: if cancelling an upgrade, return remaining un-upgraded troops to fromLevel
+    if (isUpgrade && remainingTotal > 0) {
+      addBarracksTroopsAtLevel(world, getCanonicalPlayerId(state), city.id, removed.troopDefId, removed.fromLevel || 1, remainingTotal, simTimeMs);
+    }
+
+    const refundFactor = unstartedUnits + activeRefundRatio;
+    const refunded = {};
+    const costKeys = Object.keys(removed.costPerUnit || {});
+    for (let ck = 0; ck < costKeys.length; ck++) {
+      const resKey = costKeys[ck];
+      const refAmt = Math.floor((removed.costPerUnit[resKey] || 0) * refundFactor);
+      if (refAmt > 0) {
+        city.stockpile[resKey] = (city.stockpile[resKey] || 0) + refAmt;
+        refunded[resKey] = refAmt;
+      }
+    }
+
+    activateNextCityTroopQueueItem(city, state, scheduler);
+
+    if (eventStream) {
+      eventStream.publish(isUpgrade ? STREAM_TOPICS.TROOP_UPGRADE_CANCELLED : STREAM_TOPICS.TROOP_TRAINING_CANCELLED, {
+        cityId: city.id,
+        troopDefId: removed.troopDefId,
+        troopName: removed.troopName,
+        fromLevel: removed.fromLevel || null,
+        toLevel: removed.toLevel || null,
+        level: removed.level || null,
+        completedCount: removed.completedCount || 0,
+        cancelledCount: remainingTotal,
+        refunded: refunded
+      }, simTimeMs);
+    }
+
+    return accept({
+      cancelled: removed,
+      cancelledCount: remainingTotal,
+      refunded: refunded,
+      stockpile: city.stockpile
+    });
+  }
+
+  if (cmdType === COMMAND_TYPES.DISBAND_TROOPS) {
+    if (!Array.isArray(world.troopGroups)) {
+      return reject('No Barracks troop groups exist');
+    }
+    const ownerId = getCanonicalPlayerId(state);
+
+    // Support disbanding by (troopDefId, level, quantity) across multiple groups OR by explicit troopGroupId
+    if (payload.troopDefId && payload.level !== undefined) {
+      const city = (payload.cityId && world.cities[payload.cityId]) || getPrimaryCity(state);
+      if (!city) return reject('City not found');
+      const lvl = Math.floor(Number(payload.level || 1));
+      const available = getCityTroopCountAtLevel(world, city.id, payload.troopDefId, lvl);
+      if (available <= 0) return reject('No matching Barracks troops found at Lv ' + lvl);
+      const reqQty = payload.quantity !== undefined ? Math.floor(Number(payload.quantity)) : available;
+      if (isNaN(reqQty) || reqQty < 1 || reqQty > available) {
+        return reject('Invalid disband quantity (must be between 1 and ' + available + ')');
+      }
+      deductBarracksTroopsAtLevel(ownerId, city.id, payload.troopDefId, lvl, reqQty);
+      const remaining = getCityTroopCountAtLevel(world, city.id, payload.troopDefId, lvl);
+      if (eventStream) {
+        eventStream.publish(STREAM_TOPICS.TROOPS_DISBANDED, {
+          troopDefId: payload.troopDefId,
+          level: lvl,
+          cityId: city.id,
+          disbandedCount: reqQty,
+          remainingCount: remaining
+        }, simTimeMs);
+      }
+      return accept({
+        troopDefId: payload.troopDefId,
+        level: lvl,
+        disbandedCount: reqQty,
+        remainingCount: remaining
+      });
+    }
+
+    const gIdx = world.troopGroups.findIndex(function(g) { return g && g.id === payload.troopGroupId; });
+    if (gIdx === -1) return reject('Troop group not found');
+
+    const group = world.troopGroups[gIdx];
+    if (group.ownerPlayerId && group.ownerPlayerId !== ownerId) {
+      return reject('You do not own this troop group');
+    }
+    if (group.locationType !== TROOP_LOCATION_TYPES.BARRACKS) {
+      return reject('Only Barracks troops can be disbanded from the Barracks');
+    }
+
+    const reqQty = payload.quantity !== undefined ? Math.floor(Number(payload.quantity)) : group.count;
+    if (isNaN(reqQty) || reqQty < 1 || reqQty > group.count) {
+      return reject('Invalid disband quantity (must be between 1 and ' + group.count + ')');
+    }
+
+    group.count -= reqQty;
+    const removedGroup = group.count <= 0;
+    if (removedGroup) {
+      world.troopGroups.splice(gIdx, 1);
+    }
+
+    if (eventStream) {
+      eventStream.publish(STREAM_TOPICS.TROOPS_DISBANDED, {
+        troopGroupId: group.id,
+        troopDefId: group.troopDefId,
+        level: group.level || 1,
+        cityId: group.locationId,
+        disbandedCount: reqQty,
+        remainingCount: removedGroup ? 0 : group.count
+      }, simTimeMs);
+    }
+
+    return accept({
+      troopGroupId: group.id,
+      troopDefId: group.troopDefId,
+      level: group.level || 1,
+      disbandedCount: reqQty,
+      remainingCount: removedGroup ? 0 : group.count
     });
   }
 
@@ -2048,6 +2463,10 @@ export function advanceSimulationClock(deltaRealMs, state, scheduler, eventStrea
           resolveBuildingDemolishJob(job, state, scheduler, eventStream);
         } else if (job.jobType === 'HERO_RECRUIT_COMPLETE') {
           resolveRecruitHeroJob(job, state, scheduler, eventStream);
+        } else if (job.jobType === 'TROOP_TRAIN_UNIT_COMPLETE') {
+          resolveTroopTrainUnitJob(job, state, scheduler, eventStream);
+        } else if (job.jobType === 'TROOP_UPGRADE_UNIT_COMPLETE') {
+          resolveTroopUpgradeUnitJob(job, state, scheduler, eventStream);
         }
       }
     }

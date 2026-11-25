@@ -242,5 +242,77 @@ export const CAMPAIGN_TASKS_DAG = [
       const banked = state.world.stats.expeditionsBanked || 0;
       return { completed: banked >= 1, progress: Math.min(1, banked), target: 1 };
     }
+  },
+  // Short Military Forces Onboarding Sequence (Task 05A-C1 — branches naturally after Quarry, zero free troops/resources)
+  {
+    id: 'task_build_barracks',
+    title: 'Military 1. Build the Barracks',
+    category: 'military',
+    prerequisites: ['task_build_quarry'],
+    triggerTopics: [STREAM_TOPICS.BUILDING_COMPLETED],
+    desc: 'Construct a Barracks in your city. The Barracks is your central facility for recruiting, upgrading, and managing all military troops.',
+    rewardLabel: 'Unlocks Barracks Management',
+    reward: {},
+    evaluate: function(state) {
+      if (!state || !state.world || !state.world.cities) return { completed: false, progress: 0, target: 1 };
+      const cities = Object.values(state.world.cities);
+      for (let i = 0; i < cities.length; i++) {
+        const c = cities[i];
+        const hasBarracks = (c.plots || []).some(function(p) {
+          return p && p.buildingId === 'barracks' && (p.level || 0) >= 1 && !p.demolishing;
+        }) || ((c.buildings && c.buildings.barracks) || 0) >= 1;
+        if (hasBarracks) return { completed: true, progress: 1, target: 1 };
+      }
+      return { completed: false, progress: 0, target: 1 };
+    }
+  },
+  {
+    id: 'task_queue_first_troops',
+    title: 'Military 2. Recruit Your First Troops',
+    category: 'military',
+    prerequisites: ['task_build_barracks'],
+    triggerTopics: [STREAM_TOPICS.TROOP_TRAINING_STARTED, STREAM_TOPICS.TROOP_TRAINED],
+    desc: 'Build a Fighter Camp (or Archer Camp) to unlock a troop type, then enter the Barracks and queue your first recruits for training.',
+    rewardLabel: 'Training Queue Active',
+    reward: {},
+    evaluate: function(state) {
+      if (!state || !state.world) return { completed: false, progress: 0, target: 1 };
+      const cities = Object.values(state.world.cities || {});
+      let hasQueued = false;
+      for (let i = 0; i < cities.length; i++) {
+        if (Array.isArray(cities[i].troopTrainingQueue) && cities[i].troopTrainingQueue.length > 0) {
+          hasQueued = true;
+          break;
+        }
+      }
+      const trained = (state.world.stats && state.world.stats.troopsTrained) || 0;
+      const hasGroups = Array.isArray(state.world.troopGroups) && state.world.troopGroups.some(function(g) {
+        return g && g.locationType === 'barracks' && (g.count || 0) >= 1;
+      });
+      const done = hasQueued || trained >= 1 || hasGroups;
+      return { completed: done, progress: done ? 1 : 0, target: 1 };
+    }
+  },
+  {
+    id: 'task_complete_first_garrison',
+    title: 'Military 3. Complete Your First Barracks Troops',
+    category: 'military',
+    prerequisites: ['task_queue_first_troops'],
+    triggerTopics: [STREAM_TOPICS.TROOP_TRAINED],
+    desc: 'Wait for your recruits to finish training. Completed soldiers join your Barracks Troop Inventory.',
+    rewardLabel: 'Barracks Force Ready',
+    reward: {},
+    evaluate: function(state) {
+      if (!state || !state.world) return { completed: false, progress: 0, target: 1 };
+      const trained = (state.world.stats && state.world.stats.troopsTrained) || 0;
+      const stationed = Array.isArray(state.world.troopGroups)
+        ? state.world.troopGroups.reduce(function(sum, g) {
+            if (g && g.locationType === 'barracks' && (g.count || 0) > 0) return sum + g.count;
+            return sum;
+          }, 0)
+        : 0;
+      const done = trained >= 1 && stationed >= 1;
+      return { completed: done, progress: done ? 1 : 0, target: 1 };
+    }
   }
 ];

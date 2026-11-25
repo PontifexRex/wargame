@@ -16,12 +16,14 @@ import {
   BASE_POPULATION_CAP,
   HUT_POPULATION_PER_LEVEL,
   BASE_MAX_HERO_ROSTER,
-  CITY_STORAGE_BASE_CAPACITY
+  CITY_STORAGE_BASE_CAPACITY,
+  BASE_TROOP_QUEUE_LIMIT
 } from '../constants.js';
 import { generateOverworldMap, isOverworldTilePassable } from './pathfinding.js';
 import { isInOverworldBounds, areHexesAdjacent } from './hexSpatial.js';
 import { createInitialTasksState } from './taskEngine.js';
 import { CITY_PLOT_SLOTS, CITY_BUILDINGS_CATALOG } from '../data/buildings.js';
+import { getTroopDefinition, normalizeLegacyTroopDefId, TROOP_LOCATION_TYPES } from '../data/troops.js';
 import { createDefaultProgressionState, ensureProgressionState } from '../../progression/progressionState.js';
 import { CANONICAL_PLAYER_ID, ensureCanonicalPlayerIdentity } from '../../core/canonicalIdentity.js';
 import { packDungeonWorldSnapshot } from '../../engine/state.js';
@@ -94,6 +96,7 @@ export function createNewCampaignWorldState(options = {}) {
       },
       heroes: [],
       parties: [],
+      troopGroups: [],
       tasks: createInitialTasksState(),
       progression: createDefaultProgressionState(0),
       scheduledJobs: [],
@@ -103,6 +106,7 @@ export function createNewCampaignWorldState(options = {}) {
         buildingsCompleted: 0,
         resourcesHarvested: 0,
         heroesRecruited: 0,
+        troopsTrained: 0,
         dungeonsEntered: 0,
         expeditionsBanked: 0,
         skirmishesWon: 0
@@ -295,6 +299,11 @@ export function buildSerializableWargameState(state) {
     if (k.charAt(0) === '_') continue;
     clean[k] = state[k];
   }
+  // Never persist transient facility interior view (WARGAME_VIEWS.GUILD) as durable navigation state
+  if (clean.activeView === WARGAME_VIEWS.GUILD) {
+    const hasCities = Boolean(clean.world && clean.world.cities && Object.keys(clean.world.cities).length > 0);
+    clean.activeView = hasCities ? WARGAME_VIEWS.CITY : WARGAME_VIEWS.OVERWORLD;
+  }
   return clean;
 }
 
@@ -329,6 +338,7 @@ export function validateWargameSavePayload(parsed) {
   }
   if (w.heroes !== undefined && !Array.isArray(w.heroes)) return { ok: false, reason: 'invalid_heroes' };
   if (w.parties !== undefined && !Array.isArray(w.parties)) return { ok: false, reason: 'invalid_parties' };
+  if (w.troopGroups !== undefined && !Array.isArray(w.troopGroups)) return { ok: false, reason: 'invalid_troop_groups' };
   return { ok: true };
 }
 
@@ -341,8 +351,16 @@ export function reconcileLoadedWorldIntegrity(parsed) {
   if (!Array.isArray(w.heroes)) w.heroes = [];
   if (!Array.isArray(w.parties)) w.parties = [];
 
-  // 1. Reconcile activeCityId
+  // 0. Normalize activeView on load so stale/invalid facility views never trap the player in Adventurers Guild
   const cityIds = Object.keys(w.cities);
+  const hasCitiesOnLoad = cityIds.length > 0;
+  if (parsed.activeView !== WARGAME_VIEWS.OVERWORLD && parsed.activeView !== WARGAME_VIEWS.CITY) {
+    parsed.activeView = hasCitiesOnLoad ? WARGAME_VIEWS.CITY : WARGAME_VIEWS.OVERWORLD;
+  } else if (parsed.activeView === WARGAME_VIEWS.CITY && !hasCitiesOnLoad) {
+    parsed.activeView = WARGAME_VIEWS.OVERWORLD;
+  }
+
+  // 1. Reconcile activeCityId
   if (w.activeCityId && !w.cities[w.activeCityId]) {
     w.activeCityId = cityIds.length > 0 ? cityIds[0] : null;
   } else if (!w.activeCityId && cityIds.length > 0) {
@@ -529,6 +547,94 @@ export function reconcileLoadedWorldIntegrity(parsed) {
         }
       }
     }
+    if (Array.isArray(c.troopTrainingQueue)) {
+      const validTroopQueue = [];
+      for (let ti = 0; ti < c.troopTrainingQueue.length; ti++) {
+        const tq = c.troopTrainingQueue[ti];
+        if (!tq) continue;
+        const normId = normalizeLegacyTroopDefId(tq.troopDefId);
+        const normDef = getTroopDefinition(normId);
+        if (!normDef) continue;
+        const qty = Math.floor(tq.quantity || 0);
+        const done = Math.max(0, Math.floor(tq.completedCount || 0));
+        if (qty <= 0 || done >= qty) continue;
+        tq.troopDefId = normId;
+        tq.troopName = normDef.name;
+        tq.jobKind = (tq.jobKind === 'upgrade') ? 'upgrade' : 'recruit';
+        if (tq.jobKind === 'upgrade') {
+          tq.fromLevel = Math.max(1, Math.floor(tq.fromLevel || 1));
+          tq.toLevel = Math.max(tq.fromLevel + 1, Math.floor(tq.toLevel || (tq.fromLevel + 1)));
+        } else {
+          tq.level = Math.max(1, Math.floor(tq.level || 1));
+        }
+        tq.quantity = qty;
+        tq.completedCount = done;
+        tq.cityId = c.id;
+        validTroopQueue.push(tq);
+      }
+      c.troopTrainingQueue = validTroopQueue;
+      for (let ti = 0; ti < c.troopTrainingQueue.length; ti++) {
+        const tq = c.troopTrainingQueue[ti];
+        const isActive = (tq.status === 'training' || tq.status === 'upgrading');
+        if (isActive && (!tq.jobId || !jobMap[tq.jobId])) {
+          const isUpgrade = tq.jobKind === 'upgrade';
+          const recJobId = tq.jobId || ((isUpgrade ? 'job_recover_troop_upg_' : 'job_recover_troop_') + c.id + '_' + ti);
+          const perUnitDur = Math.max(1500, tq.durationMsPerUnit || 8000);
+          const dueMs = Math.max(simTimeMs + 250, tq.dueSimTimeMs || (simTimeMs + perUnitDur));
+          const recJob = {
+            jobId: recJobId,
+            jobType: isUpgrade ? 'TROOP_UPGRADE_UNIT_COMPLETE' : 'TROOP_TRAIN_UNIT_COMPLETE',
+            ownerId: c.id,
+            startSimTimeMs: tq.startSimTimeMs || simTimeMs,
+            dueSimTimeMs: dueMs,
+            durationMs: Math.max(1, dueMs - (tq.startSimTimeMs || simTimeMs)),
+            payload: {
+              cityId: c.id,
+              queueItemId: tq.queueItemId,
+              troopDefId: tq.troopDefId
+            }
+          };
+          tq.jobId = recJobId;
+          tq.dueSimTimeMs = dueMs;
+          jobMap[recJobId] = recJob;
+          cleanJobs.push(recJob);
+        }
+      }
+    }
+  }
+
+  // 7. Reconcile Troop Group instances (migrate legacy 'city_garrison' -> 'barracks', preserve type & level, drop invalid/empty)
+  if (!Array.isArray(w.troopGroups)) {
+    w.troopGroups = [];
+  } else {
+    const cleanGroups = [];
+    for (let gi = 0; gi < w.troopGroups.length; gi++) {
+      const g = w.troopGroups[gi];
+      if (!g || !g.id) continue;
+      const normDefId = normalizeLegacyTroopDefId(g.troopDefId);
+      if (!getTroopDefinition(normDefId)) continue;
+      const cnt = Math.floor(g.count || 0);
+      if (cnt <= 0) continue;
+      let locType = g.locationType || TROOP_LOCATION_TYPES.BARRACKS;
+      // Migrate legacy Task 05A/C1/C2 'city_garrison' Barracks troop groups -> 'barracks' without duplication or loss
+      if (locType === 'city_garrison') {
+        locType = TROOP_LOCATION_TYPES.BARRACKS;
+      }
+      if (locType === TROOP_LOCATION_TYPES.BARRACKS && (!g.locationId || !w.cities[g.locationId])) {
+        continue;
+      }
+      g.troopDefId = normDefId;
+      g.count = cnt;
+      g.locationType = locType;
+      g.level = typeof g.level === 'number' && g.level >= 1 ? Math.floor(g.level) : 1;
+      g.xp = typeof g.xp === 'number' && g.xp >= 0 ? g.xp : 0;
+      g.condition = typeof g.condition === 'number' ? Math.max(0, Math.min(100, g.condition)) : 100;
+      if (!g.ownerPlayerId || g.ownerPlayerId === 'player_local') {
+        g.ownerPlayerId = (w.player && w.player.id) || CANONICAL_PLAYER_ID;
+      }
+      cleanGroups.push(g);
+    }
+    w.troopGroups = cleanGroups;
   }
 
   w.scheduledJobs = cleanJobs;
@@ -583,6 +689,10 @@ export function loadWargameState(scheduler = null, options = null) {
     if (parsed.world.stats) {
       if (typeof parsed.world.stats.expeditionsBanked !== 'number') parsed.world.stats.expeditionsBanked = 0;
       if (typeof parsed.world.stats.skirmishesWon !== 'number')     parsed.world.stats.skirmishesWon = 0;
+      if (typeof parsed.world.stats.troopsTrained !== 'number')     parsed.world.stats.troopsTrained = 0;
+    }
+    if (!Array.isArray(parsed.world.troopGroups)) {
+      parsed.world.troopGroups = [];
     }
     if (!parsed.world.roster || typeof parsed.world.roster !== 'object') {
       const firstH = Array.isArray(parsed.world.heroes) && parsed.world.heroes.length > 0 ? parsed.world.heroes[0].id : null;
@@ -658,6 +768,8 @@ export function loadWargameState(scheduler = null, options = null) {
         if (!c.maxBuildQueueSlots) c.maxBuildQueueSlots = 3;
         if (!Array.isArray(c.recruitmentQueue)) c.recruitmentQueue = [];
         if (!c.maxRecruitQueueSlots) c.maxRecruitQueueSlots = 3;
+        if (!Array.isArray(c.troopTrainingQueue)) c.troopTrainingQueue = [];
+        if (!c.maxTroopQueueSlots) c.maxTroopQueueSlots = BASE_TROOP_QUEUE_LIMIT || 3;
         if (!c.storage || !Array.isArray(c.storage.items)) {
           c.storage = createInventoryContainer('city_storage_' + cid, (c.name || 'City') + ' Vault Storage', CITY_STORAGE_BASE_CAPACITY || 200);
         }

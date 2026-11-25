@@ -50,6 +50,13 @@ import {
 } from './ui/devPortal.js';
 import { attachCityIsoControls, renderCityIsoCanvas } from './ui/cityIsoCanvas.js';
 import { findOverworldPath, isOverworldTilePassable } from './engine/pathfinding.js';
+import { CITY_BUILDINGS_CATALOG } from './data/buildings.js';
+import {
+  getTroopDefinition,
+  getTroopMaxUnlockedLevel,
+  computeMaxRecruitableQuantity,
+  computeMaxUpgradeableQuantity
+} from './data/troops.js';
 import { getSelectedOverworldUnit, getPrimaryCity } from './engine/state.js';
 import { evaluateWargameSelfTests } from './test/wargameSelfTest.js';
 import { APP_CONTEXTS, createAppContextController } from '../core/appContext.js';
@@ -448,6 +455,11 @@ export function handleStartNewCampaignSubmit(e) {
       simSpeed: simSpeed
     }
   });
+  simHost.state._openFacilityId = null;
+  simHost.state._openFacilityPlotIndex = null;
+  simHost.state._recruitQtyByTroop = {};
+  simHost.state._recruitLevelByTroop = {};
+  simHost.state._upgradeQtyByKey = {};
 
   appContext.restoreDungeonSession();
   simHost.save();
@@ -474,10 +486,22 @@ export function handleResetToTitle() {
 }
 
 export function handleSwitchView(viewName) {
-  simHost.dispatch({
+  const res = simHost.dispatch({
     type: COMMAND_TYPES.SWITCH_VIEW,
     payload: { view: viewName }
   });
+  if (res && res.ok) {
+    if (viewName === WARGAME_VIEWS.GUILD) {
+      simHost.state._openFacilityId = 'guild_hall';
+      simHost.state._openFacilityPlotIndex = null;
+    } else if (viewName === WARGAME_VIEWS.CITY || viewName === WARGAME_VIEWS.OVERWORLD) {
+      simHost.state._openFacilityId = null;
+      simHost.state._openFacilityPlotIndex = null;
+    }
+    simHost.state._showFacilityInfo = false;
+    simHost.state._showBuildingLevels = false;
+    simHost.state._confirmFacilityDemolish = false;
+  }
   syncWargameUI(simHost);
 }
 
@@ -630,6 +654,158 @@ export function handleRecruitHero(classId) {
   syncWargameUI(simHost);
 }
 
+export function handleSetTroopRecruitLevel(troopDefId, rawLevel) {
+  if (!simHost.state || !simHost.state.world || !troopDefId) return 1;
+  const city = getPrimaryCity(simHost.state);
+  const troopDef = getTroopDefinition(troopDefId);
+  if (!city || !troopDef) return 1;
+
+  const maxLvl = getTroopMaxUnlockedLevel(city, troopDef);
+  const parsed = Math.floor(Number(rawLevel));
+  const clampedLvl = (isFinite(parsed) && parsed >= 1 && parsed <= maxLvl) ? parsed : Math.max(1, maxLvl);
+
+  if (!simHost.state._recruitLevelByTroop || typeof simHost.state._recruitLevelByTroop !== 'object') {
+    simHost.state._recruitLevelByTroop = {};
+  }
+  // If user selects the current max level, store null so camp upgrades auto-advance default
+  simHost.state._recruitLevelByTroop[troopDefId] = (clampedLvl === maxLvl) ? null : clampedLvl;
+
+  const nextMaxQty = computeMaxRecruitableQuantity(simHost.state.world, city, troopDef, clampedLvl);
+  if (!simHost.state._recruitQtyByTroop || typeof simHost.state._recruitQtyByTroop !== 'object') {
+    simHost.state._recruitQtyByTroop = {};
+  }
+  const curQty = simHost.state._recruitQtyByTroop[troopDefId] || 1;
+  simHost.state._recruitQtyByTroop[troopDefId] = Math.max(1, Math.min(curQty, Math.max(1, nextMaxQty)));
+  simHost.state._dirty = true;
+  syncWargameUI(simHost);
+  return clampedLvl;
+}
+
+export function handleSetTroopRecruitQty(troopDefId, rawValue) {
+  if (!simHost.state || !simHost.state.world || !troopDefId) return 1;
+  const city = getPrimaryCity(simHost.state);
+  const troopDef = getTroopDefinition(troopDefId);
+  if (!city || !troopDef) return 1;
+
+  const maxLvl = getTroopMaxUnlockedLevel(city, troopDef);
+  const storedLvl = simHost.state._recruitLevelByTroop && simHost.state._recruitLevelByTroop[troopDefId];
+  const selLvl = (typeof storedLvl === 'number' && storedLvl >= 1 && storedLvl <= maxLvl) ? storedLvl : maxLvl;
+  const maxQty = computeMaxRecruitableQuantity(simHost.state.world, city, troopDef, selLvl);
+  const parsed = Number(rawValue);
+  let clamped = 1;
+  if (isFinite(parsed) && parsed >= 1) {
+    clamped = Math.floor(parsed);
+    if (maxQty >= 1 && clamped > maxQty) clamped = maxQty;
+  }
+
+  if (!simHost.state._recruitQtyByTroop || typeof simHost.state._recruitQtyByTroop !== 'object') {
+    simHost.state._recruitQtyByTroop = {};
+  }
+  simHost.state._recruitQtyByTroop[troopDefId] = clamped;
+  simHost.state._dirty = true;
+  syncWargameUI(simHost);
+  return clamped;
+}
+
+export function handleSetTroopUpgradeQty(troopDefId, fromLevel, rawValue) {
+  if (!simHost.state || !simHost.state.world || !troopDefId) return 1;
+  const city = getPrimaryCity(simHost.state);
+  const troopDef = getTroopDefinition(troopDefId);
+  if (!city || !troopDef) return 1;
+
+  const maxLvl = getTroopMaxUnlockedLevel(city, troopDef);
+  const maxQty = computeMaxUpgradeableQuantity(simHost.state.world, city, troopDef, fromLevel, maxLvl);
+  const parsed = Number(rawValue);
+  let clamped = 1;
+  if (isFinite(parsed) && parsed >= 1) {
+    clamped = Math.floor(parsed);
+    if (maxQty >= 1 && clamped > maxQty) clamped = maxQty;
+  }
+
+  const key = troopDefId + ':' + fromLevel;
+  if (!simHost.state._upgradeQtyByKey || typeof simHost.state._upgradeQtyByKey !== 'object') {
+    simHost.state._upgradeQtyByKey = {};
+  }
+  simHost.state._upgradeQtyByKey[key] = clamped;
+  simHost.state._dirty = true;
+  syncWargameUI(simHost);
+  return clamped;
+}
+
+export function handleTrainTroops(troopDefId, quantity, level) {
+  const city = getPrimaryCity(simHost.state);
+  const troopDef = getTroopDefinition(troopDefId);
+  const maxLvl = (city && troopDef) ? getTroopMaxUnlockedLevel(city, troopDef) : 1;
+  let qty = quantity;
+  if (qty === undefined || qty === null) {
+    qty = (simHost.state && simHost.state._recruitQtyByTroop && simHost.state._recruitQtyByTroop[troopDefId]) || 1;
+  }
+  let lvl = level;
+  if (lvl === undefined || lvl === null) {
+    const stored = simHost.state && simHost.state._recruitLevelByTroop && simHost.state._recruitLevelByTroop[troopDefId];
+    lvl = (typeof stored === 'number' && stored >= 1 && stored <= maxLvl) ? stored : maxLvl;
+  }
+  const res = simHost.dispatch({
+    type: COMMAND_TYPES.TRAIN_TROOPS,
+    payload: { troopDefId: troopDefId, quantity: qty, level: lvl }
+  });
+  if (res && res.ok && simHost.state._recruitQtyByTroop && city && troopDef) {
+    const nextMax = computeMaxRecruitableQuantity(simHost.state.world, city, troopDef, lvl);
+    simHost.state._recruitQtyByTroop[troopDefId] = Math.max(1, Math.min(simHost.state._recruitQtyByTroop[troopDefId] || 1, Math.max(1, nextMax)));
+  }
+  simHost.state._dirty = true;
+  simHost.save();
+  syncWargameUI(simHost);
+  return res;
+}
+
+export function handleUpgradeTroops(troopDefId, fromLevel, quantity, toLevel) {
+  const key = troopDefId + ':' + fromLevel;
+  let qty = quantity;
+  if (qty === undefined || qty === null) {
+    qty = (simHost.state && simHost.state._upgradeQtyByKey && simHost.state._upgradeQtyByKey[key]) || 1;
+  }
+  const res = simHost.dispatch({
+    type: COMMAND_TYPES.UPGRADE_TROOPS,
+    payload: { troopDefId: troopDefId, fromLevel: fromLevel, toLevel: toLevel, quantity: qty }
+  });
+  simHost.state._dirty = true;
+  simHost.save();
+  syncWargameUI(simHost);
+  return res;
+}
+
+export function handleDisbandTroopsByLevel(troopDefId, level, quantity) {
+  const res = simHost.dispatch({
+    type: COMMAND_TYPES.DISBAND_TROOPS,
+    payload: { troopDefId: troopDefId, level: level, quantity: quantity }
+  });
+  simHost.state._dirty = true;
+  simHost.save();
+  syncWargameUI(simHost);
+  return res;
+}
+
+export function handleCancelTroopTraining(queueItemId) {
+  simHost.dispatch({
+    type: COMMAND_TYPES.CANCEL_TROOP_TRAINING,
+    payload: { queueItemId: queueItemId }
+  });
+  simHost.state._dirty = true;
+  simHost.save();
+  syncWargameUI(simHost);
+}
+
+export function handleDisbandTroops(troopGroupId, quantity) {
+  simHost.dispatch({
+    type: COMMAND_TYPES.DISBAND_TROOPS,
+    payload: { troopGroupId: troopGroupId, quantity: quantity }
+  });
+  simHost.state._dirty = true;
+  simHost.save();
+  syncWargameUI(simHost);
+}
+
 export function handleClaimTask(taskId) {
   simHost.dispatch({
     type: COMMAND_TYPES.CLAIM_TASK_REWARD,
@@ -758,7 +934,7 @@ export function handleDismissHero(heroId) {
 }
 
 export function handleOpenFacilityModal(buildingId, plotIndex) {
-  if (!simHost.state) return;
+  if (!simHost.state || !buildingId || !CITY_BUILDINGS_CATALOG[buildingId]) return;
   simHost.state._openFacilityId = buildingId;
   simHost.state._openFacilityPlotIndex = (typeof plotIndex === 'number' && !isNaN(plotIndex)) ? plotIndex : null;
   simHost.state._facilityTab = null;
@@ -1131,10 +1307,17 @@ function setupWargameListeners() {
         renderCityIsoCanvas(simHost);
       },
       onSelectPlot: function(plotIndex) {
+        if (typeof simHost.state._moveSourcePlotIndex === 'number') {
+          const srcIdx = simHost.state._moveSourcePlotIndex;
+          delete simHost.state._moveSourcePlotIndex;
+          if (srcIdx !== plotIndex) handleMoveBuilding(srcIdx, plotIndex);
+          else syncWargameUI(simHost);
+          return;
+        }
         const city = getPrimaryCity(simHost.state);
         const plot = city && Array.isArray(city.plots) ? city.plots[plotIndex] : null;
-        const alreadySelected = simHost.state.selectedPlotIndex === plotIndex;
-        if (alreadySelected && plot && plot.buildingId && !plot.underConstruction && !plot.demolishing && !plot.relocating && simHost.state.moveSourcePlotIndex === null) {
+        const alreadySelected = Boolean(city && city.selectedPlotIndex === plotIndex);
+        if (alreadySelected && plot && plot.buildingId && !plot.underConstruction && !plot.demolishing && !plot.relocating) {
           handleOpenFacilityModal(plot.buildingId, plotIndex);
           return;
         }
@@ -1419,6 +1602,14 @@ export const WargameApp = {
   handleDumpHeroBagToCity: handleDumpHeroBagToCity,
   handleSetOverallLeader: handleSetOverallLeader,
   handleDismissHero: handleDismissHero,
+  handleSetTroopRecruitLevel: handleSetTroopRecruitLevel,
+  handleSetTroopRecruitQty: handleSetTroopRecruitQty,
+  handleSetTroopUpgradeQty: handleSetTroopUpgradeQty,
+  handleTrainTroops: handleTrainTroops,
+  handleUpgradeTroops: handleUpgradeTroops,
+  handleDisbandTroopsByLevel: handleDisbandTroopsByLevel,
+  handleCancelTroopTraining: handleCancelTroopTraining,
+  handleDisbandTroops: handleDisbandTroops,
   handleOpenFacilityModal: handleOpenFacilityModal,
   handleSwitchFacilityTab: handleSwitchFacilityTab,
   handleToggleFacilityInfo: handleToggleFacilityInfo,

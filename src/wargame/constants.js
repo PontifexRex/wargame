@@ -31,6 +31,8 @@ export const RESOURCE_PRODUCTION_INTERVAL_MS = 5000; // Resource buildings yield
 export const BASE_HERO_RECRUIT_DURATION_MS = 60000; // 60 seconds real-time hero oath / induction duration
 export const BASE_BUILD_QUEUE_LIMIT = 3; // Maximum construction projects in queue (1 active + 2 pending)
 export const BASE_RECRUIT_QUEUE_LIMIT = 3; // Maximum heroes in recruitment queue (1 active + 2 pending)
+export const BASE_TROOP_QUEUE_LIMIT = 3; // Maximum troop training batches in city queue (1 active + 2 pending)
+export const MAX_TROOP_BATCH_SIZE = 10; // Maximum soldiers queued in a single training batch
 export const DEMOLISH_SALVAGE_RATIO = 0.35; // 35% salvage returned upon demolishing a building
 export const CANCEL_CLEANUP_TIME_RATIO = 0.50; // Cancelling active construction requires 50% of elapsed time for site cleanup
 
@@ -82,6 +84,13 @@ export const STREAM_TOPICS = {
   HERO_RECRUIT_STARTED: 'guild.heroRecruitStarted',
   HERO_RECRUIT_CANCEL:  'guild.heroRecruitCancelled',
   HERO_RECRUITED:       'guild.heroRecruited',
+  TROOP_TRAINING_STARTED:   'military.troopTrainingStarted',
+  TROOP_TRAINING_CANCELLED: 'military.troopTrainingCancelled',
+  TROOP_TRAINED:            'military.troopTrained',
+  TROOP_UPGRADE_STARTED:    'military.troopUpgradeStarted',
+  TROOP_UPGRADE_CANCELLED:  'military.troopUpgradeCancelled',
+  TROOP_UPGRADE_COMPLETED:  'military.troopUpgradeCompleted',
+  TROOPS_DISBANDED:         'military.troopsDisbanded',
   HERO_DISMISSED:       'guild.heroDismissed',
   LEADER_CHANGED:       'guild.leaderChanged',
   STORAGE_UPDATED:      'city.storageUpdated',
@@ -116,6 +125,11 @@ export const COMMAND_TYPES = {
   DEMOLISH_BUILDING:  'CMD_DEMOLISH_BUILDING',
   RECRUIT_HERO:          'CMD_RECRUIT_HERO',
   CANCEL_RECRUITMENT:    'CMD_CANCEL_RECRUITMENT',
+  TRAIN_TROOPS:          'CMD_TRAIN_TROOPS',
+  CANCEL_TROOP_TRAINING: 'CMD_CANCEL_TROOP_TRAINING',
+  UPGRADE_TROOPS:        'CMD_UPGRADE_TROOPS',
+  CANCEL_TROOP_UPGRADE:  'CMD_CANCEL_TROOP_UPGRADE',
+  DISBAND_TROOPS:        'CMD_DISBAND_TROOPS',
   DISMISS_HERO:          'CMD_DISMISS_HERO',
   SET_OVERALL_LEADER:    'CMD_SET_OVERALL_LEADER',
   ASSIGN_HERO_TO_PARTY:  'CMD_ASSIGN_HERO_TO_PARTY',
