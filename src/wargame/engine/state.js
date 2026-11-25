@@ -424,7 +424,7 @@ export function reconcileLoadedWorldIntegrity(parsed) {
     const u = units[ui];
     if (!u || !u.alive) continue;
 
-    if (u.status === 'marching') {
+    if (u.status === 'marching' || u.status === 'returning') {
       const mp = u.marchPlan;
       let pathValid = Boolean(mp && Array.isArray(mp.remainingPath) && mp.remainingPath.length > 0);
       if (pathValid) {
@@ -455,7 +455,7 @@ export function reconcileLoadedWorldIntegrity(parsed) {
           startSimTimeMs: simTimeMs,
           dueSimTimeMs: dueMs,
           durationMs: Math.max(1, dueMs - simTimeMs),
-          payload: { unitId: u.id, targetX: nextStep.x, targetY: nextStep.y }
+          payload: { unitId: u.id, fromX: u.x, fromY: u.y, toX: nextStep.x, toY: nextStep.y }
         };
         mp.activeJobId = recoveryJobId;
         mp.fromX = u.x;
@@ -466,6 +466,29 @@ export function reconcileLoadedWorldIntegrity(parsed) {
         mp.stepDueSimTimeMs = dueMs;
         jobMap[recoveryJobId] = recJob;
         cleanJobs.push(recJob);
+      }
+    } else if (u.unitType === 'army' && u.status === 'objective_in_progress' && u.objective && u.objective.status === 'in_progress') {
+      const objJobId = u.objective.jobId;
+      if (!objJobId || !jobMap[objJobId]) {
+        const recObjJobId = objJobId || ('job_recover_army_obj_' + u.id + '_' + simTimeMs);
+        const dueMs = Math.max(simTimeMs + 250, u.objective.dueSimTimeMs || (simTimeMs + 3000));
+        const recObjJob = {
+          jobId: recObjJobId,
+          jobType: 'ARMY_OBJECTIVE_COMPLETE',
+          ownerId: u.id,
+          startSimTimeMs: u.objective.startSimTimeMs || simTimeMs,
+          dueSimTimeMs: dueMs,
+          durationMs: Math.max(1, dueMs - (u.objective.startSimTimeMs || simTimeMs)),
+          payload: {
+            armyId: u.id,
+            objectiveId: u.objective.id,
+            objectiveType: u.objective.type
+          }
+        };
+        u.objective.jobId = recObjJobId;
+        u.objective.dueSimTimeMs = dueMs;
+        jobMap[recObjJobId] = recObjJob;
+        cleanJobs.push(recObjJob);
       }
     } else if (u.status === 'in_dungeon') {
       const matchesSession = Boolean(sessDungeonExists && activeSess.unitId === u.id);
@@ -603,7 +626,16 @@ export function reconcileLoadedWorldIntegrity(parsed) {
     }
   }
 
-  // 7. Reconcile Troop Group instances (migrate legacy 'city_garrison' -> 'barracks', preserve type & level, drop invalid/empty)
+  // 7. Reconcile Troop Group instances (migrate legacy 'city_garrison' -> 'barracks', recover orphaned army groups safely)
+  const aliveArmyIdSet = {};
+  for (let ui = 0; ui < units.length; ui++) {
+    const au = units[ui];
+    if (au && au.alive && !au.reintegrated && au.unitType === 'army' && au.id) {
+      aliveArmyIdSet[au.id] = au;
+    }
+  }
+  const fallbackCityId = (w.activeCityId && w.cities[w.activeCityId]) ? w.activeCityId : (cityIds.length > 0 ? cityIds[0] : null);
+
   if (!Array.isArray(w.troopGroups)) {
     w.troopGroups = [];
   } else {
@@ -620,7 +652,14 @@ export function reconcileLoadedWorldIntegrity(parsed) {
       if (locType === 'city_garrison') {
         locType = TROOP_LOCATION_TYPES.BARRACKS;
       }
-      if (locType === TROOP_LOCATION_TYPES.BARRACKS && (!g.locationId || !w.cities[g.locationId])) {
+      if (locType === TROOP_LOCATION_TYPES.ARMY) {
+        if (!g.locationId || !aliveArmyIdSet[g.locationId]) {
+          // Deterministic recovery: orphaned army troop groups safely return to Barracks rather than being lost
+          if (!fallbackCityId) continue;
+          locType = TROOP_LOCATION_TYPES.BARRACKS;
+          g.locationId = fallbackCityId;
+        }
+      } else if (locType === TROOP_LOCATION_TYPES.BARRACKS && (!g.locationId || !w.cities[g.locationId])) {
         continue;
       }
       g.troopDefId = normDefId;
@@ -635,6 +674,23 @@ export function reconcileLoadedWorldIntegrity(parsed) {
       cleanGroups.push(g);
     }
     w.troopGroups = cleanGroups;
+  }
+
+  // 7b. Retire any alive army unit that has zero surviving troops
+  const armyIdsWithTroops = {};
+  for (let gi = 0; gi < w.troopGroups.length; gi++) {
+    const g = w.troopGroups[gi];
+    if (g && g.locationType === TROOP_LOCATION_TYPES.ARMY && g.count > 0) {
+      armyIdsWithTroops[g.locationId] = true;
+    }
+  }
+  for (let ui = 0; ui < units.length; ui++) {
+    const au = units[ui];
+    if (au && au.alive && !au.reintegrated && au.unitType === 'army' && !armyIdsWithTroops[au.id]) {
+      au.alive = false;
+      au.status = 'retired';
+      au.marchPlan = null;
+    }
   }
 
   w.scheduledJobs = cleanJobs;

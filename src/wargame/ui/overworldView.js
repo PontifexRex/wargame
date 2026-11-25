@@ -469,14 +469,15 @@ export function renderWargameOverworldCanvas(simHost) {
     ctx.fillText('☠', s.sx, s.sy);
   }
 
-  // 7. Render Player Units (Settlers & Hero Vanguard Parties)
+  // 7. Render Player Units (Settlers, Hero Vanguard Parties & Deployed Field Armies)
   const units = ow.units || [];
   for (let ui = 0; ui < units.length; ui++) {
     const u = units[ui];
     if (!u.alive) continue;
 
     const interp = getUnitInterpolatedPosition(u, simTimeMs);
-    const w = (u.status === 'marching' && u.marchPlan)
+    const isMoving = (u.status === 'marching' || u.status === 'returning') && u.marchPlan;
+    const w = isMoving
       ? interpolateHexSegment(u.marchPlan.fromX, u.marchPlan.fromY, u.marchPlan.toX, u.marchPlan.toY, interp.progress)
       : interpolateHexSegment(u.x, u.y, u.x, u.y, 0);
     const s = vp.worldToScreen(w.wx, w.wy);
@@ -489,7 +490,7 @@ export function renderWargameOverworldCanvas(simHost) {
     ctx.fill();
 
     // Unit Heraldic Shield Medallion
-    ctx.fillStyle = u.unitType === 'hero_party' ? '#1e3a8a' : '#065f46';
+    ctx.fillStyle = u.unitType === 'army' ? '#991b1b' : (u.unitType === 'hero_party' ? '#1e3a8a' : '#065f46');
     ctx.beginPath();
     ctx.arc(s.sx, s.sy, 11 * z, 0, Math.PI * 2);
     ctx.fill();
@@ -500,6 +501,6 @@ export function renderWargameOverworldCanvas(simHost) {
     ctx.font = Math.round(12 * z) + 'px sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(u.unitType === 'hero_party' ? '⚔️' : '🚩', s.sx, s.sy);
+    ctx.fillText(u.unitType === 'army' ? '🛡️' : (u.unitType === 'hero_party' ? '⚔️' : '🚩'), s.sx, s.sy);
   }
 }

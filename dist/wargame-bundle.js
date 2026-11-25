@@ -38,6 +38,7 @@ const BASE_BUILD_QUEUE_LIMIT = 3; // Maximum construction projects in queue (1 a
 const BASE_RECRUIT_QUEUE_LIMIT = 3; // Maximum heroes in recruitment queue (1 active + 2 pending)
 const BASE_TROOP_QUEUE_LIMIT = 3; // Maximum troop training batches in city queue (1 active + 2 pending)
 const MAX_TROOP_BATCH_SIZE = 10; // Maximum soldiers queued in a single training batch
+const ARMY_PATROL_DURATION_MS = 3000; // Tunable frontier patrol sweep duration after arriving at target hex
 const DEMOLISH_SALVAGE_RATIO = 0.35; // 35% salvage returned upon demolishing a building
 const CANCEL_CLEANUP_TIME_RATIO = 0.50; // Cancelling active construction requires 50% of elapsed time for site cleanup
 
@@ -96,6 +97,13 @@ const STREAM_TOPICS = {
   TROOP_UPGRADE_CANCELLED:  'military.troopUpgradeCancelled',
   TROOP_UPGRADE_COMPLETED:  'military.troopUpgradeCompleted',
   TROOPS_DISBANDED:         'military.troopsDisbanded',
+  ARMY_DEPLOYED:            'military.armyDeployed',
+  ARMY_REDIRECTED:          'military.armyRedirected',
+  ARMY_OBJECTIVE_STARTED:   'military.armyObjectiveStarted',
+  ARMY_OBJECTIVE_COMPLETED: 'military.armyObjectiveCompleted',
+  ARMY_OBJECTIVE_FAILED:    'military.armyObjectiveFailed',
+  ARMY_RETURNING:           'military.armyReturning',
+  ARMY_REINTEGRATED:        'military.armyReintegrated',
   HERO_DISMISSED:       'guild.heroDismissed',
   LEADER_CHANGED:       'guild.leaderChanged',
   STORAGE_UPDATED:      'city.storageUpdated',
@@ -135,6 +143,10 @@ const COMMAND_TYPES = {
   UPGRADE_TROOPS:        'CMD_UPGRADE_TROOPS',
   CANCEL_TROOP_UPGRADE:  'CMD_CANCEL_TROOP_UPGRADE',
   DISBAND_TROOPS:        'CMD_DISBAND_TROOPS',
+  DEPLOY_ARMY:           'CMD_DEPLOY_ARMY',
+  REDIRECT_ARMY:         'CMD_REDIRECT_ARMY',
+  RETURN_ARMY_HOME:      'CMD_RETURN_ARMY_HOME',
+  SET_ARMY_RETURN_POLICY:'CMD_SET_ARMY_RETURN_POLICY',
   DISMISS_HERO:          'CMD_DISMISS_HERO',
   SET_OVERALL_LEADER:    'CMD_SET_OVERALL_LEADER',
   ASSIGN_HERO_TO_PARTY:  'CMD_ASSIGN_HERO_TO_PARTY',
@@ -640,6 +652,18 @@ const UNIT_ARCHETYPES = {
     canFoundCity: false,
     canEnterDungeon: true,
     desc: 'Armed expedition led by a sworn Adventurers Guild Hero capable of entering subterranean dungeons.'
+  },
+  army: {
+    id: 'army',
+    name: 'Field Army',
+    shortName: 'Field Army',
+    icon: '🛡️',
+    color: '#f87171',
+    visionRadius: 4,
+    maxHp: 100,
+    canFoundCity: false,
+    canEnterDungeon: false,
+    desc: 'Temporary deployed military force formed automatically from Barracks troops to execute Overworld objectives.'
   }
 };
 
@@ -2956,6 +2980,21 @@ const TROOP_LOCATION_TYPES = {
   ARMY: 'army'
 };
 
+const ARMY_OBJECTIVE_TYPES = {
+  PATROL_HEX: 'patrol_hex',
+  RETURN_HOME: 'return_home'
+};
+
+const ARMY_OBJECTIVE_STATUS = {
+  ACCEPTED: 'accepted',
+  TRAVELING: 'traveling',
+  ARRIVED: 'arrived',
+  IN_PROGRESS: 'in_progress',
+  COMPLETED: 'completed',
+  FAILED: 'failed',
+  INTERRUPTED: 'interrupted'
+};
+
 const TROOP_AVAILABILITY_STATES = {
   AVAILABLE: 'available',
   LOCKED: 'locked',
@@ -3162,6 +3201,43 @@ function getCityBarracksTroopGroups(world, cityId) {
   });
 }
 
+function getArmyTroopGroups(world, armyId) {
+  if (!world || !Array.isArray(world.troopGroups) || !armyId) return [];
+  return world.troopGroups.filter(function(g) {
+    return g && g.locationType === TROOP_LOCATION_TYPES.ARMY && g.locationId === armyId && (g.count || 0) > 0;
+  });
+}
+
+function getArmyTotalTroopCount(world, armyId) {
+  const groups = getArmyTroopGroups(world, armyId);
+  let total = 0;
+  for (let i = 0; i < groups.length; i++) {
+    total += (groups[i].count || 0);
+  }
+  return total;
+}
+
+function getCityDeployedArmyTroopCount(world, cityId) {
+  if (!world || !cityId || !world.overworld || !Array.isArray(world.overworld.units)) return 0;
+  const activeHomeArmyIds = {};
+  for (let u = 0; u < world.overworld.units.length; u++) {
+    const unit = world.overworld.units[u];
+    if (unit && unit.alive && unit.unitType === 'army' && !unit.reintegrated && unit.homeCityId === cityId) {
+      activeHomeArmyIds[unit.id] = true;
+    }
+  }
+  if (!Array.isArray(world.troopGroups)) return 0;
+  let deployed = 0;
+  for (let i = 0; i < world.troopGroups.length; i++) {
+    const g = world.troopGroups[i];
+    if (!g || g.locationType !== TROOP_LOCATION_TYPES.ARMY || !activeHomeArmyIds[g.locationId] || (g.count || 0) <= 0) continue;
+    const def = getTroopDefinition(g.troopDefId);
+    const weight = (def && def.capacityWeight) ? def.capacityWeight : 1;
+    deployed += (g.count || 0) * weight;
+  }
+  return deployed;
+}
+
 function getCityTroopCountAtLevel(world, cityId, troopDefId, level) {
   const lvl = Math.max(1, Math.floor(Number(level || 1)));
   const groups = getCityBarracksTroopGroups(world, cityId);
@@ -3177,7 +3253,7 @@ function getCityTroopCountAtLevel(world, cityId, troopDefId, level) {
 function getCityTroopCapacityUsage(world, city) {
   const maxCapacity = computeCityTroopCapacity(city);
   if (!world || !city) {
-    return { stationed: 0, queuedRecruit: 0, upgrading: 0, totalUsed: 0, maxCapacity: maxCapacity, available: maxCapacity };
+    return { stationed: 0, deployed: 0, queuedRecruit: 0, upgrading: 0, queued: 0, totalUsed: 0, maxCapacity: maxCapacity, available: maxCapacity };
   }
   const groups = getCityBarracksTroopGroups(world, city.id);
   let stationed = 0;
@@ -3186,6 +3262,7 @@ function getCityTroopCapacityUsage(world, city) {
     const weight = (def && def.capacityWeight) ? def.capacityWeight : 1;
     stationed += (groups[i].count || 0) * weight;
   }
+  const deployed = getCityDeployedArmyTroopCount(world, city.id);
   let queuedRecruit = 0;
   let upgrading = 0;
   const tq = Array.isArray(city.troopTrainingQueue) ? city.troopTrainingQueue : [];
@@ -3201,11 +3278,12 @@ function getCityTroopCapacityUsage(world, city) {
       queuedRecruit += rem * weight;
     }
   }
-  // Troops currently upgrading were deducted from stationed groups, so they still occupy their existing capacity slots
-  const totalUsed = stationed + queuedRecruit + upgrading;
+  // Each troop is counted exactly once: Barracks stationed + Deployed armies + Queued recruits + Upgrading troops
+  const totalUsed = stationed + deployed + queuedRecruit + upgrading;
   const available = Math.max(0, maxCapacity - totalUsed);
   return {
     stationed: stationed,
+    deployed: deployed,
     queuedRecruit: queuedRecruit,
     upgrading: upgrading,
     queued: queuedRecruit,
@@ -8552,7 +8630,7 @@ function reconcileLoadedWorldIntegrity(parsed) {
     const u = units[ui];
     if (!u || !u.alive) continue;
 
-    if (u.status === 'marching') {
+    if (u.status === 'marching' || u.status === 'returning') {
       const mp = u.marchPlan;
       let pathValid = Boolean(mp && Array.isArray(mp.remainingPath) && mp.remainingPath.length > 0);
       if (pathValid) {
@@ -8583,7 +8661,7 @@ function reconcileLoadedWorldIntegrity(parsed) {
           startSimTimeMs: simTimeMs,
           dueSimTimeMs: dueMs,
           durationMs: Math.max(1, dueMs - simTimeMs),
-          payload: { unitId: u.id, targetX: nextStep.x, targetY: nextStep.y }
+          payload: { unitId: u.id, fromX: u.x, fromY: u.y, toX: nextStep.x, toY: nextStep.y }
         };
         mp.activeJobId = recoveryJobId;
         mp.fromX = u.x;
@@ -8594,6 +8672,29 @@ function reconcileLoadedWorldIntegrity(parsed) {
         mp.stepDueSimTimeMs = dueMs;
         jobMap[recoveryJobId] = recJob;
         cleanJobs.push(recJob);
+      }
+    } else if (u.unitType === 'army' && u.status === 'objective_in_progress' && u.objective && u.objective.status === 'in_progress') {
+      const objJobId = u.objective.jobId;
+      if (!objJobId || !jobMap[objJobId]) {
+        const recObjJobId = objJobId || ('job_recover_army_obj_' + u.id + '_' + simTimeMs);
+        const dueMs = Math.max(simTimeMs + 250, u.objective.dueSimTimeMs || (simTimeMs + 3000));
+        const recObjJob = {
+          jobId: recObjJobId,
+          jobType: 'ARMY_OBJECTIVE_COMPLETE',
+          ownerId: u.id,
+          startSimTimeMs: u.objective.startSimTimeMs || simTimeMs,
+          dueSimTimeMs: dueMs,
+          durationMs: Math.max(1, dueMs - (u.objective.startSimTimeMs || simTimeMs)),
+          payload: {
+            armyId: u.id,
+            objectiveId: u.objective.id,
+            objectiveType: u.objective.type
+          }
+        };
+        u.objective.jobId = recObjJobId;
+        u.objective.dueSimTimeMs = dueMs;
+        jobMap[recObjJobId] = recObjJob;
+        cleanJobs.push(recObjJob);
       }
     } else if (u.status === 'in_dungeon') {
       const matchesSession = Boolean(sessDungeonExists && activeSess.unitId === u.id);
@@ -8731,7 +8832,16 @@ function reconcileLoadedWorldIntegrity(parsed) {
     }
   }
 
-  // 7. Reconcile Troop Group instances (migrate legacy 'city_garrison' -> 'barracks', preserve type & level, drop invalid/empty)
+  // 7. Reconcile Troop Group instances (migrate legacy 'city_garrison' -> 'barracks', recover orphaned army groups safely)
+  const aliveArmyIdSet = {};
+  for (let ui = 0; ui < units.length; ui++) {
+    const au = units[ui];
+    if (au && au.alive && !au.reintegrated && au.unitType === 'army' && au.id) {
+      aliveArmyIdSet[au.id] = au;
+    }
+  }
+  const fallbackCityId = (w.activeCityId && w.cities[w.activeCityId]) ? w.activeCityId : (cityIds.length > 0 ? cityIds[0] : null);
+
   if (!Array.isArray(w.troopGroups)) {
     w.troopGroups = [];
   } else {
@@ -8748,7 +8858,14 @@ function reconcileLoadedWorldIntegrity(parsed) {
       if (locType === 'city_garrison') {
         locType = TROOP_LOCATION_TYPES.BARRACKS;
       }
-      if (locType === TROOP_LOCATION_TYPES.BARRACKS && (!g.locationId || !w.cities[g.locationId])) {
+      if (locType === TROOP_LOCATION_TYPES.ARMY) {
+        if (!g.locationId || !aliveArmyIdSet[g.locationId]) {
+          // Deterministic recovery: orphaned army troop groups safely return to Barracks rather than being lost
+          if (!fallbackCityId) continue;
+          locType = TROOP_LOCATION_TYPES.BARRACKS;
+          g.locationId = fallbackCityId;
+        }
+      } else if (locType === TROOP_LOCATION_TYPES.BARRACKS && (!g.locationId || !w.cities[g.locationId])) {
         continue;
       }
       g.troopDefId = normDefId;
@@ -8763,6 +8880,23 @@ function reconcileLoadedWorldIntegrity(parsed) {
       cleanGroups.push(g);
     }
     w.troopGroups = cleanGroups;
+  }
+
+  // 7b. Retire any alive army unit that has zero surviving troops
+  const armyIdsWithTroops = {};
+  for (let gi = 0; gi < w.troopGroups.length; gi++) {
+    const g = w.troopGroups[gi];
+    if (g && g.locationType === TROOP_LOCATION_TYPES.ARMY && g.count > 0) {
+      armyIdsWithTroops[g.locationId] = true;
+    }
+  }
+  for (let ui = 0; ui < units.length; ui++) {
+    const au = units[ui];
+    if (au && au.alive && !au.reintegrated && au.unitType === 'army' && !armyIdsWithTroops[au.id]) {
+      au.alive = false;
+      au.status = 'retired';
+      au.marchPlan = null;
+    }
   }
 
   w.scheduledJobs = cleanJobs;
@@ -10997,7 +11131,7 @@ function scheduleNextMarchStep(unit, state, scheduler) {
     }
   });
 
-  unit.status = 'marching';
+  unit.status = (unit.unitType === 'army' && unit.marchPlan.intent === 'return_home') ? 'returning' : 'marching';
   unit.marchPlan.activeJobId = job.jobId;
   unit.marchPlan.stepStartSimTimeMs = simTimeMs;
   unit.marchPlan.stepDueSimTimeMs = simTimeMs + stepDur;
@@ -11190,8 +11324,8 @@ function resolveMarchStepJob(job, state, scheduler, eventStream) {
     }
   }
 
-  // Check if unit stepped onto a supply cache POI
-  if (Array.isArray(ow.pois)) {
+  // Check if non-army unit stepped onto a supply cache POI (armies on patrol do not harvest caches in 05B-1)
+  if (unit.unitType !== 'army' && Array.isArray(ow.pois)) {
     for (let i = 0; i < ow.pois.length; i++) {
       const poi = ow.pois[i];
       if (!poi.depleted && poi.type === 'resource_cache' && poi.x === unit.x && poi.y === unit.y) {
@@ -11240,16 +11374,20 @@ function resolveMarchStepJob(job, state, scheduler, eventStream) {
     unit.status = 'idle';
     unit.marchPlan = null;
 
-    // If arriving at a friendly City carrying cargo, bank spoils into City Stockpile and restore HP
-    const cityKeys = Object.keys(state.world.cities || {});
-    for (let cIdx = 0; cIdx < cityKeys.length; cIdx++) {
-      const city = state.world.cities[cityKeys[cIdx]];
-      if (city && city.x === unit.x && city.y === unit.y) {
-        unit.hp = unit.maxHp;
-        if (unit.cargo) {
-          depositUnitCargoAtCity(unit, city, state, job.dueSimTimeMs, eventStream);
+    if (unit.unitType === 'army') {
+      handleArmyArrival(unit, state, scheduler, job.dueSimTimeMs, eventStream);
+    } else {
+      // If arriving at a friendly City carrying cargo, bank spoils into City Stockpile and restore HP
+      const cityKeys = Object.keys(state.world.cities || {});
+      for (let cIdx = 0; cIdx < cityKeys.length; cIdx++) {
+        const city = state.world.cities[cityKeys[cIdx]];
+        if (city && city.x === unit.x && city.y === unit.y) {
+          unit.hp = unit.maxHp;
+          if (unit.cargo) {
+            depositUnitCargoAtCity(unit, city, state, job.dueSimTimeMs, eventStream);
+          }
+          break;
         }
-        break;
       }
     }
 
@@ -11948,6 +12086,278 @@ function resolveTroopUpgradeUnitJob(job, state, scheduler, eventStream) {
   evaluateTaskDAG(state, eventStream);
 }
 
+// ---------------------------------------------------------------------------
+// Field Army Objective, Return & Idempotent Barracks Reintegration (Task 05B-1)
+// ---------------------------------------------------------------------------
+function reintegrateArmyIntoBarracks(army, state, simTimeMs, eventStream) {
+  if (!army || !state || !state.world) return { ok: false, skipped: true };
+  // Strict idempotency guard: already reintegrated or retired armies are a safe no-op
+  if (army.reintegrated || !army.alive) {
+    return { ok: false, skipped: true, reason: 'already_reintegrated' };
+  }
+
+  const world = state.world;
+  const homeCity = (world.cities && army.homeCityId) ? world.cities[army.homeCityId] : null;
+  if (!homeCity) {
+    // Safe recovery policy: if home city is missing/invalid, halt army safely & preserve troops (never delete or reassign arbitrarily)
+    army.status = 'idle';
+    army.marchPlan = null;
+    if (army.objective) {
+      army.objective.status = ARMY_OBJECTIVE_STATUS.FAILED;
+      army.objective.jobId = null;
+      army.objective.failureReason = 'home_city_unavailable';
+    }
+    if (eventStream) {
+      eventStream.publish(STREAM_TOPICS.ARMY_OBJECTIVE_FAILED, {
+        armyId: army.id,
+        armyName: army.shortName || army.name,
+        objectiveType: army.objective ? army.objective.type : ARMY_OBJECTIVE_TYPES.RETURN_HOME,
+        reason: 'Home city unavailable; army halted to preserve troops'
+      }, simTimeMs);
+    }
+    return { ok: false, reason: 'home_city_unavailable' };
+  }
+
+  const armyGroups = getArmyTroopGroups(world, army.id);
+  let totalReturned = 0;
+  for (let i = 0; i < armyGroups.length; i++) {
+    const g = armyGroups[i];
+    const ownerId = g.ownerPlayerId || army.ownerPlayerId || getCanonicalPlayerId(state);
+    addBarracksTroopsAtLevel(world, ownerId, homeCity.id, g.troopDefId, g.level || 1, g.count || 0, simTimeMs);
+    totalReturned += (g.count || 0);
+  }
+  // Remove army-located group records now that troops have been transferred to Barracks
+  if (Array.isArray(world.troopGroups)) {
+    world.troopGroups = world.troopGroups.filter(function(g) {
+      return !(g && g.locationType === TROOP_LOCATION_TYPES.ARMY && g.locationId === army.id);
+    });
+  }
+
+  if (army.cargo) {
+    depositUnitCargoAtCity(army, homeCity, state, simTimeMs, eventStream);
+  }
+
+  army.reintegrated = true;
+  army.alive = false;
+  army.status = 'retired';
+  army.marchPlan = null;
+  if (army.objective) {
+    army.objective.status = ARMY_OBJECTIVE_STATUS.COMPLETED;
+    army.objective.jobId = null;
+  }
+
+  const ow = world.overworld;
+  if (ow && ow.selectedUnitId === army.id) {
+    const nextAlive = (ow.units || []).find(function(u) { return u && u.alive && u.id !== army.id; });
+    ow.selectedUnitId = nextAlive ? nextAlive.id : null;
+  }
+
+  if (eventStream) {
+    eventStream.publish(STREAM_TOPICS.ARMY_REINTEGRATED, {
+      armyId: army.id,
+      armyName: army.shortName || army.name,
+      homeCityId: homeCity.id,
+      homeCityName: homeCity.name,
+      troopsReturned: totalReturned
+    }, simTimeMs);
+  }
+
+  return { ok: true, homeCityId: homeCity.id, troopsReturned: totalReturned };
+}
+
+function startArmyReturnHome(army, state, scheduler, simTimeMs, eventStream) {
+  if (!army || !army.alive || army.reintegrated || !state || !state.world) {
+    return { ok: false, reason: 'invalid_army' };
+  }
+  const world = state.world;
+  const ow = world.overworld;
+  const homeCity = (world.cities && army.homeCityId) ? world.cities[army.homeCityId] : null;
+  if (!homeCity) {
+    army.status = 'idle';
+    army.marchPlan = null;
+    if (army.objective) {
+      army.objective.status = ARMY_OBJECTIVE_STATUS.FAILED;
+      army.objective.jobId = null;
+      army.objective.failureReason = 'home_city_unavailable';
+    }
+    if (eventStream) {
+      eventStream.publish(STREAM_TOPICS.ARMY_OBJECTIVE_FAILED, {
+        armyId: army.id,
+        armyName: army.shortName || army.name,
+        objectiveType: ARMY_OBJECTIVE_TYPES.RETURN_HOME,
+        reason: 'Home city unavailable; army halted to preserve troops'
+      }, simTimeMs);
+    }
+    return { ok: false, reason: 'home_city_unavailable' };
+  }
+
+  // Cancel any active march or objective job before starting return
+  if (army.marchPlan && army.marchPlan.activeJobId && scheduler) {
+    scheduler.cancelJob(army.marchPlan.activeJobId);
+  }
+  if (army.objective && army.objective.jobId && scheduler) {
+    scheduler.cancelJob(army.objective.jobId);
+  }
+
+  army.objective = {
+    id: 'obj_ret_' + army.id + '_' + simTimeMs,
+    type: ARMY_OBJECTIVE_TYPES.RETURN_HOME,
+    status: ARMY_OBJECTIVE_STATUS.ACCEPTED,
+    targetX: homeCity.x,
+    targetY: homeCity.y,
+    jobId: null,
+    startSimTimeMs: simTimeMs,
+    dueSimTimeMs: null
+  };
+
+  if (army.x === homeCity.x && army.y === homeCity.y) {
+    army.objective.status = ARMY_OBJECTIVE_STATUS.ARRIVED;
+    return reintegrateArmyIntoBarracks(army, state, simTimeMs, eventStream);
+  }
+
+  const path = findOverworldPath(ow, army.x, army.y, homeCity.x, homeCity.y);
+  if (!path || path.length === 0) {
+    army.status = 'idle';
+    army.marchPlan = null;
+    army.objective.status = ARMY_OBJECTIVE_STATUS.FAILED;
+    army.objective.failureReason = 'return_path_unreachable';
+    if (eventStream) {
+      eventStream.publish(STREAM_TOPICS.ARMY_OBJECTIVE_FAILED, {
+        armyId: army.id,
+        armyName: army.shortName || army.name,
+        objectiveType: ARMY_OBJECTIVE_TYPES.RETURN_HOME,
+        reason: 'Return path to home city is unreachable'
+      }, simTimeMs);
+    }
+    return { ok: false, reason: 'return_path_unreachable' };
+  }
+
+  const totalMs = path.reduce(function(sum, st) { return sum + (st.stepDurationMs || 3000); }, 0);
+  army.objective.status = ARMY_OBJECTIVE_STATUS.TRAVELING;
+  army.marchPlan = {
+    intent: 'return_home',
+    targetCityId: homeCity.id,
+    targetX: homeCity.x,
+    targetY: homeCity.y,
+    remainingPath: path,
+    totalDurationMs: totalMs,
+    activeJobId: null,
+    stepStartSimTimeMs: simTimeMs,
+    stepDueSimTimeMs: simTimeMs,
+    fromX: army.x,
+    fromY: army.y,
+    toX: path[0].x,
+    toY: path[0].y
+  };
+
+  scheduleNextMarchStep(army, state, scheduler);
+
+  if (eventStream) {
+    eventStream.publish(STREAM_TOPICS.ARMY_RETURNING, {
+      armyId: army.id,
+      armyName: army.shortName || army.name,
+      homeCityId: homeCity.id,
+      homeCityName: homeCity.name,
+      stepsCount: path.length
+    }, simTimeMs);
+  }
+
+  return { ok: true, stepsCount: path.length };
+}
+
+function handleArmyArrival(army, state, scheduler, simTimeMs, eventStream) {
+  if (!army || !army.alive || army.reintegrated) return;
+  if (!army.objective) {
+    army.status = 'idle';
+    return;
+  }
+
+  army.objective.status = ARMY_OBJECTIVE_STATUS.ARRIVED;
+
+  if (army.objective.type === ARMY_OBJECTIVE_TYPES.RETURN_HOME) {
+    reintegrateArmyIntoBarracks(army, state, simTimeMs, eventStream);
+    return;
+  }
+
+  if (army.objective.type === ARMY_OBJECTIVE_TYPES.PATROL_HEX) {
+    const patrolDur = Math.max(250, ARMY_PATROL_DURATION_MS || 3000);
+    const job = scheduler ? scheduler.scheduleJob({
+      jobId: 'army_obj_' + army.id + '_' + simTimeMs + '_' + Math.floor(Math.random() * 10000),
+      jobType: 'ARMY_OBJECTIVE_COMPLETE',
+      ownerId: army.id,
+      startSimTimeMs: simTimeMs,
+      dueSimTimeMs: simTimeMs + patrolDur,
+      payload: {
+        armyId: army.id,
+        objectiveId: army.objective.id,
+        objectiveType: army.objective.type
+      }
+    }) : null;
+
+    army.status = 'objective_in_progress';
+    army.objective.status = ARMY_OBJECTIVE_STATUS.IN_PROGRESS;
+    army.objective.jobId = job ? job.jobId : null;
+    army.objective.startSimTimeMs = simTimeMs;
+    army.objective.dueSimTimeMs = simTimeMs + patrolDur;
+
+    if (eventStream) {
+      eventStream.publish(STREAM_TOPICS.ARMY_OBJECTIVE_STARTED, {
+        armyId: army.id,
+        armyName: army.shortName || army.name,
+        objectiveType: army.objective.type,
+        x: army.x,
+        y: army.y,
+        durationMs: patrolDur
+      }, simTimeMs);
+    }
+    return;
+  }
+
+  // Fallback for unrecognized objective types: fail cleanly without auto-returning
+  army.status = 'idle';
+  army.objective.status = ARMY_OBJECTIVE_STATUS.FAILED;
+  army.objective.jobId = null;
+}
+
+function resolveArmyObjectiveCompleteJob(job, state, scheduler, eventStream) {
+  if (!state || !state.world || !state.world.overworld) return;
+  const p = job.payload || {};
+  const ow = state.world.overworld;
+  const army = (ow.units || []).find(function(u) {
+    return u && u.alive && u.unitType === 'army' && u.id === p.armyId;
+  });
+  if (!army || army.reintegrated || !army.objective) return;
+  // Strict idempotency guard: only complete matching in-progress objective job
+  if (army.status !== 'objective_in_progress' || army.objective.status !== ARMY_OBJECTIVE_STATUS.IN_PROGRESS) return;
+  if (army.objective.jobId && job.jobId && army.objective.jobId !== job.jobId) return;
+
+  army.objective.status = ARMY_OBJECTIVE_STATUS.COMPLETED;
+  army.objective.jobId = null;
+  army.status = 'idle';
+
+  revealOverworldVision(ow, army.x, army.y, army.visionRadius || 4);
+
+  if (eventStream) {
+    eventStream.publish(STREAM_TOPICS.ARMY_OBJECTIVE_COMPLETED, {
+      armyId: army.id,
+      armyName: army.shortName || army.name,
+      objectiveType: army.objective.type,
+      x: army.x,
+      y: army.y,
+      stayDeployed: Boolean(army.stayDeployed)
+    }, job.dueSimTimeMs);
+  }
+
+  // Return policy evaluated ONLY on successful objective completion
+  if (!army.stayDeployed) {
+    startArmyReturnHome(army, state, scheduler, job.dueSimTimeMs, eventStream);
+  }
+
+  state._dirty = true;
+  saveWargameState(state, scheduler);
+  evaluateTaskDAG(state, eventStream);
+}
+
 function processResourceProductionTick(state, eventStream) {
   if (!state || !state.world || !state.world.cities) return;
   const cityIds = Object.keys(state.world.cities);
@@ -12120,7 +12530,7 @@ function processResourceProductionTick(state, eventStream) {
 // Compute live 0..1 interpolation coordinates for smooth real-time unit rendering on the Overworld canvas
 function getUnitInterpolatedPosition(unit, currentSimTimeMs) {
   if (!unit) return { x: 0, y: 0, progress: 0 };
-  if (unit.status !== 'marching' || !unit.marchPlan) {
+  if ((unit.status !== 'marching' && unit.status !== 'returning') || !unit.marchPlan) {
     return { x: unit.x, y: unit.y, progress: 0 };
   }
   const mp = unit.marchPlan;
@@ -13534,6 +13944,310 @@ function dispatchWargameCommand(commandEnvelope, state, scheduler, eventStream) 
   }
 
   // ---------------------------------------------------------------------------
+  // 9B1b. FIELD ARMY DEPLOYMENT, REDIRECTION & RETURN POLICY (Task 05B-1)
+  // ---------------------------------------------------------------------------
+  if (cmdType === COMMAND_TYPES.DEPLOY_ARMY) {
+    const city = (payload.homeCityId && world.cities[payload.homeCityId]) || getPrimaryCity(state);
+    if (!city) {
+      return reject('You must found a Bastion City before deploying a Field Army');
+    }
+    const ownerId = getCanonicalPlayerId(state);
+    if (city.ownerPlayerId && city.ownerPlayerId !== ownerId) {
+      return reject('You do not control this city');
+    }
+
+    const targetX = Number(payload.targetX);
+    const targetY = Number(payload.targetY);
+    if (!isFinite(targetX) || !isFinite(targetY) || Math.floor(targetX) !== targetX || Math.floor(targetY) !== targetY) {
+      return reject('Invalid target coordinates for deployment');
+    }
+    if (!isInOverworldBounds(ow, targetX, targetY) || !isOverworldTilePassable(ow, targetX, targetY)) {
+      return reject('Target hex (' + targetX + ', ' + targetY + ') is impassable or out of bounds');
+    }
+    if (targetX === city.x && targetY === city.y) {
+      return reject('Select a destination outside the home city to deploy a Field Army');
+    }
+
+    const path = findOverworldPath(ow, city.x, city.y, targetX, targetY);
+    if (!path || path.length === 0) {
+      return reject('No passable hex route from ' + city.name + ' to (' + targetX + ', ' + targetY + ')');
+    }
+
+    const rawTroops = Array.isArray(payload.troops) ? payload.troops : [];
+    if (rawTroops.length === 0) {
+      return reject('Select at least one troop to deploy');
+    }
+
+    // Aggregate & validate all requested (troopDefId, level) quantities BEFORE mutating any state
+    const aggregatedMap = {};
+    const aggregatedList = [];
+    let totalTroops = 0;
+    for (let i = 0; i < rawTroops.length; i++) {
+      const entry = rawTroops[i];
+      if (!entry) continue;
+      const td = getTroopDefinition(entry.troopDefId);
+      if (!td) return reject('Unknown troop type in deployment: ' + entry.troopDefId);
+      const lvl = Math.floor(Number(entry.level || 1));
+      const qty = Number(entry.quantity);
+      if (!isFinite(lvl) || lvl < 1 || !isFinite(qty) || qty < 1 || Math.floor(qty) !== qty) {
+        return reject('Invalid troop level or quantity in deployment');
+      }
+      const key = td.id + ':' + lvl;
+      if (!aggregatedMap[key]) {
+        aggregatedMap[key] = { troopDefId: td.id, level: lvl, quantity: 0 };
+        aggregatedList.push(aggregatedMap[key]);
+      }
+      aggregatedMap[key].quantity += Math.floor(qty);
+      totalTroops += Math.floor(qty);
+    }
+
+    if (totalTroops <= 0) {
+      return reject('Select at least one troop to deploy');
+    }
+
+    for (let i = 0; i < aggregatedList.length; i++) {
+      const req = aggregatedList[i];
+      const available = getCityTroopCountAtLevel(world, city.id, req.troopDefId, req.level);
+      if (available < req.quantity) {
+        return reject('Insufficient Barracks troops for ' + req.troopDefId + ' Lv ' + req.level + ' (need ' + req.quantity + ', have ' + available + ')');
+      }
+    }
+
+    // Atomic transfer: deduct from Barracks & create Army-located troopGroups
+    const existingArmies = (ow.units || []).filter(function(u) { return u && u.unitType === 'army'; }).length;
+    const armySeq = existingArmies + 1;
+    const armyId = 'army_' + armySeq + '_' + simTimeMs + '_' + Math.floor(Math.random() * 10000);
+    if (!Array.isArray(world.troopGroups)) world.troopGroups = [];
+
+    for (let i = 0; i < aggregatedList.length; i++) {
+      const req = aggregatedList[i];
+      deductBarracksTroopsAtLevel(ownerId, city.id, req.troopDefId, req.level, req.quantity);
+      world.troopGroups.push({
+        id: 'tg_' + armyId + '_' + req.troopDefId + '_lv' + req.level,
+        ownerPlayerId: ownerId,
+        troopDefId: req.troopDefId,
+        count: req.quantity,
+        level: req.level,
+        xp: 0,
+        condition: 100,
+        locationType: TROOP_LOCATION_TYPES.ARMY,
+        locationId: armyId,
+        createdAtSimMs: simTimeMs
+      });
+    }
+
+    const armyArch = UNIT_ARCHETYPES.army || { visionRadius: 4, maxHp: 100 };
+    const stayDeployed = Boolean(payload.stayDeployed);
+    const totalMs = path.reduce(function(sum, st) { return sum + (st.stepDurationMs || 3000); }, 0);
+    const armyUnit = {
+      id: armyId,
+      ownerPlayerId: ownerId,
+      unitType: 'army',
+      name: 'Field Army #' + armySeq,
+      shortName: 'Army #' + armySeq,
+      homeCityId: city.id,
+      x: city.x,
+      y: city.y,
+      hp: armyArch.maxHp || 100,
+      maxHp: armyArch.maxHp || 100,
+      visionRadius: armyArch.visionRadius || 4,
+      canFoundCity: false,
+      canEnterDungeon: false,
+      alive: true,
+      reintegrated: false,
+      status: 'marching',
+      stayDeployed: stayDeployed,
+      objective: {
+        id: 'obj_' + armyId + '_' + simTimeMs,
+        type: ARMY_OBJECTIVE_TYPES.PATROL_HEX,
+        status: ARMY_OBJECTIVE_STATUS.TRAVELING,
+        targetX: targetX,
+        targetY: targetY,
+        jobId: null,
+        startSimTimeMs: simTimeMs,
+        dueSimTimeMs: null
+      },
+      cargo: null,
+      marchPlan: {
+        intent: 'patrol_hex',
+        targetX: targetX,
+        targetY: targetY,
+        remainingPath: path,
+        totalDurationMs: totalMs,
+        activeJobId: null,
+        stepStartSimTimeMs: simTimeMs,
+        stepDueSimTimeMs: simTimeMs,
+        fromX: city.x,
+        fromY: city.y,
+        toX: path[0].x,
+        toY: path[0].y
+      },
+      createdAtSimMs: simTimeMs
+    };
+
+    if (!ow.units) ow.units = [];
+    ow.units.push(armyUnit);
+    ow.selectedUnitId = armyUnit.id;
+    revealOverworldVision(ow, armyUnit.x, armyUnit.y, armyUnit.visionRadius);
+    scheduleNextMarchStep(armyUnit, state, scheduler);
+
+    if (eventStream) {
+      eventStream.publish(STREAM_TOPICS.ARMY_DEPLOYED, {
+        armyId: armyUnit.id,
+        armyName: armyUnit.shortName,
+        homeCityId: city.id,
+        homeCityName: city.name,
+        targetX: targetX,
+        targetY: targetY,
+        totalTroops: totalTroops,
+        stayDeployed: stayDeployed
+      }, simTimeMs);
+    }
+
+    return accept({
+      armyId: armyUnit.id,
+      army: armyUnit,
+      totalTroops: totalTroops,
+      stepsCount: path.length
+    });
+  }
+
+  if (cmdType === COMMAND_TYPES.REDIRECT_ARMY) {
+    const ownerId = getCanonicalPlayerId(state);
+    const army = (ow.units || []).find(function(u) {
+      return u && u.alive && !u.reintegrated && u.unitType === 'army' && u.id === payload.armyId;
+    });
+    if (!army) return reject('Deployed Field Army not found');
+    if (army.ownerPlayerId && army.ownerPlayerId !== ownerId) {
+      return reject('You do not control this Field Army');
+    }
+
+    const targetX = Number(payload.targetX);
+    const targetY = Number(payload.targetY);
+    if (!isFinite(targetX) || !isFinite(targetY) || Math.floor(targetX) !== targetX || Math.floor(targetY) !== targetY) {
+      return reject('Invalid target coordinates for redirection');
+    }
+    if (!isInOverworldBounds(ow, targetX, targetY) || !isOverworldTilePassable(ow, targetX, targetY)) {
+      return reject('Target hex (' + targetX + ', ' + targetY + ') is impassable or out of bounds');
+    }
+
+    const homeCity = (world.cities && army.homeCityId) ? world.cities[army.homeCityId] : null;
+    if (homeCity && targetX === homeCity.x && targetY === homeCity.y) {
+      const retRes = startArmyReturnHome(army, state, scheduler, simTimeMs, eventStream);
+      if (!retRes || !retRes.ok) return reject((retRes && retRes.reason) || 'Unable to return home');
+      return accept({ armyId: army.id, redirectedToReturnHome: true });
+    }
+
+    let path = [];
+    if (army.x !== targetX || army.y !== targetY) {
+      path = findOverworldPath(ow, army.x, army.y, targetX, targetY);
+      if (!path || path.length === 0) {
+        return reject('No passable hex route to (' + targetX + ', ' + targetY + ')');
+      }
+    }
+
+    // Cancel active march or objective job and mark previous objective interrupted
+    if (army.marchPlan && army.marchPlan.activeJobId && scheduler) {
+      scheduler.cancelJob(army.marchPlan.activeJobId);
+    }
+    if (army.objective) {
+      if (army.objective.jobId && scheduler) {
+        scheduler.cancelJob(army.objective.jobId);
+      }
+      army.objective.status = ARMY_OBJECTIVE_STATUS.INTERRUPTED;
+      army.objective.jobId = null;
+    }
+
+    if (typeof payload.stayDeployed === 'boolean') {
+      army.stayDeployed = payload.stayDeployed;
+    }
+
+    army.objective = {
+      id: 'obj_' + army.id + '_' + simTimeMs + '_' + Math.floor(Math.random() * 1000),
+      type: ARMY_OBJECTIVE_TYPES.PATROL_HEX,
+      status: ARMY_OBJECTIVE_STATUS.ACCEPTED,
+      targetX: targetX,
+      targetY: targetY,
+      jobId: null,
+      startSimTimeMs: simTimeMs,
+      dueSimTimeMs: null
+    };
+
+    if (path.length === 0) {
+      army.marchPlan = null;
+      handleArmyArrival(army, state, scheduler, simTimeMs, eventStream);
+    } else {
+      const totalMs = path.reduce(function(sum, st) { return sum + (st.stepDurationMs || 3000); }, 0);
+      army.objective.status = ARMY_OBJECTIVE_STATUS.TRAVELING;
+      army.marchPlan = {
+        intent: 'patrol_hex',
+        targetX: targetX,
+        targetY: targetY,
+        remainingPath: path,
+        totalDurationMs: totalMs,
+        activeJobId: null,
+        stepStartSimTimeMs: simTimeMs,
+        stepDueSimTimeMs: simTimeMs,
+        fromX: army.x,
+        fromY: army.y,
+        toX: path[0].x,
+        toY: path[0].y
+      };
+      scheduleNextMarchStep(army, state, scheduler);
+    }
+
+    if (eventStream) {
+      eventStream.publish(STREAM_TOPICS.ARMY_REDIRECTED, {
+        armyId: army.id,
+        armyName: army.shortName || army.name,
+        targetX: targetX,
+        targetY: targetY,
+        stayDeployed: Boolean(army.stayDeployed)
+      }, simTimeMs);
+    }
+
+    return accept({
+      armyId: army.id,
+      targetX: targetX,
+      targetY: targetY,
+      stayDeployed: Boolean(army.stayDeployed),
+      stepsCount: path.length
+    });
+  }
+
+  if (cmdType === COMMAND_TYPES.RETURN_ARMY_HOME) {
+    const ownerId = getCanonicalPlayerId(state);
+    const army = (ow.units || []).find(function(u) {
+      return u && u.alive && !u.reintegrated && u.unitType === 'army' && u.id === payload.armyId;
+    });
+    if (!army) return reject('Deployed Field Army not found');
+    if (army.ownerPlayerId && army.ownerPlayerId !== ownerId) {
+      return reject('You do not control this Field Army');
+    }
+    const retRes = startArmyReturnHome(army, state, scheduler, simTimeMs, eventStream);
+    if (!retRes || !retRes.ok) {
+      return reject((retRes && retRes.reason) || 'Unable to begin return home');
+    }
+    return accept({ armyId: army.id, homeCityId: army.homeCityId, stepsCount: retRes.stepsCount || 0 });
+  }
+
+  if (cmdType === COMMAND_TYPES.SET_ARMY_RETURN_POLICY) {
+    const ownerId = getCanonicalPlayerId(state);
+    const army = (ow.units || []).find(function(u) {
+      return u && u.alive && !u.reintegrated && u.unitType === 'army' && u.id === payload.armyId;
+    });
+    if (!army) return reject('Deployed Field Army not found');
+    if (army.ownerPlayerId && army.ownerPlayerId !== ownerId) {
+      return reject('You do not control this Field Army');
+    }
+    if (typeof payload.stayDeployed !== 'boolean') {
+      return reject('stayDeployed must be a boolean');
+    }
+    army.stayDeployed = payload.stayDeployed;
+    return accept({ armyId: army.id, stayDeployed: army.stayDeployed });
+  }
+
+  // ---------------------------------------------------------------------------
   // 9B2. EQUIP / UNEQUIP HERO EQUIPMENT (Shared Character Sheet Operations)
   // ---------------------------------------------------------------------------
   if (cmdType === COMMAND_TYPES.EQUIP_HERO_ITEM) {
@@ -14654,6 +15368,8 @@ function advanceSimulationClock(deltaRealMs, state, scheduler, eventStream) {
           resolveTroopTrainUnitJob(job, state, scheduler, eventStream);
         } else if (job.jobType === 'TROOP_UPGRADE_UNIT_COMPLETE') {
           resolveTroopUpgradeUnitJob(job, state, scheduler, eventStream);
+        } else if (job.jobType === 'ARMY_OBJECTIVE_COMPLETE') {
+          resolveArmyObjectiveCompleteJob(job, state, scheduler, eventStream);
         }
       }
     }
@@ -15560,14 +16276,15 @@ function renderWargameOverworldCanvas(simHost) {
     ctx.fillText('☠', s.sx, s.sy);
   }
 
-  // 7. Render Player Units (Settlers & Hero Vanguard Parties)
+  // 7. Render Player Units (Settlers, Hero Vanguard Parties & Deployed Field Armies)
   const units = ow.units || [];
   for (let ui = 0; ui < units.length; ui++) {
     const u = units[ui];
     if (!u.alive) continue;
 
     const interp = getUnitInterpolatedPosition(u, simTimeMs);
-    const w = (u.status === 'marching' && u.marchPlan)
+    const isMoving = (u.status === 'marching' || u.status === 'returning') && u.marchPlan;
+    const w = isMoving
       ? interpolateHexSegment(u.marchPlan.fromX, u.marchPlan.fromY, u.marchPlan.toX, u.marchPlan.toY, interp.progress)
       : interpolateHexSegment(u.x, u.y, u.x, u.y, 0);
     const s = vp.worldToScreen(w.wx, w.wy);
@@ -15580,7 +16297,7 @@ function renderWargameOverworldCanvas(simHost) {
     ctx.fill();
 
     // Unit Heraldic Shield Medallion
-    ctx.fillStyle = u.unitType === 'hero_party' ? '#1e3a8a' : '#065f46';
+    ctx.fillStyle = u.unitType === 'army' ? '#991b1b' : (u.unitType === 'hero_party' ? '#1e3a8a' : '#065f46');
     ctx.beginPath();
     ctx.arc(s.sx, s.sy, 11 * z, 0, Math.PI * 2);
     ctx.fill();
@@ -15591,7 +16308,7 @@ function renderWargameOverworldCanvas(simHost) {
     ctx.font = Math.round(12 * z) + 'px sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(u.unitType === 'hero_party' ? '⚔️' : '🚩', s.sx, s.sy);
+    ctx.fillText(u.unitType === 'army' ? '🛡️' : (u.unitType === 'hero_party' ? '⚔️' : '🚩'), s.sx, s.sy);
   }
 }
 
@@ -19981,6 +20698,7 @@ function syncWargameUI(simHost) {
   renderWargameFacilityModal(simHost);
   renderProgressionModals(simHost);
   renderDevPortalModal(simHost);
+  renderDeployArmyModal(simHost);
   renderScreenInfoModal(simHost);
   renderQuickMapDocks(simHost);
   syncMobileDrawers(simHost);
@@ -20456,10 +21174,15 @@ function renderQuickMapDocks(simHost) {
     ? `<button onclick="window.WargameApp.handleEnterDungeon('${activeDungeonParty.activeDungeonPoiId || ''}')" class="px-2.5 py-1.5 rounded-lg bg-[#080b11]/85 hover:bg-[#f87171] hover:text-[#080b11] backdrop-blur border border-[#f87171]/60 text-xs font-mono font-bold text-[#f87171] shadow transition cursor-pointer">⚔️ Dungeon</button>`
     : '';
 
-  // Single toggle button in bottom-right corner of Overworld -> goes to City
+  // Single toggle button in bottom-right corner of Overworld -> goes to City (+ Deploy Army when Barracks troops exist)
   const owDock = document.getElementById('wgOverworldMapDock');
   if (owDock) {
-    const owHtml = (hasCity
+    const primaryCityDock = getPrimaryCity(simHost.state);
+    const hasBarracksTroops = Boolean(primaryCityDock && getCityTroopInventorySummary(simHost.state.world, primaryCityDock).totals.trained > 0);
+    const deployBtn = hasBarracksTroops
+      ? `<button data-action="open-deploy-army" onclick="window.WargameApp.handleOpenDeployArmyModal()" class="px-2.5 py-1.5 rounded-lg bg-[#450a0a]/90 hover:bg-[#f87171] hover:text-[#080b11] backdrop-blur border border-[#f87171]/60 text-xs font-mono font-bold text-[#fecaca] shadow transition cursor-pointer">🛡️ Deploy Army</button>`
+      : '';
+    const owHtml = deployBtn + (hasCity
       ? `<button onclick="window.WargameApp.handleSwitchView('city')" class="px-2.5 py-1.5 rounded-lg bg-[#080b11]/85 hover:bg-[#fbbf24] hover:text-[#080b11] backdrop-blur border border-[#fbbf24]/60 text-xs font-mono font-bold text-[#fbbf24] shadow transition cursor-pointer">🏛️ City</button>`
       : '') + dngBtn;
     setHtmlIfChanged(owDock, owHtml);
@@ -21123,10 +21846,23 @@ function renderLeftCommandSidebar(simHost) {
   const ow = world.overworld;
   const simTimeMs = world.clock.simTimeMs;
 
-  // A. Selected Unit Inspector Card
+  // A. Selected Unit Inspector Card (+ Deployed Armies Quick Selector)
   const selUnit = getSelectedOverworldUnit(state);
   const unitCardEl = document.getElementById('wgSelectedUnitCard');
   if (unitCardEl) {
+    const activeArmies = (ow.units || []).filter(function(u) { return u && u.alive && !u.reintegrated && u.unitType === 'army'; });
+    const armiesStripHtml = activeArmies.length > 0 ? `
+      <div class="pb-2 mb-2 border-b border-[#283347] space-y-1">
+        <div class="text-[10px] font-mono uppercase text-[#f87171] font-bold">🛡️ Deployed Armies (${activeArmies.length})</div>
+        <div class="flex flex-wrap gap-1">
+          ${activeArmies.map(function(au) {
+            const isSelArmy = selUnit && selUnit.id === au.id;
+            const cnt = getArmyTotalTroopCount(world, au.id);
+            return `<button onclick="window.WargameApp.handleSelectOverworldUnit('${au.id}')" class="px-2 py-0.5 rounded text-[10px] font-mono font-bold cursor-pointer ${isSelArmy ? 'bg-[#f87171] text-[#080b11]' : 'bg-[#111722] text-[#fecaca] border border-[#f87171]/40 hover:bg-[#1a2232]'}">🛡️ ${au.shortName} (${cnt})</button>`;
+          }).join('')}
+        </div>
+      </div>
+    ` : '';
     let newHtml = '';
     if (!selUnit || !selUnit.alive) {
       const hasCity = Object.keys(world.cities || {}).length > 0;
@@ -21177,10 +21913,10 @@ function renderLeftCommandSidebar(simHost) {
             </div>
           </div>
         `;
-      } else if (selUnit.status === 'marching' && selUnit.marchPlan) {
+      } else if ((selUnit.status === 'marching' || selUnit.status === 'returning') && selUnit.marchPlan) {
         const remSteps = selUnit.marchPlan.remainingPath ? selUnit.marchPlan.remainingPath.length : 0;
         const stepRemMs = Math.max(0, (selUnit.marchPlan.stepDueSimTimeMs || 0) - simTimeMs);
-        const isReturning = selUnit.marchPlan.intent === 'return_city';
+        const isReturning = selUnit.marchPlan.intent === 'return_city' || selUnit.marchPlan.intent === 'return_home' || selUnit.status === 'returning';
         marchHtml = `
           <div class="p-2 rounded bg-[#111722] border ${isReturning ? 'border-[#fbbf24]/50' : 'border-[#38bdf8]/40'} space-y-1">
             <div class="flex items-center justify-between text-[11px] font-mono">
@@ -21188,7 +21924,18 @@ function renderLeftCommandSidebar(simHost) {
               <span class="text-[#fbbf24]">${remSteps} tiles left</span>
             </div>
             <div class="text-[10px] text-[#8b949e] font-mono">Next tile in ${formatSimDuration(stepRemMs)}</div>
-            <button data-action="cancel-march" onclick="window.WargameApp.handleCancelMarch()" class="w-full mt-1 py-1 rounded bg-[#1a2232] hover:bg-[#f87171]/20 text-[#f87171] border border-[#f87171]/40 text-[10px] font-mono font-bold cursor-pointer">✕ Halt March</button>
+            ${selUnit.unitType !== 'army' ? `<button data-action="cancel-march" onclick="window.WargameApp.handleCancelMarch()" class="w-full mt-1 py-1 rounded bg-[#1a2232] hover:bg-[#f87171]/20 text-[#f87171] border border-[#f87171]/40 text-[10px] font-mono font-bold cursor-pointer">✕ Halt March</button>` : ''}
+          </div>
+        `;
+      } else if (selUnit.unitType === 'army' && selUnit.status === 'objective_in_progress' && selUnit.objective) {
+        const objRemMs = Math.max(0, (selUnit.objective.dueSimTimeMs || 0) - simTimeMs);
+        marchHtml = `
+          <div class="p-2 rounded bg-[#111722] border border-[#c084fc]/50 space-y-1 text-[11px] font-mono">
+            <div class="flex items-center justify-between">
+              <span class="text-[#c084fc] font-bold">🧭 Executing: ${selUnit.objective.type}</span>
+              <span class="text-[#34d399]">${formatSimDuration(objRemMs)}</span>
+            </div>
+            <div class="text-[10px] text-[#8b949e]">Location: (${selUnit.x}, ${selUnit.y})</div>
           </div>
         `;
       } else {
@@ -21197,20 +21944,51 @@ function renderLeftCommandSidebar(simHost) {
         `;
       }
 
+      let armyDetailHtml = '';
+      if (selUnit.unitType === 'army') {
+        const aGroups = getArmyTroopGroups(world, selUnit.id);
+        const homeC = (world.cities && selUnit.homeCityId) ? world.cities[selUnit.homeCityId] : null;
+        const obj = selUnit.objective || null;
+        const compRows = aGroups.map(function(g) {
+          const td = getTroopDefinition(g.troopDefId);
+          return '<div class="flex justify-between text-[10px] font-mono"><span class="text-[#e6edf3]">' + (td ? (td.icon + ' ' + td.name) : g.troopDefId) + ' Lv ' + (g.level || 1) + '</span><span class="text-[#34d399]">×' + g.count + '</span></div>';
+        }).join('');
+        armyDetailHtml = `
+          <div class="p-2 rounded bg-[#080b11] border border-[#f87171]/40 space-y-1.5">
+            <div class="flex items-center justify-between text-[10px] font-mono">
+              <span class="text-[#f87171] font-bold">Home: ${homeC ? homeC.name : 'Unknown'}</span>
+              <span class="text-[#cbd5e1]">Obj: ${obj ? (obj.type + ' (' + obj.status + ')') : 'none'}</span>
+            </div>
+            <div class="space-y-0.5">${compRows}</div>
+            <label class="flex items-center gap-1.5 text-[10px] font-mono text-[#cbd5e1] pt-1 cursor-pointer">
+              <input type="checkbox" ${selUnit.stayDeployed ? 'checked' : ''} onchange="window.WargameApp.handleSetArmyReturnPolicy('${selUnit.id}', this.checked)" class="accent-[#f87171]" />
+              <span>Stay deployed after completing objective</span>
+            </label>
+            <div class="text-[10px] text-[#8b949e]">Click any passable Overworld hex to redirect this army.</div>
+            ${selUnit.status !== 'returning' ? `
+              <button data-action="return-army-home" onclick="window.WargameApp.handleReturnArmyHome('${selUnit.id}')" class="w-full py-1.5 rounded bg-[#1a2232] hover:bg-[#283347] text-[#fbbf24] border border-[#fbbf24]/40 font-mono font-bold text-[10px] uppercase cursor-pointer">
+                🏠 Return to Barracks
+              </button>
+            ` : ''}
+          </div>
+        `;
+      }
+
       newHtml = `
         <div class="space-y-2.5">
           <div class="flex items-center justify-between">
             <div class="flex items-center gap-2">
-              <span class="text-lg">${selUnit.unitType === 'settler' ? '🚩' : '⚔️'}</span>
+              <span class="text-lg">${selUnit.unitType === 'army' ? '🛡️' : (selUnit.unitType === 'settler' ? '🚩' : '⚔️')}</span>
               <div>
                 <div class="text-xs font-bold text-[#e6edf3]">${selUnit.name}</div>
                 <div class="text-[10px] font-mono text-[#8b949e]">Terrain: <span class="text-[#84cc16]">${tDef ? tDef.name : 'Plains'}</span> • Vision ${selUnit.visionRadius}</div>
               </div>
             </div>
-            <span class="text-[11px] font-mono px-1.5 py-0.5 rounded bg-[#111722] text-[#34d399] border border-[#283347]">HP ${selUnit.hp}/${selUnit.maxHp}</span>
+            <span class="text-[11px] font-mono px-1.5 py-0.5 rounded bg-[#111722] text-[#34d399] border border-[#283347]">${selUnit.unitType === 'army' ? (getArmyTotalTroopCount(world, selUnit.id) + ' Troops') : ('HP ' + selUnit.hp + '/' + selUnit.maxHp)}</span>
           </div>
           ${cargoHtml}
           ${marchHtml}
+          ${armyDetailHtml}
           ${nearbyDng ? `
             <button data-action="enter-dungeon" data-poi-id="${nearbyDng.id}" onclick="window.WargameApp.handleEnterDungeon('${nearbyDng.id}')" class="w-full py-2 rounded-lg font-bold text-xs uppercase tracking-wider shadow bg-[#f87171] hover:bg-[#ef4444] text-[#080b11] cursor-pointer">
               ⚔️ Enter ${nearbyDng.name}
@@ -21230,7 +22008,7 @@ function renderLeftCommandSidebar(simHost) {
       `;
     }
 
-    setHtmlIfChanged(unitCardEl, newHtml);
+    setHtmlIfChanged(unitCardEl, armiesStripHtml + newHtml);
   }
 
   // B. Active Timed Queues Summary (Construction, Recruitment, and Marching)
@@ -21999,6 +22777,27 @@ function formatEventSummary(ev) {
   if (ev.topic === STREAM_TOPICS.TROOPS_DISBANDED) {
     return '— Disbanded ' + (p.disbandedCount || 1) + '× ' + (p.troopDefId || 'troops') + (p.level ? (' Lv ' + p.level) : '') + ' from Barracks';
   }
+  if (ev.topic === STREAM_TOPICS.ARMY_DEPLOYED) {
+    return '— Deployed ' + p.armyName + ' (' + p.totalTroops + ' troops) from ' + p.homeCityName + ' -> (' + p.targetX + ',' + p.targetY + ')';
+  }
+  if (ev.topic === STREAM_TOPICS.ARMY_REDIRECTED) {
+    return '— Redirected ' + p.armyName + ' -> (' + p.targetX + ',' + p.targetY + ')';
+  }
+  if (ev.topic === STREAM_TOPICS.ARMY_OBJECTIVE_STARTED) {
+    return '— ' + p.armyName + ' began ' + p.objectiveType + ' at (' + p.x + ',' + p.y + ')';
+  }
+  if (ev.topic === STREAM_TOPICS.ARMY_OBJECTIVE_COMPLETED) {
+    return '— ' + p.armyName + ' completed ' + p.objectiveType + ' at (' + p.x + ',' + p.y + ')';
+  }
+  if (ev.topic === STREAM_TOPICS.ARMY_OBJECTIVE_FAILED) {
+    return '— ' + p.armyName + ' objective failed: ' + (p.reason || 'interrupted');
+  }
+  if (ev.topic === STREAM_TOPICS.ARMY_RETURNING) {
+    return '— ' + p.armyName + ' returning to ' + p.homeCityName + ' (' + p.stepsCount + ' hexes)';
+  }
+  if (ev.topic === STREAM_TOPICS.ARMY_REINTEGRATED) {
+    return '— ' + p.armyName + ' returned ' + p.troopsReturned + ' troops to ' + p.homeCityName + ' Barracks';
+  }
   if (ev.topic === STREAM_TOPICS.DUNGEON_DISCOVERED) {
     return '— Discovered Vault: ' + p.dungeonName + ' at (' + p.x + ',' + p.y + ')!';
   }
@@ -22046,6 +22845,85 @@ function formatEventSummary(ev) {
     return '— [Blocked] ' + p.reason;
   }
   return '';
+}
+
+function renderDeployArmyModal(simHost) {
+  if (typeof document === 'undefined') return;
+  const modal = document.getElementById('wgDeployArmyModal');
+  const body = document.getElementById('wgDeployArmyBody');
+  if (!modal || !body) return;
+
+  const state = simHost && simHost.state;
+  const isOpen = Boolean(state && state._deployArmyModalOpen && state.world);
+  modal.classList.toggle('hidden', !isOpen);
+  if (!isOpen) return;
+
+  const world = state.world;
+  const city = getPrimaryCity(state);
+  if (!city) {
+    modal.classList.add('hidden');
+    return;
+  }
+
+  const ow = world.overworld;
+  const draft = state._deployArmyDraft || {};
+  const targetX = typeof draft.targetX === 'number' ? draft.targetX : Math.min((ow.width || 56) - 1, city.x + 1);
+  const targetY = typeof draft.targetY === 'number' ? draft.targetY : city.y;
+  const stayDeployed = Boolean(draft.stayDeployed);
+  const qtyByKey = draft.qtyByKey || {};
+
+  const inv = getCityTroopInventorySummary(world, city);
+  const availableRows = inv.byTypeAndLevel.filter(function(r) { return r.trained > 0; });
+
+  let totalSelected = 0;
+  const rowsHtml = availableRows.length === 0
+    ? '<div class="text-xs text-[#8b949e] italic py-2">No trained troops available in ' + city.name + ' Barracks.</div>'
+    : availableRows.map(function(row) {
+        const key = row.troopDefId + ':' + row.level;
+        const curQty = Math.max(0, Math.min(row.trained, Math.floor(Number(qtyByKey[key] || 0))));
+        totalSelected += curQty;
+        return `
+          <div class="p-2 rounded bg-[#111722] border border-[#283347] space-y-1 text-xs font-mono">
+            <div class="flex items-center justify-between">
+              <span class="text-[#e6edf3] font-bold">${row.icon} ${row.name} <span class="text-[#fbbf24]">Lv ${row.level}</span></span>
+              <span class="text-[#34d399]">Available: ${row.trained}</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <input type="range" min="0" max="${row.trained}" value="${curQty}" oninput="window.WargameApp.handleSetDeployTroopQty('${row.troopDefId}', ${row.level}, this.value)" class="flex-1 accent-[#f87171] cursor-pointer" />
+              <input type="number" min="0" max="${row.trained}" value="${curQty}" oninput="window.WargameApp.handleSetDeployTroopQty('${row.troopDefId}', ${row.level}, this.value)" class="w-14 px-1.5 py-0.5 rounded bg-[#080b11] border border-[#283347] text-[#e6edf3] text-center" />
+            </div>
+          </div>
+        `;
+      }).join('');
+
+  const html = `
+    <div class="flex items-center justify-between px-4 py-3 bg-[#080b11] border-b border-[#283347]">
+      <div>
+        <h2 class="text-sm font-bold text-[#f87171]">🛡️ Deploy Field Army from ${city.name}</h2>
+        <div class="text-[11px] font-mono text-[#94a3b8]">Select Barracks troops and target hex; army is formed automatically on deployment</div>
+      </div>
+      <button onclick="window.WargameApp.handleCloseDeployArmyModal()" class="px-2.5 py-1 rounded bg-[#1a2232] hover:bg-[#283347] text-xs font-mono font-bold text-[#e6edf3] cursor-pointer">✕ Close</button>
+    </div>
+    <div class="p-4 space-y-3 overflow-y-auto">
+      <div class="p-2.5 rounded bg-[#080b11] border border-[#283347] flex flex-wrap items-center justify-between gap-2 text-xs font-mono">
+        <span class="text-[#cbd5e1] font-bold">Target Hex (Patrol):</span>
+        <div class="flex items-center gap-2">
+          <label class="text-[#8b949e]">X <input type="number" min="0" max="${(ow.width || 56) - 1}" value="${targetX}" oninput="window.WargameApp.handleSetDeployTargetCoord('x', this.value)" class="w-14 px-1.5 py-0.5 rounded bg-[#111722] border border-[#283347] text-[#e6edf3] text-center" /></label>
+          <label class="text-[#8b949e]">Y <input type="number" min="0" max="${(ow.height || 40) - 1}" value="${targetY}" oninput="window.WargameApp.handleSetDeployTargetCoord('y', this.value)" class="w-14 px-1.5 py-0.5 rounded bg-[#111722] border border-[#283347] text-[#e6edf3] text-center" /></label>
+        </div>
+      </div>
+      <div class="space-y-1.5">${rowsHtml}</div>
+      <label class="flex items-center gap-2 p-2.5 rounded bg-[#080b11] border border-[#283347] text-xs font-mono text-[#e6edf3] cursor-pointer">
+        <input type="checkbox" ${stayDeployed ? 'checked' : ''} onchange="window.WargameApp.handleToggleDeployStayDeployed(this.checked)" class="accent-[#f87171]" />
+        <span>Stay deployed after completing objective (unchecked = auto-return to ${city.name} Barracks)</span>
+      </label>
+      <div class="flex items-center justify-between pt-1">
+        <span class="text-xs font-mono text-[#fbbf24]">Selected Force: <strong>${totalSelected} Troops</strong></span>
+        <button data-action="confirm-deploy-army" onclick="window.WargameApp.handleConfirmDeployArmy()" ${totalSelected <= 0 ? 'disabled' : ''} class="px-4 py-2 rounded-lg text-xs font-mono font-bold uppercase ${totalSelected > 0 ? 'bg-[#f87171] hover:bg-[#ef4444] text-[#080b11] cursor-pointer' : 'bg-[#1a2232] text-[#64748b] cursor-not-allowed'}">🛡️ Deploy Army</button>
+      </div>
+    </div>
+  `;
+  setHtmlIfChanged(body, html);
 }
 
   // --- Module: src/data/ores.js ---
@@ -31434,6 +32312,277 @@ function evaluateWargameSelfTests() {
       : 'Failed checks: ' + failed33.join(', ')
   });
 
+  // =========================================================================
+  // Test 34: Field Army Deployment, Atomic Transfer, Capacity, Hex Movement, Patrol, Return Policy & Redirection (Task 05B-1)
+  // =========================================================================
+  const host34 = createWargameSimHost();
+  host34.dispatch({ type: COMMAND_TYPES.START_NEW_CAMPAIGN, payload: { houseName: 'House Banner', worldName: 'Field Realm', seedCode: 'STAR-3400' } });
+  host34.dispatch({ type: COMMAND_TYPES.FOUND_CITY, payload: { cityName: 'Bannerhold' } });
+  const city34 = getPrimaryCity(host34.state);
+  const ow34 = host34.state.world.overworld;
+  city34.stockpile.wood = 800; city34.stockpile.stone = 800; city34.stockpile.food = 800; city34.stockpile.gold = 800;
+  city34.buildings.quarry = 1;
+  city34.buildings.meeting_hall = 2;
+
+  const pB34 = city34.plots.findIndex(function(p) { return p && !p.buildingId; });
+  host34.dispatch({ type: COMMAND_TYPES.QUEUE_BUILDING, payload: { plotIndex: pB34, buildingId: 'barracks' } });
+  host34.stepClock(15000);
+  city34.plots[pB34].level = 2;
+  city34.buildings.barracks = 2; // Capacity 20
+  const pFC34 = city34.plots.findIndex(function(p) { return p && !p.buildingId; });
+  host34.dispatch({ type: COMMAND_TYPES.QUEUE_BUILDING, payload: { plotIndex: pFC34, buildingId: 'fighter_camp' } });
+  const pAC34 = city34.plots.findIndex(function(p, idx) { return p && !p.buildingId && idx !== pFC34; });
+  host34.dispatch({ type: COMMAND_TYPES.QUEUE_BUILDING, payload: { plotIndex: pAC34, buildingId: 'archer_camp' } });
+  host34.stepClock(20000);
+  city34.plots[pFC34].level = 2;
+  city34.buildings.fighter_camp = 2;
+
+  // Train multi-type, multi-level Barracks force: Infantry Lv 1 x3, Lv 2 x2, Archers Lv 1 x2 (7 total)
+  host34.dispatch({ type: COMMAND_TYPES.TRAIN_TROOPS, payload: { troopDefId: 'infantry', level: 1, quantity: 3 } });
+  host34.dispatch({ type: COMMAND_TYPES.TRAIN_TROOPS, payload: { troopDefId: 'infantry', level: 2, quantity: 2 } });
+  host34.dispatch({ type: COMMAND_TYPES.TRAIN_TROOPS, payload: { troopDefId: 'archer', level: 1, quantity: 2 } });
+  host34.stepClock(120000);
+
+  // Pick two distinct passable neighbor hexes from city
+  const passableNbrs34 = getHexNeighbors(city34.x, city34.y, ow34).filter(function(n) {
+    const t = ow34.tiles[n.y][n.x];
+    return t !== OW_TERRAIN_MOUNTAINS && t !== 'water' && t !== 4 && t !== 5;
+  });
+  const dest1_34 = passableNbrs34[0];
+  const dest2_34 = passableNbrs34[1] || passableNbrs34[0];
+
+  // Invalid deployments must reject with ZERO inventory mutation
+  const invalidDeployBlocked34 = Boolean(
+    !host34.dispatch({ type: COMMAND_TYPES.DEPLOY_ARMY, payload: { targetX: dest1_34.x, targetY: dest1_34.y, troops: [] } }).ok &&
+    !host34.dispatch({ type: COMMAND_TYPES.DEPLOY_ARMY, payload: { targetX: city34.x, targetY: city34.y, troops: [{ troopDefId: 'infantry', level: 1, quantity: 1 }] } }).ok &&
+    !host34.dispatch({ type: COMMAND_TYPES.DEPLOY_ARMY, payload: { targetX: dest1_34.x, targetY: dest1_34.y, troops: [{ troopDefId: 'infantry', level: 1, quantity: 99 }] } }).ok &&
+    !host34.dispatch({ type: COMMAND_TYPES.DEPLOY_ARMY, payload: { targetX: -5, targetY: -5, troops: [{ troopDefId: 'infantry', level: 1, quantity: 1 }] } }).ok &&
+    getCityTroopCountAtLevel(host34.state.world, city34.id, 'infantry', 1) === 3
+  );
+
+  // Valid deployment (stayDeployed: false) -> atomic Barracks->Army transfer & capacity accounted once
+  const depRes34 = host34.dispatch({
+    type: COMMAND_TYPES.DEPLOY_ARMY,
+    payload: {
+      homeCityId: city34.id,
+      targetX: dest1_34.x,
+      targetY: dest1_34.y,
+      stayDeployed: false,
+      troops: [
+        { troopDefId: 'infantry', level: 1, quantity: 2 },
+        { troopDefId: 'infantry', level: 2, quantity: 1 },
+        { troopDefId: 'archer', level: 1, quantity: 1 }
+      ]
+    }
+  });
+  const army34 = depRes34.ok ? depRes34.data.army : null;
+  const capAfterDeploy34 = getCityTroopCapacityUsage(host34.state.world, city34);
+  const deployAtomicOk34 = Boolean(
+    depRes34.ok && army34 && army34.unitType === 'army' && army34.alive &&
+    army34.homeCityId === city34.id && army34.ownerPlayerId === CANONICAL_PLAYER_ID &&
+    getArmyTotalTroopCount(host34.state.world, army34.id) === 4 &&
+    getCityTroopCountAtLevel(host34.state.world, city34.id, 'infantry', 1) === 1 &&
+    getCityTroopCountAtLevel(host34.state.world, city34.id, 'infantry', 2) === 1 &&
+    getCityTroopCountAtLevel(host34.state.world, city34.id, 'archer', 1) === 1 &&
+    capAfterDeploy34.stationed === 3 &&
+    capAfterDeploy34.deployed === 4 &&
+    capAfterDeploy34.totalUsed === 7
+  );
+
+  // Advance just enough for march arrival -> arrival != completion (objective_in_progress!)
+  const firstStepDur34 = (army34 && army34.marchPlan) ? (army34.marchPlan.stepDueSimTimeMs - army34.marchPlan.stepStartSimTimeMs) : 3000;
+  host34.stepClock(firstStepDur34);
+  const arrivalDistinctFromCompletion34 = Boolean(
+    army34 && army34.x === dest1_34.x && army34.y === dest1_34.y &&
+    army34.status === 'objective_in_progress' &&
+    army34.objective && army34.objective.status === ARMY_OBJECTIVE_STATUS.IN_PROGRESS
+  );
+
+  // Advance ARMY_PATROL_DURATION_MS -> patrol completes & auto-returns home (stayDeployed === false)
+  host34.stepClock(ARMY_PATROL_DURATION_MS || 3000);
+  const autoReturnTriggered34 = Boolean(
+    army34 && army34.status === 'returning' &&
+    army34.objective && army34.objective.type === ARMY_OBJECTIVE_TYPES.RETURN_HOME
+  );
+
+  // Redirect army WHILE returning -> supersedes return, preserves ID & troops, sets stayDeployed: true
+  const redirRes34 = host34.dispatch({
+    type: COMMAND_TYPES.REDIRECT_ARMY,
+    payload: { armyId: army34.id, targetX: dest2_34.x, targetY: dest2_34.y, stayDeployed: true }
+  });
+  host34.stepClock(20000); // arrive & finish patrol at dest2
+  const redirectAndStayOk34 = Boolean(
+    redirRes34.ok &&
+    army34.alive && !army34.reintegrated &&
+    army34.x === dest2_34.x && army34.y === dest2_34.y &&
+    army34.status === 'idle' &&
+    army34.stayDeployed === true &&
+    army34.objective && army34.objective.status === ARMY_OBJECTIVE_STATUS.COMPLETED &&
+    getArmyTotalTroopCount(host34.state.world, army34.id) === 4
+  );
+
+  // Missing home city fallback: halts safely as 'idle' & preserves all troops (never deletes!)
+  const savedHomeId34 = army34.homeCityId;
+  army34.homeCityId = 'city_missing_999';
+  const failMissingHome34 = reintegrateArmyIntoBarracks(army34, host34.state, host34.state.world.clock.simTimeMs, host34.eventStream);
+  const missingHomeSafeOk34 = Boolean(
+    !failMissingHome34.ok &&
+    army34.alive && army34.status === 'idle' &&
+    army34.objective && army34.objective.status === ARMY_OBJECTIVE_STATUS.FAILED &&
+    getArmyTotalTroopCount(host34.state.world, army34.id) === 4
+  );
+  army34.homeCityId = savedHomeId34;
+
+  // Manual return home -> reintegrates exact troop types/levels into Barracks, retires army, idempotent on replay
+  const manualRetRes34 = host34.dispatch({ type: COMMAND_TYPES.RETURN_ARMY_HOME, payload: { armyId: army34.id } });
+  host34.stepClock(20000);
+  const replayReint34 = reintegrateArmyIntoBarracks(army34, host34.state, host34.state.world.clock.simTimeMs, host34.eventStream);
+  const capAfterReturn34 = getCityTroopCapacityUsage(host34.state.world, city34);
+  const reintegrateAndIdempotentOk34 = Boolean(
+    manualRetRes34.ok &&
+    replayReint34.skipped === true &&
+    !army34.alive && army34.reintegrated === true && army34.status === 'retired' &&
+    getCityTroopCountAtLevel(host34.state.world, city34.id, 'infantry', 1) === 3 &&
+    getCityTroopCountAtLevel(host34.state.world, city34.id, 'infantry', 2) === 2 &&
+    getCityTroopCountAtLevel(host34.state.world, city34.id, 'archer', 1) === 2 &&
+    capAfterReturn34.stationed === 7 &&
+    capAfterReturn34.deployed === 0 &&
+    capAfterReturn34.totalUsed === 7
+  );
+
+  const t34Checks = {
+    invalidDeployBlocked: invalidDeployBlocked34,
+    deployAtomicOk: deployAtomicOk34,
+    arrivalDistinctFromCompletion: arrivalDistinctFromCompletion34,
+    autoReturnTriggered: autoReturnTriggered34,
+    redirectAndStayOk: redirectAndStayOk34,
+    missingHomeSafeOk: missingHomeSafeOk34,
+    reintegrateAndIdempotentOk: reintegrateAndIdempotentOk34
+  };
+  const failed34 = Object.keys(t34Checks).filter(function(k) { return !t34Checks[k]; });
+  const t34Pass = failed34.length === 0;
+
+  results.push({
+    name: '34. Field Army Deployment, Atomic Transfer, Capacity, Hex Movement, Patrol, Return Policy & Redirection (Task 05B-1)',
+    pass: t34Pass,
+    detail: t34Pass
+      ? 'Automatic army creation, atomic Barracks<->Army transfer, deployed capacity accounting, arrival vs patrol completion, return policy, mid-return redirect, safe missing-home halt & idempotent reintegration verified'
+      : 'Failed checks: ' + failed34.join(', ')
+  });
+
+  // =========================================================================
+  // Test 35: Field Army Persistence Across Lifecycle Stages, Orphaned Group/Job Recovery & Idempotency (Task 05B-1)
+  // =========================================================================
+  const prevSavedRaw35 = (typeof localStorage !== 'undefined') ? localStorage.getItem(WARGAME_STORAGE_KEY) : null;
+  let t35Checks = {};
+  try {
+    const host35 = createWargameSimHost();
+    host35.dispatch({ type: COMMAND_TYPES.START_NEW_CAMPAIGN, payload: { houseName: 'House PersistArmy', worldName: 'Save Field', seedCode: 'STAR-3500' } });
+    host35.dispatch({ type: COMMAND_TYPES.FOUND_CITY, payload: { cityName: 'Fieldwatch' } });
+    const city35 = getPrimaryCity(host35.state);
+    const ow35 = host35.state.world.overworld;
+    city35.stockpile.wood = 500; city35.stockpile.stone = 500; city35.stockpile.food = 500; city35.stockpile.gold = 500;
+    city35.buildings.quarry = 1;
+    const pB35 = city35.plots.findIndex(function(p) { return p && !p.buildingId; });
+    host35.dispatch({ type: COMMAND_TYPES.QUEUE_BUILDING, payload: { plotIndex: pB35, buildingId: 'barracks' } });
+    host35.stepClock(15000);
+    const pFC35 = city35.plots.findIndex(function(p) { return p && !p.buildingId; });
+    host35.dispatch({ type: COMMAND_TYPES.QUEUE_BUILDING, payload: { plotIndex: pFC35, buildingId: 'fighter_camp' } });
+    host35.stepClock(15000);
+    host35.dispatch({ type: COMMAND_TYPES.TRAIN_TROOPS, payload: { troopDefId: 'infantry', level: 1, quantity: 4 } });
+    host35.stepClock(40000);
+
+    const nbr35 = getHexNeighbors(city35.x, city35.y, ow35).find(function(n) {
+      const t = ow35.tiles[n.y][n.x];
+      return t !== OW_TERRAIN_MOUNTAINS && t !== 'water' && t !== 4 && t !== 5;
+    });
+    const dep35 = host35.dispatch({
+      type: COMMAND_TYPES.DEPLOY_ARMY,
+      payload: { homeCityId: city35.id, targetX: nbr35.x, targetY: nbr35.y, stayDeployed: false, troops: [{ troopDefId: 'infantry', level: 1, quantity: 3 }] }
+    });
+    const armyId35 = dep35.data.armyId;
+    const stepDur35 = dep35.data.army.marchPlan.stepDueSimTimeMs - dep35.data.army.marchPlan.stepStartSimTimeMs;
+
+    // Stage 1: Save while marching -> load into fresh host35b -> advance to objective_in_progress
+    host35.save();
+    const host35b = createWargameSimHost();
+    const loadMarch35 = host35b.load();
+    host35b.stepClock(stepDur35);
+    const army35b = host35b.state.world.overworld.units.find(function(u) { return u && u.id === armyId35; });
+    const stageMarchOk35 = Boolean(
+      loadMarch35 && army35b && army35b.status === 'objective_in_progress' &&
+      getArmyTotalTroopCount(host35b.state.world, armyId35) === 3
+    );
+
+    // Stage 2: Save while objective_in_progress -> load into fresh host35c -> test orphan job recovery + completion
+    host35b.save();
+    const rawInProg35 = JSON.parse(localStorage.getItem(WARGAME_STORAGE_KEY));
+    // Also inject an orphaned army troop group (nonexistent army) & strip scheduledJobs to verify deterministic recovery!
+    rawInProg35.world.scheduledJobs = [];
+    rawInProg35.world.troopGroups.push({
+      id: 'tg_orphan_ghost',
+      ownerPlayerId: CANONICAL_PLAYER_ID,
+      troopDefId: 'infantry',
+      level: 1,
+      count: 2,
+      locationType: TROOP_LOCATION_TYPES.ARMY,
+      locationId: 'army_ghost_999'
+    });
+    localStorage.setItem(WARGAME_STORAGE_KEY, JSON.stringify(rawInProg35));
+
+    const host35c = createWargameSimHost();
+    const loadObj35 = host35c.load();
+    const city35c = getPrimaryCity(host35c.state);
+    // Orphaned 2 troops must be safely recovered to Barracks (1 original + 2 recovered = 3 stationed!)
+    const orphanRecoveredToBarracks35 = getCityTroopCountAtLevel(host35c.state.world, city35c.id, 'infantry', 1) === 3;
+    // Orphaned ARMY_OBJECTIVE_COMPLETE job must be rescheduled and finish patrol -> start returning
+    host35c.stepClock(ARMY_PATROL_DURATION_MS + 1000);
+    const army35c = host35c.state.world.overworld.units.find(function(u) { return u && u.id === armyId35; });
+    const stageObjOk35 = Boolean(
+      loadObj35 && orphanRecoveredToBarracks35 &&
+      army35c && army35c.status === 'returning'
+    );
+
+    // Stage 3: Save while returning -> load into fresh host35d -> complete return & reintegrate!
+    host35c.save();
+    const host35d = createWargameSimHost();
+    const loadRet35 = host35d.load();
+    host35d.stepClock(20000);
+    const city35d = getPrimaryCity(host35d.state);
+    const army35d = host35d.state.world.overworld.units.find(function(u) { return u && u.id === armyId35; });
+    const stageReturnOk35 = Boolean(
+      loadRet35 &&
+      army35d && !army35d.alive && army35d.reintegrated === true &&
+      getCityTroopCountAtLevel(host35d.state.world, city35d.id, 'infantry', 1) === 6 // 3 Barracks + 3 returned!
+    );
+
+    // Replay stale ARMY_OBJECTIVE_COMPLETE job -> strictly idempotent no-op
+    resolveArmyObjectiveCompleteJob({ jobId: 'stale', payload: { armyId: armyId35 } }, host35d.state, host35d.scheduler, host35d.eventStream);
+    const idempotentReplayOk35 = getCityTroopCountAtLevel(host35d.state.world, city35d.id, 'infantry', 1) === 6;
+
+    t35Checks = {
+      stageMarchOk: stageMarchOk35,
+      stageObjOk: stageObjOk35,
+      stageReturnOk: stageReturnOk35,
+      idempotentReplayOk: idempotentReplayOk35
+    };
+  } finally {
+    if (typeof localStorage !== 'undefined') {
+      if (prevSavedRaw35 === null) localStorage.removeItem(WARGAME_STORAGE_KEY);
+      else localStorage.setItem(WARGAME_STORAGE_KEY, prevSavedRaw35);
+    }
+  }
+  const failed35 = Object.keys(t35Checks).filter(function(k) { return !t35Checks[k]; });
+  const t35Pass = failed35.length === 0 && Object.keys(t35Checks).length > 0;
+
+  results.push({
+    name: '35. Field Army Persistence Across Lifecycle Stages, Orphaned Group/Job Recovery & Idempotency (Task 05B-1)',
+    pass: t35Pass,
+    detail: t35Pass
+      ? 'Save/load across marching, objective_in_progress & returning stages, orphaned army troop group recovery, orphaned objective job rescheduling & idempotency verified'
+      : 'Failed checks: ' + failed35.join(', ')
+  });
+
   return results;
 }
 
@@ -34494,6 +35643,121 @@ function handleDisbandTroopsByLevel(troopDefId, level, quantity) {
   return res;
 }
 
+function handleOpenDeployArmyModal(targetX, targetY) {
+  if (!simHost.state || !simHost.state.world) return;
+  const city = getPrimaryCity(simHost.state);
+  if (!city) return;
+  const ow = simHost.state.world.overworld;
+  const defX = (typeof targetX === 'number' && !isNaN(targetX)) ? targetX : Math.min((ow.width || 56) - 1, city.x + 1);
+  const defY = (typeof targetY === 'number' && !isNaN(targetY)) ? targetY : city.y;
+  simHost.state._deployArmyModalOpen = true;
+  simHost.state._deployArmyDraft = {
+    targetX: defX,
+    targetY: defY,
+    stayDeployed: false,
+    qtyByKey: {}
+  };
+  simHost.state._dirty = true;
+  syncWargameUI(simHost);
+}
+
+function handleCloseDeployArmyModal() {
+  if (!simHost.state) return;
+  simHost.state._deployArmyModalOpen = false;
+  simHost.state._dirty = true;
+  syncWargameUI(simHost);
+}
+
+function handleSetDeployTargetCoord(axis, rawVal) {
+  if (!simHost.state || !simHost.state._deployArmyDraft) return;
+  const v = Math.floor(Number(rawVal));
+  if (!isFinite(v) || v < 0) return;
+  if (axis === 'x') simHost.state._deployArmyDraft.targetX = v;
+  else if (axis === 'y') simHost.state._deployArmyDraft.targetY = v;
+  syncWargameUI(simHost);
+}
+
+function handleSetDeployTroopQty(troopDefId, level, rawVal) {
+  if (!simHost.state || !simHost.state.world || !simHost.state._deployArmyDraft) return;
+  const city = getPrimaryCity(simHost.state);
+  if (!city) return;
+  const maxAvail = getCityTroopCountAtLevel(simHost.state.world, city.id, troopDefId, level);
+  const parsed = Math.floor(Number(rawVal));
+  const clamped = isFinite(parsed) ? Math.max(0, Math.min(maxAvail, parsed)) : 0;
+  simHost.state._deployArmyDraft.qtyByKey[troopDefId + ':' + level] = clamped;
+  syncWargameUI(simHost);
+}
+
+function handleToggleDeployStayDeployed(checked) {
+  if (!simHost.state || !simHost.state._deployArmyDraft) return;
+  simHost.state._deployArmyDraft.stayDeployed = Boolean(checked);
+  syncWargameUI(simHost);
+}
+
+function handleConfirmDeployArmy() {
+  if (!simHost.state || !simHost.state.world || !simHost.state._deployArmyDraft) return { ok: false };
+  const city = getPrimaryCity(simHost.state);
+  const draft = simHost.state._deployArmyDraft;
+  const troops = [];
+  const keys = Object.keys(draft.qtyByKey || {});
+  for (let i = 0; i < keys.length; i++) {
+    const qty = Math.floor(Number(draft.qtyByKey[keys[i]] || 0));
+    if (qty <= 0) continue;
+    const parts = keys[i].split(':');
+    troops.push({ troopDefId: parts[0], level: parseInt(parts[1], 10) || 1, quantity: qty });
+  }
+  const res = simHost.dispatch({
+    type: COMMAND_TYPES.DEPLOY_ARMY,
+    payload: {
+      homeCityId: city ? city.id : null,
+      targetX: draft.targetX,
+      targetY: draft.targetY,
+      stayDeployed: Boolean(draft.stayDeployed),
+      troops: troops
+    }
+  });
+  if (res && res.ok) {
+    simHost.state._deployArmyModalOpen = false;
+  }
+  simHost.state._dirty = true;
+  simHost.save();
+  syncWargameUI(simHost);
+  return res;
+}
+
+function handleSelectOverworldUnit(unitId) {
+  if (!simHost.state || !simHost.state.world || !simHost.state.world.overworld) return;
+  const ow = simHost.state.world.overworld;
+  const found = (ow.units || []).find(function(u) { return u && u.alive && u.id === unitId; });
+  if (found) {
+    ow.selectedUnitId = found.id;
+    simHost.state._dirty = true;
+    syncWargameUI(simHost);
+  }
+}
+
+function handleReturnArmyHome(armyId) {
+  const res = simHost.dispatch({
+    type: COMMAND_TYPES.RETURN_ARMY_HOME,
+    payload: { armyId: armyId }
+  });
+  simHost.state._dirty = true;
+  simHost.save();
+  syncWargameUI(simHost);
+  return res;
+}
+
+function handleSetArmyReturnPolicy(armyId, stayDeployed) {
+  const res = simHost.dispatch({
+    type: COMMAND_TYPES.SET_ARMY_RETURN_POLICY,
+    payload: { armyId: armyId, stayDeployed: Boolean(stayDeployed) }
+  });
+  simHost.state._dirty = true;
+  simHost.save();
+  syncWargameUI(simHost);
+  return res;
+}
+
 function handleCancelTroopTraining(queueItemId) {
   simHost.dispatch({
     type: COMMAND_TYPES.CANCEL_TROOP_TRAINING,
@@ -35057,12 +36321,32 @@ function setupWargameListeners() {
       onTapOffset: function(off) {
         if (!simHost.state.world || !simHost.state.world.overworld || !off) return;
         const ow = simHost.state.world.overworld;
+        if (off.x < 0 || off.x >= ow.width || off.y < 0 || off.y >= ow.height) return;
+
+        // Selecting an existing player unit/army on the tapped hex
+        const tappedUnit = (ow.units || []).find(function(u) {
+          return u && u.alive && u.x === off.x && u.y === off.y;
+        });
         const selUnit = getSelectedOverworldUnit(simHost.state);
-        if (off.x >= 0 && off.x < ow.width && off.y >= 0 && off.y < ow.height && selUnit && selUnit.alive) {
-          simHost.dispatch({
-            type: COMMAND_TYPES.ORDER_UNIT_MARCH,
-            payload: { unitId: selUnit.id, targetX: off.x, targetY: off.y }
-          });
+        if (tappedUnit && (!selUnit || tappedUnit.id !== selUnit.id)) {
+          ow.selectedUnitId = tappedUnit.id;
+          simHost.state._dirty = true;
+          syncWargameUI(simHost);
+          return;
+        }
+
+        if (selUnit && selUnit.alive) {
+          if (selUnit.unitType === 'army') {
+            simHost.dispatch({
+              type: COMMAND_TYPES.REDIRECT_ARMY,
+              payload: { armyId: selUnit.id, targetX: off.x, targetY: off.y }
+            });
+          } else {
+            simHost.dispatch({
+              type: COMMAND_TYPES.ORDER_UNIT_MARCH,
+              payload: { unitId: selUnit.id, targetX: off.x, targetY: off.y }
+            });
+          }
           simHost.state._dirty = true;
           simHost.save();
           syncWargameUI(simHost);
@@ -35316,6 +36600,15 @@ const WargameApp = {
   handleTrainTroops: handleTrainTroops,
   handleUpgradeTroops: handleUpgradeTroops,
   handleDisbandTroopsByLevel: handleDisbandTroopsByLevel,
+  handleOpenDeployArmyModal: handleOpenDeployArmyModal,
+  handleCloseDeployArmyModal: handleCloseDeployArmyModal,
+  handleSetDeployTargetCoord: handleSetDeployTargetCoord,
+  handleSetDeployTroopQty: handleSetDeployTroopQty,
+  handleToggleDeployStayDeployed: handleToggleDeployStayDeployed,
+  handleConfirmDeployArmy: handleConfirmDeployArmy,
+  handleSelectOverworldUnit: handleSelectOverworldUnit,
+  handleReturnArmyHome: handleReturnArmyHome,
+  handleSetArmyReturnPolicy: handleSetArmyReturnPolicy,
   handleCancelTroopTraining: handleCancelTroopTraining,
   handleDisbandTroops: handleDisbandTroops,
   handleOpenFacilityModal: handleOpenFacilityModal,

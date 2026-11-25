@@ -14,6 +14,21 @@ export const TROOP_LOCATION_TYPES = {
   ARMY: 'army'
 };
 
+export const ARMY_OBJECTIVE_TYPES = {
+  PATROL_HEX: 'patrol_hex',
+  RETURN_HOME: 'return_home'
+};
+
+export const ARMY_OBJECTIVE_STATUS = {
+  ACCEPTED: 'accepted',
+  TRAVELING: 'traveling',
+  ARRIVED: 'arrived',
+  IN_PROGRESS: 'in_progress',
+  COMPLETED: 'completed',
+  FAILED: 'failed',
+  INTERRUPTED: 'interrupted'
+};
+
 export const TROOP_AVAILABILITY_STATES = {
   AVAILABLE: 'available',
   LOCKED: 'locked',
@@ -220,6 +235,43 @@ export function getCityBarracksTroopGroups(world, cityId) {
   });
 }
 
+export function getArmyTroopGroups(world, armyId) {
+  if (!world || !Array.isArray(world.troopGroups) || !armyId) return [];
+  return world.troopGroups.filter(function(g) {
+    return g && g.locationType === TROOP_LOCATION_TYPES.ARMY && g.locationId === armyId && (g.count || 0) > 0;
+  });
+}
+
+export function getArmyTotalTroopCount(world, armyId) {
+  const groups = getArmyTroopGroups(world, armyId);
+  let total = 0;
+  for (let i = 0; i < groups.length; i++) {
+    total += (groups[i].count || 0);
+  }
+  return total;
+}
+
+export function getCityDeployedArmyTroopCount(world, cityId) {
+  if (!world || !cityId || !world.overworld || !Array.isArray(world.overworld.units)) return 0;
+  const activeHomeArmyIds = {};
+  for (let u = 0; u < world.overworld.units.length; u++) {
+    const unit = world.overworld.units[u];
+    if (unit && unit.alive && unit.unitType === 'army' && !unit.reintegrated && unit.homeCityId === cityId) {
+      activeHomeArmyIds[unit.id] = true;
+    }
+  }
+  if (!Array.isArray(world.troopGroups)) return 0;
+  let deployed = 0;
+  for (let i = 0; i < world.troopGroups.length; i++) {
+    const g = world.troopGroups[i];
+    if (!g || g.locationType !== TROOP_LOCATION_TYPES.ARMY || !activeHomeArmyIds[g.locationId] || (g.count || 0) <= 0) continue;
+    const def = getTroopDefinition(g.troopDefId);
+    const weight = (def && def.capacityWeight) ? def.capacityWeight : 1;
+    deployed += (g.count || 0) * weight;
+  }
+  return deployed;
+}
+
 export function getCityTroopCountAtLevel(world, cityId, troopDefId, level) {
   const lvl = Math.max(1, Math.floor(Number(level || 1)));
   const groups = getCityBarracksTroopGroups(world, cityId);
@@ -235,7 +287,7 @@ export function getCityTroopCountAtLevel(world, cityId, troopDefId, level) {
 export function getCityTroopCapacityUsage(world, city) {
   const maxCapacity = computeCityTroopCapacity(city);
   if (!world || !city) {
-    return { stationed: 0, queuedRecruit: 0, upgrading: 0, totalUsed: 0, maxCapacity: maxCapacity, available: maxCapacity };
+    return { stationed: 0, deployed: 0, queuedRecruit: 0, upgrading: 0, queued: 0, totalUsed: 0, maxCapacity: maxCapacity, available: maxCapacity };
   }
   const groups = getCityBarracksTroopGroups(world, city.id);
   let stationed = 0;
@@ -244,6 +296,7 @@ export function getCityTroopCapacityUsage(world, city) {
     const weight = (def && def.capacityWeight) ? def.capacityWeight : 1;
     stationed += (groups[i].count || 0) * weight;
   }
+  const deployed = getCityDeployedArmyTroopCount(world, city.id);
   let queuedRecruit = 0;
   let upgrading = 0;
   const tq = Array.isArray(city.troopTrainingQueue) ? city.troopTrainingQueue : [];
@@ -259,11 +312,12 @@ export function getCityTroopCapacityUsage(world, city) {
       queuedRecruit += rem * weight;
     }
   }
-  // Troops currently upgrading were deducted from stationed groups, so they still occupy their existing capacity slots
-  const totalUsed = stationed + queuedRecruit + upgrading;
+  // Each troop is counted exactly once: Barracks stationed + Deployed armies + Queued recruits + Upgrading troops
+  const totalUsed = stationed + deployed + queuedRecruit + upgrading;
   const available = Math.max(0, maxCapacity - totalUsed);
   return {
     stationed: stationed,
+    deployed: deployed,
     queuedRecruit: queuedRecruit,
     upgrading: upgrading,
     queued: queuedRecruit,

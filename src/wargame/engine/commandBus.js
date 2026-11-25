@@ -66,7 +66,9 @@ import {
   computeTroopUpgradeDurationMs,
   getCityTroopCountAtLevel,
   getCityTroopCapacityUsage,
-  TROOP_LOCATION_TYPES
+  TROOP_LOCATION_TYPES,
+  ARMY_OBJECTIVE_TYPES,
+  ARMY_OBJECTIVE_STATUS
 } from '../data/troops.js';
 import {
   scheduleNextMarchStep,
@@ -82,6 +84,9 @@ import {
   addBarracksTroopsAtLevel,
   resolveTroopTrainUnitJob,
   resolveTroopUpgradeUnitJob,
+  startArmyReturnHome,
+  handleArmyArrival,
+  resolveArmyObjectiveCompleteJob,
   processResourceProductionTick
 } from './queues.js';
 import {
@@ -1347,6 +1352,310 @@ export function dispatchWargameCommand(commandEnvelope, state, scheduler, eventS
   }
 
   // ---------------------------------------------------------------------------
+  // 9B1b. FIELD ARMY DEPLOYMENT, REDIRECTION & RETURN POLICY (Task 05B-1)
+  // ---------------------------------------------------------------------------
+  if (cmdType === COMMAND_TYPES.DEPLOY_ARMY) {
+    const city = (payload.homeCityId && world.cities[payload.homeCityId]) || getPrimaryCity(state);
+    if (!city) {
+      return reject('You must found a Bastion City before deploying a Field Army');
+    }
+    const ownerId = getCanonicalPlayerId(state);
+    if (city.ownerPlayerId && city.ownerPlayerId !== ownerId) {
+      return reject('You do not control this city');
+    }
+
+    const targetX = Number(payload.targetX);
+    const targetY = Number(payload.targetY);
+    if (!isFinite(targetX) || !isFinite(targetY) || Math.floor(targetX) !== targetX || Math.floor(targetY) !== targetY) {
+      return reject('Invalid target coordinates for deployment');
+    }
+    if (!isInOverworldBounds(ow, targetX, targetY) || !isOverworldTilePassable(ow, targetX, targetY)) {
+      return reject('Target hex (' + targetX + ', ' + targetY + ') is impassable or out of bounds');
+    }
+    if (targetX === city.x && targetY === city.y) {
+      return reject('Select a destination outside the home city to deploy a Field Army');
+    }
+
+    const path = findOverworldPath(ow, city.x, city.y, targetX, targetY);
+    if (!path || path.length === 0) {
+      return reject('No passable hex route from ' + city.name + ' to (' + targetX + ', ' + targetY + ')');
+    }
+
+    const rawTroops = Array.isArray(payload.troops) ? payload.troops : [];
+    if (rawTroops.length === 0) {
+      return reject('Select at least one troop to deploy');
+    }
+
+    // Aggregate & validate all requested (troopDefId, level) quantities BEFORE mutating any state
+    const aggregatedMap = {};
+    const aggregatedList = [];
+    let totalTroops = 0;
+    for (let i = 0; i < rawTroops.length; i++) {
+      const entry = rawTroops[i];
+      if (!entry) continue;
+      const td = getTroopDefinition(entry.troopDefId);
+      if (!td) return reject('Unknown troop type in deployment: ' + entry.troopDefId);
+      const lvl = Math.floor(Number(entry.level || 1));
+      const qty = Number(entry.quantity);
+      if (!isFinite(lvl) || lvl < 1 || !isFinite(qty) || qty < 1 || Math.floor(qty) !== qty) {
+        return reject('Invalid troop level or quantity in deployment');
+      }
+      const key = td.id + ':' + lvl;
+      if (!aggregatedMap[key]) {
+        aggregatedMap[key] = { troopDefId: td.id, level: lvl, quantity: 0 };
+        aggregatedList.push(aggregatedMap[key]);
+      }
+      aggregatedMap[key].quantity += Math.floor(qty);
+      totalTroops += Math.floor(qty);
+    }
+
+    if (totalTroops <= 0) {
+      return reject('Select at least one troop to deploy');
+    }
+
+    for (let i = 0; i < aggregatedList.length; i++) {
+      const req = aggregatedList[i];
+      const available = getCityTroopCountAtLevel(world, city.id, req.troopDefId, req.level);
+      if (available < req.quantity) {
+        return reject('Insufficient Barracks troops for ' + req.troopDefId + ' Lv ' + req.level + ' (need ' + req.quantity + ', have ' + available + ')');
+      }
+    }
+
+    // Atomic transfer: deduct from Barracks & create Army-located troopGroups
+    const existingArmies = (ow.units || []).filter(function(u) { return u && u.unitType === 'army'; }).length;
+    const armySeq = existingArmies + 1;
+    const armyId = 'army_' + armySeq + '_' + simTimeMs + '_' + Math.floor(Math.random() * 10000);
+    if (!Array.isArray(world.troopGroups)) world.troopGroups = [];
+
+    for (let i = 0; i < aggregatedList.length; i++) {
+      const req = aggregatedList[i];
+      deductBarracksTroopsAtLevel(ownerId, city.id, req.troopDefId, req.level, req.quantity);
+      world.troopGroups.push({
+        id: 'tg_' + armyId + '_' + req.troopDefId + '_lv' + req.level,
+        ownerPlayerId: ownerId,
+        troopDefId: req.troopDefId,
+        count: req.quantity,
+        level: req.level,
+        xp: 0,
+        condition: 100,
+        locationType: TROOP_LOCATION_TYPES.ARMY,
+        locationId: armyId,
+        createdAtSimMs: simTimeMs
+      });
+    }
+
+    const armyArch = UNIT_ARCHETYPES.army || { visionRadius: 4, maxHp: 100 };
+    const stayDeployed = Boolean(payload.stayDeployed);
+    const totalMs = path.reduce(function(sum, st) { return sum + (st.stepDurationMs || 3000); }, 0);
+    const armyUnit = {
+      id: armyId,
+      ownerPlayerId: ownerId,
+      unitType: 'army',
+      name: 'Field Army #' + armySeq,
+      shortName: 'Army #' + armySeq,
+      homeCityId: city.id,
+      x: city.x,
+      y: city.y,
+      hp: armyArch.maxHp || 100,
+      maxHp: armyArch.maxHp || 100,
+      visionRadius: armyArch.visionRadius || 4,
+      canFoundCity: false,
+      canEnterDungeon: false,
+      alive: true,
+      reintegrated: false,
+      status: 'marching',
+      stayDeployed: stayDeployed,
+      objective: {
+        id: 'obj_' + armyId + '_' + simTimeMs,
+        type: ARMY_OBJECTIVE_TYPES.PATROL_HEX,
+        status: ARMY_OBJECTIVE_STATUS.TRAVELING,
+        targetX: targetX,
+        targetY: targetY,
+        jobId: null,
+        startSimTimeMs: simTimeMs,
+        dueSimTimeMs: null
+      },
+      cargo: null,
+      marchPlan: {
+        intent: 'patrol_hex',
+        targetX: targetX,
+        targetY: targetY,
+        remainingPath: path,
+        totalDurationMs: totalMs,
+        activeJobId: null,
+        stepStartSimTimeMs: simTimeMs,
+        stepDueSimTimeMs: simTimeMs,
+        fromX: city.x,
+        fromY: city.y,
+        toX: path[0].x,
+        toY: path[0].y
+      },
+      createdAtSimMs: simTimeMs
+    };
+
+    if (!ow.units) ow.units = [];
+    ow.units.push(armyUnit);
+    ow.selectedUnitId = armyUnit.id;
+    revealOverworldVision(ow, armyUnit.x, armyUnit.y, armyUnit.visionRadius);
+    scheduleNextMarchStep(armyUnit, state, scheduler);
+
+    if (eventStream) {
+      eventStream.publish(STREAM_TOPICS.ARMY_DEPLOYED, {
+        armyId: armyUnit.id,
+        armyName: armyUnit.shortName,
+        homeCityId: city.id,
+        homeCityName: city.name,
+        targetX: targetX,
+        targetY: targetY,
+        totalTroops: totalTroops,
+        stayDeployed: stayDeployed
+      }, simTimeMs);
+    }
+
+    return accept({
+      armyId: armyUnit.id,
+      army: armyUnit,
+      totalTroops: totalTroops,
+      stepsCount: path.length
+    });
+  }
+
+  if (cmdType === COMMAND_TYPES.REDIRECT_ARMY) {
+    const ownerId = getCanonicalPlayerId(state);
+    const army = (ow.units || []).find(function(u) {
+      return u && u.alive && !u.reintegrated && u.unitType === 'army' && u.id === payload.armyId;
+    });
+    if (!army) return reject('Deployed Field Army not found');
+    if (army.ownerPlayerId && army.ownerPlayerId !== ownerId) {
+      return reject('You do not control this Field Army');
+    }
+
+    const targetX = Number(payload.targetX);
+    const targetY = Number(payload.targetY);
+    if (!isFinite(targetX) || !isFinite(targetY) || Math.floor(targetX) !== targetX || Math.floor(targetY) !== targetY) {
+      return reject('Invalid target coordinates for redirection');
+    }
+    if (!isInOverworldBounds(ow, targetX, targetY) || !isOverworldTilePassable(ow, targetX, targetY)) {
+      return reject('Target hex (' + targetX + ', ' + targetY + ') is impassable or out of bounds');
+    }
+
+    const homeCity = (world.cities && army.homeCityId) ? world.cities[army.homeCityId] : null;
+    if (homeCity && targetX === homeCity.x && targetY === homeCity.y) {
+      const retRes = startArmyReturnHome(army, state, scheduler, simTimeMs, eventStream);
+      if (!retRes || !retRes.ok) return reject((retRes && retRes.reason) || 'Unable to return home');
+      return accept({ armyId: army.id, redirectedToReturnHome: true });
+    }
+
+    let path = [];
+    if (army.x !== targetX || army.y !== targetY) {
+      path = findOverworldPath(ow, army.x, army.y, targetX, targetY);
+      if (!path || path.length === 0) {
+        return reject('No passable hex route to (' + targetX + ', ' + targetY + ')');
+      }
+    }
+
+    // Cancel active march or objective job and mark previous objective interrupted
+    if (army.marchPlan && army.marchPlan.activeJobId && scheduler) {
+      scheduler.cancelJob(army.marchPlan.activeJobId);
+    }
+    if (army.objective) {
+      if (army.objective.jobId && scheduler) {
+        scheduler.cancelJob(army.objective.jobId);
+      }
+      army.objective.status = ARMY_OBJECTIVE_STATUS.INTERRUPTED;
+      army.objective.jobId = null;
+    }
+
+    if (typeof payload.stayDeployed === 'boolean') {
+      army.stayDeployed = payload.stayDeployed;
+    }
+
+    army.objective = {
+      id: 'obj_' + army.id + '_' + simTimeMs + '_' + Math.floor(Math.random() * 1000),
+      type: ARMY_OBJECTIVE_TYPES.PATROL_HEX,
+      status: ARMY_OBJECTIVE_STATUS.ACCEPTED,
+      targetX: targetX,
+      targetY: targetY,
+      jobId: null,
+      startSimTimeMs: simTimeMs,
+      dueSimTimeMs: null
+    };
+
+    if (path.length === 0) {
+      army.marchPlan = null;
+      handleArmyArrival(army, state, scheduler, simTimeMs, eventStream);
+    } else {
+      const totalMs = path.reduce(function(sum, st) { return sum + (st.stepDurationMs || 3000); }, 0);
+      army.objective.status = ARMY_OBJECTIVE_STATUS.TRAVELING;
+      army.marchPlan = {
+        intent: 'patrol_hex',
+        targetX: targetX,
+        targetY: targetY,
+        remainingPath: path,
+        totalDurationMs: totalMs,
+        activeJobId: null,
+        stepStartSimTimeMs: simTimeMs,
+        stepDueSimTimeMs: simTimeMs,
+        fromX: army.x,
+        fromY: army.y,
+        toX: path[0].x,
+        toY: path[0].y
+      };
+      scheduleNextMarchStep(army, state, scheduler);
+    }
+
+    if (eventStream) {
+      eventStream.publish(STREAM_TOPICS.ARMY_REDIRECTED, {
+        armyId: army.id,
+        armyName: army.shortName || army.name,
+        targetX: targetX,
+        targetY: targetY,
+        stayDeployed: Boolean(army.stayDeployed)
+      }, simTimeMs);
+    }
+
+    return accept({
+      armyId: army.id,
+      targetX: targetX,
+      targetY: targetY,
+      stayDeployed: Boolean(army.stayDeployed),
+      stepsCount: path.length
+    });
+  }
+
+  if (cmdType === COMMAND_TYPES.RETURN_ARMY_HOME) {
+    const ownerId = getCanonicalPlayerId(state);
+    const army = (ow.units || []).find(function(u) {
+      return u && u.alive && !u.reintegrated && u.unitType === 'army' && u.id === payload.armyId;
+    });
+    if (!army) return reject('Deployed Field Army not found');
+    if (army.ownerPlayerId && army.ownerPlayerId !== ownerId) {
+      return reject('You do not control this Field Army');
+    }
+    const retRes = startArmyReturnHome(army, state, scheduler, simTimeMs, eventStream);
+    if (!retRes || !retRes.ok) {
+      return reject((retRes && retRes.reason) || 'Unable to begin return home');
+    }
+    return accept({ armyId: army.id, homeCityId: army.homeCityId, stepsCount: retRes.stepsCount || 0 });
+  }
+
+  if (cmdType === COMMAND_TYPES.SET_ARMY_RETURN_POLICY) {
+    const ownerId = getCanonicalPlayerId(state);
+    const army = (ow.units || []).find(function(u) {
+      return u && u.alive && !u.reintegrated && u.unitType === 'army' && u.id === payload.armyId;
+    });
+    if (!army) return reject('Deployed Field Army not found');
+    if (army.ownerPlayerId && army.ownerPlayerId !== ownerId) {
+      return reject('You do not control this Field Army');
+    }
+    if (typeof payload.stayDeployed !== 'boolean') {
+      return reject('stayDeployed must be a boolean');
+    }
+    army.stayDeployed = payload.stayDeployed;
+    return accept({ armyId: army.id, stayDeployed: army.stayDeployed });
+  }
+
+  // ---------------------------------------------------------------------------
   // 9B2. EQUIP / UNEQUIP HERO EQUIPMENT (Shared Character Sheet Operations)
   // ---------------------------------------------------------------------------
   if (cmdType === COMMAND_TYPES.EQUIP_HERO_ITEM) {
@@ -2467,6 +2776,8 @@ export function advanceSimulationClock(deltaRealMs, state, scheduler, eventStrea
           resolveTroopTrainUnitJob(job, state, scheduler, eventStream);
         } else if (job.jobType === 'TROOP_UPGRADE_UNIT_COMPLETE') {
           resolveTroopUpgradeUnitJob(job, state, scheduler, eventStream);
+        } else if (job.jobType === 'ARMY_OBJECTIVE_COMPLETE') {
+          resolveArmyObjectiveCompleteJob(job, state, scheduler, eventStream);
         }
       }
     }

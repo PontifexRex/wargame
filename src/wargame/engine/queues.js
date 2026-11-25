@@ -5,17 +5,21 @@ import {
   STREAM_TOPICS,
   RESOURCE_PRODUCTION_INTERVAL_MS,
   BASE_HERO_RECRUIT_DURATION_MS,
-  WINDMILL_ADJACENCY_BONUS
+  WINDMILL_ADJACENCY_BONUS,
+  ARMY_PATROL_DURATION_MS
 } from '../constants.js';
 import { CITY_BUILDINGS_CATALOG } from '../data/buildings.js';
 import {
   getTroopDefinition,
   computeTroopTrainingDurationMs,
   computeTroopUpgradeDurationMs,
-  TROOP_LOCATION_TYPES
+  TROOP_LOCATION_TYPES,
+  ARMY_OBJECTIVE_TYPES,
+  ARMY_OBJECTIVE_STATUS,
+  getArmyTroopGroups
 } from '../data/troops.js';
 import { UNIT_ARCHETYPES, RECRUITABLE_HERO_CLASSES } from '../data/terrain.js';
-import { revealOverworldVision } from './pathfinding.js';
+import { revealOverworldVision, findOverworldPath } from './pathfinding.js';
 import { evaluateTaskDAG } from './taskEngine.js';
 import { saveWargameState, getPrimaryCity, computeCityStorageCaps } from './state.js';
 import { getCanonicalPlayerId } from '../../core/canonicalIdentity.js';
@@ -44,7 +48,7 @@ export function scheduleNextMarchStep(unit, state, scheduler) {
     }
   });
 
-  unit.status = 'marching';
+  unit.status = (unit.unitType === 'army' && unit.marchPlan.intent === 'return_home') ? 'returning' : 'marching';
   unit.marchPlan.activeJobId = job.jobId;
   unit.marchPlan.stepStartSimTimeMs = simTimeMs;
   unit.marchPlan.stepDueSimTimeMs = simTimeMs + stepDur;
@@ -237,8 +241,8 @@ export function resolveMarchStepJob(job, state, scheduler, eventStream) {
     }
   }
 
-  // Check if unit stepped onto a supply cache POI
-  if (Array.isArray(ow.pois)) {
+  // Check if non-army unit stepped onto a supply cache POI (armies on patrol do not harvest caches in 05B-1)
+  if (unit.unitType !== 'army' && Array.isArray(ow.pois)) {
     for (let i = 0; i < ow.pois.length; i++) {
       const poi = ow.pois[i];
       if (!poi.depleted && poi.type === 'resource_cache' && poi.x === unit.x && poi.y === unit.y) {
@@ -287,16 +291,20 @@ export function resolveMarchStepJob(job, state, scheduler, eventStream) {
     unit.status = 'idle';
     unit.marchPlan = null;
 
-    // If arriving at a friendly City carrying cargo, bank spoils into City Stockpile and restore HP
-    const cityKeys = Object.keys(state.world.cities || {});
-    for (let cIdx = 0; cIdx < cityKeys.length; cIdx++) {
-      const city = state.world.cities[cityKeys[cIdx]];
-      if (city && city.x === unit.x && city.y === unit.y) {
-        unit.hp = unit.maxHp;
-        if (unit.cargo) {
-          depositUnitCargoAtCity(unit, city, state, job.dueSimTimeMs, eventStream);
+    if (unit.unitType === 'army') {
+      handleArmyArrival(unit, state, scheduler, job.dueSimTimeMs, eventStream);
+    } else {
+      // If arriving at a friendly City carrying cargo, bank spoils into City Stockpile and restore HP
+      const cityKeys = Object.keys(state.world.cities || {});
+      for (let cIdx = 0; cIdx < cityKeys.length; cIdx++) {
+        const city = state.world.cities[cityKeys[cIdx]];
+        if (city && city.x === unit.x && city.y === unit.y) {
+          unit.hp = unit.maxHp;
+          if (unit.cargo) {
+            depositUnitCargoAtCity(unit, city, state, job.dueSimTimeMs, eventStream);
+          }
+          break;
         }
-        break;
       }
     }
 
@@ -995,6 +1003,278 @@ export function resolveTroopUpgradeUnitJob(job, state, scheduler, eventStream) {
   evaluateTaskDAG(state, eventStream);
 }
 
+// ---------------------------------------------------------------------------
+// Field Army Objective, Return & Idempotent Barracks Reintegration (Task 05B-1)
+// ---------------------------------------------------------------------------
+export function reintegrateArmyIntoBarracks(army, state, simTimeMs, eventStream) {
+  if (!army || !state || !state.world) return { ok: false, skipped: true };
+  // Strict idempotency guard: already reintegrated or retired armies are a safe no-op
+  if (army.reintegrated || !army.alive) {
+    return { ok: false, skipped: true, reason: 'already_reintegrated' };
+  }
+
+  const world = state.world;
+  const homeCity = (world.cities && army.homeCityId) ? world.cities[army.homeCityId] : null;
+  if (!homeCity) {
+    // Safe recovery policy: if home city is missing/invalid, halt army safely & preserve troops (never delete or reassign arbitrarily)
+    army.status = 'idle';
+    army.marchPlan = null;
+    if (army.objective) {
+      army.objective.status = ARMY_OBJECTIVE_STATUS.FAILED;
+      army.objective.jobId = null;
+      army.objective.failureReason = 'home_city_unavailable';
+    }
+    if (eventStream) {
+      eventStream.publish(STREAM_TOPICS.ARMY_OBJECTIVE_FAILED, {
+        armyId: army.id,
+        armyName: army.shortName || army.name,
+        objectiveType: army.objective ? army.objective.type : ARMY_OBJECTIVE_TYPES.RETURN_HOME,
+        reason: 'Home city unavailable; army halted to preserve troops'
+      }, simTimeMs);
+    }
+    return { ok: false, reason: 'home_city_unavailable' };
+  }
+
+  const armyGroups = getArmyTroopGroups(world, army.id);
+  let totalReturned = 0;
+  for (let i = 0; i < armyGroups.length; i++) {
+    const g = armyGroups[i];
+    const ownerId = g.ownerPlayerId || army.ownerPlayerId || getCanonicalPlayerId(state);
+    addBarracksTroopsAtLevel(world, ownerId, homeCity.id, g.troopDefId, g.level || 1, g.count || 0, simTimeMs);
+    totalReturned += (g.count || 0);
+  }
+  // Remove army-located group records now that troops have been transferred to Barracks
+  if (Array.isArray(world.troopGroups)) {
+    world.troopGroups = world.troopGroups.filter(function(g) {
+      return !(g && g.locationType === TROOP_LOCATION_TYPES.ARMY && g.locationId === army.id);
+    });
+  }
+
+  if (army.cargo) {
+    depositUnitCargoAtCity(army, homeCity, state, simTimeMs, eventStream);
+  }
+
+  army.reintegrated = true;
+  army.alive = false;
+  army.status = 'retired';
+  army.marchPlan = null;
+  if (army.objective) {
+    army.objective.status = ARMY_OBJECTIVE_STATUS.COMPLETED;
+    army.objective.jobId = null;
+  }
+
+  const ow = world.overworld;
+  if (ow && ow.selectedUnitId === army.id) {
+    const nextAlive = (ow.units || []).find(function(u) { return u && u.alive && u.id !== army.id; });
+    ow.selectedUnitId = nextAlive ? nextAlive.id : null;
+  }
+
+  if (eventStream) {
+    eventStream.publish(STREAM_TOPICS.ARMY_REINTEGRATED, {
+      armyId: army.id,
+      armyName: army.shortName || army.name,
+      homeCityId: homeCity.id,
+      homeCityName: homeCity.name,
+      troopsReturned: totalReturned
+    }, simTimeMs);
+  }
+
+  return { ok: true, homeCityId: homeCity.id, troopsReturned: totalReturned };
+}
+
+export function startArmyReturnHome(army, state, scheduler, simTimeMs, eventStream) {
+  if (!army || !army.alive || army.reintegrated || !state || !state.world) {
+    return { ok: false, reason: 'invalid_army' };
+  }
+  const world = state.world;
+  const ow = world.overworld;
+  const homeCity = (world.cities && army.homeCityId) ? world.cities[army.homeCityId] : null;
+  if (!homeCity) {
+    army.status = 'idle';
+    army.marchPlan = null;
+    if (army.objective) {
+      army.objective.status = ARMY_OBJECTIVE_STATUS.FAILED;
+      army.objective.jobId = null;
+      army.objective.failureReason = 'home_city_unavailable';
+    }
+    if (eventStream) {
+      eventStream.publish(STREAM_TOPICS.ARMY_OBJECTIVE_FAILED, {
+        armyId: army.id,
+        armyName: army.shortName || army.name,
+        objectiveType: ARMY_OBJECTIVE_TYPES.RETURN_HOME,
+        reason: 'Home city unavailable; army halted to preserve troops'
+      }, simTimeMs);
+    }
+    return { ok: false, reason: 'home_city_unavailable' };
+  }
+
+  // Cancel any active march or objective job before starting return
+  if (army.marchPlan && army.marchPlan.activeJobId && scheduler) {
+    scheduler.cancelJob(army.marchPlan.activeJobId);
+  }
+  if (army.objective && army.objective.jobId && scheduler) {
+    scheduler.cancelJob(army.objective.jobId);
+  }
+
+  army.objective = {
+    id: 'obj_ret_' + army.id + '_' + simTimeMs,
+    type: ARMY_OBJECTIVE_TYPES.RETURN_HOME,
+    status: ARMY_OBJECTIVE_STATUS.ACCEPTED,
+    targetX: homeCity.x,
+    targetY: homeCity.y,
+    jobId: null,
+    startSimTimeMs: simTimeMs,
+    dueSimTimeMs: null
+  };
+
+  if (army.x === homeCity.x && army.y === homeCity.y) {
+    army.objective.status = ARMY_OBJECTIVE_STATUS.ARRIVED;
+    return reintegrateArmyIntoBarracks(army, state, simTimeMs, eventStream);
+  }
+
+  const path = findOverworldPath(ow, army.x, army.y, homeCity.x, homeCity.y);
+  if (!path || path.length === 0) {
+    army.status = 'idle';
+    army.marchPlan = null;
+    army.objective.status = ARMY_OBJECTIVE_STATUS.FAILED;
+    army.objective.failureReason = 'return_path_unreachable';
+    if (eventStream) {
+      eventStream.publish(STREAM_TOPICS.ARMY_OBJECTIVE_FAILED, {
+        armyId: army.id,
+        armyName: army.shortName || army.name,
+        objectiveType: ARMY_OBJECTIVE_TYPES.RETURN_HOME,
+        reason: 'Return path to home city is unreachable'
+      }, simTimeMs);
+    }
+    return { ok: false, reason: 'return_path_unreachable' };
+  }
+
+  const totalMs = path.reduce(function(sum, st) { return sum + (st.stepDurationMs || 3000); }, 0);
+  army.objective.status = ARMY_OBJECTIVE_STATUS.TRAVELING;
+  army.marchPlan = {
+    intent: 'return_home',
+    targetCityId: homeCity.id,
+    targetX: homeCity.x,
+    targetY: homeCity.y,
+    remainingPath: path,
+    totalDurationMs: totalMs,
+    activeJobId: null,
+    stepStartSimTimeMs: simTimeMs,
+    stepDueSimTimeMs: simTimeMs,
+    fromX: army.x,
+    fromY: army.y,
+    toX: path[0].x,
+    toY: path[0].y
+  };
+
+  scheduleNextMarchStep(army, state, scheduler);
+
+  if (eventStream) {
+    eventStream.publish(STREAM_TOPICS.ARMY_RETURNING, {
+      armyId: army.id,
+      armyName: army.shortName || army.name,
+      homeCityId: homeCity.id,
+      homeCityName: homeCity.name,
+      stepsCount: path.length
+    }, simTimeMs);
+  }
+
+  return { ok: true, stepsCount: path.length };
+}
+
+export function handleArmyArrival(army, state, scheduler, simTimeMs, eventStream) {
+  if (!army || !army.alive || army.reintegrated) return;
+  if (!army.objective) {
+    army.status = 'idle';
+    return;
+  }
+
+  army.objective.status = ARMY_OBJECTIVE_STATUS.ARRIVED;
+
+  if (army.objective.type === ARMY_OBJECTIVE_TYPES.RETURN_HOME) {
+    reintegrateArmyIntoBarracks(army, state, simTimeMs, eventStream);
+    return;
+  }
+
+  if (army.objective.type === ARMY_OBJECTIVE_TYPES.PATROL_HEX) {
+    const patrolDur = Math.max(250, ARMY_PATROL_DURATION_MS || 3000);
+    const job = scheduler ? scheduler.scheduleJob({
+      jobId: 'army_obj_' + army.id + '_' + simTimeMs + '_' + Math.floor(Math.random() * 10000),
+      jobType: 'ARMY_OBJECTIVE_COMPLETE',
+      ownerId: army.id,
+      startSimTimeMs: simTimeMs,
+      dueSimTimeMs: simTimeMs + patrolDur,
+      payload: {
+        armyId: army.id,
+        objectiveId: army.objective.id,
+        objectiveType: army.objective.type
+      }
+    }) : null;
+
+    army.status = 'objective_in_progress';
+    army.objective.status = ARMY_OBJECTIVE_STATUS.IN_PROGRESS;
+    army.objective.jobId = job ? job.jobId : null;
+    army.objective.startSimTimeMs = simTimeMs;
+    army.objective.dueSimTimeMs = simTimeMs + patrolDur;
+
+    if (eventStream) {
+      eventStream.publish(STREAM_TOPICS.ARMY_OBJECTIVE_STARTED, {
+        armyId: army.id,
+        armyName: army.shortName || army.name,
+        objectiveType: army.objective.type,
+        x: army.x,
+        y: army.y,
+        durationMs: patrolDur
+      }, simTimeMs);
+    }
+    return;
+  }
+
+  // Fallback for unrecognized objective types: fail cleanly without auto-returning
+  army.status = 'idle';
+  army.objective.status = ARMY_OBJECTIVE_STATUS.FAILED;
+  army.objective.jobId = null;
+}
+
+export function resolveArmyObjectiveCompleteJob(job, state, scheduler, eventStream) {
+  if (!state || !state.world || !state.world.overworld) return;
+  const p = job.payload || {};
+  const ow = state.world.overworld;
+  const army = (ow.units || []).find(function(u) {
+    return u && u.alive && u.unitType === 'army' && u.id === p.armyId;
+  });
+  if (!army || army.reintegrated || !army.objective) return;
+  // Strict idempotency guard: only complete matching in-progress objective job
+  if (army.status !== 'objective_in_progress' || army.objective.status !== ARMY_OBJECTIVE_STATUS.IN_PROGRESS) return;
+  if (army.objective.jobId && job.jobId && army.objective.jobId !== job.jobId) return;
+
+  army.objective.status = ARMY_OBJECTIVE_STATUS.COMPLETED;
+  army.objective.jobId = null;
+  army.status = 'idle';
+
+  revealOverworldVision(ow, army.x, army.y, army.visionRadius || 4);
+
+  if (eventStream) {
+    eventStream.publish(STREAM_TOPICS.ARMY_OBJECTIVE_COMPLETED, {
+      armyId: army.id,
+      armyName: army.shortName || army.name,
+      objectiveType: army.objective.type,
+      x: army.x,
+      y: army.y,
+      stayDeployed: Boolean(army.stayDeployed)
+    }, job.dueSimTimeMs);
+  }
+
+  // Return policy evaluated ONLY on successful objective completion
+  if (!army.stayDeployed) {
+    startArmyReturnHome(army, state, scheduler, job.dueSimTimeMs, eventStream);
+  }
+
+  state._dirty = true;
+  saveWargameState(state, scheduler);
+  evaluateTaskDAG(state, eventStream);
+}
+
 export function processResourceProductionTick(state, eventStream) {
   if (!state || !state.world || !state.world.cities) return;
   const cityIds = Object.keys(state.world.cities);
@@ -1167,7 +1447,7 @@ export function processResourceProductionTick(state, eventStream) {
 // Compute live 0..1 interpolation coordinates for smooth real-time unit rendering on the Overworld canvas
 export function getUnitInterpolatedPosition(unit, currentSimTimeMs) {
   if (!unit) return { x: 0, y: 0, progress: 0 };
-  if (unit.status !== 'marching' || !unit.marchPlan) {
+  if ((unit.status !== 'marching' && unit.status !== 'returning') || !unit.marchPlan) {
     return { x: unit.x, y: unit.y, progress: 0 };
   }
   const mp = unit.marchPlan;

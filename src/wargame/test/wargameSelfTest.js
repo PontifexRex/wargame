@@ -5,7 +5,8 @@ import {
   WARGAME_VIEWS,
   STREAM_TOPICS,
   COMMAND_TYPES,
-  WARGAME_STORAGE_KEY
+  WARGAME_STORAGE_KEY,
+  ARMY_PATROL_DURATION_MS
 } from '../constants.js';
 import { createWargameSimHost } from '../engine/simHost.js';
 import { createMinHeapPriorityQueue } from '../engine/scheduler.js';
@@ -45,6 +46,8 @@ import {
   TROOP_CATALOG,
   TROOP_LOCATION_TYPES,
   TROOP_AVAILABILITY_STATES,
+  ARMY_OBJECTIVE_TYPES,
+  ARMY_OBJECTIVE_STATUS,
   getTroopMaxUnlockedLevel,
   computeTroopCostForLevel,
   computeTroopUpgradeCost,
@@ -55,10 +58,12 @@ import {
   evaluateTroopAvailability,
   getCityTroopInventorySummary,
   getCityBarracksTroopGroups,
+  getArmyTroopGroups,
+  getArmyTotalTroopCount,
   getCityTroopCountAtLevel,
   getCityTroopCapacityUsage
 } from '../data/troops.js';
-import { resolveTroopUpgradeUnitJob } from '../engine/queues.js';
+import { resolveTroopUpgradeUnitJob, reintegrateArmyIntoBarracks, resolveArmyObjectiveCompleteJob } from '../engine/queues.js';
 import {
   normalizeSharedHeroProfile,
   renderSharedPaperDollMannequin,
@@ -3468,6 +3473,277 @@ export function evaluateWargameSelfTests() {
     detail: t33Pass
       ? 'Default highest & selectable lower recruitment levels, separate level groups, incremental upgrade cost delta, shared sequential queue, troop conservation, idempotent completion & multi-group aggregation verified'
       : 'Failed checks: ' + failed33.join(', ')
+  });
+
+  // =========================================================================
+  // Test 34: Field Army Deployment, Atomic Transfer, Capacity, Hex Movement, Patrol, Return Policy & Redirection (Task 05B-1)
+  // =========================================================================
+  const host34 = createWargameSimHost();
+  host34.dispatch({ type: COMMAND_TYPES.START_NEW_CAMPAIGN, payload: { houseName: 'House Banner', worldName: 'Field Realm', seedCode: 'STAR-3400' } });
+  host34.dispatch({ type: COMMAND_TYPES.FOUND_CITY, payload: { cityName: 'Bannerhold' } });
+  const city34 = getPrimaryCity(host34.state);
+  const ow34 = host34.state.world.overworld;
+  city34.stockpile.wood = 800; city34.stockpile.stone = 800; city34.stockpile.food = 800; city34.stockpile.gold = 800;
+  city34.buildings.quarry = 1;
+  city34.buildings.meeting_hall = 2;
+
+  const pB34 = city34.plots.findIndex(function(p) { return p && !p.buildingId; });
+  host34.dispatch({ type: COMMAND_TYPES.QUEUE_BUILDING, payload: { plotIndex: pB34, buildingId: 'barracks' } });
+  host34.stepClock(15000);
+  city34.plots[pB34].level = 2;
+  city34.buildings.barracks = 2; // Capacity 20
+  const pFC34 = city34.plots.findIndex(function(p) { return p && !p.buildingId; });
+  host34.dispatch({ type: COMMAND_TYPES.QUEUE_BUILDING, payload: { plotIndex: pFC34, buildingId: 'fighter_camp' } });
+  const pAC34 = city34.plots.findIndex(function(p, idx) { return p && !p.buildingId && idx !== pFC34; });
+  host34.dispatch({ type: COMMAND_TYPES.QUEUE_BUILDING, payload: { plotIndex: pAC34, buildingId: 'archer_camp' } });
+  host34.stepClock(20000);
+  city34.plots[pFC34].level = 2;
+  city34.buildings.fighter_camp = 2;
+
+  // Train multi-type, multi-level Barracks force: Infantry Lv 1 x3, Lv 2 x2, Archers Lv 1 x2 (7 total)
+  host34.dispatch({ type: COMMAND_TYPES.TRAIN_TROOPS, payload: { troopDefId: 'infantry', level: 1, quantity: 3 } });
+  host34.dispatch({ type: COMMAND_TYPES.TRAIN_TROOPS, payload: { troopDefId: 'infantry', level: 2, quantity: 2 } });
+  host34.dispatch({ type: COMMAND_TYPES.TRAIN_TROOPS, payload: { troopDefId: 'archer', level: 1, quantity: 2 } });
+  host34.stepClock(120000);
+
+  // Pick two distinct passable neighbor hexes from city
+  const passableNbrs34 = getHexNeighbors(city34.x, city34.y, ow34).filter(function(n) {
+    const t = ow34.tiles[n.y][n.x];
+    return t !== OW_TERRAIN_MOUNTAINS && t !== 'water' && t !== 4 && t !== 5;
+  });
+  const dest1_34 = passableNbrs34[0];
+  const dest2_34 = passableNbrs34[1] || passableNbrs34[0];
+
+  // Invalid deployments must reject with ZERO inventory mutation
+  const invalidDeployBlocked34 = Boolean(
+    !host34.dispatch({ type: COMMAND_TYPES.DEPLOY_ARMY, payload: { targetX: dest1_34.x, targetY: dest1_34.y, troops: [] } }).ok &&
+    !host34.dispatch({ type: COMMAND_TYPES.DEPLOY_ARMY, payload: { targetX: city34.x, targetY: city34.y, troops: [{ troopDefId: 'infantry', level: 1, quantity: 1 }] } }).ok &&
+    !host34.dispatch({ type: COMMAND_TYPES.DEPLOY_ARMY, payload: { targetX: dest1_34.x, targetY: dest1_34.y, troops: [{ troopDefId: 'infantry', level: 1, quantity: 99 }] } }).ok &&
+    !host34.dispatch({ type: COMMAND_TYPES.DEPLOY_ARMY, payload: { targetX: -5, targetY: -5, troops: [{ troopDefId: 'infantry', level: 1, quantity: 1 }] } }).ok &&
+    getCityTroopCountAtLevel(host34.state.world, city34.id, 'infantry', 1) === 3
+  );
+
+  // Valid deployment (stayDeployed: false) -> atomic Barracks->Army transfer & capacity accounted once
+  const depRes34 = host34.dispatch({
+    type: COMMAND_TYPES.DEPLOY_ARMY,
+    payload: {
+      homeCityId: city34.id,
+      targetX: dest1_34.x,
+      targetY: dest1_34.y,
+      stayDeployed: false,
+      troops: [
+        { troopDefId: 'infantry', level: 1, quantity: 2 },
+        { troopDefId: 'infantry', level: 2, quantity: 1 },
+        { troopDefId: 'archer', level: 1, quantity: 1 }
+      ]
+    }
+  });
+  const army34 = depRes34.ok ? depRes34.data.army : null;
+  const capAfterDeploy34 = getCityTroopCapacityUsage(host34.state.world, city34);
+  const deployAtomicOk34 = Boolean(
+    depRes34.ok && army34 && army34.unitType === 'army' && army34.alive &&
+    army34.homeCityId === city34.id && army34.ownerPlayerId === CANONICAL_PLAYER_ID &&
+    getArmyTotalTroopCount(host34.state.world, army34.id) === 4 &&
+    getCityTroopCountAtLevel(host34.state.world, city34.id, 'infantry', 1) === 1 &&
+    getCityTroopCountAtLevel(host34.state.world, city34.id, 'infantry', 2) === 1 &&
+    getCityTroopCountAtLevel(host34.state.world, city34.id, 'archer', 1) === 1 &&
+    capAfterDeploy34.stationed === 3 &&
+    capAfterDeploy34.deployed === 4 &&
+    capAfterDeploy34.totalUsed === 7
+  );
+
+  // Advance just enough for march arrival -> arrival != completion (objective_in_progress!)
+  const firstStepDur34 = (army34 && army34.marchPlan) ? (army34.marchPlan.stepDueSimTimeMs - army34.marchPlan.stepStartSimTimeMs) : 3000;
+  host34.stepClock(firstStepDur34);
+  const arrivalDistinctFromCompletion34 = Boolean(
+    army34 && army34.x === dest1_34.x && army34.y === dest1_34.y &&
+    army34.status === 'objective_in_progress' &&
+    army34.objective && army34.objective.status === ARMY_OBJECTIVE_STATUS.IN_PROGRESS
+  );
+
+  // Advance ARMY_PATROL_DURATION_MS -> patrol completes & auto-returns home (stayDeployed === false)
+  host34.stepClock(ARMY_PATROL_DURATION_MS || 3000);
+  const autoReturnTriggered34 = Boolean(
+    army34 && army34.status === 'returning' &&
+    army34.objective && army34.objective.type === ARMY_OBJECTIVE_TYPES.RETURN_HOME
+  );
+
+  // Redirect army WHILE returning -> supersedes return, preserves ID & troops, sets stayDeployed: true
+  const redirRes34 = host34.dispatch({
+    type: COMMAND_TYPES.REDIRECT_ARMY,
+    payload: { armyId: army34.id, targetX: dest2_34.x, targetY: dest2_34.y, stayDeployed: true }
+  });
+  host34.stepClock(20000); // arrive & finish patrol at dest2
+  const redirectAndStayOk34 = Boolean(
+    redirRes34.ok &&
+    army34.alive && !army34.reintegrated &&
+    army34.x === dest2_34.x && army34.y === dest2_34.y &&
+    army34.status === 'idle' &&
+    army34.stayDeployed === true &&
+    army34.objective && army34.objective.status === ARMY_OBJECTIVE_STATUS.COMPLETED &&
+    getArmyTotalTroopCount(host34.state.world, army34.id) === 4
+  );
+
+  // Missing home city fallback: halts safely as 'idle' & preserves all troops (never deletes!)
+  const savedHomeId34 = army34.homeCityId;
+  army34.homeCityId = 'city_missing_999';
+  const failMissingHome34 = reintegrateArmyIntoBarracks(army34, host34.state, host34.state.world.clock.simTimeMs, host34.eventStream);
+  const missingHomeSafeOk34 = Boolean(
+    !failMissingHome34.ok &&
+    army34.alive && army34.status === 'idle' &&
+    army34.objective && army34.objective.status === ARMY_OBJECTIVE_STATUS.FAILED &&
+    getArmyTotalTroopCount(host34.state.world, army34.id) === 4
+  );
+  army34.homeCityId = savedHomeId34;
+
+  // Manual return home -> reintegrates exact troop types/levels into Barracks, retires army, idempotent on replay
+  const manualRetRes34 = host34.dispatch({ type: COMMAND_TYPES.RETURN_ARMY_HOME, payload: { armyId: army34.id } });
+  host34.stepClock(20000);
+  const replayReint34 = reintegrateArmyIntoBarracks(army34, host34.state, host34.state.world.clock.simTimeMs, host34.eventStream);
+  const capAfterReturn34 = getCityTroopCapacityUsage(host34.state.world, city34);
+  const reintegrateAndIdempotentOk34 = Boolean(
+    manualRetRes34.ok &&
+    replayReint34.skipped === true &&
+    !army34.alive && army34.reintegrated === true && army34.status === 'retired' &&
+    getCityTroopCountAtLevel(host34.state.world, city34.id, 'infantry', 1) === 3 &&
+    getCityTroopCountAtLevel(host34.state.world, city34.id, 'infantry', 2) === 2 &&
+    getCityTroopCountAtLevel(host34.state.world, city34.id, 'archer', 1) === 2 &&
+    capAfterReturn34.stationed === 7 &&
+    capAfterReturn34.deployed === 0 &&
+    capAfterReturn34.totalUsed === 7
+  );
+
+  const t34Checks = {
+    invalidDeployBlocked: invalidDeployBlocked34,
+    deployAtomicOk: deployAtomicOk34,
+    arrivalDistinctFromCompletion: arrivalDistinctFromCompletion34,
+    autoReturnTriggered: autoReturnTriggered34,
+    redirectAndStayOk: redirectAndStayOk34,
+    missingHomeSafeOk: missingHomeSafeOk34,
+    reintegrateAndIdempotentOk: reintegrateAndIdempotentOk34
+  };
+  const failed34 = Object.keys(t34Checks).filter(function(k) { return !t34Checks[k]; });
+  const t34Pass = failed34.length === 0;
+
+  results.push({
+    name: '34. Field Army Deployment, Atomic Transfer, Capacity, Hex Movement, Patrol, Return Policy & Redirection (Task 05B-1)',
+    pass: t34Pass,
+    detail: t34Pass
+      ? 'Automatic army creation, atomic Barracks<->Army transfer, deployed capacity accounting, arrival vs patrol completion, return policy, mid-return redirect, safe missing-home halt & idempotent reintegration verified'
+      : 'Failed checks: ' + failed34.join(', ')
+  });
+
+  // =========================================================================
+  // Test 35: Field Army Persistence Across Lifecycle Stages, Orphaned Group/Job Recovery & Idempotency (Task 05B-1)
+  // =========================================================================
+  const prevSavedRaw35 = (typeof localStorage !== 'undefined') ? localStorage.getItem(WARGAME_STORAGE_KEY) : null;
+  let t35Checks = {};
+  try {
+    const host35 = createWargameSimHost();
+    host35.dispatch({ type: COMMAND_TYPES.START_NEW_CAMPAIGN, payload: { houseName: 'House PersistArmy', worldName: 'Save Field', seedCode: 'STAR-3500' } });
+    host35.dispatch({ type: COMMAND_TYPES.FOUND_CITY, payload: { cityName: 'Fieldwatch' } });
+    const city35 = getPrimaryCity(host35.state);
+    const ow35 = host35.state.world.overworld;
+    city35.stockpile.wood = 500; city35.stockpile.stone = 500; city35.stockpile.food = 500; city35.stockpile.gold = 500;
+    city35.buildings.quarry = 1;
+    const pB35 = city35.plots.findIndex(function(p) { return p && !p.buildingId; });
+    host35.dispatch({ type: COMMAND_TYPES.QUEUE_BUILDING, payload: { plotIndex: pB35, buildingId: 'barracks' } });
+    host35.stepClock(15000);
+    const pFC35 = city35.plots.findIndex(function(p) { return p && !p.buildingId; });
+    host35.dispatch({ type: COMMAND_TYPES.QUEUE_BUILDING, payload: { plotIndex: pFC35, buildingId: 'fighter_camp' } });
+    host35.stepClock(15000);
+    host35.dispatch({ type: COMMAND_TYPES.TRAIN_TROOPS, payload: { troopDefId: 'infantry', level: 1, quantity: 4 } });
+    host35.stepClock(40000);
+
+    const nbr35 = getHexNeighbors(city35.x, city35.y, ow35).find(function(n) {
+      const t = ow35.tiles[n.y][n.x];
+      return t !== OW_TERRAIN_MOUNTAINS && t !== 'water' && t !== 4 && t !== 5;
+    });
+    const dep35 = host35.dispatch({
+      type: COMMAND_TYPES.DEPLOY_ARMY,
+      payload: { homeCityId: city35.id, targetX: nbr35.x, targetY: nbr35.y, stayDeployed: false, troops: [{ troopDefId: 'infantry', level: 1, quantity: 3 }] }
+    });
+    const armyId35 = dep35.data.armyId;
+    const stepDur35 = dep35.data.army.marchPlan.stepDueSimTimeMs - dep35.data.army.marchPlan.stepStartSimTimeMs;
+
+    // Stage 1: Save while marching -> load into fresh host35b -> advance to objective_in_progress
+    host35.save();
+    const host35b = createWargameSimHost();
+    const loadMarch35 = host35b.load();
+    host35b.stepClock(stepDur35);
+    const army35b = host35b.state.world.overworld.units.find(function(u) { return u && u.id === armyId35; });
+    const stageMarchOk35 = Boolean(
+      loadMarch35 && army35b && army35b.status === 'objective_in_progress' &&
+      getArmyTotalTroopCount(host35b.state.world, armyId35) === 3
+    );
+
+    // Stage 2: Save while objective_in_progress -> load into fresh host35c -> test orphan job recovery + completion
+    host35b.save();
+    const rawInProg35 = JSON.parse(localStorage.getItem(WARGAME_STORAGE_KEY));
+    // Also inject an orphaned army troop group (nonexistent army) & strip scheduledJobs to verify deterministic recovery!
+    rawInProg35.world.scheduledJobs = [];
+    rawInProg35.world.troopGroups.push({
+      id: 'tg_orphan_ghost',
+      ownerPlayerId: CANONICAL_PLAYER_ID,
+      troopDefId: 'infantry',
+      level: 1,
+      count: 2,
+      locationType: TROOP_LOCATION_TYPES.ARMY,
+      locationId: 'army_ghost_999'
+    });
+    localStorage.setItem(WARGAME_STORAGE_KEY, JSON.stringify(rawInProg35));
+
+    const host35c = createWargameSimHost();
+    const loadObj35 = host35c.load();
+    const city35c = getPrimaryCity(host35c.state);
+    // Orphaned 2 troops must be safely recovered to Barracks (1 original + 2 recovered = 3 stationed!)
+    const orphanRecoveredToBarracks35 = getCityTroopCountAtLevel(host35c.state.world, city35c.id, 'infantry', 1) === 3;
+    // Orphaned ARMY_OBJECTIVE_COMPLETE job must be rescheduled and finish patrol -> start returning
+    host35c.stepClock(ARMY_PATROL_DURATION_MS + 1000);
+    const army35c = host35c.state.world.overworld.units.find(function(u) { return u && u.id === armyId35; });
+    const stageObjOk35 = Boolean(
+      loadObj35 && orphanRecoveredToBarracks35 &&
+      army35c && army35c.status === 'returning'
+    );
+
+    // Stage 3: Save while returning -> load into fresh host35d -> complete return & reintegrate!
+    host35c.save();
+    const host35d = createWargameSimHost();
+    const loadRet35 = host35d.load();
+    host35d.stepClock(20000);
+    const city35d = getPrimaryCity(host35d.state);
+    const army35d = host35d.state.world.overworld.units.find(function(u) { return u && u.id === armyId35; });
+    const stageReturnOk35 = Boolean(
+      loadRet35 &&
+      army35d && !army35d.alive && army35d.reintegrated === true &&
+      getCityTroopCountAtLevel(host35d.state.world, city35d.id, 'infantry', 1) === 6 // 3 Barracks + 3 returned!
+    );
+
+    // Replay stale ARMY_OBJECTIVE_COMPLETE job -> strictly idempotent no-op
+    resolveArmyObjectiveCompleteJob({ jobId: 'stale', payload: { armyId: armyId35 } }, host35d.state, host35d.scheduler, host35d.eventStream);
+    const idempotentReplayOk35 = getCityTroopCountAtLevel(host35d.state.world, city35d.id, 'infantry', 1) === 6;
+
+    t35Checks = {
+      stageMarchOk: stageMarchOk35,
+      stageObjOk: stageObjOk35,
+      stageReturnOk: stageReturnOk35,
+      idempotentReplayOk: idempotentReplayOk35
+    };
+  } finally {
+    if (typeof localStorage !== 'undefined') {
+      if (prevSavedRaw35 === null) localStorage.removeItem(WARGAME_STORAGE_KEY);
+      else localStorage.setItem(WARGAME_STORAGE_KEY, prevSavedRaw35);
+    }
+  }
+  const failed35 = Object.keys(t35Checks).filter(function(k) { return !t35Checks[k]; });
+  const t35Pass = failed35.length === 0 && Object.keys(t35Checks).length > 0;
+
+  results.push({
+    name: '35. Field Army Persistence Across Lifecycle Stages, Orphaned Group/Job Recovery & Idempotency (Task 05B-1)',
+    pass: t35Pass,
+    detail: t35Pass
+      ? 'Save/load across marching, objective_in_progress & returning stages, orphaned army troop group recovery, orphaned objective job rescheduling & idempotency verified'
+      : 'Failed checks: ' + failed35.join(', ')
   });
 
   return results;

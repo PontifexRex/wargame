@@ -55,7 +55,8 @@ import {
   getTroopDefinition,
   getTroopMaxUnlockedLevel,
   computeMaxRecruitableQuantity,
-  computeMaxUpgradeableQuantity
+  computeMaxUpgradeableQuantity,
+  getCityTroopCountAtLevel
 } from './data/troops.js';
 import { getSelectedOverworldUnit, getPrimaryCity } from './engine/state.js';
 import { evaluateWargameSelfTests } from './test/wargameSelfTest.js';
@@ -786,6 +787,121 @@ export function handleDisbandTroopsByLevel(troopDefId, level, quantity) {
   return res;
 }
 
+export function handleOpenDeployArmyModal(targetX, targetY) {
+  if (!simHost.state || !simHost.state.world) return;
+  const city = getPrimaryCity(simHost.state);
+  if (!city) return;
+  const ow = simHost.state.world.overworld;
+  const defX = (typeof targetX === 'number' && !isNaN(targetX)) ? targetX : Math.min((ow.width || 56) - 1, city.x + 1);
+  const defY = (typeof targetY === 'number' && !isNaN(targetY)) ? targetY : city.y;
+  simHost.state._deployArmyModalOpen = true;
+  simHost.state._deployArmyDraft = {
+    targetX: defX,
+    targetY: defY,
+    stayDeployed: false,
+    qtyByKey: {}
+  };
+  simHost.state._dirty = true;
+  syncWargameUI(simHost);
+}
+
+export function handleCloseDeployArmyModal() {
+  if (!simHost.state) return;
+  simHost.state._deployArmyModalOpen = false;
+  simHost.state._dirty = true;
+  syncWargameUI(simHost);
+}
+
+export function handleSetDeployTargetCoord(axis, rawVal) {
+  if (!simHost.state || !simHost.state._deployArmyDraft) return;
+  const v = Math.floor(Number(rawVal));
+  if (!isFinite(v) || v < 0) return;
+  if (axis === 'x') simHost.state._deployArmyDraft.targetX = v;
+  else if (axis === 'y') simHost.state._deployArmyDraft.targetY = v;
+  syncWargameUI(simHost);
+}
+
+export function handleSetDeployTroopQty(troopDefId, level, rawVal) {
+  if (!simHost.state || !simHost.state.world || !simHost.state._deployArmyDraft) return;
+  const city = getPrimaryCity(simHost.state);
+  if (!city) return;
+  const maxAvail = getCityTroopCountAtLevel(simHost.state.world, city.id, troopDefId, level);
+  const parsed = Math.floor(Number(rawVal));
+  const clamped = isFinite(parsed) ? Math.max(0, Math.min(maxAvail, parsed)) : 0;
+  simHost.state._deployArmyDraft.qtyByKey[troopDefId + ':' + level] = clamped;
+  syncWargameUI(simHost);
+}
+
+export function handleToggleDeployStayDeployed(checked) {
+  if (!simHost.state || !simHost.state._deployArmyDraft) return;
+  simHost.state._deployArmyDraft.stayDeployed = Boolean(checked);
+  syncWargameUI(simHost);
+}
+
+export function handleConfirmDeployArmy() {
+  if (!simHost.state || !simHost.state.world || !simHost.state._deployArmyDraft) return { ok: false };
+  const city = getPrimaryCity(simHost.state);
+  const draft = simHost.state._deployArmyDraft;
+  const troops = [];
+  const keys = Object.keys(draft.qtyByKey || {});
+  for (let i = 0; i < keys.length; i++) {
+    const qty = Math.floor(Number(draft.qtyByKey[keys[i]] || 0));
+    if (qty <= 0) continue;
+    const parts = keys[i].split(':');
+    troops.push({ troopDefId: parts[0], level: parseInt(parts[1], 10) || 1, quantity: qty });
+  }
+  const res = simHost.dispatch({
+    type: COMMAND_TYPES.DEPLOY_ARMY,
+    payload: {
+      homeCityId: city ? city.id : null,
+      targetX: draft.targetX,
+      targetY: draft.targetY,
+      stayDeployed: Boolean(draft.stayDeployed),
+      troops: troops
+    }
+  });
+  if (res && res.ok) {
+    simHost.state._deployArmyModalOpen = false;
+  }
+  simHost.state._dirty = true;
+  simHost.save();
+  syncWargameUI(simHost);
+  return res;
+}
+
+export function handleSelectOverworldUnit(unitId) {
+  if (!simHost.state || !simHost.state.world || !simHost.state.world.overworld) return;
+  const ow = simHost.state.world.overworld;
+  const found = (ow.units || []).find(function(u) { return u && u.alive && u.id === unitId; });
+  if (found) {
+    ow.selectedUnitId = found.id;
+    simHost.state._dirty = true;
+    syncWargameUI(simHost);
+  }
+}
+
+export function handleReturnArmyHome(armyId) {
+  const res = simHost.dispatch({
+    type: COMMAND_TYPES.RETURN_ARMY_HOME,
+    payload: { armyId: armyId }
+  });
+  simHost.state._dirty = true;
+  simHost.save();
+  syncWargameUI(simHost);
+  return res;
+}
+
+export function handleSetArmyReturnPolicy(armyId, stayDeployed) {
+  const res = simHost.dispatch({
+    type: COMMAND_TYPES.SET_ARMY_RETURN_POLICY,
+    payload: { armyId: armyId, stayDeployed: Boolean(stayDeployed) }
+  });
+  simHost.state._dirty = true;
+  simHost.save();
+  syncWargameUI(simHost);
+  return res;
+}
+
 export function handleCancelTroopTraining(queueItemId) {
   simHost.dispatch({
     type: COMMAND_TYPES.CANCEL_TROOP_TRAINING,
@@ -1349,12 +1465,32 @@ function setupWargameListeners() {
       onTapOffset: function(off) {
         if (!simHost.state.world || !simHost.state.world.overworld || !off) return;
         const ow = simHost.state.world.overworld;
+        if (off.x < 0 || off.x >= ow.width || off.y < 0 || off.y >= ow.height) return;
+
+        // Selecting an existing player unit/army on the tapped hex
+        const tappedUnit = (ow.units || []).find(function(u) {
+          return u && u.alive && u.x === off.x && u.y === off.y;
+        });
         const selUnit = getSelectedOverworldUnit(simHost.state);
-        if (off.x >= 0 && off.x < ow.width && off.y >= 0 && off.y < ow.height && selUnit && selUnit.alive) {
-          simHost.dispatch({
-            type: COMMAND_TYPES.ORDER_UNIT_MARCH,
-            payload: { unitId: selUnit.id, targetX: off.x, targetY: off.y }
-          });
+        if (tappedUnit && (!selUnit || tappedUnit.id !== selUnit.id)) {
+          ow.selectedUnitId = tappedUnit.id;
+          simHost.state._dirty = true;
+          syncWargameUI(simHost);
+          return;
+        }
+
+        if (selUnit && selUnit.alive) {
+          if (selUnit.unitType === 'army') {
+            simHost.dispatch({
+              type: COMMAND_TYPES.REDIRECT_ARMY,
+              payload: { armyId: selUnit.id, targetX: off.x, targetY: off.y }
+            });
+          } else {
+            simHost.dispatch({
+              type: COMMAND_TYPES.ORDER_UNIT_MARCH,
+              payload: { unitId: selUnit.id, targetX: off.x, targetY: off.y }
+            });
+          }
           simHost.state._dirty = true;
           simHost.save();
           syncWargameUI(simHost);
@@ -1608,6 +1744,15 @@ export const WargameApp = {
   handleTrainTroops: handleTrainTroops,
   handleUpgradeTroops: handleUpgradeTroops,
   handleDisbandTroopsByLevel: handleDisbandTroopsByLevel,
+  handleOpenDeployArmyModal: handleOpenDeployArmyModal,
+  handleCloseDeployArmyModal: handleCloseDeployArmyModal,
+  handleSetDeployTargetCoord: handleSetDeployTargetCoord,
+  handleSetDeployTroopQty: handleSetDeployTroopQty,
+  handleToggleDeployStayDeployed: handleToggleDeployStayDeployed,
+  handleConfirmDeployArmy: handleConfirmDeployArmy,
+  handleSelectOverworldUnit: handleSelectOverworldUnit,
+  handleReturnArmyHome: handleReturnArmyHome,
+  handleSetArmyReturnPolicy: handleSetArmyReturnPolicy,
   handleCancelTroopTraining: handleCancelTroopTraining,
   handleDisbandTroops: handleDisbandTroops,
   handleOpenFacilityModal: handleOpenFacilityModal,

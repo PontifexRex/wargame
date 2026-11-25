@@ -35,7 +35,9 @@ import {
   computeTroopUpgradeDurationMs,
   computeMaxUpgradeableQuantity,
   evaluateTroopAvailability,
-  getCityTroopInventorySummary
+  getCityTroopInventorySummary,
+  getArmyTroopGroups,
+  getArmyTotalTroopCount
 } from '../data/troops.js';
 import {
   getPrimaryCity,
@@ -264,6 +266,7 @@ export function syncWargameUI(simHost) {
   renderWargameFacilityModal(simHost);
   renderProgressionModals(simHost);
   renderDevPortalModal(simHost);
+  renderDeployArmyModal(simHost);
   renderScreenInfoModal(simHost);
   renderQuickMapDocks(simHost);
   syncMobileDrawers(simHost);
@@ -739,10 +742,15 @@ export function renderQuickMapDocks(simHost) {
     ? `<button onclick="window.WargameApp.handleEnterDungeon('${activeDungeonParty.activeDungeonPoiId || ''}')" class="px-2.5 py-1.5 rounded-lg bg-[#080b11]/85 hover:bg-[#f87171] hover:text-[#080b11] backdrop-blur border border-[#f87171]/60 text-xs font-mono font-bold text-[#f87171] shadow transition cursor-pointer">⚔️ Dungeon</button>`
     : '';
 
-  // Single toggle button in bottom-right corner of Overworld -> goes to City
+  // Single toggle button in bottom-right corner of Overworld -> goes to City (+ Deploy Army when Barracks troops exist)
   const owDock = document.getElementById('wgOverworldMapDock');
   if (owDock) {
-    const owHtml = (hasCity
+    const primaryCityDock = getPrimaryCity(simHost.state);
+    const hasBarracksTroops = Boolean(primaryCityDock && getCityTroopInventorySummary(simHost.state.world, primaryCityDock).totals.trained > 0);
+    const deployBtn = hasBarracksTroops
+      ? `<button data-action="open-deploy-army" onclick="window.WargameApp.handleOpenDeployArmyModal()" class="px-2.5 py-1.5 rounded-lg bg-[#450a0a]/90 hover:bg-[#f87171] hover:text-[#080b11] backdrop-blur border border-[#f87171]/60 text-xs font-mono font-bold text-[#fecaca] shadow transition cursor-pointer">🛡️ Deploy Army</button>`
+      : '';
+    const owHtml = deployBtn + (hasCity
       ? `<button onclick="window.WargameApp.handleSwitchView('city')" class="px-2.5 py-1.5 rounded-lg bg-[#080b11]/85 hover:bg-[#fbbf24] hover:text-[#080b11] backdrop-blur border border-[#fbbf24]/60 text-xs font-mono font-bold text-[#fbbf24] shadow transition cursor-pointer">🏛️ City</button>`
       : '') + dngBtn;
     setHtmlIfChanged(owDock, owHtml);
@@ -1406,10 +1414,23 @@ export function renderLeftCommandSidebar(simHost) {
   const ow = world.overworld;
   const simTimeMs = world.clock.simTimeMs;
 
-  // A. Selected Unit Inspector Card
+  // A. Selected Unit Inspector Card (+ Deployed Armies Quick Selector)
   const selUnit = getSelectedOverworldUnit(state);
   const unitCardEl = document.getElementById('wgSelectedUnitCard');
   if (unitCardEl) {
+    const activeArmies = (ow.units || []).filter(function(u) { return u && u.alive && !u.reintegrated && u.unitType === 'army'; });
+    const armiesStripHtml = activeArmies.length > 0 ? `
+      <div class="pb-2 mb-2 border-b border-[#283347] space-y-1">
+        <div class="text-[10px] font-mono uppercase text-[#f87171] font-bold">🛡️ Deployed Armies (${activeArmies.length})</div>
+        <div class="flex flex-wrap gap-1">
+          ${activeArmies.map(function(au) {
+            const isSelArmy = selUnit && selUnit.id === au.id;
+            const cnt = getArmyTotalTroopCount(world, au.id);
+            return `<button onclick="window.WargameApp.handleSelectOverworldUnit('${au.id}')" class="px-2 py-0.5 rounded text-[10px] font-mono font-bold cursor-pointer ${isSelArmy ? 'bg-[#f87171] text-[#080b11]' : 'bg-[#111722] text-[#fecaca] border border-[#f87171]/40 hover:bg-[#1a2232]'}">🛡️ ${au.shortName} (${cnt})</button>`;
+          }).join('')}
+        </div>
+      </div>
+    ` : '';
     let newHtml = '';
     if (!selUnit || !selUnit.alive) {
       const hasCity = Object.keys(world.cities || {}).length > 0;
@@ -1460,10 +1481,10 @@ export function renderLeftCommandSidebar(simHost) {
             </div>
           </div>
         `;
-      } else if (selUnit.status === 'marching' && selUnit.marchPlan) {
+      } else if ((selUnit.status === 'marching' || selUnit.status === 'returning') && selUnit.marchPlan) {
         const remSteps = selUnit.marchPlan.remainingPath ? selUnit.marchPlan.remainingPath.length : 0;
         const stepRemMs = Math.max(0, (selUnit.marchPlan.stepDueSimTimeMs || 0) - simTimeMs);
-        const isReturning = selUnit.marchPlan.intent === 'return_city';
+        const isReturning = selUnit.marchPlan.intent === 'return_city' || selUnit.marchPlan.intent === 'return_home' || selUnit.status === 'returning';
         marchHtml = `
           <div class="p-2 rounded bg-[#111722] border ${isReturning ? 'border-[#fbbf24]/50' : 'border-[#38bdf8]/40'} space-y-1">
             <div class="flex items-center justify-between text-[11px] font-mono">
@@ -1471,7 +1492,18 @@ export function renderLeftCommandSidebar(simHost) {
               <span class="text-[#fbbf24]">${remSteps} tiles left</span>
             </div>
             <div class="text-[10px] text-[#8b949e] font-mono">Next tile in ${formatSimDuration(stepRemMs)}</div>
-            <button data-action="cancel-march" onclick="window.WargameApp.handleCancelMarch()" class="w-full mt-1 py-1 rounded bg-[#1a2232] hover:bg-[#f87171]/20 text-[#f87171] border border-[#f87171]/40 text-[10px] font-mono font-bold cursor-pointer">✕ Halt March</button>
+            ${selUnit.unitType !== 'army' ? `<button data-action="cancel-march" onclick="window.WargameApp.handleCancelMarch()" class="w-full mt-1 py-1 rounded bg-[#1a2232] hover:bg-[#f87171]/20 text-[#f87171] border border-[#f87171]/40 text-[10px] font-mono font-bold cursor-pointer">✕ Halt March</button>` : ''}
+          </div>
+        `;
+      } else if (selUnit.unitType === 'army' && selUnit.status === 'objective_in_progress' && selUnit.objective) {
+        const objRemMs = Math.max(0, (selUnit.objective.dueSimTimeMs || 0) - simTimeMs);
+        marchHtml = `
+          <div class="p-2 rounded bg-[#111722] border border-[#c084fc]/50 space-y-1 text-[11px] font-mono">
+            <div class="flex items-center justify-between">
+              <span class="text-[#c084fc] font-bold">🧭 Executing: ${selUnit.objective.type}</span>
+              <span class="text-[#34d399]">${formatSimDuration(objRemMs)}</span>
+            </div>
+            <div class="text-[10px] text-[#8b949e]">Location: (${selUnit.x}, ${selUnit.y})</div>
           </div>
         `;
       } else {
@@ -1480,20 +1512,51 @@ export function renderLeftCommandSidebar(simHost) {
         `;
       }
 
+      let armyDetailHtml = '';
+      if (selUnit.unitType === 'army') {
+        const aGroups = getArmyTroopGroups(world, selUnit.id);
+        const homeC = (world.cities && selUnit.homeCityId) ? world.cities[selUnit.homeCityId] : null;
+        const obj = selUnit.objective || null;
+        const compRows = aGroups.map(function(g) {
+          const td = getTroopDefinition(g.troopDefId);
+          return '<div class="flex justify-between text-[10px] font-mono"><span class="text-[#e6edf3]">' + (td ? (td.icon + ' ' + td.name) : g.troopDefId) + ' Lv ' + (g.level || 1) + '</span><span class="text-[#34d399]">×' + g.count + '</span></div>';
+        }).join('');
+        armyDetailHtml = `
+          <div class="p-2 rounded bg-[#080b11] border border-[#f87171]/40 space-y-1.5">
+            <div class="flex items-center justify-between text-[10px] font-mono">
+              <span class="text-[#f87171] font-bold">Home: ${homeC ? homeC.name : 'Unknown'}</span>
+              <span class="text-[#cbd5e1]">Obj: ${obj ? (obj.type + ' (' + obj.status + ')') : 'none'}</span>
+            </div>
+            <div class="space-y-0.5">${compRows}</div>
+            <label class="flex items-center gap-1.5 text-[10px] font-mono text-[#cbd5e1] pt-1 cursor-pointer">
+              <input type="checkbox" ${selUnit.stayDeployed ? 'checked' : ''} onchange="window.WargameApp.handleSetArmyReturnPolicy('${selUnit.id}', this.checked)" class="accent-[#f87171]" />
+              <span>Stay deployed after completing objective</span>
+            </label>
+            <div class="text-[10px] text-[#8b949e]">Click any passable Overworld hex to redirect this army.</div>
+            ${selUnit.status !== 'returning' ? `
+              <button data-action="return-army-home" onclick="window.WargameApp.handleReturnArmyHome('${selUnit.id}')" class="w-full py-1.5 rounded bg-[#1a2232] hover:bg-[#283347] text-[#fbbf24] border border-[#fbbf24]/40 font-mono font-bold text-[10px] uppercase cursor-pointer">
+                🏠 Return to Barracks
+              </button>
+            ` : ''}
+          </div>
+        `;
+      }
+
       newHtml = `
         <div class="space-y-2.5">
           <div class="flex items-center justify-between">
             <div class="flex items-center gap-2">
-              <span class="text-lg">${selUnit.unitType === 'settler' ? '🚩' : '⚔️'}</span>
+              <span class="text-lg">${selUnit.unitType === 'army' ? '🛡️' : (selUnit.unitType === 'settler' ? '🚩' : '⚔️')}</span>
               <div>
                 <div class="text-xs font-bold text-[#e6edf3]">${selUnit.name}</div>
                 <div class="text-[10px] font-mono text-[#8b949e]">Terrain: <span class="text-[#84cc16]">${tDef ? tDef.name : 'Plains'}</span> • Vision ${selUnit.visionRadius}</div>
               </div>
             </div>
-            <span class="text-[11px] font-mono px-1.5 py-0.5 rounded bg-[#111722] text-[#34d399] border border-[#283347]">HP ${selUnit.hp}/${selUnit.maxHp}</span>
+            <span class="text-[11px] font-mono px-1.5 py-0.5 rounded bg-[#111722] text-[#34d399] border border-[#283347]">${selUnit.unitType === 'army' ? (getArmyTotalTroopCount(world, selUnit.id) + ' Troops') : ('HP ' + selUnit.hp + '/' + selUnit.maxHp)}</span>
           </div>
           ${cargoHtml}
           ${marchHtml}
+          ${armyDetailHtml}
           ${nearbyDng ? `
             <button data-action="enter-dungeon" data-poi-id="${nearbyDng.id}" onclick="window.WargameApp.handleEnterDungeon('${nearbyDng.id}')" class="w-full py-2 rounded-lg font-bold text-xs uppercase tracking-wider shadow bg-[#f87171] hover:bg-[#ef4444] text-[#080b11] cursor-pointer">
               ⚔️ Enter ${nearbyDng.name}
@@ -1513,7 +1576,7 @@ export function renderLeftCommandSidebar(simHost) {
       `;
     }
 
-    setHtmlIfChanged(unitCardEl, newHtml);
+    setHtmlIfChanged(unitCardEl, armiesStripHtml + newHtml);
   }
 
   // B. Active Timed Queues Summary (Construction, Recruitment, and Marching)
@@ -2282,6 +2345,27 @@ export function formatEventSummary(ev) {
   if (ev.topic === STREAM_TOPICS.TROOPS_DISBANDED) {
     return '— Disbanded ' + (p.disbandedCount || 1) + '× ' + (p.troopDefId || 'troops') + (p.level ? (' Lv ' + p.level) : '') + ' from Barracks';
   }
+  if (ev.topic === STREAM_TOPICS.ARMY_DEPLOYED) {
+    return '— Deployed ' + p.armyName + ' (' + p.totalTroops + ' troops) from ' + p.homeCityName + ' -> (' + p.targetX + ',' + p.targetY + ')';
+  }
+  if (ev.topic === STREAM_TOPICS.ARMY_REDIRECTED) {
+    return '— Redirected ' + p.armyName + ' -> (' + p.targetX + ',' + p.targetY + ')';
+  }
+  if (ev.topic === STREAM_TOPICS.ARMY_OBJECTIVE_STARTED) {
+    return '— ' + p.armyName + ' began ' + p.objectiveType + ' at (' + p.x + ',' + p.y + ')';
+  }
+  if (ev.topic === STREAM_TOPICS.ARMY_OBJECTIVE_COMPLETED) {
+    return '— ' + p.armyName + ' completed ' + p.objectiveType + ' at (' + p.x + ',' + p.y + ')';
+  }
+  if (ev.topic === STREAM_TOPICS.ARMY_OBJECTIVE_FAILED) {
+    return '— ' + p.armyName + ' objective failed: ' + (p.reason || 'interrupted');
+  }
+  if (ev.topic === STREAM_TOPICS.ARMY_RETURNING) {
+    return '— ' + p.armyName + ' returning to ' + p.homeCityName + ' (' + p.stepsCount + ' hexes)';
+  }
+  if (ev.topic === STREAM_TOPICS.ARMY_REINTEGRATED) {
+    return '— ' + p.armyName + ' returned ' + p.troopsReturned + ' troops to ' + p.homeCityName + ' Barracks';
+  }
   if (ev.topic === STREAM_TOPICS.DUNGEON_DISCOVERED) {
     return '— Discovered Vault: ' + p.dungeonName + ' at (' + p.x + ',' + p.y + ')!';
   }
@@ -2329,4 +2413,83 @@ export function formatEventSummary(ev) {
     return '— [Blocked] ' + p.reason;
   }
   return '';
+}
+
+export function renderDeployArmyModal(simHost) {
+  if (typeof document === 'undefined') return;
+  const modal = document.getElementById('wgDeployArmyModal');
+  const body = document.getElementById('wgDeployArmyBody');
+  if (!modal || !body) return;
+
+  const state = simHost && simHost.state;
+  const isOpen = Boolean(state && state._deployArmyModalOpen && state.world);
+  modal.classList.toggle('hidden', !isOpen);
+  if (!isOpen) return;
+
+  const world = state.world;
+  const city = getPrimaryCity(state);
+  if (!city) {
+    modal.classList.add('hidden');
+    return;
+  }
+
+  const ow = world.overworld;
+  const draft = state._deployArmyDraft || {};
+  const targetX = typeof draft.targetX === 'number' ? draft.targetX : Math.min((ow.width || 56) - 1, city.x + 1);
+  const targetY = typeof draft.targetY === 'number' ? draft.targetY : city.y;
+  const stayDeployed = Boolean(draft.stayDeployed);
+  const qtyByKey = draft.qtyByKey || {};
+
+  const inv = getCityTroopInventorySummary(world, city);
+  const availableRows = inv.byTypeAndLevel.filter(function(r) { return r.trained > 0; });
+
+  let totalSelected = 0;
+  const rowsHtml = availableRows.length === 0
+    ? '<div class="text-xs text-[#8b949e] italic py-2">No trained troops available in ' + city.name + ' Barracks.</div>'
+    : availableRows.map(function(row) {
+        const key = row.troopDefId + ':' + row.level;
+        const curQty = Math.max(0, Math.min(row.trained, Math.floor(Number(qtyByKey[key] || 0))));
+        totalSelected += curQty;
+        return `
+          <div class="p-2 rounded bg-[#111722] border border-[#283347] space-y-1 text-xs font-mono">
+            <div class="flex items-center justify-between">
+              <span class="text-[#e6edf3] font-bold">${row.icon} ${row.name} <span class="text-[#fbbf24]">Lv ${row.level}</span></span>
+              <span class="text-[#34d399]">Available: ${row.trained}</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <input type="range" min="0" max="${row.trained}" value="${curQty}" oninput="window.WargameApp.handleSetDeployTroopQty('${row.troopDefId}', ${row.level}, this.value)" class="flex-1 accent-[#f87171] cursor-pointer" />
+              <input type="number" min="0" max="${row.trained}" value="${curQty}" oninput="window.WargameApp.handleSetDeployTroopQty('${row.troopDefId}', ${row.level}, this.value)" class="w-14 px-1.5 py-0.5 rounded bg-[#080b11] border border-[#283347] text-[#e6edf3] text-center" />
+            </div>
+          </div>
+        `;
+      }).join('');
+
+  const html = `
+    <div class="flex items-center justify-between px-4 py-3 bg-[#080b11] border-b border-[#283347]">
+      <div>
+        <h2 class="text-sm font-bold text-[#f87171]">🛡️ Deploy Field Army from ${city.name}</h2>
+        <div class="text-[11px] font-mono text-[#94a3b8]">Select Barracks troops and target hex; army is formed automatically on deployment</div>
+      </div>
+      <button onclick="window.WargameApp.handleCloseDeployArmyModal()" class="px-2.5 py-1 rounded bg-[#1a2232] hover:bg-[#283347] text-xs font-mono font-bold text-[#e6edf3] cursor-pointer">✕ Close</button>
+    </div>
+    <div class="p-4 space-y-3 overflow-y-auto">
+      <div class="p-2.5 rounded bg-[#080b11] border border-[#283347] flex flex-wrap items-center justify-between gap-2 text-xs font-mono">
+        <span class="text-[#cbd5e1] font-bold">Target Hex (Patrol):</span>
+        <div class="flex items-center gap-2">
+          <label class="text-[#8b949e]">X <input type="number" min="0" max="${(ow.width || 56) - 1}" value="${targetX}" oninput="window.WargameApp.handleSetDeployTargetCoord('x', this.value)" class="w-14 px-1.5 py-0.5 rounded bg-[#111722] border border-[#283347] text-[#e6edf3] text-center" /></label>
+          <label class="text-[#8b949e]">Y <input type="number" min="0" max="${(ow.height || 40) - 1}" value="${targetY}" oninput="window.WargameApp.handleSetDeployTargetCoord('y', this.value)" class="w-14 px-1.5 py-0.5 rounded bg-[#111722] border border-[#283347] text-[#e6edf3] text-center" /></label>
+        </div>
+      </div>
+      <div class="space-y-1.5">${rowsHtml}</div>
+      <label class="flex items-center gap-2 p-2.5 rounded bg-[#080b11] border border-[#283347] text-xs font-mono text-[#e6edf3] cursor-pointer">
+        <input type="checkbox" ${stayDeployed ? 'checked' : ''} onchange="window.WargameApp.handleToggleDeployStayDeployed(this.checked)" class="accent-[#f87171]" />
+        <span>Stay deployed after completing objective (unchecked = auto-return to ${city.name} Barracks)</span>
+      </label>
+      <div class="flex items-center justify-between pt-1">
+        <span class="text-xs font-mono text-[#fbbf24]">Selected Force: <strong>${totalSelected} Troops</strong></span>
+        <button data-action="confirm-deploy-army" onclick="window.WargameApp.handleConfirmDeployArmy()" ${totalSelected <= 0 ? 'disabled' : ''} class="px-4 py-2 rounded-lg text-xs font-mono font-bold uppercase ${totalSelected > 0 ? 'bg-[#f87171] hover:bg-[#ef4444] text-[#080b11] cursor-pointer' : 'bg-[#1a2232] text-[#64748b] cursor-not-allowed'}">🛡️ Deploy Army</button>
+      </div>
+    </div>
+  `;
+  setHtmlIfChanged(body, html);
 }

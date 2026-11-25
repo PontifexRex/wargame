@@ -33,6 +33,7 @@ export const BASE_BUILD_QUEUE_LIMIT = 3; // Maximum construction projects in que
 export const BASE_RECRUIT_QUEUE_LIMIT = 3; // Maximum heroes in recruitment queue (1 active + 2 pending)
 export const BASE_TROOP_QUEUE_LIMIT = 3; // Maximum troop training batches in city queue (1 active + 2 pending)
 export const MAX_TROOP_BATCH_SIZE = 10; // Maximum soldiers queued in a single training batch
+export const ARMY_PATROL_DURATION_MS = 3000; // Tunable frontier patrol sweep duration after arriving at target hex
 export const DEMOLISH_SALVAGE_RATIO = 0.35; // 35% salvage returned upon demolishing a building
 export const CANCEL_CLEANUP_TIME_RATIO = 0.50; // Cancelling active construction requires 50% of elapsed time for site cleanup
 
@@ -91,6 +92,13 @@ export const STREAM_TOPICS = {
   TROOP_UPGRADE_CANCELLED:  'military.troopUpgradeCancelled',
   TROOP_UPGRADE_COMPLETED:  'military.troopUpgradeCompleted',
   TROOPS_DISBANDED:         'military.troopsDisbanded',
+  ARMY_DEPLOYED:            'military.armyDeployed',
+  ARMY_REDIRECTED:          'military.armyRedirected',
+  ARMY_OBJECTIVE_STARTED:   'military.armyObjectiveStarted',
+  ARMY_OBJECTIVE_COMPLETED: 'military.armyObjectiveCompleted',
+  ARMY_OBJECTIVE_FAILED:    'military.armyObjectiveFailed',
+  ARMY_RETURNING:           'military.armyReturning',
+  ARMY_REINTEGRATED:        'military.armyReintegrated',
   HERO_DISMISSED:       'guild.heroDismissed',
   LEADER_CHANGED:       'guild.leaderChanged',
   STORAGE_UPDATED:      'city.storageUpdated',
@@ -130,6 +138,10 @@ export const COMMAND_TYPES = {
   UPGRADE_TROOPS:        'CMD_UPGRADE_TROOPS',
   CANCEL_TROOP_UPGRADE:  'CMD_CANCEL_TROOP_UPGRADE',
   DISBAND_TROOPS:        'CMD_DISBAND_TROOPS',
+  DEPLOY_ARMY:           'CMD_DEPLOY_ARMY',
+  REDIRECT_ARMY:         'CMD_REDIRECT_ARMY',
+  RETURN_ARMY_HOME:      'CMD_RETURN_ARMY_HOME',
+  SET_ARMY_RETURN_POLICY:'CMD_SET_ARMY_RETURN_POLICY',
   DISMISS_HERO:          'CMD_DISMISS_HERO',
   SET_OVERALL_LEADER:    'CMD_SET_OVERALL_LEADER',
   ASSIGN_HERO_TO_PARTY:  'CMD_ASSIGN_HERO_TO_PARTY',

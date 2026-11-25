@@ -165,6 +165,18 @@ export const UNIT_ARCHETYPES = {
     canFoundCity: false,
     canEnterDungeon: true,
     desc: 'Armed expedition led by a sworn Adventurers Guild Hero capable of entering subterranean dungeons.'
+  },
+  army: {
+    id: 'army',
+    name: 'Field Army',
+    shortName: 'Field Army',
+    icon: '🛡️',
+    color: '#f87171',
+    visionRadius: 4,
+    maxHp: 100,
+    canFoundCity: false,
+    canEnterDungeon: false,
+    desc: 'Temporary deployed military force formed automatically from Barracks troops to execute Overworld objectives.'
   }
 };
 
