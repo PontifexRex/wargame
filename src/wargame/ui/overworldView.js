@@ -21,6 +21,7 @@ import {
 } from '../data/terrain.js';
 import { getSelectedOverworldUnit, getPrimaryCity } from '../engine/state.js';
 import { getUnitInterpolatedPosition } from '../engine/queues.js';
+import { getHexDistance } from '../engine/hexSpatial.js';
 import { createHexGridAdapter } from '../../ui/shared/gridAdapters.js';
 import { createMapViewport } from '../../ui/shared/mapViewport.js';
 
@@ -61,6 +62,20 @@ export function ensureOverworldHexViewport(canvas) {
     owViewport.resize(w, h);
   }
   return owViewport;
+}
+
+export function interpolateHexSegment(fromX, fromY, toX, toY, progress) {
+  ensureOverworldHexViewport(null);
+  const t = Math.max(0, Math.min(1, typeof progress === 'number' ? progress : 0));
+  const w0 = owHexAdapter.tileToWorld(owHexAdapter.offsetToAxial(fromX, fromY));
+  if (t === 0 || (fromX === toX && fromY === toY)) {
+    return w0;
+  }
+  const w1 = owHexAdapter.tileToWorld(owHexAdapter.offsetToAxial(toX, toY));
+  return {
+    wx: w0.wx + (w1.wx - w0.wx) * t,
+    wy: w0.wy + (w1.wy - w0.wy) * t
+  };
 }
 
 export function offsetToWorldInterpolated(fx, fy) {
@@ -161,6 +176,43 @@ function drawHexPolygon(ctx, pts, fill, stroke, lineWidth) {
   }
 }
 
+export function computeOverworldCameraFollow(camera, targetWorld, options) {
+  const opts = options || {};
+  const initialized = Boolean(opts.initialized);
+  const userPanned = Boolean(opts.userPanned);
+  const marginRatio = typeof opts.marginRatio === 'number' ? opts.marginRatio : 0.18;
+  const smoothFactor = typeof opts.smoothFactor === 'number' ? opts.smoothFactor : 0.12;
+
+  if (!camera || !targetWorld) {
+    return { shouldMove: false, wx: 0, wy: 0 };
+  }
+  // Initial placement: center once on the starting unit/city
+  if (!initialized) {
+    return { shouldMove: true, wx: targetWorld.wx, wy: targetWorld.wy };
+  }
+  // Respect manual user pan/drag completely
+  if (userPanned) {
+    return { shouldMove: false, wx: camera.x, wy: camera.y };
+  }
+
+  // Keep map completely steady while unit stays inside the central safe zone of the viewport
+  const halfW = (camera.width / (2 * (camera.zoom || 1))) * (1 - marginRatio * 2);
+  const halfH = (camera.height / (2 * (camera.zoom || 1))) * (1 - marginRatio * 2);
+  const dx = targetWorld.wx - camera.x;
+  const dy = targetWorld.wy - camera.y;
+
+  if (Math.abs(dx) <= halfW && Math.abs(dy) <= halfH) {
+    return { shouldMove: false, wx: camera.x, wy: camera.y };
+  }
+
+  // Unit approached viewport edge: ease smoothly toward unit without snapping
+  return {
+    shouldMove: true,
+    wx: camera.x + dx * smoothFactor,
+    wy: camera.y + dy * smoothFactor
+  };
+}
+
 export function renderWargameOverworldCanvas(simHost) {
   if (typeof document === 'undefined' || !simHost || !simHost.state || !simHost.state.world) return;
   const canvas = document.getElementById('wgOverworldCanvas');
@@ -183,24 +235,34 @@ export function renderWargameOverworldCanvas(simHost) {
   const selUnit = getSelectedOverworldUnit(state);
   const primaryCity = getPrimaryCity(state);
 
+  // Authoritative integer tile focus for hex sight/visibility checks (never fractional!)
   let focusX = ow.spawnX;
   let focusY = ow.spawnY;
+  // Exact world-space focus for camera initialization / smooth edge follow
+  let focusWorld = interpolateHexSegment(ow.spawnX, ow.spawnY, ow.spawnX, ow.spawnY, 0);
 
   if (selUnit && selUnit.alive) {
+    focusX = selUnit.x;
+    focusY = selUnit.y;
     const interp = getUnitInterpolatedPosition(selUnit, simTimeMs);
-    focusX = interp.x;
-    focusY = interp.y;
+    focusWorld = (selUnit.status === 'marching' && selUnit.marchPlan)
+      ? interpolateHexSegment(selUnit.marchPlan.fromX, selUnit.marchPlan.fromY, selUnit.marchPlan.toX, selUnit.marchPlan.toY, interp.progress)
+      : interpolateHexSegment(selUnit.x, selUnit.y, selUnit.x, selUnit.y, 0);
   } else if (primaryCity) {
     focusX = primaryCity.x;
     focusY = primaryCity.y;
+    focusWorld = interpolateHexSegment(primaryCity.x, primaryCity.y, primaryCity.x, primaryCity.y, 0);
   }
 
-  // Keep camera centered on active unit until user manually drags/pans
-  if (!owViewportInitialized || !owUserPanned) {
-    const focusW = offsetToWorldInterpolated(focusX, focusY);
-    vp.centerOnWorld(focusW.wx, focusW.wy);
-    owViewportInitialized = true;
+  // Center once on boot; keep viewport rock-steady during normal movement and ease smoothly only near viewport edges
+  const camStep = computeOverworldCameraFollow(vp.camera, focusWorld, {
+    initialized: owViewportInitialized,
+    userPanned: owUserPanned
+  });
+  if (camStep.shouldMove) {
+    vp.centerOnWorld(camStep.wx, camStep.wy);
   }
+  owViewportInitialized = true;
 
   const visionRadius = selUnit ? (selUnit.visionRadius || 4) : 5;
   const visRect = vp.getVisibleWorldRect(48);
@@ -225,8 +287,8 @@ export function renderWargameOverworldCanvas(simHost) {
         continue;
       }
 
-      const dist = Math.hypot(x - focusX, y - focusY);
-      const inSight = dist <= visionRadius + 0.45;
+      const dist = getHexDistance(x, y, focusX, focusY);
+      const inSight = dist <= visionRadius;
       const tId = ow.tiles[y][x];
       const pal = HEX_TERRAIN_FILL[tId] || HEX_TERRAIN_FILL[OW_TERRAIN_PLAINS];
       const tDef = OVERWORLD_TERRAIN_DEFS[tId] || OVERWORLD_TERRAIN_DEFS[OW_TERRAIN_PLAINS];
@@ -383,7 +445,7 @@ export function renderWargameOverworldCanvas(simHost) {
   for (let hi = 0; hi < hostiles.length; hi++) {
     const hos = hostiles[hi];
     if (!hos.alive) continue;
-    if (Math.hypot(hos.x - focusX, hos.y - focusY) > visionRadius + 1.2) continue;
+    if (getHexDistance(hos.x, hos.y, focusX, focusY) > visionRadius + 1) continue;
 
     const w = owHexAdapter.tileToWorld(owHexAdapter.offsetToAxial(hos.x, hos.y));
     const s = vp.worldToScreen(w.wx, w.wy);
@@ -414,7 +476,9 @@ export function renderWargameOverworldCanvas(simHost) {
     if (!u.alive) continue;
 
     const interp = getUnitInterpolatedPosition(u, simTimeMs);
-    const w = offsetToWorldInterpolated(interp.x, interp.y);
+    const w = (u.status === 'marching' && u.marchPlan)
+      ? interpolateHexSegment(u.marchPlan.fromX, u.marchPlan.fromY, u.marchPlan.toX, u.marchPlan.toY, interp.progress)
+      : interpolateHexSegment(u.x, u.y, u.x, u.y, 0);
     const s = vp.worldToScreen(w.wx, w.wy);
     const isSel = selUnit && selUnit.id === u.id;
 

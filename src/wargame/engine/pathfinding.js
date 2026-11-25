@@ -17,6 +17,26 @@ import {
   UNIT_ARCHETYPES
 } from '../data/terrain.js';
 import { createSeededRng, hashSeedString } from '../../engine/rng.js';
+import {
+  isInOverworldBounds,
+  getHexNeighbors,
+  getHexDistance,
+  getHexesInRange
+} from './hexSpatial.js';
+
+function computeMinOverworldMarchCostMs() {
+  let minCost = Infinity;
+  const keys = Object.keys(OVERWORLD_TERRAIN_DEFS || {});
+  for (let i = 0; i < keys.length; i++) {
+    const def = OVERWORLD_TERRAIN_DEFS[keys[i]];
+    if (def && def.passable && typeof def.marchTimeMs === 'number' && isFinite(def.marchTimeMs) && def.marchTimeMs > 0) {
+      if (def.marchTimeMs < minCost) minCost = def.marchTimeMs;
+    }
+  }
+  return isFinite(minCost) ? minCost : 3000;
+}
+
+export const MIN_OVERWORLD_MARCH_COST_MS = computeMinOverworldMarchCostMs();
 
 export function generateOverworldMap(width = OVERWORLD_MAP_W, height = OVERWORLD_MAP_H, seedCode = 'STAR-7777') {
   const numSeed = typeof seedCode === 'number' ? seedCode : hashSeedString(String(seedCode), 404);
@@ -231,16 +251,11 @@ export function generateOverworldMap(width = OVERWORLD_MAP_W, height = OVERWORLD
 
 export function revealOverworldVision(overworld, cx, cy, radius = 4) {
   if (!overworld || !overworld.explored) return;
-  const r = Math.ceil(radius);
-  for (let dy = -r; dy <= r; dy++) {
-    for (let dx = -r; dx <= r; dx++) {
-      const y = cy + dy;
-      const x = cx + dx;
-      if (y >= 0 && y < overworld.height && x >= 0 && x < overworld.width) {
-        if (Math.hypot(dx, dy) <= radius + 0.35) {
-          overworld.explored[y][x] = true;
-        }
-      }
+  const inRange = getHexesInRange(cx, cy, radius, overworld);
+  for (let i = 0; i < inRange.length; i++) {
+    const c = inRange[i];
+    if (overworld.explored[c.y]) {
+      overworld.explored[c.y][c.x] = true;
     }
   }
 }
@@ -261,14 +276,14 @@ export function getOverworldTileMarchCostMs(overworld, x, y) {
   return tDef ? tDef.marchTimeMs : 3000;
 }
 
-// Terrain-weighted A* Pathfinding on the Overworld Grid
+// Terrain-weighted Hex A* Pathfinding on the Overworld Odd-R Hex Grid
 export function findOverworldPath(overworld, startX, startY, targetX, targetY, maxNodes = 2500) {
   if (!overworld || !overworld.tiles) return null;
+  if (!isInOverworldBounds(overworld, startX, startY) || !isInOverworldBounds(overworld, targetX, targetY)) return null;
   if (startX === targetX && startY === targetY) return [];
   if (!isOverworldTilePassable(overworld, targetX, targetY)) return null;
 
   const w = overworld.width;
-  const h = overworld.height;
   const startKey = startY * w + startX;
   const targetKey = targetY * w + targetX;
 
@@ -278,15 +293,9 @@ export function findOverworldPath(overworld, startX, startY, targetX, targetY, m
   const closed = {};
 
   gScore[startKey] = 0;
-  fScore[startKey] = (Math.abs(targetX - startX) + Math.abs(targetY - startY)) * 3000;
+  fScore[startKey] = getHexDistance(startX, startY, targetX, targetY) * MIN_OVERWORLD_MARCH_COST_MS;
 
   const openList = [startKey];
-  const dirs = [
-    { dx: 0, dy: -1 },
-    { dx: 1, dy: 0 },
-    { dx: 0, dy: 1 },
-    { dx: -1, dy: 0 }
-  ];
 
   let visited = 0;
   while (openList.length > 0 && visited < maxNodes) {
@@ -331,9 +340,10 @@ export function findOverworldPath(overworld, startX, startY, targetX, targetY, m
     const cy = Math.floor(bestKey / w);
     const curG = gScore[bestKey];
 
-    for (let d = 0; d < dirs.length; d++) {
-      const nx = cx + dirs[d].dx;
-      const ny = cy + dirs[d].dy;
+    const neighbors = getHexNeighbors(cx, cy, overworld);
+    for (let d = 0; d < neighbors.length; d++) {
+      const nx = neighbors[d].x;
+      const ny = neighbors[d].y;
       if (!isOverworldTilePassable(overworld, nx, ny)) continue;
 
       const nKey = ny * w + nx;
@@ -345,7 +355,7 @@ export function findOverworldPath(overworld, startX, startY, targetX, targetY, m
       if (gScore[nKey] === undefined || tentativeG < gScore[nKey]) {
         cameFrom[nKey] = bestKey;
         gScore[nKey] = tentativeG;
-        fScore[nKey] = tentativeG + (Math.abs(targetX - nx) + Math.abs(targetY - ny)) * 3000;
+        fScore[nKey] = tentativeG + getHexDistance(nx, ny, targetX, targetY) * MIN_OVERWORLD_MARCH_COST_MS;
         if (openList.indexOf(nKey) === -1) {
           openList.push(nKey);
         }

@@ -9,6 +9,7 @@ import {
   OVERWORLD_TERRAIN_DEFS,
   RECRUITABLE_HERO_CLASSES
 } from '../data/terrain.js';
+import { getHexDistance } from '../engine/hexSpatial.js';
 import {
   CITY_BUILDINGS_CATALOG,
   CITY_PLOT_SLOTS,
@@ -1422,7 +1423,7 @@ export function renderOverworldHudBar(simHost) {
       dngBarEl.classList.remove('hidden');
       const canMarchHero = Boolean(selUnit && selUnit.alive && selUnit.canEnterDungeon && selUnit.status !== 'in_dungeon');
       const cardsHtml = discoveredDngs.map(function(p) {
-        const dist = selUnit ? Math.round(Math.hypot(selUnit.x - p.x, selUnit.y - p.y)) : null;
+        const dist = selUnit ? getHexDistance(selUnit.x, selUnit.y, p.x, p.y) : null;
         const atGate = Boolean(canMarchHero && selUnit.status === 'idle' && selUnit.x === p.x && selUnit.y === p.y);
         return `
           <div class="flex items-center justify-between gap-2 px-2 py-1.5 rounded bg-[#111722] border border-[#283347] text-[11px] font-mono">

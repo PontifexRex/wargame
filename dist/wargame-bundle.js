@@ -823,11 +823,402 @@ function randomSeedCode(prefix = 'STAR') {
   return `${prefix}-${num}`;
 }
 
+  // --- Module: src/ui/shared/gridAdapters.js ---
+// =============================================================================
+// UNIFIED GRID ADAPTERS (ADR-0014 — Path A: Best-in-Class Domain Projections)
+// Pure, deterministic, zero-DOM ES2017 coordinate & topology math shared across:
+//   1. OrthoGridAdapter (Dungeon 2.5D Oblique Square Grid)
+//   2. IsoGridAdapter   (Bastion City 2:1 Rotated Square Isometric Diamond Grid)
+//   3. HexGridAdapter   (Overworld Pointy-Top Hexagonal Axial/Cube Grid)
+// =============================================================================
+
+const SQRT3 = Math.sqrt(3);
+
+const GRID_TYPES = {
+  ORTHO: 'ortho',
+  ISO: 'iso',
+  HEX_POINTY: 'hex_pointy'
+};
+
+// ---------------------------------------------------------------------------
+// 1. ORTHOGONAL SQUARE GRID ADAPTER (Starfall Vaults — 2.5D Oblique Dungeon)
+// ---------------------------------------------------------------------------
+function createOrthoGridAdapter(options) {
+  const opts = options || {};
+  const tw = opts.tileWidth || 32;
+  const th = opts.tileHeight || 32;
+
+  return {
+    type: GRID_TYPES.ORTHO,
+    tileWidth: tw,
+    tileHeight: th,
+
+    tileToWorld: function(coord) {
+      return {
+        wx: (coord.x + 0.5) * tw,
+        wy: (coord.y + 0.5) * th
+      };
+    },
+
+    worldToTile: function(wx, wy) {
+      return {
+        x: Math.floor(wx / tw),
+        y: Math.floor(wy / th)
+      };
+    },
+
+    getNeighbors: function(coord, includeDiagonals) {
+      const x = coord.x;
+      const y = coord.y;
+      const list = [
+        { x: x, y: y - 1 },
+        { x: x + 1, y: y },
+        { x: x, y: y + 1 },
+        { x: x - 1, y: y }
+      ];
+      if (includeDiagonals) {
+        list.push(
+          { x: x + 1, y: y - 1 },
+          { x: x + 1, y: y + 1 },
+          { x: x - 1, y: y + 1 },
+          { x: x - 1, y: y - 1 }
+        );
+      }
+      return list;
+    },
+
+    getDistance: function(a, b) {
+      return Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
+    },
+
+    getTilePolygon: function(coord) {
+      const x0 = coord.x * tw;
+      const y0 = coord.y * th;
+      return [
+        { wx: x0, wy: y0 },
+        { wx: x0 + tw, wy: y0 },
+        { wx: x0 + tw, wy: y0 + th },
+        { wx: x0, wy: y0 + th }
+      ];
+    }
+  };
+}
+
+// ---------------------------------------------------------------------------
+// 2. ROTATED SQUARE (2:1 ISOMETRIC DIAMOND) ADAPTER (Bastion City 8x8 Plots)
+// ---------------------------------------------------------------------------
+function createIsoGridAdapter(options) {
+  const opts = options || {};
+  const tw = opts.tileWidth || 96;
+  const th = opts.tileHeight || 48;
+  const halfW = tw / 2;
+  const halfH = th / 2;
+
+  return {
+    type: GRID_TYPES.ISO,
+    tileWidth: tw,
+    tileHeight: th,
+
+    tileToWorld: function(coord) {
+      return {
+        wx: (coord.x - coord.y) * halfW,
+        wy: (coord.x + coord.y) * halfH
+      };
+    },
+
+    worldToTile: function(wx, wy) {
+      const fx = (wx / halfW + wy / halfH) * 0.5;
+      const fy = (wy / halfH - wx / halfW) * 0.5;
+      return {
+        x: Math.round(fx),
+        y: Math.round(fy)
+      };
+    },
+
+    getNeighbors: function(coord) {
+      const x = coord.x;
+      const y = coord.y;
+      return [
+        { x: x, y: y - 1 },
+        { x: x + 1, y: y },
+        { x: x, y: y + 1 },
+        { x: x - 1, y: y }
+      ];
+    },
+
+    getDistance: function(a, b) {
+      return Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
+    },
+
+    getTilePolygon: function(coord) {
+      const c = this.tileToWorld(coord);
+      return [
+        { wx: c.wx, wy: c.wy - halfH },
+        { wx: c.wx + halfW, wy: c.wy },
+        { wx: c.wx, wy: c.wy + halfH },
+        { wx: c.wx - halfW, wy: c.wy }
+      ];
+    },
+
+    // Back-to-front painter's sort order for isometric 3D building overlap
+    getDrawOrder: function(cols, rows) {
+      const order = [];
+      for (let sum = 0; sum <= (cols - 1) + (rows - 1); sum++) {
+        for (let x = 0; x < cols; x++) {
+          const y = sum - x;
+          if (y >= 0 && y < rows) {
+            order.push({ x: x, y: y, plotIndex: y * cols + x });
+          }
+        }
+      }
+      return order;
+    }
+  };
+}
+
+// ---------------------------------------------------------------------------
+// 3. POINTY-TOP HEXAGONAL GRID ADAPTER (Overworld Macro Strategy — Axial/Cube)
+// Implements Red Blob Games canonical axial (q, r) & cube (q, r, s) math.
+// ---------------------------------------------------------------------------
+const HEX_DIRECTIONS = [
+  { q: 1, r: 0 },
+  { q: 1, r: -1 },
+  { q: 0, r: -1 },
+  { q: -1, r: 0 },
+  { q: -1, r: 1 },
+  { q: 0, r: 1 }
+];
+
+function cubeRound(fq, fr) {
+  const fs = -fq - fr;
+  let rq = Math.round(fq);
+  let rr = Math.round(fr);
+  const rs = Math.round(fs);
+
+  const qDiff = Math.abs(rq - fq);
+  const rDiff = Math.abs(rr - fr);
+  const sDiff = Math.abs(rs - fs);
+
+  if (qDiff > rDiff && qDiff > sDiff) {
+    rq = -rr - rs;
+  } else if (rDiff > sDiff) {
+    rr = -rq - rs;
+  }
+  return { q: rq === 0 ? 0 : rq, r: rr === 0 ? 0 : rr };
+}
+
+function createHexGridAdapter(options) {
+  const opts = options || {};
+  const size = opts.hexSize || 28;
+
+  return {
+    type: GRID_TYPES.HEX_POINTY,
+    hexSize: size,
+    tileWidth: SQRT3 * size,
+    tileHeight: 2 * size,
+
+    tileToWorld: function(coord) {
+      const q = coord.q;
+      const r = coord.r;
+      return {
+        wx: size * (SQRT3 * q + (SQRT3 * 0.5) * r),
+        wy: size * (1.5 * r)
+      };
+    },
+
+    worldToTile: function(wx, wy) {
+      const fq = ((SQRT3 / 3) * wx - (1 / 3) * wy) / size;
+      const fr = ((2 / 3) * wy) / size;
+      return cubeRound(fq, fr);
+    },
+
+    getNeighbors: function(coord) {
+      const out = [];
+      for (let i = 0; i < HEX_DIRECTIONS.length; i++) {
+        out.push({
+          q: coord.q + HEX_DIRECTIONS[i].q,
+          r: coord.r + HEX_DIRECTIONS[i].r
+        });
+      }
+      return out;
+    },
+
+    getDistance: function(a, b) {
+      const dq = a.q - b.q;
+      const dr = a.r - b.r;
+      return (Math.abs(dq) + Math.abs(dq + dr) + Math.abs(dr)) * 0.5;
+    },
+
+    getRing: function(center, radius) {
+      if (radius <= 0) return [{ q: center.q, r: center.r }];
+      const results = [];
+      let curQ = center.q + HEX_DIRECTIONS[4].q * radius;
+      let curR = center.r + HEX_DIRECTIONS[4].r * radius;
+      for (let side = 0; side < 6; side++) {
+        for (let step = 0; step < radius; step++) {
+          results.push({ q: curQ, r: curR });
+          curQ += HEX_DIRECTIONS[side].q;
+          curR += HEX_DIRECTIONS[side].r;
+        }
+      }
+      return results;
+    },
+
+    getSpiral: function(center, maxRadius) {
+      const results = [{ q: center.q, r: center.r }];
+      for (let rad = 1; rad <= maxRadius; rad++) {
+        const ring = this.getRing(center, rad);
+        for (let i = 0; i < ring.length; i++) {
+          results.push(ring[i]);
+        }
+      }
+      return results;
+    },
+
+    // Odd-r offset (col, row) <-> Axial (q, r) for lossless legacy Overworld coordinate migration
+    offsetToAxial: function(col, row) {
+      const q = col - Math.floor((row - (row & 1)) / 2);
+      return { q: q, r: row };
+    },
+
+    axialToOffset: function(q, r) {
+      const col = q + Math.floor((r - (r & 1)) / 2);
+      return { col: col, row: r };
+    },
+
+    getTilePolygon: function(coord) {
+      const c = this.tileToWorld(coord);
+      const pts = [];
+      for (let i = 0; i < 6; i++) {
+        const angleRad = (Math.PI / 180) * (60 * i - 30);
+        pts.push({
+          wx: c.wx + size * Math.cos(angleRad),
+          wy: c.wy + size * Math.sin(angleRad)
+        });
+      }
+      return pts;
+    }
+  };
+}
+
+  // --- Module: src/wargame/engine/hexSpatial.js ---
+// Overworld Hex Spatial Primitives — Single Source of Truth (Task 03)
+// Delegates all axial/cube/odd-r hex math to the canonical createHexGridAdapter() in src/ui/shared/gridAdapters.js.
+// Preserves odd-r offset (x = col, y = row) storage for 100% compatibility with existing Overworld maps & saves.
+
+
+// Matches HEX_DIRECTIONS order in src/ui/shared/gridAdapters.js:
+// 0: E (+1, 0), 1: NE (+1, -1), 2: NW (0, -1), 3: W (-1, 0), 4: SW (-1, +1), 5: SE (0, +1)
+const HEX_DIR_NAMES = ['E', 'NE', 'NW', 'W', 'SW', 'SE'];
+
+const overworldHexAdapter = createHexGridAdapter({ hexSize: 22 });
+
+function getOverworldHexAdapter() {
+  return overworldHexAdapter;
+}
+
+function isInOverworldBounds(overworld, x, y) {
+  if (!overworld || typeof overworld.width !== 'number' || typeof overworld.height !== 'number') return false;
+  return x >= 0 && x < overworld.width && y >= 0 && y < overworld.height;
+}
+
+function resolveHexDirectionIndex(dirIndexOrName) {
+  if (typeof dirIndexOrName === 'number' && Number.isInteger(dirIndexOrName)) {
+    return (dirIndexOrName >= 0 && dirIndexOrName < 6) ? dirIndexOrName : -1;
+  }
+  if (typeof dirIndexOrName === 'string') {
+    const upper = dirIndexOrName.trim().toUpperCase();
+    for (let i = 0; i < HEX_DIR_NAMES.length; i++) {
+      if (HEX_DIR_NAMES[i] === upper) return i;
+    }
+  }
+  return -1;
+}
+
+function getHexNeighbors(x, y, overworld) {
+  const axial = overworldHexAdapter.offsetToAxial(x, y);
+  const rawNeighbors = overworldHexAdapter.getNeighbors(axial);
+  const results = [];
+  for (let i = 0; i < rawNeighbors.length; i++) {
+    const off = overworldHexAdapter.axialToOffset(rawNeighbors[i].q, rawNeighbors[i].r);
+    if (overworld && !isInOverworldBounds(overworld, off.col, off.row)) {
+      continue;
+    }
+    results.push({
+      x: off.col,
+      y: off.row,
+      dirIndex: i,
+      dirName: HEX_DIR_NAMES[i]
+    });
+  }
+  return results;
+}
+
+function getHexNeighborInDirection(x, y, dirIndexOrName, overworld) {
+  const dirIdx = resolveHexDirectionIndex(dirIndexOrName);
+  if (dirIdx === -1) return null;
+  const axial = overworldHexAdapter.offsetToAxial(x, y);
+  const rawNeighbors = overworldHexAdapter.getNeighbors(axial);
+  const n = rawNeighbors[dirIdx];
+  if (!n) return null;
+  const off = overworldHexAdapter.axialToOffset(n.q, n.r);
+  if (overworld && !isInOverworldBounds(overworld, off.col, off.row)) {
+    return null;
+  }
+  return {
+    x: off.col,
+    y: off.row,
+    dirIndex: dirIdx,
+    dirName: HEX_DIR_NAMES[dirIdx]
+  };
+}
+
+function getHexDistance(x1, y1, x2, y2) {
+  if (x1 === x2 && y1 === y2) return 0;
+  const a = overworldHexAdapter.offsetToAxial(x1, y1);
+  const b = overworldHexAdapter.offsetToAxial(x2, y2);
+  return overworldHexAdapter.getDistance(a, b);
+}
+
+function areHexesAdjacent(x1, y1, x2, y2) {
+  return getHexDistance(x1, y1, x2, y2) === 1;
+}
+
+function getHexesInRange(cx, cy, radius, overworld) {
+  const r = Math.max(0, Math.floor(typeof radius === 'number' ? radius : 0));
+  const centerAxial = overworldHexAdapter.offsetToAxial(cx, cy);
+  const spiral = overworldHexAdapter.getSpiral(centerAxial, r);
+  const results = [];
+  for (let i = 0; i < spiral.length; i++) {
+    const off = overworldHexAdapter.axialToOffset(spiral[i].q, spiral[i].r);
+    if (overworld && !isInOverworldBounds(overworld, off.col, off.row)) {
+      continue;
+    }
+    results.push({ x: off.col, y: off.row });
+  }
+  return results;
+}
+
   // --- Module: src/wargame/engine/pathfinding.js ---
 // A* Terrain-Weighted Pathfinding & Overworld Procedural Generation Engine
 
 
 
+
+
+function computeMinOverworldMarchCostMs() {
+  let minCost = Infinity;
+  const keys = Object.keys(OVERWORLD_TERRAIN_DEFS || {});
+  for (let i = 0; i < keys.length; i++) {
+    const def = OVERWORLD_TERRAIN_DEFS[keys[i]];
+    if (def && def.passable && typeof def.marchTimeMs === 'number' && isFinite(def.marchTimeMs) && def.marchTimeMs > 0) {
+      if (def.marchTimeMs < minCost) minCost = def.marchTimeMs;
+    }
+  }
+  return isFinite(minCost) ? minCost : 3000;
+}
+
+const MIN_OVERWORLD_MARCH_COST_MS = computeMinOverworldMarchCostMs();
 
 function generateOverworldMap(width = OVERWORLD_MAP_W, height = OVERWORLD_MAP_H, seedCode = 'STAR-7777') {
   const numSeed = typeof seedCode === 'number' ? seedCode : hashSeedString(String(seedCode), 404);
@@ -1042,16 +1433,11 @@ function generateOverworldMap(width = OVERWORLD_MAP_W, height = OVERWORLD_MAP_H,
 
 function revealOverworldVision(overworld, cx, cy, radius = 4) {
   if (!overworld || !overworld.explored) return;
-  const r = Math.ceil(radius);
-  for (let dy = -r; dy <= r; dy++) {
-    for (let dx = -r; dx <= r; dx++) {
-      const y = cy + dy;
-      const x = cx + dx;
-      if (y >= 0 && y < overworld.height && x >= 0 && x < overworld.width) {
-        if (Math.hypot(dx, dy) <= radius + 0.35) {
-          overworld.explored[y][x] = true;
-        }
-      }
+  const inRange = getHexesInRange(cx, cy, radius, overworld);
+  for (let i = 0; i < inRange.length; i++) {
+    const c = inRange[i];
+    if (overworld.explored[c.y]) {
+      overworld.explored[c.y][c.x] = true;
     }
   }
 }
@@ -1072,14 +1458,14 @@ function getOverworldTileMarchCostMs(overworld, x, y) {
   return tDef ? tDef.marchTimeMs : 3000;
 }
 
-// Terrain-weighted A* Pathfinding on the Overworld Grid
+// Terrain-weighted Hex A* Pathfinding on the Overworld Odd-R Hex Grid
 function findOverworldPath(overworld, startX, startY, targetX, targetY, maxNodes = 2500) {
   if (!overworld || !overworld.tiles) return null;
+  if (!isInOverworldBounds(overworld, startX, startY) || !isInOverworldBounds(overworld, targetX, targetY)) return null;
   if (startX === targetX && startY === targetY) return [];
   if (!isOverworldTilePassable(overworld, targetX, targetY)) return null;
 
   const w = overworld.width;
-  const h = overworld.height;
   const startKey = startY * w + startX;
   const targetKey = targetY * w + targetX;
 
@@ -1089,15 +1475,9 @@ function findOverworldPath(overworld, startX, startY, targetX, targetY, maxNodes
   const closed = {};
 
   gScore[startKey] = 0;
-  fScore[startKey] = (Math.abs(targetX - startX) + Math.abs(targetY - startY)) * 3000;
+  fScore[startKey] = getHexDistance(startX, startY, targetX, targetY) * MIN_OVERWORLD_MARCH_COST_MS;
 
   const openList = [startKey];
-  const dirs = [
-    { dx: 0, dy: -1 },
-    { dx: 1, dy: 0 },
-    { dx: 0, dy: 1 },
-    { dx: -1, dy: 0 }
-  ];
 
   let visited = 0;
   while (openList.length > 0 && visited < maxNodes) {
@@ -1142,9 +1522,10 @@ function findOverworldPath(overworld, startX, startY, targetX, targetY, maxNodes
     const cy = Math.floor(bestKey / w);
     const curG = gScore[bestKey];
 
-    for (let d = 0; d < dirs.length; d++) {
-      const nx = cx + dirs[d].dx;
-      const ny = cy + dirs[d].dy;
+    const neighbors = getHexNeighbors(cx, cy, overworld);
+    for (let d = 0; d < neighbors.length; d++) {
+      const nx = neighbors[d].x;
+      const ny = neighbors[d].y;
       if (!isOverworldTilePassable(overworld, nx, ny)) continue;
 
       const nKey = ny * w + nx;
@@ -1156,7 +1537,7 @@ function findOverworldPath(overworld, startX, startY, targetX, targetY, maxNodes
       if (gScore[nKey] === undefined || tentativeG < gScore[nKey]) {
         cameFrom[nKey] = bestKey;
         gScore[nKey] = tentativeG;
-        fScore[nKey] = tentativeG + (Math.abs(targetX - nx) + Math.abs(targetY - ny)) * 3000;
+        fScore[nKey] = tentativeG + getHexDistance(nx, ny, targetX, targetY) * MIN_OVERWORLD_MARCH_COST_MS;
         if (openList.indexOf(nKey) === -1) {
           openList.push(nKey);
         }
@@ -6605,6 +6986,7 @@ function consumeBridgeHandoff(expectedDirection) {
 
 
 
+
 function dispatchWargameCommand(commandEnvelope, state, scheduler, eventStream) {
   if (!commandEnvelope || !commandEnvelope.type) {
     return { ok: false, reason: 'Malformed command envelope' };
@@ -6738,19 +7120,41 @@ function dispatchWargameCommand(commandEnvelope, state, scheduler, eventStream) 
   }
 
   // ---------------------------------------------------------------------------
-  // 3. STEP UNIT ADJACENT (Convenience wrapper around ORDER_UNIT_MARCH)
+  // 3. STEP UNIT ADJACENT (Hex-validated 6-direction or legacy adjacent wrapper)
   // ---------------------------------------------------------------------------
   if (cmdType === COMMAND_TYPES.STEP_UNIT_ADJACENT) {
     const unit = getSelectedOverworldUnit(state);
     if (!unit) return reject('No active unit selected');
-    const dx = Number(payload.dx || 0);
-    const dy = Number(payload.dy || 0);
+
+    let targetX = null;
+    let targetY = null;
+
+    if (payload.hexDir !== undefined && payload.hexDir !== null) {
+      const neighbor = getHexNeighborInDirection(unit.x, unit.y, payload.hexDir, ow);
+      if (!neighbor) {
+        return reject('Invalid or out-of-bounds hex direction');
+      }
+      targetX = neighbor.x;
+      targetY = neighbor.y;
+    } else {
+      const dx = Number(payload.dx || 0);
+      const dy = Number(payload.dy || 0);
+      if (isNaN(dx) || isNaN(dy)) {
+        return reject('Invalid step offset');
+      }
+      targetX = unit.x + dx;
+      targetY = unit.y + dy;
+      if (!isInOverworldBounds(ow, targetX, targetY) || !areHexesAdjacent(unit.x, unit.y, targetX, targetY)) {
+        return reject('Target tile is not an adjacent hex');
+      }
+    }
+
     return dispatchWargameCommand({
       type: COMMAND_TYPES.ORDER_UNIT_MARCH,
       payload: {
         unitId: unit.id,
-        targetX: unit.x + dx,
-        targetY: unit.y + dy
+        targetX: targetX,
+        targetY: targetY
       }
     }, state, scheduler, eventStream);
   }
@@ -8620,284 +9024,6 @@ function createWargameSimHost(initialState = null) {
   };
 }
 
-  // --- Module: src/ui/shared/gridAdapters.js ---
-// =============================================================================
-// UNIFIED GRID ADAPTERS (ADR-0014 — Path A: Best-in-Class Domain Projections)
-// Pure, deterministic, zero-DOM ES2017 coordinate & topology math shared across:
-//   1. OrthoGridAdapter (Dungeon 2.5D Oblique Square Grid)
-//   2. IsoGridAdapter   (Bastion City 2:1 Rotated Square Isometric Diamond Grid)
-//   3. HexGridAdapter   (Overworld Pointy-Top Hexagonal Axial/Cube Grid)
-// =============================================================================
-
-const SQRT3 = Math.sqrt(3);
-
-const GRID_TYPES = {
-  ORTHO: 'ortho',
-  ISO: 'iso',
-  HEX_POINTY: 'hex_pointy'
-};
-
-// ---------------------------------------------------------------------------
-// 1. ORTHOGONAL SQUARE GRID ADAPTER (Starfall Vaults — 2.5D Oblique Dungeon)
-// ---------------------------------------------------------------------------
-function createOrthoGridAdapter(options) {
-  const opts = options || {};
-  const tw = opts.tileWidth || 32;
-  const th = opts.tileHeight || 32;
-
-  return {
-    type: GRID_TYPES.ORTHO,
-    tileWidth: tw,
-    tileHeight: th,
-
-    tileToWorld: function(coord) {
-      return {
-        wx: (coord.x + 0.5) * tw,
-        wy: (coord.y + 0.5) * th
-      };
-    },
-
-    worldToTile: function(wx, wy) {
-      return {
-        x: Math.floor(wx / tw),
-        y: Math.floor(wy / th)
-      };
-    },
-
-    getNeighbors: function(coord, includeDiagonals) {
-      const x = coord.x;
-      const y = coord.y;
-      const list = [
-        { x: x, y: y - 1 },
-        { x: x + 1, y: y },
-        { x: x, y: y + 1 },
-        { x: x - 1, y: y }
-      ];
-      if (includeDiagonals) {
-        list.push(
-          { x: x + 1, y: y - 1 },
-          { x: x + 1, y: y + 1 },
-          { x: x - 1, y: y + 1 },
-          { x: x - 1, y: y - 1 }
-        );
-      }
-      return list;
-    },
-
-    getDistance: function(a, b) {
-      return Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
-    },
-
-    getTilePolygon: function(coord) {
-      const x0 = coord.x * tw;
-      const y0 = coord.y * th;
-      return [
-        { wx: x0, wy: y0 },
-        { wx: x0 + tw, wy: y0 },
-        { wx: x0 + tw, wy: y0 + th },
-        { wx: x0, wy: y0 + th }
-      ];
-    }
-  };
-}
-
-// ---------------------------------------------------------------------------
-// 2. ROTATED SQUARE (2:1 ISOMETRIC DIAMOND) ADAPTER (Bastion City 8x8 Plots)
-// ---------------------------------------------------------------------------
-function createIsoGridAdapter(options) {
-  const opts = options || {};
-  const tw = opts.tileWidth || 96;
-  const th = opts.tileHeight || 48;
-  const halfW = tw / 2;
-  const halfH = th / 2;
-
-  return {
-    type: GRID_TYPES.ISO,
-    tileWidth: tw,
-    tileHeight: th,
-
-    tileToWorld: function(coord) {
-      return {
-        wx: (coord.x - coord.y) * halfW,
-        wy: (coord.x + coord.y) * halfH
-      };
-    },
-
-    worldToTile: function(wx, wy) {
-      const fx = (wx / halfW + wy / halfH) * 0.5;
-      const fy = (wy / halfH - wx / halfW) * 0.5;
-      return {
-        x: Math.round(fx),
-        y: Math.round(fy)
-      };
-    },
-
-    getNeighbors: function(coord) {
-      const x = coord.x;
-      const y = coord.y;
-      return [
-        { x: x, y: y - 1 },
-        { x: x + 1, y: y },
-        { x: x, y: y + 1 },
-        { x: x - 1, y: y }
-      ];
-    },
-
-    getDistance: function(a, b) {
-      return Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
-    },
-
-    getTilePolygon: function(coord) {
-      const c = this.tileToWorld(coord);
-      return [
-        { wx: c.wx, wy: c.wy - halfH },
-        { wx: c.wx + halfW, wy: c.wy },
-        { wx: c.wx, wy: c.wy + halfH },
-        { wx: c.wx - halfW, wy: c.wy }
-      ];
-    },
-
-    // Back-to-front painter's sort order for isometric 3D building overlap
-    getDrawOrder: function(cols, rows) {
-      const order = [];
-      for (let sum = 0; sum <= (cols - 1) + (rows - 1); sum++) {
-        for (let x = 0; x < cols; x++) {
-          const y = sum - x;
-          if (y >= 0 && y < rows) {
-            order.push({ x: x, y: y, plotIndex: y * cols + x });
-          }
-        }
-      }
-      return order;
-    }
-  };
-}
-
-// ---------------------------------------------------------------------------
-// 3. POINTY-TOP HEXAGONAL GRID ADAPTER (Overworld Macro Strategy — Axial/Cube)
-// Implements Red Blob Games canonical axial (q, r) & cube (q, r, s) math.
-// ---------------------------------------------------------------------------
-const HEX_DIRECTIONS = [
-  { q: 1, r: 0 },
-  { q: 1, r: -1 },
-  { q: 0, r: -1 },
-  { q: -1, r: 0 },
-  { q: -1, r: 1 },
-  { q: 0, r: 1 }
-];
-
-function cubeRound(fq, fr) {
-  const fs = -fq - fr;
-  let rq = Math.round(fq);
-  let rr = Math.round(fr);
-  const rs = Math.round(fs);
-
-  const qDiff = Math.abs(rq - fq);
-  const rDiff = Math.abs(rr - fr);
-  const sDiff = Math.abs(rs - fs);
-
-  if (qDiff > rDiff && qDiff > sDiff) {
-    rq = -rr - rs;
-  } else if (rDiff > sDiff) {
-    rr = -rq - rs;
-  }
-  return { q: rq === 0 ? 0 : rq, r: rr === 0 ? 0 : rr };
-}
-
-function createHexGridAdapter(options) {
-  const opts = options || {};
-  const size = opts.hexSize || 28;
-
-  return {
-    type: GRID_TYPES.HEX_POINTY,
-    hexSize: size,
-    tileWidth: SQRT3 * size,
-    tileHeight: 2 * size,
-
-    tileToWorld: function(coord) {
-      const q = coord.q;
-      const r = coord.r;
-      return {
-        wx: size * (SQRT3 * q + (SQRT3 * 0.5) * r),
-        wy: size * (1.5 * r)
-      };
-    },
-
-    worldToTile: function(wx, wy) {
-      const fq = ((SQRT3 / 3) * wx - (1 / 3) * wy) / size;
-      const fr = ((2 / 3) * wy) / size;
-      return cubeRound(fq, fr);
-    },
-
-    getNeighbors: function(coord) {
-      const out = [];
-      for (let i = 0; i < HEX_DIRECTIONS.length; i++) {
-        out.push({
-          q: coord.q + HEX_DIRECTIONS[i].q,
-          r: coord.r + HEX_DIRECTIONS[i].r
-        });
-      }
-      return out;
-    },
-
-    getDistance: function(a, b) {
-      const dq = a.q - b.q;
-      const dr = a.r - b.r;
-      return (Math.abs(dq) + Math.abs(dq + dr) + Math.abs(dr)) * 0.5;
-    },
-
-    getRing: function(center, radius) {
-      if (radius <= 0) return [{ q: center.q, r: center.r }];
-      const results = [];
-      let curQ = center.q + HEX_DIRECTIONS[4].q * radius;
-      let curR = center.r + HEX_DIRECTIONS[4].r * radius;
-      for (let side = 0; side < 6; side++) {
-        for (let step = 0; step < radius; step++) {
-          results.push({ q: curQ, r: curR });
-          curQ += HEX_DIRECTIONS[side].q;
-          curR += HEX_DIRECTIONS[side].r;
-        }
-      }
-      return results;
-    },
-
-    getSpiral: function(center, maxRadius) {
-      const results = [{ q: center.q, r: center.r }];
-      for (let rad = 1; rad <= maxRadius; rad++) {
-        const ring = this.getRing(center, rad);
-        for (let i = 0; i < ring.length; i++) {
-          results.push(ring[i]);
-        }
-      }
-      return results;
-    },
-
-    // Odd-r offset (col, row) <-> Axial (q, r) for lossless legacy Overworld coordinate migration
-    offsetToAxial: function(col, row) {
-      const q = col - Math.floor((row - (row & 1)) / 2);
-      return { q: q, r: row };
-    },
-
-    axialToOffset: function(q, r) {
-      const col = q + Math.floor((r - (r & 1)) / 2);
-      return { col: col, row: r };
-    },
-
-    getTilePolygon: function(coord) {
-      const c = this.tileToWorld(coord);
-      const pts = [];
-      for (let i = 0; i < 6; i++) {
-        const angleRad = (Math.PI / 180) * (60 * i - 30);
-        pts.push({
-          wx: c.wx + size * Math.cos(angleRad),
-          wy: c.wy + size * Math.sin(angleRad)
-        });
-      }
-      return pts;
-    }
-  };
-}
-
   // --- Module: src/ui/shared/mapViewport.js ---
 // =============================================================================
 // SHARED MAP VIEWPORT ENGINE (ADR-0014 §3)
@@ -9194,6 +9320,7 @@ function createMapViewport(options) {
 
 
 
+
 let wgHoverTile = null;
 let wgPreviewPath = null;
 let owHexAdapter = null;
@@ -9231,6 +9358,20 @@ function ensureOverworldHexViewport(canvas) {
     owViewport.resize(w, h);
   }
   return owViewport;
+}
+
+function interpolateHexSegment(fromX, fromY, toX, toY, progress) {
+  ensureOverworldHexViewport(null);
+  const t = Math.max(0, Math.min(1, typeof progress === 'number' ? progress : 0));
+  const w0 = owHexAdapter.tileToWorld(owHexAdapter.offsetToAxial(fromX, fromY));
+  if (t === 0 || (fromX === toX && fromY === toY)) {
+    return w0;
+  }
+  const w1 = owHexAdapter.tileToWorld(owHexAdapter.offsetToAxial(toX, toY));
+  return {
+    wx: w0.wx + (w1.wx - w0.wx) * t,
+    wy: w0.wy + (w1.wy - w0.wy) * t
+  };
 }
 
 function offsetToWorldInterpolated(fx, fy) {
@@ -9331,6 +9472,43 @@ function drawHexPolygon(ctx, pts, fill, stroke, lineWidth) {
   }
 }
 
+function computeOverworldCameraFollow(camera, targetWorld, options) {
+  const opts = options || {};
+  const initialized = Boolean(opts.initialized);
+  const userPanned = Boolean(opts.userPanned);
+  const marginRatio = typeof opts.marginRatio === 'number' ? opts.marginRatio : 0.18;
+  const smoothFactor = typeof opts.smoothFactor === 'number' ? opts.smoothFactor : 0.12;
+
+  if (!camera || !targetWorld) {
+    return { shouldMove: false, wx: 0, wy: 0 };
+  }
+  // Initial placement: center once on the starting unit/city
+  if (!initialized) {
+    return { shouldMove: true, wx: targetWorld.wx, wy: targetWorld.wy };
+  }
+  // Respect manual user pan/drag completely
+  if (userPanned) {
+    return { shouldMove: false, wx: camera.x, wy: camera.y };
+  }
+
+  // Keep map completely steady while unit stays inside the central safe zone of the viewport
+  const halfW = (camera.width / (2 * (camera.zoom || 1))) * (1 - marginRatio * 2);
+  const halfH = (camera.height / (2 * (camera.zoom || 1))) * (1 - marginRatio * 2);
+  const dx = targetWorld.wx - camera.x;
+  const dy = targetWorld.wy - camera.y;
+
+  if (Math.abs(dx) <= halfW && Math.abs(dy) <= halfH) {
+    return { shouldMove: false, wx: camera.x, wy: camera.y };
+  }
+
+  // Unit approached viewport edge: ease smoothly toward unit without snapping
+  return {
+    shouldMove: true,
+    wx: camera.x + dx * smoothFactor,
+    wy: camera.y + dy * smoothFactor
+  };
+}
+
 function renderWargameOverworldCanvas(simHost) {
   if (typeof document === 'undefined' || !simHost || !simHost.state || !simHost.state.world) return;
   const canvas = document.getElementById('wgOverworldCanvas');
@@ -9353,24 +9531,34 @@ function renderWargameOverworldCanvas(simHost) {
   const selUnit = getSelectedOverworldUnit(state);
   const primaryCity = getPrimaryCity(state);
 
+  // Authoritative integer tile focus for hex sight/visibility checks (never fractional!)
   let focusX = ow.spawnX;
   let focusY = ow.spawnY;
+  // Exact world-space focus for camera initialization / smooth edge follow
+  let focusWorld = interpolateHexSegment(ow.spawnX, ow.spawnY, ow.spawnX, ow.spawnY, 0);
 
   if (selUnit && selUnit.alive) {
+    focusX = selUnit.x;
+    focusY = selUnit.y;
     const interp = getUnitInterpolatedPosition(selUnit, simTimeMs);
-    focusX = interp.x;
-    focusY = interp.y;
+    focusWorld = (selUnit.status === 'marching' && selUnit.marchPlan)
+      ? interpolateHexSegment(selUnit.marchPlan.fromX, selUnit.marchPlan.fromY, selUnit.marchPlan.toX, selUnit.marchPlan.toY, interp.progress)
+      : interpolateHexSegment(selUnit.x, selUnit.y, selUnit.x, selUnit.y, 0);
   } else if (primaryCity) {
     focusX = primaryCity.x;
     focusY = primaryCity.y;
+    focusWorld = interpolateHexSegment(primaryCity.x, primaryCity.y, primaryCity.x, primaryCity.y, 0);
   }
 
-  // Keep camera centered on active unit until user manually drags/pans
-  if (!owViewportInitialized || !owUserPanned) {
-    const focusW = offsetToWorldInterpolated(focusX, focusY);
-    vp.centerOnWorld(focusW.wx, focusW.wy);
-    owViewportInitialized = true;
+  // Center once on boot; keep viewport rock-steady during normal movement and ease smoothly only near viewport edges
+  const camStep = computeOverworldCameraFollow(vp.camera, focusWorld, {
+    initialized: owViewportInitialized,
+    userPanned: owUserPanned
+  });
+  if (camStep.shouldMove) {
+    vp.centerOnWorld(camStep.wx, camStep.wy);
   }
+  owViewportInitialized = true;
 
   const visionRadius = selUnit ? (selUnit.visionRadius || 4) : 5;
   const visRect = vp.getVisibleWorldRect(48);
@@ -9395,8 +9583,8 @@ function renderWargameOverworldCanvas(simHost) {
         continue;
       }
 
-      const dist = Math.hypot(x - focusX, y - focusY);
-      const inSight = dist <= visionRadius + 0.45;
+      const dist = getHexDistance(x, y, focusX, focusY);
+      const inSight = dist <= visionRadius;
       const tId = ow.tiles[y][x];
       const pal = HEX_TERRAIN_FILL[tId] || HEX_TERRAIN_FILL[OW_TERRAIN_PLAINS];
       const tDef = OVERWORLD_TERRAIN_DEFS[tId] || OVERWORLD_TERRAIN_DEFS[OW_TERRAIN_PLAINS];
@@ -9553,7 +9741,7 @@ function renderWargameOverworldCanvas(simHost) {
   for (let hi = 0; hi < hostiles.length; hi++) {
     const hos = hostiles[hi];
     if (!hos.alive) continue;
-    if (Math.hypot(hos.x - focusX, hos.y - focusY) > visionRadius + 1.2) continue;
+    if (getHexDistance(hos.x, hos.y, focusX, focusY) > visionRadius + 1) continue;
 
     const w = owHexAdapter.tileToWorld(owHexAdapter.offsetToAxial(hos.x, hos.y));
     const s = vp.worldToScreen(w.wx, w.wy);
@@ -9584,7 +9772,9 @@ function renderWargameOverworldCanvas(simHost) {
     if (!u.alive) continue;
 
     const interp = getUnitInterpolatedPosition(u, simTimeMs);
-    const w = offsetToWorldInterpolated(interp.x, interp.y);
+    const w = (u.status === 'marching' && u.marchPlan)
+      ? interpolateHexSegment(u.marchPlan.fromX, u.marchPlan.fromY, u.marchPlan.toX, u.marchPlan.toY, interp.progress)
+      : interpolateHexSegment(u.x, u.y, u.x, u.y, 0);
     const s = vp.worldToScreen(w.wx, w.wy);
     const isSel = selUnit && selUnit.id === u.id;
 
@@ -14007,6 +14197,7 @@ function renderCityIsoCanvas(simHost) {
 
 
 
+
 function setHtmlIfChanged(el, newHtml) {
   if (!el) return;
   if (!el.dataset) el.dataset = {};
@@ -15380,7 +15571,7 @@ function renderOverworldHudBar(simHost) {
       dngBarEl.classList.remove('hidden');
       const canMarchHero = Boolean(selUnit && selUnit.alive && selUnit.canEnterDungeon && selUnit.status !== 'in_dungeon');
       const cardsHtml = discoveredDngs.map(function(p) {
-        const dist = selUnit ? Math.round(Math.hypot(selUnit.x - p.x, selUnit.y - p.y)) : null;
+        const dist = selUnit ? getHexDistance(selUnit.x, selUnit.y, p.x, p.y) : null;
         const atGate = Boolean(canMarchHero && selUnit.status === 'idle' && selUnit.x === p.x && selUnit.y === p.y);
         return `
           <div class="flex items-center justify-between gap-2 px-2 py-1.5 rounded bg-[#111722] border border-[#283347] text-[11px] font-mono">
@@ -25612,6 +25803,10 @@ function runCorridor(dx, dy, state = gameState) {
 
 
 
+
+
+
+
 function evaluateWargameSelfTests() {
   const results = [];
 
@@ -27712,6 +27907,224 @@ function evaluateWargameSelfTests() {
     detail: t26Pass
       ? 'Stairs, Recall Scroll, Boss Extraction Portal, Defeat Recovery & UI Surface Exit all return cleanly to Strategy/Overworld without legacy Guild fallback'
       : 'Failed checks: ' + failed26.join(', ')
+  });
+
+  // =========================================================================
+  // TEST 27: Hex Spatial Foundation — Neighbors, Distance, A*, Movement, Vision & Interpolation (Task 03)
+  // =========================================================================
+  function makeBlankHexMap27(w, h) {
+    const tiles = [];
+    const explored = [];
+    for (let y = 0; y < h; y++) {
+      const row = [];
+      const erow = [];
+      for (let x = 0; x < w; x++) {
+        row.push(OW_TERRAIN_PLAINS);
+        erow.push(false);
+      }
+      tiles.push(row);
+      explored.push(erow);
+    }
+    return { width: w, height: h, tiles: tiles, explored: explored };
+  }
+
+  const map27 = makeBlankHexMap27(20, 20);
+
+  // 1. Six neighbors & reciprocity on both even (10,10) and odd (10,11) rows
+  const evenN = getHexNeighbors(10, 10, map27);
+  const oddN = getHexNeighbors(10, 11, map27);
+  let reciprocityOk = evenN.length === 6 && oddN.length === 6;
+  const checkPairs27 = [
+    { cx: 10, cy: 10, list: evenN },
+    { cx: 10, cy: 11, list: oddN }
+  ];
+  for (let pi = 0; pi < checkPairs27.length; pi++) {
+    const cp = checkPairs27[pi];
+    for (let ni = 0; ni < cp.list.length; ni++) {
+      const n = cp.list[ni];
+      const back = getHexNeighbors(n.x, n.y, map27);
+      const hasBack = back.some(function(b) { return b.x === cp.cx && b.y === cp.cy; });
+      if (!hasBack || getHexDistance(cp.cx, cp.cy, n.x, n.y) !== 1 || getHexDistance(n.x, n.y, cp.cx, cp.cy) !== 1) {
+        reciprocityOk = false;
+      }
+    }
+  }
+
+  // 2. Distance invariants (zero to self, symmetry, multi-step)
+  const distOk = Boolean(
+    getHexDistance(10, 10, 10, 10) === 0 &&
+    getHexDistance(10, 11, 10, 11) === 0 &&
+    getHexDistance(10, 10, 13, 10) === 3 &&
+    getHexDistance(13, 10, 10, 10) === 3 &&
+    getHexDistance(10, 10, 8, 8) === 3 &&
+    getHexDistance(8, 8, 10, 10) === 3 &&
+    getHexDistance(10, 10, 9, 8) === 2 &&
+    getHexDistance(9, 8, 10, 10) === 2 &&
+    getHexDistance(10, 10, 11, 11) === 2 && // non-adjacent on even row!
+    getHexDistance(10, 11, 9, 10) === 2     // non-adjacent on odd row!
+  );
+
+  // 3. Boundary & corner hexes strictly within map bounds
+  const corners27 = [[0, 0], [19, 0], [0, 19], [19, 19]];
+  let cornersOk = true;
+  for (let ci = 0; ci < corners27.length; ci++) {
+    const cN = getHexNeighbors(corners27[ci][0], corners27[ci][1], map27);
+    if (cN.length < 2 || cN.length > 4) cornersOk = false;
+    for (let k = 0; k < cN.length; k++) {
+      if (cN[k].x < 0 || cN[k].x >= 20 || cN[k].y < 0 || cN[k].y >= 20) cornersOk = false;
+    }
+  }
+
+  // 4. 1-step A* path to all 6 neighbors (even & odd rows) + obstacle avoidance + unreachable + terrain cost
+  let sixWayPathsOk = MIN_OVERWORLD_MARCH_COST_MS === 3000;
+  for (let ni = 0; ni < evenN.length; ni++) {
+    const p = findOverworldPath(map27, 10, 10, evenN[ni].x, evenN[ni].y);
+    if (!p || p.length !== 1 || p[0].x !== evenN[ni].x || p[0].y !== evenN[ni].y) sixWayPathsOk = false;
+  }
+  for (let ni = 0; ni < oddN.length; ni++) {
+    const p = findOverworldPath(map27, 10, 11, oddN[ni].x, oddN[ni].y);
+    if (!p || p.length !== 1 || p[0].x !== oddN[ni].x || p[0].y !== oddN[ni].y) sixWayPathsOk = false;
+  }
+
+  // Wall off (14, 10) with mountains on all 6 neighbors -> unreachable must return null
+  const mapBlock27 = makeBlankHexMap27(20, 20);
+  const ringAroundTarget = getHexNeighbors(14, 10, mapBlock27);
+  for (let i = 0; i < ringAroundTarget.length; i++) {
+    mapBlock27.tiles[ringAroundTarget[i].y][ringAroundTarget[i].x] = OW_TERRAIN_MOUNTAINS;
+  }
+  const unreachableOk = findOverworldPath(mapBlock27, 10, 10, 14, 10) === null;
+
+  // Obstacle detour: block direct E neighbor (11,10) with mountain -> must route around (3 hex steps: NE->E->SE or SE->E->NE)
+  const mapDetour27 = makeBlankHexMap27(20, 20);
+  mapDetour27.tiles[10][11] = OW_TERRAIN_MOUNTAINS;
+  const detourPath = findOverworldPath(mapDetour27, 10, 10, 12, 10);
+  let detourOk = Boolean(detourPath && detourPath.length === 3);
+  if (detourPath) {
+    let px = 10, py = 10;
+    for (let i = 0; i < detourPath.length; i++) {
+      if (!areHexesAdjacent(px, py, detourPath[i].x, detourPath[i].y)) detourOk = false;
+      px = detourPath[i].x;
+      py = detourPath[i].y;
+    }
+  }
+
+  // Terrain cost preference: put Hills (5500ms) on direct E (11,10), keep Plains (3000ms) on NE (10,9) -> SE (11,10) vs direct 2-step
+  const mapCost27 = makeBlankHexMap27(20, 20);
+  mapCost27.tiles[10][11] = OW_TERRAIN_HILLS; // 10,10 -> 11,10 (5500) -> 12,10 (3000) = 8500
+  // Going 10,10 -> 10,9 (3000) -> 11,9 (3000) -> 12,10 (3000) = 9000, so direct Hills is 8500 < 9000;
+  // Compare 2-step routes from (10,10) to (11,9): via (11,10) Hills = 8500 vs via (10,9) Plains = 6000!
+  const costPath = findOverworldPath(mapCost27, 10, 10, 11, 9);
+  const terrainCostOk = Boolean(costPath && costPath.length === 2 && costPath[0].x === 10 && costPath[0].y === 9);
+
+  // 5. STEP_UNIT_ADJACENT: all 6 hexDirs, valid legacy cardinal steps on even & odd rows, and strict rejection with zero side effects
+  const host27 = createWargameSimHost();
+  host27.dispatch({ type: COMMAND_TYPES.START_NEW_CAMPAIGN, payload: { houseName: 'House Hex', seedCode: 'STAR-2700' } });
+  const ow27 = host27.state.world.overworld;
+  const u27 = ow27.units[0];
+  // Clear a passable area around (10,10) and (10,11)
+  for (let y = 8; y <= 13; y++) {
+    for (let x = 8; x <= 13; x++) {
+      ow27.tiles[y][x] = OW_TERRAIN_PLAINS;
+    }
+  }
+
+  let hexDirsCmdOk = true;
+  const testCenters27 = [[10, 10], [10, 11]];
+  for (let ci = 0; ci < testCenters27.length; ci++) {
+    const cx = testCenters27[ci][0], cy = testCenters27[ci][1];
+    for (let di = 0; di < HEX_DIR_NAMES.length; di++) {
+      u27.x = cx; u27.y = cy; u27.status = 'idle'; u27.marchPlan = null;
+      const expected = getHexNeighborInDirection(cx, cy, HEX_DIR_NAMES[di], ow27);
+      const stepRes = host27.dispatch({ type: COMMAND_TYPES.STEP_UNIT_ADJACENT, payload: { hexDir: HEX_DIR_NAMES[di] } });
+      if (!stepRes.ok || !u27.marchPlan || u27.marchPlan.targetX !== expected.x || u27.marchPlan.targetY !== expected.y) {
+        hexDirsCmdOk = false;
+      }
+      host27.dispatch({ type: COMMAND_TYPES.CANCEL_UNIT_MARCH, payload: { unitId: u27.id } });
+    }
+  }
+
+  // Valid legacy cardinal dx/dy on both even (10,10) and odd (10,11) rows
+  let legacyCardinalOk = true;
+  const cardinals27 = [[1, 0], [-1, 0], [0, -1], [0, 1]];
+  for (let ci = 0; ci < testCenters27.length; ci++) {
+    const cx = testCenters27[ci][0], cy = testCenters27[ci][1];
+    for (let k = 0; k < cardinals27.length; k++) {
+      u27.x = cx; u27.y = cy; u27.status = 'idle'; u27.marchPlan = null;
+      const resC = host27.dispatch({ type: COMMAND_TYPES.STEP_UNIT_ADJACENT, payload: { dx: cardinals27[k][0], dy: cardinals27[k][1] } });
+      if (!resC.ok || !u27.marchPlan || u27.marchPlan.remainingPath.length !== 1) legacyCardinalOk = false;
+      host27.dispatch({ type: COMMAND_TYPES.CANCEL_UNIT_MARCH, payload: { unitId: u27.id } });
+    }
+  }
+
+  // Invalid non-adjacent dx/dy strictly rejected with ZERO side effects
+  u27.x = 10; u27.y = 10; u27.status = 'idle'; u27.marchPlan = null;
+  const badEvenJump = host27.dispatch({ type: COMMAND_TYPES.STEP_UNIT_ADJACENT, payload: { dx: 1, dy: 1 } }); // dist 2 on even row
+  const badEvenZeroSideEffects = !badEvenJump.ok && u27.x === 10 && u27.y === 10 && u27.status === 'idle' && u27.marchPlan === null;
+
+  u27.x = 10; u27.y = 11; u27.status = 'idle'; u27.marchPlan = null;
+  const badOddJump = host27.dispatch({ type: COMMAND_TYPES.STEP_UNIT_ADJACENT, payload: { dx: -1, dy: -1 } }); // dist 2 on odd row
+  const badOddZeroSideEffects = !badOddJump.ok && u27.x === 10 && u27.y === 11 && u27.status === 'idle' && u27.marchPlan === null;
+
+  // 6. Hex Vision & Range (exact ring counts: 1 + 3*r*(r+1) => r=2: 19, r=3: 37)
+  const visMap27 = makeBlankHexMap27(20, 20);
+  revealOverworldVision(visMap27, 10, 10, 2);
+  let visCount2 = 0;
+  for (let y = 0; y < 20; y++) {
+    for (let x = 0; x < 20; x++) {
+      if (visMap27.explored[y][x]) visCount2 += 1;
+    }
+  }
+  const range3Count = getHexesInRange(10, 10, 3, visMap27).length;
+  const visionHexOk = visCount2 === 19 && range3Count === 37;
+
+  // 7. Diagonal Hex Interpolation uses exact source/dest hex centers without mutating unit position
+  const hexAd27 = getOverworldHexAdapter();
+  const wStart27 = hexAd27.tileToWorld(hexAd27.offsetToAxial(10, 10));
+  const wEnd27 = hexAd27.tileToWorld(hexAd27.offsetToAxial(9, 9)); // NW neighbor on even row
+  const wMid27 = interpolateHexSegment(10, 10, 9, 9, 0.5);
+  const interpOk = Boolean(
+    Math.abs(wMid27.wx - (wStart27.wx + wEnd27.wx) * 0.5) < 0.001 &&
+    Math.abs(wMid27.wy - (wStart27.wy + wEnd27.wy) * 0.5) < 0.001
+  );
+
+  // 8. Overworld camera stability during movement (no jumping in safe zone, smooth edge follow, respects manual pan)
+  const mockCam27 = { x: 500, y: 500, width: 672, height: 480, zoom: 1.0 };
+  const camInit27 = computeOverworldCameraFollow(mockCam27, { wx: 520, wy: 510 }, { initialized: false, userPanned: false });
+  const camSteady27 = computeOverworldCameraFollow(mockCam27, { wx: 540, wy: 530 }, { initialized: true, userPanned: false });
+  const camEdge27 = computeOverworldCameraFollow(mockCam27, { wx: 800, wy: 500 }, { initialized: true, userPanned: false });
+  const camUserPan27 = computeOverworldCameraFollow(mockCam27, { wx: 800, wy: 500 }, { initialized: true, userPanned: true });
+  const cameraStableOk = Boolean(
+    camInit27.shouldMove && camInit27.wx === 520 && camInit27.wy === 510 &&
+    !camSteady27.shouldMove && camSteady27.wx === 500 && camSteady27.wy === 500 &&
+    camEdge27.shouldMove && camEdge27.wx > 500 && camEdge27.wx < 800 &&
+    !camUserPan27.shouldMove && camUserPan27.wx === 500
+  );
+
+  const t27Checks = {
+    reciprocityOk: reciprocityOk,
+    distOk: distOk,
+    cornersOk: cornersOk,
+    sixWayPathsOk: sixWayPathsOk,
+    unreachableOk: unreachableOk,
+    detourOk: detourOk,
+    terrainCostOk: terrainCostOk,
+    hexDirsCmdOk: hexDirsCmdOk,
+    legacyCardinalOk: legacyCardinalOk,
+    badEvenZeroSideEffects: badEvenZeroSideEffects,
+    badOddZeroSideEffects: badOddZeroSideEffects,
+    visionHexOk: visionHexOk,
+    interpOk: interpOk,
+    cameraStableOk: cameraStableOk
+  };
+  const failed27 = Object.keys(t27Checks).filter(function(k) { return !t27Checks[k]; });
+  const t27Pass = failed27.length === 0;
+
+  results.push({
+    name: '27. Hex Spatial Foundation: 6-Way Neighbors, Distance, Hex A*, Movement Guard, Vision & Interpolation (Task 03)',
+    pass: t27Pass,
+    detail: t27Pass
+      ? '6-way hex neighbors, reciprocity, boundaries, hex A* (detour/unreachable/cost), 6-dir & legacy step validation, hex vision rings & diagonal hex interpolation verified'
+      : 'Failed checks: ' + failed27.join(', ')
   });
 
   return results;

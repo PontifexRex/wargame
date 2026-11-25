@@ -50,6 +50,11 @@ import {
   revealOverworldVision
 } from './pathfinding.js';
 import {
+  isInOverworldBounds,
+  getHexNeighborInDirection,
+  areHexesAdjacent
+} from './hexSpatial.js';
+import {
   scheduleNextMarchStep,
   resolveMarchStepJob,
   depositUnitCargoAtCity,
@@ -207,19 +212,41 @@ export function dispatchWargameCommand(commandEnvelope, state, scheduler, eventS
   }
 
   // ---------------------------------------------------------------------------
-  // 3. STEP UNIT ADJACENT (Convenience wrapper around ORDER_UNIT_MARCH)
+  // 3. STEP UNIT ADJACENT (Hex-validated 6-direction or legacy adjacent wrapper)
   // ---------------------------------------------------------------------------
   if (cmdType === COMMAND_TYPES.STEP_UNIT_ADJACENT) {
     const unit = getSelectedOverworldUnit(state);
     if (!unit) return reject('No active unit selected');
-    const dx = Number(payload.dx || 0);
-    const dy = Number(payload.dy || 0);
+
+    let targetX = null;
+    let targetY = null;
+
+    if (payload.hexDir !== undefined && payload.hexDir !== null) {
+      const neighbor = getHexNeighborInDirection(unit.x, unit.y, payload.hexDir, ow);
+      if (!neighbor) {
+        return reject('Invalid or out-of-bounds hex direction');
+      }
+      targetX = neighbor.x;
+      targetY = neighbor.y;
+    } else {
+      const dx = Number(payload.dx || 0);
+      const dy = Number(payload.dy || 0);
+      if (isNaN(dx) || isNaN(dy)) {
+        return reject('Invalid step offset');
+      }
+      targetX = unit.x + dx;
+      targetY = unit.y + dy;
+      if (!isInOverworldBounds(ow, targetX, targetY) || !areHexesAdjacent(unit.x, unit.y, targetX, targetY)) {
+        return reject('Target tile is not an adjacent hex');
+      }
+    }
+
     return dispatchWargameCommand({
       type: COMMAND_TYPES.ORDER_UNIT_MARCH,
       payload: {
         unitId: unit.id,
-        targetX: unit.x + dx,
-        targetY: unit.y + dy
+        targetX: targetX,
+        targetY: targetY
       }
     }, state, scheduler, eventStream);
   }

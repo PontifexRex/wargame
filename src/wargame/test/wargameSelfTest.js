@@ -19,6 +19,26 @@ import { createDefaultGameState } from '../../engine/state.js';
 import { extractToGuild, handleHeroDefeat, useRecallScroll, traversePortal } from '../../engine/actions.js';
 import { useStairsAtPlayer } from '../../engine/combat.js';
 import { createPortalInstance } from '../../engine/objects.js';
+import {
+  HEX_DIR_NAMES,
+  getOverworldHexAdapter,
+  getHexNeighbors,
+  getHexNeighborInDirection,
+  getHexDistance,
+  areHexesAdjacent,
+  getHexesInRange
+} from '../engine/hexSpatial.js';
+import {
+  findOverworldPath,
+  revealOverworldVision,
+  MIN_OVERWORLD_MARCH_COST_MS
+} from '../engine/pathfinding.js';
+import {
+  OW_TERRAIN_PLAINS,
+  OW_TERRAIN_HILLS,
+  OW_TERRAIN_MOUNTAINS
+} from '../data/terrain.js';
+import { interpolateHexSegment, computeOverworldCameraFollow } from '../ui/overworldView.js';
 import { CITY_BUILDINGS_CATALOG, computeBuildingDurationMs, isBuildingPrerequisiteMet, computeMaxPartySize, getCityRecruitableClasses, getCityAcademyBenefitEffects } from '../data/buildings.js';
 import {
   normalizeSharedHeroProfile,
@@ -2215,6 +2235,224 @@ export function evaluateWargameSelfTests() {
     detail: t26Pass
       ? 'Stairs, Recall Scroll, Boss Extraction Portal, Defeat Recovery & UI Surface Exit all return cleanly to Strategy/Overworld without legacy Guild fallback'
       : 'Failed checks: ' + failed26.join(', ')
+  });
+
+  // =========================================================================
+  // TEST 27: Hex Spatial Foundation — Neighbors, Distance, A*, Movement, Vision & Interpolation (Task 03)
+  // =========================================================================
+  function makeBlankHexMap27(w, h) {
+    const tiles = [];
+    const explored = [];
+    for (let y = 0; y < h; y++) {
+      const row = [];
+      const erow = [];
+      for (let x = 0; x < w; x++) {
+        row.push(OW_TERRAIN_PLAINS);
+        erow.push(false);
+      }
+      tiles.push(row);
+      explored.push(erow);
+    }
+    return { width: w, height: h, tiles: tiles, explored: explored };
+  }
+
+  const map27 = makeBlankHexMap27(20, 20);
+
+  // 1. Six neighbors & reciprocity on both even (10,10) and odd (10,11) rows
+  const evenN = getHexNeighbors(10, 10, map27);
+  const oddN = getHexNeighbors(10, 11, map27);
+  let reciprocityOk = evenN.length === 6 && oddN.length === 6;
+  const checkPairs27 = [
+    { cx: 10, cy: 10, list: evenN },
+    { cx: 10, cy: 11, list: oddN }
+  ];
+  for (let pi = 0; pi < checkPairs27.length; pi++) {
+    const cp = checkPairs27[pi];
+    for (let ni = 0; ni < cp.list.length; ni++) {
+      const n = cp.list[ni];
+      const back = getHexNeighbors(n.x, n.y, map27);
+      const hasBack = back.some(function(b) { return b.x === cp.cx && b.y === cp.cy; });
+      if (!hasBack || getHexDistance(cp.cx, cp.cy, n.x, n.y) !== 1 || getHexDistance(n.x, n.y, cp.cx, cp.cy) !== 1) {
+        reciprocityOk = false;
+      }
+    }
+  }
+
+  // 2. Distance invariants (zero to self, symmetry, multi-step)
+  const distOk = Boolean(
+    getHexDistance(10, 10, 10, 10) === 0 &&
+    getHexDistance(10, 11, 10, 11) === 0 &&
+    getHexDistance(10, 10, 13, 10) === 3 &&
+    getHexDistance(13, 10, 10, 10) === 3 &&
+    getHexDistance(10, 10, 8, 8) === 3 &&
+    getHexDistance(8, 8, 10, 10) === 3 &&
+    getHexDistance(10, 10, 9, 8) === 2 &&
+    getHexDistance(9, 8, 10, 10) === 2 &&
+    getHexDistance(10, 10, 11, 11) === 2 && // non-adjacent on even row!
+    getHexDistance(10, 11, 9, 10) === 2     // non-adjacent on odd row!
+  );
+
+  // 3. Boundary & corner hexes strictly within map bounds
+  const corners27 = [[0, 0], [19, 0], [0, 19], [19, 19]];
+  let cornersOk = true;
+  for (let ci = 0; ci < corners27.length; ci++) {
+    const cN = getHexNeighbors(corners27[ci][0], corners27[ci][1], map27);
+    if (cN.length < 2 || cN.length > 4) cornersOk = false;
+    for (let k = 0; k < cN.length; k++) {
+      if (cN[k].x < 0 || cN[k].x >= 20 || cN[k].y < 0 || cN[k].y >= 20) cornersOk = false;
+    }
+  }
+
+  // 4. 1-step A* path to all 6 neighbors (even & odd rows) + obstacle avoidance + unreachable + terrain cost
+  let sixWayPathsOk = MIN_OVERWORLD_MARCH_COST_MS === 3000;
+  for (let ni = 0; ni < evenN.length; ni++) {
+    const p = findOverworldPath(map27, 10, 10, evenN[ni].x, evenN[ni].y);
+    if (!p || p.length !== 1 || p[0].x !== evenN[ni].x || p[0].y !== evenN[ni].y) sixWayPathsOk = false;
+  }
+  for (let ni = 0; ni < oddN.length; ni++) {
+    const p = findOverworldPath(map27, 10, 11, oddN[ni].x, oddN[ni].y);
+    if (!p || p.length !== 1 || p[0].x !== oddN[ni].x || p[0].y !== oddN[ni].y) sixWayPathsOk = false;
+  }
+
+  // Wall off (14, 10) with mountains on all 6 neighbors -> unreachable must return null
+  const mapBlock27 = makeBlankHexMap27(20, 20);
+  const ringAroundTarget = getHexNeighbors(14, 10, mapBlock27);
+  for (let i = 0; i < ringAroundTarget.length; i++) {
+    mapBlock27.tiles[ringAroundTarget[i].y][ringAroundTarget[i].x] = OW_TERRAIN_MOUNTAINS;
+  }
+  const unreachableOk = findOverworldPath(mapBlock27, 10, 10, 14, 10) === null;
+
+  // Obstacle detour: block direct E neighbor (11,10) with mountain -> must route around (3 hex steps: NE->E->SE or SE->E->NE)
+  const mapDetour27 = makeBlankHexMap27(20, 20);
+  mapDetour27.tiles[10][11] = OW_TERRAIN_MOUNTAINS;
+  const detourPath = findOverworldPath(mapDetour27, 10, 10, 12, 10);
+  let detourOk = Boolean(detourPath && detourPath.length === 3);
+  if (detourPath) {
+    let px = 10, py = 10;
+    for (let i = 0; i < detourPath.length; i++) {
+      if (!areHexesAdjacent(px, py, detourPath[i].x, detourPath[i].y)) detourOk = false;
+      px = detourPath[i].x;
+      py = detourPath[i].y;
+    }
+  }
+
+  // Terrain cost preference: put Hills (5500ms) on direct E (11,10), keep Plains (3000ms) on NE (10,9) -> SE (11,10) vs direct 2-step
+  const mapCost27 = makeBlankHexMap27(20, 20);
+  mapCost27.tiles[10][11] = OW_TERRAIN_HILLS; // 10,10 -> 11,10 (5500) -> 12,10 (3000) = 8500
+  // Going 10,10 -> 10,9 (3000) -> 11,9 (3000) -> 12,10 (3000) = 9000, so direct Hills is 8500 < 9000;
+  // Compare 2-step routes from (10,10) to (11,9): via (11,10) Hills = 8500 vs via (10,9) Plains = 6000!
+  const costPath = findOverworldPath(mapCost27, 10, 10, 11, 9);
+  const terrainCostOk = Boolean(costPath && costPath.length === 2 && costPath[0].x === 10 && costPath[0].y === 9);
+
+  // 5. STEP_UNIT_ADJACENT: all 6 hexDirs, valid legacy cardinal steps on even & odd rows, and strict rejection with zero side effects
+  const host27 = createWargameSimHost();
+  host27.dispatch({ type: COMMAND_TYPES.START_NEW_CAMPAIGN, payload: { houseName: 'House Hex', seedCode: 'STAR-2700' } });
+  const ow27 = host27.state.world.overworld;
+  const u27 = ow27.units[0];
+  // Clear a passable area around (10,10) and (10,11)
+  for (let y = 8; y <= 13; y++) {
+    for (let x = 8; x <= 13; x++) {
+      ow27.tiles[y][x] = OW_TERRAIN_PLAINS;
+    }
+  }
+
+  let hexDirsCmdOk = true;
+  const testCenters27 = [[10, 10], [10, 11]];
+  for (let ci = 0; ci < testCenters27.length; ci++) {
+    const cx = testCenters27[ci][0], cy = testCenters27[ci][1];
+    for (let di = 0; di < HEX_DIR_NAMES.length; di++) {
+      u27.x = cx; u27.y = cy; u27.status = 'idle'; u27.marchPlan = null;
+      const expected = getHexNeighborInDirection(cx, cy, HEX_DIR_NAMES[di], ow27);
+      const stepRes = host27.dispatch({ type: COMMAND_TYPES.STEP_UNIT_ADJACENT, payload: { hexDir: HEX_DIR_NAMES[di] } });
+      if (!stepRes.ok || !u27.marchPlan || u27.marchPlan.targetX !== expected.x || u27.marchPlan.targetY !== expected.y) {
+        hexDirsCmdOk = false;
+      }
+      host27.dispatch({ type: COMMAND_TYPES.CANCEL_UNIT_MARCH, payload: { unitId: u27.id } });
+    }
+  }
+
+  // Valid legacy cardinal dx/dy on both even (10,10) and odd (10,11) rows
+  let legacyCardinalOk = true;
+  const cardinals27 = [[1, 0], [-1, 0], [0, -1], [0, 1]];
+  for (let ci = 0; ci < testCenters27.length; ci++) {
+    const cx = testCenters27[ci][0], cy = testCenters27[ci][1];
+    for (let k = 0; k < cardinals27.length; k++) {
+      u27.x = cx; u27.y = cy; u27.status = 'idle'; u27.marchPlan = null;
+      const resC = host27.dispatch({ type: COMMAND_TYPES.STEP_UNIT_ADJACENT, payload: { dx: cardinals27[k][0], dy: cardinals27[k][1] } });
+      if (!resC.ok || !u27.marchPlan || u27.marchPlan.remainingPath.length !== 1) legacyCardinalOk = false;
+      host27.dispatch({ type: COMMAND_TYPES.CANCEL_UNIT_MARCH, payload: { unitId: u27.id } });
+    }
+  }
+
+  // Invalid non-adjacent dx/dy strictly rejected with ZERO side effects
+  u27.x = 10; u27.y = 10; u27.status = 'idle'; u27.marchPlan = null;
+  const badEvenJump = host27.dispatch({ type: COMMAND_TYPES.STEP_UNIT_ADJACENT, payload: { dx: 1, dy: 1 } }); // dist 2 on even row
+  const badEvenZeroSideEffects = !badEvenJump.ok && u27.x === 10 && u27.y === 10 && u27.status === 'idle' && u27.marchPlan === null;
+
+  u27.x = 10; u27.y = 11; u27.status = 'idle'; u27.marchPlan = null;
+  const badOddJump = host27.dispatch({ type: COMMAND_TYPES.STEP_UNIT_ADJACENT, payload: { dx: -1, dy: -1 } }); // dist 2 on odd row
+  const badOddZeroSideEffects = !badOddJump.ok && u27.x === 10 && u27.y === 11 && u27.status === 'idle' && u27.marchPlan === null;
+
+  // 6. Hex Vision & Range (exact ring counts: 1 + 3*r*(r+1) => r=2: 19, r=3: 37)
+  const visMap27 = makeBlankHexMap27(20, 20);
+  revealOverworldVision(visMap27, 10, 10, 2);
+  let visCount2 = 0;
+  for (let y = 0; y < 20; y++) {
+    for (let x = 0; x < 20; x++) {
+      if (visMap27.explored[y][x]) visCount2 += 1;
+    }
+  }
+  const range3Count = getHexesInRange(10, 10, 3, visMap27).length;
+  const visionHexOk = visCount2 === 19 && range3Count === 37;
+
+  // 7. Diagonal Hex Interpolation uses exact source/dest hex centers without mutating unit position
+  const hexAd27 = getOverworldHexAdapter();
+  const wStart27 = hexAd27.tileToWorld(hexAd27.offsetToAxial(10, 10));
+  const wEnd27 = hexAd27.tileToWorld(hexAd27.offsetToAxial(9, 9)); // NW neighbor on even row
+  const wMid27 = interpolateHexSegment(10, 10, 9, 9, 0.5);
+  const interpOk = Boolean(
+    Math.abs(wMid27.wx - (wStart27.wx + wEnd27.wx) * 0.5) < 0.001 &&
+    Math.abs(wMid27.wy - (wStart27.wy + wEnd27.wy) * 0.5) < 0.001
+  );
+
+  // 8. Overworld camera stability during movement (no jumping in safe zone, smooth edge follow, respects manual pan)
+  const mockCam27 = { x: 500, y: 500, width: 672, height: 480, zoom: 1.0 };
+  const camInit27 = computeOverworldCameraFollow(mockCam27, { wx: 520, wy: 510 }, { initialized: false, userPanned: false });
+  const camSteady27 = computeOverworldCameraFollow(mockCam27, { wx: 540, wy: 530 }, { initialized: true, userPanned: false });
+  const camEdge27 = computeOverworldCameraFollow(mockCam27, { wx: 800, wy: 500 }, { initialized: true, userPanned: false });
+  const camUserPan27 = computeOverworldCameraFollow(mockCam27, { wx: 800, wy: 500 }, { initialized: true, userPanned: true });
+  const cameraStableOk = Boolean(
+    camInit27.shouldMove && camInit27.wx === 520 && camInit27.wy === 510 &&
+    !camSteady27.shouldMove && camSteady27.wx === 500 && camSteady27.wy === 500 &&
+    camEdge27.shouldMove && camEdge27.wx > 500 && camEdge27.wx < 800 &&
+    !camUserPan27.shouldMove && camUserPan27.wx === 500
+  );
+
+  const t27Checks = {
+    reciprocityOk: reciprocityOk,
+    distOk: distOk,
+    cornersOk: cornersOk,
+    sixWayPathsOk: sixWayPathsOk,
+    unreachableOk: unreachableOk,
+    detourOk: detourOk,
+    terrainCostOk: terrainCostOk,
+    hexDirsCmdOk: hexDirsCmdOk,
+    legacyCardinalOk: legacyCardinalOk,
+    badEvenZeroSideEffects: badEvenZeroSideEffects,
+    badOddZeroSideEffects: badOddZeroSideEffects,
+    visionHexOk: visionHexOk,
+    interpOk: interpOk,
+    cameraStableOk: cameraStableOk
+  };
+  const failed27 = Object.keys(t27Checks).filter(function(k) { return !t27Checks[k]; });
+  const t27Pass = failed27.length === 0;
+
+  results.push({
+    name: '27. Hex Spatial Foundation: 6-Way Neighbors, Distance, Hex A*, Movement Guard, Vision & Interpolation (Task 03)',
+    pass: t27Pass,
+    detail: t27Pass
+      ? '6-way hex neighbors, reciprocity, boundaries, hex A* (detour/unreachable/cost), 6-dir & legacy step validation, hex vision rings & diagonal hex interpolation verified'
+      : 'Failed checks: ' + failed27.join(', ')
   });
 
   return results;
