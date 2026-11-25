@@ -22,6 +22,7 @@ import { advanceResearchProgress } from '../../progression/queueService.js';
 import { advanceTrainingProgress } from '../../progression/trainingService.js';
 import { processPassiveAccrual } from '../../progression/accrualService.js';
 import { getPrimaryCity } from '../engine/state.js';
+import { getCanonicalPlayerId } from '../../core/canonicalIdentity.js';
 
 export function renderDevPortalModal(simHost, forceRender) {
   const modal = document.getElementById('wgDevPortalModal');
@@ -43,7 +44,7 @@ export function renderDevPortalModal(simHost, forceRender) {
 
   const world = state.world;
   const prog = ensureProgressionState(world);
-  const pid = 'player_1';
+  const pid = getCanonicalPlayerId(state);
   const city = getPrimaryCity(state);
 
   // 1. Progression Currencies Editor
@@ -166,7 +167,7 @@ export function handleCloseDevPortal(simHost) {
 export function handleDevSetCurrencyAction(simHost, currencyId, explicitValue) {
   if (!simHost || !simHost.state || !simHost.state.world) return { ok: false };
   const prog = ensureProgressionState(simHost.state.world);
-  const pid = 'player_1';
+  const pid = getCanonicalPlayerId(simHost.state);
   let targetVal = explicitValue;
   if (typeof targetVal !== 'number' && typeof document !== 'undefined') {
     const inp = document.getElementById('wgDevCurrInput_' + currencyId);
@@ -202,7 +203,7 @@ export function handleDevSetCurrencyAction(simHost, currencyId, explicitValue) {
 export function handleDevAddCurrencyAction(simHost, currencyId, delta) {
   if (!simHost || !simHost.state || !simHost.state.world) return { ok: false };
   const prog = ensureProgressionState(simHost.state.world);
-  const pid = 'player_1';
+  const pid = getCanonicalPlayerId(simHost.state);
   const current = getCurrencyBalance(prog.currencyLedger, pid, OWNER_TYPES.PLAYER, currencyId).available;
   return handleDevSetCurrencyAction(simHost, currencyId, Math.max(0, current + Number(delta || 0)));
 }
@@ -259,7 +260,7 @@ export function handleDevTimeJumpAction(simHost, seconds) {
   prog.lastAccrualAtMs = (prog.lastAccrualAtMs || 0);
   const simNow = (simHost.state.world.clock ? simHost.state.world.clock.simTimeMs : 0) + deltaMs;
   if (simHost.state.world.clock) simHost.state.world.clock.simTimeMs = simNow;
-  processPassiveAccrual(prog, 'player_1', prog.lastAccrualAtMs + deltaMs, { baseRatePerSec: baseRate });
+  processPassiveAccrual(prog, getCanonicalPlayerId(simHost.state), prog.lastAccrualAtMs + deltaMs, { baseRatePerSec: baseRate });
   prog.lastWallClockAtMs = newWallMs;
   advanceResearchProgress(prog, simNow);
   advanceTrainingProgress(prog, simNow);

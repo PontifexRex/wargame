@@ -3370,8 +3370,100 @@ function resolveHazardStepEffects(actor, x, y, floor) {
   return { triggered: true, damage: totalDmg, statuses: appliedStatuses };
 }
 
+  // --- Module: src/core/canonicalIdentity.js ---
+// Canonical Player Identity & Ownership Normalization (Task 02)
+// Establishes 'player_1' as the single canonical local player ID across Strategy, Progression, and Dungeon contexts.
+// IMPORTANT: Never assigns ownership to neutral entities, NPCs, hostiles, or entities with ownerPlayerId === null.
+
+const CANONICAL_PLAYER_ID = 'player_1';
+const LEGACY_LOCAL_PLAYER_IDS = ['player_local'];
+
+function isLegacyLocalPlayerId(id) {
+  if (typeof id !== 'string') return false;
+  for (let i = 0; i < LEGACY_LOCAL_PLAYER_IDS.length; i++) {
+    if (id === LEGACY_LOCAL_PLAYER_IDS[i]) return true;
+  }
+  return false;
+}
+
+function normalizeLocalPlayerId(id) {
+  if (id === null || id === undefined || id === '' || isLegacyLocalPlayerId(id)) {
+    return CANONICAL_PLAYER_ID;
+  }
+  return String(id);
+}
+
+function getCanonicalPlayerId(state) {
+  if (!state || typeof state !== 'object') return CANONICAL_PLAYER_ID;
+  if (state.world && state.world.player && state.world.player.id) {
+    return normalizeLocalPlayerId(state.world.player.id);
+  }
+  if (state.player && state.player.id) {
+    return normalizeLocalPlayerId(state.player.id);
+  }
+  if (state.playerId) {
+    return normalizeLocalPlayerId(state.playerId);
+  }
+  return CANONICAL_PLAYER_ID;
+}
+
+function normalizeOwnedRecord(record, canonicalId) {
+  if (!record || typeof record !== 'object') return;
+  // Intentionally absent ownership (null) or non-local owner (e.g., future rival) must be preserved.
+  if (record.ownerPlayerId === null) return;
+  if (record.ownerPlayerId === undefined || isLegacyLocalPlayerId(record.ownerPlayerId)) {
+    record.ownerPlayerId = canonicalId;
+  }
+}
+
+function ensureCanonicalPlayerIdentity(world) {
+  if (!world || typeof world !== 'object') return CANONICAL_PLAYER_ID;
+
+  if (!world.player || typeof world.player !== 'object') {
+    world.player = { id: CANONICAL_PLAYER_ID };
+  }
+  const canonicalId = normalizeLocalPlayerId(world.player.id);
+  world.player.id = canonicalId;
+
+  // Player-owned cities
+  if (world.cities && typeof world.cities === 'object') {
+    const cityIds = Object.keys(world.cities);
+    for (let i = 0; i < cityIds.length; i++) {
+      normalizeOwnedRecord(world.cities[cityIds[i]], canonicalId);
+    }
+  }
+
+  // Player-owned heroes
+  if (Array.isArray(world.heroes)) {
+    for (let i = 0; i < world.heroes.length; i++) {
+      normalizeOwnedRecord(world.heroes[i], canonicalId);
+    }
+  }
+
+  // Player-owned parties
+  if (Array.isArray(world.parties)) {
+    for (let i = 0; i < world.parties.length; i++) {
+      normalizeOwnedRecord(world.parties[i], canonicalId);
+    }
+  }
+
+  // Player-owned overworld units ONLY (never hostiles, neutral POIs, or NPCs)
+  if (world.overworld && Array.isArray(world.overworld.units)) {
+    for (let i = 0; i < world.overworld.units.length; i++) {
+      const u = world.overworld.units[i];
+      if (!u || typeof u !== 'object') continue;
+      if (u.unitType === 'settler' || u.unitType === 'hero_party') {
+        normalizeOwnedRecord(u, canonicalId);
+      }
+    }
+  }
+
+  return canonicalId;
+}
+
   // --- Module: src/engine/state.js ---
 // Game State Schema (Multi-Dungeon Atlas v5/v6), Save Migration, RLE Persistence & Derived Hero Stats
+
 
 
 
@@ -3540,6 +3632,7 @@ function createDefaultGameState() {
   const activeId = 'dng_starfall';
   return {
     version: SCHEMA_VERSION,
+    playerId: CANONICAL_PLAYER_ID,
     turn: 0,
     inGuild: true,
     audioEnabled: true,
@@ -5671,7 +5764,8 @@ const actionCallbacks = {
   updateFOV: () => emitEngineEvent(ENGINE_EVENTS.FOV_SYNC, {}, gameState),
   onTurnEnd: () => emitEngineEvent(ENGINE_EVENTS.TURN_END, {}, gameState),
   combatAnim: (x, y, type, color) => {},
-  heroLunge: (dx, dy) => {}
+  heroLunge: (dx, dy) => {},
+  onDungeonReturn: null
 };
 
 const registeredBridgeHandlers = {};
@@ -5709,6 +5803,9 @@ function registerActionCallbacks(cbs) {
   }
   if (typeof cbs.heroLunge === 'function') {
     actionCallbacks.heroLunge = cbs.heroLunge;
+  }
+  if (cbs.onDungeonReturn === null || typeof cbs.onDungeonReturn === 'function') {
+    actionCallbacks.onDungeonReturn = cbs.onDungeonReturn;
   }
 }
 
@@ -6434,6 +6531,7 @@ function recordDungeonDepthInCodex(state) {
 }
 
 function extractToGuild(method = 'Floor 1 Ascending Stairs (<)', state = gameState) {
+  const isUnifiedInProcess = Boolean(state.wargameSession && state.wargameSession.active && state.wargameSession.inProcess);
   const h = state.hero;
   const assayRank = state.guildResearch.assay || 0;
   const mult = 1 + assayRank * 0.35;
@@ -6453,10 +6551,10 @@ function extractToGuild(method = 'Floor 1 Ascending Stairs (<)', state = gameSta
 
   for (const item of h.expeditionPack) {
     if (MINERAL_IDS.includes(item.id)) {
-      state.guildVault[item.id] = (state.guildVault[item.id] || 0) + item.qty;
+      if (!isUnifiedInProcess) state.guildVault[item.id] = (state.guildVault[item.id] || 0) + item.qty;
       oresBanked += item.qty;
     } else if (GEM_IDS.includes(item.id)) {
-      state.guildVault.gems[item.id] = (state.guildVault.gems[item.id] || 0) + item.qty;
+      if (!isUnifiedInProcess) state.guildVault.gems[item.id] = (state.guildVault.gems[item.id] || 0) + item.qty;
       gemsBanked += item.qty;
     } else {
       goldEarned += Math.round(item.val * item.qty * mult);
@@ -6465,11 +6563,11 @@ function extractToGuild(method = 'Floor 1 Ascending Stairs (<)', state = gameSta
 
   const extractedGearSnapshot = h.expeditionGear.map(gear => normalizeEquipmentSockets(gear));
   for (const gear of h.expeditionGear) {
-    state.guildVault.armory.push(normalizeEquipmentSockets(gear));
+    if (!isUnifiedInProcess) state.guildVault.armory.push(normalizeEquipmentSockets(gear));
   }
 
-  state.guildVault.gold += goldEarned;
-  const claimedBounties = payoutCompletedBounties(state);
+  if (!isUnifiedInProcess) state.guildVault.gold += goldEarned;
+  const claimedBounties = isUnifiedInProcess ? [] : payoutCompletedBounties(state);
 
   h.expeditionPack = [];
   h.expeditionGear = [];
@@ -6478,7 +6576,7 @@ function extractToGuild(method = 'Floor 1 Ascending Stairs (<)', state = gameSta
   recomputeHeroDerivedStats(true, state);
   state.inGuild = true;
 
-  if (state === gameState) {
+  if (state === gameState && !isUnifiedInProcess) {
     saveGame();
     actionCallbacks.updateUI();
     const details = [
@@ -6511,13 +6609,20 @@ function extractToGuild(method = 'Floor 1 Ascending Stairs (<)', state = gameSta
 
   let returnEnvelope = null;
   if (state.wargameSession && state.wargameSession.active) {
-    returnEnvelope = writeDungeonReturnHandoff({
+    const returnData = {
       outcome: 'extracted',
       method: method,
+      sessionId: state.wargameSession.sessionId || null,
+      playerId: state.wargameSession.playerId || state.playerId || null,
       partyUnitId: state.wargameSession.partyUnitId,
       heroId: state.wargameSession.heroId,
       heroLevel: h.level || 1,
       heroXp: h.xp || 0,
+      heroMaxXp: h.maxXp || 60,
+      heroBonusStats: h.bonusStats ? Object.assign({}, h.bonusStats) : { str: 0, dex: 0, int: 0, vit: 0 },
+      heroStatPoints: h.statPoints || 0,
+      heroTalentPoints: h.talentPoints || 0,
+      heroTalentsAllocated: h.talentsAllocated ? Object.assign({}, h.talentsAllocated) : {},
       dungeonId: state.activeDungeonId,
       dungeonPoiId: state.wargameSession.dungeonPoiId,
       lootSummary: {
@@ -6528,8 +6633,16 @@ function extractToGuild(method = 'Floor 1 Ascending Stairs (<)', state = gameSta
         salvagedGold: 0
       },
       extractedGear: extractedGearSnapshot,
-      heroEquipment: h.equipment || null
-    });
+      heroEquipment: h.equipment ? JSON.parse(JSON.stringify(h.equipment)) : null
+    };
+    if (state.wargameSession.inProcess) {
+      returnEnvelope = returnData;
+      if (state === gameState && typeof actionCallbacks.onDungeonReturn === 'function') {
+        actionCallbacks.onDungeonReturn(returnData);
+      }
+    } else {
+      returnEnvelope = writeDungeonReturnHandoff(returnData);
+    }
   }
 
   return { oresBanked, gemsBanked, gearBanked, goldEarned, claimedBounties, returnEnvelope };
@@ -6555,6 +6668,7 @@ function useRecallScroll(state = gameState) {
 function handleHeroDefeat(killerName = 'Abyssal Guardian', state = gameState) {
   const h = state.hero;
   const vRank = state.guildResearch.vanguard || 0;
+  const isUnifiedInProcess = Boolean(state.wargameSession && state.wargameSession.active && state.wargameSession.inProcess);
   const recoveryPct = vRank * 0.20;
 
   const codex = ensureCodexState(state);
@@ -6569,7 +6683,7 @@ function handleHeroDefeat(killerName = 'Abyssal Guardian', state = gameState) {
   const lostGearCount = h.expeditionGear.length;
   const lostOreCount = h.expeditionPack.reduce((s, i) => s + i.qty, 0);
 
-  state.guildVault.gold += salvagedGold;
+  if (!isUnifiedInProcess) state.guildVault.gold += salvagedGold;
   h.expeditionPack = [];
   h.expeditionGear = [];
   h.statuses = [];
@@ -6577,7 +6691,7 @@ function handleHeroDefeat(killerName = 'Abyssal Guardian', state = gameState) {
   recomputeHeroDerivedStats(true, state);
   state.inGuild = true;
 
-  if (state === gameState) {
+  if (state === gameState && !isUnifiedInProcess) {
     playSound('hit');
     actionCallbacks.log(`Defeated by ${killerName}! Rescued by Guild Scouts. Vanguard Pact salvaged +${salvagedGold}g.`, 'bad');
     saveGame();
@@ -6606,13 +6720,20 @@ function handleHeroDefeat(killerName = 'Abyssal Guardian', state = gameState) {
 
   let returnEnvelope = null;
   if (state.wargameSession && state.wargameSession.active) {
-    returnEnvelope = writeDungeonReturnHandoff({
+    const returnData = {
       outcome: 'defeated',
       method: 'Guild Scout Rescue',
+      sessionId: state.wargameSession.sessionId || null,
+      playerId: state.wargameSession.playerId || state.playerId || null,
       partyUnitId: state.wargameSession.partyUnitId,
       heroId: state.wargameSession.heroId,
       heroLevel: h.level || 1,
       heroXp: h.xp || 0,
+      heroMaxXp: h.maxXp || 60,
+      heroBonusStats: h.bonusStats ? Object.assign({}, h.bonusStats) : { str: 0, dex: 0, int: 0, vit: 0 },
+      heroStatPoints: h.statPoints || 0,
+      heroTalentPoints: h.talentPoints || 0,
+      heroTalentsAllocated: h.talentsAllocated ? Object.assign({}, h.talentsAllocated) : {},
       dungeonId: state.activeDungeonId,
       dungeonPoiId: state.wargameSession.dungeonPoiId,
       killerName: killerName,
@@ -6623,8 +6744,18 @@ function handleHeroDefeat(killerName = 'Abyssal Guardian', state = gameState) {
         gems: 0,
         gearCount: 0,
         salvagedGold: salvagedGold
+      },
+      extractedGear: [],
+      heroEquipment: h.equipment ? JSON.parse(JSON.stringify(h.equipment)) : null
+    };
+    if (state.wargameSession.inProcess) {
+      returnEnvelope = returnData;
+      if (state === gameState && typeof actionCallbacks.onDungeonReturn === 'function') {
+        actionCallbacks.onDungeonReturn(returnData);
       }
-    });
+    } else {
+      returnEnvelope = writeDungeonReturnHandoff(returnData);
+    }
   }
 
   return { salvagedGold, lostOreCount, lostGearCount, returnEnvelope };
@@ -6678,6 +6809,9 @@ function applyWargameEntryHandoff(handoff, state = gameState) {
 
   state.wargameSession = {
     active: true,
+    inProcess: Boolean(handoff.inProcess),
+    sessionId: handoff.sessionId || null,
+    playerId: handoff.playerId || state.playerId || null,
     campaignId: incomingCampaignId,
     seedCode: handoff.seedCode || 'STAR-7777',
     houseName: handoff.houseName || 'House Vanguard',
@@ -6694,8 +6828,20 @@ function applyWargameEntryHandoff(handoff, state = gameState) {
   };
 
   if (state.hero) {
+    if (handoff.hero && handoff.hero.id) {
+      state.hero.id = handoff.hero.id;
+    }
+    if (handoff.hero && handoff.hero.ownerPlayerId) {
+      state.hero.ownerPlayerId = handoff.hero.ownerPlayerId;
+    }
     if (handoff.hero && handoff.hero.name) {
       state.hero.name = handoff.hero.name;
+    }
+    if (handoff.hero && typeof handoff.hero.level === 'number' && handoff.hero.level >= 1) {
+      state.hero.level = handoff.hero.level;
+    }
+    if (handoff.hero && typeof handoff.hero.xp === 'number' && handoff.hero.xp >= 0) {
+      state.hero.xp = handoff.hero.xp;
     }
     if (handoff.hero && handoff.hero.equipment && typeof handoff.hero.equipment === 'object') {
       const eqSlots = ['weapon', 'armor', 'helm', 'boots', 'accessory', 'pickaxe'];
@@ -16074,10 +16220,19 @@ function updateScannerOnHover(gx, gy) {
   }
 }
 
-function setupInputs() {
+let _dungeonInputsInitialized = false;
+let _dungeonInputActiveCheck = null;
+
+function setupInputs(isActiveFn) {
+  if (typeof isActiveFn === 'function') {
+    _dungeonInputActiveCheck = isActiveFn;
+  }
+  if (_dungeonInputsInitialized) return;
   if (typeof window === 'undefined' || typeof document === 'undefined') return;
+  _dungeonInputsInitialized = true;
 
   window.addEventListener('keydown', e => {
+    if (_dungeonInputActiveCheck && !_dungeonInputActiveCheck()) return;
     if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT')) {
       return;
     }

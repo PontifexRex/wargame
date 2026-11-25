@@ -52,13 +52,375 @@ import { attachCityIsoControls, renderCityIsoCanvas } from './ui/cityIsoCanvas.j
 import { findOverworldPath, isOverworldTilePassable } from './engine/pathfinding.js';
 import { getSelectedOverworldUnit, getPrimaryCity } from './engine/state.js';
 import { evaluateWargameSelfTests } from './test/wargameSelfTest.js';
+import { APP_CONTEXTS, createAppContextController } from '../core/appContext.js';
+import { TILE_SIZE, TILE_STAIRS_UP, TILE_STAIRS_DOWN, TILE_CHEST, TILE_SHRINE, TILE_TRAP_VISIBLE } from '../constants.js';
+import { CLASSES } from '../data/classes.js';
+import { ORE_CATALOG } from '../data/ores.js';
+import { gameState, ensureDungeonFloorHydrated, recomputeHeroDerivedStats } from '../engine/state.js';
 import {
-  BRIDGE_DIRECTIONS,
-  peekBridgeHandoff,
-  consumeBridgeHandoff
-} from '../engine/wargameBridge.js';
+  registerActionCallbacks,
+  useHealingTonic,
+  useRecallScroll,
+  extractToGuild,
+  equipItem,
+  unequipItem,
+  autoEquipBestGear,
+  dropItem
+} from '../engine/actions.js';
+import {
+  handlePlayerAction,
+  executeClassSkill,
+  useStairsAtPlayer,
+  waitTurn,
+  startAutoWalkTo,
+  cancelAutoWalk,
+  isAutoWalking,
+  runCorridor,
+  registerCombatFOVCallback
+} from '../engine/combat.js';
+import {
+  renderDungeonCanvas,
+  updateFOV,
+  getCameraOrigin,
+  setHoverTile,
+  minimapPixelToGrid,
+  spawnFloatingText,
+  triggerCombatAnimation,
+  triggerHeroLunge
+} from '../ui/renderer.js';
 
 export const simHost = createWargameSimHost();
+
+const dungeonChronicleEntries = [];
+let dungeonCanvasWired = false;
+let dungeonInventoryOpen = false;
+let wargameBootstrapped = false;
+
+function appendUnifiedDungeonLog(msg, tone) {
+  dungeonChronicleEntries.unshift({ msg: String(msg || ''), tone: tone || 'info' });
+  if (dungeonChronicleEntries.length > 30) dungeonChronicleEntries.pop();
+  syncIntegratedDungeonHud();
+}
+
+function updateIntegratedDungeonHoverScanner(gx, gy) {
+  if (typeof document === 'undefined') return;
+  const el = document.getElementById('wgDungeonHoverScanner');
+  if (!el || !gameState || !gameState.dungeon || !gameState.hero) return;
+  const floor = ensureDungeonFloorHydrated(gameState.dungeon, gameState.dungeon.currentFloor);
+  if (!floor || !floor.tiles || gy < 0 || gy >= floor.tiles.length || gx < 0 || gx >= floor.tiles[0].length) {
+    el.innerHTML = 'Hover or click any explored tile to Auto-Walk, or use WASD / Arrow keys to move, attack, and mine.';
+    return;
+  }
+  const explored = Boolean(floor.explored && floor.explored[gy] && floor.explored[gy][gx]);
+  if (!explored) {
+    el.innerHTML = '<span class="text-[#64748b]">Unexplored Shadow (' + gx + ', ' + gy + ')</span>';
+    return;
+  }
+  const mon = (floor.monsters || []).find(function(m) { return m.hp > 0 && m.x === gx && m.y === gy; });
+  if (mon) {
+    el.innerHTML = '<span class="text-[#f87171] font-bold">' + mon.name + '</span> • HP ' + mon.hp + '/' + mon.maxHp + ' • ATK ' + mon.atk + ' • DEF ' + (mon.def || 0) + ' — Move adjacent to attack!';
+    return;
+  }
+  const tile = floor.tiles[gy][gx];
+  if (ORE_CATALOG[tile]) {
+    const ore = ORE_CATALOG[tile];
+    el.innerHTML = '<span class="text-[#fbbf24] font-bold">' + ore.name + ' Vein</span> (' + gx + ', ' + gy + ') — Bump adjacent with Pickaxe to mine.';
+    return;
+  }
+  if (tile === TILE_STAIRS_UP) {
+    el.innerHTML = '<span class="text-[#38bdf8] font-bold">Ascending Stairs (&lt;)</span> — Stand here and press [E] to ' + (gameState.dungeon.currentFloor === 1 ? 'extract to Overworld!' : 'ascend.');
+    return;
+  }
+  if (tile === TILE_STAIRS_DOWN) {
+    el.innerHTML = '<span class="text-[#c084fc] font-bold">Descending Stairs (&gt;)</span> — Stand here and press [E] to descend deeper.';
+    return;
+  }
+  if (tile === TILE_CHEST) {
+    el.innerHTML = '<span class="text-[#fbbf24] font-bold">Treasure Chest</span> — Step onto tile to loot.';
+    return;
+  }
+  if (tile === TILE_SHRINE) {
+    el.innerHTML = '<span class="text-[#34d399] font-bold">Astral Shrine</span> — Step onto tile to receive a blessing.';
+    return;
+  }
+  if (tile === TILE_TRAP_VISIBLE) {
+    el.innerHTML = '<span class="text-[#f87171] font-bold">Runic Trap</span> — Step carefully or disarm.';
+    return;
+  }
+  const obj = (floor.objects || []).find(function(o) { return o && o.x === gx && o.y === gy; });
+  if (obj) {
+    el.innerHTML = '<span class="text-[#fbbf24] font-bold">' + (obj.name || obj.objectType) + '</span> (' + gx + ', ' + gy + ') — Move into or interact.';
+    return;
+  }
+  el.innerHTML = 'Vault Floor (' + gx + ', ' + gy + ') — Click to Auto-Walk here.';
+}
+
+function syncIntegratedDungeonHud() {
+  if (typeof document === 'undefined') return;
+  const viewEl = document.getElementById('wgDungeonContextView');
+  const isDungeon = appContext.getActiveContext() === APP_CONTEXTS.DUNGEON;
+  if (viewEl) {
+    viewEl.classList.toggle('hidden', !isDungeon);
+  }
+  if (!isDungeon || !gameState || !gameState.hero) return;
+
+  const h = gameState.hero;
+  const cls = CLASSES[h.classId] || CLASSES.fighter;
+  const dng = gameState.dungeon || {};
+  const titleEl = document.getElementById('wgDungeonTitleText');
+  if (titleEl) titleEl.textContent = dng.name || 'The Starfall Vaults';
+  const floorEl = document.getElementById('wgDungeonFloorText');
+  if (floorEl) floorEl.textContent = 'Floor ' + (dng.currentFloor || 1);
+  const turnEl = document.getElementById('wgDungeonTurnText');
+  if (turnEl) turnEl.textContent = 'Turn ' + (gameState.turn || 0);
+  const vitalsEl = document.getElementById('wgDungeonHeroVitalsText');
+  if (vitalsEl) {
+    vitalsEl.textContent = (h.name || 'Hero') + ' (' + cls.name + ') • Lv ' + (h.level || 1);
+  }
+
+  const barsEl = document.getElementById('wgDungeonHeroBars');
+  if (barsEl) {
+    const hp = Math.max(0, Math.round(h.hp || 0));
+    const maxHp = Math.max(1, Math.round(h.maxHp || 1));
+    const mp = Math.max(0, Math.round(h.mp || 0));
+    const maxMp = Math.max(1, Math.round(h.maxMp || 1));
+    const xp = Math.max(0, Math.round(h.xp || 0));
+    const maxXp = Math.max(1, Math.round(h.maxXp || 60));
+    const hpPct = Math.min(100, Math.round((hp / maxHp) * 100));
+    const mpPct = Math.min(100, Math.round((mp / maxMp) * 100));
+    const xpPct = Math.min(100, Math.round((xp / maxXp) * 100));
+    barsEl.innerHTML =
+      '<div><div class="flex justify-between text-[11px]"><span class="text-[#f87171]">HP</span><span>' + hp + '/' + maxHp + '</span></div><div class="h-2 rounded bg-[#080b11] overflow-hidden"><div class="h-full bg-[#ef4444]" style="width:' + hpPct + '%"></div></div></div>' +
+      '<div><div class="flex justify-between text-[11px]"><span class="text-[#60a5fa]">MP</span><span>' + mp + '/' + maxMp + '</span></div><div class="h-2 rounded bg-[#080b11] overflow-hidden"><div class="h-full bg-[#3b82f6]" style="width:' + mpPct + '%"></div></div></div>' +
+      '<div><div class="flex justify-between text-[11px]"><span class="text-[#fbbf24]">XP</span><span>' + xp + '/' + maxXp + '</span></div><div class="h-2 rounded bg-[#080b11] overflow-hidden"><div class="h-full bg-[#fbbf24]" style="width:' + xpPct + '%"></div></div></div>';
+  }
+
+  const statusesEl = document.getElementById('wgDungeonStatuses');
+  if (statusesEl) {
+    if (Array.isArray(h.statuses) && h.statuses.length > 0) {
+      statusesEl.innerHTML = h.statuses.map(function(st) {
+        return '<span class="px-1.5 py-0.5 rounded bg-[#1a2232] border border-[#fbbf24]/40 text-[#fbbf24]">' + (st.name || st.id) + ' (' + (st.duration || st.turns || 1) + 't)</span>';
+      }).join('');
+    } else {
+      statusesEl.innerHTML = '';
+    }
+  }
+
+  const attrsEl = document.getElementById('wgDungeonHeroAttributes');
+  if (attrsEl) {
+    const sp = h.statPoints || 0;
+    const spBanner = sp > 0
+      ? '<div class="flex items-center justify-between px-2 py-1 rounded bg-[#fbbf24]/15 border border-[#fbbf24]/50 text-[#fbbf24] font-bold mb-1"><span>✨ Stat Points Available</span><span>' + sp + '</span></div>'
+      : '';
+    const statRows = [
+      { key: 'str', label: 'STR', val: h.computedStr || 0, color: '#f87171' },
+      { key: 'dex', label: 'DEX', val: h.computedDex || 0, color: '#34d399' },
+      { key: 'int', label: 'INT', val: h.computedInt || 0, color: '#60a5fa' },
+      { key: 'vit', label: 'VIT', val: h.computedVit || 0, color: '#fbbf24' }
+    ].map(function(s) {
+      const plusBtn = sp > 0
+        ? '<button onclick="window.WargameApp.handleDungeonSpendStat(\'' + s.key + '\')" class="px-2 py-0.5 rounded bg-[#fbbf24] hover:bg-[#f59e0b] text-[#080b11] font-bold text-[10px] cursor-pointer">+1</button>'
+        : '';
+      return '<div class="flex items-center justify-between px-1.5 py-0.5 rounded bg-[#080b11]"><span><span class="text-[#8b949e]">' + s.label + '</span> <strong style="color:' + s.color + '">' + s.val + '</strong></span>' + plusBtn + '</div>';
+    }).join('');
+    attrsEl.innerHTML = spBanner + '<div class="grid grid-cols-2 gap-1">' + statRows + '</div>';
+  }
+
+  const tonicBtn = document.getElementById('wgBtnDungeonTonic');
+  if (tonicBtn) tonicBtn.textContent = '🧪 Tonic (' + ((h.consumables && h.consumables.potions) || 0) + ') [H]';
+  const recallBtn = document.getElementById('wgBtnDungeonRecall');
+  if (recallBtn) recallBtn.textContent = '📜 Recall (' + ((h.consumables && h.consumables.recalls) || 0) + ') [R]';
+
+  const statsEl = document.getElementById('wgDungeonHeroStatsGrid');
+  if (statsEl) {
+    const pick = h.equipment && h.equipment.pickaxe ? h.equipment.pickaxe : null;
+    const pickText = pick ? ((pick.curDur || 0) + '/' + (pick.maxDur || 30)) : 'None';
+    statsEl.innerHTML =
+      '<div class="p-1.5 rounded bg-[#080b11]">ATK <strong class="text-[#f87171]">' + (h.atk || 0) + '</strong></div>' +
+      '<div class="p-1.5 rounded bg-[#080b11]">DEF <strong class="text-[#38bdf8]">' + (h.def || 0) + '</strong></div>' +
+      '<div class="p-1.5 rounded bg-[#080b11]">CRIT <strong class="text-[#fbbf24]">' + (h.crit || 0) + '%</strong></div>' +
+      '<div class="p-1.5 rounded bg-[#080b11]">DODGE <strong class="text-[#34d399]">' + (h.dodge || 0) + '%</strong></div>' +
+      '<div class="p-1.5 rounded bg-[#080b11] col-span-2">Pickaxe <strong class="text-[#cbd5e1]">' + pickText + '</strong> • Pos (' + h.x + ',' + h.y + ')</div>';
+  }
+
+  const summaryEl = document.getElementById('wgDungeonExpeditionSummary');
+  if (summaryEl) {
+    const eq = h.equipment || {};
+    const eqSlots = ['weapon', 'armor', 'helm', 'boots', 'accessory', 'pickaxe'];
+    const eqHtml = eqSlots.map(function(sl) {
+      const it = eq[sl];
+      return '<div class="flex justify-between text-[11px]"><span class="text-[#8b949e] uppercase">' + sl + '</span><span class="text-[#e6edf3] truncate max-w-[140px]">' + (it ? it.name : '—') + '</span></div>';
+    }).join('');
+    const packList = Array.isArray(h.expeditionPack) && h.expeditionPack.length > 0
+      ? h.expeditionPack.map(function(it) { return '<span class="inline-block px-1.5 py-0.5 rounded bg-[#080b11] border border-[#283347] text-[10px]">' + it.name + ' ×' + (it.qty || 1) + '</span>'; }).join(' ')
+      : '<span class="text-[#64748b] text-[11px]">No ores/loot yet</span>';
+    const gearCount = Array.isArray(h.expeditionGear) ? h.expeditionGear.length : 0;
+    const potions = (h.consumables && h.consumables.potions) || 0;
+    const recalls = (h.consumables && h.consumables.recalls) || 0;
+    summaryEl.innerHTML =
+      '<div class="space-y-0.5 pb-2 border-b border-[#283347]/70">' + eqHtml + '</div>' +
+      '<div class="pt-1 flex justify-between text-[11px]"><span>Tonics: <strong class="text-[#34d399]">' + potions + '</strong></span><span>Recalls: <strong class="text-[#c084fc]">' + recalls + '</strong></span><span>Gear: <strong class="text-[#fbbf24]">' + gearCount + '</strong></span></div>' +
+      '<div class="pt-1 flex flex-wrap gap-1">' + packList + '</div>';
+  }
+
+  const skillEl = document.getElementById('wgDungeonSkillCard');
+  if (skillEl) {
+    skillEl.innerHTML =
+      '<div class="flex items-center justify-between"><strong class="text-[#60a5fa]">' + (cls.skillName || 'Class Skill') + '</strong><span class="text-[11px] text-[#fbbf24]">' + (cls.skillCost || 10) + ' MP</span></div>' +
+      '<div class="text-[11px] text-[#94a3b8]">' + (cls.skillDesc || '') + '</div>' +
+      '<button onclick="window.WargameApp.handleDungeonSkill()" class="w-full py-1.5 rounded bg-[#1a2232] hover:bg-[#283347] border border-[#60a5fa]/40 text-xs font-mono font-bold text-[#60a5fa] cursor-pointer">⚡ Cast ' + (cls.skillName || 'Skill') + ' [Q]</button>';
+  }
+
+  const logEl = document.getElementById('wgDungeonLog');
+  if (logEl) {
+    logEl.innerHTML = dungeonChronicleEntries.slice(0, 14).map(function(entry) {
+      const col = entry.tone === 'bad' ? 'text-[#f87171]' : (entry.tone === 'good' ? 'text-[#34d399]' : (entry.tone === 'gold' ? 'text-[#fbbf24]' : 'text-[#94a3b8]'));
+      return '<div class="' + col + '">• ' + entry.msg + '</div>';
+    }).join('');
+  }
+
+  syncIntegratedDungeonInventoryModal();
+}
+
+function syncIntegratedDungeonInventoryModal() {
+  if (typeof document === 'undefined') return;
+  const modalEl = document.getElementById('wgDungeonInventoryModal');
+  if (!modalEl) return;
+  const isDungeon = appContext.getActiveContext() === APP_CONTEXTS.DUNGEON;
+  if (!isDungeon || !dungeonInventoryOpen || !gameState || !gameState.hero) {
+    modalEl.classList.add('hidden');
+    return;
+  }
+  modalEl.classList.remove('hidden');
+  const bodyEl = document.getElementById('wgDungeonInventoryBody');
+  if (!bodyEl) return;
+
+  const h = gameState.hero;
+  const eq = h.equipment || {};
+  const eqSlots = ['weapon', 'armor', 'helm', 'boots', 'accessory', 'pickaxe'];
+  const eqRows = eqSlots.map(function(sl) {
+    const it = eq[sl];
+    const statLine = it
+      ? [it.atk ? ('ATK +' + it.atk) : '', it.def ? ('DEF +' + it.def) : '', it.str ? ('STR +' + it.str) : '', it.dex ? ('DEX +' + it.dex) : '', it.int ? ('INT +' + it.int) : '', it.vit ? ('VIT +' + it.vit) : '', it.maxDur ? ('Dur ' + (it.curDur || 0) + '/' + it.maxDur) : ''].filter(Boolean).join(' • ')
+      : 'Empty';
+    const unequipBtn = (it && sl !== 'pickaxe')
+      ? '<button onclick="window.WargameApp.handleDungeonUnequipItem(\'' + sl + '\')" class="px-2 py-0.5 rounded bg-[#1a2232] hover:bg-[#283347] border border-[#f87171]/40 text-[#f87171] text-[10px] cursor-pointer">Unequip</button>'
+      : '';
+    return '<div class="flex items-center justify-between gap-2 p-2 rounded bg-[#080b11] border border-[#283347]"><div><span class="uppercase text-[#8b949e] mr-2">' + sl + '</span><strong class="text-[#e6edf3]">' + (it ? it.name : '—') + '</strong><div class="text-[10px] text-[#94a3b8]">' + statLine + '</div></div>' + unequipBtn + '</div>';
+  }).join('');
+
+  const bagGear = Array.isArray(h.expeditionGear) ? h.expeditionGear : [];
+  const bagRows = bagGear.length > 0
+    ? bagGear.map(function(it) {
+        const statLine = [it.atk ? ('ATK +' + it.atk) : '', it.def ? ('DEF +' + it.def) : '', it.str ? ('STR +' + it.str) : '', it.dex ? ('DEX +' + it.dex) : '', it.int ? ('INT +' + it.int) : '', it.vit ? ('VIT +' + it.vit) : ''].filter(Boolean).join(' • ');
+        return '<div class="flex items-center justify-between gap-2 p-2 rounded bg-[#080b11] border border-[#283347]"><div><span class="uppercase text-[#fbbf24] mr-1.5">[' + (it.slot || 'gear') + ']</span><strong class="text-[#e6edf3]">' + it.name + '</strong><div class="text-[10px] text-[#94a3b8]">' + (statLine || (it.rarity || 'common')) + '</div></div><div class="flex items-center gap-1.5"><button onclick="window.WargameApp.handleDungeonEquipItem(\'' + it.uid + '\')" class="px-2 py-0.5 rounded bg-[#34d399]/20 hover:bg-[#34d399]/30 border border-[#34d399]/50 text-[#34d399] text-[10px] font-bold cursor-pointer">Equip</button><button onclick="window.WargameApp.handleDungeonDropItem(\'' + it.uid + '\')" class="px-2 py-0.5 rounded bg-[#1a2232] hover:bg-[#283347] border border-[#f87171]/40 text-[#f87171] text-[10px] cursor-pointer">Drop</button></div></div>';
+      }).join('')
+    : '<div class="text-[#64748b]">No unequipped gear in Expedition Bag.</div>';
+
+  const pack = Array.isArray(h.expeditionPack) ? h.expeditionPack : [];
+  const packHtml = pack.length > 0
+    ? pack.map(function(it) {
+        return '<span class="px-2 py-1 rounded bg-[#080b11] border border-[#283347] text-[#34d399]">' + it.name + ' ×' + (it.qty || 1) + '</span>';
+      }).join('')
+    : '<span class="text-[#64748b]">No ores, gems, or relics gathered yet.</span>';
+
+  bodyEl.innerHTML =
+    '<div><div class="text-[11px] font-bold uppercase text-[#fbbf24] mb-1.5">Equipped Loadout (6 Slots)</div><div class="grid grid-cols-1 md:grid-cols-2 gap-1.5">' + eqRows + '</div></div>' +
+    '<div><div class="text-[11px] font-bold uppercase text-[#38bdf8] mb-1.5">Expedition Gear Bag (' + bagGear.length + ')</div><div class="space-y-1.5">' + bagRows + '</div></div>' +
+    '<div><div class="text-[11px] font-bold uppercase text-[#34d399] mb-1.5">Expedition Pack (Ores, Gems &amp; Relics)</div><div class="flex flex-wrap gap-1.5">' + packHtml + '</div></div>';
+}
+
+function wireIntegratedDungeonCallbacksOnce() {
+  registerCombatFOVCallback(updateFOV);
+  registerActionCallbacks({
+    log: appendUnifiedDungeonLog,
+    updateUI: syncIntegratedDungeonHud,
+    floatingText: spawnFloatingText,
+    outcomeModal: function(title, desc) {
+      appendUnifiedDungeonLog(title + ': ' + desc, 'good');
+    },
+    updateFOV: updateFOV,
+    combatAnim: triggerCombatAnimation,
+    heroLunge: triggerHeroLunge,
+    onDungeonReturn: function(returnPayload) {
+      appContext.exitDungeon(returnPayload);
+    }
+  });
+
+  if (!dungeonCanvasWired && typeof document !== 'undefined') {
+    dungeonCanvasWired = true;
+    const dCanvas = document.getElementById('dungeonCanvas');
+    if (dCanvas) {
+      dCanvas.addEventListener('mousemove', function(e) {
+        if (appContext.getActiveContext() !== APP_CONTEXTS.DUNGEON || !gameState || !gameState.hero || !gameState.dungeon) return;
+        const floor = ensureDungeonFloorHydrated(gameState.dungeon, gameState.dungeon.currentFloor);
+        if (!floor) return;
+        const rect = dCanvas.getBoundingClientRect();
+        const scaleX = dCanvas.width / (rect.width || dCanvas.width);
+        const scaleY = dCanvas.height / (rect.height || dCanvas.height);
+        const cam = getCameraOrigin(floor, gameState.hero.x, gameState.hero.y);
+        const gx = cam.camX + Math.floor(((e.clientX - rect.left) * scaleX) / TILE_SIZE);
+        const gy = cam.camY + Math.floor(((e.clientY - rect.top) * scaleY) / TILE_SIZE);
+        setHoverTile({ x: gx, y: gy });
+        updateIntegratedDungeonHoverScanner(gx, gy);
+      });
+      dCanvas.addEventListener('mouseleave', function() {
+        setHoverTile(null);
+      });
+      dCanvas.addEventListener('click', function(e) {
+        if (appContext.getActiveContext() !== APP_CONTEXTS.DUNGEON || !gameState || !gameState.hero || !gameState.dungeon) return;
+        const floor = ensureDungeonFloorHydrated(gameState.dungeon, gameState.dungeon.currentFloor);
+        if (!floor) return;
+        const rect = dCanvas.getBoundingClientRect();
+        const scaleX = dCanvas.width / (rect.width || dCanvas.width);
+        const scaleY = dCanvas.height / (rect.height || dCanvas.height);
+        const cam = getCameraOrigin(floor, gameState.hero.x, gameState.hero.y);
+        const gx = cam.camX + Math.floor(((e.clientX - rect.left) * scaleX) / TILE_SIZE);
+        const gy = cam.camY + Math.floor(((e.clientY - rect.top) * scaleY) / TILE_SIZE);
+        // Adjacent click acts immediately (move/attack/mine); distant explored click auto-walks
+        const dx = gx - gameState.hero.x;
+        const dy = gy - gameState.hero.y;
+        if (Math.abs(dx) + Math.abs(dy) === 1) {
+          handlePlayerAction(dx, dy);
+          syncIntegratedDungeonHud();
+        } else {
+          startAutoWalkTo(gx, gy);
+        }
+      });
+    }
+
+    const mmCanvas = document.getElementById('minimapCanvas');
+    if (mmCanvas) {
+      mmCanvas.addEventListener('click', function(e) {
+        if (appContext.getActiveContext() !== APP_CONTEXTS.DUNGEON || !gameState || !gameState.dungeon) return;
+        const floor = ensureDungeonFloorHydrated(gameState.dungeon, gameState.dungeon.currentFloor);
+        if (!floor) return;
+        const pt = minimapPixelToGrid(mmCanvas, e.clientX, e.clientY, floor);
+        if (pt) {
+          startAutoWalkTo(pt.x, pt.y);
+        }
+      });
+    }
+  }
+}
+
+export const appContext = createAppContextController({
+  simHost: simHost,
+  dungeonState: gameState,
+  onEnsureDungeonInitialized: wireIntegratedDungeonCallbacksOnce,
+  onContextChanged: function(ctx) {
+    if (ctx === APP_CONTEXTS.DUNGEON) {
+      dungeonInventoryOpen = false;
+      updateFOV();
+      syncIntegratedDungeonHud();
+    } else {
+      dungeonInventoryOpen = false;
+      cancelAutoWalk();
+      syncIntegratedDungeonHud();
+      syncWargameUI(simHost);
+    }
+  }
+});
 
 let lastFrameTimestamp = null;
 let autoSaveAccumulatorMs = 0;
@@ -626,22 +988,129 @@ export function handleAcademyStudySession() {
 }
 
 export function handleEnterDungeon(poiId) {
-  const selUnit = getSelectedOverworldUnit(simHost.state);
-  if (simHost && simHost.state && simHost.state.world && selUnit) {
-    const res = simHost.dispatch({
-      type: COMMAND_TYPES.ENTER_DUNGEON,
-      payload: { unitId: selUnit.id, poiId: poiId || null }
-    });
-    simHost.save();
-    if (!res || !res.ok) {
-      syncWargameUI(simHost);
-      return;
-    }
+  if (!simHost || !simHost.state || !simHost.state.world) {
+    return { ok: false, reason: 'no_active_world' };
   }
-  if (typeof window !== 'undefined' && window.location) {
-    // Smooth transition into the tactical dungeon engine with handoff envelope!
-    window.location.href = './index.html?from=wargame';
+  const ow = simHost.state.world.overworld || {};
+  const units = Array.isArray(ow.units) ? ow.units : [];
+  let targetUnit = getSelectedOverworldUnit(simHost.state);
+
+  // If selected unit isn't a dungeon-capable party, resolve the party standing at or delving in poiId
+  if (!targetUnit || !targetUnit.alive || !targetUnit.canEnterDungeon) {
+    targetUnit = units.find(function(u) {
+      if (!u.alive || !u.canEnterDungeon) return false;
+      if (poiId && u.status === 'in_dungeon' && u.activeDungeonPoiId === poiId) return true;
+      return u.status === 'in_dungeon';
+    }) || units.find(function(u) {
+      return u.alive && u.canEnterDungeon;
+    }) || null;
   }
+  if (!targetUnit) {
+    return { ok: false, reason: 'no_selected_party' };
+  }
+  ow.selectedUnitId = targetUnit.id;
+  simHost.state._openFacilityId = null;
+  simHost.state._openHeroSheetId = null;
+
+  const res = appContext.enterDungeon({
+    unitId: targetUnit.id,
+    poiId: poiId || targetUnit.activeDungeonPoiId || null
+  });
+  simHost.save();
+  if (!res || !res.ok) {
+    syncWargameUI(simHost);
+    return res || { ok: false };
+  }
+  return res;
+}
+
+export function handleDungeonMove(dx, dy) {
+  if (appContext.getActiveContext() !== APP_CONTEXTS.DUNGEON) return;
+  if (isAutoWalking()) cancelAutoWalk();
+  handlePlayerAction(dx, dy);
+  syncIntegratedDungeonHud();
+}
+
+export function handleDungeonWait() {
+  if (appContext.getActiveContext() !== APP_CONTEXTS.DUNGEON) return;
+  waitTurn();
+  syncIntegratedDungeonHud();
+}
+
+export function handleDungeonUseStairs() {
+  if (appContext.getActiveContext() !== APP_CONTEXTS.DUNGEON) return;
+  useStairsAtPlayer();
+  syncIntegratedDungeonHud();
+}
+
+export function handleDungeonSpendStat(statKey) {
+  if (appContext.getActiveContext() !== APP_CONTEXTS.DUNGEON || !gameState || !gameState.hero) return false;
+  const h = gameState.hero;
+  if ((h.statPoints || 0) <= 0) return false;
+  if (statKey !== 'str' && statKey !== 'dex' && statKey !== 'int' && statKey !== 'vit') return false;
+  if (!h.bonusStats) h.bonusStats = { str: 0, dex: 0, int: 0, vit: 0 };
+  h.bonusStats[statKey] = (h.bonusStats[statKey] || 0) + 1;
+  h.statPoints -= 1;
+  recomputeHeroDerivedStats(false, gameState);
+  appendUnifiedDungeonLog('Allocated +1 ' + statKey.toUpperCase() + '!', 'good');
+  syncIntegratedDungeonHud();
+  return true;
+}
+
+export function handleToggleDungeonInventory(forceOpen) {
+  if (appContext.getActiveContext() !== APP_CONTEXTS.DUNGEON) return;
+  dungeonInventoryOpen = typeof forceOpen === 'boolean' ? forceOpen : !dungeonInventoryOpen;
+  syncIntegratedDungeonInventoryModal();
+}
+
+export function handleDungeonEquipItem(itemUid) {
+  if (appContext.getActiveContext() !== APP_CONTEXTS.DUNGEON) return;
+  equipItem(itemUid, gameState);
+  syncIntegratedDungeonHud();
+}
+
+export function handleDungeonUnequipItem(slot) {
+  if (appContext.getActiveContext() !== APP_CONTEXTS.DUNGEON) return;
+  unequipItem(slot, gameState);
+  syncIntegratedDungeonHud();
+}
+
+export function handleDungeonAutoEquip() {
+  if (appContext.getActiveContext() !== APP_CONTEXTS.DUNGEON) return;
+  autoEquipBestGear(gameState);
+  syncIntegratedDungeonHud();
+}
+
+export function handleDungeonDropItem(itemUid) {
+  if (appContext.getActiveContext() !== APP_CONTEXTS.DUNGEON) return;
+  dropItem(itemUid, true, gameState);
+  syncIntegratedDungeonHud();
+}
+
+export function handleDungeonSkill() {
+  if (appContext.getActiveContext() !== APP_CONTEXTS.DUNGEON) return;
+  executeClassSkill(gameState);
+  syncIntegratedDungeonHud();
+}
+
+export function handleDungeonTonic() {
+  if (appContext.getActiveContext() !== APP_CONTEXTS.DUNGEON) return;
+  useHealingTonic(gameState);
+  syncIntegratedDungeonHud();
+}
+
+export function handleDungeonRecall() {
+  if (appContext.getActiveContext() !== APP_CONTEXTS.DUNGEON) return;
+  useRecallScroll(gameState);
+}
+
+export function handleDungeonSurfaceExit() {
+  if (appContext.getActiveContext() !== APP_CONTEXTS.DUNGEON) return;
+  if (gameState && gameState.hero && gameState.wargameSession && gameState.wargameSession.active && gameState.wargameSession.inProcess) {
+    extractToGuild('Dungeon Surface Exit', gameState);
+    return;
+  }
+  appContext.exitDungeon(null);
 }
 
 // ---------------------------------------------------------------------------
@@ -791,14 +1260,55 @@ function setupWargameListeners() {
     }
   });
 
-  // Global Keyboard shortcuts
+  // Global Keyboard shortcuts (context-gated: Strategy vs. Dungeon)
   window.addEventListener('keydown', function(e) {
     // Avoid capturing inputs when typing into input fields
-    if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT')) {
+    if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT')) {
       return;
     }
 
     if (!simHost.state.world) return;
+
+    if (appContext.getActiveContext() === APP_CONTEXTS.DUNGEON) {
+      if (isAutoWalking()) cancelAutoWalk();
+      let dx = 0;
+      let dy = 0;
+      if (e.key === 'w' || e.key === 'W' || e.key === 'ArrowUp') dy = -1;
+      else if (e.key === 's' || e.key === 'S' || e.key === 'ArrowDown') dy = 1;
+      else if (e.key === 'a' || e.key === 'A' || e.key === 'ArrowLeft') dx = -1;
+      else if (e.key === 'd' || e.key === 'D' || e.key === 'ArrowRight') dx = 1;
+
+      if (dx !== 0 || dy !== 0) {
+        e.preventDefault();
+        if (e.shiftKey) runCorridor(dx, dy);
+        else handlePlayerAction(dx, dy);
+        syncIntegratedDungeonHud();
+      } else if (e.key === ' ') {
+        e.preventDefault();
+        waitTurn();
+        syncIntegratedDungeonHud();
+      } else if (e.key === 'q' || e.key === 'Q') {
+        e.preventDefault();
+        handleDungeonSkill();
+      } else if (e.key === 'h' || e.key === 'H') {
+        e.preventDefault();
+        handleDungeonTonic();
+      } else if (e.key === 'r' || e.key === 'R') {
+        e.preventDefault();
+        handleDungeonRecall();
+      } else if (e.key === 'e' || e.key === 'E') {
+        e.preventDefault();
+        useStairsAtPlayer();
+        syncIntegratedDungeonHud();
+      } else if (e.key === 'i' || e.key === 'I' || e.key === 'c' || e.key === 'C') {
+        e.preventDefault();
+        handleToggleDungeonInventory();
+      } else if (e.key === 'Escape' && dungeonInventoryOpen) {
+        e.preventDefault();
+        handleToggleDungeonInventory(false);
+      }
+      return;
+    }
 
     if (e.key === 'w' || e.key === 'W' || e.key === 'ArrowUp') {
       handleStepOverworld(0, -1);
@@ -835,7 +1345,10 @@ function wargameMainLoop(timestamp) {
   const elapsedRealMs = Math.min(250, timestamp - lastFrameTimestamp);
   lastFrameTimestamp = timestamp;
 
-  if (simHost.state.world && simHost.state.campaignPhase !== CAMPAIGN_PHASES.TITLE) {
+  if (appContext.getActiveContext() === APP_CONTEXTS.DUNGEON) {
+    renderDungeonCanvas();
+  } else if (simHost.state.world && simHost.state.campaignPhase !== CAMPAIGN_PHASES.TITLE) {
+    appContext.syncFromCampaignPhase();
     simHost.stepClock(elapsedRealMs);
 
     autoSaveAccumulatorMs += elapsedRealMs;
@@ -923,6 +1436,20 @@ export const WargameApp = {
   handleReturnToCity: handleReturnToCity,
   handleExitDungeonToSurface: handleExitDungeonToSurface,
   handleEnterDungeon: handleEnterDungeon,
+  handleDungeonMove: handleDungeonMove,
+  handleDungeonWait: handleDungeonWait,
+  handleDungeonUseStairs: handleDungeonUseStairs,
+  handleDungeonSpendStat: handleDungeonSpendStat,
+  handleToggleDungeonInventory: handleToggleDungeonInventory,
+  handleDungeonEquipItem: handleDungeonEquipItem,
+  handleDungeonUnequipItem: handleDungeonUnequipItem,
+  handleDungeonAutoEquip: handleDungeonAutoEquip,
+  handleDungeonDropItem: handleDungeonDropItem,
+  handleDungeonSkill: handleDungeonSkill,
+  handleDungeonTonic: handleDungeonTonic,
+  handleDungeonRecall: handleDungeonRecall,
+  handleDungeonSurfaceExit: handleDungeonSurfaceExit,
+  appContext: appContext,
   handleOpenResearchHub: function(treeId) { handleOpenResearchHub(simHost, treeId); },
   handleCloseResearchHub: function() { handleCloseResearchHub(simHost); },
   handleSelectResearchTree: function(treeId) { handleSelectResearchTree(simHost, treeId); },
@@ -953,26 +1480,11 @@ export const WargameApp = {
 };
 
 export function bootstrapWargame() {
+  if (wargameBootstrapped) return;
+  wargameBootstrapped = true;
+
   setupWargameListeners();
-
-  // If returning from a Turn-Based Dungeon Delve (index.html), auto-resume campaign and resolve return outcome!
-  const pendingReturn = peekBridgeHandoff(BRIDGE_DIRECTIONS.TO_WARGAME);
-  if (pendingReturn) {
-    const loaded = simHost.load();
-    if (loaded) {
-      const consumed = consumeBridgeHandoff(BRIDGE_DIRECTIONS.TO_WARGAME);
-      if (consumed) {
-        simHost.dispatch({
-          type: COMMAND_TYPES.RESOLVE_DUNGEON_RETURN,
-          payload: consumed
-        });
-        simHost.state.activeView = WARGAME_VIEWS.OVERWORLD;
-        simHost.state._dirty = true;
-        simHost.save();
-      }
-    }
-  }
-
+  appContext.syncFromCampaignPhase();
   syncWargameUI(simHost);
   requestAnimationFrame(wargameMainLoop);
 }

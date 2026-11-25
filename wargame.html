@@ -442,6 +442,109 @@
     </div>
   </div>
 
+  <!-- ===================================================================== -->
+  <!-- 3. INTEGRATED DUNGEON CONTEXT VIEW (IN-PROCESS, ZERO RELOAD)          -->
+  <!-- ===================================================================== -->
+  <div id="wgDungeonContextView" class="hidden fixed inset-0 z-40 bg-[#080b11] flex flex-col overflow-y-auto">
+    <header class="min-h-12 border-b border-[#283347] bg-[#111722] px-3 md:px-5 py-1.5 flex flex-wrap items-center justify-between gap-2 shrink-0">
+      <div class="flex items-center gap-2.5 min-w-0">
+        <span class="px-2 py-0.5 rounded bg-[#a855f7]/20 text-[#c084fc] border border-[#a855f7]/40 text-[11px] font-mono font-bold">DUNGEON DELVE</span>
+        <span id="wgDungeonTitleText" class="text-sm font-display font-bold text-[#fbbf24] truncate">The Starfall Vaults</span>
+        <span id="wgDungeonFloorText" class="text-xs font-mono text-[#60a5fa] font-bold">Floor 1</span>
+        <span id="wgDungeonTurnText" class="text-[11px] font-mono text-[#8b949e]">Turn 0</span>
+      </div>
+      <div class="flex items-center gap-2">
+        <button id="wgBtnDungeonInventory" onclick="window.WargameApp.handleToggleDungeonInventory()" class="px-2.5 py-1 rounded bg-[#1a2232] hover:bg-[#283347] border border-[#38bdf8]/50 text-xs font-mono font-bold text-[#38bdf8] cursor-pointer">🎒 Inventory [I]</button>
+        <button id="wgBtnDungeonExit" onclick="window.WargameApp.handleDungeonSurfaceExit()" class="px-2.5 py-1 rounded bg-[#fbbf24]/20 hover:bg-[#fbbf24]/30 border border-[#fbbf24]/50 text-xs font-mono font-bold text-[#fbbf24] cursor-pointer">🗺 Return to Overworld</button>
+      </div>
+    </header>
+    <div class="flex-1 max-w-[1640px] w-full mx-auto p-3 grid grid-cols-1 lg:grid-cols-12 gap-3 items-start">
+      <!-- LEFT COLUMN: HERO VITALS, ATTRIBUTES, GEAR & PACK -->
+      <aside class="lg:col-span-3 flex flex-col gap-3 order-2 lg:order-1">
+        <div class="card-surface p-3 space-y-2.5">
+          <div class="flex items-center justify-between border-b border-[#283347] pb-1.5">
+            <span class="text-xs font-bold uppercase tracking-wider text-[#fbbf24]">Hero Vitals &amp; Stats</span>
+            <span id="wgDungeonHeroVitalsText" class="text-[11px] font-mono text-[#e6edf3] font-bold">Lv 1</span>
+          </div>
+          <div id="wgDungeonHeroBars" class="space-y-2 text-xs font-mono"></div>
+          <div id="wgDungeonStatuses" class="flex flex-wrap gap-1 text-[10px] font-mono"></div>
+          <div id="wgDungeonHeroAttributes" class="space-y-1 text-[11px] font-mono pt-1.5 border-t border-[#283347]/70"></div>
+          <div id="wgDungeonHeroStatsGrid" class="grid grid-cols-2 gap-1.5 text-[11px] font-mono pt-1.5 border-t border-[#283347]/70"></div>
+        </div>
+        <div class="card-surface p-3 space-y-2">
+          <div class="flex items-center justify-between border-b border-[#283347] pb-1.5">
+            <span class="text-xs font-bold uppercase tracking-wider text-[#38bdf8]">Equipped Gear &amp; Pack</span>
+            <button onclick="window.WargameApp.handleToggleDungeonInventory()" class="px-2 py-0.5 rounded bg-[#1a2232] hover:bg-[#283347] border border-[#38bdf8]/40 text-[10px] font-mono text-[#38bdf8] cursor-pointer">Manage [I]</button>
+          </div>
+          <div id="wgDungeonExpeditionSummary" class="text-xs font-mono text-[#cbd5e1] space-y-1.5"></div>
+        </div>
+      </aside>
+
+      <!-- CENTER COLUMN: TACTICAL DUNGEON CANVAS & TACTICAL COMMAND BAR -->
+      <section class="lg:col-span-6 card-surface p-3 flex flex-col items-center gap-2.5 order-1 lg:order-2">
+        <div class="relative w-full flex justify-center bg-[#04060a] rounded-lg border border-[#283347] overflow-hidden">
+          <canvas id="dungeonCanvas" width="672" height="480" class="max-w-full h-auto cursor-crosshair"></canvas>
+        </div>
+        <div id="wgDungeonHoverScanner" class="w-full px-3 py-2 rounded bg-[#080b11] border border-[#283347] text-xs font-mono text-[#94a3b8]">
+          Hover or click any explored tile to Auto-Walk, or use WASD / Arrow keys to move, attack, and mine.
+        </div>
+        <div class="w-full flex flex-wrap items-center justify-between gap-2 px-2.5 py-2 rounded bg-[#080b11] border border-[#283347]">
+          <div class="flex flex-wrap items-center gap-1.5">
+            <button id="wgBtnDungeonSkill" onclick="window.WargameApp.handleDungeonSkill()" class="px-2.5 py-1.5 rounded bg-[#1a2232] hover:bg-[#283347] border border-[#60a5fa]/40 text-xs font-mono text-[#60a5fa] cursor-pointer">⚡ Skill [Q]</button>
+            <button id="wgBtnDungeonTonic" onclick="window.WargameApp.handleDungeonTonic()" class="px-2.5 py-1.5 rounded bg-[#1a2232] hover:bg-[#283347] border border-[#34d399]/40 text-xs font-mono text-[#34d399] cursor-pointer">🧪 Tonic [H]</button>
+            <button id="wgBtnDungeonRecall" onclick="window.WargameApp.handleDungeonRecall()" class="px-2.5 py-1.5 rounded bg-[#1a2232] hover:bg-[#283347] border border-[#c084fc]/40 text-xs font-mono text-[#c084fc] cursor-pointer">📜 Recall [R]</button>
+            <button id="wgBtnDungeonStairs" onclick="window.WargameApp.handleDungeonUseStairs()" class="px-2.5 py-1.5 rounded bg-[#1a2232] hover:bg-[#283347] border border-[#38bdf8]/40 text-xs font-mono text-[#38bdf8] cursor-pointer">🪜 Stairs/Portal [E]</button>
+          </div>
+          <div class="flex items-center gap-1 text-xs font-mono">
+            <button onclick="window.WargameApp.handleDungeonMove(0, -1)" class="w-8 h-8 rounded bg-[#1a2232] hover:bg-[#283347] text-[#e6edf3] font-bold cursor-pointer" title="Move North [W]">▲</button>
+            <button onclick="window.WargameApp.handleDungeonMove(-1, 0)" class="w-8 h-8 rounded bg-[#1a2232] hover:bg-[#283347] text-[#e6edf3] font-bold cursor-pointer" title="Move West [A]">◀</button>
+            <button onclick="window.WargameApp.handleDungeonWait()" class="px-2 h-8 rounded bg-[#1a2232] hover:bg-[#283347] text-[#34d399] font-bold cursor-pointer" title="Wait Turn [Space]">●</button>
+            <button onclick="window.WargameApp.handleDungeonMove(1, 0)" class="w-8 h-8 rounded bg-[#1a2232] hover:bg-[#283347] text-[#e6edf3] font-bold cursor-pointer" title="Move East [D]">▶</button>
+            <button onclick="window.WargameApp.handleDungeonMove(0, 1)" class="w-8 h-8 rounded bg-[#1a2232] hover:bg-[#283347] text-[#e6edf3] font-bold cursor-pointer" title="Move South [S]">▼</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- RIGHT COLUMN: MINIMAP, SKILL CARD & CHRONICLE -->
+      <aside class="lg:col-span-3 flex flex-col gap-3 order-3">
+        <div class="card-surface p-3 space-y-2">
+          <div class="flex items-center justify-between border-b border-[#283347] pb-1.5">
+            <span class="text-xs font-bold uppercase tracking-wider text-[#38bdf8]">Floor Minimap</span>
+            <span class="text-[10px] font-mono text-[#8b949e]">Click to Auto-Walk</span>
+          </div>
+          <div class="flex justify-center bg-[#04060a] rounded border border-[#283347] p-1">
+            <canvas id="minimapCanvas" width="220" height="165" class="max-w-full h-auto cursor-pointer"></canvas>
+          </div>
+        </div>
+        <div class="card-surface p-3 space-y-2">
+          <div class="text-xs font-bold uppercase tracking-wider text-[#60a5fa] border-b border-[#283347] pb-1.5">Active Class Skill</div>
+          <div id="wgDungeonSkillCard" class="text-xs font-mono text-[#cbd5e1] space-y-1.5"></div>
+        </div>
+        <div class="card-surface p-3 space-y-2">
+          <div class="text-xs font-bold uppercase tracking-wider text-[#c084fc] border-b border-[#283347] pb-1.5">Dungeon Chronicle</div>
+          <div id="wgDungeonLog" class="text-[11px] font-mono text-[#94a3b8] space-y-1 max-h-[220px] overflow-y-auto"></div>
+        </div>
+      </aside>
+    </div>
+
+    <!-- INTEGRATED DUNGEON INVENTORY & EQUIPMENT MODAL -->
+    <div id="wgDungeonInventoryModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-3">
+      <div class="w-full max-w-3xl bg-[#0e1524] border border-[#38bdf8]/50 rounded-xl shadow-2xl overflow-hidden flex flex-col max-h-[88vh]">
+        <div class="flex items-center justify-between px-4 py-3 bg-[#080b11] border-b border-[#283347]">
+          <div class="flex items-center gap-2">
+            <span class="text-base">🎒</span>
+            <h3 class="text-sm font-display font-bold text-[#fbbf24]">Hero Equipment &amp; Expedition Inventory</h3>
+          </div>
+          <div class="flex items-center gap-2">
+            <button onclick="window.WargameApp.handleDungeonAutoEquip()" class="px-2.5 py-1 rounded bg-[#34d399]/20 hover:bg-[#34d399]/30 border border-[#34d399]/50 text-xs font-mono font-bold text-[#34d399] cursor-pointer">⚡ Auto-Equip Best</button>
+            <button onclick="window.WargameApp.handleToggleDungeonInventory(false)" class="px-2.5 py-1 rounded bg-[#1a2232] hover:bg-[#283347] text-xs font-mono font-bold text-[#e6edf3] cursor-pointer">✕ Close [Esc]</button>
+          </div>
+        </div>
+        <div id="wgDungeonInventoryBody" class="p-4 space-y-4 overflow-y-auto text-xs font-mono"></div>
+      </div>
+    </div>
+  </div>
+
   <!-- Dedicated Research Screen Modal (Zero-Tab 2-Step Game UI) -->
   <div id="wgResearchModal" class="hidden fixed inset-0 z-50 flex items-end md:items-center justify-center bg-black/85 backdrop-blur-sm p-0 md:p-4">
     <div id="wgResearchBody" class="w-full md:max-w-5xl bg-[#0b101a] border-t md:border border-[#fbbf24]/50 rounded-t-2xl md:rounded-xl shadow-2xl overflow-hidden flex flex-col max-h-[92dvh]"></div>

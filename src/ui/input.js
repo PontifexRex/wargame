@@ -142,10 +142,19 @@ export function updateScannerOnHover(gx, gy) {
   }
 }
 
-export function setupInputs() {
+let _dungeonInputsInitialized = false;
+let _dungeonInputActiveCheck = null;
+
+export function setupInputs(isActiveFn) {
+  if (typeof isActiveFn === 'function') {
+    _dungeonInputActiveCheck = isActiveFn;
+  }
+  if (_dungeonInputsInitialized) return;
   if (typeof window === 'undefined' || typeof document === 'undefined') return;
+  _dungeonInputsInitialized = true;
 
   window.addEventListener('keydown', e => {
+    if (_dungeonInputActiveCheck && !_dungeonInputActiveCheck()) return;
     if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT')) {
       return;
     }

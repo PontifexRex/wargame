@@ -48,9 +48,10 @@ import { getPrimaryCity } from '../engine/state.js';
 import { getCityAcademyBenefitEffects } from '../data/buildings.js';
 import { collectActiveEffects, resolveNumericStat, EFFECT_TYPES } from '../../progression/benefitService.js';
 import { getProductionImageSrc } from '../../ui/shared/assetRegistry.js';
+import { getCanonicalPlayerId } from '../../core/canonicalIdentity.js';
 
-function getPlayerId() {
-  return 'player_1';
+function getPlayerId(simHost) {
+  return getCanonicalPlayerId(simHost ? simHost.state : null);
 }
 
 function getSimNowMs(simHost) {

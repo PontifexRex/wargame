@@ -22,6 +22,7 @@ import { generateOverworldMap } from './pathfinding.js';
 import { createInitialTasksState } from './taskEngine.js';
 import { CITY_PLOT_SLOTS, CITY_BUILDINGS_CATALOG } from '../data/buildings.js';
 import { createDefaultProgressionState, ensureProgressionState } from '../../progression/progressionState.js';
+import { CANONICAL_PLAYER_ID, ensureCanonicalPlayerIdentity } from '../../core/canonicalIdentity.js';
 
 export function createTitleScreenState() {
   return {
@@ -60,7 +61,7 @@ export function createNewCampaignWorldState(options = {}) {
       name: worldName,
       seedCode: seedCode,
       player: {
-        id: 'player_local',
+        id: CANONICAL_PLAYER_ID,
         houseName: houseName,
         guildArchetype: 'adventurer', // 'adventurer' | 'war' | 'social'
         divineFavor: 0
@@ -282,13 +283,27 @@ export function peekSavedCampaignSummary() {
   }
 }
 
+export function buildSerializableWargameState(state) {
+  if (!state || typeof state !== 'object') return null;
+  const clean = {};
+  const keys = Object.keys(state);
+  for (let i = 0; i < keys.length; i++) {
+    const k = keys[i];
+    // Exclude transient UI/presentation flags (underscore-prefixed) from persisted simulation saves
+    if (k.charAt(0) === '_') continue;
+    clean[k] = state[k];
+  }
+  return clean;
+}
+
 export function saveWargameState(state, scheduler = null) {
   if (typeof localStorage === 'undefined' || !state || !state.world) return false;
   if (scheduler) {
     state.world.scheduledJobs = scheduler.serializeJobs();
   }
   state.world.clock.lastRealTimestamp = Date.now();
-  localStorage.setItem(WARGAME_STORAGE_KEY, JSON.stringify(state));
+  const payload = buildSerializableWargameState(state);
+  localStorage.setItem(WARGAME_STORAGE_KEY, JSON.stringify(payload));
   return true;
 }
 
@@ -402,6 +417,7 @@ export function loadWargameState(scheduler = null) {
       });
     }
     if (parsed.world) {
+      ensureCanonicalPlayerIdentity(parsed.world);
       ensureProgressionState(parsed.world);
     }
     if (scheduler && Array.isArray(parsed.world.scheduledJobs)) {

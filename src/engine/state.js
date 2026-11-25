@@ -18,6 +18,7 @@ import {
 import { hashSeedString } from './rng.js';
 import { packFloorForStorage, hydrateFloorFromStorage } from './compression.js';
 import { hydrateLegacyFloorObjects } from './objects.js';
+import { CANONICAL_PLAYER_ID } from '../core/canonicalIdentity.js';
 
 let itemSeq = 1000;
 
@@ -178,6 +179,7 @@ export function createDefaultGameState() {
   const activeId = 'dng_starfall';
   return {
     version: SCHEMA_VERSION,
+    playerId: CANONICAL_PLAYER_ID,
     turn: 0,
     inGuild: true,
     audioEnabled: true,

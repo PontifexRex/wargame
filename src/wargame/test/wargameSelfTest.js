@@ -8,7 +8,17 @@ import {
 } from '../constants.js';
 import { createWargameSimHost } from '../engine/simHost.js';
 import { createMinHeapPriorityQueue } from '../engine/scheduler.js';
-import { getPrimaryCity, getSelectedOverworldUnit, computeCityPopulation, computeCityStorageSlotCapacity } from '../engine/state.js';
+import { getPrimaryCity, getSelectedOverworldUnit, computeCityPopulation, computeCityStorageSlotCapacity, buildSerializableWargameState } from '../engine/state.js';
+import {
+  CANONICAL_PLAYER_ID,
+  getCanonicalPlayerId,
+  ensureCanonicalPlayerIdentity
+} from '../../core/canonicalIdentity.js';
+import { APP_CONTEXTS, createAppContextController } from '../../core/appContext.js';
+import { createDefaultGameState } from '../../engine/state.js';
+import { extractToGuild, handleHeroDefeat, useRecallScroll, traversePortal } from '../../engine/actions.js';
+import { useStairsAtPlayer } from '../../engine/combat.js';
+import { createPortalInstance } from '../../engine/objects.js';
 import { CITY_BUILDINGS_CATALOG, computeBuildingDurationMs, isBuildingPrerequisiteMet, computeMaxPartySize, getCityRecruitableClasses, getCityAcademyBenefitEffects } from '../data/buildings.js';
 import {
   normalizeSharedHeroProfile,
@@ -1832,6 +1842,379 @@ export function evaluateWargameSelfTests() {
     detail: t23Pass
       ? '10-node Weapon Proficiency tree, tenths-floor RP display, green/red Have/Need costs, Developer Portal currency/config editor & offline wall-clock General RP verified'
       : 'Failed checks: ' + failed23.join(', ')
+  });
+
+  // =========================================================================
+  // TEST 24: Canonical Player Identity, Legacy Migration & Save Hygiene (Task 02)
+  // =========================================================================
+  const host24 = createWargameSimHost();
+  host24.dispatch({ type: COMMAND_TYPES.START_NEW_CAMPAIGN, payload: { houseName: 'House Canon', seedCode: 'STAR-2400' } });
+  const freshPidOk = host24.state.world.player.id === CANONICAL_PLAYER_ID &&
+    getCanonicalPlayerId(host24.state) === 'player_1';
+
+  // Simulate legacy save with 'player_local', intentionally unowned entity (null), rival entity, and neutral hostiles/POIs
+  host24.state.world.player.id = 'player_local';
+  host24.dispatch({ type: COMMAND_TYPES.FOUND_CITY, payload: { cityName: 'Canon Keep' } });
+  const city24 = getPrimaryCity(host24.state);
+  city24.ownerPlayerId = 'player_local';
+  host24.state.world.cities.neutral_ruin = { id: 'neutral_ruin', name: 'Ancient Ruin', ownerPlayerId: null };
+  host24.state.world.cities.rival_bastion = { id: 'rival_bastion', name: 'Ironhold', ownerPlayerId: 'rival_1' };
+
+  ensureCanonicalPlayerIdentity(host24.state.world);
+  const migratedPidOk = host24.state.world.player.id === 'player_1' && city24.ownerPlayerId === 'player_1';
+  const neutralPreservedOk = host24.state.world.cities.neutral_ruin.ownerPlayerId === null &&
+    host24.state.world.cities.rival_bastion.ownerPlayerId === 'rival_1';
+  const hostilesUnownedOk = (host24.state.world.overworld.hostiles || []).every(function(ho) {
+    return ho.ownerPlayerId === undefined || ho.ownerPlayerId === null;
+  });
+
+  // Transient UI state stripping on serialization
+  host24.state._dirty = true;
+  host24.state._openHeroSheetId = 'hero_1';
+  host24.state._mobileDrawer = 'left';
+  host24.state._plotPopupOpen = true;
+  const serialized24 = buildSerializableWargameState(host24.state);
+  const noTransientUiKeysOk = Boolean(
+    serialized24 &&
+    serialized24.world &&
+    serialized24._dirty === undefined &&
+    serialized24._openHeroSheetId === undefined &&
+    serialized24._mobileDrawer === undefined &&
+    serialized24._plotPopupOpen === undefined
+  );
+
+  const t24Checks = {
+    freshPidOk: freshPidOk,
+    migratedPidOk: migratedPidOk,
+    neutralPreservedOk: neutralPreservedOk,
+    hostilesUnownedOk: hostilesUnownedOk,
+    noTransientUiKeysOk: noTransientUiKeysOk
+  };
+  const failed24 = Object.keys(t24Checks).filter(function(k) { return !t24Checks[k]; });
+  const t24Pass = failed24.length === 0;
+
+  results.push({
+    name: '24. Canonical Player Identity (player_1), Legacy Migration, Neutral Safety & Save Hygiene (Task 02)',
+    pass: t24Pass,
+    detail: t24Pass
+      ? 'Canonical player_1 enforced, legacy player_local migrated, neutral/rival ownership untouched & transient UI flags excluded from saves'
+      : 'Failed checks: ' + failed24.join(', ')
+  });
+
+  // =========================================================================
+  // TEST 25: Unified In-Process Context Transitions, Shared Hero/Item/Resource Integrity & Safety (Task 02)
+  // =========================================================================
+  const host25 = createWargameSimHost();
+  host25.dispatch({ type: COMMAND_TYPES.START_NEW_CAMPAIGN, payload: { houseName: 'House Unified', seedCode: 'STAR-2500' } });
+  host25.dispatch({ type: COMMAND_TYPES.FOUND_CITY, payload: { cityName: 'Unified Bastion' } });
+  const city25 = getPrimaryCity(host25.state);
+  city25.stockpile.wood = 500;
+  city25.stockpile.stone = 500;
+  city25.stockpile.gold = 500;
+  city25.stockpile.food = 500;
+  city25.buildings.hut = 1;
+  city25.buildings.garden = 1;
+  city25.buildings.well = 1;
+  city25.buildings.lumber_camp = 1;
+  city25.buildings.quarry = 1;
+  city25.population = { current: 20, max: 25, growthProgress: 0, starving: false };
+  host25.dispatch({ type: COMMAND_TYPES.QUEUE_BUILDING, payload: { plotIndex: 4, buildingId: 'guild_hall' } });
+  host25.stepClock(60 * 1000);
+  host25.dispatch({ type: COMMAND_TYPES.RECRUIT_HERO, payload: { classId: 'adventurer', heroName: 'Aldric' } });
+  host25.stepClock(70 * 1000);
+
+  const hero25 = host25.state.world.heroes[0];
+  const partyUnit25 = host25.state.world.overworld.units.find(function(u) { return u.unitType === 'hero_party'; });
+  const poi25 = host25.state.world.overworld.pois.find(function(p) { return p.type === 'dungeon_entrance'; });
+  hero25.equipment.weapon = { uid: 'wpn_canon_01', name: 'Vanguard Blade', slot: 'weapon', rarity: 'rare', atk: 12, def: 0, maxSockets: 1, sockets: [] };
+
+  const dngState25 = createDefaultGameState();
+  let dungeonInitCount25 = 0;
+  const ctx25 = createAppContextController({
+    simHost: host25,
+    dungeonState: dngState25,
+    onEnsureDungeonInitialized: function() { dungeonInitCount25 += 1; }
+  });
+
+  // 1. Negative test: cannot enter dungeon when not standing on POI
+  const badEntryRes = ctx25.enterDungeon({ unitId: partyUnit25.id, poiId: poi25.id });
+  const badEntryRejectedOk = !badEntryRes.ok && ctx25.getActiveContext() === APP_CONTEXTS.STRATEGY && partyUnit25.status === 'idle';
+
+  // Position party on dungeon entrance POI
+  partyUnit25.x = poi25.x;
+  partyUnit25.y = poi25.y;
+
+  // 2. Atomicity & rollback test on sync failure
+  const failEntryRes = ctx25.enterDungeon({ unitId: partyUnit25.id, poiId: poi25.id, simulateSyncFailure: true });
+  const rollbackOk = !failEntryRes.ok && Boolean(failEntryRes.rolledBack) &&
+    ctx25.getActiveContext() === APP_CONTEXTS.STRATEGY && partyUnit25.status === 'idle';
+
+  // 3. Valid in-process dungeon entry
+  const enterRes1 = ctx25.enterDungeon({ unitId: partyUnit25.id, poiId: poi25.id });
+  const entry1Ok = Boolean(
+    enterRes1.ok &&
+    ctx25.getActiveContext() === APP_CONTEXTS.DUNGEON &&
+    dungeonInitCount25 === 1 &&
+    dngState25.playerId === 'player_1' &&
+    dngState25.wargameSession &&
+    dngState25.wargameSession.inProcess === true &&
+    dngState25.hero.id === hero25.id &&
+    dngState25.hero.ownerPlayerId === 'player_1' &&
+    dngState25.hero.equipment.weapon &&
+    dngState25.hero.equipment.weapon.uid === 'wpn_canon_01'
+  );
+
+  // 4. Simulate dungeon progress: level/XP, loot, upgraded weapon
+  dngState25.hero.level = 3;
+  dngState25.hero.xp = 145;
+  dngState25.hero.equipment.weapon = { uid: 'wpn_star_02', name: 'Starfall Greatsword', slot: 'weapon', rarity: 'epic', atk: 24, def: 2, maxSockets: 1, sockets: [] };
+  dngState25.hero.expeditionPack.push({ id: 'copper', name: 'Copper Ore', qty: 5, val: 10 });
+  dngState25.hero.expeditionGear.push({ uid: 'loot_helm_01', name: 'Delver Helm', slot: 'helm', rarity: 'uncommon', atk: 0, def: 6, value: 45 });
+
+  // 5. Extract via Floor 1 Stairs & apply in-process exit
+  const extRes1 = extractToGuild('Floor 1 Ascending Stairs (<)', dngState25);
+  const exitRes1 = ctx25.exitDungeon(extRes1.returnEnvelope);
+  const cargoAfterExit1 = partyUnit25.cargo ? { gold: partyUnit25.cargo.gold, ore: partyUnit25.cargo.ore, gearCount: partyUnit25.cargo.gearCount } : null;
+  const exit1Ok = Boolean(
+    exitRes1.ok &&
+    ctx25.getActiveContext() === APP_CONTEXTS.STRATEGY &&
+    hero25.id === dngState25.hero.id &&
+    hero25.level === 3 &&
+    hero25.xp === 145 &&
+    hero25.equipment.weapon &&
+    hero25.equipment.weapon.uid === 'wpn_star_02' &&
+    cargoAfterExit1 &&
+    cargoAfterExit1.ore >= 5 &&
+    cargoAfterExit1.gearCount >= 1
+  );
+
+  // 6. Duplicate reward prevention: re-submitting same session exit is rejected & does not double cargo
+  const dupExitRes = ctx25.exitDungeon(extRes1.returnEnvelope);
+  const dupPreventedOk = Boolean(
+    !dupExitRes.ok &&
+    dupExitRes.duplicate === true &&
+    partyUnit25.cargo &&
+    partyUnit25.cargo.ore === cargoAfterExit1.ore &&
+    partyUnit25.cargo.gearCount === cargoAfterExit1.gearCount
+  );
+
+  // 7. Repeated transition (Run #2: Defeat recovery) — must NOT re-run init or leak listeners
+  partyUnit25.status = 'idle';
+  partyUnit25.marchPlan = null;
+  partyUnit25.x = poi25.x;
+  partyUnit25.y = poi25.y;
+  const enterRes2 = ctx25.enterDungeon({ unitId: partyUnit25.id, poiId: poi25.id });
+  const defeatRes2 = handleHeroDefeat('Iron Colossus', dngState25);
+  const exitRes2 = ctx25.exitDungeon(defeatRes2.returnEnvelope);
+  const repeatAndDefeatOk = Boolean(
+    enterRes2.ok &&
+    dungeonInitCount25 === 1 &&
+    exitRes2.ok &&
+    ctx25.getActiveContext() === APP_CONTEXTS.STRATEGY &&
+    partyUnit25.x === city25.x &&
+    partyUnit25.y === city25.y &&
+    hero25.level === 3 &&
+    hero25.equipment.weapon &&
+    hero25.equipment.weapon.uid === 'wpn_star_02'
+  );
+
+  const t25Checks = {
+    badEntryRejectedOk: badEntryRejectedOk,
+    rollbackOk: rollbackOk,
+    entry1Ok: entry1Ok,
+    exit1Ok: exit1Ok,
+    dupPreventedOk: dupPreventedOk,
+    repeatAndDefeatOk: repeatAndDefeatOk
+  };
+  const failed25 = Object.keys(t25Checks).filter(function(k) { return !t25Checks[k]; });
+  const t25Pass = failed25.length === 0;
+
+  results.push({
+    name: '25. Unified In-Process Context Transitions, Shared Hero/Item/Reward Integrity & Safety (Task 02)',
+    pass: t25Pass,
+    detail: t25Pass
+      ? 'Zero-reload Strategy<->Dungeon transitions, atomic rollback, canonical Hero/Item/Reward sync, duplicate-reward guard & repeated runs verified'
+      : 'Failed checks: ' + failed25.join(', ')
+  });
+
+  // =========================================================================
+  // TEST 26: All Unified Dungeon Exit Pathways -> Strategy/Overworld (No Legacy Guild Fallback)
+  // =========================================================================
+  const host26 = createWargameSimHost();
+  host26.dispatch({ type: COMMAND_TYPES.START_NEW_CAMPAIGN, payload: { houseName: 'House Surface', seedCode: 'STAR-2600' } });
+  host26.dispatch({ type: COMMAND_TYPES.FOUND_CITY, payload: { cityName: 'Surface Bastion' } });
+  const city26 = getPrimaryCity(host26.state);
+  city26.stockpile.wood = 500;
+  city26.stockpile.stone = 500;
+  city26.stockpile.gold = 500;
+  city26.stockpile.food = 500;
+  city26.buildings.hut = 1;
+  city26.buildings.garden = 1;
+  city26.buildings.well = 1;
+  city26.buildings.lumber_camp = 1;
+  city26.buildings.quarry = 1;
+  city26.population = { current: 20, max: 25, growthProgress: 0, starving: false };
+  host26.dispatch({ type: COMMAND_TYPES.QUEUE_BUILDING, payload: { plotIndex: 4, buildingId: 'guild_hall' } });
+  host26.stepClock(60 * 1000);
+  host26.dispatch({ type: COMMAND_TYPES.RECRUIT_HERO, payload: { classId: 'adventurer', heroName: 'Kaelen' } });
+  host26.stepClock(70 * 1000);
+
+  const hero26 = host26.state.world.heroes[0];
+  const party26 = host26.state.world.overworld.units.find(function(u) { return u.unitType === 'hero_party'; });
+  const poi26 = host26.state.world.overworld.pois.find(function(p) { return p.type === 'dungeon_entrance'; });
+  const dng26 = createDefaultGameState();
+  const initialLegacyGuildGold26 = dng26.guildVault.gold;
+
+  const ctx26 = createAppContextController({
+    simHost: host26,
+    dungeonState: dng26
+  });
+
+  function prepReentry26() {
+    party26.status = 'idle';
+    party26.marchPlan = null;
+    party26.x = poi26.x;
+    party26.y = poi26.y;
+    host26.state._openFacilityId = 'guild_hall';
+    return ctx26.enterDungeon({ unitId: party26.id, poiId: poi26.id });
+  }
+
+  // Pathway 1: Floor 1 Ascending Stairs (<) via useStairsAtPlayer
+  const e26_1 = prepReentry26();
+  dng26.hero.expeditionPack.push({ id: 'copper', name: 'Copper Ore', qty: 3, val: 10 });
+  const f1_26 = dng26.dungeon.floors[1];
+  dng26.hero.x = f1_26.upPos.x;
+  dng26.hero.y = f1_26.upPos.y;
+  useStairsAtPlayer(dng26);
+  const stairsExit26 = ctx26.exitDungeon({
+    outcome: 'extracted',
+    method: 'Floor 1 Ascending Stairs (<)',
+    sessionId: e26_1.sessionId,
+    partyUnitId: party26.id,
+    heroId: hero26.id,
+    heroLevel: dng26.hero.level,
+    heroXp: dng26.hero.xp,
+    dungeonId: dng26.activeDungeonId,
+    dungeonPoiId: poi26.id,
+    lootSummary: { gold: 0, ore: 3, gems: 0, gearCount: 0, salvagedGold: 0 },
+    extractedGear: [],
+    heroEquipment: dng26.hero.equipment
+  });
+  const stairsPathOk = Boolean(
+    e26_1.ok &&
+    stairsExit26.ok &&
+    ctx26.getActiveContext() === APP_CONTEXTS.STRATEGY &&
+    host26.state.activeView === WARGAME_VIEWS.OVERWORLD &&
+    host26.state._openFacilityId === null &&
+    dng26.guildVault.copper === 0
+  );
+
+  // Pathway 2: Astral Recall Scroll (useRecallScroll)
+  const e26_2 = prepReentry26();
+  dng26.hero.consumables.recalls = 1;
+  dng26.hero.expeditionPack.push({ id: 'iron', name: 'Iron Ore', qty: 4, val: 20 });
+  const recallUsed26 = useRecallScroll(dng26);
+  const recallExit26 = ctx26.exitDungeon({
+    outcome: 'extracted',
+    method: 'Astral Recall Scroll',
+    sessionId: e26_2.sessionId,
+    partyUnitId: party26.id,
+    heroId: hero26.id,
+    heroLevel: dng26.hero.level,
+    heroXp: dng26.hero.xp,
+    dungeonId: dng26.activeDungeonId,
+    dungeonPoiId: poi26.id,
+    lootSummary: { gold: 0, ore: 4, gems: 0, gearCount: 0, salvagedGold: 0 },
+    extractedGear: [],
+    heroEquipment: dng26.hero.equipment
+  });
+  const recallPathOk = Boolean(
+    e26_2.ok &&
+    recallUsed26 &&
+    recallExit26.ok &&
+    ctx26.getActiveContext() === APP_CONTEXTS.STRATEGY &&
+    host26.state.activeView === WARGAME_VIEWS.OVERWORLD &&
+    party26.x === poi26.x &&
+    party26.y === poi26.y &&
+    dng26.guildVault.iron === 0
+  );
+
+  // Pathway 3: Boss Extraction Portal (traversePortal)
+  const e26_3 = prepReentry26();
+  const bossPortal26 = createPortalInstance('portal_boss_extraction', dng26.hero.x, dng26.hero.y, {
+    dungeonId: dng26.activeDungeonId,
+    floorDepth: 1
+  });
+  const portalRes26 = traversePortal(bossPortal26, dng26);
+  const portalExit26 = ctx26.exitDungeon({
+    outcome: 'extracted',
+    method: 'Astral Sanctum Gateway',
+    sessionId: e26_3.sessionId,
+    partyUnitId: party26.id,
+    heroId: hero26.id,
+    heroLevel: dng26.hero.level,
+    heroXp: dng26.hero.xp,
+    dungeonId: dng26.activeDungeonId,
+    dungeonPoiId: poi26.id,
+    lootSummary: { gold: 15, ore: 0, gems: 0, gearCount: 0, salvagedGold: 0 },
+    extractedGear: [],
+    heroEquipment: dng26.hero.equipment
+  });
+  const portalPathOk = Boolean(
+    e26_3.ok &&
+    portalRes26.ok &&
+    portalRes26.type === 'extraction' &&
+    portalExit26.ok &&
+    ctx26.getActiveContext() === APP_CONTEXTS.STRATEGY &&
+    host26.state.activeView === WARGAME_VIEWS.OVERWORLD
+  );
+
+  // Pathway 4: Defeat Recovery (handleHeroDefeat)
+  const e26_4 = prepReentry26();
+  const defeatOut26 = handleHeroDefeat('Vault Sentinel', dng26);
+  const defeatExit26 = ctx26.exitDungeon(defeatOut26.returnEnvelope);
+  const defeatPathOk = Boolean(
+    e26_4.ok &&
+    defeatExit26.ok &&
+    ctx26.getActiveContext() === APP_CONTEXTS.STRATEGY &&
+    host26.state.activeView === WARGAME_VIEWS.OVERWORLD &&
+    party26.x === city26.x &&
+    party26.y === city26.y &&
+    dng26.guildVault.gold === initialLegacyGuildGold26
+  );
+
+  // Pathway 5: Integrated UI Surface Exit ('Dungeon Surface Exit') preserves XP & loot
+  const e26_5 = prepReentry26();
+  dng26.hero.level = 2;
+  dng26.hero.xp = 88;
+  dng26.hero.expeditionPack.push({ id: 'copper', name: 'Copper Ore', qty: 2, val: 10 });
+  const surfaceOut26 = extractToGuild('Dungeon Surface Exit', dng26);
+  const surfaceExit26 = ctx26.exitDungeon(surfaceOut26.returnEnvelope);
+  const surfacePathOk = Boolean(
+    e26_5.ok &&
+    surfaceExit26.ok &&
+    ctx26.getActiveContext() === APP_CONTEXTS.STRATEGY &&
+    host26.state.activeView === WARGAME_VIEWS.OVERWORLD &&
+    hero26.level === 2 &&
+    hero26.xp === 88
+  );
+
+  const t26Checks = {
+    stairsPathOk: stairsPathOk,
+    recallPathOk: recallPathOk,
+    portalPathOk: portalPathOk,
+    defeatPathOk: defeatPathOk,
+    surfacePathOk: surfacePathOk
+  };
+  const failed26 = Object.keys(t26Checks).filter(function(k) { return !t26Checks[k]; });
+  const t26Pass = failed26.length === 0;
+
+  results.push({
+    name: '26. All Unified Dungeon Exit Pathways -> Strategy/Overworld & Zero Legacy Guild Leakage',
+    pass: t26Pass,
+    detail: t26Pass
+      ? 'Stairs, Recall Scroll, Boss Extraction Portal, Defeat Recovery & UI Surface Exit all return cleanly to Strategy/Overworld without legacy Guild fallback'
+      : 'Failed checks: ' + failed26.join(', ')
   });
 
   return results;

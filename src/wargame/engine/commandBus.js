@@ -42,6 +42,7 @@ import {
   recordCurrencyTransaction
 } from '../../progression/currencyService.js';
 import { collectActiveEffects, resolveNumericStat } from '../../progression/benefitService.js';
+import { getCanonicalPlayerId } from '../../core/canonicalIdentity.js';
 import { CAMPAIGN_TASKS_DAG } from '../data/tasks.js';
 import {
   findOverworldPath,
@@ -282,6 +283,7 @@ export function dispatchWargameCommand(commandEnvelope, state, scheduler, eventS
     const baseStock = world.realmStockpile || { wood: 50, stone: 50, food: 100, gold: 50 };
     const newCity = {
       id: cityId,
+      ownerPlayerId: getCanonicalPlayerId(state),
       name: cityName,
       x: unit.x,
       y: unit.y,
@@ -1424,7 +1426,7 @@ export function dispatchWargameCommand(commandEnvelope, state, scheduler, eventS
 
     const side = payload.side === 'buy' ? 'buy' : 'sell';
     const prog = ensureProgressionState(world);
-    const pid = 'player_1';
+    const pid = getCanonicalPlayerId(state);
 
     if (side === 'sell') {
       const payRes = executeAtomicPayment(prog.currencyLedger, [
@@ -1503,7 +1505,7 @@ export function dispatchWargameCommand(commandEnvelope, state, scheduler, eventS
     const item = city.storage.items.splice(idx, 1)[0];
 
     const prog = ensureProgressionState(world);
-    const pid = 'player_1';
+    const pid = getCanonicalPlayerId(state);
     const baseVal = MARKET_RARITY_BASE_VALUES[item.rarity || 'common'] || 25;
     const temperBonus = (item.temperRank || 0) * 20;
     const gemBonus = Array.isArray(item.gems) ? item.gems.length * 30 : 0;
@@ -1544,7 +1546,7 @@ export function dispatchWargameCommand(commandEnvelope, state, scheduler, eventS
     if (acadLvl < 1) return reject('Construct an Arcane Academy & Library before funding study sessions');
 
     const prog = ensureProgressionState(world);
-    const pid = 'player_1';
+    const pid = getCanonicalPlayerId(state);
     const payRes = executeAtomicPayment(prog.currencyLedger, [
       { kind: 'stockpile', resourceId: 'gold', amount: 25 },
       { kind: 'stockpile', resourceId: 'food', amount: 10 }
@@ -1755,8 +1757,23 @@ export function dispatchWargameCommand(commandEnvelope, state, scheduler, eventS
       if (typeof payload.heroLevel === 'number' && payload.heroLevel > hero.level) {
         hero.level = payload.heroLevel;
       }
-      if (typeof payload.heroXp === 'number' && payload.heroXp > (hero.xp || 0)) {
+      if (typeof payload.heroXp === 'number' && payload.heroXp >= 0) {
         hero.xp = payload.heroXp;
+      }
+      if (typeof payload.heroMaxXp === 'number' && payload.heroMaxXp > 0) {
+        hero.maxXp = payload.heroMaxXp;
+      }
+      if (payload.heroBonusStats && typeof payload.heroBonusStats === 'object') {
+        hero.bonusStats = Object.assign({ str: 0, dex: 0, int: 0, vit: 0 }, payload.heroBonusStats);
+      }
+      if (typeof payload.heroStatPoints === 'number' && payload.heroStatPoints >= 0) {
+        hero.statPoints = payload.heroStatPoints;
+      }
+      if (typeof payload.heroTalentPoints === 'number' && payload.heroTalentPoints >= 0) {
+        hero.talentPoints = payload.heroTalentPoints;
+      }
+      if (payload.heroTalentsAllocated && typeof payload.heroTalentsAllocated === 'object') {
+        hero.talentsAllocated = Object.assign({}, payload.heroTalentsAllocated);
       }
       if (payload.heroEquipment && typeof payload.heroEquipment === 'object') {
         hero.equipment = Object.assign({}, hero.equipment || {}, payload.heroEquipment);

@@ -12,6 +12,7 @@ import { UNIT_ARCHETYPES, RECRUITABLE_HERO_CLASSES } from '../data/terrain.js';
 import { revealOverworldVision } from './pathfinding.js';
 import { evaluateTaskDAG } from './taskEngine.js';
 import { saveWargameState, getPrimaryCity, computeCityStorageCaps } from './state.js';
+import { getCanonicalPlayerId } from '../../core/canonicalIdentity.js';
 
 export function scheduleNextMarchStep(unit, state, scheduler) {
   if (!unit || !unit.marchPlan || !Array.isArray(unit.marchPlan.remainingPath) || unit.marchPlan.remainingPath.length === 0) {
@@ -677,6 +678,7 @@ export function resolveRecruitHeroJob(job, state, scheduler, eventStream) {
     bagGear: [
       { uid: 'bag_ring_' + heroIndex, slot: 'accessory', name: 'Aethelgard Signet', rarity: 'uncommon', atk: 3, def: 2, value: 45 }
     ],
+    ownerPlayerId: getCanonicalPlayerId(state),
     recruitedAtSimMs: job.dueSimTimeMs
   };
 
@@ -696,6 +698,7 @@ export function resolveRecruitHeroJob(job, state, scheduler, eventStream) {
 
   const partyUnit = {
     id: 'unit_party_' + heroIndex,
+    ownerPlayerId: getCanonicalPlayerId(state),
     name: heroObj.name + '\'s Vanguard',
     shortName: heroObj.name,
     unitType: 'hero_party',
@@ -730,6 +733,7 @@ export function resolveRecruitHeroJob(job, state, scheduler, eventStream) {
   if (!world.parties) world.parties = [];
   world.parties.push({
     id: partyUnit.id,
+    ownerPlayerId: getCanonicalPlayerId(state),
     leaderHeroId: heroObj.id,
     memberIds: [heroObj.id],
     cityId: city ? city.id : null
