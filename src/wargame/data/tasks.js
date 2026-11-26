@@ -314,5 +314,24 @@ export const CAMPAIGN_TASKS_DAG = [
       const done = trained >= 1 && stationed >= 1;
       return { completed: done, progress: done ? 1 : 0, target: 1 };
     }
+  },
+  {
+    id: 'task_clear_first_military_target',
+    title: 'Military 4. Clear the Nearby Raider Blockade',
+    category: 'military',
+    prerequisites: ['task_complete_first_garrison'],
+    triggerTopics: [STREAM_TOPICS.MILITARY_TARGET_CLEARED, STREAM_TOPICS.ARMY_COMBAT_RESOLVED],
+    desc: 'Inspect the nearby Ironjaw Blockade Camp (⚔️) on the Overworld map near your Bastion, deploy a Field Army against it, and clear the threat to unlock Hero access.',
+    rewardLabel: 'Frontier Access Opened',
+    reward: {},
+    evaluate: function(state) {
+      if (!state || !state.world || !state.world.overworld || !Array.isArray(state.world.overworld.militaryTargets)) {
+        return { completed: false, progress: 0, target: 1 };
+      }
+      const cleared = state.world.overworld.militaryTargets.filter(function(t) {
+        return t && t.status === 'cleared';
+      }).length;
+      return { completed: cleared >= 1, progress: Math.min(1, cleared), target: 1 };
+    }
   }
 ];

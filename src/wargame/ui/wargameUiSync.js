@@ -24,6 +24,8 @@ import {
 } from '../data/buildings.js';
 import {
   TROOP_AVAILABILITY_STATES,
+  ARMY_OBJECTIVE_TYPES,
+  MILITARY_TARGET_STATUS,
   getAllTroopDefinitions,
   getTroopDefinition,
   getTroopMaxUnlockedLevel,
@@ -37,7 +39,12 @@ import {
   evaluateTroopAvailability,
   getCityTroopInventorySummary,
   getArmyTroopGroups,
-  getArmyTotalTroopCount
+  getArmyTotalTroopCount,
+  getMilitaryTargetById,
+  getMilitaryTargetAtHex,
+  getBlockingMilitaryTargetForAccess,
+  computeArmyCombatPower,
+  computeTroopListCombatPower
 } from '../data/troops.js';
 import {
   getPrimaryCity,
@@ -45,7 +52,8 @@ import {
   getEffectiveStockpile,
   computeCityStorageCaps,
   computeCityStorageSlotCapacity,
-  computeCityPopulation
+  computeCityPopulation,
+  collectOverworldDiscoveries
 } from '../engine/state.js';
 import { getFormattedTasksList } from '../engine/taskEngine.js';
 import { renderProgressionModals } from './progressionUi.js';
@@ -1497,10 +1505,11 @@ export function renderLeftCommandSidebar(simHost) {
         `;
       } else if (selUnit.unitType === 'army' && selUnit.status === 'objective_in_progress' && selUnit.objective) {
         const objRemMs = Math.max(0, (selUnit.objective.dueSimTimeMs || 0) - simTimeMs);
+        const isCombatObj = selUnit.objective.type === ARMY_OBJECTIVE_TYPES.ENGAGE_TARGET;
         marchHtml = `
-          <div class="p-2 rounded bg-[#111722] border border-[#c084fc]/50 space-y-1 text-[11px] font-mono">
+          <div class="p-2 rounded bg-[#111722] border ${isCombatObj ? 'border-[#ef4444]/60' : 'border-[#c084fc]/50'} space-y-1 text-[11px] font-mono">
             <div class="flex items-center justify-between">
-              <span class="text-[#c084fc] font-bold">🧭 Executing: ${selUnit.objective.type}</span>
+              <span class="${isCombatObj ? 'text-[#f87171]' : 'text-[#c084fc]'} font-bold">${isCombatObj ? ('⚔️ Engaging: ' + (selUnit.objective.targetName || 'Military Target')) : ('🧭 Executing: ' + selUnit.objective.type)}</span>
               <span class="text-[#34d399]">${formatSimDuration(objRemMs)}</span>
             </div>
             <div class="text-[10px] text-[#8b949e]">Location: (${selUnit.x}, ${selUnit.y})</div>
@@ -1515,19 +1524,29 @@ export function renderLeftCommandSidebar(simHost) {
       let armyDetailHtml = '';
       if (selUnit.unitType === 'army') {
         const aGroups = getArmyTroopGroups(world, selUnit.id);
+        const aPower = computeArmyCombatPower(world, selUnit.id);
         const homeC = (world.cities && selUnit.homeCityId) ? world.cities[selUnit.homeCityId] : null;
         const obj = selUnit.objective || null;
         const compRows = aGroups.map(function(g) {
           const td = getTroopDefinition(g.troopDefId);
           return '<div class="flex justify-between text-[10px] font-mono"><span class="text-[#e6edf3]">' + (td ? (td.icon + ' ' + td.name) : g.troopDefId) + ' Lv ' + (g.level || 1) + '</span><span class="text-[#34d399]">×' + g.count + '</span></div>';
         }).join('');
+        const lastCbt = selUnit.lastCombatResult || null;
+        const combatSummaryHtml = lastCbt ? `
+          <div class="p-1.5 rounded ${lastCbt.victory ? 'bg-[#064e3b]/40 border border-[#34d399]/50 text-[#6ee7b7]' : 'bg-[#450a0a]/40 border border-[#f87171]/50 text-[#fecaca]'} text-[10px] font-mono space-y-0.5">
+            <div class="font-bold">${lastCbt.victory ? '✓ Victory' : '✕ Defeat'} vs ${lastCbt.targetName} (${lastCbt.armyPower} vs ${lastCbt.enemyPower})</div>
+            <div>Losses: ${lastCbt.totalLosses} • Survivors: ${lastCbt.survivingTroops}</div>
+            ${lastCbt.victory && lastCbt.unlockedLabels && lastCbt.unlockedLabels.length > 0 ? `<div class="text-[#fbbf24]">Unlocked: ${lastCbt.unlockedLabels.join(', ')}</div>` : ''}
+          </div>
+        ` : '';
         armyDetailHtml = `
           <div class="p-2 rounded bg-[#080b11] border border-[#f87171]/40 space-y-1.5">
             <div class="flex items-center justify-between text-[10px] font-mono">
-              <span class="text-[#f87171] font-bold">Home: ${homeC ? homeC.name : 'Unknown'}</span>
+              <span class="text-[#f87171] font-bold">Home: ${homeC ? homeC.name : 'Unknown'} • Power ${aPower}</span>
               <span class="text-[#cbd5e1]">Obj: ${obj ? (obj.type + ' (' + obj.status + ')') : 'none'}</span>
             </div>
             <div class="space-y-0.5">${compRows}</div>
+            ${combatSummaryHtml}
             <label class="flex items-center gap-1.5 text-[10px] font-mono text-[#cbd5e1] pt-1 cursor-pointer">
               <input type="checkbox" ${selUnit.stayDeployed ? 'checked' : ''} onchange="window.WargameApp.handleSetArmyReturnPolicy('${selUnit.id}', this.checked)" class="accent-[#f87171]" />
               <span>Stay deployed after completing objective</span>
@@ -1576,7 +1595,40 @@ export function renderLeftCommandSidebar(simHost) {
       `;
     }
 
-    setHtmlIfChanged(unitCardEl, armiesStripHtml + newHtml);
+    // Task 05B-2: Explicit Military Target Inspector Card (when player selects a discovered target)
+    let targetInspectorHtml = '';
+    const inspectedTarget = state._selectedMilitaryTargetId ? getMilitaryTargetById(ow, state._selectedMilitaryTargetId) : null;
+    if (inspectedTarget && (inspectedTarget.discovered || (ow.explored[inspectedTarget.y] && ow.explored[inspectedTarget.y][inspectedTarget.x]))) {
+      const isClearedMt = inspectedTarget.status === MILITARY_TARGET_STATUS.CLEARED;
+      const blocksText = (inspectedTarget.blocksAccess || []).map(function(b) { return b.label || b.targetRef; }).join(', ') || 'None';
+      const primaryCityMt = getPrimaryCity(state);
+      const hasTrainedBarracks = Boolean(primaryCityMt && getCityTroopInventorySummary(world, primaryCityMt).totals.trained > 0);
+      const selArmyForAssign = (selUnit && selUnit.alive && !selUnit.reintegrated && selUnit.unitType === 'army') ? selUnit : null;
+      const selArmyPower = selArmyForAssign ? computeArmyCombatPower(world, selArmyForAssign.id) : 0;
+      targetInspectorHtml = `
+        <div id="wgMilitaryTargetInspector" class="p-2.5 mb-2 rounded bg-[#080b11] border ${isClearedMt ? 'border-[#34d399]/60' : 'border-[#ef4444]/70'} space-y-1.5">
+          <div class="flex items-center justify-between gap-2">
+            <div class="text-xs font-bold ${isClearedMt ? 'text-[#34d399]' : 'text-[#f87171]'}">${isClearedMt ? '✓' : '⚔️'} ${inspectedTarget.name}</div>
+            <button onclick="window.WargameApp.handleCloseMilitaryTargetInspector()" class="px-1.5 py-0.5 rounded bg-[#1a2232] hover:bg-[#283347] text-[10px] font-mono text-[#cbd5e1] cursor-pointer">✕</button>
+          </div>
+          <div class="text-[10px] font-mono text-[#94a3b8]">(${inspectedTarget.x}, ${inspectedTarget.y}) • ${isClearedMt ? '<span class="text-[#34d399] font-bold">CLEARED</span>' : ('<span class="text-[#f87171] font-bold">ACTIVE THREAT</span> • Threat Power ' + inspectedTarget.enemyPower)}</div>
+          <div class="text-[10px] text-[#cbd5e1]">${inspectedTarget.desc || ''}</div>
+          <div class="text-[10px] font-mono ${isClearedMt ? 'text-[#34d399]' : 'text-[#fbbf24]'}">${isClearedMt ? 'Unlocked Access:' : 'Blocks Access:'} <strong>${blocksText}</strong></div>
+          ${!isClearedMt ? `
+            <div class="flex flex-col gap-1 pt-1">
+              ${hasTrainedBarracks ? `
+                <button data-action="deploy-to-target" data-target-id="${inspectedTarget.id}" onclick="window.WargameApp.handleOpenDeployArmyModal(${inspectedTarget.x}, ${inspectedTarget.y}, '${inspectedTarget.id}')" class="w-full py-1.5 rounded bg-[#f87171] hover:bg-[#ef4444] text-[#080b11] font-mono font-bold text-[10px] uppercase cursor-pointer">🛡️ Deploy Army to Target</button>
+              ` : `<div class="text-[10px] font-mono text-[#8b949e]">Train troops in Barracks to deploy a Field Army.</div>`}
+              ${selArmyForAssign ? `
+                <button data-action="assign-army-target" data-target-id="${inspectedTarget.id}" onclick="window.WargameApp.handleAssignArmyToTarget('${selArmyForAssign.id}', '${inspectedTarget.id}')" class="w-full py-1.5 rounded bg-[#1a2232] hover:bg-[#283347] text-[#fecaca] border border-[#f87171]/50 font-mono font-bold text-[10px] uppercase cursor-pointer">⚔️ Assign ${selArmyForAssign.shortName} (Pwr ${selArmyPower} vs ${inspectedTarget.enemyPower})</button>
+              ` : ''}
+            </div>
+          ` : `<div class="text-[10px] font-mono text-[#6ee7b7]">Threat permanently cleared. Heroes may now access ${blocksText}.</div>`}
+        </div>
+      `;
+    }
+
+    setHtmlIfChanged(unitCardEl, targetInspectorHtml + armiesStripHtml + newHtml);
   }
 
   // B. Active Timed Queues Summary (Construction, Recruitment, and Marching)
@@ -1827,39 +1879,114 @@ export function renderOverworldHudBar(simHost) {
     }
   }
 
-  // Discovered Dungeons Quick-March Bar
-  const dngBarEl = document.getElementById('wgDiscoveredDungeonsBar');
-  if (dngBarEl) {
-    const discoveredDngs = (ow.pois || []).filter(function(p) {
-      return p.type === 'dungeon_entrance' && (p.discovered || (ow.explored[p.y] && ow.explored[p.y][p.x]));
+  // Discovered Military Targets Inspector Bar (Task 05B-2)
+  const mtBarEl = document.getElementById('wgMilitaryTargetsBar');
+  if (mtBarEl) {
+    const discoveredTargets = (ow.militaryTargets || []).filter(function(t) {
+      return t && (t.discovered || (ow.explored[t.y] && ow.explored[t.y][t.x]));
     });
-    if (discoveredDngs.length === 0) {
-      dngBarEl.classList.add('hidden');
+    if (discoveredTargets.length === 0) {
+      mtBarEl.classList.add('hidden');
     } else {
-      dngBarEl.classList.remove('hidden');
-      const canMarchHero = Boolean(selUnit && selUnit.alive && selUnit.canEnterDungeon && selUnit.status !== 'in_dungeon');
-      const cardsHtml = discoveredDngs.map(function(p) {
-        const dist = selUnit ? getHexDistance(selUnit.x, selUnit.y, p.x, p.y) : null;
-        const atGate = Boolean(canMarchHero && selUnit.status === 'idle' && selUnit.x === p.x && selUnit.y === p.y);
+      mtBarEl.classList.remove('hidden');
+      const mtCardsHtml = discoveredTargets.map(function(t) {
+        const isCleared = t.status === MILITARY_TARGET_STATUS.CLEARED;
+        const isSelT = state._selectedMilitaryTargetId === t.id;
+        const blocksLbl = (t.blocksAccess || []).map(function(b) { return b.label || b.targetRef; }).join(', ');
         return `
-          <div class="flex items-center justify-between gap-2 px-2 py-1.5 rounded bg-[#111722] border border-[#283347] text-[11px] font-mono">
-            <div class="flex items-center gap-1.5 min-w-0">
-              <span style="color:${p.accentColor || '#f87171'}" class="font-bold">Ω</span>
-              <span class="text-[#e6edf3] font-semibold truncate">${p.name}</span>
-              <span class="text-[10px] text-[#8b949e]">(${p.x},${p.y})${dist !== null ? (' • ' + dist + 't') : ''}</span>
+          <div class="flex items-center justify-between gap-2 px-2 py-1.5 rounded ${isSelT ? 'bg-[#1a2232] border border-[#fbbf24]' : 'bg-[#111722] border border-[#283347]'} text-[11px] font-mono">
+            <div class="min-w-0">
+              <div class="flex items-center gap-1.5">
+                <span class="${isCleared ? 'text-[#34d399]' : 'text-[#ef4444]'} font-bold">${isCleared ? '✓' : '⚔️'}</span>
+                <span class="text-[#e6edf3] font-semibold truncate">${t.name}</span>
+                <span class="text-[10px] ${isCleared ? 'text-[#34d399]' : 'text-[#f87171]'}">${isCleared ? 'Cleared' : ('Pwr ' + t.enemyPower)}</span>
+              </div>
+              ${blocksLbl ? `<div class="text-[10px] text-[#8b949e] truncate">${isCleared ? 'Unlocked:' : 'Blocks:'} ${blocksLbl}</div>` : ''}
             </div>
-            ${atGate ? `
-              <button data-action="enter-dungeon" data-poi-id="${p.id}" onclick="window.WargameApp.handleEnterDungeon('${p.id}')" class="px-2 py-0.5 rounded bg-[#f87171] hover:bg-[#ef4444] text-[#080b11] font-bold text-[10px] uppercase cursor-pointer">Enter</button>
-            ` : (canMarchHero ? `
-              <button data-action="march-to-dungeon" data-poi-id="${p.id}" onclick="window.WargameApp.handleMarchToDungeon('${p.id}')" class="px-2 py-0.5 rounded bg-[#1a2232] hover:bg-[#283347] text-[#38bdf8] border border-[#38bdf8]/40 font-bold text-[10px] uppercase cursor-pointer">March</button>
-            ` : `
-              <span class="text-[10px] text-[#64748b]">Need Hero Party</span>
-            `)}
+            <button data-action="inspect-military-target" data-target-id="${t.id}" onclick="window.WargameApp.handleInspectMilitaryTarget('${t.id}')" class="px-2 py-0.5 rounded bg-[#1a2232] hover:bg-[#283347] text-[#fbbf24] border border-[#fbbf24]/40 font-bold text-[10px] uppercase cursor-pointer">Inspect</button>
           </div>
         `;
       }).join('');
+      setHtmlIfChanged(mtBarEl, `
+        <div class="text-[10px] font-mono uppercase text-[#f87171] font-bold">⚔️ Discovered Military Threats (${discoveredTargets.length})</div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-1.5">${mtCardsHtml}</div>
+      `);
+    }
+  }
+
+  // Generalized Discoveries Panel (PF-03 — Threats, Dungeons, Resources/POIs, Locations + Locate)
+  const dngBarEl = document.getElementById('wgDiscoveredDungeonsBar');
+  if (dngBarEl) {
+    const disc = collectOverworldDiscoveries(state.world);
+    if (disc.all.length === 0) {
+      dngBarEl.classList.add('hidden');
+    } else {
+      dngBarEl.classList.remove('hidden');
+      const activeCat = state._discoveryFilter || 'all';
+      const canMarchHero = Boolean(selUnit && selUnit.alive && selUnit.canEnterDungeon && selUnit.status !== 'in_dungeon');
+      const items = activeCat === 'threats'
+        ? disc.threats
+        : (activeCat === 'dungeons'
+          ? disc.dungeons
+          : (activeCat === 'resources'
+            ? disc.resources
+            : (activeCat === 'locations' ? disc.locations : disc.all)));
+
+      const tabs = [
+        { id: 'all', label: 'All (' + disc.all.length + ')' },
+        { id: 'threats', label: 'Threats (' + disc.threats.length + ')' },
+        { id: 'dungeons', label: 'Dungeons (' + disc.dungeons.length + ')' },
+        { id: 'resources', label: 'Resources (' + disc.resources.length + ')' },
+        { id: 'locations', label: 'Locations (' + disc.locations.length + ')' }
+      ];
+      const tabsHtml = tabs.map(function(tb) {
+        const isOn = activeCat === tb.id;
+        return `<button onclick="window.WargameApp.handleSetDiscoveryFilter('${tb.id}')" class="px-2 py-0.5 rounded text-[10px] font-mono font-bold cursor-pointer ${isOn ? 'bg-[#38bdf8] text-[#080b11]' : 'bg-[#111722] text-[#94a3b8] border border-[#283347] hover:text-[#e6edf3]'}">${tb.label}</button>`;
+      }).join('');
+
+      const cardsHtml = items.length === 0
+        ? '<div class="text-[10px] font-mono text-[#64748b] italic">No discoveries in this category yet.</div>'
+        : items.map(function(item) {
+            const dist = selUnit ? getHexDistance(selUnit.x, selUnit.y, item.x, item.y) : null;
+            let actionHtml = `<button onclick="window.WargameApp.handleLocateOverworldHex(${item.x}, ${item.y})" class="px-1.5 py-0.5 rounded bg-[#1a2232] hover:bg-[#283347] text-[#cbd5e1] border border-[#283347] font-bold text-[10px] cursor-pointer" title="Center map on (${item.x},${item.y})">◎</button>`;
+            if (item.kind === 'military_target') {
+              actionHtml += `<button data-action="inspect-military-target" data-target-id="${item.id}" onclick="window.WargameApp.handleLocateOverworldHex(${item.x}, ${item.y}, '${item.id}')" class="px-2 py-0.5 rounded bg-[#1a2232] hover:bg-[#283347] text-[#fbbf24] border border-[#fbbf24]/40 font-bold text-[10px] uppercase cursor-pointer">Inspect</button>`;
+            } else if (item.kind === 'dungeon_entrance') {
+              const atGate = Boolean(canMarchHero && selUnit.status === 'idle' && selUnit.x === item.x && selUnit.y === item.y);
+              if (item.blockedBy) {
+                actionHtml += `<span class="text-[10px] text-[#f87171] font-bold truncate" title="Clear ${item.blockedBy.name} with a Field Army first">🔒 ${item.blockedBy.name}</span>`;
+              } else if (atGate) {
+                actionHtml += `<button data-action="enter-dungeon" data-poi-id="${item.id}" onclick="window.WargameApp.handleEnterDungeon('${item.id}')" class="px-2 py-0.5 rounded bg-[#f87171] hover:bg-[#ef4444] text-[#080b11] font-bold text-[10px] uppercase cursor-pointer">Enter</button>`;
+              } else if (canMarchHero) {
+                actionHtml += `<button data-action="march-to-dungeon" data-poi-id="${item.id}" onclick="window.WargameApp.handleMarchToDungeon('${item.id}')" class="px-2 py-0.5 rounded bg-[#1a2232] hover:bg-[#283347] text-[#38bdf8] border border-[#38bdf8]/40 font-bold text-[10px] uppercase cursor-pointer">March</button>`;
+              } else {
+                actionHtml += `<span class="text-[10px] text-[#64748b]">Hero Only</span>`;
+              }
+            } else if (item.kind === 'adventure_hostile') {
+              actionHtml += `<span class="text-[10px] text-[#fb923c]">Hero Threat</span>`;
+            } else if (item.category === 'resources') {
+              actionHtml += `<span class="text-[10px] ${item.depleted ? 'text-[#64748b]' : 'text-[#34d399]'}">${item.depleted ? 'Depleted' : 'Resource'}</span>`;
+            } else if (item.kind === 'city') {
+              actionHtml += `<span class="text-[10px] text-[#fbbf24]">Bastion</span>`;
+            }
+
+            return `
+              <div class="flex items-center justify-between gap-2 px-2 py-1.5 rounded bg-[#111722] border ${item.blockedBy ? 'border-[#ef4444]/50' : 'border-[#283347]'} text-[11px] font-mono">
+                <div class="flex items-center gap-1.5 min-w-0">
+                  <span style="color:${item.accentColor || '#fbbf24'}" class="font-bold">${item.icon}</span>
+                  <span class="text-[#e6edf3] font-semibold truncate">${item.name}</span>
+                  <span class="text-[10px] text-[#8b949e]">(${item.x},${item.y})${dist !== null ? (' • ' + dist + 't') : ''}</span>
+                </div>
+                <div class="flex items-center gap-1 shrink-0">${actionHtml}</div>
+              </div>
+            `;
+          }).join('');
+
       setHtmlIfChanged(dngBarEl, `
-        <div class="text-[10px] font-mono uppercase text-[#f87171] font-bold">Ω Discovered Vault Entrances (${discoveredDngs.length})</div>
+        <div class="flex flex-wrap items-center justify-between gap-1.5">
+          <div class="text-[10px] font-mono uppercase text-[#38bdf8] font-bold">🧭 Discoveries (${disc.all.length})</div>
+          <div class="flex flex-wrap gap-1">${tabsHtml}</div>
+        </div>
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-1.5">${cardsHtml}</div>
       `);
     }
@@ -2366,6 +2493,19 @@ export function formatEventSummary(ev) {
   if (ev.topic === STREAM_TOPICS.ARMY_REINTEGRATED) {
     return '— ' + p.armyName + ' returned ' + p.troopsReturned + ' troops to ' + p.homeCityName + ' Barracks';
   }
+  if (ev.topic === STREAM_TOPICS.MILITARY_TARGET_DISCOVERED) {
+    return '— Discovered Military Threat: ' + p.targetName + ' (Power ' + p.enemyPower + ') at (' + p.x + ',' + p.y + ')!';
+  }
+  if (ev.topic === STREAM_TOPICS.ARMY_COMBAT_STARTED) {
+    return '— ' + p.armyName + ' engaged ' + p.targetName + ' at (' + p.x + ',' + p.y + ')!';
+  }
+  if (ev.topic === STREAM_TOPICS.ARMY_COMBAT_RESOLVED) {
+    return '— ' + (p.victory ? 'VICTORY: ' : 'DEFEAT: ') + p.armyName + ' vs ' + p.targetName + ' (' + p.armyPower + ' vs ' + p.enemyPower + ', lost ' + p.totalLosses + ', ' + p.survivingTroops + ' survived)';
+  }
+  if (ev.topic === STREAM_TOPICS.MILITARY_TARGET_CLEARED) {
+    const unl = (p.unlockedLabels && p.unlockedLabels.length > 0) ? (' — Unlocked: ' + p.unlockedLabels.join(', ')) : '';
+    return '— Cleared ' + p.targetName + unl + '!';
+  }
   if (ev.topic === STREAM_TOPICS.DUNGEON_DISCOVERED) {
     return '— Discovered Vault: ' + p.dungeonName + ' at (' + p.x + ',' + p.y + ')!';
   }
@@ -2435,8 +2575,13 @@ export function renderDeployArmyModal(simHost) {
 
   const ow = world.overworld;
   const draft = state._deployArmyDraft || {};
-  const targetX = typeof draft.targetX === 'number' ? draft.targetX : Math.min((ow.width || 56) - 1, city.x + 1);
-  const targetY = typeof draft.targetY === 'number' ? draft.targetY : city.y;
+  const militaryTarget = draft.targetId ? getMilitaryTargetById(ow, draft.targetId) : null;
+  // PF-05: Explicit formation type ('army' | 'hero_party'), NEVER defaulting blindly to Hero Team
+  const formationType = militaryTarget ? 'army' : (draft.formationType === 'hero_party' ? 'hero_party' : 'army');
+  const heroParties = (ow.units || []).filter(function(u) { return u && u.alive && u.unitType === 'hero_party' && u.status !== 'in_dungeon'; });
+  const selectedHeroPartyId = draft.heroPartyId || (heroParties[0] ? heroParties[0].id : null);
+  const targetX = militaryTarget ? militaryTarget.x : (typeof draft.targetX === 'number' ? draft.targetX : Math.min((ow.width || 56) - 1, city.x + 1));
+  const targetY = militaryTarget ? militaryTarget.y : (typeof draft.targetY === 'number' ? draft.targetY : city.y);
   const stayDeployed = Boolean(draft.stayDeployed);
   const qtyByKey = draft.qtyByKey || {};
 
@@ -2444,12 +2589,16 @@ export function renderDeployArmyModal(simHost) {
   const availableRows = inv.byTypeAndLevel.filter(function(r) { return r.trained > 0; });
 
   let totalSelected = 0;
+  const selectedEntries = [];
   const rowsHtml = availableRows.length === 0
     ? '<div class="text-xs text-[#8b949e] italic py-2">No trained troops available in ' + city.name + ' Barracks.</div>'
     : availableRows.map(function(row) {
         const key = row.troopDefId + ':' + row.level;
         const curQty = Math.max(0, Math.min(row.trained, Math.floor(Number(qtyByKey[key] || 0))));
         totalSelected += curQty;
+        if (curQty > 0) {
+          selectedEntries.push({ troopDefId: row.troopDefId, level: row.level, quantity: curQty });
+        }
         return `
           <div class="p-2 rounded bg-[#111722] border border-[#283347] space-y-1 text-xs font-mono">
             <div class="flex items-center justify-between">
@@ -2464,32 +2613,228 @@ export function renderDeployArmyModal(simHost) {
         `;
       }).join('');
 
+  const selectedPower = computeTroopListCombatPower(selectedEntries);
+  const blocksSummary = militaryTarget && Array.isArray(militaryTarget.blocksAccess)
+    ? militaryTarget.blocksAccess.map(function(b) { return b.label || b.targetRef; }).join(', ')
+    : '';
+  const formationTypeSwitcherHtml = !militaryTarget ? `
+      <div class="p-2 rounded bg-[#080b11] border border-[#283347] space-y-1.5 text-xs font-mono">
+        <div class="text-[10px] uppercase text-[#94a3b8] font-bold">Formation Type</div>
+        <div class="grid grid-cols-2 gap-1.5">
+          <button data-formation-type="army" onclick="window.WargameApp.handleSetDeployFormationType('army')" class="py-1.5 px-2 rounded font-bold text-[11px] cursor-pointer ${formationType === 'army' ? 'bg-[#f87171] text-[#080b11]' : 'bg-[#111722] text-[#cbd5e1] border border-[#283347] hover:bg-[#1a2232]'}">🛡️ Field Army (Barracks)</button>
+          <button data-formation-type="hero_party" onclick="window.WargameApp.handleSetDeployFormationType('hero_party')" ${heroParties.length === 0 ? 'disabled' : ''} class="py-1.5 px-2 rounded font-bold text-[11px] ${formationType === 'hero_party' ? 'bg-[#60a5fa] text-[#080b11] cursor-pointer' : (heroParties.length > 0 ? 'bg-[#111722] text-[#cbd5e1] border border-[#283347] hover:bg-[#1a2232] cursor-pointer' : 'bg-[#111722] text-[#475569] border border-[#1e293b] cursor-not-allowed')}">⚔️ Hero Team (${heroParties.length})</button>
+        </div>
+      </div>
+  ` : '';
+
+  const targetHeaderHtml = militaryTarget ? `
+      <div class="p-2.5 rounded bg-[#450a0a]/40 border border-[#ef4444]/60 space-y-1 text-xs font-mono">
+        <div class="flex items-center justify-between">
+          <span class="text-[#fecaca] font-bold">⚔️ Target: ${militaryTarget.name} (${militaryTarget.x}, ${militaryTarget.y})</span>
+          <span class="text-[#f87171] font-bold">Threat Power: ${militaryTarget.enemyPower}</span>
+        </div>
+        ${blocksSummary ? `<div class="text-[11px] text-[#fbbf24]">Clearing Unlocks: <strong>${blocksSummary}</strong></div>` : ''}
+        <div class="text-[11px] ${selectedPower >= militaryTarget.enemyPower ? 'text-[#34d399]' : 'text-[#fbbf24]'}">
+          Army Power: <strong>${selectedPower}</strong> vs <strong>${militaryTarget.enemyPower}</strong>
+          (${totalSelected === 0 ? 'Select troops' : (selectedPower >= militaryTarget.enemyPower ? 'Favored — Victory Expected' : 'Understrength — Defeat Expected')})
+        </div>
+      </div>
+  ` : `
+      <div class="p-2.5 rounded bg-[#080b11] border border-[#283347] flex flex-wrap items-center justify-between gap-2 text-xs font-mono">
+        <span class="text-[#cbd5e1] font-bold">Destination Hex:</span>
+        <div class="flex items-center gap-2">
+          <label class="text-[#8b949e]">X <input type="number" min="0" max="${(ow.width || 56) - 1}" value="${targetX}" oninput="window.WargameApp.handleSetDeployTargetCoord('x', this.value)" class="w-14 px-1.5 py-0.5 rounded bg-[#111722] border border-[#283347] text-[#e6edf3] text-center" /></label>
+          <label class="text-[#8b949e]">Y <input type="number" min="0" max="${(ow.height || 40) - 1}" value="${targetY}" oninput="window.WargameApp.handleSetDeployTargetCoord('y', this.value)" class="w-14 px-1.5 py-0.5 rounded bg-[#111722] border border-[#283347] text-[#e6edf3] text-center" /></label>
+          <button data-action="pick-deploy-hex" onclick="window.WargameApp.handleStartPickDeployHex()" class="px-2 py-1 rounded bg-[#1a2232] hover:bg-[#283347] text-[#38bdf8] border border-[#38bdf8]/50 text-[10px] font-bold cursor-pointer">📍 Pick Tile</button>
+        </div>
+      </div>
+  `;
+
+  const heroTeamBodyHtml = `
+      <div class="space-y-1.5">
+        ${heroParties.length === 0
+          ? '<div class="text-xs text-[#8b949e] italic py-2">No active Hero Party available on the Overworld.</div>'
+          : heroParties.map(function(hp) {
+              const isSel = hp.id === selectedHeroPartyId;
+              return `
+                <button onclick="window.WargameApp.handleSelectDeployHeroParty('${hp.id}')" class="w-full p-2 rounded text-left text-xs font-mono flex items-center justify-between cursor-pointer ${isSel ? 'bg-[#1e3a8a]/50 border border-[#60a5fa] text-[#e6edf3]' : 'bg-[#111722] border border-[#283347] text-[#94a3b8]'}">
+                  <span class="font-bold">⚔️ ${hp.name}</span>
+                  <span>(${hp.x},${hp.y}) • HP ${hp.hp}/${hp.maxHp}</span>
+                </button>
+              `;
+            }).join('')}
+      </div>
+  `;
+
+  const canConfirm = formationType === 'hero_party' ? Boolean(selectedHeroPartyId) : (totalSelected > 0);
+
   const html = `
     <div class="flex items-center justify-between px-4 py-3 bg-[#080b11] border-b border-[#283347]">
       <div>
-        <h2 class="text-sm font-bold text-[#f87171]">🛡️ Deploy Field Army from ${city.name}</h2>
-        <div class="text-[11px] font-mono text-[#94a3b8]">Select Barracks troops and target hex; army is formed automatically on deployment</div>
+        <h2 class="text-sm font-bold ${formationType === 'hero_party' ? 'text-[#60a5fa]' : 'text-[#f87171]'}">${formationType === 'hero_party' ? '⚔️ Dispatch Hero Team' : ('🛡️ Deploy Field Army from ' + city.name)}</h2>
+        <div class="text-[11px] font-mono text-[#94a3b8]">${militaryTarget ? ('Assign Barracks troops to engage ' + militaryTarget.name) : 'Choose formation type, destination hex, and units'}</div>
       </div>
       <button onclick="window.WargameApp.handleCloseDeployArmyModal()" class="px-2.5 py-1 rounded bg-[#1a2232] hover:bg-[#283347] text-xs font-mono font-bold text-[#e6edf3] cursor-pointer">✕ Close</button>
     </div>
     <div class="p-4 space-y-3 overflow-y-auto">
-      <div class="p-2.5 rounded bg-[#080b11] border border-[#283347] flex flex-wrap items-center justify-between gap-2 text-xs font-mono">
-        <span class="text-[#cbd5e1] font-bold">Target Hex (Patrol):</span>
-        <div class="flex items-center gap-2">
-          <label class="text-[#8b949e]">X <input type="number" min="0" max="${(ow.width || 56) - 1}" value="${targetX}" oninput="window.WargameApp.handleSetDeployTargetCoord('x', this.value)" class="w-14 px-1.5 py-0.5 rounded bg-[#111722] border border-[#283347] text-[#e6edf3] text-center" /></label>
-          <label class="text-[#8b949e]">Y <input type="number" min="0" max="${(ow.height || 40) - 1}" value="${targetY}" oninput="window.WargameApp.handleSetDeployTargetCoord('y', this.value)" class="w-14 px-1.5 py-0.5 rounded bg-[#111722] border border-[#283347] text-[#e6edf3] text-center" /></label>
-        </div>
-      </div>
-      <div class="space-y-1.5">${rowsHtml}</div>
-      <label class="flex items-center gap-2 p-2.5 rounded bg-[#080b11] border border-[#283347] text-xs font-mono text-[#e6edf3] cursor-pointer">
-        <input type="checkbox" ${stayDeployed ? 'checked' : ''} onchange="window.WargameApp.handleToggleDeployStayDeployed(this.checked)" class="accent-[#f87171]" />
-        <span>Stay deployed after completing objective (unchecked = auto-return to ${city.name} Barracks)</span>
-      </label>
+      ${formationTypeSwitcherHtml}
+      ${targetHeaderHtml}
+      ${formationType === 'hero_party' ? heroTeamBodyHtml : `<div class="space-y-1.5">${rowsHtml}</div>`}
+      ${formationType === 'army' ? `
+        <label class="flex items-center gap-2 p-2.5 rounded bg-[#080b11] border border-[#283347] text-xs font-mono text-[#e6edf3] cursor-pointer">
+          <input type="checkbox" ${stayDeployed ? 'checked' : ''} onchange="window.WargameApp.handleToggleDeployStayDeployed(this.checked)" class="accent-[#f87171]" />
+          <span>Stay deployed after completing objective (victory/patrol; unchecked = auto-return to ${city.name} Barracks)</span>
+        </label>
+      ` : ''}
       <div class="flex items-center justify-between pt-1">
-        <span class="text-xs font-mono text-[#fbbf24]">Selected Force: <strong>${totalSelected} Troops</strong></span>
-        <button data-action="confirm-deploy-army" onclick="window.WargameApp.handleConfirmDeployArmy()" ${totalSelected <= 0 ? 'disabled' : ''} class="px-4 py-2 rounded-lg text-xs font-mono font-bold uppercase ${totalSelected > 0 ? 'bg-[#f87171] hover:bg-[#ef4444] text-[#080b11] cursor-pointer' : 'bg-[#1a2232] text-[#64748b] cursor-not-allowed'}">🛡️ Deploy Army</button>
+        <span class="text-xs font-mono text-[#fbbf24]">${formationType === 'hero_party' ? ('Selected Team: <strong>' + (selectedHeroPartyId ? 'Hero Party' : 'None') + '</strong>') : ('Selected Force: <strong>' + totalSelected + ' Troops</strong> (Power ' + selectedPower + ')')}</span>
+        <button data-action="confirm-deploy-army" onclick="window.WargameApp.handleConfirmDeployArmy()" ${!canConfirm ? 'disabled' : ''} class="px-4 py-2 rounded-lg text-xs font-mono font-bold uppercase ${canConfirm ? (formationType === 'hero_party' ? 'bg-[#60a5fa] hover:bg-[#3b82f6] text-[#080b11] cursor-pointer' : 'bg-[#f87171] hover:bg-[#ef4444] text-[#080b11] cursor-pointer') : 'bg-[#1a2232] text-[#64748b] cursor-not-allowed'}">${militaryTarget ? '⚔️ Deploy & Engage' : (formationType === 'hero_party' ? '⚔️ March Hero Team' : '🛡️ Deploy Army')}</button>
       </div>
     </div>
   `;
   setHtmlIfChanged(body, html);
+}
+
+// =============================================================================
+// PF-04: Visibility-Respecting Overworld Map Hover Tooltips
+// =============================================================================
+export function buildOverworldTileTooltipData(state, x, y) {
+  if (!state || !state.world || !state.world.overworld) return null;
+  const world = state.world;
+  const ow = world.overworld;
+  if (typeof x !== 'number' || typeof y !== 'number' || x < 0 || y < 0 || x >= ow.width || y >= ow.height) {
+    return null;
+  }
+
+  const isExplored = Boolean(ow.explored && ow.explored[y] && ow.explored[y][x]);
+  if (!isExplored) {
+    return {
+      explored: false,
+      x: x,
+      y: y,
+      title: 'Unexplored Frontier (' + x + ', ' + y + ')',
+      badge: 'Fog of War',
+      lines: ['Scout this area to reveal terrain, resources, and threats.']
+    };
+  }
+
+  const tId = ow.tiles[y][x];
+  const tDef = OVERWORLD_TERRAIN_DEFS[tId] || null;
+  const lines = [];
+  if (tDef) {
+    const marchSec = (typeof tDef.marchTimeMs === 'number' && isFinite(tDef.marchTimeMs))
+      ? ((tDef.marchTimeMs / 1000).toFixed(1) + 's/hex')
+      : 'Impassable';
+    lines.push('Terrain: ' + tDef.name + ' (' + marchSec + (tDef.buildable ? ', Buildable' : '') + ')');
+  }
+
+  // City at hex
+  const cities = Object.values(world.cities || {});
+  const cityHere = cities.find(function(c) { return c && c.x === x && c.y === y; });
+  if (cityHere) {
+    lines.push('City: 🏰 ' + cityHere.name + ' (Lv ' + (cityHere.level || 1) + ', ' + (cityHere.ownerPlayerId || 'player_1') + ')');
+  }
+
+  // Alive player unit/army at hex
+  const unitHere = (ow.units || []).find(function(u) { return u && u.alive && u.x === x && u.y === y; });
+  if (unitHere) {
+    if (unitHere.unitType === 'army') {
+      const cnt = getArmyTotalTroopCount(world, unitHere.id);
+      const pwr = computeArmyCombatPower(world, unitHere.id);
+      lines.push('Army: 🛡️ ' + unitHere.name + ' (' + cnt + ' troops, Pwr ' + pwr + ', ' + unitHere.status + ')');
+    } else {
+      lines.push('Unit: ' + (unitHere.unitType === 'hero_party' ? '⚔️ ' : '🚩 ') + unitHere.name + ' (HP ' + unitHere.hp + '/' + unitHere.maxHp + ', ' + unitHere.status + ')');
+    }
+  }
+
+  // Discovered military target at hex
+  const mtHere = getMilitaryTargetAtHex(ow, x, y);
+  if (mtHere && (mtHere.discovered || isExplored)) {
+    const isCleared = mtHere.status === MILITARY_TARGET_STATUS.CLEARED;
+    lines.push('Military Target: ' + (isCleared ? '✓ ' : '⚔️ ') + mtHere.name + (isCleared ? ' (Cleared)' : (' (Threat Power ' + mtHere.enemyPower + ')')));
+    if (!isCleared && Array.isArray(mtHere.blocksAccess) && mtHere.blocksAccess.length > 0) {
+      lines.push('Blocks: ' + mtHere.blocksAccess.map(function(b) { return b.label || b.targetRef; }).join(', '));
+    }
+  }
+
+  // Discovered POI at hex
+  const poiHere = (ow.pois || []).find(function(p) { return p && p.x === x && p.y === y; });
+  if (poiHere && (poiHere.discovered || isExplored)) {
+    if (poiHere.type === 'dungeon_entrance') {
+      const blk = getBlockingMilitaryTargetForAccess(ow, 'overworld_poi', poiHere.id);
+      lines.push('Dungeon: Ω ' + poiHere.name + ' (Lv ' + (poiHere.recommendedLevel || 1) + (blk ? (', 🔒 Blocked by ' + blk.name) : ', Accessible') + ')');
+    } else {
+      lines.push('Resource POI: ' + poiHere.name + (poiHere.depleted ? ' (Depleted)' : ' (Available)'));
+    }
+  }
+
+  // Wandering Hostile at hex (ONLY if alive AND within active vision of a friendly unit or city)
+  const hostileHere = (ow.hostiles || []).find(function(h) { return h && h.alive && h.x === x && h.y === y; });
+  if (hostileHere) {
+    let inActiveSight = false;
+    const units = ow.units || [];
+    for (let i = 0; i < units.length; i++) {
+      const u = units[i];
+      if (u && u.alive && getHexDistance(x, y, u.x, u.y) <= (u.visionRadius || 4) + 1) {
+        inActiveSight = true;
+        break;
+      }
+    }
+    if (!inActiveSight) {
+      for (let i = 0; i < cities.length; i++) {
+        const c = cities[i];
+        if (c && getHexDistance(x, y, c.x, c.y) <= 5) {
+          inActiveSight = true;
+          break;
+        }
+      }
+    }
+    if (inActiveSight) {
+      lines.push('Adventure Hostile: ' + (hostileHere.icon || '☠') + ' ' + hostileHere.name + ' (Lv ' + (hostileHere.level || 1) + ', Power ' + (hostileHere.power || 18) + ')');
+    }
+  }
+
+  const title = cityHere
+    ? ('🏰 ' + cityHere.name)
+    : (mtHere
+      ? ((mtHere.status === MILITARY_TARGET_STATUS.CLEARED ? '✓ ' : '⚔️ ') + mtHere.name)
+      : (poiHere ? poiHere.name : (tDef ? tDef.name : 'Overworld Hex')));
+
+  return {
+    explored: true,
+    x: x,
+    y: y,
+    title: title + ' (' + x + ', ' + y + ')',
+    badge: mtHere ? (mtHere.status === MILITARY_TARGET_STATUS.CLEARED ? 'Cleared' : 'Military Threat') : (cityHere ? 'City' : (tDef ? tDef.name : '')),
+    lines: lines
+  };
+}
+
+export function renderOverworldHoverTooltip(state, tile, screenPos) {
+  if (typeof document === 'undefined') return;
+  const el = document.getElementById('wgOverworldTooltip');
+  if (!el) return;
+  if (!tile || !state || !state.world || state.activeView !== WARGAME_VIEWS.OVERWORLD) {
+    el.classList.add('hidden');
+    return;
+  }
+  const data = buildOverworldTileTooltipData(state, tile.x, tile.y);
+  if (!data) {
+    el.classList.add('hidden');
+    return;
+  }
+  const linesHtml = data.lines.map(function(ln) {
+    return '<div class="text-[10px] text-[#cbd5e1] leading-snug">' + ln + '</div>';
+  }).join('');
+  setHtmlIfChanged(el, `
+    <div class="font-bold text-[#fbbf24] text-[11px] mb-0.5">${data.title}</div>
+    ${linesHtml}
+  `);
+  if (screenPos && typeof screenPos.sx === 'number' && typeof screenPos.sy === 'number') {
+    const leftPx = Math.min(430, Math.max(8, Math.round(screenPos.sx + 14)));
+    const topPx = Math.min(370, Math.max(8, Math.round(screenPos.sy + 14)));
+    el.style.left = leftPx + 'px';
+    el.style.top = topPx + 'px';
+  }
+  el.classList.remove('hidden');
 }

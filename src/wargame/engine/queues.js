@@ -6,7 +6,8 @@ import {
   RESOURCE_PRODUCTION_INTERVAL_MS,
   BASE_HERO_RECRUIT_DURATION_MS,
   WINDMILL_ADJACENCY_BONUS,
-  ARMY_PATROL_DURATION_MS
+  ARMY_PATROL_DURATION_MS,
+  ARMY_COMBAT_DURATION_MS
 } from '../constants.js';
 import { CITY_BUILDINGS_CATALOG } from '../data/buildings.js';
 import {
@@ -16,7 +17,10 @@ import {
   TROOP_LOCATION_TYPES,
   ARMY_OBJECTIVE_TYPES,
   ARMY_OBJECTIVE_STATUS,
-  getArmyTroopGroups
+  MILITARY_TARGET_STATUS,
+  getArmyTroopGroups,
+  getMilitaryTargetById,
+  resolveMilitaryTargetCombat
 } from '../data/troops.js';
 import { UNIT_ARCHETYPES, RECRUITABLE_HERO_CLASSES } from '../data/terrain.js';
 import { revealOverworldVision, findOverworldPath } from './pathfinding.js';
@@ -222,7 +226,7 @@ export function resolveMarchStepJob(job, state, scheduler, eventStream) {
   unit.y = targetY;
   state.world.stats.totalUnitSteps = (state.world.stats.totalUnitSteps || 0) + 1;
 
-  revealOverworldVision(ow, unit.x, unit.y, unit.visionRadius || 4);
+  revealOverworldVision(ow, unit.x, unit.y, unit.visionRadius || 4, { simTimeMs: job.dueSimTimeMs, eventStream: eventStream });
   checkAndDiscoverDungeonsInVision(ow, job.dueSimTimeMs, eventStream);
 
   // Check for Wandering Hostile interception for Hero Parties
@@ -452,7 +456,7 @@ export function resolveBuildingCompleteJob(job, state, scheduler, eventStream) {
     if (ow && Array.isArray(ow.pois)) {
       const starfallPoi = ow.pois.find(function(poi) { return poi.id === 'poi_dungeon_starfall' || poi.type === 'dungeon_entrance'; });
       if (starfallPoi) {
-        revealOverworldVision(ow, starfallPoi.x, starfallPoi.y, 2);
+        revealOverworldVision(ow, starfallPoi.x, starfallPoi.y, 2, { simTimeMs: job.dueSimTimeMs, eventStream: eventStream });
         checkAndDiscoverDungeonsInVision(ow, job.dueSimTimeMs, eventStream);
       }
     }
@@ -741,7 +745,7 @@ export function resolveRecruitHeroJob(job, state, scheduler, eventStream) {
     if (!hasActiveSelected) {
       ow.selectedUnitId = partyUnit.id;
     }
-    revealOverworldVision(ow, partyUnit.x, partyUnit.y, partyUnit.visionRadius);
+    revealOverworldVision(ow, partyUnit.x, partyUnit.y, partyUnit.visionRadius, { simTimeMs: job.dueSimTimeMs, eventStream: eventStream });
   }
 
   if (!world.parties) world.parties = [];
@@ -1182,6 +1186,82 @@ export function startArmyReturnHome(army, state, scheduler, simTimeMs, eventStre
   return { ok: true, stepsCount: path.length };
 }
 
+export function applyArmyCombatCasualties(world, armyId, allocations) {
+  if (!world || !Array.isArray(world.troopGroups) || !Array.isArray(allocations)) return 0;
+  const lossByGroupId = {};
+  for (let i = 0; i < allocations.length; i++) {
+    const al = allocations[i];
+    if (al && al.groupId && al.lost > 0) {
+      lossByGroupId[al.groupId] = al.lost;
+    }
+  }
+  let applied = 0;
+  const remaining = [];
+  for (let i = 0; i < world.troopGroups.length; i++) {
+    const g = world.troopGroups[i];
+    if (!g) continue;
+    if (g.locationType === TROOP_LOCATION_TYPES.ARMY && g.locationId === armyId && lossByGroupId[g.id]) {
+      const deduct = Math.min(g.count || 0, lossByGroupId[g.id]);
+      g.count = Math.max(0, (g.count || 0) - deduct);
+      applied += deduct;
+      if (g.count > 0) remaining.push(g);
+    } else {
+      remaining.push(g);
+    }
+  }
+  world.troopGroups = remaining;
+  return applied;
+}
+
+// Competing-army lifecycle cleanup (Task 05B-2):
+// When one army clears a military target, any other active army still marching toward or engaged
+// with that same target cleanly cancels its stale march/objective job, marks the objective failed
+// without duplicate combat, and honors its return policy (or idles safely if stayDeployed).
+export function cleanupCompetingArmiesForClearedTarget(targetId, winningArmyId, state, scheduler, simTimeMs, eventStream) {
+  if (!targetId || !state || !state.world || !state.world.overworld) return 0;
+  const ow = state.world.overworld;
+  const units = Array.isArray(ow.units) ? ow.units : [];
+  let cleaned = 0;
+
+  for (let i = 0; i < units.length; i++) {
+    const other = units[i];
+    if (!other || !other.alive || other.reintegrated || other.unitType !== 'army') continue;
+    if (winningArmyId && other.id === winningArmyId) continue;
+    if (!other.objective || other.objective.type !== ARMY_OBJECTIVE_TYPES.ENGAGE_TARGET) continue;
+    if (other.objective.targetId !== targetId) continue;
+    if (other.objective.status === ARMY_OBJECTIVE_STATUS.COMPLETED || other.objective.status === ARMY_OBJECTIVE_STATUS.FAILED) continue;
+
+    if (other.marchPlan && other.marchPlan.activeJobId && scheduler) {
+      scheduler.cancelJob(other.marchPlan.activeJobId);
+    }
+    if (other.objective.jobId && scheduler) {
+      scheduler.cancelJob(other.objective.jobId);
+    }
+
+    other.marchPlan = null;
+    other.status = 'idle';
+    other.objective.status = ARMY_OBJECTIVE_STATUS.FAILED;
+    other.objective.jobId = null;
+    other.objective.failureReason = 'target_already_cleared';
+    cleaned++;
+
+    if (eventStream) {
+      eventStream.publish(STREAM_TOPICS.ARMY_OBJECTIVE_FAILED, {
+        armyId: other.id,
+        armyName: other.shortName || other.name,
+        objectiveType: ARMY_OBJECTIVE_TYPES.ENGAGE_TARGET,
+        targetId: targetId,
+        reason: 'Military target was already cleared by another army'
+      }, simTimeMs);
+    }
+
+    if (!other.stayDeployed) {
+      startArmyReturnHome(other, state, scheduler, simTimeMs, eventStream);
+    }
+  }
+  return cleaned;
+}
+
 export function handleArmyArrival(army, state, scheduler, simTimeMs, eventStream) {
   if (!army || !army.alive || army.reintegrated) return;
   if (!army.objective) {
@@ -1193,6 +1273,65 @@ export function handleArmyArrival(army, state, scheduler, simTimeMs, eventStream
 
   if (army.objective.type === ARMY_OBJECTIVE_TYPES.RETURN_HOME) {
     reintegrateArmyIntoBarracks(army, state, simTimeMs, eventStream);
+    return;
+  }
+
+  if (army.objective.type === ARMY_OBJECTIVE_TYPES.ENGAGE_TARGET) {
+    const ow = state && state.world && state.world.overworld;
+    const target = getMilitaryTargetById(ow, army.objective.targetId);
+    if (!target || target.status === MILITARY_TARGET_STATUS.CLEARED) {
+      army.status = 'idle';
+      army.objective.status = ARMY_OBJECTIVE_STATUS.FAILED;
+      army.objective.jobId = null;
+      army.objective.failureReason = 'target_already_cleared';
+      if (eventStream) {
+        eventStream.publish(STREAM_TOPICS.ARMY_OBJECTIVE_FAILED, {
+          armyId: army.id,
+          armyName: army.shortName || army.name,
+          objectiveType: ARMY_OBJECTIVE_TYPES.ENGAGE_TARGET,
+          targetId: army.objective.targetId || null,
+          reason: 'Military target is already cleared'
+        }, simTimeMs);
+      }
+      if (!army.stayDeployed) {
+        startArmyReturnHome(army, state, scheduler, simTimeMs, eventStream);
+      }
+      return;
+    }
+
+    const combatDur = Math.max(250, ARMY_COMBAT_DURATION_MS || 3000);
+    const job = scheduler ? scheduler.scheduleJob({
+      jobId: 'army_cbt_' + army.id + '_' + simTimeMs + '_' + Math.floor(Math.random() * 10000),
+      jobType: 'ARMY_OBJECTIVE_COMPLETE',
+      ownerId: army.id,
+      startSimTimeMs: simTimeMs,
+      dueSimTimeMs: simTimeMs + combatDur,
+      payload: {
+        armyId: army.id,
+        objectiveId: army.objective.id,
+        objectiveType: army.objective.type,
+        targetId: target.id
+      }
+    }) : null;
+
+    army.status = 'objective_in_progress';
+    army.objective.status = ARMY_OBJECTIVE_STATUS.IN_PROGRESS;
+    army.objective.jobId = job ? job.jobId : null;
+    army.objective.startSimTimeMs = simTimeMs;
+    army.objective.dueSimTimeMs = simTimeMs + combatDur;
+
+    if (eventStream) {
+      eventStream.publish(STREAM_TOPICS.ARMY_COMBAT_STARTED, {
+        armyId: army.id,
+        armyName: army.shortName || army.name,
+        targetId: target.id,
+        targetName: target.name,
+        enemyPower: target.enemyPower,
+        x: target.x,
+        y: target.y,
+        durationMs: combatDur
+      }, simTimeMs);
+    }
     return;
   }
 
@@ -1248,11 +1387,108 @@ export function resolveArmyObjectiveCompleteJob(job, state, scheduler, eventStre
   if (army.status !== 'objective_in_progress' || army.objective.status !== ARMY_OBJECTIVE_STATUS.IN_PROGRESS) return;
   if (army.objective.jobId && job.jobId && army.objective.jobId !== job.jobId) return;
 
+  if (army.objective.type === ARMY_OBJECTIVE_TYPES.ENGAGE_TARGET) {
+    const targetId = army.objective.targetId || p.targetId || null;
+    const target = getMilitaryTargetById(ow, targetId);
+    if (!target || target.status === MILITARY_TARGET_STATUS.CLEARED) {
+      army.objective.status = ARMY_OBJECTIVE_STATUS.FAILED;
+      army.objective.jobId = null;
+      army.objective.failureReason = 'target_already_cleared';
+      army.status = 'idle';
+      if (eventStream) {
+        eventStream.publish(STREAM_TOPICS.ARMY_OBJECTIVE_FAILED, {
+          armyId: army.id,
+          armyName: army.shortName || army.name,
+          objectiveType: ARMY_OBJECTIVE_TYPES.ENGAGE_TARGET,
+          targetId: targetId,
+          reason: 'Military target was already cleared'
+        }, job.dueSimTimeMs);
+      }
+      if (!army.stayDeployed) {
+        startArmyReturnHome(army, state, scheduler, job.dueSimTimeMs, eventStream);
+      }
+      state._dirty = true;
+      saveWargameState(state, scheduler);
+      evaluateTaskDAG(state, eventStream);
+      return;
+    }
+
+    const combatRes = resolveMilitaryTargetCombat(state.world, army.id, target);
+    applyArmyCombatCasualties(state.world, army.id, combatRes.allocations);
+
+    const unlockedLabels = combatRes.victory && Array.isArray(target.blocksAccess)
+      ? target.blocksAccess.map(function(b) { return b.label || b.targetRef; })
+      : [];
+
+    const report = {
+      simTimeMs: job.dueSimTimeMs,
+      armyId: army.id,
+      armyName: army.shortName || army.name,
+      targetId: target.id,
+      targetName: target.name,
+      victory: combatRes.victory,
+      armyPower: combatRes.armyPower,
+      enemyPower: combatRes.enemyPower,
+      initialTroops: combatRes.initialTroops,
+      totalLosses: combatRes.totalLosses,
+      survivingTroops: combatRes.survivingTroops,
+      unlockedLabels: unlockedLabels
+    };
+    army.lastCombatResult = report;
+    state.world.lastMilitaryCombatReport = report;
+    army.objective.jobId = null;
+    army.status = 'idle';
+
+    if (combatRes.victory) {
+      target.status = MILITARY_TARGET_STATUS.CLEARED;
+      target.clearedAtSimMs = job.dueSimTimeMs;
+      target.clearedByArmyId = army.id;
+      army.objective.status = ARMY_OBJECTIVE_STATUS.COMPLETED;
+
+      revealOverworldVision(ow, army.x, army.y, army.visionRadius || 4, { simTimeMs: job.dueSimTimeMs, eventStream: eventStream });
+
+      if (eventStream) {
+        eventStream.publish(STREAM_TOPICS.ARMY_COMBAT_RESOLVED, report, job.dueSimTimeMs);
+        eventStream.publish(STREAM_TOPICS.MILITARY_TARGET_CLEARED, {
+          targetId: target.id,
+          targetName: target.name,
+          armyId: army.id,
+          armyName: army.shortName || army.name,
+          unlockedLabels: unlockedLabels,
+          x: target.x,
+          y: target.y
+        }, job.dueSimTimeMs);
+      }
+
+      // Clean up any other competing armies still marching to or targeting this now-cleared target
+      cleanupCompetingArmiesForClearedTarget(target.id, army.id, state, scheduler, job.dueSimTimeMs, eventStream);
+
+      if (!army.stayDeployed) {
+        startArmyReturnHome(army, state, scheduler, job.dueSimTimeMs, eventStream);
+      }
+    } else {
+      army.objective.status = ARMY_OBJECTIVE_STATUS.FAILED;
+      army.objective.failureReason = 'combat_defeat';
+
+      if (eventStream) {
+        eventStream.publish(STREAM_TOPICS.ARMY_COMBAT_RESOLVED, report, job.dueSimTimeMs);
+      }
+
+      // Safe defeat lifecycle: survivors always retreat back to Home City Barracks for reintegration & retry
+      startArmyReturnHome(army, state, scheduler, job.dueSimTimeMs, eventStream);
+    }
+
+    state._dirty = true;
+    saveWargameState(state, scheduler);
+    evaluateTaskDAG(state, eventStream);
+    return;
+  }
+
   army.objective.status = ARMY_OBJECTIVE_STATUS.COMPLETED;
   army.objective.jobId = null;
   army.status = 'idle';
 
-  revealOverworldVision(ow, army.x, army.y, army.visionRadius || 4);
+  revealOverworldVision(ow, army.x, army.y, army.visionRadius || 4, { simTimeMs: job.dueSimTimeMs, eventStream: eventStream });
 
   if (eventStream) {
     eventStream.publish(STREAM_TOPICS.ARMY_OBJECTIVE_COMPLETED, {

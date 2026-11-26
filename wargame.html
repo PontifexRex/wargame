@@ -228,12 +228,14 @@
           </div>
 
           <!-- Overworld Canvas (672x480) -->
-          <div class="relative w-full flex justify-center items-center bg-[#04060a] rounded-lg border border-[#283347] overflow-hidden shadow-inner">
+          <div id="wgOverworldCanvasWrap" class="relative w-full flex justify-center items-center bg-[#04060a] rounded-lg border border-[#283347] overflow-hidden shadow-inner">
             <canvas id="wgOverworldCanvas" width="672" height="480" class="max-w-full h-auto cursor-crosshair"></canvas>
+            <!-- PF-04: Visibility-Respecting Map Hover Tooltip -->
+            <div id="wgOverworldTooltip" class="hidden pointer-events-none absolute z-20 max-w-[230px] p-2 rounded-lg bg-[#080b11]/95 border border-[#38bdf8]/50 shadow-xl text-[11px] font-mono text-[#e6edf3]"></div>
             <div class="absolute bottom-2 left-2 pointer-events-none bg-[#080b11]/85 backdrop-blur px-2.5 py-1 rounded border border-[#283347] text-[10px] font-mono text-[#8b949e] hidden sm:flex items-center gap-2.5">
-              <span><strong class="text-[#e6edf3]">Click Tile:</strong> March Unit</span>
-              <span><strong class="text-[#fbbf24]">WASD:</strong> Step Unit</span>
-              <span><strong class="text-[#38bdf8]">Space:</strong> Pause Clock</span>
+              <span><strong class="text-[#e6edf3]">Click Tile:</strong> March / Inspect</span>
+              <span><strong class="text-[#fbbf24]">Drag / Edge:</strong> Pan Map</span>
+              <span><strong class="text-[#38bdf8]">Space:</strong> Pause</span>
             </div>
             <!-- Corner Map Toggle Overlay (World <-> City / Active Dungeon) -->
             <div id="wgOverworldMapDock" class="absolute bottom-2 right-2 z-10 flex items-center gap-1.5"></div>
@@ -249,6 +251,9 @@
               <button onclick="window.WargameApp.handleStepOverworld(1, 0)" class="w-8 h-8 rounded bg-[#1a2232] hover:bg-[#283347] text-[#e6edf3] font-bold">▶</button>
             </div>
           </div>
+
+          <!-- Discovered Military Targets Inspector Bar (Task 05B-2) -->
+          <div id="wgMilitaryTargetsBar" class="p-2 rounded bg-[#080b11] border border-[#f87171]/40 space-y-1.5 hidden"></div>
 
           <!-- Discovered Dungeons Quick-March Bar -->
           <div id="wgDiscoveredDungeonsBar" class="p-2 rounded bg-[#080b11] border border-[#283347] space-y-1.5 hidden"></div>

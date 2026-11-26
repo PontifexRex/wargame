@@ -69,7 +69,10 @@ import {
   TROOP_LOCATION_TYPES,
   ARMY_OBJECTIVE_TYPES,
   ARMY_OBJECTIVE_STATUS,
-  allocateLowestArmyDisplayNumber
+  MILITARY_TARGET_STATUS,
+  allocateLowestArmyDisplayNumber,
+  getMilitaryTargetById,
+  getBlockingMilitaryTargetForAccess
 } from '../data/troops.js';
 import {
   scheduleNextMarchStep,
@@ -391,7 +394,7 @@ export function dispatchWargameCommand(commandEnvelope, state, scheduler, eventS
       state.campaignPhase = CAMPAIGN_PHASES.CITY_ESTABLISHED;
     }
 
-    revealOverworldVision(ow, newCity.x, newCity.y, 5);
+    revealOverworldVision(ow, newCity.x, newCity.y, 5, { simTimeMs: simTimeMs, eventStream: eventStream });
 
     if (eventStream) {
       eventStream.publish(STREAM_TOPICS.CITY_FOUNDED, {
@@ -442,7 +445,7 @@ export function dispatchWargameCommand(commandEnvelope, state, scheduler, eventS
 
     ow.units.push(revived);
     ow.selectedUnitId = revived.id;
-    revealOverworldVision(ow, revived.x, revived.y, revived.visionRadius);
+    revealOverworldVision(ow, revived.x, revived.y, revived.visionRadius, { simTimeMs: simTimeMs, eventStream: eventStream });
 
     if (eventStream) {
       eventStream.publish(STREAM_TOPICS.SETTLER_RESPAWNED, {
@@ -1365,8 +1368,27 @@ export function dispatchWargameCommand(commandEnvelope, state, scheduler, eventS
       return reject('You do not control this city');
     }
 
-    const targetX = Number(payload.targetX);
-    const targetY = Number(payload.targetY);
+    // Optional military target assignment (Task 05B-2)
+    let militaryTarget = null;
+    if (payload.targetId) {
+      militaryTarget = getMilitaryTargetById(ow, payload.targetId);
+      if (!militaryTarget) {
+        return reject('Military target not found on Overworld');
+      }
+      const isTargetDiscovered = Boolean(
+        militaryTarget.discovered ||
+        (ow.explored && ow.explored[militaryTarget.y] && ow.explored[militaryTarget.y][militaryTarget.x])
+      );
+      if (!isTargetDiscovered) {
+        return reject('Explore the Overworld to discover ' + militaryTarget.name + ' before deploying an army there');
+      }
+      if (militaryTarget.status === MILITARY_TARGET_STATUS.CLEARED) {
+        return reject(militaryTarget.name + ' has already been cleared');
+      }
+    }
+
+    const targetX = militaryTarget ? militaryTarget.x : Number(payload.targetX);
+    const targetY = militaryTarget ? militaryTarget.y : Number(payload.targetY);
     if (!isFinite(targetX) || !isFinite(targetY) || Math.floor(targetX) !== targetX || Math.floor(targetY) !== targetY) {
       return reject('Invalid target coordinates for deployment');
     }
@@ -1477,17 +1499,21 @@ export function dispatchWargameCommand(commandEnvelope, state, scheduler, eventS
       stayDeployed: stayDeployed,
       objective: {
         id: 'obj_' + armyId + '_' + simTimeMs,
-        type: ARMY_OBJECTIVE_TYPES.PATROL_HEX,
+        type: militaryTarget ? ARMY_OBJECTIVE_TYPES.ENGAGE_TARGET : ARMY_OBJECTIVE_TYPES.PATROL_HEX,
         status: ARMY_OBJECTIVE_STATUS.TRAVELING,
+        targetId: militaryTarget ? militaryTarget.id : null,
+        targetName: militaryTarget ? militaryTarget.name : null,
         targetX: targetX,
         targetY: targetY,
         jobId: null,
         startSimTimeMs: simTimeMs,
         dueSimTimeMs: null
       },
+      lastCombatResult: null,
       cargo: null,
       marchPlan: {
-        intent: 'patrol_hex',
+        intent: militaryTarget ? 'engage_target' : 'patrol_hex',
+        targetId: militaryTarget ? militaryTarget.id : null,
         targetX: targetX,
         targetY: targetY,
         remainingPath: path,
@@ -1506,7 +1532,7 @@ export function dispatchWargameCommand(commandEnvelope, state, scheduler, eventS
     if (!ow.units) ow.units = [];
     ow.units.push(armyUnit);
     ow.selectedUnitId = armyUnit.id;
-    revealOverworldVision(ow, armyUnit.x, armyUnit.y, armyUnit.visionRadius);
+    revealOverworldVision(ow, armyUnit.x, armyUnit.y, armyUnit.visionRadius, { simTimeMs: simTimeMs, eventStream: eventStream });
     scheduleNextMarchStep(armyUnit, state, scheduler);
 
     if (eventStream) {
@@ -1516,6 +1542,9 @@ export function dispatchWargameCommand(commandEnvelope, state, scheduler, eventS
         armyName: armyUnit.shortName,
         homeCityId: city.id,
         homeCityName: city.name,
+        targetId: militaryTarget ? militaryTarget.id : null,
+        targetName: militaryTarget ? militaryTarget.name : null,
+        objectiveType: armyUnit.objective.type,
         targetX: targetX,
         targetY: targetY,
         totalTroops: totalTroops,
@@ -1527,6 +1556,7 @@ export function dispatchWargameCommand(commandEnvelope, state, scheduler, eventS
       armyId: armyUnit.id,
       displayNumber: armyUnit.displayNumber,
       army: armyUnit,
+      targetId: militaryTarget ? militaryTarget.id : null,
       totalTroops: totalTroops,
       stepsCount: path.length
     });
@@ -1542,8 +1572,26 @@ export function dispatchWargameCommand(commandEnvelope, state, scheduler, eventS
       return reject('You do not control this Field Army');
     }
 
-    const targetX = Number(payload.targetX);
-    const targetY = Number(payload.targetY);
+    let militaryTarget = null;
+    if (payload.targetId) {
+      militaryTarget = getMilitaryTargetById(ow, payload.targetId);
+      if (!militaryTarget) {
+        return reject('Military target not found on Overworld');
+      }
+      const isTargetDiscovered = Boolean(
+        militaryTarget.discovered ||
+        (ow.explored && ow.explored[militaryTarget.y] && ow.explored[militaryTarget.y][militaryTarget.x])
+      );
+      if (!isTargetDiscovered) {
+        return reject('Explore the Overworld to discover ' + militaryTarget.name + ' before assigning an army there');
+      }
+      if (militaryTarget.status === MILITARY_TARGET_STATUS.CLEARED) {
+        return reject(militaryTarget.name + ' has already been cleared');
+      }
+    }
+
+    const targetX = militaryTarget ? militaryTarget.x : Number(payload.targetX);
+    const targetY = militaryTarget ? militaryTarget.y : Number(payload.targetY);
     if (!isFinite(targetX) || !isFinite(targetY) || Math.floor(targetX) !== targetX || Math.floor(targetY) !== targetY) {
       return reject('Invalid target coordinates for redirection');
     }
@@ -1552,7 +1600,7 @@ export function dispatchWargameCommand(commandEnvelope, state, scheduler, eventS
     }
 
     const homeCity = (world.cities && army.homeCityId) ? world.cities[army.homeCityId] : null;
-    if (homeCity && targetX === homeCity.x && targetY === homeCity.y) {
+    if (!militaryTarget && homeCity && targetX === homeCity.x && targetY === homeCity.y) {
       const retRes = startArmyReturnHome(army, state, scheduler, simTimeMs, eventStream);
       if (!retRes || !retRes.ok) return reject((retRes && retRes.reason) || 'Unable to return home');
       return accept({ armyId: army.id, redirectedToReturnHome: true });
@@ -1584,8 +1632,10 @@ export function dispatchWargameCommand(commandEnvelope, state, scheduler, eventS
 
     army.objective = {
       id: 'obj_' + army.id + '_' + simTimeMs + '_' + Math.floor(Math.random() * 1000),
-      type: ARMY_OBJECTIVE_TYPES.PATROL_HEX,
+      type: militaryTarget ? ARMY_OBJECTIVE_TYPES.ENGAGE_TARGET : ARMY_OBJECTIVE_TYPES.PATROL_HEX,
       status: ARMY_OBJECTIVE_STATUS.ACCEPTED,
+      targetId: militaryTarget ? militaryTarget.id : null,
+      targetName: militaryTarget ? militaryTarget.name : null,
       targetX: targetX,
       targetY: targetY,
       jobId: null,
@@ -1600,7 +1650,8 @@ export function dispatchWargameCommand(commandEnvelope, state, scheduler, eventS
       const totalMs = path.reduce(function(sum, st) { return sum + (st.stepDurationMs || 3000); }, 0);
       army.objective.status = ARMY_OBJECTIVE_STATUS.TRAVELING;
       army.marchPlan = {
-        intent: 'patrol_hex',
+        intent: militaryTarget ? 'engage_target' : 'patrol_hex',
+        targetId: militaryTarget ? militaryTarget.id : null,
         targetX: targetX,
         targetY: targetY,
         remainingPath: path,
@@ -1620,6 +1671,9 @@ export function dispatchWargameCommand(commandEnvelope, state, scheduler, eventS
       eventStream.publish(STREAM_TOPICS.ARMY_REDIRECTED, {
         armyId: army.id,
         armyName: army.shortName || army.name,
+        targetId: militaryTarget ? militaryTarget.id : null,
+        targetName: militaryTarget ? militaryTarget.name : null,
+        objectiveType: army.objective.type,
         targetX: targetX,
         targetY: targetY,
         stayDeployed: Boolean(army.stayDeployed)
@@ -1628,6 +1682,7 @@ export function dispatchWargameCommand(commandEnvelope, state, scheduler, eventS
 
     return accept({
       armyId: army.id,
+      targetId: militaryTarget ? militaryTarget.id : null,
       targetX: targetX,
       targetY: targetY,
       stayDeployed: Boolean(army.stayDeployed),
@@ -2367,6 +2422,10 @@ export function dispatchWargameCommand(commandEnvelope, state, scheduler, eventS
     if (!poi.discovered && !(ow.explored[poi.y] && ow.explored[poi.y][poi.x])) {
       return reject('Scout the Overworld to discover ' + poi.name + ' before marching there');
     }
+    const blockingTarget = getBlockingMilitaryTargetForAccess(ow, 'overworld_poi', poi.id);
+    if (blockingTarget) {
+      return reject('Access to ' + poi.name + ' is blocked by ' + blockingTarget.name + ' — clear it with a Field Army first');
+    }
 
     if (unit.x === poi.x && unit.y === poi.y) {
       return accept({ alreadyAtEntrance: true, poiId: poi.id, dungeonId: poi.dungeonId });
@@ -2407,6 +2466,10 @@ export function dispatchWargameCommand(commandEnvelope, state, scheduler, eventS
     }
     if (unit.x !== poi.x || unit.y !== poi.y) {
       return reject('Party must stand directly on ' + poi.name + ' before entering');
+    }
+    const blockingTarget = getBlockingMilitaryTargetForAccess(ow, 'overworld_poi', poi.id);
+    if (blockingTarget) {
+      return reject('Access to ' + poi.name + ' is blocked by ' + blockingTarget.name + ' — clear it with a Field Army first');
     }
 
     if (unit.marchPlan && unit.marchPlan.activeJobId && scheduler) {
@@ -2613,7 +2676,7 @@ export function dispatchWargameCommand(commandEnvelope, state, scheduler, eventS
       if (poi) {
         unit.x = poi.x;
         unit.y = poi.y;
-        revealOverworldVision(ow, unit.x, unit.y, unit.visionRadius || 5);
+        revealOverworldVision(ow, unit.x, unit.y, unit.visionRadius || 5, { simTimeMs: simTimeMs, eventStream: eventStream });
       }
       surfacedAtEntrance = true;
     } else {
@@ -2621,7 +2684,7 @@ export function dispatchWargameCommand(commandEnvelope, state, scheduler, eventS
       if (poi) {
         unit.x = poi.x;
         unit.y = poi.y;
-        revealOverworldVision(ow, unit.x, unit.y, unit.visionRadius || 5);
+        revealOverworldVision(ow, unit.x, unit.y, unit.visionRadius || 5, { simTimeMs: simTimeMs, eventStream: eventStream });
       }
       if (city && (unit.x !== city.x || unit.y !== city.y)) {
         const marchRes = dispatchWargameCommand({

@@ -39,6 +39,7 @@ const BASE_RECRUIT_QUEUE_LIMIT = 3; // Maximum heroes in recruitment queue (1 ac
 const BASE_TROOP_QUEUE_LIMIT = 3; // Maximum troop training batches in city queue (1 active + 2 pending)
 const MAX_TROOP_BATCH_SIZE = 10; // Maximum soldiers queued in a single training batch
 const ARMY_PATROL_DURATION_MS = 3000; // Tunable frontier patrol sweep duration after arriving at target hex
+const ARMY_COMBAT_DURATION_MS = 3000; // Tunable military target engagement duration after arriving at target hex
 const DEMOLISH_SALVAGE_RATIO = 0.35; // 35% salvage returned upon demolishing a building
 const CANCEL_CLEANUP_TIME_RATIO = 0.50; // Cancelling active construction requires 50% of elapsed time for site cleanup
 
@@ -104,6 +105,10 @@ const STREAM_TOPICS = {
   ARMY_OBJECTIVE_FAILED:    'military.armyObjectiveFailed',
   ARMY_RETURNING:           'military.armyReturning',
   ARMY_REINTEGRATED:        'military.armyReintegrated',
+  MILITARY_TARGET_DISCOVERED: 'military.targetDiscovered',
+  ARMY_COMBAT_STARTED:        'military.armyCombatStarted',
+  ARMY_COMBAT_RESOLVED:       'military.armyCombatResolved',
+  MILITARY_TARGET_CLEARED:    'military.targetCleared',
   HERO_DISMISSED:       'guild.heroDismissed',
   LEADER_CHANGED:       'guild.leaderChanged',
   STORAGE_UPDATED:      'city.storageUpdated',
@@ -832,1246 +837,6 @@ const OVERWORLD_HOSTILE_ARCHETYPES = {
     color: '#c084fc'
   }
 };
-
-  // --- Module: src/engine/rng.js ---
-// Deterministic Seeded PRNG (Mulberry32) & Seed String Hashing
-
-function hashSeedString(seedStr, salt = 0) {
-  const str = String(seedStr || 'STAR-1000') + ':' + String(salt);
-  let h = 2166136261 >>> 0;
-  for (let i = 0; i < str.length; i++) {
-    h ^= str.charCodeAt(i);
-    h = Math.imul(h, 16777619);
-  }
-  return (h >>> 0) || 1;
-}
-
-function createSeededRng(numericSeed) {
-  let state = (numericSeed >>> 0) || 1;
-  return function nextRand() {
-    state = (state + 0x6D2B79F5) >>> 0;
-    let t = Math.imul(state ^ (state >>> 15), 1 | state);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
-function randomSeedCode(prefix = 'STAR') {
-  const num = 1000 + Math.floor(Math.random() * 8999);
-  return `${prefix}-${num}`;
-}
-
-  // --- Module: src/ui/shared/gridAdapters.js ---
-// =============================================================================
-// UNIFIED GRID ADAPTERS (ADR-0014 — Path A: Best-in-Class Domain Projections)
-// Pure, deterministic, zero-DOM ES2017 coordinate & topology math shared across:
-//   1. OrthoGridAdapter (Dungeon 2.5D Oblique Square Grid)
-//   2. IsoGridAdapter   (Bastion City 2:1 Rotated Square Isometric Diamond Grid)
-//   3. HexGridAdapter   (Overworld Pointy-Top Hexagonal Axial/Cube Grid)
-// =============================================================================
-
-const SQRT3 = Math.sqrt(3);
-
-const GRID_TYPES = {
-  ORTHO: 'ortho',
-  ISO: 'iso',
-  HEX_POINTY: 'hex_pointy'
-};
-
-// ---------------------------------------------------------------------------
-// 1. ORTHOGONAL SQUARE GRID ADAPTER (Starfall Vaults — 2.5D Oblique Dungeon)
-// ---------------------------------------------------------------------------
-function createOrthoGridAdapter(options) {
-  const opts = options || {};
-  const tw = opts.tileWidth || 32;
-  const th = opts.tileHeight || 32;
-
-  return {
-    type: GRID_TYPES.ORTHO,
-    tileWidth: tw,
-    tileHeight: th,
-
-    tileToWorld: function(coord) {
-      return {
-        wx: (coord.x + 0.5) * tw,
-        wy: (coord.y + 0.5) * th
-      };
-    },
-
-    worldToTile: function(wx, wy) {
-      return {
-        x: Math.floor(wx / tw),
-        y: Math.floor(wy / th)
-      };
-    },
-
-    getNeighbors: function(coord, includeDiagonals) {
-      const x = coord.x;
-      const y = coord.y;
-      const list = [
-        { x: x, y: y - 1 },
-        { x: x + 1, y: y },
-        { x: x, y: y + 1 },
-        { x: x - 1, y: y }
-      ];
-      if (includeDiagonals) {
-        list.push(
-          { x: x + 1, y: y - 1 },
-          { x: x + 1, y: y + 1 },
-          { x: x - 1, y: y + 1 },
-          { x: x - 1, y: y - 1 }
-        );
-      }
-      return list;
-    },
-
-    getDistance: function(a, b) {
-      return Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
-    },
-
-    getTilePolygon: function(coord) {
-      const x0 = coord.x * tw;
-      const y0 = coord.y * th;
-      return [
-        { wx: x0, wy: y0 },
-        { wx: x0 + tw, wy: y0 },
-        { wx: x0 + tw, wy: y0 + th },
-        { wx: x0, wy: y0 + th }
-      ];
-    }
-  };
-}
-
-// ---------------------------------------------------------------------------
-// 2. ROTATED SQUARE (2:1 ISOMETRIC DIAMOND) ADAPTER (Bastion City 8x8 Plots)
-// ---------------------------------------------------------------------------
-function createIsoGridAdapter(options) {
-  const opts = options || {};
-  const tw = opts.tileWidth || 96;
-  const th = opts.tileHeight || 48;
-  const halfW = tw / 2;
-  const halfH = th / 2;
-
-  return {
-    type: GRID_TYPES.ISO,
-    tileWidth: tw,
-    tileHeight: th,
-
-    tileToWorld: function(coord) {
-      return {
-        wx: (coord.x - coord.y) * halfW,
-        wy: (coord.x + coord.y) * halfH
-      };
-    },
-
-    worldToTile: function(wx, wy) {
-      const fx = (wx / halfW + wy / halfH) * 0.5;
-      const fy = (wy / halfH - wx / halfW) * 0.5;
-      return {
-        x: Math.round(fx),
-        y: Math.round(fy)
-      };
-    },
-
-    getNeighbors: function(coord) {
-      const x = coord.x;
-      const y = coord.y;
-      return [
-        { x: x, y: y - 1 },
-        { x: x + 1, y: y },
-        { x: x, y: y + 1 },
-        { x: x - 1, y: y }
-      ];
-    },
-
-    getDistance: function(a, b) {
-      return Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
-    },
-
-    getTilePolygon: function(coord) {
-      const c = this.tileToWorld(coord);
-      return [
-        { wx: c.wx, wy: c.wy - halfH },
-        { wx: c.wx + halfW, wy: c.wy },
-        { wx: c.wx, wy: c.wy + halfH },
-        { wx: c.wx - halfW, wy: c.wy }
-      ];
-    },
-
-    // Back-to-front painter's sort order for isometric 3D building overlap
-    getDrawOrder: function(cols, rows) {
-      const order = [];
-      for (let sum = 0; sum <= (cols - 1) + (rows - 1); sum++) {
-        for (let x = 0; x < cols; x++) {
-          const y = sum - x;
-          if (y >= 0 && y < rows) {
-            order.push({ x: x, y: y, plotIndex: y * cols + x });
-          }
-        }
-      }
-      return order;
-    }
-  };
-}
-
-// ---------------------------------------------------------------------------
-// 3. POINTY-TOP HEXAGONAL GRID ADAPTER (Overworld Macro Strategy — Axial/Cube)
-// Implements Red Blob Games canonical axial (q, r) & cube (q, r, s) math.
-// ---------------------------------------------------------------------------
-const HEX_DIRECTIONS = [
-  { q: 1, r: 0 },
-  { q: 1, r: -1 },
-  { q: 0, r: -1 },
-  { q: -1, r: 0 },
-  { q: -1, r: 1 },
-  { q: 0, r: 1 }
-];
-
-function cubeRound(fq, fr) {
-  const fs = -fq - fr;
-  let rq = Math.round(fq);
-  let rr = Math.round(fr);
-  const rs = Math.round(fs);
-
-  const qDiff = Math.abs(rq - fq);
-  const rDiff = Math.abs(rr - fr);
-  const sDiff = Math.abs(rs - fs);
-
-  if (qDiff > rDiff && qDiff > sDiff) {
-    rq = -rr - rs;
-  } else if (rDiff > sDiff) {
-    rr = -rq - rs;
-  }
-  return { q: rq === 0 ? 0 : rq, r: rr === 0 ? 0 : rr };
-}
-
-function createHexGridAdapter(options) {
-  const opts = options || {};
-  const size = opts.hexSize || 28;
-
-  return {
-    type: GRID_TYPES.HEX_POINTY,
-    hexSize: size,
-    tileWidth: SQRT3 * size,
-    tileHeight: 2 * size,
-
-    tileToWorld: function(coord) {
-      const q = coord.q;
-      const r = coord.r;
-      return {
-        wx: size * (SQRT3 * q + (SQRT3 * 0.5) * r),
-        wy: size * (1.5 * r)
-      };
-    },
-
-    worldToTile: function(wx, wy) {
-      const fq = ((SQRT3 / 3) * wx - (1 / 3) * wy) / size;
-      const fr = ((2 / 3) * wy) / size;
-      return cubeRound(fq, fr);
-    },
-
-    getNeighbors: function(coord) {
-      const out = [];
-      for (let i = 0; i < HEX_DIRECTIONS.length; i++) {
-        out.push({
-          q: coord.q + HEX_DIRECTIONS[i].q,
-          r: coord.r + HEX_DIRECTIONS[i].r
-        });
-      }
-      return out;
-    },
-
-    getDistance: function(a, b) {
-      const dq = a.q - b.q;
-      const dr = a.r - b.r;
-      return (Math.abs(dq) + Math.abs(dq + dr) + Math.abs(dr)) * 0.5;
-    },
-
-    getRing: function(center, radius) {
-      if (radius <= 0) return [{ q: center.q, r: center.r }];
-      const results = [];
-      let curQ = center.q + HEX_DIRECTIONS[4].q * radius;
-      let curR = center.r + HEX_DIRECTIONS[4].r * radius;
-      for (let side = 0; side < 6; side++) {
-        for (let step = 0; step < radius; step++) {
-          results.push({ q: curQ, r: curR });
-          curQ += HEX_DIRECTIONS[side].q;
-          curR += HEX_DIRECTIONS[side].r;
-        }
-      }
-      return results;
-    },
-
-    getSpiral: function(center, maxRadius) {
-      const results = [{ q: center.q, r: center.r }];
-      for (let rad = 1; rad <= maxRadius; rad++) {
-        const ring = this.getRing(center, rad);
-        for (let i = 0; i < ring.length; i++) {
-          results.push(ring[i]);
-        }
-      }
-      return results;
-    },
-
-    // Odd-r offset (col, row) <-> Axial (q, r) for lossless legacy Overworld coordinate migration
-    offsetToAxial: function(col, row) {
-      const q = col - Math.floor((row - (row & 1)) / 2);
-      return { q: q, r: row };
-    },
-
-    axialToOffset: function(q, r) {
-      const col = q + Math.floor((r - (r & 1)) / 2);
-      return { col: col, row: r };
-    },
-
-    getTilePolygon: function(coord) {
-      const c = this.tileToWorld(coord);
-      const pts = [];
-      for (let i = 0; i < 6; i++) {
-        const angleRad = (Math.PI / 180) * (60 * i - 30);
-        pts.push({
-          wx: c.wx + size * Math.cos(angleRad),
-          wy: c.wy + size * Math.sin(angleRad)
-        });
-      }
-      return pts;
-    }
-  };
-}
-
-  // --- Module: src/wargame/engine/hexSpatial.js ---
-// Overworld Hex Spatial Primitives — Single Source of Truth (Task 03)
-// Delegates all axial/cube/odd-r hex math to the canonical createHexGridAdapter() in src/ui/shared/gridAdapters.js.
-// Preserves odd-r offset (x = col, y = row) storage for 100% compatibility with existing Overworld maps & saves.
-
-
-// Matches HEX_DIRECTIONS order in src/ui/shared/gridAdapters.js:
-// 0: E (+1, 0), 1: NE (+1, -1), 2: NW (0, -1), 3: W (-1, 0), 4: SW (-1, +1), 5: SE (0, +1)
-const HEX_DIR_NAMES = ['E', 'NE', 'NW', 'W', 'SW', 'SE'];
-
-const overworldHexAdapter = createHexGridAdapter({ hexSize: 22 });
-
-function getOverworldHexAdapter() {
-  return overworldHexAdapter;
-}
-
-function isInOverworldBounds(overworld, x, y) {
-  if (!overworld || typeof overworld.width !== 'number' || typeof overworld.height !== 'number') return false;
-  return x >= 0 && x < overworld.width && y >= 0 && y < overworld.height;
-}
-
-function resolveHexDirectionIndex(dirIndexOrName) {
-  if (typeof dirIndexOrName === 'number' && Number.isInteger(dirIndexOrName)) {
-    return (dirIndexOrName >= 0 && dirIndexOrName < 6) ? dirIndexOrName : -1;
-  }
-  if (typeof dirIndexOrName === 'string') {
-    const upper = dirIndexOrName.trim().toUpperCase();
-    for (let i = 0; i < HEX_DIR_NAMES.length; i++) {
-      if (HEX_DIR_NAMES[i] === upper) return i;
-    }
-  }
-  return -1;
-}
-
-function getHexNeighbors(x, y, overworld) {
-  const axial = overworldHexAdapter.offsetToAxial(x, y);
-  const rawNeighbors = overworldHexAdapter.getNeighbors(axial);
-  const results = [];
-  for (let i = 0; i < rawNeighbors.length; i++) {
-    const off = overworldHexAdapter.axialToOffset(rawNeighbors[i].q, rawNeighbors[i].r);
-    if (overworld && !isInOverworldBounds(overworld, off.col, off.row)) {
-      continue;
-    }
-    results.push({
-      x: off.col,
-      y: off.row,
-      dirIndex: i,
-      dirName: HEX_DIR_NAMES[i]
-    });
-  }
-  return results;
-}
-
-function getHexNeighborInDirection(x, y, dirIndexOrName, overworld) {
-  const dirIdx = resolveHexDirectionIndex(dirIndexOrName);
-  if (dirIdx === -1) return null;
-  const axial = overworldHexAdapter.offsetToAxial(x, y);
-  const rawNeighbors = overworldHexAdapter.getNeighbors(axial);
-  const n = rawNeighbors[dirIdx];
-  if (!n) return null;
-  const off = overworldHexAdapter.axialToOffset(n.q, n.r);
-  if (overworld && !isInOverworldBounds(overworld, off.col, off.row)) {
-    return null;
-  }
-  return {
-    x: off.col,
-    y: off.row,
-    dirIndex: dirIdx,
-    dirName: HEX_DIR_NAMES[dirIdx]
-  };
-}
-
-function getHexDistance(x1, y1, x2, y2) {
-  if (x1 === x2 && y1 === y2) return 0;
-  const a = overworldHexAdapter.offsetToAxial(x1, y1);
-  const b = overworldHexAdapter.offsetToAxial(x2, y2);
-  return overworldHexAdapter.getDistance(a, b);
-}
-
-function areHexesAdjacent(x1, y1, x2, y2) {
-  return getHexDistance(x1, y1, x2, y2) === 1;
-}
-
-function getHexesInRange(cx, cy, radius, overworld) {
-  const r = Math.max(0, Math.floor(typeof radius === 'number' ? radius : 0));
-  const centerAxial = overworldHexAdapter.offsetToAxial(cx, cy);
-  const spiral = overworldHexAdapter.getSpiral(centerAxial, r);
-  const results = [];
-  for (let i = 0; i < spiral.length; i++) {
-    const off = overworldHexAdapter.axialToOffset(spiral[i].q, spiral[i].r);
-    if (overworld && !isInOverworldBounds(overworld, off.col, off.row)) {
-      continue;
-    }
-    results.push({ x: off.col, y: off.row });
-  }
-  return results;
-}
-
-  // --- Module: src/wargame/engine/pathfinding.js ---
-// A* Terrain-Weighted Pathfinding & Overworld Procedural Generation Engine
-
-
-
-
-
-function computeMinOverworldMarchCostMs() {
-  let minCost = Infinity;
-  const keys = Object.keys(OVERWORLD_TERRAIN_DEFS || {});
-  for (let i = 0; i < keys.length; i++) {
-    const def = OVERWORLD_TERRAIN_DEFS[keys[i]];
-    if (def && def.passable && typeof def.marchTimeMs === 'number' && isFinite(def.marchTimeMs) && def.marchTimeMs > 0) {
-      if (def.marchTimeMs < minCost) minCost = def.marchTimeMs;
-    }
-  }
-  return isFinite(minCost) ? minCost : 3000;
-}
-
-const MIN_OVERWORLD_MARCH_COST_MS = computeMinOverworldMarchCostMs();
-
-function generateOverworldMap(width = OVERWORLD_MAP_W, height = OVERWORLD_MAP_H, seedCode = 'STAR-7777') {
-  const numSeed = typeof seedCode === 'number' ? seedCode : hashSeedString(String(seedCode), 404);
-  const rng = createSeededRng(numSeed);
-
-  const tiles = [];
-  const explored = [];
-
-  for (let y = 0; y < height; y++) {
-    const row = [];
-    const expRow = [];
-    for (let x = 0; x < width; x++) {
-      expRow.push(false);
-
-      // Outer border is impassable Star-Spire Mountains
-      if (x === 0 || y === 0 || x === width - 1 || y === height - 1) {
-        row.push(OW_TERRAIN_MOUNTAINS);
-        continue;
-      }
-
-      const nx = x / width;
-      const ny = y / height;
-      const distCenter = Math.hypot(nx - 0.5, ny - 0.5);
-      const r = rng();
-
-      if (distCenter > 0.43 && r < 0.65) {
-        row.push(r < 0.35 ? OW_TERRAIN_MOUNTAINS : OW_TERRAIN_HILLS);
-      } else if (distCenter > 0.30 && r < 0.32) {
-        row.push(OW_TERRAIN_HILLS);
-      } else if (r < 0.22) {
-        row.push(OW_TERRAIN_FOREST);
-      } else if (r < 0.28) {
-        row.push(OW_TERRAIN_HILLS);
-      } else if (r < 0.33 && ny > 0.58) {
-        row.push(OW_TERRAIN_WATER);
-      } else if (r > 0.90) {
-        row.push(OW_TERRAIN_FERTILE_VALE);
-      } else {
-        row.push(OW_TERRAIN_PLAINS);
-      }
-    }
-    tiles.push(row);
-    explored.push(expRow);
-  }
-
-  // Carve fertile pioneer starting valley near center
-  const spawnX = Math.floor(width / 2);
-  const spawnY = Math.floor(height / 2);
-
-  for (let dy = -3; dy <= 3; dy++) {
-    for (let dx = -3; dx <= 3; dx++) {
-      const ty = spawnY + dy;
-      const tx = spawnX + dx;
-      if (ty > 0 && ty < height - 1 && tx > 0 && tx < width - 1) {
-        if (Math.abs(dx) <= 1 && Math.abs(dy) <= 1) {
-          tiles[ty][tx] = OW_TERRAIN_FERTILE_VALE;
-        } else {
-          tiles[ty][tx] = OW_TERRAIN_PLAINS;
-        }
-      }
-    }
-  }
-
-  // Guarantee accessible forest & hills near starting basin
-  tiles[spawnY - 2][spawnX - 2] = OW_TERRAIN_FOREST;
-  tiles[spawnY - 2][spawnX - 1] = OW_TERRAIN_FOREST;
-  tiles[spawnY + 2][spawnX + 2] = OW_TERRAIN_HILLS;
-  tiles[spawnY + 2][spawnX + 1] = OW_TERRAIN_HILLS;
-
-  // Points of Interest (Resource Caches, Timber Camps, Quarries, and Dungeon Entrances)
-  const pois = [
-    {
-      id: 'poi_cache_1',
-      type: 'resource_cache',
-      name: 'Pioneer Supply Cache',
-      x: spawnX - 2,
-      y: spawnY,
-      depleted: false,
-      yield: { wood: 35, stone: 25, food: 20 }
-    },
-    {
-      id: 'poi_timber_1',
-      type: 'timber_camp',
-      name: 'Elderwood Timber Grove',
-      x: spawnX - 3,
-      y: spawnY - 2,
-      depleted: false,
-      yield: { wood: 45 }
-    },
-    {
-      id: 'poi_quarry_1',
-      type: 'stone_outcrop',
-      name: 'Dwarven Mason Quarry',
-      x: spawnX + 3,
-      y: spawnY + 2,
-      depleted: false,
-      yield: { stone: 45 }
-    }
-  ];
-
-  // Register curated Dungeon Entrance POIs across the Overworld frontier
-  const dngCatalog = OVERWORLD_DUNGEON_CATALOG || [];
-  for (let d = 0; d < dngCatalog.length; d++) {
-    const def = dngCatalog[d];
-    const px = Math.max(2, Math.min(width - 3, spawnX + def.offsetDx));
-    const py = Math.max(2, Math.min(height - 3, spawnY + def.offsetDy));
-    pois.push({
-      id: def.poiId,
-      type: 'dungeon_entrance',
-      name: def.name,
-      dungeonId: def.dungeonId,
-      profileId: def.profileId,
-      recommendedLevel: def.recommendedLevel || 1,
-      accentColor: def.accentColor || '#f87171',
-      x: px,
-      y: py,
-      discovered: false,
-      depleted: false
-    });
-  }
-
-  // Ensure all POIs sit on passable terrain and have a clear path from spawn
-  for (let i = 0; i < pois.length; i++) {
-    const p = pois[i];
-    if (tiles[p.y] && (tiles[p.y][p.x] === OW_TERRAIN_MOUNTAINS || tiles[p.y][p.x] === OW_TERRAIN_WATER)) {
-      tiles[p.y][p.x] = OW_TERRAIN_PLAINS;
-    }
-  }
-
-  // Spawn deterministic Overworld Wandering Hostiles outside the safe starting basin (radius >= 5)
-  const hostiles = [];
-  const hostileKeys = Object.keys(OVERWORLD_HOSTILE_ARCHETYPES || {});
-  const hostilePlacements = [
-    { dx: 3,   dy: -2,  archId: 'raider_pack' },
-    { dx: -6,  dy: 3,   archId: 'brood_swarm' },
-    { dx: 8,   dy: 4,   archId: 'raider_pack' },
-    { dx: -8,  dy: -5,  archId: 'cultist_patrol' },
-    { dx: 10,  dy: -6,  archId: 'brood_swarm' },
-    { dx: -11, dy: 7,   archId: 'cultist_patrol' }
-  ];
-  for (let h = 0; h < hostilePlacements.length; h++) {
-    const hp = hostilePlacements[h];
-    const hx = Math.max(2, Math.min(width - 3, spawnX + hp.dx));
-    const hy = Math.max(2, Math.min(height - 3, spawnY + hp.dy));
-    // Never overlap spawn or any POI
-    const overlapsPoi = pois.some(function(p) { return p.x === hx && p.y === hy; });
-    if (overlapsPoi) continue;
-    if (tiles[hy] && (tiles[hy][hx] === OW_TERRAIN_MOUNTAINS || tiles[hy][hx] === OW_TERRAIN_WATER)) {
-      tiles[hy][hx] = OW_TERRAIN_PLAINS;
-    }
-    const arch = OVERWORLD_HOSTILE_ARCHETYPES[hp.archId] || OVERWORLD_HOSTILE_ARCHETYPES[hostileKeys[0]];
-    if (!arch) continue;
-    hostiles.push({
-      id: 'ow_hostile_' + (h + 1),
-      archetypeId: arch.id,
-      name: arch.name,
-      icon: arch.icon,
-      color: arch.color || '#f87171',
-      level: arch.level || 1,
-      power: arch.power || 18,
-      hp: arch.maxHp || 60,
-      maxHp: arch.maxHp || 60,
-      rewardGold: arch.rewardGold || 20,
-      rewardOre: arch.rewardOre || 4,
-      rewardXp: arch.rewardXp || 25,
-      x: hx,
-      y: hy,
-      homeX: hx,
-      homeY: hy,
-      alive: true
-    });
-  }
-
-  // Spawn ONLY the Pioneer Settler unit initially (NO Dungeon Hero exists yet!)
-  const settlerArch = UNIT_ARCHETYPES.settler;
-  const settlerUnit = {
-    id: 'unit_settler_1',
-    name: settlerArch.name,
-    shortName: settlerArch.shortName,
-    unitType: 'settler',
-    x: spawnX,
-    y: spawnY,
-    hp: settlerArch.maxHp,
-    maxHp: settlerArch.maxHp,
-    visionRadius: settlerArch.visionRadius,
-    canFoundCity: true,
-    canEnterDungeon: false,
-    alive: true,
-    status: 'idle', // 'idle' | 'marching' | 'settled'
-    cargo: null,
-    marchPlan: null
-  };
-
-  const ow = {
-    width: width,
-    height: height,
-    seedCode: String(seedCode),
-    spawnX: spawnX,
-    spawnY: spawnY,
-    tiles: tiles,
-    explored: explored,
-    pois: pois,
-    hostiles: hostiles,
-    units: [settlerUnit],
-    selectedUnitId: settlerUnit.id
-  };
-
-  revealOverworldVision(ow, spawnX, spawnY, settlerUnit.visionRadius);
-
-  return ow;
-}
-
-function revealOverworldVision(overworld, cx, cy, radius = 4) {
-  if (!overworld || !overworld.explored) return;
-  const inRange = getHexesInRange(cx, cy, radius, overworld);
-  for (let i = 0; i < inRange.length; i++) {
-    const c = inRange[i];
-    if (overworld.explored[c.y]) {
-      overworld.explored[c.y][c.x] = true;
-    }
-  }
-}
-
-function isOverworldTilePassable(overworld, x, y) {
-  if (!overworld || !overworld.tiles) return false;
-  if (x < 0 || x >= overworld.width || y < 0 || y >= overworld.height) return false;
-  const tId = overworld.tiles[y][x];
-  const tDef = OVERWORLD_TERRAIN_DEFS[tId];
-  return Boolean(tDef && tDef.passable);
-}
-
-function getOverworldTileMarchCostMs(overworld, x, y) {
-  if (!overworld || !overworld.tiles) return 3000;
-  if (x < 0 || x >= overworld.width || y < 0 || y >= overworld.height) return Infinity;
-  const tId = overworld.tiles[y][x];
-  const tDef = OVERWORLD_TERRAIN_DEFS[tId];
-  return tDef ? tDef.marchTimeMs : 3000;
-}
-
-// Terrain-weighted Hex A* Pathfinding on the Overworld Odd-R Hex Grid
-function findOverworldPath(overworld, startX, startY, targetX, targetY, maxNodes = 2500) {
-  if (!overworld || !overworld.tiles) return null;
-  if (!isInOverworldBounds(overworld, startX, startY) || !isInOverworldBounds(overworld, targetX, targetY)) return null;
-  if (startX === targetX && startY === targetY) return [];
-  if (!isOverworldTilePassable(overworld, targetX, targetY)) return null;
-
-  const w = overworld.width;
-  const startKey = startY * w + startX;
-  const targetKey = targetY * w + targetX;
-
-  const gScore = {};
-  const fScore = {};
-  const cameFrom = {};
-  const closed = {};
-
-  gScore[startKey] = 0;
-  fScore[startKey] = getHexDistance(startX, startY, targetX, targetY) * MIN_OVERWORLD_MARCH_COST_MS;
-
-  const openList = [startKey];
-
-  let visited = 0;
-  while (openList.length > 0 && visited < maxNodes) {
-    visited++;
-
-    // Find node with lowest fScore
-    let bestIdx = 0;
-    let bestKey = openList[0];
-    let bestF = fScore[bestKey] !== undefined ? fScore[bestKey] : Infinity;
-    for (let i = 1; i < openList.length; i++) {
-      const k = openList[i];
-      const fk = fScore[k] !== undefined ? fScore[k] : Infinity;
-      if (fk < bestF) {
-        bestF = fk;
-        bestKey = k;
-        bestIdx = i;
-      }
-    }
-
-    openList.splice(bestIdx, 1);
-
-    if (bestKey === targetKey) {
-      // Reconstruct path (excluding start tile)
-      const path = [];
-      let curr = targetKey;
-      while (curr !== startKey) {
-        const px = curr % w;
-        const py = Math.floor(curr / w);
-        path.push({
-          x: px,
-          y: py,
-          stepDurationMs: getOverworldTileMarchCostMs(overworld, px, py)
-        });
-        curr = cameFrom[curr];
-      }
-      path.reverse();
-      return path;
-    }
-
-    closed[bestKey] = true;
-    const cx = bestKey % w;
-    const cy = Math.floor(bestKey / w);
-    const curG = gScore[bestKey];
-
-    const neighbors = getHexNeighbors(cx, cy, overworld);
-    for (let d = 0; d < neighbors.length; d++) {
-      const nx = neighbors[d].x;
-      const ny = neighbors[d].y;
-      if (!isOverworldTilePassable(overworld, nx, ny)) continue;
-
-      const nKey = ny * w + nx;
-      if (closed[nKey]) continue;
-
-      const stepCost = getOverworldTileMarchCostMs(overworld, nx, ny);
-      const tentativeG = curG + stepCost;
-
-      if (gScore[nKey] === undefined || tentativeG < gScore[nKey]) {
-        cameFrom[nKey] = bestKey;
-        gScore[nKey] = tentativeG;
-        fScore[nKey] = tentativeG + getHexDistance(nx, ny, targetX, targetY) * MIN_OVERWORLD_MARCH_COST_MS;
-        if (openList.indexOf(nKey) === -1) {
-          openList.push(nKey);
-        }
-      }
-    }
-  }
-
-  return null;
-}
-
-  // --- Module: src/wargame/data/tasks.js ---
-// Reactive Event-Driven Guided Tasks & Campaign Milestones DAG (Directed Acyclic Graph)
-// Tasks subscribe to STREAM_TOPICS and transition: LOCKED -> AVAILABLE -> COMPLETED -> CLAIMED
-
-
-const CAMPAIGN_TASKS_DAG = [
-  {
-    id: 'task_scout_wilderness',
-    title: '1. Pioneer Reconnaissance',
-    category: 'exploration',
-    prerequisites: [],
-    triggerTopics: [STREAM_TOPICS.UNIT_MARCH_STEP, STREAM_TOPICS.UNIT_MARCH_COMPLETED, STREAM_TOPICS.CITY_FOUNDED],
-    desc: 'March your Pioneer Settler across the Overworld to survey the surrounding frontier (move at least 2 tiles).',
-    rewardLabel: '+40 Wood, +30 Food',
-    reward: { wood: 40, food: 30 },
-    evaluate: function(state) {
-      if (!state || !state.world) return { completed: false, progress: 0, target: 2 };
-      const steps = state.world.stats.totalUnitSteps || 0;
-      const cityCount = Object.keys(state.world.cities || {}).length;
-      const prog = cityCount > 0 ? 2 : Math.min(2, steps);
-      return { completed: prog >= 2, progress: prog, target: 2 };
-    }
-  },
-  {
-    id: 'task_found_first_city',
-    title: '2. Found Your Settlement',
-    category: 'settlement',
-    prerequisites: [],
-    triggerTopics: [STREAM_TOPICS.CITY_FOUNDED],
-    desc: 'Position your Pioneer Settler on a fertile site and establish your initial settlement with its Meeting Hall.',
-    rewardLabel: '+60 Wood, +60 Stone, +50 Gold',
-    reward: { wood: 60, stone: 60, gold: 50 },
-    evaluate: function(state) {
-      if (!state || !state.world) return { completed: false, progress: 0, target: 1 };
-      const count = Object.keys(state.world.cities || {}).length;
-      return { completed: count >= 1, progress: Math.min(1, count), target: 1 };
-    }
-  },
-  {
-    id: 'task_build_first_hut',
-    title: '3. Expand the Settlement',
-    category: 'civic',
-    prerequisites: ['task_found_first_city'],
-    triggerTopics: [STREAM_TOPICS.BUILDING_COMPLETED],
-    desc: 'Now that you founded your first city, you have to grow it. Build a Hut to attract more people.',
-    rewardLabel: '+40 Wood, +30 Food',
-    reward: { wood: 40, food: 30 },
-    evaluate: function(state) {
-      if (!state || !state.world || !state.world.cities) return { completed: false, progress: 0, target: 1 };
-      const cities = Object.values(state.world.cities);
-      for (let i = 0; i < cities.length; i++) {
-        const c = cities[i];
-        const hasHut = (c.plots || []).some(function(p) { return p.buildingId === 'hut' && (p.level || 0) >= 1; }) ||
-                       ((c.buildings && c.buildings.hut) || 0) >= 1;
-        if (hasHut) return { completed: true, progress: 1, target: 1 };
-      }
-      return { completed: false, progress: 0, target: 1 };
-    }
-  },
-  {
-    id: 'task_build_garden',
-    title: '4. Cultivate Food',
-    category: 'economy',
-    prerequisites: ['task_build_first_hut'],
-    triggerTopics: [STREAM_TOPICS.BUILDING_COMPLETED],
-    desc: 'As population grows, demands on food increase. Construct a Garden to produce food and prevent starvation.',
-    rewardLabel: '+40 Wood, +30 Stone',
-    reward: { wood: 40, stone: 30 },
-    evaluate: function(state) {
-      if (!state || !state.world || !state.world.cities) return { completed: false, progress: 0, target: 1 };
-      const cities = Object.values(state.world.cities);
-      for (let i = 0; i < cities.length; i++) {
-        const b = cities[i].buildings || {};
-        if ((b.garden && b.garden >= 1) || (b.farmstead && b.farmstead >= 1)) {
-          return { completed: true, progress: 1, target: 1 };
-        }
-      }
-      return { completed: false, progress: 0, target: 1 };
-    }
-  },
-  {
-    id: 'task_build_well',
-    title: '5. Fresh Water Supply',
-    category: 'civic',
-    prerequisites: ['task_build_garden'],
-    triggerTopics: [STREAM_TOPICS.BUILDING_COMPLETED],
-    desc: 'Dig a Well to supply clean drinking water for your citizens and support growth.',
-    rewardLabel: '+30 Wood, +40 Stone, +20 Gold',
-    reward: { wood: 30, stone: 40, gold: 20 },
-    evaluate: function(state) {
-      if (!state || !state.world || !state.world.cities) return { completed: false, progress: 0, target: 1 };
-      const cities = Object.values(state.world.cities);
-      for (let i = 0; i < cities.length; i++) {
-        const b = cities[i].buildings || {};
-        if (b.well && b.well >= 1) {
-          return { completed: true, progress: 1, target: 1 };
-        }
-      }
-      return { completed: false, progress: 0, target: 1 };
-    }
-  },
-  {
-    id: 'task_grow_population_12',
-    title: '6. Frontier Growth',
-    category: 'civic',
-    prerequisites: ['task_build_well'],
-    triggerTopics: [STREAM_TOPICS.RESOURCE_TICK, STREAM_TOPICS.BUILDING_COMPLETED],
-    desc: 'Build additional Huts and keep food and water stocked to grow your population to 12 citizens.',
-    rewardLabel: '+50 Wood, +50 Stone',
-    reward: { wood: 50, stone: 50 },
-    evaluate: function(state) {
-      if (!state || !state.world || !state.world.cities) return { completed: false, progress: 0, target: 12 };
-      const cities = Object.values(state.world.cities);
-      let maxCurrent = 5;
-      for (let i = 0; i < cities.length; i++) {
-        const pop = cities[i].population ? cities[i].population.current : 5;
-        if (pop > maxCurrent) maxCurrent = pop;
-      }
-      const prog = Math.min(12, maxCurrent);
-      return { completed: prog >= 12, progress: prog, target: 12 };
-    }
-  },
-  {
-    id: 'task_build_lumber_camp',
-    title: '7. Timber Industry',
-    category: 'economy',
-    prerequisites: ['task_grow_population_12'],
-    triggerTopics: [STREAM_TOPICS.BUILDING_COMPLETED],
-    desc: 'With 12 citizens in town, construct a Lumber Camp to supply sturdy construction timber.',
-    rewardLabel: '+60 Wood, +40 Stone',
-    reward: { wood: 60, stone: 40 },
-    evaluate: function(state) {
-      if (!state || !state.world || !state.world.cities) return { completed: false, progress: 0, target: 1 };
-      const cities = Object.values(state.world.cities);
-      for (let i = 0; i < cities.length; i++) {
-        const b = cities[i].buildings || {};
-        if ((b.lumber_camp && b.lumber_camp >= 1) || (b.lumber_hut && b.lumber_hut >= 1) || (b.sawmill && b.sawmill >= 1)) {
-          return { completed: true, progress: 1, target: 1 };
-        }
-      }
-      return { completed: false, progress: 0, target: 1 };
-    }
-  },
-  {
-    id: 'task_build_quarry',
-    title: '8. Stone Quarrying',
-    category: 'economy',
-    prerequisites: ['task_build_lumber_camp'],
-    triggerTopics: [STREAM_TOPICS.BUILDING_COMPLETED],
-    desc: 'Grow population to 15 and construct a Quarry to cut heavy granite stone blocks.',
-    rewardLabel: '+50 Wood, +60 Stone, +40 Gold',
-    reward: { wood: 50, stone: 60, gold: 40 },
-    evaluate: function(state) {
-      if (!state || !state.world || !state.world.cities) return { completed: false, progress: 0, target: 1 };
-      const cities = Object.values(state.world.cities);
-      for (let i = 0; i < cities.length; i++) {
-        const b = cities[i].buildings || {};
-        if (b.quarry && b.quarry >= 1) {
-          return { completed: true, progress: 1, target: 1 };
-        }
-      }
-      return { completed: false, progress: 0, target: 1 };
-    }
-  },
-  {
-    id: 'task_build_guild_hall',
-    title: '9. Charter the Adventurers Guild',
-    category: 'military',
-    prerequisites: ['task_build_quarry'],
-    triggerTopics: [STREAM_TOPICS.BUILDING_COMPLETED],
-    desc: 'Grow population to 20 and construct the Adventurers Guild to unlock Hero recruitment.',
-    rewardLabel: '+100 Gold, +50 Food (Unlocks Heroes)',
-    reward: { gold: 100, food: 50 },
-    evaluate: function(state) {
-      if (!state || !state.world || !state.world.cities) return { completed: false, progress: 0, target: 1 };
-      const cities = Object.values(state.world.cities);
-      for (let i = 0; i < cities.length; i++) {
-        const b = cities[i].buildings || {};
-        if (b.guild_hall && b.guild_hall >= 1) {
-          return { completed: true, progress: 1, target: 1 };
-        }
-      }
-      return { completed: false, progress: 0, target: 1 };
-    }
-  },
-  {
-    id: 'task_recruit_first_hero',
-    title: '10. Swear In Your First Hero',
-    category: 'military',
-    prerequisites: ['task_build_guild_hall'],
-    triggerTopics: [STREAM_TOPICS.HERO_RECRUITED, STREAM_TOPICS.PARTY_FORMED],
-    desc: 'Recruit your first Hero at the Adventurers Guild to lead expeditionary parties.',
-    rewardLabel: '+75 Gold, +40 Wood, +40 Stone',
-    reward: { gold: 75, wood: 40, stone: 40 },
-    evaluate: function(state) {
-      if (!state || !state.world || !Array.isArray(state.world.heroes)) {
-        return { completed: false, progress: 0, target: 1 };
-      }
-      const count = state.world.heroes.length;
-      return { completed: count >= 1, progress: Math.min(1, count), target: 1 };
-    }
-  },
-  {
-    id: 'task_march_to_dungeon',
-    title: '11. March to the Starfall Vaults',
-    category: 'delve',
-    prerequisites: ['task_recruit_first_hero'],
-    triggerTopics: [STREAM_TOPICS.UNIT_MARCH_STEP, STREAM_TOPICS.UNIT_MARCH_COMPLETED, STREAM_TOPICS.DUNGEON_ENTERED],
-    desc: 'March your Hero Party across the Overworld to the Starfall Vaults entrance (Ω) and breach the subterranean gates.',
-    rewardLabel: '+150 Gold, Campaign Milestone Complete',
-    reward: { gold: 150 },
-    evaluate: function(state) {
-      if (!state || !state.world) return { completed: false, progress: 0, target: 1 };
-      if (state.world.stats && state.world.stats.dungeonsEntered > 0) {
-        return { completed: true, progress: 1, target: 1 };
-      }
-      const pois = (state.world.overworld && state.world.overworld.pois) || [];
-      const dngPoi = pois.find(function(p) { return p.type === 'dungeon_entrance'; });
-      const units = (state.world.overworld && state.world.overworld.units) || [];
-      if (dngPoi) {
-        for (let i = 0; i < units.length; i++) {
-          const u = units[i];
-          if (u.alive && u.unitType === 'hero_party' && u.status !== 'marching' && u.x === dngPoi.x && u.y === dngPoi.y) {
-            return { completed: true, progress: 1, target: 1 };
-          }
-        }
-      }
-      return { completed: false, progress: 0, target: 1 };
-    }
-  },
-  {
-    id: 'task_return_with_spoils',
-    title: '12. Return With Dungeon Spoils',
-    category: 'delve',
-    prerequisites: ['task_march_to_dungeon'],
-    triggerTopics: [STREAM_TOPICS.EXPEDITION_BANKED, STREAM_TOPICS.DUNGEON_RETURNED],
-    desc: 'Extract from a Dungeon Vault and complete the return march to bank your expedition spoils at Oakhaven Bastion.',
-    rewardLabel: '+200 Gold, +40 Ore',
-    reward: { gold: 200, ore: 40 },
-    evaluate: function(state) {
-      if (!state || !state.world || !state.world.stats) return { completed: false, progress: 0, target: 1 };
-      const banked = state.world.stats.expeditionsBanked || 0;
-      return { completed: banked >= 1, progress: Math.min(1, banked), target: 1 };
-    }
-  },
-  // Short Military Forces Onboarding Sequence (Task 05A-C1 — branches naturally after Quarry, zero free troops/resources)
-  {
-    id: 'task_build_barracks',
-    title: 'Military 1. Build the Barracks',
-    category: 'military',
-    prerequisites: ['task_build_quarry'],
-    triggerTopics: [STREAM_TOPICS.BUILDING_COMPLETED],
-    desc: 'Construct a Barracks in your city. The Barracks is your central facility for recruiting, upgrading, and managing all military troops.',
-    rewardLabel: 'Unlocks Barracks Management',
-    reward: {},
-    evaluate: function(state) {
-      if (!state || !state.world || !state.world.cities) return { completed: false, progress: 0, target: 1 };
-      const cities = Object.values(state.world.cities);
-      for (let i = 0; i < cities.length; i++) {
-        const c = cities[i];
-        const hasBarracks = (c.plots || []).some(function(p) {
-          return p && p.buildingId === 'barracks' && (p.level || 0) >= 1 && !p.demolishing;
-        }) || ((c.buildings && c.buildings.barracks) || 0) >= 1;
-        if (hasBarracks) return { completed: true, progress: 1, target: 1 };
-      }
-      return { completed: false, progress: 0, target: 1 };
-    }
-  },
-  {
-    id: 'task_queue_first_troops',
-    title: 'Military 2. Recruit Your First Troops',
-    category: 'military',
-    prerequisites: ['task_build_barracks'],
-    triggerTopics: [STREAM_TOPICS.TROOP_TRAINING_STARTED, STREAM_TOPICS.TROOP_TRAINED],
-    desc: 'Build a Fighter Camp (or Archer Camp) to unlock a troop type, then enter the Barracks and queue your first recruits for training.',
-    rewardLabel: 'Training Queue Active',
-    reward: {},
-    evaluate: function(state) {
-      if (!state || !state.world) return { completed: false, progress: 0, target: 1 };
-      const cities = Object.values(state.world.cities || {});
-      let hasQueued = false;
-      for (let i = 0; i < cities.length; i++) {
-        if (Array.isArray(cities[i].troopTrainingQueue) && cities[i].troopTrainingQueue.length > 0) {
-          hasQueued = true;
-          break;
-        }
-      }
-      const trained = (state.world.stats && state.world.stats.troopsTrained) || 0;
-      const hasGroups = Array.isArray(state.world.troopGroups) && state.world.troopGroups.some(function(g) {
-        return g && g.locationType === 'barracks' && (g.count || 0) >= 1;
-      });
-      const done = hasQueued || trained >= 1 || hasGroups;
-      return { completed: done, progress: done ? 1 : 0, target: 1 };
-    }
-  },
-  {
-    id: 'task_complete_first_garrison',
-    title: 'Military 3. Complete Your First Barracks Troops',
-    category: 'military',
-    prerequisites: ['task_queue_first_troops'],
-    triggerTopics: [STREAM_TOPICS.TROOP_TRAINED],
-    desc: 'Wait for your recruits to finish training. Completed soldiers join your Barracks Troop Inventory.',
-    rewardLabel: 'Barracks Force Ready',
-    reward: {},
-    evaluate: function(state) {
-      if (!state || !state.world) return { completed: false, progress: 0, target: 1 };
-      const trained = (state.world.stats && state.world.stats.troopsTrained) || 0;
-      const stationed = Array.isArray(state.world.troopGroups)
-        ? state.world.troopGroups.reduce(function(sum, g) {
-            if (g && g.locationType === 'barracks' && (g.count || 0) > 0) return sum + g.count;
-            return sum;
-          }, 0)
-        : 0;
-      const done = trained >= 1 && stationed >= 1;
-      return { completed: done, progress: done ? 1 : 0, target: 1 };
-    }
-  }
-];
-
-  // --- Module: src/wargame/engine/taskEngine.js ---
-// Reactive Task & Milestone DAG Engine
-// Subscribes to WorldEventStream, evaluates task prerequisites & predicates, and manages reward claims.
-
-
-
-function createInitialTasksState() {
-  const map = {};
-  for (let i = 0; i < CAMPAIGN_TASKS_DAG.length; i++) {
-    const tDef = CAMPAIGN_TASKS_DAG[i];
-    const isRoot = !tDef.prerequisites || tDef.prerequisites.length === 0;
-    map[tDef.id] = {
-      id: tDef.id,
-      status: isRoot ? 'available' : 'locked', // 'locked' | 'available' | 'completed' | 'claimed'
-      progress: 0,
-      target: 1,
-      completedAtSimMs: null,
-      claimedAtSimMs: null
-    };
-  }
-  return map;
-}
-
-function evaluateTaskDAG(state, eventStream) {
-  if (!state || !state.world) return [];
-  if (!state.world.tasks) {
-    state.world.tasks = createInitialTasksState();
-  }
-
-  const tasksState = state.world.tasks;
-  const simTimeMs = state.world.clock ? state.world.clock.simTimeMs : 0;
-
-  // Pass 1: Unlock tasks whose prerequisites are completed or claimed
-  for (let i = 0; i < CAMPAIGN_TASKS_DAG.length; i++) {
-    const tDef = CAMPAIGN_TASKS_DAG[i];
-    if (!tasksState[tDef.id]) {
-      tasksState[tDef.id] = {
-        id: tDef.id,
-        status: 'locked',
-        progress: 0,
-        target: 1,
-        completedAtSimMs: null,
-        claimedAtSimMs: null
-      };
-    }
-
-    const entry = tasksState[tDef.id];
-    if (entry.status === 'locked') {
-      const prereqs = tDef.prerequisites || [];
-      let allMet = true;
-      for (let p = 0; p < prereqs.length; p++) {
-        const preEntry = tasksState[prereqs[p]];
-        if (!preEntry || (preEntry.status !== 'completed' && preEntry.status !== 'claimed')) {
-          allMet = false;
-          break;
-        }
-      }
-      if (allMet) {
-        entry.status = 'available';
-        if (eventStream) {
-          eventStream.publish(STREAM_TOPICS.TASK_UNLOCKED, {
-            taskId: tDef.id,
-            title: tDef.title
-          }, simTimeMs);
-        }
-      }
-    }
-  }
-
-  // Pass 2: Evaluate progress & completion for all unlocked tasks
-  let newlyCompleted = false;
-  for (let i = 0; i < CAMPAIGN_TASKS_DAG.length; i++) {
-    const tDef = CAMPAIGN_TASKS_DAG[i];
-    const entry = tasksState[tDef.id];
-    if (entry.status === 'locked') continue;
-
-    const evalRes = tDef.evaluate(state);
-    const prevProgress = entry.progress;
-    entry.progress = evalRes.progress;
-    entry.target = evalRes.target;
-
-    if (entry.status === 'available') {
-      if (evalRes.completed) {
-        entry.status = 'completed';
-        entry.completedAtSimMs = simTimeMs;
-        newlyCompleted = true;
-        if (eventStream) {
-          eventStream.publish(STREAM_TOPICS.TASK_COMPLETED, {
-            taskId: tDef.id,
-            title: tDef.title,
-            rewardLabel: tDef.rewardLabel
-          }, simTimeMs);
-        }
-      } else if (entry.progress !== prevProgress && eventStream) {
-        eventStream.publish(STREAM_TOPICS.TASK_PROGRESS, {
-          taskId: tDef.id,
-          title: tDef.title,
-          progress: entry.progress,
-          target: entry.target
-        }, simTimeMs);
-      }
-    }
-  }
-
-  // If a task completed, run one more unlock check so downstream tasks immediately unlock
-  if (newlyCompleted) {
-    for (let i = 0; i < CAMPAIGN_TASKS_DAG.length; i++) {
-      const tDef = CAMPAIGN_TASKS_DAG[i];
-      const entry = tasksState[tDef.id];
-      if (entry.status === 'locked') {
-        const prereqs = tDef.prerequisites || [];
-        let allMet = true;
-        for (let p = 0; p < prereqs.length; p++) {
-          const preEntry = tasksState[prereqs[p]];
-          if (!preEntry || (preEntry.status !== 'completed' && preEntry.status !== 'claimed')) {
-            allMet = false;
-            break;
-          }
-        }
-        if (allMet) {
-          entry.status = 'available';
-          const evalRes = tDef.evaluate(state);
-          entry.progress = evalRes.progress;
-          entry.target = evalRes.target;
-          if (evalRes.completed) {
-            entry.status = 'completed';
-            entry.completedAtSimMs = simTimeMs;
-          }
-          if (eventStream) {
-            eventStream.publish(STREAM_TOPICS.TASK_UNLOCKED, {
-              taskId: tDef.id,
-              title: tDef.title
-            }, simTimeMs);
-          }
-        }
-      }
-    }
-  }
-
-  return getFormattedTasksList(state);
-}
-
-function getFormattedTasksList(state) {
-  if (!state || !state.world || !state.world.tasks) return [];
-  const tasksState = state.world.tasks;
-  const list = [];
-
-  for (let i = 0; i < CAMPAIGN_TASKS_DAG.length; i++) {
-    const tDef = CAMPAIGN_TASKS_DAG[i];
-    const entry = tasksState[tDef.id] || { status: 'locked', progress: 0, target: 1 };
-    list.push({
-      id: tDef.id,
-      title: tDef.title,
-      desc: tDef.desc,
-      category: tDef.category,
-      prerequisites: tDef.prerequisites || [],
-      rewardLabel: tDef.rewardLabel,
-      reward: tDef.reward,
-      status: entry.status,
-      progress: entry.progress,
-      target: entry.target,
-      readyToClaim: entry.status === 'completed'
-    });
-  }
-
-  return list;
-}
 
   // --- Module: src/wargame/data/buildings.js ---
 // City Building Definitions, Paced Tier 1 Catalog, Construction Costs & Doubling Build Durations
@@ -2982,6 +1747,7 @@ const TROOP_LOCATION_TYPES = {
 
 const ARMY_OBJECTIVE_TYPES = {
   PATROL_HEX: 'patrol_hex',
+  ENGAGE_TARGET: 'engage_target',
   RETURN_HOME: 'return_home'
 };
 
@@ -3568,6 +2334,1662 @@ function allocateLowestArmyDisplayNumber(units, excludeArmyId) {
     candidate++;
   }
   return candidate;
+}
+
+// =============================================================================
+// Military Targets, Typed Access-Gating & Deterministic Combat (Task 05B-2)
+// =============================================================================
+const MILITARY_TARGET_STATUS = {
+  ACTIVE: 'active',
+  CLEARED: 'cleared'
+};
+
+const MILITARY_TARGET_ARCHETYPES = {
+  raider_blockade: {
+    id: 'raider_blockade',
+    name: 'Hostile Military Blockade',
+    icon: '⚔️',
+    accentColor: '#ef4444',
+    clearedColor: '#34d399',
+    enemyLabel: 'Organized Raider Warband',
+    desc: 'A fortified hostile military position denying safe Hero access to surrounding frontier locations.'
+  }
+};
+
+// Deterministic initial military targets (never blocks poi_dungeon_starfall so early onboarding stays intact)
+// PF-01: Ironjaw Blockade Camp sits at hex distance 5 from spawn so it is immediately discovered & visible
+// as soon as the player founds their starting Bastion City (city vision radius 5).
+const DEFAULT_MILITARY_TARGET_SPECS = [
+  {
+    id: 'mtarget_quarry_blockade',
+    archetypeId: 'raider_blockade',
+    name: 'Ironjaw Blockade Camp',
+    desiredDx: -4,
+    desiredDy: 2,
+    enemyPower: 100,
+    enemyLabel: 'Ironjaw Raider Warband',
+    desc: 'Nearby fortified raider blockade barring Hero access to the Sunken Copper Quarry.',
+    blocksAccess: [
+      {
+        accessType: 'overworld_poi',
+        targetRef: 'poi_dungeon_quarry',
+        label: 'Sunken Copper Quarry'
+      }
+    ]
+  },
+  {
+    id: 'mtarget_mycelium_war_camp',
+    archetypeId: 'raider_blockade',
+    name: 'Ashveil War-Camp',
+    desiredDx: 10,
+    desiredDy: 6,
+    enemyPower: 180,
+    enemyLabel: 'Ashveil Vanguard Cohort',
+    desc: 'Entrenched frontier war-camp blocking safe Hero approaches to the Whispering Mycelium Labyrinth.',
+    blocksAccess: [
+      {
+        accessType: 'overworld_poi',
+        targetRef: 'poi_dungeon_mycelium',
+        label: 'Whispering Mycelium Labyrinth'
+      }
+    ]
+  }
+];
+
+function getMilitaryTargetById(overworld, targetId) {
+  if (!overworld || !Array.isArray(overworld.militaryTargets) || !targetId) return null;
+  for (let i = 0; i < overworld.militaryTargets.length; i++) {
+    const t = overworld.militaryTargets[i];
+    if (t && t.id === targetId) return t;
+  }
+  return null;
+}
+
+function getMilitaryTargetAtHex(overworld, x, y) {
+  if (!overworld || !Array.isArray(overworld.militaryTargets)) return null;
+  for (let i = 0; i < overworld.militaryTargets.length; i++) {
+    const t = overworld.militaryTargets[i];
+    if (t && t.x === x && t.y === y) return t;
+  }
+  return null;
+}
+
+// Authoritative access-gate query derived strictly from militaryTargets[].status
+function getBlockingMilitaryTargetForAccess(overworld, accessType, targetRef) {
+  if (!overworld || !Array.isArray(overworld.militaryTargets) || !accessType || !targetRef) return null;
+  for (let i = 0; i < overworld.militaryTargets.length; i++) {
+    const t = overworld.militaryTargets[i];
+    if (!t || t.status === MILITARY_TARGET_STATUS.CLEARED) continue;
+    const blocks = Array.isArray(t.blocksAccess) ? t.blocksAccess : [];
+    for (let b = 0; b < blocks.length; b++) {
+      const desc = blocks[b];
+      if (desc && desc.accessType === accessType && desc.targetRef === targetRef) {
+        return t;
+      }
+    }
+  }
+  return null;
+}
+
+function computeSingleTroopCombatPower(troopDef, level) {
+  if (!troopDef) return 0;
+  const stats = computeTroopStatsForLevel(troopDef, level || 1);
+  return Math.max(1, Math.round((stats.atk || 0) * 2 + (stats.def || 0) * 1.5 + (stats.hp || 0) * 0.2));
+}
+
+function computeTroopListCombatPower(troopEntries) {
+  if (!Array.isArray(troopEntries) || troopEntries.length === 0) return 0;
+  let total = 0;
+  for (let i = 0; i < troopEntries.length; i++) {
+    const e = troopEntries[i];
+    if (!e) continue;
+    const cnt = Math.max(0, Math.floor(Number(e.count !== undefined ? e.count : (e.quantity || 0))));
+    if (cnt <= 0) continue;
+    const td = getTroopDefinition(e.troopDefId);
+    if (!td) continue;
+    total += cnt * computeSingleTroopCombatPower(td, e.level || 1);
+  }
+  return total;
+}
+
+function computeArmyCombatPower(world, armyId) {
+  const groups = getArmyTroopGroups(world, armyId);
+  return computeTroopListCombatPower(groups);
+}
+
+// Deterministic Proportional Largest-Remainder Casualty Allocation (zero role bias)
+// Returns an array of { groupId, troopDefId, level, initialCount, lost, surviving }
+function allocateProportionalCasualties(armyGroups, totalLosses) {
+  const validGroups = (Array.isArray(armyGroups) ? armyGroups : [])
+    .filter(function(g) { return g && (g.count || 0) > 0; })
+    .slice()
+    .sort(function(a, b) {
+      if (a.troopDefId !== b.troopDefId) return a.troopDefId < b.troopDefId ? -1 : 1;
+      const la = a.level || 1;
+      const lb = b.level || 1;
+      if (la !== lb) return la - lb;
+      const ia = String(a.id || '');
+      const ib = String(b.id || '');
+      return ia < ib ? -1 : (ia > ib ? 1 : 0);
+    });
+
+  let totalTroops = 0;
+  for (let i = 0; i < validGroups.length; i++) {
+    totalTroops += Math.floor(validGroups[i].count || 0);
+  }
+
+  const clampedLosses = Math.max(0, Math.min(Math.max(0, totalTroops - 1), Math.floor(Number(totalLosses || 0))));
+  const rows = validGroups.map(function(g) {
+    const cnt = Math.floor(g.count || 0);
+    const exact = totalTroops > 0 ? (clampedLosses * (cnt / totalTroops)) : 0;
+    const base = Math.min(cnt, Math.floor(exact));
+    return {
+      groupId: g.id,
+      troopDefId: g.troopDefId,
+      level: g.level || 1,
+      initialCount: cnt,
+      lost: base,
+      remainder: exact - base
+    };
+  });
+
+  let assigned = 0;
+  for (let i = 0; i < rows.length; i++) assigned += rows[i].lost;
+  let leftover = clampedLosses - assigned;
+
+  if (leftover > 0 && rows.length > 0) {
+    const order = rows.slice().sort(function(a, b) {
+      if (Math.abs(b.remainder - a.remainder) > 1e-9) return b.remainder - a.remainder;
+      if (b.initialCount !== a.initialCount) return b.initialCount - a.initialCount;
+      if (a.troopDefId !== b.troopDefId) return a.troopDefId < b.troopDefId ? -1 : 1;
+      if (a.level !== b.level) return a.level - b.level;
+      return String(a.groupId || '') < String(b.groupId || '') ? -1 : 1;
+    });
+
+    let guard = 0;
+    while (leftover > 0 && guard < rows.length * 4) {
+      let progressed = false;
+      for (let i = 0; i < order.length && leftover > 0; i++) {
+        const row = order[i];
+        if (row.lost < row.initialCount) {
+          row.lost++;
+          leftover--;
+          progressed = true;
+        }
+      }
+      if (!progressed) break;
+      guard++;
+    }
+  }
+
+  return rows.map(function(r) {
+    return {
+      groupId: r.groupId,
+      troopDefId: r.troopDefId,
+      level: r.level,
+      initialCount: r.initialCount,
+      lost: r.lost,
+      surviving: Math.max(0, r.initialCount - r.lost)
+    };
+  });
+}
+
+// Isolated, tunable deterministic combat resolver for Task 05B-2:
+// - Victory: armyPower >= enemyPower; lossRate = clamp(0.05, 0.25, (enemyPower / armyPower) * 0.25)
+// - Defeat:  armyPower < enemyPower;  lossRate = clamp(0.20, 0.45, 0.45 - (armyPower / enemyPower) * 0.20)
+// - Always leaves >= 1 surviving troop so army lifecycle & return/reintegration remain intact.
+function resolveMilitaryTargetCombat(world, armyId, target) {
+  const groups = getArmyTroopGroups(world, armyId);
+  let totalTroops = 0;
+  for (let i = 0; i < groups.length; i++) {
+    totalTroops += Math.floor(groups[i].count || 0);
+  }
+  const armyPower = computeTroopListCombatPower(groups);
+  const enemyPower = Math.max(1, Math.floor(Number((target && target.enemyPower) || 100)));
+  const victory = totalTroops > 0 && armyPower >= enemyPower;
+
+  let lossRate = 0;
+  let totalLosses = 0;
+  if (totalTroops > 0) {
+    if (victory) {
+      const rawRate = (enemyPower / Math.max(1, armyPower)) * 0.25;
+      lossRate = Math.max(0.05, Math.min(0.25, rawRate));
+      totalLosses = Math.min(totalTroops - 1, Math.round(totalTroops * lossRate));
+    } else {
+      const rawRate = 0.45 - (armyPower / enemyPower) * 0.20;
+      lossRate = Math.max(0.20, Math.min(0.45, rawRate));
+      const minLoss = totalTroops > 1 ? 1 : 0;
+      totalLosses = Math.min(totalTroops - 1, Math.max(minLoss, Math.round(totalTroops * lossRate)));
+    }
+  }
+
+  const allocations = allocateProportionalCasualties(groups, totalLosses);
+  let actualLosses = 0;
+  for (let i = 0; i < allocations.length; i++) {
+    actualLosses += allocations[i].lost;
+  }
+
+  return {
+    victory: victory,
+    armyPower: armyPower,
+    enemyPower: enemyPower,
+    lossRate: lossRate,
+    initialTroops: totalTroops,
+    totalLosses: actualLosses,
+    survivingTroops: Math.max(0, totalTroops - actualLosses),
+    allocations: allocations
+  };
+}
+
+  // --- Module: src/engine/rng.js ---
+// Deterministic Seeded PRNG (Mulberry32) & Seed String Hashing
+
+function hashSeedString(seedStr, salt = 0) {
+  const str = String(seedStr || 'STAR-1000') + ':' + String(salt);
+  let h = 2166136261 >>> 0;
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return (h >>> 0) || 1;
+}
+
+function createSeededRng(numericSeed) {
+  let state = (numericSeed >>> 0) || 1;
+  return function nextRand() {
+    state = (state + 0x6D2B79F5) >>> 0;
+    let t = Math.imul(state ^ (state >>> 15), 1 | state);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function randomSeedCode(prefix = 'STAR') {
+  const num = 1000 + Math.floor(Math.random() * 8999);
+  return `${prefix}-${num}`;
+}
+
+  // --- Module: src/ui/shared/gridAdapters.js ---
+// =============================================================================
+// UNIFIED GRID ADAPTERS (ADR-0014 — Path A: Best-in-Class Domain Projections)
+// Pure, deterministic, zero-DOM ES2017 coordinate & topology math shared across:
+//   1. OrthoGridAdapter (Dungeon 2.5D Oblique Square Grid)
+//   2. IsoGridAdapter   (Bastion City 2:1 Rotated Square Isometric Diamond Grid)
+//   3. HexGridAdapter   (Overworld Pointy-Top Hexagonal Axial/Cube Grid)
+// =============================================================================
+
+const SQRT3 = Math.sqrt(3);
+
+const GRID_TYPES = {
+  ORTHO: 'ortho',
+  ISO: 'iso',
+  HEX_POINTY: 'hex_pointy'
+};
+
+// ---------------------------------------------------------------------------
+// 1. ORTHOGONAL SQUARE GRID ADAPTER (Starfall Vaults — 2.5D Oblique Dungeon)
+// ---------------------------------------------------------------------------
+function createOrthoGridAdapter(options) {
+  const opts = options || {};
+  const tw = opts.tileWidth || 32;
+  const th = opts.tileHeight || 32;
+
+  return {
+    type: GRID_TYPES.ORTHO,
+    tileWidth: tw,
+    tileHeight: th,
+
+    tileToWorld: function(coord) {
+      return {
+        wx: (coord.x + 0.5) * tw,
+        wy: (coord.y + 0.5) * th
+      };
+    },
+
+    worldToTile: function(wx, wy) {
+      return {
+        x: Math.floor(wx / tw),
+        y: Math.floor(wy / th)
+      };
+    },
+
+    getNeighbors: function(coord, includeDiagonals) {
+      const x = coord.x;
+      const y = coord.y;
+      const list = [
+        { x: x, y: y - 1 },
+        { x: x + 1, y: y },
+        { x: x, y: y + 1 },
+        { x: x - 1, y: y }
+      ];
+      if (includeDiagonals) {
+        list.push(
+          { x: x + 1, y: y - 1 },
+          { x: x + 1, y: y + 1 },
+          { x: x - 1, y: y + 1 },
+          { x: x - 1, y: y - 1 }
+        );
+      }
+      return list;
+    },
+
+    getDistance: function(a, b) {
+      return Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
+    },
+
+    getTilePolygon: function(coord) {
+      const x0 = coord.x * tw;
+      const y0 = coord.y * th;
+      return [
+        { wx: x0, wy: y0 },
+        { wx: x0 + tw, wy: y0 },
+        { wx: x0 + tw, wy: y0 + th },
+        { wx: x0, wy: y0 + th }
+      ];
+    }
+  };
+}
+
+// ---------------------------------------------------------------------------
+// 2. ROTATED SQUARE (2:1 ISOMETRIC DIAMOND) ADAPTER (Bastion City 8x8 Plots)
+// ---------------------------------------------------------------------------
+function createIsoGridAdapter(options) {
+  const opts = options || {};
+  const tw = opts.tileWidth || 96;
+  const th = opts.tileHeight || 48;
+  const halfW = tw / 2;
+  const halfH = th / 2;
+
+  return {
+    type: GRID_TYPES.ISO,
+    tileWidth: tw,
+    tileHeight: th,
+
+    tileToWorld: function(coord) {
+      return {
+        wx: (coord.x - coord.y) * halfW,
+        wy: (coord.x + coord.y) * halfH
+      };
+    },
+
+    worldToTile: function(wx, wy) {
+      const fx = (wx / halfW + wy / halfH) * 0.5;
+      const fy = (wy / halfH - wx / halfW) * 0.5;
+      return {
+        x: Math.round(fx),
+        y: Math.round(fy)
+      };
+    },
+
+    getNeighbors: function(coord) {
+      const x = coord.x;
+      const y = coord.y;
+      return [
+        { x: x, y: y - 1 },
+        { x: x + 1, y: y },
+        { x: x, y: y + 1 },
+        { x: x - 1, y: y }
+      ];
+    },
+
+    getDistance: function(a, b) {
+      return Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
+    },
+
+    getTilePolygon: function(coord) {
+      const c = this.tileToWorld(coord);
+      return [
+        { wx: c.wx, wy: c.wy - halfH },
+        { wx: c.wx + halfW, wy: c.wy },
+        { wx: c.wx, wy: c.wy + halfH },
+        { wx: c.wx - halfW, wy: c.wy }
+      ];
+    },
+
+    // Back-to-front painter's sort order for isometric 3D building overlap
+    getDrawOrder: function(cols, rows) {
+      const order = [];
+      for (let sum = 0; sum <= (cols - 1) + (rows - 1); sum++) {
+        for (let x = 0; x < cols; x++) {
+          const y = sum - x;
+          if (y >= 0 && y < rows) {
+            order.push({ x: x, y: y, plotIndex: y * cols + x });
+          }
+        }
+      }
+      return order;
+    }
+  };
+}
+
+// ---------------------------------------------------------------------------
+// 3. POINTY-TOP HEXAGONAL GRID ADAPTER (Overworld Macro Strategy — Axial/Cube)
+// Implements Red Blob Games canonical axial (q, r) & cube (q, r, s) math.
+// ---------------------------------------------------------------------------
+const HEX_DIRECTIONS = [
+  { q: 1, r: 0 },
+  { q: 1, r: -1 },
+  { q: 0, r: -1 },
+  { q: -1, r: 0 },
+  { q: -1, r: 1 },
+  { q: 0, r: 1 }
+];
+
+function cubeRound(fq, fr) {
+  const fs = -fq - fr;
+  let rq = Math.round(fq);
+  let rr = Math.round(fr);
+  const rs = Math.round(fs);
+
+  const qDiff = Math.abs(rq - fq);
+  const rDiff = Math.abs(rr - fr);
+  const sDiff = Math.abs(rs - fs);
+
+  if (qDiff > rDiff && qDiff > sDiff) {
+    rq = -rr - rs;
+  } else if (rDiff > sDiff) {
+    rr = -rq - rs;
+  }
+  return { q: rq === 0 ? 0 : rq, r: rr === 0 ? 0 : rr };
+}
+
+function createHexGridAdapter(options) {
+  const opts = options || {};
+  const size = opts.hexSize || 28;
+
+  return {
+    type: GRID_TYPES.HEX_POINTY,
+    hexSize: size,
+    tileWidth: SQRT3 * size,
+    tileHeight: 2 * size,
+
+    tileToWorld: function(coord) {
+      const q = coord.q;
+      const r = coord.r;
+      return {
+        wx: size * (SQRT3 * q + (SQRT3 * 0.5) * r),
+        wy: size * (1.5 * r)
+      };
+    },
+
+    worldToTile: function(wx, wy) {
+      const fq = ((SQRT3 / 3) * wx - (1 / 3) * wy) / size;
+      const fr = ((2 / 3) * wy) / size;
+      return cubeRound(fq, fr);
+    },
+
+    getNeighbors: function(coord) {
+      const out = [];
+      for (let i = 0; i < HEX_DIRECTIONS.length; i++) {
+        out.push({
+          q: coord.q + HEX_DIRECTIONS[i].q,
+          r: coord.r + HEX_DIRECTIONS[i].r
+        });
+      }
+      return out;
+    },
+
+    getDistance: function(a, b) {
+      const dq = a.q - b.q;
+      const dr = a.r - b.r;
+      return (Math.abs(dq) + Math.abs(dq + dr) + Math.abs(dr)) * 0.5;
+    },
+
+    getRing: function(center, radius) {
+      if (radius <= 0) return [{ q: center.q, r: center.r }];
+      const results = [];
+      let curQ = center.q + HEX_DIRECTIONS[4].q * radius;
+      let curR = center.r + HEX_DIRECTIONS[4].r * radius;
+      for (let side = 0; side < 6; side++) {
+        for (let step = 0; step < radius; step++) {
+          results.push({ q: curQ, r: curR });
+          curQ += HEX_DIRECTIONS[side].q;
+          curR += HEX_DIRECTIONS[side].r;
+        }
+      }
+      return results;
+    },
+
+    getSpiral: function(center, maxRadius) {
+      const results = [{ q: center.q, r: center.r }];
+      for (let rad = 1; rad <= maxRadius; rad++) {
+        const ring = this.getRing(center, rad);
+        for (let i = 0; i < ring.length; i++) {
+          results.push(ring[i]);
+        }
+      }
+      return results;
+    },
+
+    // Odd-r offset (col, row) <-> Axial (q, r) for lossless legacy Overworld coordinate migration
+    offsetToAxial: function(col, row) {
+      const q = col - Math.floor((row - (row & 1)) / 2);
+      return { q: q, r: row };
+    },
+
+    axialToOffset: function(q, r) {
+      const col = q + Math.floor((r - (r & 1)) / 2);
+      return { col: col, row: r };
+    },
+
+    getTilePolygon: function(coord) {
+      const c = this.tileToWorld(coord);
+      const pts = [];
+      for (let i = 0; i < 6; i++) {
+        const angleRad = (Math.PI / 180) * (60 * i - 30);
+        pts.push({
+          wx: c.wx + size * Math.cos(angleRad),
+          wy: c.wy + size * Math.sin(angleRad)
+        });
+      }
+      return pts;
+    }
+  };
+}
+
+  // --- Module: src/wargame/engine/hexSpatial.js ---
+// Overworld Hex Spatial Primitives — Single Source of Truth (Task 03)
+// Delegates all axial/cube/odd-r hex math to the canonical createHexGridAdapter() in src/ui/shared/gridAdapters.js.
+// Preserves odd-r offset (x = col, y = row) storage for 100% compatibility with existing Overworld maps & saves.
+
+
+// Matches HEX_DIRECTIONS order in src/ui/shared/gridAdapters.js:
+// 0: E (+1, 0), 1: NE (+1, -1), 2: NW (0, -1), 3: W (-1, 0), 4: SW (-1, +1), 5: SE (0, +1)
+const HEX_DIR_NAMES = ['E', 'NE', 'NW', 'W', 'SW', 'SE'];
+
+const overworldHexAdapter = createHexGridAdapter({ hexSize: 22 });
+
+function getOverworldHexAdapter() {
+  return overworldHexAdapter;
+}
+
+function isInOverworldBounds(overworld, x, y) {
+  if (!overworld || typeof overworld.width !== 'number' || typeof overworld.height !== 'number') return false;
+  return x >= 0 && x < overworld.width && y >= 0 && y < overworld.height;
+}
+
+function resolveHexDirectionIndex(dirIndexOrName) {
+  if (typeof dirIndexOrName === 'number' && Number.isInteger(dirIndexOrName)) {
+    return (dirIndexOrName >= 0 && dirIndexOrName < 6) ? dirIndexOrName : -1;
+  }
+  if (typeof dirIndexOrName === 'string') {
+    const upper = dirIndexOrName.trim().toUpperCase();
+    for (let i = 0; i < HEX_DIR_NAMES.length; i++) {
+      if (HEX_DIR_NAMES[i] === upper) return i;
+    }
+  }
+  return -1;
+}
+
+function getHexNeighbors(x, y, overworld) {
+  const axial = overworldHexAdapter.offsetToAxial(x, y);
+  const rawNeighbors = overworldHexAdapter.getNeighbors(axial);
+  const results = [];
+  for (let i = 0; i < rawNeighbors.length; i++) {
+    const off = overworldHexAdapter.axialToOffset(rawNeighbors[i].q, rawNeighbors[i].r);
+    if (overworld && !isInOverworldBounds(overworld, off.col, off.row)) {
+      continue;
+    }
+    results.push({
+      x: off.col,
+      y: off.row,
+      dirIndex: i,
+      dirName: HEX_DIR_NAMES[i]
+    });
+  }
+  return results;
+}
+
+function getHexNeighborInDirection(x, y, dirIndexOrName, overworld) {
+  const dirIdx = resolveHexDirectionIndex(dirIndexOrName);
+  if (dirIdx === -1) return null;
+  const axial = overworldHexAdapter.offsetToAxial(x, y);
+  const rawNeighbors = overworldHexAdapter.getNeighbors(axial);
+  const n = rawNeighbors[dirIdx];
+  if (!n) return null;
+  const off = overworldHexAdapter.axialToOffset(n.q, n.r);
+  if (overworld && !isInOverworldBounds(overworld, off.col, off.row)) {
+    return null;
+  }
+  return {
+    x: off.col,
+    y: off.row,
+    dirIndex: dirIdx,
+    dirName: HEX_DIR_NAMES[dirIdx]
+  };
+}
+
+function getHexDistance(x1, y1, x2, y2) {
+  if (x1 === x2 && y1 === y2) return 0;
+  const a = overworldHexAdapter.offsetToAxial(x1, y1);
+  const b = overworldHexAdapter.offsetToAxial(x2, y2);
+  return overworldHexAdapter.getDistance(a, b);
+}
+
+function areHexesAdjacent(x1, y1, x2, y2) {
+  return getHexDistance(x1, y1, x2, y2) === 1;
+}
+
+function getHexesInRange(cx, cy, radius, overworld) {
+  const r = Math.max(0, Math.floor(typeof radius === 'number' ? radius : 0));
+  const centerAxial = overworldHexAdapter.offsetToAxial(cx, cy);
+  const spiral = overworldHexAdapter.getSpiral(centerAxial, r);
+  const results = [];
+  for (let i = 0; i < spiral.length; i++) {
+    const off = overworldHexAdapter.axialToOffset(spiral[i].q, spiral[i].r);
+    if (overworld && !isInOverworldBounds(overworld, off.col, off.row)) {
+      continue;
+    }
+    results.push({ x: off.col, y: off.row });
+  }
+  return results;
+}
+
+  // --- Module: src/wargame/engine/pathfinding.js ---
+// A* Terrain-Weighted Pathfinding & Overworld Procedural Generation Engine
+
+
+
+
+
+
+function computeMinOverworldMarchCostMs() {
+  let minCost = Infinity;
+  const keys = Object.keys(OVERWORLD_TERRAIN_DEFS || {});
+  for (let i = 0; i < keys.length; i++) {
+    const def = OVERWORLD_TERRAIN_DEFS[keys[i]];
+    if (def && def.passable && typeof def.marchTimeMs === 'number' && isFinite(def.marchTimeMs) && def.marchTimeMs > 0) {
+      if (def.marchTimeMs < minCost) minCost = def.marchTimeMs;
+    }
+  }
+  return isFinite(minCost) ? minCost : 3000;
+}
+
+const MIN_OVERWORLD_MARCH_COST_MS = computeMinOverworldMarchCostMs();
+
+function generateOverworldMap(width = OVERWORLD_MAP_W, height = OVERWORLD_MAP_H, seedCode = 'STAR-7777') {
+  const numSeed = typeof seedCode === 'number' ? seedCode : hashSeedString(String(seedCode), 404);
+  const rng = createSeededRng(numSeed);
+
+  const tiles = [];
+  const explored = [];
+
+  for (let y = 0; y < height; y++) {
+    const row = [];
+    const expRow = [];
+    for (let x = 0; x < width; x++) {
+      expRow.push(false);
+
+      // Outer border is impassable Star-Spire Mountains
+      if (x === 0 || y === 0 || x === width - 1 || y === height - 1) {
+        row.push(OW_TERRAIN_MOUNTAINS);
+        continue;
+      }
+
+      const nx = x / width;
+      const ny = y / height;
+      const distCenter = Math.hypot(nx - 0.5, ny - 0.5);
+      const r = rng();
+
+      if (distCenter > 0.43 && r < 0.65) {
+        row.push(r < 0.35 ? OW_TERRAIN_MOUNTAINS : OW_TERRAIN_HILLS);
+      } else if (distCenter > 0.30 && r < 0.32) {
+        row.push(OW_TERRAIN_HILLS);
+      } else if (r < 0.22) {
+        row.push(OW_TERRAIN_FOREST);
+      } else if (r < 0.28) {
+        row.push(OW_TERRAIN_HILLS);
+      } else if (r < 0.33 && ny > 0.58) {
+        row.push(OW_TERRAIN_WATER);
+      } else if (r > 0.90) {
+        row.push(OW_TERRAIN_FERTILE_VALE);
+      } else {
+        row.push(OW_TERRAIN_PLAINS);
+      }
+    }
+    tiles.push(row);
+    explored.push(expRow);
+  }
+
+  // Carve fertile pioneer starting valley near center
+  const spawnX = Math.floor(width / 2);
+  const spawnY = Math.floor(height / 2);
+
+  for (let dy = -3; dy <= 3; dy++) {
+    for (let dx = -3; dx <= 3; dx++) {
+      const ty = spawnY + dy;
+      const tx = spawnX + dx;
+      if (ty > 0 && ty < height - 1 && tx > 0 && tx < width - 1) {
+        if (Math.abs(dx) <= 1 && Math.abs(dy) <= 1) {
+          tiles[ty][tx] = OW_TERRAIN_FERTILE_VALE;
+        } else {
+          tiles[ty][tx] = OW_TERRAIN_PLAINS;
+        }
+      }
+    }
+  }
+
+  // Guarantee accessible forest & hills near starting basin
+  tiles[spawnY - 2][spawnX - 2] = OW_TERRAIN_FOREST;
+  tiles[spawnY - 2][spawnX - 1] = OW_TERRAIN_FOREST;
+  tiles[spawnY + 2][spawnX + 2] = OW_TERRAIN_HILLS;
+  tiles[spawnY + 2][spawnX + 1] = OW_TERRAIN_HILLS;
+
+  // Points of Interest (Resource Caches, Timber Camps, Quarries, and Dungeon Entrances)
+  const pois = [
+    {
+      id: 'poi_cache_1',
+      type: 'resource_cache',
+      name: 'Pioneer Supply Cache',
+      x: spawnX - 2,
+      y: spawnY,
+      depleted: false,
+      yield: { wood: 35, stone: 25, food: 20 }
+    },
+    {
+      id: 'poi_timber_1',
+      type: 'timber_camp',
+      name: 'Elderwood Timber Grove',
+      x: spawnX - 3,
+      y: spawnY - 2,
+      depleted: false,
+      yield: { wood: 45 }
+    },
+    {
+      id: 'poi_quarry_1',
+      type: 'stone_outcrop',
+      name: 'Dwarven Mason Quarry',
+      x: spawnX + 3,
+      y: spawnY + 2,
+      depleted: false,
+      yield: { stone: 45 }
+    }
+  ];
+
+  // Register curated Dungeon Entrance POIs across the Overworld frontier
+  const dngCatalog = OVERWORLD_DUNGEON_CATALOG || [];
+  for (let d = 0; d < dngCatalog.length; d++) {
+    const def = dngCatalog[d];
+    const px = Math.max(2, Math.min(width - 3, spawnX + def.offsetDx));
+    const py = Math.max(2, Math.min(height - 3, spawnY + def.offsetDy));
+    pois.push({
+      id: def.poiId,
+      type: 'dungeon_entrance',
+      name: def.name,
+      dungeonId: def.dungeonId,
+      profileId: def.profileId,
+      recommendedLevel: def.recommendedLevel || 1,
+      accentColor: def.accentColor || '#f87171',
+      x: px,
+      y: py,
+      discovered: false,
+      depleted: false
+    });
+  }
+
+  // Ensure all POIs sit on passable terrain and have a clear path from spawn
+  for (let i = 0; i < pois.length; i++) {
+    const p = pois[i];
+    if (tiles[p.y] && (tiles[p.y][p.x] === OW_TERRAIN_MOUNTAINS || tiles[p.y][p.x] === OW_TERRAIN_WATER)) {
+      tiles[p.y][p.x] = OW_TERRAIN_PLAINS;
+    }
+  }
+
+  // Spawn deterministic Overworld Wandering Hostiles outside the safe starting basin (radius >= 5)
+  const hostiles = [];
+  const hostileKeys = Object.keys(OVERWORLD_HOSTILE_ARCHETYPES || {});
+  const hostilePlacements = [
+    { dx: 3,   dy: -2,  archId: 'raider_pack' },
+    { dx: -6,  dy: 3,   archId: 'brood_swarm' },
+    { dx: 8,   dy: 4,   archId: 'raider_pack' },
+    { dx: -8,  dy: -5,  archId: 'cultist_patrol' },
+    { dx: 10,  dy: -6,  archId: 'brood_swarm' },
+    { dx: -11, dy: 7,   archId: 'cultist_patrol' }
+  ];
+  for (let h = 0; h < hostilePlacements.length; h++) {
+    const hp = hostilePlacements[h];
+    const hx = Math.max(2, Math.min(width - 3, spawnX + hp.dx));
+    const hy = Math.max(2, Math.min(height - 3, spawnY + hp.dy));
+    // Never overlap spawn or any POI
+    const overlapsPoi = pois.some(function(p) { return p.x === hx && p.y === hy; });
+    if (overlapsPoi) continue;
+    if (tiles[hy] && (tiles[hy][hx] === OW_TERRAIN_MOUNTAINS || tiles[hy][hx] === OW_TERRAIN_WATER)) {
+      tiles[hy][hx] = OW_TERRAIN_PLAINS;
+    }
+    const arch = OVERWORLD_HOSTILE_ARCHETYPES[hp.archId] || OVERWORLD_HOSTILE_ARCHETYPES[hostileKeys[0]];
+    if (!arch) continue;
+    hostiles.push({
+      id: 'ow_hostile_' + (h + 1),
+      archetypeId: arch.id,
+      name: arch.name,
+      icon: arch.icon,
+      color: arch.color || '#f87171',
+      level: arch.level || 1,
+      power: arch.power || 18,
+      hp: arch.maxHp || 60,
+      maxHp: arch.maxHp || 60,
+      rewardGold: arch.rewardGold || 20,
+      rewardOre: arch.rewardOre || 4,
+      rewardXp: arch.rewardXp || 25,
+      x: hx,
+      y: hy,
+      homeX: hx,
+      homeY: hy,
+      alive: true
+    });
+  }
+
+  // Spawn ONLY the Pioneer Settler unit initially (NO Dungeon Hero exists yet!)
+  const settlerArch = UNIT_ARCHETYPES.settler;
+  const settlerUnit = {
+    id: 'unit_settler_1',
+    name: settlerArch.name,
+    shortName: settlerArch.shortName,
+    unitType: 'settler',
+    x: spawnX,
+    y: spawnY,
+    hp: settlerArch.maxHp,
+    maxHp: settlerArch.maxHp,
+    visionRadius: settlerArch.visionRadius,
+    canFoundCity: true,
+    canEnterDungeon: false,
+    alive: true,
+    status: 'idle', // 'idle' | 'marching' | 'settled'
+    cargo: null,
+    marchPlan: null
+  };
+
+  const ow = {
+    width: width,
+    height: height,
+    seedCode: String(seedCode),
+    spawnX: spawnX,
+    spawnY: spawnY,
+    tiles: tiles,
+    explored: explored,
+    pois: pois,
+    hostiles: hostiles,
+    militaryTargets: [],
+    units: [settlerUnit],
+    selectedUnitId: settlerUnit.id
+  };
+
+  ow.militaryTargets = createDefaultMilitaryTargets(ow, null, spawnX, spawnY);
+
+  revealOverworldVision(ow, spawnX, spawnY, settlerUnit.visionRadius);
+
+  return ow;
+}
+
+// Non-destructive deterministic military target placement (Task 05B-2):
+// Never modifies terrain tiles; validates passability, non-overlap & A* reachability.
+function findValidMilitaryTargetHex(overworld, desiredX, desiredY, occupiedSet, reachOriginX, reachOriginY, maxSearchRadius) {
+  if (!overworld || !overworld.tiles) return null;
+  const searchR = typeof maxSearchRadius === 'number' && maxSearchRadius >= 0 ? maxSearchRadius : 8;
+  const clampedX = Math.max(1, Math.min(overworld.width - 2, Math.floor(desiredX)));
+  const clampedY = Math.max(1, Math.min(overworld.height - 2, Math.floor(desiredY)));
+  const candidates = getHexesInRange(clampedX, clampedY, searchR, overworld).slice().sort(function(a, b) {
+    const da = getHexDistance(a.x, a.y, clampedX, clampedY);
+    const db = getHexDistance(b.x, b.y, clampedX, clampedY);
+    if (da !== db) return da - db;
+    if (a.y !== b.y) return a.y - b.y;
+    return a.x - b.x;
+  });
+
+  const occ = occupiedSet || {};
+  const hasOrigin = typeof reachOriginX === 'number' && typeof reachOriginY === 'number' &&
+    isInOverworldBounds(overworld, reachOriginX, reachOriginY);
+
+  for (let i = 0; i < candidates.length; i++) {
+    const c = candidates[i];
+    if (c.x <= 0 || c.y <= 0 || c.x >= overworld.width - 1 || c.y >= overworld.height - 1) continue;
+    const key = c.x + ',' + c.y;
+    if (occ[key]) continue;
+    if (!isOverworldTilePassable(overworld, c.x, c.y)) continue;
+    if (hasOrigin) {
+      if (c.x === reachOriginX && c.y === reachOriginY) continue;
+      const path = findOverworldPath(overworld, reachOriginX, reachOriginY, c.x, c.y);
+      if (!path || path.length === 0) continue;
+    }
+    return { x: c.x, y: c.y };
+  }
+  return null;
+}
+
+function createDefaultMilitaryTargets(overworld, citiesMap, reachOriginX, reachOriginY) {
+  if (!overworld || !overworld.tiles) return [];
+  const occupied = {};
+  const markOccupied = function(x, y) {
+    if (typeof x === 'number' && typeof y === 'number') {
+      occupied[x + ',' + y] = true;
+    }
+  };
+
+  markOccupied(overworld.spawnX, overworld.spawnY);
+  const pois = Array.isArray(overworld.pois) ? overworld.pois : [];
+  for (let i = 0; i < pois.length; i++) {
+    if (pois[i]) markOccupied(pois[i].x, pois[i].y);
+  }
+  const hostiles = Array.isArray(overworld.hostiles) ? overworld.hostiles : [];
+  for (let i = 0; i < hostiles.length; i++) {
+    if (hostiles[i] && hostiles[i].alive !== false) markOccupied(hostiles[i].x, hostiles[i].y);
+  }
+  const units = Array.isArray(overworld.units) ? overworld.units : [];
+  for (let i = 0; i < units.length; i++) {
+    if (units[i] && units[i].alive !== false) markOccupied(units[i].x, units[i].y);
+  }
+  if (citiesMap && typeof citiesMap === 'object') {
+    const cKeys = Object.keys(citiesMap);
+    for (let i = 0; i < cKeys.length; i++) {
+      const c = citiesMap[cKeys[i]];
+      if (c) markOccupied(c.x, c.y);
+    }
+  }
+
+  const originX = typeof reachOriginX === 'number' ? reachOriginX : overworld.spawnX;
+  const originY = typeof reachOriginY === 'number' ? reachOriginY : overworld.spawnY;
+  const specs = Array.isArray(DEFAULT_MILITARY_TARGET_SPECS) ? DEFAULT_MILITARY_TARGET_SPECS : [];
+  const targets = [];
+
+  for (let i = 0; i < specs.length; i++) {
+    const spec = specs[i];
+    if (!spec) continue;
+    const arch = (MILITARY_TARGET_ARCHETYPES && MILITARY_TARGET_ARCHETYPES[spec.archetypeId]) || {
+      id: 'raider_blockade',
+      icon: '⚔️',
+      accentColor: '#ef4444',
+      clearedColor: '#34d399',
+      enemyLabel: 'Organized Hostile Force'
+    };
+    const desiredX = overworld.spawnX + (spec.desiredDx || 0);
+    const desiredY = overworld.spawnY + (spec.desiredDy || 0);
+    const pos = findValidMilitaryTargetHex(overworld, desiredX, desiredY, occupied, originX, originY, 8);
+    if (!pos) continue; // Safe omission without altering world geography
+    markOccupied(pos.x, pos.y);
+
+    const blocksCopy = Array.isArray(spec.blocksAccess)
+      ? spec.blocksAccess.map(function(b) {
+          return {
+            accessType: b.accessType,
+            targetRef: b.targetRef,
+            label: b.label || b.targetRef
+          };
+        })
+      : [];
+
+    targets.push({
+      id: spec.id,
+      archetypeId: spec.archetypeId || arch.id,
+      name: spec.name,
+      icon: spec.icon || arch.icon || '⚔️',
+      accentColor: spec.accentColor || arch.accentColor || '#ef4444',
+      clearedColor: spec.clearedColor || arch.clearedColor || '#34d399',
+      x: pos.x,
+      y: pos.y,
+      discovered: false,
+      status: MILITARY_TARGET_STATUS.ACTIVE,
+      enemyPower: spec.enemyPower || 100,
+      enemyLabel: spec.enemyLabel || arch.enemyLabel || 'Organized Hostile Force',
+      desc: spec.desc || arch.desc || '',
+      blocksAccess: blocksCopy,
+      clearedAtSimMs: null,
+      clearedByArmyId: null
+    });
+  }
+
+  return targets;
+}
+
+function revealOverworldVision(overworld, cx, cy, radius = 4, options = null) {
+  if (!overworld || !overworld.explored) return [];
+  const inRange = getHexesInRange(cx, cy, radius, overworld);
+  for (let i = 0; i < inRange.length; i++) {
+    const c = inRange[i];
+    if (overworld.explored[c.y]) {
+      overworld.explored[c.y][c.x] = true;
+    }
+  }
+
+  // Centralized Military Target Discovery (Task 05B-2):
+  // Any vision-reveal path (Settler, Hero Party, Army, City founding, Guild reveal, Dungeon return)
+  // consistently discovers military targets whose hex is now explored.
+  const newlyDiscovered = [];
+  if (Array.isArray(overworld.militaryTargets)) {
+    const opts = options || {};
+    const eventStream = opts.eventStream || null;
+    const simTimeMs = typeof opts.simTimeMs === 'number' ? opts.simTimeMs : 0;
+    for (let i = 0; i < overworld.militaryTargets.length; i++) {
+      const t = overworld.militaryTargets[i];
+      if (!t || t.discovered) continue;
+      if (overworld.explored[t.y] && overworld.explored[t.y][t.x]) {
+        t.discovered = true;
+        newlyDiscovered.push(t);
+        if (eventStream) {
+          eventStream.publish(STREAM_TOPICS.MILITARY_TARGET_DISCOVERED, {
+            targetId: t.id,
+            targetName: t.name,
+            enemyPower: t.enemyPower,
+            x: t.x,
+            y: t.y,
+            blocksAccess: t.blocksAccess || []
+          }, simTimeMs);
+        }
+      }
+    }
+  }
+  return newlyDiscovered;
+}
+
+function isOverworldTilePassable(overworld, x, y) {
+  if (!overworld || !overworld.tiles) return false;
+  if (x < 0 || x >= overworld.width || y < 0 || y >= overworld.height) return false;
+  const tId = overworld.tiles[y][x];
+  const tDef = OVERWORLD_TERRAIN_DEFS[tId];
+  return Boolean(tDef && tDef.passable);
+}
+
+function getOverworldTileMarchCostMs(overworld, x, y) {
+  if (!overworld || !overworld.tiles) return 3000;
+  if (x < 0 || x >= overworld.width || y < 0 || y >= overworld.height) return Infinity;
+  const tId = overworld.tiles[y][x];
+  const tDef = OVERWORLD_TERRAIN_DEFS[tId];
+  return tDef ? tDef.marchTimeMs : 3000;
+}
+
+// Terrain-weighted Hex A* Pathfinding on the Overworld Odd-R Hex Grid
+function findOverworldPath(overworld, startX, startY, targetX, targetY, maxNodes = 2500) {
+  if (!overworld || !overworld.tiles) return null;
+  if (!isInOverworldBounds(overworld, startX, startY) || !isInOverworldBounds(overworld, targetX, targetY)) return null;
+  if (startX === targetX && startY === targetY) return [];
+  if (!isOverworldTilePassable(overworld, targetX, targetY)) return null;
+
+  const w = overworld.width;
+  const startKey = startY * w + startX;
+  const targetKey = targetY * w + targetX;
+
+  const gScore = {};
+  const fScore = {};
+  const cameFrom = {};
+  const closed = {};
+
+  gScore[startKey] = 0;
+  fScore[startKey] = getHexDistance(startX, startY, targetX, targetY) * MIN_OVERWORLD_MARCH_COST_MS;
+
+  const openList = [startKey];
+
+  let visited = 0;
+  while (openList.length > 0 && visited < maxNodes) {
+    visited++;
+
+    // Find node with lowest fScore
+    let bestIdx = 0;
+    let bestKey = openList[0];
+    let bestF = fScore[bestKey] !== undefined ? fScore[bestKey] : Infinity;
+    for (let i = 1; i < openList.length; i++) {
+      const k = openList[i];
+      const fk = fScore[k] !== undefined ? fScore[k] : Infinity;
+      if (fk < bestF) {
+        bestF = fk;
+        bestKey = k;
+        bestIdx = i;
+      }
+    }
+
+    openList.splice(bestIdx, 1);
+
+    if (bestKey === targetKey) {
+      // Reconstruct path (excluding start tile)
+      const path = [];
+      let curr = targetKey;
+      while (curr !== startKey) {
+        const px = curr % w;
+        const py = Math.floor(curr / w);
+        path.push({
+          x: px,
+          y: py,
+          stepDurationMs: getOverworldTileMarchCostMs(overworld, px, py)
+        });
+        curr = cameFrom[curr];
+      }
+      path.reverse();
+      return path;
+    }
+
+    closed[bestKey] = true;
+    const cx = bestKey % w;
+    const cy = Math.floor(bestKey / w);
+    const curG = gScore[bestKey];
+
+    const neighbors = getHexNeighbors(cx, cy, overworld);
+    for (let d = 0; d < neighbors.length; d++) {
+      const nx = neighbors[d].x;
+      const ny = neighbors[d].y;
+      if (!isOverworldTilePassable(overworld, nx, ny)) continue;
+
+      const nKey = ny * w + nx;
+      if (closed[nKey]) continue;
+
+      const stepCost = getOverworldTileMarchCostMs(overworld, nx, ny);
+      const tentativeG = curG + stepCost;
+
+      if (gScore[nKey] === undefined || tentativeG < gScore[nKey]) {
+        cameFrom[nKey] = bestKey;
+        gScore[nKey] = tentativeG;
+        fScore[nKey] = tentativeG + getHexDistance(nx, ny, targetX, targetY) * MIN_OVERWORLD_MARCH_COST_MS;
+        if (openList.indexOf(nKey) === -1) {
+          openList.push(nKey);
+        }
+      }
+    }
+  }
+
+  return null;
+}
+
+  // --- Module: src/wargame/data/tasks.js ---
+// Reactive Event-Driven Guided Tasks & Campaign Milestones DAG (Directed Acyclic Graph)
+// Tasks subscribe to STREAM_TOPICS and transition: LOCKED -> AVAILABLE -> COMPLETED -> CLAIMED
+
+
+const CAMPAIGN_TASKS_DAG = [
+  {
+    id: 'task_scout_wilderness',
+    title: '1. Pioneer Reconnaissance',
+    category: 'exploration',
+    prerequisites: [],
+    triggerTopics: [STREAM_TOPICS.UNIT_MARCH_STEP, STREAM_TOPICS.UNIT_MARCH_COMPLETED, STREAM_TOPICS.CITY_FOUNDED],
+    desc: 'March your Pioneer Settler across the Overworld to survey the surrounding frontier (move at least 2 tiles).',
+    rewardLabel: '+40 Wood, +30 Food',
+    reward: { wood: 40, food: 30 },
+    evaluate: function(state) {
+      if (!state || !state.world) return { completed: false, progress: 0, target: 2 };
+      const steps = state.world.stats.totalUnitSteps || 0;
+      const cityCount = Object.keys(state.world.cities || {}).length;
+      const prog = cityCount > 0 ? 2 : Math.min(2, steps);
+      return { completed: prog >= 2, progress: prog, target: 2 };
+    }
+  },
+  {
+    id: 'task_found_first_city',
+    title: '2. Found Your Settlement',
+    category: 'settlement',
+    prerequisites: [],
+    triggerTopics: [STREAM_TOPICS.CITY_FOUNDED],
+    desc: 'Position your Pioneer Settler on a fertile site and establish your initial settlement with its Meeting Hall.',
+    rewardLabel: '+60 Wood, +60 Stone, +50 Gold',
+    reward: { wood: 60, stone: 60, gold: 50 },
+    evaluate: function(state) {
+      if (!state || !state.world) return { completed: false, progress: 0, target: 1 };
+      const count = Object.keys(state.world.cities || {}).length;
+      return { completed: count >= 1, progress: Math.min(1, count), target: 1 };
+    }
+  },
+  {
+    id: 'task_build_first_hut',
+    title: '3. Expand the Settlement',
+    category: 'civic',
+    prerequisites: ['task_found_first_city'],
+    triggerTopics: [STREAM_TOPICS.BUILDING_COMPLETED],
+    desc: 'Now that you founded your first city, you have to grow it. Build a Hut to attract more people.',
+    rewardLabel: '+40 Wood, +30 Food',
+    reward: { wood: 40, food: 30 },
+    evaluate: function(state) {
+      if (!state || !state.world || !state.world.cities) return { completed: false, progress: 0, target: 1 };
+      const cities = Object.values(state.world.cities);
+      for (let i = 0; i < cities.length; i++) {
+        const c = cities[i];
+        const hasHut = (c.plots || []).some(function(p) { return p.buildingId === 'hut' && (p.level || 0) >= 1; }) ||
+                       ((c.buildings && c.buildings.hut) || 0) >= 1;
+        if (hasHut) return { completed: true, progress: 1, target: 1 };
+      }
+      return { completed: false, progress: 0, target: 1 };
+    }
+  },
+  {
+    id: 'task_build_garden',
+    title: '4. Cultivate Food',
+    category: 'economy',
+    prerequisites: ['task_build_first_hut'],
+    triggerTopics: [STREAM_TOPICS.BUILDING_COMPLETED],
+    desc: 'As population grows, demands on food increase. Construct a Garden to produce food and prevent starvation.',
+    rewardLabel: '+40 Wood, +30 Stone',
+    reward: { wood: 40, stone: 30 },
+    evaluate: function(state) {
+      if (!state || !state.world || !state.world.cities) return { completed: false, progress: 0, target: 1 };
+      const cities = Object.values(state.world.cities);
+      for (let i = 0; i < cities.length; i++) {
+        const b = cities[i].buildings || {};
+        if ((b.garden && b.garden >= 1) || (b.farmstead && b.farmstead >= 1)) {
+          return { completed: true, progress: 1, target: 1 };
+        }
+      }
+      return { completed: false, progress: 0, target: 1 };
+    }
+  },
+  {
+    id: 'task_build_well',
+    title: '5. Fresh Water Supply',
+    category: 'civic',
+    prerequisites: ['task_build_garden'],
+    triggerTopics: [STREAM_TOPICS.BUILDING_COMPLETED],
+    desc: 'Dig a Well to supply clean drinking water for your citizens and support growth.',
+    rewardLabel: '+30 Wood, +40 Stone, +20 Gold',
+    reward: { wood: 30, stone: 40, gold: 20 },
+    evaluate: function(state) {
+      if (!state || !state.world || !state.world.cities) return { completed: false, progress: 0, target: 1 };
+      const cities = Object.values(state.world.cities);
+      for (let i = 0; i < cities.length; i++) {
+        const b = cities[i].buildings || {};
+        if (b.well && b.well >= 1) {
+          return { completed: true, progress: 1, target: 1 };
+        }
+      }
+      return { completed: false, progress: 0, target: 1 };
+    }
+  },
+  {
+    id: 'task_grow_population_12',
+    title: '6. Frontier Growth',
+    category: 'civic',
+    prerequisites: ['task_build_well'],
+    triggerTopics: [STREAM_TOPICS.RESOURCE_TICK, STREAM_TOPICS.BUILDING_COMPLETED],
+    desc: 'Build additional Huts and keep food and water stocked to grow your population to 12 citizens.',
+    rewardLabel: '+50 Wood, +50 Stone',
+    reward: { wood: 50, stone: 50 },
+    evaluate: function(state) {
+      if (!state || !state.world || !state.world.cities) return { completed: false, progress: 0, target: 12 };
+      const cities = Object.values(state.world.cities);
+      let maxCurrent = 5;
+      for (let i = 0; i < cities.length; i++) {
+        const pop = cities[i].population ? cities[i].population.current : 5;
+        if (pop > maxCurrent) maxCurrent = pop;
+      }
+      const prog = Math.min(12, maxCurrent);
+      return { completed: prog >= 12, progress: prog, target: 12 };
+    }
+  },
+  {
+    id: 'task_build_lumber_camp',
+    title: '7. Timber Industry',
+    category: 'economy',
+    prerequisites: ['task_grow_population_12'],
+    triggerTopics: [STREAM_TOPICS.BUILDING_COMPLETED],
+    desc: 'With 12 citizens in town, construct a Lumber Camp to supply sturdy construction timber.',
+    rewardLabel: '+60 Wood, +40 Stone',
+    reward: { wood: 60, stone: 40 },
+    evaluate: function(state) {
+      if (!state || !state.world || !state.world.cities) return { completed: false, progress: 0, target: 1 };
+      const cities = Object.values(state.world.cities);
+      for (let i = 0; i < cities.length; i++) {
+        const b = cities[i].buildings || {};
+        if ((b.lumber_camp && b.lumber_camp >= 1) || (b.lumber_hut && b.lumber_hut >= 1) || (b.sawmill && b.sawmill >= 1)) {
+          return { completed: true, progress: 1, target: 1 };
+        }
+      }
+      return { completed: false, progress: 0, target: 1 };
+    }
+  },
+  {
+    id: 'task_build_quarry',
+    title: '8. Stone Quarrying',
+    category: 'economy',
+    prerequisites: ['task_build_lumber_camp'],
+    triggerTopics: [STREAM_TOPICS.BUILDING_COMPLETED],
+    desc: 'Grow population to 15 and construct a Quarry to cut heavy granite stone blocks.',
+    rewardLabel: '+50 Wood, +60 Stone, +40 Gold',
+    reward: { wood: 50, stone: 60, gold: 40 },
+    evaluate: function(state) {
+      if (!state || !state.world || !state.world.cities) return { completed: false, progress: 0, target: 1 };
+      const cities = Object.values(state.world.cities);
+      for (let i = 0; i < cities.length; i++) {
+        const b = cities[i].buildings || {};
+        if (b.quarry && b.quarry >= 1) {
+          return { completed: true, progress: 1, target: 1 };
+        }
+      }
+      return { completed: false, progress: 0, target: 1 };
+    }
+  },
+  {
+    id: 'task_build_guild_hall',
+    title: '9. Charter the Adventurers Guild',
+    category: 'military',
+    prerequisites: ['task_build_quarry'],
+    triggerTopics: [STREAM_TOPICS.BUILDING_COMPLETED],
+    desc: 'Grow population to 20 and construct the Adventurers Guild to unlock Hero recruitment.',
+    rewardLabel: '+100 Gold, +50 Food (Unlocks Heroes)',
+    reward: { gold: 100, food: 50 },
+    evaluate: function(state) {
+      if (!state || !state.world || !state.world.cities) return { completed: false, progress: 0, target: 1 };
+      const cities = Object.values(state.world.cities);
+      for (let i = 0; i < cities.length; i++) {
+        const b = cities[i].buildings || {};
+        if (b.guild_hall && b.guild_hall >= 1) {
+          return { completed: true, progress: 1, target: 1 };
+        }
+      }
+      return { completed: false, progress: 0, target: 1 };
+    }
+  },
+  {
+    id: 'task_recruit_first_hero',
+    title: '10. Swear In Your First Hero',
+    category: 'military',
+    prerequisites: ['task_build_guild_hall'],
+    triggerTopics: [STREAM_TOPICS.HERO_RECRUITED, STREAM_TOPICS.PARTY_FORMED],
+    desc: 'Recruit your first Hero at the Adventurers Guild to lead expeditionary parties.',
+    rewardLabel: '+75 Gold, +40 Wood, +40 Stone',
+    reward: { gold: 75, wood: 40, stone: 40 },
+    evaluate: function(state) {
+      if (!state || !state.world || !Array.isArray(state.world.heroes)) {
+        return { completed: false, progress: 0, target: 1 };
+      }
+      const count = state.world.heroes.length;
+      return { completed: count >= 1, progress: Math.min(1, count), target: 1 };
+    }
+  },
+  {
+    id: 'task_march_to_dungeon',
+    title: '11. March to the Starfall Vaults',
+    category: 'delve',
+    prerequisites: ['task_recruit_first_hero'],
+    triggerTopics: [STREAM_TOPICS.UNIT_MARCH_STEP, STREAM_TOPICS.UNIT_MARCH_COMPLETED, STREAM_TOPICS.DUNGEON_ENTERED],
+    desc: 'March your Hero Party across the Overworld to the Starfall Vaults entrance (Ω) and breach the subterranean gates.',
+    rewardLabel: '+150 Gold, Campaign Milestone Complete',
+    reward: { gold: 150 },
+    evaluate: function(state) {
+      if (!state || !state.world) return { completed: false, progress: 0, target: 1 };
+      if (state.world.stats && state.world.stats.dungeonsEntered > 0) {
+        return { completed: true, progress: 1, target: 1 };
+      }
+      const pois = (state.world.overworld && state.world.overworld.pois) || [];
+      const dngPoi = pois.find(function(p) { return p.type === 'dungeon_entrance'; });
+      const units = (state.world.overworld && state.world.overworld.units) || [];
+      if (dngPoi) {
+        for (let i = 0; i < units.length; i++) {
+          const u = units[i];
+          if (u.alive && u.unitType === 'hero_party' && u.status !== 'marching' && u.x === dngPoi.x && u.y === dngPoi.y) {
+            return { completed: true, progress: 1, target: 1 };
+          }
+        }
+      }
+      return { completed: false, progress: 0, target: 1 };
+    }
+  },
+  {
+    id: 'task_return_with_spoils',
+    title: '12. Return With Dungeon Spoils',
+    category: 'delve',
+    prerequisites: ['task_march_to_dungeon'],
+    triggerTopics: [STREAM_TOPICS.EXPEDITION_BANKED, STREAM_TOPICS.DUNGEON_RETURNED],
+    desc: 'Extract from a Dungeon Vault and complete the return march to bank your expedition spoils at Oakhaven Bastion.',
+    rewardLabel: '+200 Gold, +40 Ore',
+    reward: { gold: 200, ore: 40 },
+    evaluate: function(state) {
+      if (!state || !state.world || !state.world.stats) return { completed: false, progress: 0, target: 1 };
+      const banked = state.world.stats.expeditionsBanked || 0;
+      return { completed: banked >= 1, progress: Math.min(1, banked), target: 1 };
+    }
+  },
+  // Short Military Forces Onboarding Sequence (Task 05A-C1 — branches naturally after Quarry, zero free troops/resources)
+  {
+    id: 'task_build_barracks',
+    title: 'Military 1. Build the Barracks',
+    category: 'military',
+    prerequisites: ['task_build_quarry'],
+    triggerTopics: [STREAM_TOPICS.BUILDING_COMPLETED],
+    desc: 'Construct a Barracks in your city. The Barracks is your central facility for recruiting, upgrading, and managing all military troops.',
+    rewardLabel: 'Unlocks Barracks Management',
+    reward: {},
+    evaluate: function(state) {
+      if (!state || !state.world || !state.world.cities) return { completed: false, progress: 0, target: 1 };
+      const cities = Object.values(state.world.cities);
+      for (let i = 0; i < cities.length; i++) {
+        const c = cities[i];
+        const hasBarracks = (c.plots || []).some(function(p) {
+          return p && p.buildingId === 'barracks' && (p.level || 0) >= 1 && !p.demolishing;
+        }) || ((c.buildings && c.buildings.barracks) || 0) >= 1;
+        if (hasBarracks) return { completed: true, progress: 1, target: 1 };
+      }
+      return { completed: false, progress: 0, target: 1 };
+    }
+  },
+  {
+    id: 'task_queue_first_troops',
+    title: 'Military 2. Recruit Your First Troops',
+    category: 'military',
+    prerequisites: ['task_build_barracks'],
+    triggerTopics: [STREAM_TOPICS.TROOP_TRAINING_STARTED, STREAM_TOPICS.TROOP_TRAINED],
+    desc: 'Build a Fighter Camp (or Archer Camp) to unlock a troop type, then enter the Barracks and queue your first recruits for training.',
+    rewardLabel: 'Training Queue Active',
+    reward: {},
+    evaluate: function(state) {
+      if (!state || !state.world) return { completed: false, progress: 0, target: 1 };
+      const cities = Object.values(state.world.cities || {});
+      let hasQueued = false;
+      for (let i = 0; i < cities.length; i++) {
+        if (Array.isArray(cities[i].troopTrainingQueue) && cities[i].troopTrainingQueue.length > 0) {
+          hasQueued = true;
+          break;
+        }
+      }
+      const trained = (state.world.stats && state.world.stats.troopsTrained) || 0;
+      const hasGroups = Array.isArray(state.world.troopGroups) && state.world.troopGroups.some(function(g) {
+        return g && g.locationType === 'barracks' && (g.count || 0) >= 1;
+      });
+      const done = hasQueued || trained >= 1 || hasGroups;
+      return { completed: done, progress: done ? 1 : 0, target: 1 };
+    }
+  },
+  {
+    id: 'task_complete_first_garrison',
+    title: 'Military 3. Complete Your First Barracks Troops',
+    category: 'military',
+    prerequisites: ['task_queue_first_troops'],
+    triggerTopics: [STREAM_TOPICS.TROOP_TRAINED],
+    desc: 'Wait for your recruits to finish training. Completed soldiers join your Barracks Troop Inventory.',
+    rewardLabel: 'Barracks Force Ready',
+    reward: {},
+    evaluate: function(state) {
+      if (!state || !state.world) return { completed: false, progress: 0, target: 1 };
+      const trained = (state.world.stats && state.world.stats.troopsTrained) || 0;
+      const stationed = Array.isArray(state.world.troopGroups)
+        ? state.world.troopGroups.reduce(function(sum, g) {
+            if (g && g.locationType === 'barracks' && (g.count || 0) > 0) return sum + g.count;
+            return sum;
+          }, 0)
+        : 0;
+      const done = trained >= 1 && stationed >= 1;
+      return { completed: done, progress: done ? 1 : 0, target: 1 };
+    }
+  },
+  {
+    id: 'task_clear_first_military_target',
+    title: 'Military 4. Clear the Nearby Raider Blockade',
+    category: 'military',
+    prerequisites: ['task_complete_first_garrison'],
+    triggerTopics: [STREAM_TOPICS.MILITARY_TARGET_CLEARED, STREAM_TOPICS.ARMY_COMBAT_RESOLVED],
+    desc: 'Inspect the nearby Ironjaw Blockade Camp (⚔️) on the Overworld map near your Bastion, deploy a Field Army against it, and clear the threat to unlock Hero access.',
+    rewardLabel: 'Frontier Access Opened',
+    reward: {},
+    evaluate: function(state) {
+      if (!state || !state.world || !state.world.overworld || !Array.isArray(state.world.overworld.militaryTargets)) {
+        return { completed: false, progress: 0, target: 1 };
+      }
+      const cleared = state.world.overworld.militaryTargets.filter(function(t) {
+        return t && t.status === 'cleared';
+      }).length;
+      return { completed: cleared >= 1, progress: Math.min(1, cleared), target: 1 };
+    }
+  }
+];
+
+  // --- Module: src/wargame/engine/taskEngine.js ---
+// Reactive Task & Milestone DAG Engine
+// Subscribes to WorldEventStream, evaluates task prerequisites & predicates, and manages reward claims.
+
+
+
+function createInitialTasksState() {
+  const map = {};
+  for (let i = 0; i < CAMPAIGN_TASKS_DAG.length; i++) {
+    const tDef = CAMPAIGN_TASKS_DAG[i];
+    const isRoot = !tDef.prerequisites || tDef.prerequisites.length === 0;
+    map[tDef.id] = {
+      id: tDef.id,
+      status: isRoot ? 'available' : 'locked', // 'locked' | 'available' | 'completed' | 'claimed'
+      progress: 0,
+      target: 1,
+      completedAtSimMs: null,
+      claimedAtSimMs: null
+    };
+  }
+  return map;
+}
+
+function evaluateTaskDAG(state, eventStream) {
+  if (!state || !state.world) return [];
+  if (!state.world.tasks) {
+    state.world.tasks = createInitialTasksState();
+  }
+
+  const tasksState = state.world.tasks;
+  const simTimeMs = state.world.clock ? state.world.clock.simTimeMs : 0;
+
+  // Pass 1: Unlock tasks whose prerequisites are completed or claimed
+  for (let i = 0; i < CAMPAIGN_TASKS_DAG.length; i++) {
+    const tDef = CAMPAIGN_TASKS_DAG[i];
+    if (!tasksState[tDef.id]) {
+      tasksState[tDef.id] = {
+        id: tDef.id,
+        status: 'locked',
+        progress: 0,
+        target: 1,
+        completedAtSimMs: null,
+        claimedAtSimMs: null
+      };
+    }
+
+    const entry = tasksState[tDef.id];
+    if (entry.status === 'locked') {
+      const prereqs = tDef.prerequisites || [];
+      let allMet = true;
+      for (let p = 0; p < prereqs.length; p++) {
+        const preEntry = tasksState[prereqs[p]];
+        if (!preEntry || (preEntry.status !== 'completed' && preEntry.status !== 'claimed')) {
+          allMet = false;
+          break;
+        }
+      }
+      if (allMet) {
+        entry.status = 'available';
+        if (eventStream) {
+          eventStream.publish(STREAM_TOPICS.TASK_UNLOCKED, {
+            taskId: tDef.id,
+            title: tDef.title
+          }, simTimeMs);
+        }
+      }
+    }
+  }
+
+  // Pass 2: Evaluate progress & completion for all unlocked tasks
+  let newlyCompleted = false;
+  for (let i = 0; i < CAMPAIGN_TASKS_DAG.length; i++) {
+    const tDef = CAMPAIGN_TASKS_DAG[i];
+    const entry = tasksState[tDef.id];
+    if (entry.status === 'locked') continue;
+
+    const evalRes = tDef.evaluate(state);
+    const prevProgress = entry.progress;
+    entry.progress = evalRes.progress;
+    entry.target = evalRes.target;
+
+    if (entry.status === 'available') {
+      if (evalRes.completed) {
+        entry.status = 'completed';
+        entry.completedAtSimMs = simTimeMs;
+        newlyCompleted = true;
+        if (eventStream) {
+          eventStream.publish(STREAM_TOPICS.TASK_COMPLETED, {
+            taskId: tDef.id,
+            title: tDef.title,
+            rewardLabel: tDef.rewardLabel
+          }, simTimeMs);
+        }
+      } else if (entry.progress !== prevProgress && eventStream) {
+        eventStream.publish(STREAM_TOPICS.TASK_PROGRESS, {
+          taskId: tDef.id,
+          title: tDef.title,
+          progress: entry.progress,
+          target: entry.target
+        }, simTimeMs);
+      }
+    }
+  }
+
+  // If a task completed, run one more unlock check so downstream tasks immediately unlock
+  if (newlyCompleted) {
+    for (let i = 0; i < CAMPAIGN_TASKS_DAG.length; i++) {
+      const tDef = CAMPAIGN_TASKS_DAG[i];
+      const entry = tasksState[tDef.id];
+      if (entry.status === 'locked') {
+        const prereqs = tDef.prerequisites || [];
+        let allMet = true;
+        for (let p = 0; p < prereqs.length; p++) {
+          const preEntry = tasksState[prereqs[p]];
+          if (!preEntry || (preEntry.status !== 'completed' && preEntry.status !== 'claimed')) {
+            allMet = false;
+            break;
+          }
+        }
+        if (allMet) {
+          entry.status = 'available';
+          const evalRes = tDef.evaluate(state);
+          entry.progress = evalRes.progress;
+          entry.target = evalRes.target;
+          if (evalRes.completed) {
+            entry.status = 'completed';
+            entry.completedAtSimMs = simTimeMs;
+          }
+          if (eventStream) {
+            eventStream.publish(STREAM_TOPICS.TASK_UNLOCKED, {
+              taskId: tDef.id,
+              title: tDef.title
+            }, simTimeMs);
+          }
+        }
+      }
+    }
+  }
+
+  return getFormattedTasksList(state);
+}
+
+function getFormattedTasksList(state) {
+  if (!state || !state.world || !state.world.tasks) return [];
+  const tasksState = state.world.tasks;
+  const list = [];
+
+  for (let i = 0; i < CAMPAIGN_TASKS_DAG.length; i++) {
+    const tDef = CAMPAIGN_TASKS_DAG[i];
+    const entry = tasksState[tDef.id] || { status: 'locked', progress: 0, target: 1 };
+    list.push({
+      id: tDef.id,
+      title: tDef.title,
+      desc: tDef.desc,
+      category: tDef.category,
+      prerequisites: tDef.prerequisites || [],
+      rewardLabel: tDef.rewardLabel,
+      reward: tDef.reward,
+      status: entry.status,
+      progress: entry.progress,
+      target: entry.target,
+      readyToClaim: entry.status === 'completed'
+    });
+  }
+
+  return list;
 }
 
   // --- Module: src/progression/currencyService.js ---
@@ -8734,7 +9156,8 @@ function reconcileLoadedWorldIntegrity(parsed) {
           payload: {
             armyId: u.id,
             objectiveId: u.objective.id,
-            objectiveType: u.objective.type
+            objectiveType: u.objective.type,
+            targetId: u.objective.targetId || null
           }
         };
         u.objective.jobId = recObjJobId;
@@ -8973,6 +9396,61 @@ function reconcileLoadedWorldIntegrity(parsed) {
     au.shortName = 'Army #' + cand;
   }
 
+  // 7d. Reconcile & Zero-Lockout Legacy Backfill for Overworld Military Targets (Task 05B-2)
+  if (!Array.isArray(ow.militaryTargets)) {
+    const primaryC = (w.activeCityId && w.cities[w.activeCityId]) ? w.cities[w.activeCityId] : (cityIds.length > 0 ? w.cities[cityIds[0]] : null);
+    const originX = primaryC ? primaryC.x : ow.spawnX;
+    const originY = primaryC ? primaryC.y : ow.spawnY;
+    const backfilled = createDefaultMilitaryTargets(ow, w.cities, originX, originY);
+    const poisList = Array.isArray(ow.pois) ? ow.pois : [];
+    const dngDict = (dngWorld && dngWorld.dungeons && typeof dngWorld.dungeons === 'object') ? dngWorld.dungeons : null;
+
+    for (let ti = 0; ti < backfilled.length; ti++) {
+      const mt = backfilled[ti];
+      mt.discovered = Boolean(ow.explored[mt.y] && ow.explored[mt.y][mt.x]);
+      let legacyProgressed = false;
+      const blocks = Array.isArray(mt.blocksAccess) ? mt.blocksAccess : [];
+      for (let bi = 0; bi < blocks.length; bi++) {
+        const desc = blocks[bi];
+        if (!desc || desc.accessType !== 'overworld_poi') continue;
+        const linkedPoi = poisList.find(function(p) { return p && p.id === desc.targetRef; });
+        if (!linkedPoi) continue;
+        const poiExplored = Boolean(linkedPoi.discovered || (ow.explored[linkedPoi.y] && ow.explored[linkedPoi.y][linkedPoi.x]));
+        const unitInLinkedDng = units.some(function(u) {
+          return u && u.alive && u.status === 'in_dungeon' &&
+            (u.activeDungeonPoiId === linkedPoi.id || (linkedPoi.dungeonId && u.activeDungeonId === linkedPoi.dungeonId));
+        });
+        const dngPreviouslyEntered = Boolean(dngDict && linkedPoi.dungeonId && dngDict[linkedPoi.dungeonId]);
+        if (poiExplored || unitInLinkedDng || dngPreviouslyEntered) {
+          legacyProgressed = true;
+          break;
+        }
+      }
+      if (legacyProgressed) {
+        mt.status = MILITARY_TARGET_STATUS.CLEARED;
+        mt.migratedCleared = true;
+      }
+    }
+    ow.militaryTargets = backfilled;
+  } else {
+    for (let ti = 0; ti < ow.militaryTargets.length; ti++) {
+      const mt = ow.militaryTargets[ti];
+      if (!mt) continue;
+      if (mt.status !== MILITARY_TARGET_STATUS.CLEARED && mt.status !== MILITARY_TARGET_STATUS.ACTIVE) {
+        mt.status = MILITARY_TARGET_STATUS.ACTIVE;
+      }
+      if (typeof mt.discovered !== 'boolean') {
+        mt.discovered = Boolean(ow.explored[mt.y] && ow.explored[mt.y][mt.x]);
+      }
+      if (!Array.isArray(mt.blocksAccess)) {
+        mt.blocksAccess = [];
+      }
+      if (typeof mt.enemyPower !== 'number' || !isFinite(mt.enemyPower) || mt.enemyPower < 1) {
+        mt.enemyPower = 100;
+      }
+    }
+  }
+
   w.scheduledJobs = cleanJobs;
   return cleanJobs;
 }
@@ -9148,6 +9626,125 @@ function loadWargameState(scheduler = null, options = null) {
   } catch (e) {
     return null;
   }
+}
+
+// Generalized Overworld Discoveries Aggregator (PF-03)
+// Categorizes all discovered Overworld features (Threats, Dungeons, Resources/POIs, Locations)
+// strictly respecting exploration/discovery visibility rules.
+function collectOverworldDiscoveries(world) {
+  const empty = { threats: [], dungeons: [], resources: [], locations: [], all: [] };
+  if (!world || !world.overworld) return empty;
+  const ow = world.overworld;
+  const explored = ow.explored || [];
+  const isExplored = function(x, y) {
+    return Boolean(explored[y] && explored[y][x]);
+  };
+
+  const threats = [];
+  const dungeons = [];
+  const resources = [];
+  const locations = [];
+
+  // 1. Discovered Military Targets (Threats)
+  const mTargets = Array.isArray(ow.militaryTargets) ? ow.militaryTargets : [];
+  for (let i = 0; i < mTargets.length; i++) {
+    const mt = mTargets[i];
+    if (!mt) continue;
+    if (!mt.discovered && !isExplored(mt.x, mt.y)) continue;
+    const isCleared = mt.status === MILITARY_TARGET_STATUS.CLEARED;
+    threats.push({
+      id: mt.id,
+      category: 'threats',
+      kind: 'military_target',
+      name: mt.name,
+      x: mt.x,
+      y: mt.y,
+      icon: isCleared ? '✓' : '⚔️',
+      status: mt.status,
+      enemyPower: mt.enemyPower || 100,
+      blocksLabels: (mt.blocksAccess || []).map(function(b) { return b.label || b.targetRef; })
+    });
+  }
+
+  // 2. Discovered Wandering Hostiles (Adventure-Scale Threats — only when explored & alive)
+  const hostiles = Array.isArray(ow.hostiles) ? ow.hostiles : [];
+  for (let i = 0; i < hostiles.length; i++) {
+    const h = hostiles[i];
+    if (!h || !h.alive) continue;
+    if (!isExplored(h.x, h.y)) continue;
+    threats.push({
+      id: h.id,
+      category: 'threats',
+      kind: 'adventure_hostile',
+      name: h.name,
+      x: h.x,
+      y: h.y,
+      icon: h.icon || '☠',
+      status: 'active',
+      level: h.level || 1,
+      enemyPower: h.power || 18
+    });
+  }
+
+  // 3. Discovered POIs (Dungeons & Resource Nodes / Caches)
+  const pois = Array.isArray(ow.pois) ? ow.pois : [];
+  for (let i = 0; i < pois.length; i++) {
+    const p = pois[i];
+    if (!p) continue;
+    if (!p.discovered && !isExplored(p.x, p.y)) continue;
+    if (p.type === 'dungeon_entrance') {
+      const blocker = getBlockingMilitaryTargetForAccess(ow, 'overworld_poi', p.id);
+      dungeons.push({
+        id: p.id,
+        category: 'dungeons',
+        kind: 'dungeon_entrance',
+        name: p.name,
+        x: p.x,
+        y: p.y,
+        icon: 'Ω',
+        accentColor: p.accentColor || '#f87171',
+        recommendedLevel: p.recommendedLevel || 1,
+        blockedBy: blocker ? { id: blocker.id, name: blocker.name } : null
+      });
+    } else {
+      resources.push({
+        id: p.id,
+        category: 'resources',
+        kind: p.type || 'resource_poi',
+        name: p.name,
+        x: p.x,
+        y: p.y,
+        icon: p.type === 'timber_camp' ? '🌲' : (p.type === 'stone_outcrop' ? '⛏️' : '📦'),
+        depleted: Boolean(p.depleted)
+      });
+    }
+  }
+
+  // 4. Founded Cities (Locations)
+  const cities = Object.values(world.cities || {});
+  for (let i = 0; i < cities.length; i++) {
+    const c = cities[i];
+    if (!c) continue;
+    locations.push({
+      id: c.id,
+      category: 'locations',
+      kind: 'city',
+      name: c.name,
+      x: c.x,
+      y: c.y,
+      icon: '🏰',
+      level: c.level || 1
+    });
+  }
+
+  const all = threats.concat(dungeons, resources, locations);
+  return {
+    threats: threats,
+    dungeons: dungeons,
+    resources: resources,
+    locations: locations,
+    all: all
+  };
 }
 
   // --- Module: src/progression/researchCatalog.js ---
@@ -11379,7 +11976,7 @@ function resolveMarchStepJob(job, state, scheduler, eventStream) {
   unit.y = targetY;
   state.world.stats.totalUnitSteps = (state.world.stats.totalUnitSteps || 0) + 1;
 
-  revealOverworldVision(ow, unit.x, unit.y, unit.visionRadius || 4);
+  revealOverworldVision(ow, unit.x, unit.y, unit.visionRadius || 4, { simTimeMs: job.dueSimTimeMs, eventStream: eventStream });
   checkAndDiscoverDungeonsInVision(ow, job.dueSimTimeMs, eventStream);
 
   // Check for Wandering Hostile interception for Hero Parties
@@ -11609,7 +12206,7 @@ function resolveBuildingCompleteJob(job, state, scheduler, eventStream) {
     if (ow && Array.isArray(ow.pois)) {
       const starfallPoi = ow.pois.find(function(poi) { return poi.id === 'poi_dungeon_starfall' || poi.type === 'dungeon_entrance'; });
       if (starfallPoi) {
-        revealOverworldVision(ow, starfallPoi.x, starfallPoi.y, 2);
+        revealOverworldVision(ow, starfallPoi.x, starfallPoi.y, 2, { simTimeMs: job.dueSimTimeMs, eventStream: eventStream });
         checkAndDiscoverDungeonsInVision(ow, job.dueSimTimeMs, eventStream);
       }
     }
@@ -11898,7 +12495,7 @@ function resolveRecruitHeroJob(job, state, scheduler, eventStream) {
     if (!hasActiveSelected) {
       ow.selectedUnitId = partyUnit.id;
     }
-    revealOverworldVision(ow, partyUnit.x, partyUnit.y, partyUnit.visionRadius);
+    revealOverworldVision(ow, partyUnit.x, partyUnit.y, partyUnit.visionRadius, { simTimeMs: job.dueSimTimeMs, eventStream: eventStream });
   }
 
   if (!world.parties) world.parties = [];
@@ -12339,6 +12936,82 @@ function startArmyReturnHome(army, state, scheduler, simTimeMs, eventStream) {
   return { ok: true, stepsCount: path.length };
 }
 
+function applyArmyCombatCasualties(world, armyId, allocations) {
+  if (!world || !Array.isArray(world.troopGroups) || !Array.isArray(allocations)) return 0;
+  const lossByGroupId = {};
+  for (let i = 0; i < allocations.length; i++) {
+    const al = allocations[i];
+    if (al && al.groupId && al.lost > 0) {
+      lossByGroupId[al.groupId] = al.lost;
+    }
+  }
+  let applied = 0;
+  const remaining = [];
+  for (let i = 0; i < world.troopGroups.length; i++) {
+    const g = world.troopGroups[i];
+    if (!g) continue;
+    if (g.locationType === TROOP_LOCATION_TYPES.ARMY && g.locationId === armyId && lossByGroupId[g.id]) {
+      const deduct = Math.min(g.count || 0, lossByGroupId[g.id]);
+      g.count = Math.max(0, (g.count || 0) - deduct);
+      applied += deduct;
+      if (g.count > 0) remaining.push(g);
+    } else {
+      remaining.push(g);
+    }
+  }
+  world.troopGroups = remaining;
+  return applied;
+}
+
+// Competing-army lifecycle cleanup (Task 05B-2):
+// When one army clears a military target, any other active army still marching toward or engaged
+// with that same target cleanly cancels its stale march/objective job, marks the objective failed
+// without duplicate combat, and honors its return policy (or idles safely if stayDeployed).
+function cleanupCompetingArmiesForClearedTarget(targetId, winningArmyId, state, scheduler, simTimeMs, eventStream) {
+  if (!targetId || !state || !state.world || !state.world.overworld) return 0;
+  const ow = state.world.overworld;
+  const units = Array.isArray(ow.units) ? ow.units : [];
+  let cleaned = 0;
+
+  for (let i = 0; i < units.length; i++) {
+    const other = units[i];
+    if (!other || !other.alive || other.reintegrated || other.unitType !== 'army') continue;
+    if (winningArmyId && other.id === winningArmyId) continue;
+    if (!other.objective || other.objective.type !== ARMY_OBJECTIVE_TYPES.ENGAGE_TARGET) continue;
+    if (other.objective.targetId !== targetId) continue;
+    if (other.objective.status === ARMY_OBJECTIVE_STATUS.COMPLETED || other.objective.status === ARMY_OBJECTIVE_STATUS.FAILED) continue;
+
+    if (other.marchPlan && other.marchPlan.activeJobId && scheduler) {
+      scheduler.cancelJob(other.marchPlan.activeJobId);
+    }
+    if (other.objective.jobId && scheduler) {
+      scheduler.cancelJob(other.objective.jobId);
+    }
+
+    other.marchPlan = null;
+    other.status = 'idle';
+    other.objective.status = ARMY_OBJECTIVE_STATUS.FAILED;
+    other.objective.jobId = null;
+    other.objective.failureReason = 'target_already_cleared';
+    cleaned++;
+
+    if (eventStream) {
+      eventStream.publish(STREAM_TOPICS.ARMY_OBJECTIVE_FAILED, {
+        armyId: other.id,
+        armyName: other.shortName || other.name,
+        objectiveType: ARMY_OBJECTIVE_TYPES.ENGAGE_TARGET,
+        targetId: targetId,
+        reason: 'Military target was already cleared by another army'
+      }, simTimeMs);
+    }
+
+    if (!other.stayDeployed) {
+      startArmyReturnHome(other, state, scheduler, simTimeMs, eventStream);
+    }
+  }
+  return cleaned;
+}
+
 function handleArmyArrival(army, state, scheduler, simTimeMs, eventStream) {
   if (!army || !army.alive || army.reintegrated) return;
   if (!army.objective) {
@@ -12350,6 +13023,65 @@ function handleArmyArrival(army, state, scheduler, simTimeMs, eventStream) {
 
   if (army.objective.type === ARMY_OBJECTIVE_TYPES.RETURN_HOME) {
     reintegrateArmyIntoBarracks(army, state, simTimeMs, eventStream);
+    return;
+  }
+
+  if (army.objective.type === ARMY_OBJECTIVE_TYPES.ENGAGE_TARGET) {
+    const ow = state && state.world && state.world.overworld;
+    const target = getMilitaryTargetById(ow, army.objective.targetId);
+    if (!target || target.status === MILITARY_TARGET_STATUS.CLEARED) {
+      army.status = 'idle';
+      army.objective.status = ARMY_OBJECTIVE_STATUS.FAILED;
+      army.objective.jobId = null;
+      army.objective.failureReason = 'target_already_cleared';
+      if (eventStream) {
+        eventStream.publish(STREAM_TOPICS.ARMY_OBJECTIVE_FAILED, {
+          armyId: army.id,
+          armyName: army.shortName || army.name,
+          objectiveType: ARMY_OBJECTIVE_TYPES.ENGAGE_TARGET,
+          targetId: army.objective.targetId || null,
+          reason: 'Military target is already cleared'
+        }, simTimeMs);
+      }
+      if (!army.stayDeployed) {
+        startArmyReturnHome(army, state, scheduler, simTimeMs, eventStream);
+      }
+      return;
+    }
+
+    const combatDur = Math.max(250, ARMY_COMBAT_DURATION_MS || 3000);
+    const job = scheduler ? scheduler.scheduleJob({
+      jobId: 'army_cbt_' + army.id + '_' + simTimeMs + '_' + Math.floor(Math.random() * 10000),
+      jobType: 'ARMY_OBJECTIVE_COMPLETE',
+      ownerId: army.id,
+      startSimTimeMs: simTimeMs,
+      dueSimTimeMs: simTimeMs + combatDur,
+      payload: {
+        armyId: army.id,
+        objectiveId: army.objective.id,
+        objectiveType: army.objective.type,
+        targetId: target.id
+      }
+    }) : null;
+
+    army.status = 'objective_in_progress';
+    army.objective.status = ARMY_OBJECTIVE_STATUS.IN_PROGRESS;
+    army.objective.jobId = job ? job.jobId : null;
+    army.objective.startSimTimeMs = simTimeMs;
+    army.objective.dueSimTimeMs = simTimeMs + combatDur;
+
+    if (eventStream) {
+      eventStream.publish(STREAM_TOPICS.ARMY_COMBAT_STARTED, {
+        armyId: army.id,
+        armyName: army.shortName || army.name,
+        targetId: target.id,
+        targetName: target.name,
+        enemyPower: target.enemyPower,
+        x: target.x,
+        y: target.y,
+        durationMs: combatDur
+      }, simTimeMs);
+    }
     return;
   }
 
@@ -12405,11 +13137,108 @@ function resolveArmyObjectiveCompleteJob(job, state, scheduler, eventStream) {
   if (army.status !== 'objective_in_progress' || army.objective.status !== ARMY_OBJECTIVE_STATUS.IN_PROGRESS) return;
   if (army.objective.jobId && job.jobId && army.objective.jobId !== job.jobId) return;
 
+  if (army.objective.type === ARMY_OBJECTIVE_TYPES.ENGAGE_TARGET) {
+    const targetId = army.objective.targetId || p.targetId || null;
+    const target = getMilitaryTargetById(ow, targetId);
+    if (!target || target.status === MILITARY_TARGET_STATUS.CLEARED) {
+      army.objective.status = ARMY_OBJECTIVE_STATUS.FAILED;
+      army.objective.jobId = null;
+      army.objective.failureReason = 'target_already_cleared';
+      army.status = 'idle';
+      if (eventStream) {
+        eventStream.publish(STREAM_TOPICS.ARMY_OBJECTIVE_FAILED, {
+          armyId: army.id,
+          armyName: army.shortName || army.name,
+          objectiveType: ARMY_OBJECTIVE_TYPES.ENGAGE_TARGET,
+          targetId: targetId,
+          reason: 'Military target was already cleared'
+        }, job.dueSimTimeMs);
+      }
+      if (!army.stayDeployed) {
+        startArmyReturnHome(army, state, scheduler, job.dueSimTimeMs, eventStream);
+      }
+      state._dirty = true;
+      saveWargameState(state, scheduler);
+      evaluateTaskDAG(state, eventStream);
+      return;
+    }
+
+    const combatRes = resolveMilitaryTargetCombat(state.world, army.id, target);
+    applyArmyCombatCasualties(state.world, army.id, combatRes.allocations);
+
+    const unlockedLabels = combatRes.victory && Array.isArray(target.blocksAccess)
+      ? target.blocksAccess.map(function(b) { return b.label || b.targetRef; })
+      : [];
+
+    const report = {
+      simTimeMs: job.dueSimTimeMs,
+      armyId: army.id,
+      armyName: army.shortName || army.name,
+      targetId: target.id,
+      targetName: target.name,
+      victory: combatRes.victory,
+      armyPower: combatRes.armyPower,
+      enemyPower: combatRes.enemyPower,
+      initialTroops: combatRes.initialTroops,
+      totalLosses: combatRes.totalLosses,
+      survivingTroops: combatRes.survivingTroops,
+      unlockedLabels: unlockedLabels
+    };
+    army.lastCombatResult = report;
+    state.world.lastMilitaryCombatReport = report;
+    army.objective.jobId = null;
+    army.status = 'idle';
+
+    if (combatRes.victory) {
+      target.status = MILITARY_TARGET_STATUS.CLEARED;
+      target.clearedAtSimMs = job.dueSimTimeMs;
+      target.clearedByArmyId = army.id;
+      army.objective.status = ARMY_OBJECTIVE_STATUS.COMPLETED;
+
+      revealOverworldVision(ow, army.x, army.y, army.visionRadius || 4, { simTimeMs: job.dueSimTimeMs, eventStream: eventStream });
+
+      if (eventStream) {
+        eventStream.publish(STREAM_TOPICS.ARMY_COMBAT_RESOLVED, report, job.dueSimTimeMs);
+        eventStream.publish(STREAM_TOPICS.MILITARY_TARGET_CLEARED, {
+          targetId: target.id,
+          targetName: target.name,
+          armyId: army.id,
+          armyName: army.shortName || army.name,
+          unlockedLabels: unlockedLabels,
+          x: target.x,
+          y: target.y
+        }, job.dueSimTimeMs);
+      }
+
+      // Clean up any other competing armies still marching to or targeting this now-cleared target
+      cleanupCompetingArmiesForClearedTarget(target.id, army.id, state, scheduler, job.dueSimTimeMs, eventStream);
+
+      if (!army.stayDeployed) {
+        startArmyReturnHome(army, state, scheduler, job.dueSimTimeMs, eventStream);
+      }
+    } else {
+      army.objective.status = ARMY_OBJECTIVE_STATUS.FAILED;
+      army.objective.failureReason = 'combat_defeat';
+
+      if (eventStream) {
+        eventStream.publish(STREAM_TOPICS.ARMY_COMBAT_RESOLVED, report, job.dueSimTimeMs);
+      }
+
+      // Safe defeat lifecycle: survivors always retreat back to Home City Barracks for reintegration & retry
+      startArmyReturnHome(army, state, scheduler, job.dueSimTimeMs, eventStream);
+    }
+
+    state._dirty = true;
+    saveWargameState(state, scheduler);
+    evaluateTaskDAG(state, eventStream);
+    return;
+  }
+
   army.objective.status = ARMY_OBJECTIVE_STATUS.COMPLETED;
   army.objective.jobId = null;
   army.status = 'idle';
 
-  revealOverworldVision(ow, army.x, army.y, army.visionRadius || 4);
+  revealOverworldVision(ow, army.x, army.y, army.visionRadius || 4, { simTimeMs: job.dueSimTimeMs, eventStream: eventStream });
 
   if (eventStream) {
     eventStream.publish(STREAM_TOPICS.ARMY_OBJECTIVE_COMPLETED, {
@@ -13056,7 +13885,7 @@ function dispatchWargameCommand(commandEnvelope, state, scheduler, eventStream) 
       state.campaignPhase = CAMPAIGN_PHASES.CITY_ESTABLISHED;
     }
 
-    revealOverworldVision(ow, newCity.x, newCity.y, 5);
+    revealOverworldVision(ow, newCity.x, newCity.y, 5, { simTimeMs: simTimeMs, eventStream: eventStream });
 
     if (eventStream) {
       eventStream.publish(STREAM_TOPICS.CITY_FOUNDED, {
@@ -13107,7 +13936,7 @@ function dispatchWargameCommand(commandEnvelope, state, scheduler, eventStream) 
 
     ow.units.push(revived);
     ow.selectedUnitId = revived.id;
-    revealOverworldVision(ow, revived.x, revived.y, revived.visionRadius);
+    revealOverworldVision(ow, revived.x, revived.y, revived.visionRadius, { simTimeMs: simTimeMs, eventStream: eventStream });
 
     if (eventStream) {
       eventStream.publish(STREAM_TOPICS.SETTLER_RESPAWNED, {
@@ -14030,8 +14859,27 @@ function dispatchWargameCommand(commandEnvelope, state, scheduler, eventStream) 
       return reject('You do not control this city');
     }
 
-    const targetX = Number(payload.targetX);
-    const targetY = Number(payload.targetY);
+    // Optional military target assignment (Task 05B-2)
+    let militaryTarget = null;
+    if (payload.targetId) {
+      militaryTarget = getMilitaryTargetById(ow, payload.targetId);
+      if (!militaryTarget) {
+        return reject('Military target not found on Overworld');
+      }
+      const isTargetDiscovered = Boolean(
+        militaryTarget.discovered ||
+        (ow.explored && ow.explored[militaryTarget.y] && ow.explored[militaryTarget.y][militaryTarget.x])
+      );
+      if (!isTargetDiscovered) {
+        return reject('Explore the Overworld to discover ' + militaryTarget.name + ' before deploying an army there');
+      }
+      if (militaryTarget.status === MILITARY_TARGET_STATUS.CLEARED) {
+        return reject(militaryTarget.name + ' has already been cleared');
+      }
+    }
+
+    const targetX = militaryTarget ? militaryTarget.x : Number(payload.targetX);
+    const targetY = militaryTarget ? militaryTarget.y : Number(payload.targetY);
     if (!isFinite(targetX) || !isFinite(targetY) || Math.floor(targetX) !== targetX || Math.floor(targetY) !== targetY) {
       return reject('Invalid target coordinates for deployment');
     }
@@ -14142,17 +14990,21 @@ function dispatchWargameCommand(commandEnvelope, state, scheduler, eventStream) 
       stayDeployed: stayDeployed,
       objective: {
         id: 'obj_' + armyId + '_' + simTimeMs,
-        type: ARMY_OBJECTIVE_TYPES.PATROL_HEX,
+        type: militaryTarget ? ARMY_OBJECTIVE_TYPES.ENGAGE_TARGET : ARMY_OBJECTIVE_TYPES.PATROL_HEX,
         status: ARMY_OBJECTIVE_STATUS.TRAVELING,
+        targetId: militaryTarget ? militaryTarget.id : null,
+        targetName: militaryTarget ? militaryTarget.name : null,
         targetX: targetX,
         targetY: targetY,
         jobId: null,
         startSimTimeMs: simTimeMs,
         dueSimTimeMs: null
       },
+      lastCombatResult: null,
       cargo: null,
       marchPlan: {
-        intent: 'patrol_hex',
+        intent: militaryTarget ? 'engage_target' : 'patrol_hex',
+        targetId: militaryTarget ? militaryTarget.id : null,
         targetX: targetX,
         targetY: targetY,
         remainingPath: path,
@@ -14171,7 +15023,7 @@ function dispatchWargameCommand(commandEnvelope, state, scheduler, eventStream) 
     if (!ow.units) ow.units = [];
     ow.units.push(armyUnit);
     ow.selectedUnitId = armyUnit.id;
-    revealOverworldVision(ow, armyUnit.x, armyUnit.y, armyUnit.visionRadius);
+    revealOverworldVision(ow, armyUnit.x, armyUnit.y, armyUnit.visionRadius, { simTimeMs: simTimeMs, eventStream: eventStream });
     scheduleNextMarchStep(armyUnit, state, scheduler);
 
     if (eventStream) {
@@ -14181,6 +15033,9 @@ function dispatchWargameCommand(commandEnvelope, state, scheduler, eventStream) 
         armyName: armyUnit.shortName,
         homeCityId: city.id,
         homeCityName: city.name,
+        targetId: militaryTarget ? militaryTarget.id : null,
+        targetName: militaryTarget ? militaryTarget.name : null,
+        objectiveType: armyUnit.objective.type,
         targetX: targetX,
         targetY: targetY,
         totalTroops: totalTroops,
@@ -14192,6 +15047,7 @@ function dispatchWargameCommand(commandEnvelope, state, scheduler, eventStream) 
       armyId: armyUnit.id,
       displayNumber: armyUnit.displayNumber,
       army: armyUnit,
+      targetId: militaryTarget ? militaryTarget.id : null,
       totalTroops: totalTroops,
       stepsCount: path.length
     });
@@ -14207,8 +15063,26 @@ function dispatchWargameCommand(commandEnvelope, state, scheduler, eventStream) 
       return reject('You do not control this Field Army');
     }
 
-    const targetX = Number(payload.targetX);
-    const targetY = Number(payload.targetY);
+    let militaryTarget = null;
+    if (payload.targetId) {
+      militaryTarget = getMilitaryTargetById(ow, payload.targetId);
+      if (!militaryTarget) {
+        return reject('Military target not found on Overworld');
+      }
+      const isTargetDiscovered = Boolean(
+        militaryTarget.discovered ||
+        (ow.explored && ow.explored[militaryTarget.y] && ow.explored[militaryTarget.y][militaryTarget.x])
+      );
+      if (!isTargetDiscovered) {
+        return reject('Explore the Overworld to discover ' + militaryTarget.name + ' before assigning an army there');
+      }
+      if (militaryTarget.status === MILITARY_TARGET_STATUS.CLEARED) {
+        return reject(militaryTarget.name + ' has already been cleared');
+      }
+    }
+
+    const targetX = militaryTarget ? militaryTarget.x : Number(payload.targetX);
+    const targetY = militaryTarget ? militaryTarget.y : Number(payload.targetY);
     if (!isFinite(targetX) || !isFinite(targetY) || Math.floor(targetX) !== targetX || Math.floor(targetY) !== targetY) {
       return reject('Invalid target coordinates for redirection');
     }
@@ -14217,7 +15091,7 @@ function dispatchWargameCommand(commandEnvelope, state, scheduler, eventStream) 
     }
 
     const homeCity = (world.cities && army.homeCityId) ? world.cities[army.homeCityId] : null;
-    if (homeCity && targetX === homeCity.x && targetY === homeCity.y) {
+    if (!militaryTarget && homeCity && targetX === homeCity.x && targetY === homeCity.y) {
       const retRes = startArmyReturnHome(army, state, scheduler, simTimeMs, eventStream);
       if (!retRes || !retRes.ok) return reject((retRes && retRes.reason) || 'Unable to return home');
       return accept({ armyId: army.id, redirectedToReturnHome: true });
@@ -14249,8 +15123,10 @@ function dispatchWargameCommand(commandEnvelope, state, scheduler, eventStream) 
 
     army.objective = {
       id: 'obj_' + army.id + '_' + simTimeMs + '_' + Math.floor(Math.random() * 1000),
-      type: ARMY_OBJECTIVE_TYPES.PATROL_HEX,
+      type: militaryTarget ? ARMY_OBJECTIVE_TYPES.ENGAGE_TARGET : ARMY_OBJECTIVE_TYPES.PATROL_HEX,
       status: ARMY_OBJECTIVE_STATUS.ACCEPTED,
+      targetId: militaryTarget ? militaryTarget.id : null,
+      targetName: militaryTarget ? militaryTarget.name : null,
       targetX: targetX,
       targetY: targetY,
       jobId: null,
@@ -14265,7 +15141,8 @@ function dispatchWargameCommand(commandEnvelope, state, scheduler, eventStream) 
       const totalMs = path.reduce(function(sum, st) { return sum + (st.stepDurationMs || 3000); }, 0);
       army.objective.status = ARMY_OBJECTIVE_STATUS.TRAVELING;
       army.marchPlan = {
-        intent: 'patrol_hex',
+        intent: militaryTarget ? 'engage_target' : 'patrol_hex',
+        targetId: militaryTarget ? militaryTarget.id : null,
         targetX: targetX,
         targetY: targetY,
         remainingPath: path,
@@ -14285,6 +15162,9 @@ function dispatchWargameCommand(commandEnvelope, state, scheduler, eventStream) 
       eventStream.publish(STREAM_TOPICS.ARMY_REDIRECTED, {
         armyId: army.id,
         armyName: army.shortName || army.name,
+        targetId: militaryTarget ? militaryTarget.id : null,
+        targetName: militaryTarget ? militaryTarget.name : null,
+        objectiveType: army.objective.type,
         targetX: targetX,
         targetY: targetY,
         stayDeployed: Boolean(army.stayDeployed)
@@ -14293,6 +15173,7 @@ function dispatchWargameCommand(commandEnvelope, state, scheduler, eventStream) 
 
     return accept({
       armyId: army.id,
+      targetId: militaryTarget ? militaryTarget.id : null,
       targetX: targetX,
       targetY: targetY,
       stayDeployed: Boolean(army.stayDeployed),
@@ -15032,6 +15913,10 @@ function dispatchWargameCommand(commandEnvelope, state, scheduler, eventStream) 
     if (!poi.discovered && !(ow.explored[poi.y] && ow.explored[poi.y][poi.x])) {
       return reject('Scout the Overworld to discover ' + poi.name + ' before marching there');
     }
+    const blockingTarget = getBlockingMilitaryTargetForAccess(ow, 'overworld_poi', poi.id);
+    if (blockingTarget) {
+      return reject('Access to ' + poi.name + ' is blocked by ' + blockingTarget.name + ' — clear it with a Field Army first');
+    }
 
     if (unit.x === poi.x && unit.y === poi.y) {
       return accept({ alreadyAtEntrance: true, poiId: poi.id, dungeonId: poi.dungeonId });
@@ -15072,6 +15957,10 @@ function dispatchWargameCommand(commandEnvelope, state, scheduler, eventStream) 
     }
     if (unit.x !== poi.x || unit.y !== poi.y) {
       return reject('Party must stand directly on ' + poi.name + ' before entering');
+    }
+    const blockingTarget = getBlockingMilitaryTargetForAccess(ow, 'overworld_poi', poi.id);
+    if (blockingTarget) {
+      return reject('Access to ' + poi.name + ' is blocked by ' + blockingTarget.name + ' — clear it with a Field Army first');
     }
 
     if (unit.marchPlan && unit.marchPlan.activeJobId && scheduler) {
@@ -15278,7 +16167,7 @@ function dispatchWargameCommand(commandEnvelope, state, scheduler, eventStream) 
       if (poi) {
         unit.x = poi.x;
         unit.y = poi.y;
-        revealOverworldVision(ow, unit.x, unit.y, unit.visionRadius || 5);
+        revealOverworldVision(ow, unit.x, unit.y, unit.visionRadius || 5, { simTimeMs: simTimeMs, eventStream: eventStream });
       }
       surfacedAtEntrance = true;
     } else {
@@ -15286,7 +16175,7 @@ function dispatchWargameCommand(commandEnvelope, state, scheduler, eventStream) 
       if (poi) {
         unit.x = poi.x;
         unit.y = poi.y;
-        revealOverworldVision(ow, unit.x, unit.y, unit.visionRadius || 5);
+        revealOverworldVision(ow, unit.x, unit.y, unit.visionRadius || 5, { simTimeMs: simTimeMs, eventStream: eventStream });
       }
       if (city && (unit.x !== city.x || unit.y !== city.y)) {
         const marchRes = dispatchWargameCommand({
@@ -15924,6 +16813,81 @@ let owViewport = null;
 let owViewportInitialized = false;
 let owAttachedCanvas = null;
 let owUserPanned = false;
+let owPointerScreenPos = null; // PF-02: { sx, sy } inside canvas for edge scrolling
+let owPointerDragging = false;
+
+const OVERWORLD_EDGE_SCROLL_ZONE_PX = 44;
+const OVERWORLD_EDGE_SCROLL_MAX_SPEED_PX = 360;
+
+// Pure, testable edge-scroll velocity calculator (PF-02)
+function computeEdgeScrollVelocity(sx, sy, width, height, edgeZonePx, maxSpeedPxPerSec) {
+  if (typeof sx !== 'number' || typeof sy !== 'number' || !isFinite(sx) || !isFinite(sy)) {
+    return { vx: 0, vy: 0 };
+  }
+  const w = width > 0 ? width : 672;
+  const h = height > 0 ? height : 480;
+  const zone = typeof edgeZonePx === 'number' && edgeZonePx > 0 ? edgeZonePx : OVERWORLD_EDGE_SCROLL_ZONE_PX;
+  const maxSpd = typeof maxSpeedPxPerSec === 'number' && maxSpeedPxPerSec > 0 ? maxSpeedPxPerSec : OVERWORLD_EDGE_SCROLL_MAX_SPEED_PX;
+
+  if (sx < 0 || sy < 0 || sx > w || sy > h) {
+    return { vx: 0, vy: 0 };
+  }
+
+  let vx = 0;
+  let vy = 0;
+
+  if (sx < zone) {
+    const ratio = Math.min(1, Math.max(0, (zone - sx) / zone));
+    vx = -ratio * maxSpd;
+  } else if (sx > w - zone) {
+    const ratio = Math.min(1, Math.max(0, (sx - (w - zone)) / zone));
+    vx = ratio * maxSpd;
+  }
+
+  if (sy < zone) {
+    const ratio = Math.min(1, Math.max(0, (zone - sy) / zone));
+    vy = -ratio * maxSpd;
+  } else if (sy > h - zone) {
+    const ratio = Math.min(1, Math.max(0, (sy - (h - zone)) / zone));
+    vy = ratio * maxSpd;
+  }
+
+  return { vx: vx, vy: vy };
+}
+
+function clearOverworldEdgeScrollPointer() {
+  owPointerScreenPos = null;
+  owPointerDragging = false;
+}
+
+function stepOverworldEdgeScroll(dtSec, state) {
+  if (!owViewport || !owPointerScreenPos || owPointerDragging) return false;
+  if (!state || state.activeView !== 'overworld') return false;
+  // Never edge-scroll while interacting with modals or overlays
+  if (state._deployArmyModalOpen || state._openFacilityId || state._researchHubOpen || state._trainingHubOpen || state._devPortalOpen) {
+    return false;
+  }
+  const dt = Math.max(0, Math.min(0.1, Number(dtSec || 0)));
+  if (dt <= 0) return false;
+
+  const vel = computeEdgeScrollVelocity(
+    owPointerScreenPos.sx,
+    owPointerScreenPos.sy,
+    owViewport.camera.width,
+    owViewport.camera.height
+  );
+  if (vel.vx === 0 && vel.vy === 0) return false;
+
+  const prevX = owViewport.camera.x;
+  const prevY = owViewport.camera.y;
+  // Moving viewport toward right edge pans camera +X (negative screen delta in panByScreenDelta)
+  owViewport.panByScreenDelta(-vel.vx * dt, -vel.vy * dt);
+  if (owViewport.camera.x !== prevX || owViewport.camera.y !== prevY) {
+    owUserPanned = true;
+    return true;
+  }
+  return false;
+}
 
 // Tier 3 Strategic Cartography Daylight Palette (Art Bible §2.1)
 const HEX_TERRAIN_FILL = {
@@ -15942,13 +16906,21 @@ function ensureOverworldHexViewport(canvas) {
   const w = canvas ? canvas.width : 672;
   const h = canvas ? canvas.height : 480;
   if (!owViewport) {
+    const tl = owHexAdapter.tileToWorld(owHexAdapter.offsetToAxial(0, 0));
+    const br = owHexAdapter.tileToWorld(owHexAdapter.offsetToAxial((OVERWORLD_MAP_W || 56) - 1, (OVERWORLD_MAP_H || 40) - 1));
     owViewport = createMapViewport({
       gridAdapter: owHexAdapter,
       viewportWidth: w,
       viewportHeight: h,
       minZoom: 0.55,
       maxZoom: 2.1,
-      zoom: 1.0
+      zoom: 1.0,
+      bounds: {
+        minX: tl.wx,
+        maxX: br.wx,
+        minY: tl.wy,
+        maxY: br.wy
+      }
     });
   } else if (canvas && (owViewport.camera.width !== w || owViewport.camera.height !== h)) {
     owViewport.resize(w, h);
@@ -16006,24 +16978,35 @@ function attachOverworldHexControls(canvas, handlers) {
   const cb = handlers || {};
 
   vp.attachPointerControls(canvas, {
-    onHoverTile: function(axial) {
+    onHoverTile: function(axial, pos) {
+      owPointerScreenPos = pos ? { sx: pos.sx, sy: pos.sy } : null;
+      owPointerDragging = false;
       if (!axial) {
-        if (typeof cb.onHoverOffset === 'function') cb.onHoverOffset(null);
+        if (typeof cb.onHoverOffset === 'function') cb.onHoverOffset(null, pos);
         return;
       }
       const off = owHexAdapter.axialToOffset(axial.q, axial.r);
-      if (typeof cb.onHoverOffset === 'function') cb.onHoverOffset({ x: off.col, y: off.row });
+      if (typeof cb.onHoverOffset === 'function') cb.onHoverOffset({ x: off.col, y: off.row }, pos);
     },
-    onTapTile: function(axial) {
+    onTapTile: function(axial, pos) {
+      owPointerDragging = false;
       if (!axial) return;
       const off = owHexAdapter.axialToOffset(axial.q, axial.r);
-      if (typeof cb.onTapOffset === 'function') cb.onTapOffset({ x: off.col, y: off.row });
+      if (typeof cb.onTapOffset === 'function') cb.onTapOffset({ x: off.col, y: off.row }, pos);
     },
     onCameraChange: function() {
       owUserPanned = true;
       if (typeof cb.onRepaint === 'function') cb.onRepaint();
     }
   });
+
+  if (typeof canvas.addEventListener === 'function') {
+    canvas.addEventListener('mousedown', function() { owPointerDragging = true; });
+    canvas.addEventListener('mouseup', function() { owPointerDragging = false; });
+    canvas.addEventListener('mouseleave', function() {
+      clearOverworldEdgeScrollPointer();
+    });
+  }
 }
 
 function setWargameHoverTile(tile, previewPath = null) {
@@ -16255,19 +17238,21 @@ function renderWargameOverworldCanvas(simHost) {
     drawHexPolygon(ctx, hPts, 'rgba(251, 191, 36, 0.22)', '#fbbf24', 2);
   }
 
-  // 3. Render Active March Path for Selected Unit
-  if (selUnit && selUnit.status === 'marching' && selUnit.marchPlan && Array.isArray(selUnit.marchPlan.path)) {
-    const path = selUnit.marchPlan.path;
+  // 3. Render Active March Path for Selected Unit (Task 05B-2: use authoritative remainingPath)
+  if (selUnit && (selUnit.status === 'marching' || selUnit.status === 'returning') && selUnit.marchPlan && Array.isArray(selUnit.marchPlan.remainingPath) && selUnit.marchPlan.remainingPath.length > 0) {
+    const path = selUnit.marchPlan.remainingPath;
     ctx.save();
-    ctx.strokeStyle = '#fbbf24';
+    ctx.strokeStyle = selUnit.unitType === 'army' ? '#f87171' : '#fbbf24';
     ctx.lineWidth = Math.max(2, 2.5 * z);
     if (typeof ctx.setLineDash === 'function') ctx.setLineDash([6, 4]);
     ctx.beginPath();
+    const startW = owHexAdapter.tileToWorld(owHexAdapter.offsetToAxial(selUnit.x, selUnit.y));
+    const startS = vp.worldToScreen(startW.wx, startW.wy);
+    ctx.moveTo(startS.sx, startS.sy);
     for (let mi = 0; mi < path.length; mi++) {
       const w = owHexAdapter.tileToWorld(owHexAdapter.offsetToAxial(path[mi].x, path[mi].y));
       const s = vp.worldToScreen(w.wx, w.wy);
-      if (mi === 0) ctx.moveTo(s.sx, s.sy);
-      else ctx.lineTo(s.sx, s.sy);
+      ctx.lineTo(s.sx, s.sy);
     }
     ctx.stroke();
     ctx.restore();
@@ -16302,8 +17287,52 @@ function renderWargameOverworldCanvas(simHost) {
     ctx.fillText(pDef.symbol || 'Ω', s.sx, s.sy);
   }
 
-  // 5. Render Bastion Cities
-  const cities = world.cities || [];
+  // 4b. Render Discovered Military Targets (Task 05B-2 — distinct from adventure POIs & hostiles)
+  const militaryTargets = ow.militaryTargets || [];
+  const selectedTargetId = state._selectedMilitaryTargetId || null;
+  for (let mi = 0; mi < militaryTargets.length; mi++) {
+    const mt = militaryTargets[mi];
+    if (!mt) continue;
+    const isDisc = Boolean(mt.discovered || (ow.explored[mt.y] && ow.explored[mt.y][mt.x]));
+    if (!isDisc) continue;
+
+    const ax = owHexAdapter.offsetToAxial(mt.x, mt.y);
+    const w = owHexAdapter.tileToWorld(ax);
+    if (w.wx < visRect.minX || w.wx > visRect.maxX || w.wy < visRect.minY || w.wy > visRect.maxY) continue;
+    const s = vp.worldToScreen(w.wx, w.wy);
+    const isCleared = mt.status === 'cleared';
+    const isSelectedTarget = selectedTargetId === mt.id;
+
+    // Distinct octagonal/square bastion plaque for military-scale positions
+    const r = 12 * z;
+    ctx.fillStyle = isCleared ? '#064e3b' : '#450a0a';
+    ctx.beginPath();
+    ctx.rect(s.sx - r, s.sy - r, r * 2, r * 2);
+    ctx.fill();
+    ctx.strokeStyle = isSelectedTarget ? '#fbbf24' : (isCleared ? '#34d399' : '#ef4444');
+    ctx.lineWidth = isSelectedTarget ? 3 : 2;
+    ctx.stroke();
+
+    ctx.fillStyle = isCleared ? '#6ee7b7' : '#fecaca';
+    ctx.font = 'bold ' + Math.round(12 * z) + 'px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(isCleared ? '✓' : '⚔', s.sx, s.sy);
+
+    // PF-01: Crisp target label pill so combat target is unmistakably identifiable on the map
+    if (z >= 0.75) {
+      const tagText = isCleared ? 'Cleared' : ('⚔ Pwr ' + (mt.enemyPower || 100));
+      ctx.font = 'bold ' + Math.max(8, Math.round(9 * z)) + 'px monospace';
+      const tagW = Math.max(46, tagText.length * 5.8) * z;
+      ctx.fillStyle = isCleared ? 'rgba(6, 78, 59, 0.90)' : 'rgba(69, 10, 10, 0.92)';
+      ctx.fillRect(s.sx - tagW * 0.5, s.sy + 12 * z, tagW, 12 * z);
+      ctx.fillStyle = isCleared ? '#6ee7b7' : '#fca5a5';
+      ctx.fillText(tagText, s.sx, s.sy + 18 * z);
+    }
+  }
+
+  // 5. Render Bastion Cities (PF-01: support canonical world.cities object map as well as arrays)
+  const cities = Array.isArray(world.cities) ? world.cities : Object.values(world.cities || {});
   for (let c = 0; c < cities.length; c++) {
     const city = cities[c];
     const ax = owHexAdapter.offsetToAxial(city.x, city.y);
@@ -22014,10 +23043,11 @@ function renderLeftCommandSidebar(simHost) {
         `;
       } else if (selUnit.unitType === 'army' && selUnit.status === 'objective_in_progress' && selUnit.objective) {
         const objRemMs = Math.max(0, (selUnit.objective.dueSimTimeMs || 0) - simTimeMs);
+        const isCombatObj = selUnit.objective.type === ARMY_OBJECTIVE_TYPES.ENGAGE_TARGET;
         marchHtml = `
-          <div class="p-2 rounded bg-[#111722] border border-[#c084fc]/50 space-y-1 text-[11px] font-mono">
+          <div class="p-2 rounded bg-[#111722] border ${isCombatObj ? 'border-[#ef4444]/60' : 'border-[#c084fc]/50'} space-y-1 text-[11px] font-mono">
             <div class="flex items-center justify-between">
-              <span class="text-[#c084fc] font-bold">🧭 Executing: ${selUnit.objective.type}</span>
+              <span class="${isCombatObj ? 'text-[#f87171]' : 'text-[#c084fc]'} font-bold">${isCombatObj ? ('⚔️ Engaging: ' + (selUnit.objective.targetName || 'Military Target')) : ('🧭 Executing: ' + selUnit.objective.type)}</span>
               <span class="text-[#34d399]">${formatSimDuration(objRemMs)}</span>
             </div>
             <div class="text-[10px] text-[#8b949e]">Location: (${selUnit.x}, ${selUnit.y})</div>
@@ -22032,19 +23062,29 @@ function renderLeftCommandSidebar(simHost) {
       let armyDetailHtml = '';
       if (selUnit.unitType === 'army') {
         const aGroups = getArmyTroopGroups(world, selUnit.id);
+        const aPower = computeArmyCombatPower(world, selUnit.id);
         const homeC = (world.cities && selUnit.homeCityId) ? world.cities[selUnit.homeCityId] : null;
         const obj = selUnit.objective || null;
         const compRows = aGroups.map(function(g) {
           const td = getTroopDefinition(g.troopDefId);
           return '<div class="flex justify-between text-[10px] font-mono"><span class="text-[#e6edf3]">' + (td ? (td.icon + ' ' + td.name) : g.troopDefId) + ' Lv ' + (g.level || 1) + '</span><span class="text-[#34d399]">×' + g.count + '</span></div>';
         }).join('');
+        const lastCbt = selUnit.lastCombatResult || null;
+        const combatSummaryHtml = lastCbt ? `
+          <div class="p-1.5 rounded ${lastCbt.victory ? 'bg-[#064e3b]/40 border border-[#34d399]/50 text-[#6ee7b7]' : 'bg-[#450a0a]/40 border border-[#f87171]/50 text-[#fecaca]'} text-[10px] font-mono space-y-0.5">
+            <div class="font-bold">${lastCbt.victory ? '✓ Victory' : '✕ Defeat'} vs ${lastCbt.targetName} (${lastCbt.armyPower} vs ${lastCbt.enemyPower})</div>
+            <div>Losses: ${lastCbt.totalLosses} • Survivors: ${lastCbt.survivingTroops}</div>
+            ${lastCbt.victory && lastCbt.unlockedLabels && lastCbt.unlockedLabels.length > 0 ? `<div class="text-[#fbbf24]">Unlocked: ${lastCbt.unlockedLabels.join(', ')}</div>` : ''}
+          </div>
+        ` : '';
         armyDetailHtml = `
           <div class="p-2 rounded bg-[#080b11] border border-[#f87171]/40 space-y-1.5">
             <div class="flex items-center justify-between text-[10px] font-mono">
-              <span class="text-[#f87171] font-bold">Home: ${homeC ? homeC.name : 'Unknown'}</span>
+              <span class="text-[#f87171] font-bold">Home: ${homeC ? homeC.name : 'Unknown'} • Power ${aPower}</span>
               <span class="text-[#cbd5e1]">Obj: ${obj ? (obj.type + ' (' + obj.status + ')') : 'none'}</span>
             </div>
             <div class="space-y-0.5">${compRows}</div>
+            ${combatSummaryHtml}
             <label class="flex items-center gap-1.5 text-[10px] font-mono text-[#cbd5e1] pt-1 cursor-pointer">
               <input type="checkbox" ${selUnit.stayDeployed ? 'checked' : ''} onchange="window.WargameApp.handleSetArmyReturnPolicy('${selUnit.id}', this.checked)" class="accent-[#f87171]" />
               <span>Stay deployed after completing objective</span>
@@ -22093,7 +23133,40 @@ function renderLeftCommandSidebar(simHost) {
       `;
     }
 
-    setHtmlIfChanged(unitCardEl, armiesStripHtml + newHtml);
+    // Task 05B-2: Explicit Military Target Inspector Card (when player selects a discovered target)
+    let targetInspectorHtml = '';
+    const inspectedTarget = state._selectedMilitaryTargetId ? getMilitaryTargetById(ow, state._selectedMilitaryTargetId) : null;
+    if (inspectedTarget && (inspectedTarget.discovered || (ow.explored[inspectedTarget.y] && ow.explored[inspectedTarget.y][inspectedTarget.x]))) {
+      const isClearedMt = inspectedTarget.status === MILITARY_TARGET_STATUS.CLEARED;
+      const blocksText = (inspectedTarget.blocksAccess || []).map(function(b) { return b.label || b.targetRef; }).join(', ') || 'None';
+      const primaryCityMt = getPrimaryCity(state);
+      const hasTrainedBarracks = Boolean(primaryCityMt && getCityTroopInventorySummary(world, primaryCityMt).totals.trained > 0);
+      const selArmyForAssign = (selUnit && selUnit.alive && !selUnit.reintegrated && selUnit.unitType === 'army') ? selUnit : null;
+      const selArmyPower = selArmyForAssign ? computeArmyCombatPower(world, selArmyForAssign.id) : 0;
+      targetInspectorHtml = `
+        <div id="wgMilitaryTargetInspector" class="p-2.5 mb-2 rounded bg-[#080b11] border ${isClearedMt ? 'border-[#34d399]/60' : 'border-[#ef4444]/70'} space-y-1.5">
+          <div class="flex items-center justify-between gap-2">
+            <div class="text-xs font-bold ${isClearedMt ? 'text-[#34d399]' : 'text-[#f87171]'}">${isClearedMt ? '✓' : '⚔️'} ${inspectedTarget.name}</div>
+            <button onclick="window.WargameApp.handleCloseMilitaryTargetInspector()" class="px-1.5 py-0.5 rounded bg-[#1a2232] hover:bg-[#283347] text-[10px] font-mono text-[#cbd5e1] cursor-pointer">✕</button>
+          </div>
+          <div class="text-[10px] font-mono text-[#94a3b8]">(${inspectedTarget.x}, ${inspectedTarget.y}) • ${isClearedMt ? '<span class="text-[#34d399] font-bold">CLEARED</span>' : ('<span class="text-[#f87171] font-bold">ACTIVE THREAT</span> • Threat Power ' + inspectedTarget.enemyPower)}</div>
+          <div class="text-[10px] text-[#cbd5e1]">${inspectedTarget.desc || ''}</div>
+          <div class="text-[10px] font-mono ${isClearedMt ? 'text-[#34d399]' : 'text-[#fbbf24]'}">${isClearedMt ? 'Unlocked Access:' : 'Blocks Access:'} <strong>${blocksText}</strong></div>
+          ${!isClearedMt ? `
+            <div class="flex flex-col gap-1 pt-1">
+              ${hasTrainedBarracks ? `
+                <button data-action="deploy-to-target" data-target-id="${inspectedTarget.id}" onclick="window.WargameApp.handleOpenDeployArmyModal(${inspectedTarget.x}, ${inspectedTarget.y}, '${inspectedTarget.id}')" class="w-full py-1.5 rounded bg-[#f87171] hover:bg-[#ef4444] text-[#080b11] font-mono font-bold text-[10px] uppercase cursor-pointer">🛡️ Deploy Army to Target</button>
+              ` : `<div class="text-[10px] font-mono text-[#8b949e]">Train troops in Barracks to deploy a Field Army.</div>`}
+              ${selArmyForAssign ? `
+                <button data-action="assign-army-target" data-target-id="${inspectedTarget.id}" onclick="window.WargameApp.handleAssignArmyToTarget('${selArmyForAssign.id}', '${inspectedTarget.id}')" class="w-full py-1.5 rounded bg-[#1a2232] hover:bg-[#283347] text-[#fecaca] border border-[#f87171]/50 font-mono font-bold text-[10px] uppercase cursor-pointer">⚔️ Assign ${selArmyForAssign.shortName} (Pwr ${selArmyPower} vs ${inspectedTarget.enemyPower})</button>
+              ` : ''}
+            </div>
+          ` : `<div class="text-[10px] font-mono text-[#6ee7b7]">Threat permanently cleared. Heroes may now access ${blocksText}.</div>`}
+        </div>
+      `;
+    }
+
+    setHtmlIfChanged(unitCardEl, targetInspectorHtml + armiesStripHtml + newHtml);
   }
 
   // B. Active Timed Queues Summary (Construction, Recruitment, and Marching)
@@ -22344,39 +23417,114 @@ function renderOverworldHudBar(simHost) {
     }
   }
 
-  // Discovered Dungeons Quick-March Bar
-  const dngBarEl = document.getElementById('wgDiscoveredDungeonsBar');
-  if (dngBarEl) {
-    const discoveredDngs = (ow.pois || []).filter(function(p) {
-      return p.type === 'dungeon_entrance' && (p.discovered || (ow.explored[p.y] && ow.explored[p.y][p.x]));
+  // Discovered Military Targets Inspector Bar (Task 05B-2)
+  const mtBarEl = document.getElementById('wgMilitaryTargetsBar');
+  if (mtBarEl) {
+    const discoveredTargets = (ow.militaryTargets || []).filter(function(t) {
+      return t && (t.discovered || (ow.explored[t.y] && ow.explored[t.y][t.x]));
     });
-    if (discoveredDngs.length === 0) {
-      dngBarEl.classList.add('hidden');
+    if (discoveredTargets.length === 0) {
+      mtBarEl.classList.add('hidden');
     } else {
-      dngBarEl.classList.remove('hidden');
-      const canMarchHero = Boolean(selUnit && selUnit.alive && selUnit.canEnterDungeon && selUnit.status !== 'in_dungeon');
-      const cardsHtml = discoveredDngs.map(function(p) {
-        const dist = selUnit ? getHexDistance(selUnit.x, selUnit.y, p.x, p.y) : null;
-        const atGate = Boolean(canMarchHero && selUnit.status === 'idle' && selUnit.x === p.x && selUnit.y === p.y);
+      mtBarEl.classList.remove('hidden');
+      const mtCardsHtml = discoveredTargets.map(function(t) {
+        const isCleared = t.status === MILITARY_TARGET_STATUS.CLEARED;
+        const isSelT = state._selectedMilitaryTargetId === t.id;
+        const blocksLbl = (t.blocksAccess || []).map(function(b) { return b.label || b.targetRef; }).join(', ');
         return `
-          <div class="flex items-center justify-between gap-2 px-2 py-1.5 rounded bg-[#111722] border border-[#283347] text-[11px] font-mono">
-            <div class="flex items-center gap-1.5 min-w-0">
-              <span style="color:${p.accentColor || '#f87171'}" class="font-bold">Ω</span>
-              <span class="text-[#e6edf3] font-semibold truncate">${p.name}</span>
-              <span class="text-[10px] text-[#8b949e]">(${p.x},${p.y})${dist !== null ? (' • ' + dist + 't') : ''}</span>
+          <div class="flex items-center justify-between gap-2 px-2 py-1.5 rounded ${isSelT ? 'bg-[#1a2232] border border-[#fbbf24]' : 'bg-[#111722] border border-[#283347]'} text-[11px] font-mono">
+            <div class="min-w-0">
+              <div class="flex items-center gap-1.5">
+                <span class="${isCleared ? 'text-[#34d399]' : 'text-[#ef4444]'} font-bold">${isCleared ? '✓' : '⚔️'}</span>
+                <span class="text-[#e6edf3] font-semibold truncate">${t.name}</span>
+                <span class="text-[10px] ${isCleared ? 'text-[#34d399]' : 'text-[#f87171]'}">${isCleared ? 'Cleared' : ('Pwr ' + t.enemyPower)}</span>
+              </div>
+              ${blocksLbl ? `<div class="text-[10px] text-[#8b949e] truncate">${isCleared ? 'Unlocked:' : 'Blocks:'} ${blocksLbl}</div>` : ''}
             </div>
-            ${atGate ? `
-              <button data-action="enter-dungeon" data-poi-id="${p.id}" onclick="window.WargameApp.handleEnterDungeon('${p.id}')" class="px-2 py-0.5 rounded bg-[#f87171] hover:bg-[#ef4444] text-[#080b11] font-bold text-[10px] uppercase cursor-pointer">Enter</button>
-            ` : (canMarchHero ? `
-              <button data-action="march-to-dungeon" data-poi-id="${p.id}" onclick="window.WargameApp.handleMarchToDungeon('${p.id}')" class="px-2 py-0.5 rounded bg-[#1a2232] hover:bg-[#283347] text-[#38bdf8] border border-[#38bdf8]/40 font-bold text-[10px] uppercase cursor-pointer">March</button>
-            ` : `
-              <span class="text-[10px] text-[#64748b]">Need Hero Party</span>
-            `)}
+            <button data-action="inspect-military-target" data-target-id="${t.id}" onclick="window.WargameApp.handleInspectMilitaryTarget('${t.id}')" class="px-2 py-0.5 rounded bg-[#1a2232] hover:bg-[#283347] text-[#fbbf24] border border-[#fbbf24]/40 font-bold text-[10px] uppercase cursor-pointer">Inspect</button>
           </div>
         `;
       }).join('');
+      setHtmlIfChanged(mtBarEl, `
+        <div class="text-[10px] font-mono uppercase text-[#f87171] font-bold">⚔️ Discovered Military Threats (${discoveredTargets.length})</div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-1.5">${mtCardsHtml}</div>
+      `);
+    }
+  }
+
+  // Generalized Discoveries Panel (PF-03 — Threats, Dungeons, Resources/POIs, Locations + Locate)
+  const dngBarEl = document.getElementById('wgDiscoveredDungeonsBar');
+  if (dngBarEl) {
+    const disc = collectOverworldDiscoveries(state.world);
+    if (disc.all.length === 0) {
+      dngBarEl.classList.add('hidden');
+    } else {
+      dngBarEl.classList.remove('hidden');
+      const activeCat = state._discoveryFilter || 'all';
+      const canMarchHero = Boolean(selUnit && selUnit.alive && selUnit.canEnterDungeon && selUnit.status !== 'in_dungeon');
+      const items = activeCat === 'threats'
+        ? disc.threats
+        : (activeCat === 'dungeons'
+          ? disc.dungeons
+          : (activeCat === 'resources'
+            ? disc.resources
+            : (activeCat === 'locations' ? disc.locations : disc.all)));
+
+      const tabs = [
+        { id: 'all', label: 'All (' + disc.all.length + ')' },
+        { id: 'threats', label: 'Threats (' + disc.threats.length + ')' },
+        { id: 'dungeons', label: 'Dungeons (' + disc.dungeons.length + ')' },
+        { id: 'resources', label: 'Resources (' + disc.resources.length + ')' },
+        { id: 'locations', label: 'Locations (' + disc.locations.length + ')' }
+      ];
+      const tabsHtml = tabs.map(function(tb) {
+        const isOn = activeCat === tb.id;
+        return `<button onclick="window.WargameApp.handleSetDiscoveryFilter('${tb.id}')" class="px-2 py-0.5 rounded text-[10px] font-mono font-bold cursor-pointer ${isOn ? 'bg-[#38bdf8] text-[#080b11]' : 'bg-[#111722] text-[#94a3b8] border border-[#283347] hover:text-[#e6edf3]'}">${tb.label}</button>`;
+      }).join('');
+
+      const cardsHtml = items.length === 0
+        ? '<div class="text-[10px] font-mono text-[#64748b] italic">No discoveries in this category yet.</div>'
+        : items.map(function(item) {
+            const dist = selUnit ? getHexDistance(selUnit.x, selUnit.y, item.x, item.y) : null;
+            let actionHtml = `<button onclick="window.WargameApp.handleLocateOverworldHex(${item.x}, ${item.y})" class="px-1.5 py-0.5 rounded bg-[#1a2232] hover:bg-[#283347] text-[#cbd5e1] border border-[#283347] font-bold text-[10px] cursor-pointer" title="Center map on (${item.x},${item.y})">◎</button>`;
+            if (item.kind === 'military_target') {
+              actionHtml += `<button data-action="inspect-military-target" data-target-id="${item.id}" onclick="window.WargameApp.handleLocateOverworldHex(${item.x}, ${item.y}, '${item.id}')" class="px-2 py-0.5 rounded bg-[#1a2232] hover:bg-[#283347] text-[#fbbf24] border border-[#fbbf24]/40 font-bold text-[10px] uppercase cursor-pointer">Inspect</button>`;
+            } else if (item.kind === 'dungeon_entrance') {
+              const atGate = Boolean(canMarchHero && selUnit.status === 'idle' && selUnit.x === item.x && selUnit.y === item.y);
+              if (item.blockedBy) {
+                actionHtml += `<span class="text-[10px] text-[#f87171] font-bold truncate" title="Clear ${item.blockedBy.name} with a Field Army first">🔒 ${item.blockedBy.name}</span>`;
+              } else if (atGate) {
+                actionHtml += `<button data-action="enter-dungeon" data-poi-id="${item.id}" onclick="window.WargameApp.handleEnterDungeon('${item.id}')" class="px-2 py-0.5 rounded bg-[#f87171] hover:bg-[#ef4444] text-[#080b11] font-bold text-[10px] uppercase cursor-pointer">Enter</button>`;
+              } else if (canMarchHero) {
+                actionHtml += `<button data-action="march-to-dungeon" data-poi-id="${item.id}" onclick="window.WargameApp.handleMarchToDungeon('${item.id}')" class="px-2 py-0.5 rounded bg-[#1a2232] hover:bg-[#283347] text-[#38bdf8] border border-[#38bdf8]/40 font-bold text-[10px] uppercase cursor-pointer">March</button>`;
+              } else {
+                actionHtml += `<span class="text-[10px] text-[#64748b]">Hero Only</span>`;
+              }
+            } else if (item.kind === 'adventure_hostile') {
+              actionHtml += `<span class="text-[10px] text-[#fb923c]">Hero Threat</span>`;
+            } else if (item.category === 'resources') {
+              actionHtml += `<span class="text-[10px] ${item.depleted ? 'text-[#64748b]' : 'text-[#34d399]'}">${item.depleted ? 'Depleted' : 'Resource'}</span>`;
+            } else if (item.kind === 'city') {
+              actionHtml += `<span class="text-[10px] text-[#fbbf24]">Bastion</span>`;
+            }
+
+            return `
+              <div class="flex items-center justify-between gap-2 px-2 py-1.5 rounded bg-[#111722] border ${item.blockedBy ? 'border-[#ef4444]/50' : 'border-[#283347]'} text-[11px] font-mono">
+                <div class="flex items-center gap-1.5 min-w-0">
+                  <span style="color:${item.accentColor || '#fbbf24'}" class="font-bold">${item.icon}</span>
+                  <span class="text-[#e6edf3] font-semibold truncate">${item.name}</span>
+                  <span class="text-[10px] text-[#8b949e]">(${item.x},${item.y})${dist !== null ? (' • ' + dist + 't') : ''}</span>
+                </div>
+                <div class="flex items-center gap-1 shrink-0">${actionHtml}</div>
+              </div>
+            `;
+          }).join('');
+
       setHtmlIfChanged(dngBarEl, `
-        <div class="text-[10px] font-mono uppercase text-[#f87171] font-bold">Ω Discovered Vault Entrances (${discoveredDngs.length})</div>
+        <div class="flex flex-wrap items-center justify-between gap-1.5">
+          <div class="text-[10px] font-mono uppercase text-[#38bdf8] font-bold">🧭 Discoveries (${disc.all.length})</div>
+          <div class="flex flex-wrap gap-1">${tabsHtml}</div>
+        </div>
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-1.5">${cardsHtml}</div>
       `);
     }
@@ -22883,6 +24031,19 @@ function formatEventSummary(ev) {
   if (ev.topic === STREAM_TOPICS.ARMY_REINTEGRATED) {
     return '— ' + p.armyName + ' returned ' + p.troopsReturned + ' troops to ' + p.homeCityName + ' Barracks';
   }
+  if (ev.topic === STREAM_TOPICS.MILITARY_TARGET_DISCOVERED) {
+    return '— Discovered Military Threat: ' + p.targetName + ' (Power ' + p.enemyPower + ') at (' + p.x + ',' + p.y + ')!';
+  }
+  if (ev.topic === STREAM_TOPICS.ARMY_COMBAT_STARTED) {
+    return '— ' + p.armyName + ' engaged ' + p.targetName + ' at (' + p.x + ',' + p.y + ')!';
+  }
+  if (ev.topic === STREAM_TOPICS.ARMY_COMBAT_RESOLVED) {
+    return '— ' + (p.victory ? 'VICTORY: ' : 'DEFEAT: ') + p.armyName + ' vs ' + p.targetName + ' (' + p.armyPower + ' vs ' + p.enemyPower + ', lost ' + p.totalLosses + ', ' + p.survivingTroops + ' survived)';
+  }
+  if (ev.topic === STREAM_TOPICS.MILITARY_TARGET_CLEARED) {
+    const unl = (p.unlockedLabels && p.unlockedLabels.length > 0) ? (' — Unlocked: ' + p.unlockedLabels.join(', ')) : '';
+    return '— Cleared ' + p.targetName + unl + '!';
+  }
   if (ev.topic === STREAM_TOPICS.DUNGEON_DISCOVERED) {
     return '— Discovered Vault: ' + p.dungeonName + ' at (' + p.x + ',' + p.y + ')!';
   }
@@ -22952,8 +24113,13 @@ function renderDeployArmyModal(simHost) {
 
   const ow = world.overworld;
   const draft = state._deployArmyDraft || {};
-  const targetX = typeof draft.targetX === 'number' ? draft.targetX : Math.min((ow.width || 56) - 1, city.x + 1);
-  const targetY = typeof draft.targetY === 'number' ? draft.targetY : city.y;
+  const militaryTarget = draft.targetId ? getMilitaryTargetById(ow, draft.targetId) : null;
+  // PF-05: Explicit formation type ('army' | 'hero_party'), NEVER defaulting blindly to Hero Team
+  const formationType = militaryTarget ? 'army' : (draft.formationType === 'hero_party' ? 'hero_party' : 'army');
+  const heroParties = (ow.units || []).filter(function(u) { return u && u.alive && u.unitType === 'hero_party' && u.status !== 'in_dungeon'; });
+  const selectedHeroPartyId = draft.heroPartyId || (heroParties[0] ? heroParties[0].id : null);
+  const targetX = militaryTarget ? militaryTarget.x : (typeof draft.targetX === 'number' ? draft.targetX : Math.min((ow.width || 56) - 1, city.x + 1));
+  const targetY = militaryTarget ? militaryTarget.y : (typeof draft.targetY === 'number' ? draft.targetY : city.y);
   const stayDeployed = Boolean(draft.stayDeployed);
   const qtyByKey = draft.qtyByKey || {};
 
@@ -22961,12 +24127,16 @@ function renderDeployArmyModal(simHost) {
   const availableRows = inv.byTypeAndLevel.filter(function(r) { return r.trained > 0; });
 
   let totalSelected = 0;
+  const selectedEntries = [];
   const rowsHtml = availableRows.length === 0
     ? '<div class="text-xs text-[#8b949e] italic py-2">No trained troops available in ' + city.name + ' Barracks.</div>'
     : availableRows.map(function(row) {
         const key = row.troopDefId + ':' + row.level;
         const curQty = Math.max(0, Math.min(row.trained, Math.floor(Number(qtyByKey[key] || 0))));
         totalSelected += curQty;
+        if (curQty > 0) {
+          selectedEntries.push({ troopDefId: row.troopDefId, level: row.level, quantity: curQty });
+        }
         return `
           <div class="p-2 rounded bg-[#111722] border border-[#283347] space-y-1 text-xs font-mono">
             <div class="flex items-center justify-between">
@@ -22981,34 +24151,230 @@ function renderDeployArmyModal(simHost) {
         `;
       }).join('');
 
+  const selectedPower = computeTroopListCombatPower(selectedEntries);
+  const blocksSummary = militaryTarget && Array.isArray(militaryTarget.blocksAccess)
+    ? militaryTarget.blocksAccess.map(function(b) { return b.label || b.targetRef; }).join(', ')
+    : '';
+  const formationTypeSwitcherHtml = !militaryTarget ? `
+      <div class="p-2 rounded bg-[#080b11] border border-[#283347] space-y-1.5 text-xs font-mono">
+        <div class="text-[10px] uppercase text-[#94a3b8] font-bold">Formation Type</div>
+        <div class="grid grid-cols-2 gap-1.5">
+          <button data-formation-type="army" onclick="window.WargameApp.handleSetDeployFormationType('army')" class="py-1.5 px-2 rounded font-bold text-[11px] cursor-pointer ${formationType === 'army' ? 'bg-[#f87171] text-[#080b11]' : 'bg-[#111722] text-[#cbd5e1] border border-[#283347] hover:bg-[#1a2232]'}">🛡️ Field Army (Barracks)</button>
+          <button data-formation-type="hero_party" onclick="window.WargameApp.handleSetDeployFormationType('hero_party')" ${heroParties.length === 0 ? 'disabled' : ''} class="py-1.5 px-2 rounded font-bold text-[11px] ${formationType === 'hero_party' ? 'bg-[#60a5fa] text-[#080b11] cursor-pointer' : (heroParties.length > 0 ? 'bg-[#111722] text-[#cbd5e1] border border-[#283347] hover:bg-[#1a2232] cursor-pointer' : 'bg-[#111722] text-[#475569] border border-[#1e293b] cursor-not-allowed')}">⚔️ Hero Team (${heroParties.length})</button>
+        </div>
+      </div>
+  ` : '';
+
+  const targetHeaderHtml = militaryTarget ? `
+      <div class="p-2.5 rounded bg-[#450a0a]/40 border border-[#ef4444]/60 space-y-1 text-xs font-mono">
+        <div class="flex items-center justify-between">
+          <span class="text-[#fecaca] font-bold">⚔️ Target: ${militaryTarget.name} (${militaryTarget.x}, ${militaryTarget.y})</span>
+          <span class="text-[#f87171] font-bold">Threat Power: ${militaryTarget.enemyPower}</span>
+        </div>
+        ${blocksSummary ? `<div class="text-[11px] text-[#fbbf24]">Clearing Unlocks: <strong>${blocksSummary}</strong></div>` : ''}
+        <div class="text-[11px] ${selectedPower >= militaryTarget.enemyPower ? 'text-[#34d399]' : 'text-[#fbbf24]'}">
+          Army Power: <strong>${selectedPower}</strong> vs <strong>${militaryTarget.enemyPower}</strong>
+          (${totalSelected === 0 ? 'Select troops' : (selectedPower >= militaryTarget.enemyPower ? 'Favored — Victory Expected' : 'Understrength — Defeat Expected')})
+        </div>
+      </div>
+  ` : `
+      <div class="p-2.5 rounded bg-[#080b11] border border-[#283347] flex flex-wrap items-center justify-between gap-2 text-xs font-mono">
+        <span class="text-[#cbd5e1] font-bold">Destination Hex:</span>
+        <div class="flex items-center gap-2">
+          <label class="text-[#8b949e]">X <input type="number" min="0" max="${(ow.width || 56) - 1}" value="${targetX}" oninput="window.WargameApp.handleSetDeployTargetCoord('x', this.value)" class="w-14 px-1.5 py-0.5 rounded bg-[#111722] border border-[#283347] text-[#e6edf3] text-center" /></label>
+          <label class="text-[#8b949e]">Y <input type="number" min="0" max="${(ow.height || 40) - 1}" value="${targetY}" oninput="window.WargameApp.handleSetDeployTargetCoord('y', this.value)" class="w-14 px-1.5 py-0.5 rounded bg-[#111722] border border-[#283347] text-[#e6edf3] text-center" /></label>
+          <button data-action="pick-deploy-hex" onclick="window.WargameApp.handleStartPickDeployHex()" class="px-2 py-1 rounded bg-[#1a2232] hover:bg-[#283347] text-[#38bdf8] border border-[#38bdf8]/50 text-[10px] font-bold cursor-pointer">📍 Pick Tile</button>
+        </div>
+      </div>
+  `;
+
+  const heroTeamBodyHtml = `
+      <div class="space-y-1.5">
+        ${heroParties.length === 0
+          ? '<div class="text-xs text-[#8b949e] italic py-2">No active Hero Party available on the Overworld.</div>'
+          : heroParties.map(function(hp) {
+              const isSel = hp.id === selectedHeroPartyId;
+              return `
+                <button onclick="window.WargameApp.handleSelectDeployHeroParty('${hp.id}')" class="w-full p-2 rounded text-left text-xs font-mono flex items-center justify-between cursor-pointer ${isSel ? 'bg-[#1e3a8a]/50 border border-[#60a5fa] text-[#e6edf3]' : 'bg-[#111722] border border-[#283347] text-[#94a3b8]'}">
+                  <span class="font-bold">⚔️ ${hp.name}</span>
+                  <span>(${hp.x},${hp.y}) • HP ${hp.hp}/${hp.maxHp}</span>
+                </button>
+              `;
+            }).join('')}
+      </div>
+  `;
+
+  const canConfirm = formationType === 'hero_party' ? Boolean(selectedHeroPartyId) : (totalSelected > 0);
+
   const html = `
     <div class="flex items-center justify-between px-4 py-3 bg-[#080b11] border-b border-[#283347]">
       <div>
-        <h2 class="text-sm font-bold text-[#f87171]">🛡️ Deploy Field Army from ${city.name}</h2>
-        <div class="text-[11px] font-mono text-[#94a3b8]">Select Barracks troops and target hex; army is formed automatically on deployment</div>
+        <h2 class="text-sm font-bold ${formationType === 'hero_party' ? 'text-[#60a5fa]' : 'text-[#f87171]'}">${formationType === 'hero_party' ? '⚔️ Dispatch Hero Team' : ('🛡️ Deploy Field Army from ' + city.name)}</h2>
+        <div class="text-[11px] font-mono text-[#94a3b8]">${militaryTarget ? ('Assign Barracks troops to engage ' + militaryTarget.name) : 'Choose formation type, destination hex, and units'}</div>
       </div>
       <button onclick="window.WargameApp.handleCloseDeployArmyModal()" class="px-2.5 py-1 rounded bg-[#1a2232] hover:bg-[#283347] text-xs font-mono font-bold text-[#e6edf3] cursor-pointer">✕ Close</button>
     </div>
     <div class="p-4 space-y-3 overflow-y-auto">
-      <div class="p-2.5 rounded bg-[#080b11] border border-[#283347] flex flex-wrap items-center justify-between gap-2 text-xs font-mono">
-        <span class="text-[#cbd5e1] font-bold">Target Hex (Patrol):</span>
-        <div class="flex items-center gap-2">
-          <label class="text-[#8b949e]">X <input type="number" min="0" max="${(ow.width || 56) - 1}" value="${targetX}" oninput="window.WargameApp.handleSetDeployTargetCoord('x', this.value)" class="w-14 px-1.5 py-0.5 rounded bg-[#111722] border border-[#283347] text-[#e6edf3] text-center" /></label>
-          <label class="text-[#8b949e]">Y <input type="number" min="0" max="${(ow.height || 40) - 1}" value="${targetY}" oninput="window.WargameApp.handleSetDeployTargetCoord('y', this.value)" class="w-14 px-1.5 py-0.5 rounded bg-[#111722] border border-[#283347] text-[#e6edf3] text-center" /></label>
-        </div>
-      </div>
-      <div class="space-y-1.5">${rowsHtml}</div>
-      <label class="flex items-center gap-2 p-2.5 rounded bg-[#080b11] border border-[#283347] text-xs font-mono text-[#e6edf3] cursor-pointer">
-        <input type="checkbox" ${stayDeployed ? 'checked' : ''} onchange="window.WargameApp.handleToggleDeployStayDeployed(this.checked)" class="accent-[#f87171]" />
-        <span>Stay deployed after completing objective (unchecked = auto-return to ${city.name} Barracks)</span>
-      </label>
+      ${formationTypeSwitcherHtml}
+      ${targetHeaderHtml}
+      ${formationType === 'hero_party' ? heroTeamBodyHtml : `<div class="space-y-1.5">${rowsHtml}</div>`}
+      ${formationType === 'army' ? `
+        <label class="flex items-center gap-2 p-2.5 rounded bg-[#080b11] border border-[#283347] text-xs font-mono text-[#e6edf3] cursor-pointer">
+          <input type="checkbox" ${stayDeployed ? 'checked' : ''} onchange="window.WargameApp.handleToggleDeployStayDeployed(this.checked)" class="accent-[#f87171]" />
+          <span>Stay deployed after completing objective (victory/patrol; unchecked = auto-return to ${city.name} Barracks)</span>
+        </label>
+      ` : ''}
       <div class="flex items-center justify-between pt-1">
-        <span class="text-xs font-mono text-[#fbbf24]">Selected Force: <strong>${totalSelected} Troops</strong></span>
-        <button data-action="confirm-deploy-army" onclick="window.WargameApp.handleConfirmDeployArmy()" ${totalSelected <= 0 ? 'disabled' : ''} class="px-4 py-2 rounded-lg text-xs font-mono font-bold uppercase ${totalSelected > 0 ? 'bg-[#f87171] hover:bg-[#ef4444] text-[#080b11] cursor-pointer' : 'bg-[#1a2232] text-[#64748b] cursor-not-allowed'}">🛡️ Deploy Army</button>
+        <span class="text-xs font-mono text-[#fbbf24]">${formationType === 'hero_party' ? ('Selected Team: <strong>' + (selectedHeroPartyId ? 'Hero Party' : 'None') + '</strong>') : ('Selected Force: <strong>' + totalSelected + ' Troops</strong> (Power ' + selectedPower + ')')}</span>
+        <button data-action="confirm-deploy-army" onclick="window.WargameApp.handleConfirmDeployArmy()" ${!canConfirm ? 'disabled' : ''} class="px-4 py-2 rounded-lg text-xs font-mono font-bold uppercase ${canConfirm ? (formationType === 'hero_party' ? 'bg-[#60a5fa] hover:bg-[#3b82f6] text-[#080b11] cursor-pointer' : 'bg-[#f87171] hover:bg-[#ef4444] text-[#080b11] cursor-pointer') : 'bg-[#1a2232] text-[#64748b] cursor-not-allowed'}">${militaryTarget ? '⚔️ Deploy & Engage' : (formationType === 'hero_party' ? '⚔️ March Hero Team' : '🛡️ Deploy Army')}</button>
       </div>
     </div>
   `;
   setHtmlIfChanged(body, html);
+}
+
+// =============================================================================
+// PF-04: Visibility-Respecting Overworld Map Hover Tooltips
+// =============================================================================
+function buildOverworldTileTooltipData(state, x, y) {
+  if (!state || !state.world || !state.world.overworld) return null;
+  const world = state.world;
+  const ow = world.overworld;
+  if (typeof x !== 'number' || typeof y !== 'number' || x < 0 || y < 0 || x >= ow.width || y >= ow.height) {
+    return null;
+  }
+
+  const isExplored = Boolean(ow.explored && ow.explored[y] && ow.explored[y][x]);
+  if (!isExplored) {
+    return {
+      explored: false,
+      x: x,
+      y: y,
+      title: 'Unexplored Frontier (' + x + ', ' + y + ')',
+      badge: 'Fog of War',
+      lines: ['Scout this area to reveal terrain, resources, and threats.']
+    };
+  }
+
+  const tId = ow.tiles[y][x];
+  const tDef = OVERWORLD_TERRAIN_DEFS[tId] || null;
+  const lines = [];
+  if (tDef) {
+    const marchSec = (typeof tDef.marchTimeMs === 'number' && isFinite(tDef.marchTimeMs))
+      ? ((tDef.marchTimeMs / 1000).toFixed(1) + 's/hex')
+      : 'Impassable';
+    lines.push('Terrain: ' + tDef.name + ' (' + marchSec + (tDef.buildable ? ', Buildable' : '') + ')');
+  }
+
+  // City at hex
+  const cities = Object.values(world.cities || {});
+  const cityHere = cities.find(function(c) { return c && c.x === x && c.y === y; });
+  if (cityHere) {
+    lines.push('City: 🏰 ' + cityHere.name + ' (Lv ' + (cityHere.level || 1) + ', ' + (cityHere.ownerPlayerId || 'player_1') + ')');
+  }
+
+  // Alive player unit/army at hex
+  const unitHere = (ow.units || []).find(function(u) { return u && u.alive && u.x === x && u.y === y; });
+  if (unitHere) {
+    if (unitHere.unitType === 'army') {
+      const cnt = getArmyTotalTroopCount(world, unitHere.id);
+      const pwr = computeArmyCombatPower(world, unitHere.id);
+      lines.push('Army: 🛡️ ' + unitHere.name + ' (' + cnt + ' troops, Pwr ' + pwr + ', ' + unitHere.status + ')');
+    } else {
+      lines.push('Unit: ' + (unitHere.unitType === 'hero_party' ? '⚔️ ' : '🚩 ') + unitHere.name + ' (HP ' + unitHere.hp + '/' + unitHere.maxHp + ', ' + unitHere.status + ')');
+    }
+  }
+
+  // Discovered military target at hex
+  const mtHere = getMilitaryTargetAtHex(ow, x, y);
+  if (mtHere && (mtHere.discovered || isExplored)) {
+    const isCleared = mtHere.status === MILITARY_TARGET_STATUS.CLEARED;
+    lines.push('Military Target: ' + (isCleared ? '✓ ' : '⚔️ ') + mtHere.name + (isCleared ? ' (Cleared)' : (' (Threat Power ' + mtHere.enemyPower + ')')));
+    if (!isCleared && Array.isArray(mtHere.blocksAccess) && mtHere.blocksAccess.length > 0) {
+      lines.push('Blocks: ' + mtHere.blocksAccess.map(function(b) { return b.label || b.targetRef; }).join(', '));
+    }
+  }
+
+  // Discovered POI at hex
+  const poiHere = (ow.pois || []).find(function(p) { return p && p.x === x && p.y === y; });
+  if (poiHere && (poiHere.discovered || isExplored)) {
+    if (poiHere.type === 'dungeon_entrance') {
+      const blk = getBlockingMilitaryTargetForAccess(ow, 'overworld_poi', poiHere.id);
+      lines.push('Dungeon: Ω ' + poiHere.name + ' (Lv ' + (poiHere.recommendedLevel || 1) + (blk ? (', 🔒 Blocked by ' + blk.name) : ', Accessible') + ')');
+    } else {
+      lines.push('Resource POI: ' + poiHere.name + (poiHere.depleted ? ' (Depleted)' : ' (Available)'));
+    }
+  }
+
+  // Wandering Hostile at hex (ONLY if alive AND within active vision of a friendly unit or city)
+  const hostileHere = (ow.hostiles || []).find(function(h) { return h && h.alive && h.x === x && h.y === y; });
+  if (hostileHere) {
+    let inActiveSight = false;
+    const units = ow.units || [];
+    for (let i = 0; i < units.length; i++) {
+      const u = units[i];
+      if (u && u.alive && getHexDistance(x, y, u.x, u.y) <= (u.visionRadius || 4) + 1) {
+        inActiveSight = true;
+        break;
+      }
+    }
+    if (!inActiveSight) {
+      for (let i = 0; i < cities.length; i++) {
+        const c = cities[i];
+        if (c && getHexDistance(x, y, c.x, c.y) <= 5) {
+          inActiveSight = true;
+          break;
+        }
+      }
+    }
+    if (inActiveSight) {
+      lines.push('Adventure Hostile: ' + (hostileHere.icon || '☠') + ' ' + hostileHere.name + ' (Lv ' + (hostileHere.level || 1) + ', Power ' + (hostileHere.power || 18) + ')');
+    }
+  }
+
+  const title = cityHere
+    ? ('🏰 ' + cityHere.name)
+    : (mtHere
+      ? ((mtHere.status === MILITARY_TARGET_STATUS.CLEARED ? '✓ ' : '⚔️ ') + mtHere.name)
+      : (poiHere ? poiHere.name : (tDef ? tDef.name : 'Overworld Hex')));
+
+  return {
+    explored: true,
+    x: x,
+    y: y,
+    title: title + ' (' + x + ', ' + y + ')',
+    badge: mtHere ? (mtHere.status === MILITARY_TARGET_STATUS.CLEARED ? 'Cleared' : 'Military Threat') : (cityHere ? 'City' : (tDef ? tDef.name : '')),
+    lines: lines
+  };
+}
+
+function renderOverworldHoverTooltip(state, tile, screenPos) {
+  if (typeof document === 'undefined') return;
+  const el = document.getElementById('wgOverworldTooltip');
+  if (!el) return;
+  if (!tile || !state || !state.world || state.activeView !== WARGAME_VIEWS.OVERWORLD) {
+    el.classList.add('hidden');
+    return;
+  }
+  const data = buildOverworldTileTooltipData(state, tile.x, tile.y);
+  if (!data) {
+    el.classList.add('hidden');
+    return;
+  }
+  const linesHtml = data.lines.map(function(ln) {
+    return '<div class="text-[10px] text-[#cbd5e1] leading-snug">' + ln + '</div>';
+  }).join('');
+  setHtmlIfChanged(el, `
+    <div class="font-bold text-[#fbbf24] text-[11px] mb-0.5">${data.title}</div>
+    ${linesHtml}
+  `);
+  if (screenPos && typeof screenPos.sx === 'number' && typeof screenPos.sy === 'number') {
+    const leftPx = Math.min(430, Math.max(8, Math.round(screenPos.sx + 14)));
+    const topPx = Math.min(370, Math.max(8, Math.round(screenPos.sy + 14)));
+    el.style.left = leftPx + 'px';
+    el.style.top = topPx + 'px';
+  }
+  el.classList.remove('hidden');
 }
 
   // --- Module: src/data/ores.js ---
@@ -32857,6 +34223,668 @@ function evaluateWargameSelfTests() {
       : 'Failed checks: ' + failed36.join(', ')
   });
 
+  // =========================================================================
+  // Test 37: Military Target Placement, Non-Destructive Terrain & Multi-Path Discovery (Task 05B-2)
+  // =========================================================================
+  const host37 = createWargameSimHost();
+  host37.dispatch({ type: COMMAND_TYPES.START_NEW_CAMPAIGN, payload: { houseName: 'House Scout', worldName: 'Frontier Realm', seedCode: 'STAR-3700' } });
+  const ow37 = host37.state.world.overworld;
+  const targets37 = ow37.militaryTargets || [];
+  const tQuarry37 = getMilitaryTargetById(ow37, 'mtarget_quarry_blockade');
+  const tMycelium37 = getMilitaryTargetById(ow37, 'mtarget_mycelium_war_camp');
+
+  // Verify non-overlap with spawn, POIs, hostiles, units & valid reachable passable hexes
+  const placementValid37 = Boolean(
+    targets37.length === 2 && tQuarry37 && tMycelium37 &&
+    tQuarry37.discovered === false && tMycelium37.discovered === false &&
+    tQuarry37.status === MILITARY_TARGET_STATUS.ACTIVE &&
+    tMycelium37.status === MILITARY_TARGET_STATUS.ACTIVE &&
+    !(tQuarry37.x === ow37.spawnX && tQuarry37.y === ow37.spawnY) &&
+    !ow37.pois.some(function(p) { return (p.x === tQuarry37.x && p.y === tQuarry37.y) || (p.x === tMycelium37.x && p.y === tMycelium37.y); }) &&
+    !ow37.hostiles.some(function(h) { return (h.x === tQuarry37.x && h.y === tQuarry37.y) || (h.x === tMycelium37.x && h.y === tMycelium37.y); }) &&
+    Boolean(findOverworldPath(ow37, ow37.spawnX, ow37.spawnY, tQuarry37.x, tQuarry37.y)) &&
+    Boolean(findOverworldPath(ow37, ow37.spawnX, ow37.spawnY, tMycelium37.x, tMycelium37.y))
+  );
+
+  // Verify non-destructive placement on impassable map (returns null without modifying tiles)
+  const blockedMap37 = {
+    width: 7, height: 7, spawnX: 3, spawnY: 3,
+    tiles: Array.from({ length: 7 }, function() { return Array.from({ length: 7 }, function() { return OW_TERRAIN_MOUNTAINS; }); })
+  };
+  const noSpot37 = findValidMilitaryTargetHex(blockedMap37, 3, 3, {}, 3, 3, 4);
+  const nonDestructive37 = Boolean(noSpot37 === null && blockedMap37.tiles[3][3] === OW_TERRAIN_MOUNTAINS);
+
+  // Path 1: Settler marching discovers target #1 centrally via revealOverworldVision
+  const settler37 = ow37.units[0];
+  host37.dispatch({ type: COMMAND_TYPES.ORDER_UNIT_MARCH, payload: { unitId: settler37.id, targetX: tQuarry37.x, targetY: tQuarry37.y } });
+  host37.stepClock(90000);
+  const discoveredBySettler37 = Boolean(tQuarry37.discovered === true);
+
+  // Path 2: Hero Party marching discovers target #2 centrally via revealOverworldVision
+  const host37b = createWargameSimHost();
+  host37b.dispatch({ type: COMMAND_TYPES.START_NEW_CAMPAIGN, payload: { houseName: 'House Delver', worldName: 'Frontier Realm', seedCode: 'STAR-3700' } });
+  host37b.dispatch({ type: COMMAND_TYPES.FOUND_CITY, payload: { cityName: 'Visionkeep' } });
+  const ow37b = host37b.state.world.overworld;
+  const tMyc37b = getMilitaryTargetById(ow37b, 'mtarget_mycelium_war_camp');
+  const discBeforeHero37 = Boolean(tMyc37b && tMyc37b.discovered === false);
+  const discEvents37 = [];
+  host37b.eventStream.subscribe(STREAM_TOPICS.MILITARY_TARGET_DISCOVERED, function(ev) {
+    discEvents37.push(ev);
+  });
+  revealOverworldVision(ow37b, tMyc37b.x, tMyc37b.y, 2, { simTimeMs: 1000, eventStream: host37b.eventStream });
+  const discoveredCentrally37 = Boolean(discBeforeHero37 && tMyc37b.discovered === true && discEvents37.length === 1 && discEvents37[0].payload.targetId === 'mtarget_mycelium_war_camp');
+
+  const t37Checks = {
+    placementValid: placementValid37,
+    nonDestructive: nonDestructive37,
+    discoveredBySettler: discoveredBySettler37,
+    discoveredCentrally: discoveredCentrally37
+  };
+  const failed37 = Object.keys(t37Checks).filter(function(k) { return !t37Checks[k]; });
+  const t37Pass = failed37.length === 0;
+  results.push({
+    name: '37. Military Target Placement, Non-Destructive Terrain & Centralized Multi-Path Discovery (Task 05B-2)',
+    pass: t37Pass,
+    detail: t37Pass
+      ? 'Deterministic non-destructive placement, non-overlap, pathability & centralized revealOverworldVision discovery verified'
+      : 'Failed checks: ' + failed37.join(', ')
+  });
+
+  // =========================================================================
+  // Test 38: Military Combat Strength, Deterministic Resolution & Proportional Casualty Accounting (Task 05B-2)
+  // =========================================================================
+  const mkWorld38 = function(groups) {
+    return { troopGroups: groups.map(function(g, idx) { return Object.assign({ id: 'tg_' + idx, locationType: TROOP_LOCATION_TYPES.ARMY, locationId: 'army_test' }, g); }) };
+  };
+  const target100 = { id: 't1', enemyPower: 100 };
+
+  // Pure stat-based power (zero 10% combined-arms bonus): 2 Inf Lv1 (50) + 2 Arc Lv1 (48) = 98
+  const wMix98 = mkWorld38([
+    { troopDefId: 'infantry', level: 1, count: 2 },
+    { troopDefId: 'archer', level: 1, count: 2 }
+  ]);
+  const purePowerNoBonus38 = computeArmyCombatPower(wMix98, 'army_test') === 98;
+
+  // Overwhelming victory: 6 Inf Lv1 (150) + 4 Arc Lv1 (96) = 246 vs 100 -> 1 loss (proportional largest-remainder)
+  const wOver = mkWorld38([
+    { troopDefId: 'infantry', level: 1, count: 6 },
+    { troopDefId: 'archer', level: 1, count: 4 }
+  ]);
+  const resOver = resolveMilitaryTargetCombat(wOver, 'army_test', target100);
+  const overWinOk38 = Boolean(
+    resOver.victory === true &&
+    resOver.armyPower === 246 &&
+    resOver.totalLosses === 1 &&
+    resOver.survivingTroops === 9
+  );
+
+  // Marginal victory: 4 Inf Lv1 (100) vs 100 -> 25% loss = 1 loss (not 40-45%)
+  const wMarg = mkWorld38([{ troopDefId: 'infantry', level: 1, count: 4 }]);
+  const resMarg = resolveMilitaryTargetCombat(wMarg, 'army_test', target100);
+  const margWinOk38 = Boolean(
+    resMarg.victory === true &&
+    resMarg.armyPower === 100 &&
+    resMarg.totalLosses === 1 &&
+    resMarg.survivingTroops === 3
+  );
+
+  // Defeat: 2 Inf Lv1 (50) + 1 Arc Lv1 (24) = 74 vs 100 -> Defeat, bounded loss, >= 1 survivor
+  const wDef = mkWorld38([
+    { troopDefId: 'infantry', level: 1, count: 2 },
+    { troopDefId: 'archer', level: 1, count: 1 }
+  ]);
+  const resDef = resolveMilitaryTargetCombat(wDef, 'army_test', target100);
+  const defeatOk38 = Boolean(
+    resDef.victory === false &&
+    resDef.armyPower === 74 &&
+    resDef.totalLosses === 1 &&
+    resDef.survivingTroops === 2
+  );
+
+  // Unbiased proportional largest-remainder check: 2 Inf + 4 Arc losing 2 -> Arc gets 1 (exact 1.33), Inf gets 1 (exact 0.67) — ranged is NOT shielded!
+  const allocUnbiased = allocateProportionalCasualties([
+    { id: 'g_inf', troopDefId: 'infantry', level: 1, count: 2 },
+    { id: 'g_arc', troopDefId: 'archer', level: 1, count: 4 }
+  ], 2);
+  const arcRow38 = allocUnbiased.find(function(r) { return r.troopDefId === 'archer'; });
+  const infRow38 = allocUnbiased.find(function(r) { return r.troopDefId === 'infantry'; });
+  const unbiasedPropOk38 = Boolean(arcRow38 && arcRow38.lost === 1 && infRow38 && infRow38.lost === 1);
+
+  const t38Checks = {
+    purePowerNoBonus: purePowerNoBonus38,
+    overWinOk: overWinOk38,
+    margWinOk: margWinOk38,
+    defeatOk: defeatOk38,
+    unbiasedPropOk: unbiasedPropOk38
+  };
+  const failed38 = Object.keys(t38Checks).filter(function(k) { return !t38Checks[k]; });
+  const t38Pass = failed38.length === 0;
+  results.push({
+    name: '38. Military Combat Strength, Deterministic Outcomes & Proportional Casualty Allocation (Task 05B-2)',
+    pass: t38Pass,
+    detail: t38Pass
+      ? 'Pure stat-based power, overwhelming/marginal victory & defeat formulas, and unbiased proportional largest-remainder casualties verified'
+      : 'Failed checks: ' + failed38.join(', ')
+  });
+
+  // =========================================================================
+  // Test 39: Full Victory Loop, Access Clearance, Hero Dungeon Integration & Task Completion (Task 05B-2)
+  // =========================================================================
+  const host39 = createWargameSimHost();
+  host39.dispatch({ type: COMMAND_TYPES.START_NEW_CAMPAIGN, payload: { houseName: 'House Clear', worldName: 'Clearance Realm', seedCode: 'STAR-3900' } });
+  host39.dispatch({ type: COMMAND_TYPES.FOUND_CITY, payload: { cityName: 'Ironbastion' } });
+  const city39 = getPrimaryCity(host39.state);
+  const ow39 = host39.state.world.overworld;
+  city39.stockpile.wood = 900; city39.stockpile.stone = 900; city39.stockpile.food = 900; city39.stockpile.gold = 900;
+  city39.buildings.quarry = 1;
+  // Build Barracks, Fighter Camp, Guild Hall & recruit 1 Hero + 5 Infantry Lv 1
+  const pB39 = city39.plots.findIndex(function(p) { return p && !p.buildingId; });
+  host39.dispatch({ type: COMMAND_TYPES.QUEUE_BUILDING, payload: { plotIndex: pB39, buildingId: 'barracks' } });
+  host39.stepClock(15000);
+  const pFC39 = city39.plots.findIndex(function(p) { return p && !p.buildingId; });
+  host39.dispatch({ type: COMMAND_TYPES.QUEUE_BUILDING, payload: { plotIndex: pFC39, buildingId: 'fighter_camp' } });
+  host39.stepClock(15000);
+  city39.population.current = 20;
+  city39.population.max = 25;
+  const pGH39 = city39.plots.findIndex(function(p) { return p && !p.buildingId; });
+  host39.dispatch({ type: COMMAND_TYPES.QUEUE_BUILDING, payload: { plotIndex: pGH39, buildingId: 'guild_hall' } });
+  host39.stepClock(40000);
+  host39.dispatch({ type: COMMAND_TYPES.RECRUIT_HERO, payload: { classId: 'adventurer', heroName: 'Alden' } });
+  host39.dispatch({ type: COMMAND_TYPES.TRAIN_TROOPS, payload: { troopDefId: 'infantry', level: 1, quantity: 5 } });
+  host39.stepClock(120000);
+
+  const heroParty39 = ow39.units.find(function(u) { return u && u.alive && u.unitType === 'hero_party'; });
+  const quarryPoi39 = ow39.pois.find(function(p) { return p && p.id === 'poi_dungeon_quarry'; });
+  const starfallPoi39 = ow39.pois.find(function(p) { return p && p.id === 'poi_dungeon_starfall'; });
+  const target39 = getMilitaryTargetById(ow39, 'mtarget_quarry_blockade');
+  const distantTarget39 = getMilitaryTargetById(ow39, 'mtarget_mycelium_war_camp');
+
+  // Undiscovered distant target cannot be deployed against
+  const blockedUndiscovered39 = Boolean(distantTarget39 && !distantTarget39.discovered && !host39.dispatch({
+    type: COMMAND_TYPES.DEPLOY_ARMY,
+    payload: { homeCityId: city39.id, targetId: distantTarget39.id, stayDeployed: false, troops: [{ troopDefId: 'infantry', level: 1, quantity: 5 }] }
+  }).ok);
+
+  // Reveal quarry POI & target; verify Starfall is unblocked while Quarry is BLOCKED for Hero Party!
+  revealOverworldVision(ow39, quarryPoi39.x, quarryPoi39.y, 2, { simTimeMs: host39.state.world.clock.simTimeMs, eventStream: host39.eventStream });
+  quarryPoi39.discovered = true;
+  revealOverworldVision(ow39, target39.x, target39.y, 2, { simTimeMs: host39.state.world.clock.simTimeMs, eventStream: host39.eventStream });
+  const starfallUnblocked39 = getBlockingMilitaryTargetForAccess(ow39, 'overworld_poi', starfallPoi39.id) === null;
+  const heroBlockedBefore39 = Boolean(
+    getBlockingMilitaryTargetForAccess(ow39, 'overworld_poi', quarryPoi39.id) === target39 &&
+    !host39.dispatch({ type: COMMAND_TYPES.MARCH_TO_DUNGEON, payload: { unitId: heroParty39.id, poiId: quarryPoi39.id } }).ok
+  );
+
+  // Deploy 5 Infantry Lv 1 (power 125 >= 100) -> march -> engage -> victory -> clear -> auto-return & reintegrate
+  const depWin39 = host39.dispatch({
+    type: COMMAND_TYPES.DEPLOY_ARMY,
+    payload: { homeCityId: city39.id, targetId: target39.id, stayDeployed: false, troops: [{ troopDefId: 'infantry', level: 1, quantity: 5 }] }
+  });
+  const winArmy39 = depWin39.data && depWin39.data.army;
+  host39.stepClock(180000); // full march + combat + return march + reintegration
+
+  const capAfter39 = getCityTroopCapacityUsage(host39.state.world, city39);
+  const victoryAndReturnOk39 = Boolean(
+    depWin39.ok && winArmy39 &&
+    target39.status === MILITARY_TARGET_STATUS.CLEARED &&
+    target39.clearedByArmyId === winArmy39.id &&
+    winArmy39.lastCombatResult && winArmy39.lastCombatResult.victory === true &&
+    winArmy39.lastCombatResult.totalLosses === 1 &&
+    !winArmy39.alive && winArmy39.reintegrated === true &&
+    getCityTroopCountAtLevel(host39.state.world, city39.id, 'infantry', 1) === 4 &&
+    capAfter39.stationed === 4 && capAfter39.deployed === 0 && capAfter39.totalUsed === 4
+  );
+
+  // Unlock prerequisite task_complete_first_garrison so task_clear_first_military_target evaluates naturally in the DAG
+  if (host39.state.world.tasks && host39.state.world.tasks.task_complete_first_garrison) {
+    host39.state.world.tasks.task_complete_first_garrison.status = 'completed';
+  }
+  evaluateTaskDAG(host39.state, host39.eventStream);
+  // Unlocked access: Hero Party can now march to Quarry POI & dungeon was NOT auto-completed
+  const marchUnlockedRes39 = host39.dispatch({ type: COMMAND_TYPES.MARCH_TO_DUNGEON, payload: { unitId: heroParty39.id, poiId: quarryPoi39.id } });
+  const taskClearState39 = host39.state.world.tasks && host39.state.world.tasks.task_clear_first_military_target;
+  const unlockedAndTaskOk39 = Boolean(
+    getBlockingMilitaryTargetForAccess(ow39, 'overworld_poi', quarryPoi39.id) === null &&
+    marchUnlockedRes39.ok &&
+    (host39.state.world.stats.dungeonsEntered || 0) === 0 &&
+    taskClearState39 && (taskClearState39.status === 'completed' || taskClearState39.status === 'claimed')
+  );
+
+  const t39Checks = {
+    blockedUndiscovered: blockedUndiscovered39,
+    starfallUnblocked: starfallUnblocked39,
+    heroBlockedBefore: heroBlockedBefore39,
+    victoryAndReturnOk: victoryAndReturnOk39,
+    unlockedAndTaskOk: unlockedAndTaskOk39
+  };
+  const failed39 = Object.keys(t39Checks).filter(function(k) { return !t39Checks[k]; });
+  const t39Pass = failed39.length === 0;
+  results.push({
+    name: '39. Full Military Victory Loop, Access Clearance, Hero Dungeon Unlock & Task Completion (Task 05B-2)',
+    pass: t39Pass,
+    detail: t39Pass
+      ? 'Discovery gating, Hero blocked->unlocked transition, combat victory, casualty deduction, Barracks reintegration & campaign task verified'
+      : 'Failed checks: ' + failed39.join(', ')
+  });
+
+  // =========================================================================
+  // Test 40: Defeat Lifecycle, Repeat-Engagement Guard & Competing-Armies Cleanup (Task 05B-2)
+  // =========================================================================
+  const host40 = createWargameSimHost();
+  host40.dispatch({ type: COMMAND_TYPES.START_NEW_CAMPAIGN, payload: { houseName: 'House Retry', worldName: 'Retry Realm', seedCode: 'STAR-4000' } });
+  host40.dispatch({ type: COMMAND_TYPES.FOUND_CITY, payload: { cityName: 'Retrykeep' } });
+  const city40 = getPrimaryCity(host40.state);
+  const ow40 = host40.state.world.overworld;
+  city40.stockpile.wood = 900; city40.stockpile.stone = 900; city40.stockpile.food = 900; city40.stockpile.gold = 900;
+  city40.buildings.quarry = 1;
+  const pB40 = city40.plots.findIndex(function(p) { return p && !p.buildingId; });
+  host40.dispatch({ type: COMMAND_TYPES.QUEUE_BUILDING, payload: { plotIndex: pB40, buildingId: 'barracks' } });
+  host40.stepClock(15000);
+  // Upgrade Barracks to Lv 2 for 20 capacity (enough for two competing armies)
+  city40.buildings.meeting_hall = 2;
+  host40.dispatch({ type: COMMAND_TYPES.QUEUE_BUILDING, payload: { plotIndex: pB40, buildingId: 'barracks' } });
+  host40.stepClock(30000);
+  const pFC40 = city40.plots.findIndex(function(p) { return p && !p.buildingId; });
+  host40.dispatch({ type: COMMAND_TYPES.QUEUE_BUILDING, payload: { plotIndex: pFC40, buildingId: 'fighter_camp' } });
+  host40.stepClock(15000);
+  host40.dispatch({ type: COMMAND_TYPES.TRAIN_TROOPS, payload: { troopDefId: 'infantry', level: 1, quantity: 10 } });
+  host40.stepClock(100000);
+
+  const target40 = getMilitaryTargetById(ow40, 'mtarget_quarry_blockade');
+  revealOverworldVision(ow40, target40.x, target40.y, 2, { simTimeMs: host40.state.world.clock.simTimeMs, eventStream: host40.eventStream });
+
+  // 1. Defeat: deploy 3 Infantry Lv 1 (power 75 < 100, even with stayDeployed: true -> must STILL auto-retreat!)
+  const depLose40 = host40.dispatch({
+    type: COMMAND_TYPES.DEPLOY_ARMY,
+    payload: { homeCityId: city40.id, targetId: target40.id, stayDeployed: true, troops: [{ troopDefId: 'infantry', level: 1, quantity: 3 }] }
+  });
+  const loseArmy40 = depLose40.data && depLose40.data.army;
+  host40.stepClock(180000);
+  const defeatLifecycleOk40 = Boolean(
+    depLose40.ok && loseArmy40 &&
+    target40.status === MILITARY_TARGET_STATUS.ACTIVE &&
+    getBlockingMilitaryTargetForAccess(ow40, 'overworld_poi', 'poi_dungeon_quarry') === target40 &&
+    loseArmy40.lastCombatResult && loseArmy40.lastCombatResult.victory === false &&
+    loseArmy40.lastCombatResult.totalLosses === 1 &&
+    !loseArmy40.alive && loseArmy40.reintegrated === true &&
+    getCityTroopCountAtLevel(host40.state.world, city40.id, 'infantry', 1) === 9 // 10 - 1 casualty
+  );
+
+  // 2. Competing armies: Army A (5 Inf, power 125) and Army B (4 Inf, power 100) both target mtarget_quarry_blockade
+  // Army A starts first; Army B starts 5s later. When Army A clears target, Army B must cleanly cancel its stale job,
+  // never trigger duplicate combat, and return home cleanly!
+  let combatResolvedCount40 = 0;
+  host40.eventStream.subscribe(STREAM_TOPICS.ARMY_COMBAT_RESOLVED, function() {
+    combatResolvedCount40++;
+  });
+  const depA40 = host40.dispatch({
+    type: COMMAND_TYPES.DEPLOY_ARMY,
+    payload: { homeCityId: city40.id, targetId: target40.id, stayDeployed: false, troops: [{ troopDefId: 'infantry', level: 1, quantity: 5 }] }
+  });
+  host40.stepClock(5000);
+  const depB40 = host40.dispatch({
+    type: COMMAND_TYPES.DEPLOY_ARMY,
+    payload: { homeCityId: city40.id, targetId: target40.id, stayDeployed: false, troops: [{ troopDefId: 'infantry', level: 1, quantity: 4 }] }
+  });
+  const armyB40 = depB40.data && depB40.data.army;
+  host40.stepClock(200000);
+
+  const competingCleanupOk40 = Boolean(
+    depA40.ok && depB40.ok && armyB40 &&
+    target40.status === MILITARY_TARGET_STATUS.CLEARED &&
+    combatResolvedCount40 === 1 && // Exactly ONE combat resolved, zero duplicate combat!
+    armyB40.lastCombatResult === null &&
+    !armyB40.alive && armyB40.reintegrated === true && // Army B cleanly returned & reintegrated!
+    getCityTroopCountAtLevel(host40.state.world, city40.id, 'infantry', 1) === 8 // 9 - 1 loss from Army A only
+  );
+
+  // 3. Repeat engagement guard: cleared target rejects both DEPLOY_ARMY and REDIRECT_ARMY
+  const repeatDeployBlocked40 = !host40.dispatch({
+    type: COMMAND_TYPES.DEPLOY_ARMY,
+    payload: { homeCityId: city40.id, targetId: target40.id, troops: [{ troopDefId: 'infantry', level: 1, quantity: 2 }] }
+  }).ok;
+  const nbr40 = getHexNeighbors(city40.x, city40.y, ow40).find(function(n) {
+    const t = ow40.tiles[n.y][n.x];
+    return t !== OW_TERRAIN_MOUNTAINS && t !== 'water' && t !== 4 && t !== 5;
+  });
+  const depPatrol40 = host40.dispatch({
+    type: COMMAND_TYPES.DEPLOY_ARMY,
+    payload: { homeCityId: city40.id, targetX: nbr40.x, targetY: nbr40.y, stayDeployed: true, troops: [{ troopDefId: 'infantry', level: 1, quantity: 2 }] }
+  });
+  const repeatRedirectBlocked40 = !host40.dispatch({
+    type: COMMAND_TYPES.REDIRECT_ARMY,
+    payload: { armyId: depPatrol40.data.armyId, targetId: target40.id }
+  }).ok;
+
+  const t40Checks = {
+    defeatLifecycleOk: defeatLifecycleOk40,
+    competingCleanupOk: competingCleanupOk40,
+    repeatDeployBlocked: repeatDeployBlocked40,
+    repeatRedirectBlocked: repeatRedirectBlocked40
+  };
+  const failed40 = Object.keys(t40Checks).filter(function(k) { return !t40Checks[k]; });
+  const t40Pass = failed40.length === 0;
+  results.push({
+    name: '40. Defeat Retreat Lifecycle, Repeat-Engagement Guard & Competing-Armies Cleanup (Task 05B-2)',
+    pass: t40Pass,
+    detail: t40Pass
+      ? 'Defeat casualties & auto-retreat, competing-army job cancellation & clean return without duplicate combat, and cleared-target rejection verified'
+      : 'Failed checks: ' + failed40.join(', ')
+  });
+
+  // =========================================================================
+  // Test 41: Persistence During March & Combat, Orphan Job Recovery & Zero-Lockout Legacy Migration (Task 05B-2)
+  // =========================================================================
+  const prevSavedRaw41 = (typeof localStorage !== 'undefined') ? localStorage.getItem(WARGAME_STORAGE_KEY) : null;
+  let t41Checks = {};
+  try {
+    const host41 = createWargameSimHost();
+    host41.dispatch({ type: COMMAND_TYPES.START_NEW_CAMPAIGN, payload: { houseName: 'House PersistMil', worldName: 'Save War', seedCode: 'STAR-4100' } });
+    host41.dispatch({ type: COMMAND_TYPES.FOUND_CITY, payload: { cityName: 'Savebastion' } });
+    const city41 = getPrimaryCity(host41.state);
+    const ow41 = host41.state.world.overworld;
+    city41.stockpile.wood = 800; city41.stockpile.stone = 800; city41.stockpile.food = 800; city41.stockpile.gold = 800;
+    city41.buildings.quarry = 1;
+    const pB41 = city41.plots.findIndex(function(p) { return p && !p.buildingId; });
+    host41.dispatch({ type: COMMAND_TYPES.QUEUE_BUILDING, payload: { plotIndex: pB41, buildingId: 'barracks' } });
+    host41.stepClock(15000);
+    const pFC41 = city41.plots.findIndex(function(p) { return p && !p.buildingId; });
+    host41.dispatch({ type: COMMAND_TYPES.QUEUE_BUILDING, payload: { plotIndex: pFC41, buildingId: 'fighter_camp' } });
+    host41.stepClock(15000);
+    host41.dispatch({ type: COMMAND_TYPES.TRAIN_TROOPS, payload: { troopDefId: 'infantry', level: 1, quantity: 5 } });
+    host41.stepClock(60000);
+
+    const target41 = getMilitaryTargetById(ow41, 'mtarget_quarry_blockade');
+    revealOverworldVision(ow41, target41.x, target41.y, 2, { simTimeMs: host41.state.world.clock.simTimeMs, eventStream: host41.eventStream });
+
+    const dep41 = host41.dispatch({
+      type: COMMAND_TYPES.DEPLOY_ARMY,
+      payload: { homeCityId: city41.id, targetId: target41.id, stayDeployed: false, troops: [{ troopDefId: 'infantry', level: 1, quantity: 5 }] }
+    });
+    const armyId41 = dep41.data.armyId;
+
+    // A. Save while marching -> reload -> advance to combat engagement
+    host41.save();
+    const host41b = createWargameSimHost();
+    const loadMarch41 = host41b.load();
+    const army41b = host41b.state.world.overworld.units.find(function(u) { return u && u.id === armyId41; });
+    // Advance step-by-step until army reaches objective_in_progress
+    let guard41 = 0;
+    while (army41b && army41b.status === 'marching' && guard41 < 40) {
+      host41b.stepClock(3000);
+      guard41++;
+    }
+    const saveMarchOk41 = Boolean(
+      loadMarch41 && army41b &&
+      army41b.status === 'objective_in_progress' &&
+      army41b.objective && army41b.objective.type === ARMY_OBJECTIVE_TYPES.ENGAGE_TARGET &&
+      army41b.objective.targetId === target41.id
+    );
+
+    // B. Save mid-combat with stripped scheduledJobs -> reload -> resolves ONCE & replay is idempotent
+    host41b.save();
+    const rawMid41 = JSON.parse(localStorage.getItem(WARGAME_STORAGE_KEY));
+    rawMid41.world.scheduledJobs = [];
+    localStorage.setItem(WARGAME_STORAGE_KEY, JSON.stringify(rawMid41));
+
+    const host41c = createWargameSimHost();
+    const loadMid41 = host41c.load();
+    host41c.stepClock(ARMY_COMBAT_DURATION_MS + 1000);
+    const tAfterMid41 = getMilitaryTargetById(host41c.state.world.overworld, target41.id);
+    const army41c = host41c.state.world.overworld.units.find(function(u) { return u && u.id === armyId41; });
+    const countBeforeReplay41 = getArmyTotalTroopCount(host41c.state.world, armyId41);
+    // Replay stale job -> strictly idempotent
+    resolveArmyObjectiveCompleteJob({ jobId: 'stale_cbt', payload: { armyId: armyId41, targetId: target41.id } }, host41c.state, host41c.scheduler, host41c.eventStream);
+    const saveCombatOk41 = Boolean(
+      loadMid41 && tAfterMid41 && tAfterMid41.status === MILITARY_TARGET_STATUS.CLEARED &&
+      army41c && army41c.status === 'returning' &&
+      getArmyTotalTroopCount(host41c.state.world, armyId41) === countBeforeReplay41
+    );
+
+    // C. Legacy save migration — 3 progression sub-cases (zero lockout + idempotency)
+    // Sub-case 1: Legacy save with undiscovered/unentered quarry & mycelium -> both backfilled as ACTIVE
+    const hostLeg = createWargameSimHost();
+    hostLeg.dispatch({ type: COMMAND_TYPES.START_NEW_CAMPAIGN, payload: { houseName: 'Legacy1', worldName: 'OldWorld', seedCode: 'STAR-4101' } });
+    hostLeg.dispatch({ type: COMMAND_TYPES.FOUND_CITY, payload: { cityName: 'Oldkeep' } });
+    hostLeg.save();
+    const rawLeg1 = JSON.parse(localStorage.getItem(WARGAME_STORAGE_KEY));
+    delete rawLeg1.world.overworld.militaryTargets;
+    localStorage.setItem(WARGAME_STORAGE_KEY, JSON.stringify(rawLeg1));
+    const hostLeg1Load = createWargameSimHost();
+    hostLeg1Load.load();
+    const leg1Q = getMilitaryTargetById(hostLeg1Load.state.world.overworld, 'mtarget_quarry_blockade');
+    const leg1M = getMilitaryTargetById(hostLeg1Load.state.world.overworld, 'mtarget_mycelium_war_camp');
+    const legacyFreshOk41 = Boolean(leg1Q && leg1Q.status === MILITARY_TARGET_STATUS.ACTIVE && leg1M && leg1M.status === MILITARY_TARGET_STATUS.ACTIVE);
+
+    // Sub-case 2: Legacy save where quarry POI was already discovered -> quarry target migrated as CLEARED (no lockout), mycelium stays ACTIVE
+    const rawLeg2 = JSON.parse(JSON.stringify(rawLeg1));
+    const qPoiLeg2 = rawLeg2.world.overworld.pois.find(function(p) { return p && p.id === 'poi_dungeon_quarry'; });
+    if (qPoiLeg2) qPoiLeg2.discovered = true;
+    localStorage.setItem(WARGAME_STORAGE_KEY, JSON.stringify(rawLeg2));
+    const hostLeg2Load = createWargameSimHost();
+    hostLeg2Load.load();
+    const leg2Q = getMilitaryTargetById(hostLeg2Load.state.world.overworld, 'mtarget_quarry_blockade');
+    const leg2M = getMilitaryTargetById(hostLeg2Load.state.world.overworld, 'mtarget_mycelium_war_camp');
+    const legacyDiscoveredNoLockout41 = Boolean(
+      leg2Q && leg2Q.status === MILITARY_TARGET_STATUS.CLEARED &&
+      getBlockingMilitaryTargetForAccess(hostLeg2Load.state.world.overworld, 'overworld_poi', 'poi_dungeon_quarry') === null &&
+      leg2M && leg2M.status === MILITARY_TARGET_STATUS.ACTIVE
+    );
+
+    // Sub-case 3: Legacy save with existing dungeonWorld entry for mycelium -> mycelium target migrated as CLEARED & idempotent on re-save/re-load
+    const rawLeg3 = JSON.parse(JSON.stringify(rawLeg1));
+    rawLeg3.world.dungeonWorld = { dungeons: { dng_mycelium: { depth: 1, floors: {} } } };
+    localStorage.setItem(WARGAME_STORAGE_KEY, JSON.stringify(rawLeg3));
+    const hostLeg3Load = createWargameSimHost();
+    hostLeg3Load.load();
+    hostLeg3Load.save();
+    const hostLeg3Reload = createWargameSimHost();
+    hostLeg3Reload.load();
+    const leg3M = getMilitaryTargetById(hostLeg3Reload.state.world.overworld, 'mtarget_mycelium_war_camp');
+    const legacyEnteredNoLockout41 = Boolean(
+      leg3M && leg3M.status === MILITARY_TARGET_STATUS.CLEARED &&
+      getBlockingMilitaryTargetForAccess(hostLeg3Reload.state.world.overworld, 'overworld_poi', 'poi_dungeon_mycelium') === null
+    );
+
+    t41Checks = {
+      saveMarchOk: saveMarchOk41,
+      saveCombatOk: saveCombatOk41,
+      legacyFreshOk: legacyFreshOk41,
+      legacyDiscoveredNoLockout: legacyDiscoveredNoLockout41,
+      legacyEnteredNoLockout: legacyEnteredNoLockout41
+    };
+  } finally {
+    if (typeof localStorage !== 'undefined') {
+      if (prevSavedRaw41 === null) localStorage.removeItem(WARGAME_STORAGE_KEY);
+      else localStorage.setItem(WARGAME_STORAGE_KEY, prevSavedRaw41);
+    }
+  }
+  const failed41 = Object.keys(t41Checks).filter(function(k) { return !t41Checks[k]; });
+  const t41Pass = failed41.length === 0 && Object.keys(t41Checks).length > 0;
+  results.push({
+    name: '41. Military Target Persistence (March/Mid-Combat) & Zero-Lockout Legacy Save Migration (Task 05B-2)',
+    pass: t41Pass,
+    detail: t41Pass
+      ? 'Save/load across march & mid-combat recovery, idempotency, and all 3 zero-lockout legacy migration cases verified'
+      : 'Failed checks: ' + failed41.join(', ')
+  });
+
+  // =========================================================================
+  // Test 42: Military Target UI Interaction Contract (Inspect Without Auto-Redirect, Power Preview & Badges) (Task 05B-2)
+  // =========================================================================
+  const host42 = createWargameSimHost();
+  host42.dispatch({ type: COMMAND_TYPES.START_NEW_CAMPAIGN, payload: { houseName: 'House UI', worldName: 'UI Realm', seedCode: 'STAR-4200' } });
+  host42.dispatch({ type: COMMAND_TYPES.FOUND_CITY, payload: { cityName: 'Uikeep' } });
+  const city42 = getPrimaryCity(host42.state);
+  const ow42 = host42.state.world.overworld;
+  city42.stockpile.wood = 600; city42.stockpile.stone = 600; city42.stockpile.food = 600; city42.stockpile.gold = 600;
+  city42.buildings.quarry = 1;
+  const pB42 = city42.plots.findIndex(function(p) { return p && !p.buildingId; });
+  host42.dispatch({ type: COMMAND_TYPES.QUEUE_BUILDING, payload: { plotIndex: pB42, buildingId: 'barracks' } });
+  host42.stepClock(15000);
+  const pFC42 = city42.plots.findIndex(function(p) { return p && !p.buildingId; });
+  host42.dispatch({ type: COMMAND_TYPES.QUEUE_BUILDING, payload: { plotIndex: pFC42, buildingId: 'fighter_camp' } });
+  host42.stepClock(15000);
+  host42.dispatch({ type: COMMAND_TYPES.TRAIN_TROOPS, payload: { troopDefId: 'infantry', level: 1, quantity: 5 } });
+  host42.stepClock(60000);
+
+  const target42 = getMilitaryTargetById(ow42, 'mtarget_quarry_blockade');
+  const quarryPoi42 = ow42.pois.find(function(p) { return p && p.id === 'poi_dungeon_quarry'; });
+  revealOverworldVision(ow42, target42.x, target42.y, 2, { simTimeMs: host42.state.world.clock.simTimeMs, eventStream: host42.eventStream });
+  revealOverworldVision(ow42, quarryPoi42.x, quarryPoi42.y, 2, { simTimeMs: host42.state.world.clock.simTimeMs, eventStream: host42.eventStream });
+  quarryPoi42.discovered = true;
+
+  // Deploy a patrolling army elsewhere so we can verify selecting/inspecting target42 does NOT auto-redirect it
+  const nbr42 = getHexNeighbors(city42.x, city42.y, ow42).find(function(n) {
+    const t = ow42.tiles[n.y][n.x];
+    return t !== OW_TERRAIN_MOUNTAINS && t !== 'water' && t !== 4 && t !== 5;
+  });
+  const dep42 = host42.dispatch({
+    type: COMMAND_TYPES.DEPLOY_ARMY,
+    payload: { homeCityId: city42.id, targetX: nbr42.x, targetY: nbr42.y, stayDeployed: true, troops: [{ troopDefId: 'infantry', level: 1, quantity: 2 }] }
+  });
+  const army42 = dep42.data.army;
+
+  // Inspect target42 via transient state & sync UI
+  host42.state._selectedMilitaryTargetId = target42.id;
+  host42.state._deployArmyModalOpen = true;
+  host42.state._deployArmyDraft = { targetId: target42.id, targetX: target42.x, targetY: target42.y, stayDeployed: false, qtyByKey: { 'infantry:1': 3 } };
+  if (typeof document !== 'undefined') {
+    syncWargameUI(host42);
+  }
+  const noAutoRedirect42 = Boolean(army42 && army42.objective && army42.objective.type === ARMY_OBJECTIVE_TYPES.PATROL_HEX && !army42.objective.targetId);
+  const unitCardEl42 = (typeof document !== 'undefined') ? document.getElementById('wgSelectedUnitCard') : null;
+  const mtBarEl42 = (typeof document !== 'undefined') ? document.getElementById('wgMilitaryTargetsBar') : null;
+  const dngBarEl42 = (typeof document !== 'undefined') ? document.getElementById('wgDiscoveredDungeonsBar') : null;
+  const deployBodyEl42 = (typeof document !== 'undefined') ? document.getElementById('wgDeployArmyBody') : null;
+
+  const uiHtmlChecks42 = (typeof document === 'undefined' || !unitCardEl42) ? true : Boolean(
+    unitCardEl42.innerHTML.indexOf('Ironjaw Blockade Camp') !== -1 &&
+    unitCardEl42.innerHTML.indexOf('Sunken Copper Quarry') !== -1 &&
+    unitCardEl42.innerHTML.indexOf('deploy-to-target') !== -1 &&
+    unitCardEl42.innerHTML.indexOf('assign-army-target') !== -1 &&
+    (!mtBarEl42 || mtBarEl42.innerHTML.indexOf('Ironjaw Blockade Camp') !== -1) &&
+    (!dngBarEl42 || dngBarEl42.innerHTML.indexOf('Ironjaw Blockade Camp') !== -1) &&
+    (!deployBodyEl42 || (deployBodyEl42.innerHTML.indexOf('Threat Power: 100') !== -1 && deployBodyEl42.innerHTML.indexOf('Ironjaw Blockade Camp') !== -1))
+  );
+
+  // Clean up transient UI state & verify buildSerializableWargameState strips _selectedMilitaryTargetId
+  const serial42 = buildSerializableWargameState(host42.state);
+  const transientClean42 = Boolean(serial42 && serial42._selectedMilitaryTargetId === undefined);
+
+  const t42Checks = {
+    noAutoRedirect: noAutoRedirect42,
+    uiHtmlChecks: uiHtmlChecks42,
+    transientClean: transientClean42
+  };
+  const failed42 = Object.keys(t42Checks).filter(function(k) { return !t42Checks[k]; });
+  const t42Pass = failed42.length === 0;
+  results.push({
+    name: '42. Military Target UI Interaction Contract, Power Preview & Blocked-Access Badges (Task 05B-2)',
+    pass: t42Pass,
+    detail: t42Pass
+      ? 'Explicit target inspection without auto-redirect, Deploy/Assign controls, Threat Power preview, blocked dungeon badge & transient flag hygiene verified'
+      : 'Failed checks: ' + failed42.join(', ')
+  });
+
+  // =========================================================================
+  // Test 43: Prototype Feedback Batch 01 — PF-01..PF-05 (Nearby Target, Edge Scroll, Discoveries, Tooltips, Formation & Stay-Deployed)
+  // =========================================================================
+  const host43 = createWargameSimHost();
+  host43.dispatch({ type: COMMAND_TYPES.START_NEW_CAMPAIGN, payload: { houseName: 'House Feedback', worldName: 'UX Realm', seedCode: 'STAR-4300' } });
+  const ow43 = host43.state.world.overworld;
+  const nearTarget43 = getMilitaryTargetById(ow43, 'mtarget_quarry_blockade');
+  const distBeforeCity43 = nearTarget43 ? getHexDistance(ow43.spawnX, ow43.spawnY, nearTarget43.x, nearTarget43.y) : 99;
+  const undiscBeforeCity43 = Boolean(nearTarget43 && nearTarget43.discovered === false);
+
+  // PF-01: Founding the starting city immediately reveals the nearby initial combat target (within city vision radius 5)
+  host43.dispatch({ type: COMMAND_TYPES.FOUND_CITY, payload: { cityName: 'Frontkeep' } });
+  const city43 = getPrimaryCity(host43.state);
+  const pf01Ok43 = Boolean(
+    nearTarget43 &&
+    distBeforeCity43 <= 5 &&
+    undiscBeforeCity43 &&
+    nearTarget43.discovered === true &&
+    Boolean(findOverworldPath(ow43, city43.x, city43.y, nearTarget43.x, nearTarget43.y))
+  );
+
+  // PF-02: Edge scrolling velocity ramps smoothly near edges & stops in center / out-of-bounds
+  const vCenter = computeEdgeScrollVelocity(336, 240, 672, 480, 44, 360);
+  const vLeftNear = computeEdgeScrollVelocity(22, 240, 672, 480, 44, 360);
+  const vLeftEdge = computeEdgeScrollVelocity(2, 240, 672, 480, 44, 360);
+  const vBottomRight = computeEdgeScrollVelocity(670, 478, 672, 480, 44, 360);
+  const vOut = computeEdgeScrollVelocity(-10, 240, 672, 480, 44, 360);
+  const pf02Ok43 = Boolean(
+    vCenter.vx === 0 && vCenter.vy === 0 &&
+    vLeftNear.vx < 0 && vLeftEdge.vx < vLeftNear.vx &&
+    vBottomRight.vx > 0 && vBottomRight.vy > 0 &&
+    vOut.vx === 0 && vOut.vy === 0
+  );
+
+  // PF-03: Generalized Discoveries includes Threats, Resources, Locations & respects fog
+  const disc43 = collectOverworldDiscoveries(host43.state.world);
+  const pf03Ok43 = Boolean(
+    disc43.threats.some(function(t) { return t.id === 'mtarget_quarry_blockade'; }) &&
+    !disc43.threats.some(function(t) { return t.id === 'mtarget_mycelium_war_camp'; }) &&
+    disc43.resources.length >= 1 &&
+    disc43.locations.some(function(l) { return l.id === city43.id; })
+  );
+
+  // PF-04: Map tooltips respect fog of war & show contextual info on explored hexes
+  const farTarget43 = getMilitaryTargetById(ow43, 'mtarget_mycelium_war_camp');
+  const tipUnexplored = buildOverworldTileTooltipData(host43.state, farTarget43.x, farTarget43.y);
+  const tipNearTarget = buildOverworldTileTooltipData(host43.state, nearTarget43.x, nearTarget43.y);
+  const tipCity = buildOverworldTileTooltipData(host43.state, city43.x, city43.y);
+  const pf04Ok43 = Boolean(
+    tipUnexplored && tipUnexplored.explored === false && tipUnexplored.lines.join(' ').indexOf('Ashveil') === -1 &&
+    tipNearTarget && tipNearTarget.explored === true && tipNearTarget.title.indexOf('Ironjaw Blockade Camp') !== -1 &&
+    tipCity && tipCity.explored === true && tipCity.title.indexOf('Frontkeep') !== -1
+  );
+
+  // PF-05: Formation defaults to Field Army (not Hero Team) & stayDeployed=true keeps army deployed after victory!
+  city43.stockpile.wood = 800; city43.stockpile.stone = 800; city43.stockpile.food = 800; city43.stockpile.gold = 800;
+  city43.buildings.quarry = 1;
+  const pB43 = city43.plots.findIndex(function(p) { return p && !p.buildingId; });
+  host43.dispatch({ type: COMMAND_TYPES.QUEUE_BUILDING, payload: { plotIndex: pB43, buildingId: 'barracks' } });
+  host43.stepClock(15000);
+  const pFC43 = city43.plots.findIndex(function(p) { return p && !p.buildingId; });
+  host43.dispatch({ type: COMMAND_TYPES.QUEUE_BUILDING, payload: { plotIndex: pFC43, buildingId: 'fighter_camp' } });
+  host43.stepClock(15000);
+  host43.dispatch({ type: COMMAND_TYPES.TRAIN_TROOPS, payload: { troopDefId: 'infantry', level: 1, quantity: 5 } });
+  host43.stepClock(60000);
+
+  const depStay43 = host43.dispatch({
+    type: COMMAND_TYPES.DEPLOY_ARMY,
+    payload: { homeCityId: city43.id, targetId: nearTarget43.id, stayDeployed: true, troops: [{ troopDefId: 'infantry', level: 1, quantity: 5 }] }
+  });
+  const armyStay43 = depStay43.data && depStay43.data.army;
+  host43.stepClock(120000); // march + combat victory; stayDeployed=true must keep army ON MAP (idle, not returned!)
+  const pf05Ok43 = Boolean(
+    depStay43.ok && armyStay43 &&
+    nearTarget43.status === MILITARY_TARGET_STATUS.CLEARED &&
+    armyStay43.alive === true && !armyStay43.reintegrated &&
+    armyStay43.status === 'idle' &&
+    armyStay43.x === nearTarget43.x && armyStay43.y === nearTarget43.y &&
+    getArmyTotalTroopCount(host43.state.world, armyStay43.id) === 4
+  );
+
+  const t43Checks = {
+    pf01NearbyTarget: pf01Ok43,
+    pf02EdgeScroll: pf02Ok43,
+    pf03Discoveries: pf03Ok43,
+    pf04Tooltips: pf04Ok43,
+    pf05StayDeployedAndFormation: pf05Ok43
+  };
+  const failed43 = Object.keys(t43Checks).filter(function(k) { return !t43Checks[k]; });
+  const t43Pass = failed43.length === 0;
+  results.push({
+    name: '43. Prototype Feedback Batch 01: Nearby Target, Edge Scroll, Discoveries, Tooltips & Formation Stay-Deployed (PF-01..PF-05)',
+    pass: t43Pass,
+    detail: t43Pass
+      ? 'PF-01 nearby target discoverability, PF-02 edge scroll velocity, PF-03 categorized discoveries, PF-04 fog-safe tooltips & PF-05 stayDeployed verified'
+      : 'Failed checks: ' + failed43.join(', ')
+  });
+
   return results;
 }
 
@@ -35917,15 +37945,23 @@ function handleDisbandTroopsByLevel(troopDefId, level, quantity) {
   return res;
 }
 
-function handleOpenDeployArmyModal(targetX, targetY) {
+function handleOpenDeployArmyModal(targetX, targetY, targetId, formationType) {
   if (!simHost.state || !simHost.state.world) return;
   const city = getPrimaryCity(simHost.state);
   if (!city) return;
   const ow = simHost.state.world.overworld;
-  const defX = (typeof targetX === 'number' && !isNaN(targetX)) ? targetX : Math.min((ow.width || 56) - 1, city.x + 1);
-  const defY = (typeof targetY === 'number' && !isNaN(targetY)) ? targetY : city.y;
+  const target = targetId ? getMilitaryTargetById(ow, targetId) : null;
+  const defX = target ? target.x : ((typeof targetX === 'number' && !isNaN(targetX)) ? targetX : Math.min((ow.width || 56) - 1, city.x + 1));
+  const defY = target ? target.y : ((typeof targetY === 'number' && !isNaN(targetY)) ? targetY : city.y);
+  const heroParties = (ow.units || []).filter(function(u) { return u && u.alive && u.unitType === 'hero_party' && u.status !== 'in_dungeon'; });
+  // PF-05: Default explicitly to 'army' (Barracks Field Army), NEVER blindly defaulting to Hero Team
+  const resolvedType = target ? 'army' : (formationType === 'hero_party' && heroParties.length > 0 ? 'hero_party' : 'army');
+  simHost.state._pickingDeployHex = false;
   simHost.state._deployArmyModalOpen = true;
   simHost.state._deployArmyDraft = {
+    formationType: resolvedType,
+    heroPartyId: heroParties[0] ? heroParties[0].id : null,
+    targetId: target ? target.id : null,
     targetX: defX,
     targetY: defY,
     stayDeployed: false,
@@ -35933,6 +37969,82 @@ function handleOpenDeployArmyModal(targetX, targetY) {
   };
   simHost.state._dirty = true;
   syncWargameUI(simHost);
+}
+
+function handleSetDeployFormationType(formationType) {
+  if (!simHost.state || !simHost.state._deployArmyDraft) return;
+  if (simHost.state._deployArmyDraft.targetId) return; // Military targets require a Field Army
+  simHost.state._deployArmyDraft.formationType = (formationType === 'hero_party') ? 'hero_party' : 'army';
+  simHost.state._dirty = true;
+  syncWargameUI(simHost);
+}
+
+function handleSelectDeployHeroParty(unitId) {
+  if (!simHost.state || !simHost.state._deployArmyDraft) return;
+  simHost.state._deployArmyDraft.heroPartyId = unitId || null;
+  simHost.state._dirty = true;
+  syncWargameUI(simHost);
+}
+
+function handleStartPickDeployHex() {
+  if (!simHost.state || !simHost.state._deployArmyDraft) return;
+  simHost.state._pickingDeployHex = true;
+  simHost.state._deployArmyModalOpen = false;
+  simHost.state._dirty = true;
+  syncWargameUI(simHost);
+}
+
+function handleSetDiscoveryFilter(category) {
+  if (!simHost.state) return;
+  const valid = category === 'threats' || category === 'dungeons' || category === 'resources' || category === 'locations';
+  simHost.state._discoveryFilter = valid ? category : 'all';
+  simHost.state._dirty = true;
+  syncWargameUI(simHost);
+}
+
+function handleLocateOverworldHex(x, y, targetId) {
+  if (!simHost.state || !simHost.state.world || !simHost.state.world.overworld) return;
+  if (simHost.state.activeView !== WARGAME_VIEWS.OVERWORLD) {
+    simHost.dispatch({ type: COMMAND_TYPES.SWITCH_VIEW, payload: { view: WARGAME_VIEWS.OVERWORLD } });
+  }
+  centerOverworldOnOffset(x, y);
+  if (targetId) {
+    simHost.state._selectedMilitaryTargetId = targetId;
+  }
+  simHost.state._dirty = true;
+  syncWargameUI(simHost);
+  renderWargameOverworldCanvas(simHost);
+}
+
+function handleInspectMilitaryTarget(targetId) {
+  if (!simHost.state || !simHost.state.world || !simHost.state.world.overworld) return;
+  const ow = simHost.state.world.overworld;
+  const mt = getMilitaryTargetById(ow, targetId);
+  if (!mt) return;
+  const isDisc = Boolean(mt.discovered || (ow.explored[mt.y] && ow.explored[mt.y][mt.x]));
+  if (!isDisc) return;
+  simHost.state._selectedMilitaryTargetId = mt.id;
+  simHost.state._dirty = true;
+  syncWargameUI(simHost);
+}
+
+function handleCloseMilitaryTargetInspector() {
+  if (!simHost.state) return;
+  simHost.state._selectedMilitaryTargetId = null;
+  simHost.state._dirty = true;
+  syncWargameUI(simHost);
+}
+
+function handleAssignArmyToTarget(armyId, targetId) {
+  if (!simHost.state || !simHost.state.world) return { ok: false };
+  const res = simHost.dispatch({
+    type: COMMAND_TYPES.REDIRECT_ARMY,
+    payload: { armyId: armyId, targetId: targetId }
+  });
+  simHost.state._dirty = true;
+  simHost.save();
+  syncWargameUI(simHost);
+  return res;
 }
 
 function handleCloseDeployArmyModal() {
@@ -35972,6 +38084,27 @@ function handleConfirmDeployArmy() {
   if (!simHost.state || !simHost.state.world || !simHost.state._deployArmyDraft) return { ok: false };
   const city = getPrimaryCity(simHost.state);
   const draft = simHost.state._deployArmyDraft;
+  const formationType = draft.targetId ? 'army' : (draft.formationType === 'hero_party' ? 'hero_party' : 'army');
+
+  if (formationType === 'hero_party') {
+    const resHero = simHost.dispatch({
+      type: COMMAND_TYPES.ORDER_UNIT_MARCH,
+      payload: {
+        unitId: draft.heroPartyId,
+        targetX: draft.targetX,
+        targetY: draft.targetY
+      }
+    });
+    if (resHero && resHero.ok) {
+      simHost.state._deployArmyModalOpen = false;
+      simHost.state._pickingDeployHex = false;
+    }
+    simHost.state._dirty = true;
+    simHost.save();
+    syncWargameUI(simHost);
+    return resHero;
+  }
+
   const troops = [];
   const keys = Object.keys(draft.qtyByKey || {});
   for (let i = 0; i < keys.length; i++) {
@@ -35984,6 +38117,7 @@ function handleConfirmDeployArmy() {
     type: COMMAND_TYPES.DEPLOY_ARMY,
     payload: {
       homeCityId: city ? city.id : null,
+      targetId: draft.targetId || null,
       targetX: draft.targetX,
       targetY: draft.targetY,
       stayDeployed: Boolean(draft.stayDeployed),
@@ -35992,6 +38126,7 @@ function handleConfirmDeployArmy() {
   });
   if (res && res.ok) {
     simHost.state._deployArmyModalOpen = false;
+    simHost.state._pickingDeployHex = false;
   }
   simHost.state._dirty = true;
   simHost.save();
@@ -36575,9 +38710,10 @@ function setupWargameListeners() {
   const canvas = document.getElementById('wgOverworldCanvas');
   if (canvas) {
     attachOverworldHexControls(canvas, {
-      onHoverOffset: function(off) {
+      onHoverOffset: function(off, pos) {
         if (!simHost.state.world || !simHost.state.world.overworld || !off) {
           setWargameHoverTile(null, null);
+          renderOverworldHoverTooltip(simHost.state, null, null);
           return;
         }
         const ow = simHost.state.world.overworld;
@@ -36588,8 +38724,10 @@ function setupWargameListeners() {
             previewRoute = findOverworldPath(ow, selUnit.x, selUnit.y, off.x, off.y);
           }
           setWargameHoverTile({ x: off.x, y: off.y }, previewRoute);
+          renderOverworldHoverTooltip(simHost.state, { x: off.x, y: off.y }, pos);
         } else {
           setWargameHoverTile(null, null);
+          renderOverworldHoverTooltip(simHost.state, null, null);
         }
       },
       onTapOffset: function(off) {
@@ -36597,18 +38735,42 @@ function setupWargameListeners() {
         const ow = simHost.state.world.overworld;
         if (off.x < 0 || off.x >= ow.width || off.y < 0 || off.y >= ow.height) return;
 
+        // PF-05: Picking a map tile for Army/Team Formation destination
+        if (simHost.state._pickingDeployHex && simHost.state._deployArmyDraft) {
+          simHost.state._pickingDeployHex = false;
+          simHost.state._deployArmyDraft.targetX = off.x;
+          simHost.state._deployArmyDraft.targetY = off.y;
+          simHost.state._deployArmyDraft.targetId = null;
+          simHost.state._deployArmyModalOpen = true;
+          simHost.state._dirty = true;
+          syncWargameUI(simHost);
+          return;
+        }
+
+        // Task 05B-2 explicit UI contract: tapping a discovered military target ALWAYS selects & inspects it
+        // and NEVER auto-redirects an army or marches a unit without explicit Deploy/Assign confirmation.
+        const tappedTarget = getMilitaryTargetAtHex(ow, off.x, off.y);
+        if (tappedTarget && (tappedTarget.discovered || (ow.explored[tappedTarget.y] && ow.explored[tappedTarget.y][tappedTarget.x]))) {
+          simHost.state._selectedMilitaryTargetId = tappedTarget.id;
+          simHost.state._dirty = true;
+          syncWargameUI(simHost);
+          return;
+        }
+
         // Selecting an existing player unit/army on the tapped hex
         const tappedUnit = (ow.units || []).find(function(u) {
           return u && u.alive && u.x === off.x && u.y === off.y;
         });
         const selUnit = getSelectedOverworldUnit(simHost.state);
         if (tappedUnit && (!selUnit || tappedUnit.id !== selUnit.id)) {
+          simHost.state._selectedMilitaryTargetId = null;
           ow.selectedUnitId = tappedUnit.id;
           simHost.state._dirty = true;
           syncWargameUI(simHost);
           return;
         }
 
+        simHost.state._selectedMilitaryTargetId = null;
         if (selUnit && selUnit.alive) {
           if (selUnit.unitType === 'army') {
             simHost.dispatch({
@@ -36633,6 +38795,8 @@ function setupWargameListeners() {
 
     canvas.addEventListener('mouseleave', function() {
       setWargameHoverTile(null, null);
+      clearOverworldEdgeScrollPointer();
+      renderOverworldHoverTooltip(simHost.state, null, null);
     });
   }
 
@@ -36817,6 +38981,7 @@ function wargameMainLoop(timestamp) {
     }
 
     if (simHost.state.activeView === WARGAME_VIEWS.OVERWORLD) {
+      stepOverworldEdgeScroll(elapsedRealMs / 1000, simHost.state);
       renderWargameOverworldCanvas(simHost);
     }
     updateHeaderFastTick(simHost);
@@ -36876,6 +39041,14 @@ const WargameApp = {
   handleDisbandTroopsByLevel: handleDisbandTroopsByLevel,
   handleOpenDeployArmyModal: handleOpenDeployArmyModal,
   handleCloseDeployArmyModal: handleCloseDeployArmyModal,
+  handleSetDeployFormationType: handleSetDeployFormationType,
+  handleSelectDeployHeroParty: handleSelectDeployHeroParty,
+  handleStartPickDeployHex: handleStartPickDeployHex,
+  handleSetDiscoveryFilter: handleSetDiscoveryFilter,
+  handleLocateOverworldHex: handleLocateOverworldHex,
+  handleInspectMilitaryTarget: handleInspectMilitaryTarget,
+  handleCloseMilitaryTargetInspector: handleCloseMilitaryTargetInspector,
+  handleAssignArmyToTarget: handleAssignArmyToTarget,
   handleSetDeployTargetCoord: handleSetDeployTargetCoord,
   handleSetDeployTroopQty: handleSetDeployTroopQty,
   handleToggleDeployStayDeployed: handleToggleDeployStayDeployed,

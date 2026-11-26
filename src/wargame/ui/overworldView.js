@@ -6,6 +6,8 @@
 // =============================================================================
 
 import {
+  OVERWORLD_MAP_W,
+  OVERWORLD_MAP_H,
   OVERWORLD_VIEWPORT_W,
   OVERWORLD_VIEWPORT_H
 } from '../constants.js';
@@ -32,6 +34,81 @@ let owViewport = null;
 let owViewportInitialized = false;
 let owAttachedCanvas = null;
 let owUserPanned = false;
+let owPointerScreenPos = null; // PF-02: { sx, sy } inside canvas for edge scrolling
+let owPointerDragging = false;
+
+export const OVERWORLD_EDGE_SCROLL_ZONE_PX = 44;
+export const OVERWORLD_EDGE_SCROLL_MAX_SPEED_PX = 360;
+
+// Pure, testable edge-scroll velocity calculator (PF-02)
+export function computeEdgeScrollVelocity(sx, sy, width, height, edgeZonePx, maxSpeedPxPerSec) {
+  if (typeof sx !== 'number' || typeof sy !== 'number' || !isFinite(sx) || !isFinite(sy)) {
+    return { vx: 0, vy: 0 };
+  }
+  const w = width > 0 ? width : 672;
+  const h = height > 0 ? height : 480;
+  const zone = typeof edgeZonePx === 'number' && edgeZonePx > 0 ? edgeZonePx : OVERWORLD_EDGE_SCROLL_ZONE_PX;
+  const maxSpd = typeof maxSpeedPxPerSec === 'number' && maxSpeedPxPerSec > 0 ? maxSpeedPxPerSec : OVERWORLD_EDGE_SCROLL_MAX_SPEED_PX;
+
+  if (sx < 0 || sy < 0 || sx > w || sy > h) {
+    return { vx: 0, vy: 0 };
+  }
+
+  let vx = 0;
+  let vy = 0;
+
+  if (sx < zone) {
+    const ratio = Math.min(1, Math.max(0, (zone - sx) / zone));
+    vx = -ratio * maxSpd;
+  } else if (sx > w - zone) {
+    const ratio = Math.min(1, Math.max(0, (sx - (w - zone)) / zone));
+    vx = ratio * maxSpd;
+  }
+
+  if (sy < zone) {
+    const ratio = Math.min(1, Math.max(0, (zone - sy) / zone));
+    vy = -ratio * maxSpd;
+  } else if (sy > h - zone) {
+    const ratio = Math.min(1, Math.max(0, (sy - (h - zone)) / zone));
+    vy = ratio * maxSpd;
+  }
+
+  return { vx: vx, vy: vy };
+}
+
+export function clearOverworldEdgeScrollPointer() {
+  owPointerScreenPos = null;
+  owPointerDragging = false;
+}
+
+export function stepOverworldEdgeScroll(dtSec, state) {
+  if (!owViewport || !owPointerScreenPos || owPointerDragging) return false;
+  if (!state || state.activeView !== 'overworld') return false;
+  // Never edge-scroll while interacting with modals or overlays
+  if (state._deployArmyModalOpen || state._openFacilityId || state._researchHubOpen || state._trainingHubOpen || state._devPortalOpen) {
+    return false;
+  }
+  const dt = Math.max(0, Math.min(0.1, Number(dtSec || 0)));
+  if (dt <= 0) return false;
+
+  const vel = computeEdgeScrollVelocity(
+    owPointerScreenPos.sx,
+    owPointerScreenPos.sy,
+    owViewport.camera.width,
+    owViewport.camera.height
+  );
+  if (vel.vx === 0 && vel.vy === 0) return false;
+
+  const prevX = owViewport.camera.x;
+  const prevY = owViewport.camera.y;
+  // Moving viewport toward right edge pans camera +X (negative screen delta in panByScreenDelta)
+  owViewport.panByScreenDelta(-vel.vx * dt, -vel.vy * dt);
+  if (owViewport.camera.x !== prevX || owViewport.camera.y !== prevY) {
+    owUserPanned = true;
+    return true;
+  }
+  return false;
+}
 
 // Tier 3 Strategic Cartography Daylight Palette (Art Bible §2.1)
 const HEX_TERRAIN_FILL = {
@@ -50,13 +127,21 @@ export function ensureOverworldHexViewport(canvas) {
   const w = canvas ? canvas.width : 672;
   const h = canvas ? canvas.height : 480;
   if (!owViewport) {
+    const tl = owHexAdapter.tileToWorld(owHexAdapter.offsetToAxial(0, 0));
+    const br = owHexAdapter.tileToWorld(owHexAdapter.offsetToAxial((OVERWORLD_MAP_W || 56) - 1, (OVERWORLD_MAP_H || 40) - 1));
     owViewport = createMapViewport({
       gridAdapter: owHexAdapter,
       viewportWidth: w,
       viewportHeight: h,
       minZoom: 0.55,
       maxZoom: 2.1,
-      zoom: 1.0
+      zoom: 1.0,
+      bounds: {
+        minX: tl.wx,
+        maxX: br.wx,
+        minY: tl.wy,
+        maxY: br.wy
+      }
     });
   } else if (canvas && (owViewport.camera.width !== w || owViewport.camera.height !== h)) {
     owViewport.resize(w, h);
@@ -114,24 +199,35 @@ export function attachOverworldHexControls(canvas, handlers) {
   const cb = handlers || {};
 
   vp.attachPointerControls(canvas, {
-    onHoverTile: function(axial) {
+    onHoverTile: function(axial, pos) {
+      owPointerScreenPos = pos ? { sx: pos.sx, sy: pos.sy } : null;
+      owPointerDragging = false;
       if (!axial) {
-        if (typeof cb.onHoverOffset === 'function') cb.onHoverOffset(null);
+        if (typeof cb.onHoverOffset === 'function') cb.onHoverOffset(null, pos);
         return;
       }
       const off = owHexAdapter.axialToOffset(axial.q, axial.r);
-      if (typeof cb.onHoverOffset === 'function') cb.onHoverOffset({ x: off.col, y: off.row });
+      if (typeof cb.onHoverOffset === 'function') cb.onHoverOffset({ x: off.col, y: off.row }, pos);
     },
-    onTapTile: function(axial) {
+    onTapTile: function(axial, pos) {
+      owPointerDragging = false;
       if (!axial) return;
       const off = owHexAdapter.axialToOffset(axial.q, axial.r);
-      if (typeof cb.onTapOffset === 'function') cb.onTapOffset({ x: off.col, y: off.row });
+      if (typeof cb.onTapOffset === 'function') cb.onTapOffset({ x: off.col, y: off.row }, pos);
     },
     onCameraChange: function() {
       owUserPanned = true;
       if (typeof cb.onRepaint === 'function') cb.onRepaint();
     }
   });
+
+  if (typeof canvas.addEventListener === 'function') {
+    canvas.addEventListener('mousedown', function() { owPointerDragging = true; });
+    canvas.addEventListener('mouseup', function() { owPointerDragging = false; });
+    canvas.addEventListener('mouseleave', function() {
+      clearOverworldEdgeScrollPointer();
+    });
+  }
 }
 
 export function setWargameHoverTile(tile, previewPath = null) {
@@ -363,19 +459,21 @@ export function renderWargameOverworldCanvas(simHost) {
     drawHexPolygon(ctx, hPts, 'rgba(251, 191, 36, 0.22)', '#fbbf24', 2);
   }
 
-  // 3. Render Active March Path for Selected Unit
-  if (selUnit && selUnit.status === 'marching' && selUnit.marchPlan && Array.isArray(selUnit.marchPlan.path)) {
-    const path = selUnit.marchPlan.path;
+  // 3. Render Active March Path for Selected Unit (Task 05B-2: use authoritative remainingPath)
+  if (selUnit && (selUnit.status === 'marching' || selUnit.status === 'returning') && selUnit.marchPlan && Array.isArray(selUnit.marchPlan.remainingPath) && selUnit.marchPlan.remainingPath.length > 0) {
+    const path = selUnit.marchPlan.remainingPath;
     ctx.save();
-    ctx.strokeStyle = '#fbbf24';
+    ctx.strokeStyle = selUnit.unitType === 'army' ? '#f87171' : '#fbbf24';
     ctx.lineWidth = Math.max(2, 2.5 * z);
     if (typeof ctx.setLineDash === 'function') ctx.setLineDash([6, 4]);
     ctx.beginPath();
+    const startW = owHexAdapter.tileToWorld(owHexAdapter.offsetToAxial(selUnit.x, selUnit.y));
+    const startS = vp.worldToScreen(startW.wx, startW.wy);
+    ctx.moveTo(startS.sx, startS.sy);
     for (let mi = 0; mi < path.length; mi++) {
       const w = owHexAdapter.tileToWorld(owHexAdapter.offsetToAxial(path[mi].x, path[mi].y));
       const s = vp.worldToScreen(w.wx, w.wy);
-      if (mi === 0) ctx.moveTo(s.sx, s.sy);
-      else ctx.lineTo(s.sx, s.sy);
+      ctx.lineTo(s.sx, s.sy);
     }
     ctx.stroke();
     ctx.restore();
@@ -410,8 +508,52 @@ export function renderWargameOverworldCanvas(simHost) {
     ctx.fillText(pDef.symbol || 'Ω', s.sx, s.sy);
   }
 
-  // 5. Render Bastion Cities
-  const cities = world.cities || [];
+  // 4b. Render Discovered Military Targets (Task 05B-2 — distinct from adventure POIs & hostiles)
+  const militaryTargets = ow.militaryTargets || [];
+  const selectedTargetId = state._selectedMilitaryTargetId || null;
+  for (let mi = 0; mi < militaryTargets.length; mi++) {
+    const mt = militaryTargets[mi];
+    if (!mt) continue;
+    const isDisc = Boolean(mt.discovered || (ow.explored[mt.y] && ow.explored[mt.y][mt.x]));
+    if (!isDisc) continue;
+
+    const ax = owHexAdapter.offsetToAxial(mt.x, mt.y);
+    const w = owHexAdapter.tileToWorld(ax);
+    if (w.wx < visRect.minX || w.wx > visRect.maxX || w.wy < visRect.minY || w.wy > visRect.maxY) continue;
+    const s = vp.worldToScreen(w.wx, w.wy);
+    const isCleared = mt.status === 'cleared';
+    const isSelectedTarget = selectedTargetId === mt.id;
+
+    // Distinct octagonal/square bastion plaque for military-scale positions
+    const r = 12 * z;
+    ctx.fillStyle = isCleared ? '#064e3b' : '#450a0a';
+    ctx.beginPath();
+    ctx.rect(s.sx - r, s.sy - r, r * 2, r * 2);
+    ctx.fill();
+    ctx.strokeStyle = isSelectedTarget ? '#fbbf24' : (isCleared ? '#34d399' : '#ef4444');
+    ctx.lineWidth = isSelectedTarget ? 3 : 2;
+    ctx.stroke();
+
+    ctx.fillStyle = isCleared ? '#6ee7b7' : '#fecaca';
+    ctx.font = 'bold ' + Math.round(12 * z) + 'px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(isCleared ? '✓' : '⚔', s.sx, s.sy);
+
+    // PF-01: Crisp target label pill so combat target is unmistakably identifiable on the map
+    if (z >= 0.75) {
+      const tagText = isCleared ? 'Cleared' : ('⚔ Pwr ' + (mt.enemyPower || 100));
+      ctx.font = 'bold ' + Math.max(8, Math.round(9 * z)) + 'px monospace';
+      const tagW = Math.max(46, tagText.length * 5.8) * z;
+      ctx.fillStyle = isCleared ? 'rgba(6, 78, 59, 0.90)' : 'rgba(69, 10, 10, 0.92)';
+      ctx.fillRect(s.sx - tagW * 0.5, s.sy + 12 * z, tagW, 12 * z);
+      ctx.fillStyle = isCleared ? '#6ee7b7' : '#fca5a5';
+      ctx.fillText(tagText, s.sx, s.sy + 18 * z);
+    }
+  }
+
+  // 5. Render Bastion Cities (PF-01: support canonical world.cities object map as well as arrays)
+  const cities = Array.isArray(world.cities) ? world.cities : Object.values(world.cities || {});
   for (let c = 0; c < cities.length; c++) {
     const city = cities[c];
     const ax = owHexAdapter.offsetToAxial(city.x, city.y);

@@ -2,7 +2,8 @@
 
 import {
   OVERWORLD_MAP_W,
-  OVERWORLD_MAP_H
+  OVERWORLD_MAP_H,
+  STREAM_TOPICS
 } from '../constants.js';
 import {
   OW_TERRAIN_PLAINS,
@@ -16,6 +17,11 @@ import {
   OVERWORLD_HOSTILE_ARCHETYPES,
   UNIT_ARCHETYPES
 } from '../data/terrain.js';
+import {
+  DEFAULT_MILITARY_TARGET_SPECS,
+  MILITARY_TARGET_ARCHETYPES,
+  MILITARY_TARGET_STATUS
+} from '../data/troops.js';
 import { createSeededRng, hashSeedString } from '../../engine/rng.js';
 import {
   isInOverworldBounds,
@@ -240,17 +246,139 @@ export function generateOverworldMap(width = OVERWORLD_MAP_W, height = OVERWORLD
     explored: explored,
     pois: pois,
     hostiles: hostiles,
+    militaryTargets: [],
     units: [settlerUnit],
     selectedUnitId: settlerUnit.id
   };
+
+  ow.militaryTargets = createDefaultMilitaryTargets(ow, null, spawnX, spawnY);
 
   revealOverworldVision(ow, spawnX, spawnY, settlerUnit.visionRadius);
 
   return ow;
 }
 
-export function revealOverworldVision(overworld, cx, cy, radius = 4) {
-  if (!overworld || !overworld.explored) return;
+// Non-destructive deterministic military target placement (Task 05B-2):
+// Never modifies terrain tiles; validates passability, non-overlap & A* reachability.
+export function findValidMilitaryTargetHex(overworld, desiredX, desiredY, occupiedSet, reachOriginX, reachOriginY, maxSearchRadius) {
+  if (!overworld || !overworld.tiles) return null;
+  const searchR = typeof maxSearchRadius === 'number' && maxSearchRadius >= 0 ? maxSearchRadius : 8;
+  const clampedX = Math.max(1, Math.min(overworld.width - 2, Math.floor(desiredX)));
+  const clampedY = Math.max(1, Math.min(overworld.height - 2, Math.floor(desiredY)));
+  const candidates = getHexesInRange(clampedX, clampedY, searchR, overworld).slice().sort(function(a, b) {
+    const da = getHexDistance(a.x, a.y, clampedX, clampedY);
+    const db = getHexDistance(b.x, b.y, clampedX, clampedY);
+    if (da !== db) return da - db;
+    if (a.y !== b.y) return a.y - b.y;
+    return a.x - b.x;
+  });
+
+  const occ = occupiedSet || {};
+  const hasOrigin = typeof reachOriginX === 'number' && typeof reachOriginY === 'number' &&
+    isInOverworldBounds(overworld, reachOriginX, reachOriginY);
+
+  for (let i = 0; i < candidates.length; i++) {
+    const c = candidates[i];
+    if (c.x <= 0 || c.y <= 0 || c.x >= overworld.width - 1 || c.y >= overworld.height - 1) continue;
+    const key = c.x + ',' + c.y;
+    if (occ[key]) continue;
+    if (!isOverworldTilePassable(overworld, c.x, c.y)) continue;
+    if (hasOrigin) {
+      if (c.x === reachOriginX && c.y === reachOriginY) continue;
+      const path = findOverworldPath(overworld, reachOriginX, reachOriginY, c.x, c.y);
+      if (!path || path.length === 0) continue;
+    }
+    return { x: c.x, y: c.y };
+  }
+  return null;
+}
+
+export function createDefaultMilitaryTargets(overworld, citiesMap, reachOriginX, reachOriginY) {
+  if (!overworld || !overworld.tiles) return [];
+  const occupied = {};
+  const markOccupied = function(x, y) {
+    if (typeof x === 'number' && typeof y === 'number') {
+      occupied[x + ',' + y] = true;
+    }
+  };
+
+  markOccupied(overworld.spawnX, overworld.spawnY);
+  const pois = Array.isArray(overworld.pois) ? overworld.pois : [];
+  for (let i = 0; i < pois.length; i++) {
+    if (pois[i]) markOccupied(pois[i].x, pois[i].y);
+  }
+  const hostiles = Array.isArray(overworld.hostiles) ? overworld.hostiles : [];
+  for (let i = 0; i < hostiles.length; i++) {
+    if (hostiles[i] && hostiles[i].alive !== false) markOccupied(hostiles[i].x, hostiles[i].y);
+  }
+  const units = Array.isArray(overworld.units) ? overworld.units : [];
+  for (let i = 0; i < units.length; i++) {
+    if (units[i] && units[i].alive !== false) markOccupied(units[i].x, units[i].y);
+  }
+  if (citiesMap && typeof citiesMap === 'object') {
+    const cKeys = Object.keys(citiesMap);
+    for (let i = 0; i < cKeys.length; i++) {
+      const c = citiesMap[cKeys[i]];
+      if (c) markOccupied(c.x, c.y);
+    }
+  }
+
+  const originX = typeof reachOriginX === 'number' ? reachOriginX : overworld.spawnX;
+  const originY = typeof reachOriginY === 'number' ? reachOriginY : overworld.spawnY;
+  const specs = Array.isArray(DEFAULT_MILITARY_TARGET_SPECS) ? DEFAULT_MILITARY_TARGET_SPECS : [];
+  const targets = [];
+
+  for (let i = 0; i < specs.length; i++) {
+    const spec = specs[i];
+    if (!spec) continue;
+    const arch = (MILITARY_TARGET_ARCHETYPES && MILITARY_TARGET_ARCHETYPES[spec.archetypeId]) || {
+      id: 'raider_blockade',
+      icon: '⚔️',
+      accentColor: '#ef4444',
+      clearedColor: '#34d399',
+      enemyLabel: 'Organized Hostile Force'
+    };
+    const desiredX = overworld.spawnX + (spec.desiredDx || 0);
+    const desiredY = overworld.spawnY + (spec.desiredDy || 0);
+    const pos = findValidMilitaryTargetHex(overworld, desiredX, desiredY, occupied, originX, originY, 8);
+    if (!pos) continue; // Safe omission without altering world geography
+    markOccupied(pos.x, pos.y);
+
+    const blocksCopy = Array.isArray(spec.blocksAccess)
+      ? spec.blocksAccess.map(function(b) {
+          return {
+            accessType: b.accessType,
+            targetRef: b.targetRef,
+            label: b.label || b.targetRef
+          };
+        })
+      : [];
+
+    targets.push({
+      id: spec.id,
+      archetypeId: spec.archetypeId || arch.id,
+      name: spec.name,
+      icon: spec.icon || arch.icon || '⚔️',
+      accentColor: spec.accentColor || arch.accentColor || '#ef4444',
+      clearedColor: spec.clearedColor || arch.clearedColor || '#34d399',
+      x: pos.x,
+      y: pos.y,
+      discovered: false,
+      status: MILITARY_TARGET_STATUS.ACTIVE,
+      enemyPower: spec.enemyPower || 100,
+      enemyLabel: spec.enemyLabel || arch.enemyLabel || 'Organized Hostile Force',
+      desc: spec.desc || arch.desc || '',
+      blocksAccess: blocksCopy,
+      clearedAtSimMs: null,
+      clearedByArmyId: null
+    });
+  }
+
+  return targets;
+}
+
+export function revealOverworldVision(overworld, cx, cy, radius = 4, options = null) {
+  if (!overworld || !overworld.explored) return [];
   const inRange = getHexesInRange(cx, cy, radius, overworld);
   for (let i = 0; i < inRange.length; i++) {
     const c = inRange[i];
@@ -258,6 +386,35 @@ export function revealOverworldVision(overworld, cx, cy, radius = 4) {
       overworld.explored[c.y][c.x] = true;
     }
   }
+
+  // Centralized Military Target Discovery (Task 05B-2):
+  // Any vision-reveal path (Settler, Hero Party, Army, City founding, Guild reveal, Dungeon return)
+  // consistently discovers military targets whose hex is now explored.
+  const newlyDiscovered = [];
+  if (Array.isArray(overworld.militaryTargets)) {
+    const opts = options || {};
+    const eventStream = opts.eventStream || null;
+    const simTimeMs = typeof opts.simTimeMs === 'number' ? opts.simTimeMs : 0;
+    for (let i = 0; i < overworld.militaryTargets.length; i++) {
+      const t = overworld.militaryTargets[i];
+      if (!t || t.discovered) continue;
+      if (overworld.explored[t.y] && overworld.explored[t.y][t.x]) {
+        t.discovered = true;
+        newlyDiscovered.push(t);
+        if (eventStream) {
+          eventStream.publish(STREAM_TOPICS.MILITARY_TARGET_DISCOVERED, {
+            targetId: t.id,
+            targetName: t.name,
+            enemyPower: t.enemyPower,
+            x: t.x,
+            y: t.y,
+            blocksAccess: t.blocksAccess || []
+          }, simTimeMs);
+        }
+      }
+    }
+  }
+  return newlyDiscovered;
 }
 
 export function isOverworldTilePassable(overworld, x, y) {

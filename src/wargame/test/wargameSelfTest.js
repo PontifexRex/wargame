@@ -6,11 +6,12 @@ import {
   STREAM_TOPICS,
   COMMAND_TYPES,
   WARGAME_STORAGE_KEY,
-  ARMY_PATROL_DURATION_MS
+  ARMY_PATROL_DURATION_MS,
+  ARMY_COMBAT_DURATION_MS
 } from '../constants.js';
 import { createWargameSimHost } from '../engine/simHost.js';
 import { createMinHeapPriorityQueue } from '../engine/scheduler.js';
-import { getPrimaryCity, getSelectedOverworldUnit, computeCityPopulation, computeCityStorageSlotCapacity, buildSerializableWargameState } from '../engine/state.js';
+import { getPrimaryCity, getSelectedOverworldUnit, computeCityPopulation, computeCityStorageSlotCapacity, buildSerializableWargameState, collectOverworldDiscoveries } from '../engine/state.js';
 import {
   CANONICAL_PLAYER_ID,
   getCanonicalPlayerId,
@@ -33,6 +34,7 @@ import {
 import {
   findOverworldPath,
   revealOverworldVision,
+  findValidMilitaryTargetHex,
   MIN_OVERWORLD_MARCH_COST_MS
 } from '../engine/pathfinding.js';
 import {
@@ -40,7 +42,7 @@ import {
   OW_TERRAIN_HILLS,
   OW_TERRAIN_MOUNTAINS
 } from '../data/terrain.js';
-import { interpolateHexSegment, computeOverworldCameraFollow } from '../ui/overworldView.js';
+import { interpolateHexSegment, computeOverworldCameraFollow, computeEdgeScrollVelocity } from '../ui/overworldView.js';
 import { CITY_BUILDINGS_CATALOG, computeBuildingDurationMs, isBuildingPrerequisiteMet, computeMaxPartySize, getCityRecruitableClasses, getCityAcademyBenefitEffects } from '../data/buildings.js';
 import {
   TROOP_CATALOG,
@@ -48,6 +50,7 @@ import {
   TROOP_AVAILABILITY_STATES,
   ARMY_OBJECTIVE_TYPES,
   ARMY_OBJECTIVE_STATUS,
+  MILITARY_TARGET_STATUS,
   getTroopMaxUnlockedLevel,
   computeTroopCostForLevel,
   computeTroopUpgradeCost,
@@ -61,7 +64,13 @@ import {
   getArmyTroopGroups,
   getArmyTotalTroopCount,
   getCityTroopCountAtLevel,
-  getCityTroopCapacityUsage
+  getCityTroopCapacityUsage,
+  getMilitaryTargetById,
+  getMilitaryTargetAtHex,
+  getBlockingMilitaryTargetForAccess,
+  computeArmyCombatPower,
+  allocateProportionalCasualties,
+  resolveMilitaryTargetCombat
 } from '../data/troops.js';
 import { resolveTroopUpgradeUnitJob, reintegrateArmyIntoBarracks, resolveArmyObjectiveCompleteJob } from '../engine/queues.js';
 import {
@@ -78,7 +87,7 @@ import {
   getProductionImageSrc
 } from '../../ui/shared/assetRegistry.js';
 import { createRenderAdapter, RENDER_BACKENDS } from '../../ui/shared/renderAdapter.js';
-import { getScreenInfoContent, buildUnifiedBuildingStageHtml } from '../ui/wargameUiSync.js';
+import { getScreenInfoContent, buildUnifiedBuildingStageHtml, syncWargameUI, buildOverworldTileTooltipData } from '../ui/wargameUiSync.js';
 import { evaluateTaskDAG } from '../engine/taskEngine.js';
 import { createIsoGridAdapter, createHexGridAdapter } from '../../ui/shared/gridAdapters.js';
 import { createMapViewport } from '../../ui/shared/mapViewport.js';
@@ -3933,6 +3942,668 @@ export function evaluateWargameSelfTests() {
     detail: t36Pass
       ? 'Lowest-available display number allocation, returning-status reservation, gap reuse (#1/#2), failed-deploy non-consumption, unique never-reused army.id & save/load backfill verified'
       : 'Failed checks: ' + failed36.join(', ')
+  });
+
+  // =========================================================================
+  // Test 37: Military Target Placement, Non-Destructive Terrain & Multi-Path Discovery (Task 05B-2)
+  // =========================================================================
+  const host37 = createWargameSimHost();
+  host37.dispatch({ type: COMMAND_TYPES.START_NEW_CAMPAIGN, payload: { houseName: 'House Scout', worldName: 'Frontier Realm', seedCode: 'STAR-3700' } });
+  const ow37 = host37.state.world.overworld;
+  const targets37 = ow37.militaryTargets || [];
+  const tQuarry37 = getMilitaryTargetById(ow37, 'mtarget_quarry_blockade');
+  const tMycelium37 = getMilitaryTargetById(ow37, 'mtarget_mycelium_war_camp');
+
+  // Verify non-overlap with spawn, POIs, hostiles, units & valid reachable passable hexes
+  const placementValid37 = Boolean(
+    targets37.length === 2 && tQuarry37 && tMycelium37 &&
+    tQuarry37.discovered === false && tMycelium37.discovered === false &&
+    tQuarry37.status === MILITARY_TARGET_STATUS.ACTIVE &&
+    tMycelium37.status === MILITARY_TARGET_STATUS.ACTIVE &&
+    !(tQuarry37.x === ow37.spawnX && tQuarry37.y === ow37.spawnY) &&
+    !ow37.pois.some(function(p) { return (p.x === tQuarry37.x && p.y === tQuarry37.y) || (p.x === tMycelium37.x && p.y === tMycelium37.y); }) &&
+    !ow37.hostiles.some(function(h) { return (h.x === tQuarry37.x && h.y === tQuarry37.y) || (h.x === tMycelium37.x && h.y === tMycelium37.y); }) &&
+    Boolean(findOverworldPath(ow37, ow37.spawnX, ow37.spawnY, tQuarry37.x, tQuarry37.y)) &&
+    Boolean(findOverworldPath(ow37, ow37.spawnX, ow37.spawnY, tMycelium37.x, tMycelium37.y))
+  );
+
+  // Verify non-destructive placement on impassable map (returns null without modifying tiles)
+  const blockedMap37 = {
+    width: 7, height: 7, spawnX: 3, spawnY: 3,
+    tiles: Array.from({ length: 7 }, function() { return Array.from({ length: 7 }, function() { return OW_TERRAIN_MOUNTAINS; }); })
+  };
+  const noSpot37 = findValidMilitaryTargetHex(blockedMap37, 3, 3, {}, 3, 3, 4);
+  const nonDestructive37 = Boolean(noSpot37 === null && blockedMap37.tiles[3][3] === OW_TERRAIN_MOUNTAINS);
+
+  // Path 1: Settler marching discovers target #1 centrally via revealOverworldVision
+  const settler37 = ow37.units[0];
+  host37.dispatch({ type: COMMAND_TYPES.ORDER_UNIT_MARCH, payload: { unitId: settler37.id, targetX: tQuarry37.x, targetY: tQuarry37.y } });
+  host37.stepClock(90000);
+  const discoveredBySettler37 = Boolean(tQuarry37.discovered === true);
+
+  // Path 2: Hero Party marching discovers target #2 centrally via revealOverworldVision
+  const host37b = createWargameSimHost();
+  host37b.dispatch({ type: COMMAND_TYPES.START_NEW_CAMPAIGN, payload: { houseName: 'House Delver', worldName: 'Frontier Realm', seedCode: 'STAR-3700' } });
+  host37b.dispatch({ type: COMMAND_TYPES.FOUND_CITY, payload: { cityName: 'Visionkeep' } });
+  const ow37b = host37b.state.world.overworld;
+  const tMyc37b = getMilitaryTargetById(ow37b, 'mtarget_mycelium_war_camp');
+  const discBeforeHero37 = Boolean(tMyc37b && tMyc37b.discovered === false);
+  const discEvents37 = [];
+  host37b.eventStream.subscribe(STREAM_TOPICS.MILITARY_TARGET_DISCOVERED, function(ev) {
+    discEvents37.push(ev);
+  });
+  revealOverworldVision(ow37b, tMyc37b.x, tMyc37b.y, 2, { simTimeMs: 1000, eventStream: host37b.eventStream });
+  const discoveredCentrally37 = Boolean(discBeforeHero37 && tMyc37b.discovered === true && discEvents37.length === 1 && discEvents37[0].payload.targetId === 'mtarget_mycelium_war_camp');
+
+  const t37Checks = {
+    placementValid: placementValid37,
+    nonDestructive: nonDestructive37,
+    discoveredBySettler: discoveredBySettler37,
+    discoveredCentrally: discoveredCentrally37
+  };
+  const failed37 = Object.keys(t37Checks).filter(function(k) { return !t37Checks[k]; });
+  const t37Pass = failed37.length === 0;
+  results.push({
+    name: '37. Military Target Placement, Non-Destructive Terrain & Centralized Multi-Path Discovery (Task 05B-2)',
+    pass: t37Pass,
+    detail: t37Pass
+      ? 'Deterministic non-destructive placement, non-overlap, pathability & centralized revealOverworldVision discovery verified'
+      : 'Failed checks: ' + failed37.join(', ')
+  });
+
+  // =========================================================================
+  // Test 38: Military Combat Strength, Deterministic Resolution & Proportional Casualty Accounting (Task 05B-2)
+  // =========================================================================
+  const mkWorld38 = function(groups) {
+    return { troopGroups: groups.map(function(g, idx) { return Object.assign({ id: 'tg_' + idx, locationType: TROOP_LOCATION_TYPES.ARMY, locationId: 'army_test' }, g); }) };
+  };
+  const target100 = { id: 't1', enemyPower: 100 };
+
+  // Pure stat-based power (zero 10% combined-arms bonus): 2 Inf Lv1 (50) + 2 Arc Lv1 (48) = 98
+  const wMix98 = mkWorld38([
+    { troopDefId: 'infantry', level: 1, count: 2 },
+    { troopDefId: 'archer', level: 1, count: 2 }
+  ]);
+  const purePowerNoBonus38 = computeArmyCombatPower(wMix98, 'army_test') === 98;
+
+  // Overwhelming victory: 6 Inf Lv1 (150) + 4 Arc Lv1 (96) = 246 vs 100 -> 1 loss (proportional largest-remainder)
+  const wOver = mkWorld38([
+    { troopDefId: 'infantry', level: 1, count: 6 },
+    { troopDefId: 'archer', level: 1, count: 4 }
+  ]);
+  const resOver = resolveMilitaryTargetCombat(wOver, 'army_test', target100);
+  const overWinOk38 = Boolean(
+    resOver.victory === true &&
+    resOver.armyPower === 246 &&
+    resOver.totalLosses === 1 &&
+    resOver.survivingTroops === 9
+  );
+
+  // Marginal victory: 4 Inf Lv1 (100) vs 100 -> 25% loss = 1 loss (not 40-45%)
+  const wMarg = mkWorld38([{ troopDefId: 'infantry', level: 1, count: 4 }]);
+  const resMarg = resolveMilitaryTargetCombat(wMarg, 'army_test', target100);
+  const margWinOk38 = Boolean(
+    resMarg.victory === true &&
+    resMarg.armyPower === 100 &&
+    resMarg.totalLosses === 1 &&
+    resMarg.survivingTroops === 3
+  );
+
+  // Defeat: 2 Inf Lv1 (50) + 1 Arc Lv1 (24) = 74 vs 100 -> Defeat, bounded loss, >= 1 survivor
+  const wDef = mkWorld38([
+    { troopDefId: 'infantry', level: 1, count: 2 },
+    { troopDefId: 'archer', level: 1, count: 1 }
+  ]);
+  const resDef = resolveMilitaryTargetCombat(wDef, 'army_test', target100);
+  const defeatOk38 = Boolean(
+    resDef.victory === false &&
+    resDef.armyPower === 74 &&
+    resDef.totalLosses === 1 &&
+    resDef.survivingTroops === 2
+  );
+
+  // Unbiased proportional largest-remainder check: 2 Inf + 4 Arc losing 2 -> Arc gets 1 (exact 1.33), Inf gets 1 (exact 0.67) — ranged is NOT shielded!
+  const allocUnbiased = allocateProportionalCasualties([
+    { id: 'g_inf', troopDefId: 'infantry', level: 1, count: 2 },
+    { id: 'g_arc', troopDefId: 'archer', level: 1, count: 4 }
+  ], 2);
+  const arcRow38 = allocUnbiased.find(function(r) { return r.troopDefId === 'archer'; });
+  const infRow38 = allocUnbiased.find(function(r) { return r.troopDefId === 'infantry'; });
+  const unbiasedPropOk38 = Boolean(arcRow38 && arcRow38.lost === 1 && infRow38 && infRow38.lost === 1);
+
+  const t38Checks = {
+    purePowerNoBonus: purePowerNoBonus38,
+    overWinOk: overWinOk38,
+    margWinOk: margWinOk38,
+    defeatOk: defeatOk38,
+    unbiasedPropOk: unbiasedPropOk38
+  };
+  const failed38 = Object.keys(t38Checks).filter(function(k) { return !t38Checks[k]; });
+  const t38Pass = failed38.length === 0;
+  results.push({
+    name: '38. Military Combat Strength, Deterministic Outcomes & Proportional Casualty Allocation (Task 05B-2)',
+    pass: t38Pass,
+    detail: t38Pass
+      ? 'Pure stat-based power, overwhelming/marginal victory & defeat formulas, and unbiased proportional largest-remainder casualties verified'
+      : 'Failed checks: ' + failed38.join(', ')
+  });
+
+  // =========================================================================
+  // Test 39: Full Victory Loop, Access Clearance, Hero Dungeon Integration & Task Completion (Task 05B-2)
+  // =========================================================================
+  const host39 = createWargameSimHost();
+  host39.dispatch({ type: COMMAND_TYPES.START_NEW_CAMPAIGN, payload: { houseName: 'House Clear', worldName: 'Clearance Realm', seedCode: 'STAR-3900' } });
+  host39.dispatch({ type: COMMAND_TYPES.FOUND_CITY, payload: { cityName: 'Ironbastion' } });
+  const city39 = getPrimaryCity(host39.state);
+  const ow39 = host39.state.world.overworld;
+  city39.stockpile.wood = 900; city39.stockpile.stone = 900; city39.stockpile.food = 900; city39.stockpile.gold = 900;
+  city39.buildings.quarry = 1;
+  // Build Barracks, Fighter Camp, Guild Hall & recruit 1 Hero + 5 Infantry Lv 1
+  const pB39 = city39.plots.findIndex(function(p) { return p && !p.buildingId; });
+  host39.dispatch({ type: COMMAND_TYPES.QUEUE_BUILDING, payload: { plotIndex: pB39, buildingId: 'barracks' } });
+  host39.stepClock(15000);
+  const pFC39 = city39.plots.findIndex(function(p) { return p && !p.buildingId; });
+  host39.dispatch({ type: COMMAND_TYPES.QUEUE_BUILDING, payload: { plotIndex: pFC39, buildingId: 'fighter_camp' } });
+  host39.stepClock(15000);
+  city39.population.current = 20;
+  city39.population.max = 25;
+  const pGH39 = city39.plots.findIndex(function(p) { return p && !p.buildingId; });
+  host39.dispatch({ type: COMMAND_TYPES.QUEUE_BUILDING, payload: { plotIndex: pGH39, buildingId: 'guild_hall' } });
+  host39.stepClock(40000);
+  host39.dispatch({ type: COMMAND_TYPES.RECRUIT_HERO, payload: { classId: 'adventurer', heroName: 'Alden' } });
+  host39.dispatch({ type: COMMAND_TYPES.TRAIN_TROOPS, payload: { troopDefId: 'infantry', level: 1, quantity: 5 } });
+  host39.stepClock(120000);
+
+  const heroParty39 = ow39.units.find(function(u) { return u && u.alive && u.unitType === 'hero_party'; });
+  const quarryPoi39 = ow39.pois.find(function(p) { return p && p.id === 'poi_dungeon_quarry'; });
+  const starfallPoi39 = ow39.pois.find(function(p) { return p && p.id === 'poi_dungeon_starfall'; });
+  const target39 = getMilitaryTargetById(ow39, 'mtarget_quarry_blockade');
+  const distantTarget39 = getMilitaryTargetById(ow39, 'mtarget_mycelium_war_camp');
+
+  // Undiscovered distant target cannot be deployed against
+  const blockedUndiscovered39 = Boolean(distantTarget39 && !distantTarget39.discovered && !host39.dispatch({
+    type: COMMAND_TYPES.DEPLOY_ARMY,
+    payload: { homeCityId: city39.id, targetId: distantTarget39.id, stayDeployed: false, troops: [{ troopDefId: 'infantry', level: 1, quantity: 5 }] }
+  }).ok);
+
+  // Reveal quarry POI & target; verify Starfall is unblocked while Quarry is BLOCKED for Hero Party!
+  revealOverworldVision(ow39, quarryPoi39.x, quarryPoi39.y, 2, { simTimeMs: host39.state.world.clock.simTimeMs, eventStream: host39.eventStream });
+  quarryPoi39.discovered = true;
+  revealOverworldVision(ow39, target39.x, target39.y, 2, { simTimeMs: host39.state.world.clock.simTimeMs, eventStream: host39.eventStream });
+  const starfallUnblocked39 = getBlockingMilitaryTargetForAccess(ow39, 'overworld_poi', starfallPoi39.id) === null;
+  const heroBlockedBefore39 = Boolean(
+    getBlockingMilitaryTargetForAccess(ow39, 'overworld_poi', quarryPoi39.id) === target39 &&
+    !host39.dispatch({ type: COMMAND_TYPES.MARCH_TO_DUNGEON, payload: { unitId: heroParty39.id, poiId: quarryPoi39.id } }).ok
+  );
+
+  // Deploy 5 Infantry Lv 1 (power 125 >= 100) -> march -> engage -> victory -> clear -> auto-return & reintegrate
+  const depWin39 = host39.dispatch({
+    type: COMMAND_TYPES.DEPLOY_ARMY,
+    payload: { homeCityId: city39.id, targetId: target39.id, stayDeployed: false, troops: [{ troopDefId: 'infantry', level: 1, quantity: 5 }] }
+  });
+  const winArmy39 = depWin39.data && depWin39.data.army;
+  host39.stepClock(180000); // full march + combat + return march + reintegration
+
+  const capAfter39 = getCityTroopCapacityUsage(host39.state.world, city39);
+  const victoryAndReturnOk39 = Boolean(
+    depWin39.ok && winArmy39 &&
+    target39.status === MILITARY_TARGET_STATUS.CLEARED &&
+    target39.clearedByArmyId === winArmy39.id &&
+    winArmy39.lastCombatResult && winArmy39.lastCombatResult.victory === true &&
+    winArmy39.lastCombatResult.totalLosses === 1 &&
+    !winArmy39.alive && winArmy39.reintegrated === true &&
+    getCityTroopCountAtLevel(host39.state.world, city39.id, 'infantry', 1) === 4 &&
+    capAfter39.stationed === 4 && capAfter39.deployed === 0 && capAfter39.totalUsed === 4
+  );
+
+  // Unlock prerequisite task_complete_first_garrison so task_clear_first_military_target evaluates naturally in the DAG
+  if (host39.state.world.tasks && host39.state.world.tasks.task_complete_first_garrison) {
+    host39.state.world.tasks.task_complete_first_garrison.status = 'completed';
+  }
+  evaluateTaskDAG(host39.state, host39.eventStream);
+  // Unlocked access: Hero Party can now march to Quarry POI & dungeon was NOT auto-completed
+  const marchUnlockedRes39 = host39.dispatch({ type: COMMAND_TYPES.MARCH_TO_DUNGEON, payload: { unitId: heroParty39.id, poiId: quarryPoi39.id } });
+  const taskClearState39 = host39.state.world.tasks && host39.state.world.tasks.task_clear_first_military_target;
+  const unlockedAndTaskOk39 = Boolean(
+    getBlockingMilitaryTargetForAccess(ow39, 'overworld_poi', quarryPoi39.id) === null &&
+    marchUnlockedRes39.ok &&
+    (host39.state.world.stats.dungeonsEntered || 0) === 0 &&
+    taskClearState39 && (taskClearState39.status === 'completed' || taskClearState39.status === 'claimed')
+  );
+
+  const t39Checks = {
+    blockedUndiscovered: blockedUndiscovered39,
+    starfallUnblocked: starfallUnblocked39,
+    heroBlockedBefore: heroBlockedBefore39,
+    victoryAndReturnOk: victoryAndReturnOk39,
+    unlockedAndTaskOk: unlockedAndTaskOk39
+  };
+  const failed39 = Object.keys(t39Checks).filter(function(k) { return !t39Checks[k]; });
+  const t39Pass = failed39.length === 0;
+  results.push({
+    name: '39. Full Military Victory Loop, Access Clearance, Hero Dungeon Unlock & Task Completion (Task 05B-2)',
+    pass: t39Pass,
+    detail: t39Pass
+      ? 'Discovery gating, Hero blocked->unlocked transition, combat victory, casualty deduction, Barracks reintegration & campaign task verified'
+      : 'Failed checks: ' + failed39.join(', ')
+  });
+
+  // =========================================================================
+  // Test 40: Defeat Lifecycle, Repeat-Engagement Guard & Competing-Armies Cleanup (Task 05B-2)
+  // =========================================================================
+  const host40 = createWargameSimHost();
+  host40.dispatch({ type: COMMAND_TYPES.START_NEW_CAMPAIGN, payload: { houseName: 'House Retry', worldName: 'Retry Realm', seedCode: 'STAR-4000' } });
+  host40.dispatch({ type: COMMAND_TYPES.FOUND_CITY, payload: { cityName: 'Retrykeep' } });
+  const city40 = getPrimaryCity(host40.state);
+  const ow40 = host40.state.world.overworld;
+  city40.stockpile.wood = 900; city40.stockpile.stone = 900; city40.stockpile.food = 900; city40.stockpile.gold = 900;
+  city40.buildings.quarry = 1;
+  const pB40 = city40.plots.findIndex(function(p) { return p && !p.buildingId; });
+  host40.dispatch({ type: COMMAND_TYPES.QUEUE_BUILDING, payload: { plotIndex: pB40, buildingId: 'barracks' } });
+  host40.stepClock(15000);
+  // Upgrade Barracks to Lv 2 for 20 capacity (enough for two competing armies)
+  city40.buildings.meeting_hall = 2;
+  host40.dispatch({ type: COMMAND_TYPES.QUEUE_BUILDING, payload: { plotIndex: pB40, buildingId: 'barracks' } });
+  host40.stepClock(30000);
+  const pFC40 = city40.plots.findIndex(function(p) { return p && !p.buildingId; });
+  host40.dispatch({ type: COMMAND_TYPES.QUEUE_BUILDING, payload: { plotIndex: pFC40, buildingId: 'fighter_camp' } });
+  host40.stepClock(15000);
+  host40.dispatch({ type: COMMAND_TYPES.TRAIN_TROOPS, payload: { troopDefId: 'infantry', level: 1, quantity: 10 } });
+  host40.stepClock(100000);
+
+  const target40 = getMilitaryTargetById(ow40, 'mtarget_quarry_blockade');
+  revealOverworldVision(ow40, target40.x, target40.y, 2, { simTimeMs: host40.state.world.clock.simTimeMs, eventStream: host40.eventStream });
+
+  // 1. Defeat: deploy 3 Infantry Lv 1 (power 75 < 100, even with stayDeployed: true -> must STILL auto-retreat!)
+  const depLose40 = host40.dispatch({
+    type: COMMAND_TYPES.DEPLOY_ARMY,
+    payload: { homeCityId: city40.id, targetId: target40.id, stayDeployed: true, troops: [{ troopDefId: 'infantry', level: 1, quantity: 3 }] }
+  });
+  const loseArmy40 = depLose40.data && depLose40.data.army;
+  host40.stepClock(180000);
+  const defeatLifecycleOk40 = Boolean(
+    depLose40.ok && loseArmy40 &&
+    target40.status === MILITARY_TARGET_STATUS.ACTIVE &&
+    getBlockingMilitaryTargetForAccess(ow40, 'overworld_poi', 'poi_dungeon_quarry') === target40 &&
+    loseArmy40.lastCombatResult && loseArmy40.lastCombatResult.victory === false &&
+    loseArmy40.lastCombatResult.totalLosses === 1 &&
+    !loseArmy40.alive && loseArmy40.reintegrated === true &&
+    getCityTroopCountAtLevel(host40.state.world, city40.id, 'infantry', 1) === 9 // 10 - 1 casualty
+  );
+
+  // 2. Competing armies: Army A (5 Inf, power 125) and Army B (4 Inf, power 100) both target mtarget_quarry_blockade
+  // Army A starts first; Army B starts 5s later. When Army A clears target, Army B must cleanly cancel its stale job,
+  // never trigger duplicate combat, and return home cleanly!
+  let combatResolvedCount40 = 0;
+  host40.eventStream.subscribe(STREAM_TOPICS.ARMY_COMBAT_RESOLVED, function() {
+    combatResolvedCount40++;
+  });
+  const depA40 = host40.dispatch({
+    type: COMMAND_TYPES.DEPLOY_ARMY,
+    payload: { homeCityId: city40.id, targetId: target40.id, stayDeployed: false, troops: [{ troopDefId: 'infantry', level: 1, quantity: 5 }] }
+  });
+  host40.stepClock(5000);
+  const depB40 = host40.dispatch({
+    type: COMMAND_TYPES.DEPLOY_ARMY,
+    payload: { homeCityId: city40.id, targetId: target40.id, stayDeployed: false, troops: [{ troopDefId: 'infantry', level: 1, quantity: 4 }] }
+  });
+  const armyB40 = depB40.data && depB40.data.army;
+  host40.stepClock(200000);
+
+  const competingCleanupOk40 = Boolean(
+    depA40.ok && depB40.ok && armyB40 &&
+    target40.status === MILITARY_TARGET_STATUS.CLEARED &&
+    combatResolvedCount40 === 1 && // Exactly ONE combat resolved, zero duplicate combat!
+    armyB40.lastCombatResult === null &&
+    !armyB40.alive && armyB40.reintegrated === true && // Army B cleanly returned & reintegrated!
+    getCityTroopCountAtLevel(host40.state.world, city40.id, 'infantry', 1) === 8 // 9 - 1 loss from Army A only
+  );
+
+  // 3. Repeat engagement guard: cleared target rejects both DEPLOY_ARMY and REDIRECT_ARMY
+  const repeatDeployBlocked40 = !host40.dispatch({
+    type: COMMAND_TYPES.DEPLOY_ARMY,
+    payload: { homeCityId: city40.id, targetId: target40.id, troops: [{ troopDefId: 'infantry', level: 1, quantity: 2 }] }
+  }).ok;
+  const nbr40 = getHexNeighbors(city40.x, city40.y, ow40).find(function(n) {
+    const t = ow40.tiles[n.y][n.x];
+    return t !== OW_TERRAIN_MOUNTAINS && t !== 'water' && t !== 4 && t !== 5;
+  });
+  const depPatrol40 = host40.dispatch({
+    type: COMMAND_TYPES.DEPLOY_ARMY,
+    payload: { homeCityId: city40.id, targetX: nbr40.x, targetY: nbr40.y, stayDeployed: true, troops: [{ troopDefId: 'infantry', level: 1, quantity: 2 }] }
+  });
+  const repeatRedirectBlocked40 = !host40.dispatch({
+    type: COMMAND_TYPES.REDIRECT_ARMY,
+    payload: { armyId: depPatrol40.data.armyId, targetId: target40.id }
+  }).ok;
+
+  const t40Checks = {
+    defeatLifecycleOk: defeatLifecycleOk40,
+    competingCleanupOk: competingCleanupOk40,
+    repeatDeployBlocked: repeatDeployBlocked40,
+    repeatRedirectBlocked: repeatRedirectBlocked40
+  };
+  const failed40 = Object.keys(t40Checks).filter(function(k) { return !t40Checks[k]; });
+  const t40Pass = failed40.length === 0;
+  results.push({
+    name: '40. Defeat Retreat Lifecycle, Repeat-Engagement Guard & Competing-Armies Cleanup (Task 05B-2)',
+    pass: t40Pass,
+    detail: t40Pass
+      ? 'Defeat casualties & auto-retreat, competing-army job cancellation & clean return without duplicate combat, and cleared-target rejection verified'
+      : 'Failed checks: ' + failed40.join(', ')
+  });
+
+  // =========================================================================
+  // Test 41: Persistence During March & Combat, Orphan Job Recovery & Zero-Lockout Legacy Migration (Task 05B-2)
+  // =========================================================================
+  const prevSavedRaw41 = (typeof localStorage !== 'undefined') ? localStorage.getItem(WARGAME_STORAGE_KEY) : null;
+  let t41Checks = {};
+  try {
+    const host41 = createWargameSimHost();
+    host41.dispatch({ type: COMMAND_TYPES.START_NEW_CAMPAIGN, payload: { houseName: 'House PersistMil', worldName: 'Save War', seedCode: 'STAR-4100' } });
+    host41.dispatch({ type: COMMAND_TYPES.FOUND_CITY, payload: { cityName: 'Savebastion' } });
+    const city41 = getPrimaryCity(host41.state);
+    const ow41 = host41.state.world.overworld;
+    city41.stockpile.wood = 800; city41.stockpile.stone = 800; city41.stockpile.food = 800; city41.stockpile.gold = 800;
+    city41.buildings.quarry = 1;
+    const pB41 = city41.plots.findIndex(function(p) { return p && !p.buildingId; });
+    host41.dispatch({ type: COMMAND_TYPES.QUEUE_BUILDING, payload: { plotIndex: pB41, buildingId: 'barracks' } });
+    host41.stepClock(15000);
+    const pFC41 = city41.plots.findIndex(function(p) { return p && !p.buildingId; });
+    host41.dispatch({ type: COMMAND_TYPES.QUEUE_BUILDING, payload: { plotIndex: pFC41, buildingId: 'fighter_camp' } });
+    host41.stepClock(15000);
+    host41.dispatch({ type: COMMAND_TYPES.TRAIN_TROOPS, payload: { troopDefId: 'infantry', level: 1, quantity: 5 } });
+    host41.stepClock(60000);
+
+    const target41 = getMilitaryTargetById(ow41, 'mtarget_quarry_blockade');
+    revealOverworldVision(ow41, target41.x, target41.y, 2, { simTimeMs: host41.state.world.clock.simTimeMs, eventStream: host41.eventStream });
+
+    const dep41 = host41.dispatch({
+      type: COMMAND_TYPES.DEPLOY_ARMY,
+      payload: { homeCityId: city41.id, targetId: target41.id, stayDeployed: false, troops: [{ troopDefId: 'infantry', level: 1, quantity: 5 }] }
+    });
+    const armyId41 = dep41.data.armyId;
+
+    // A. Save while marching -> reload -> advance to combat engagement
+    host41.save();
+    const host41b = createWargameSimHost();
+    const loadMarch41 = host41b.load();
+    const army41b = host41b.state.world.overworld.units.find(function(u) { return u && u.id === armyId41; });
+    // Advance step-by-step until army reaches objective_in_progress
+    let guard41 = 0;
+    while (army41b && army41b.status === 'marching' && guard41 < 40) {
+      host41b.stepClock(3000);
+      guard41++;
+    }
+    const saveMarchOk41 = Boolean(
+      loadMarch41 && army41b &&
+      army41b.status === 'objective_in_progress' &&
+      army41b.objective && army41b.objective.type === ARMY_OBJECTIVE_TYPES.ENGAGE_TARGET &&
+      army41b.objective.targetId === target41.id
+    );
+
+    // B. Save mid-combat with stripped scheduledJobs -> reload -> resolves ONCE & replay is idempotent
+    host41b.save();
+    const rawMid41 = JSON.parse(localStorage.getItem(WARGAME_STORAGE_KEY));
+    rawMid41.world.scheduledJobs = [];
+    localStorage.setItem(WARGAME_STORAGE_KEY, JSON.stringify(rawMid41));
+
+    const host41c = createWargameSimHost();
+    const loadMid41 = host41c.load();
+    host41c.stepClock(ARMY_COMBAT_DURATION_MS + 1000);
+    const tAfterMid41 = getMilitaryTargetById(host41c.state.world.overworld, target41.id);
+    const army41c = host41c.state.world.overworld.units.find(function(u) { return u && u.id === armyId41; });
+    const countBeforeReplay41 = getArmyTotalTroopCount(host41c.state.world, armyId41);
+    // Replay stale job -> strictly idempotent
+    resolveArmyObjectiveCompleteJob({ jobId: 'stale_cbt', payload: { armyId: armyId41, targetId: target41.id } }, host41c.state, host41c.scheduler, host41c.eventStream);
+    const saveCombatOk41 = Boolean(
+      loadMid41 && tAfterMid41 && tAfterMid41.status === MILITARY_TARGET_STATUS.CLEARED &&
+      army41c && army41c.status === 'returning' &&
+      getArmyTotalTroopCount(host41c.state.world, armyId41) === countBeforeReplay41
+    );
+
+    // C. Legacy save migration — 3 progression sub-cases (zero lockout + idempotency)
+    // Sub-case 1: Legacy save with undiscovered/unentered quarry & mycelium -> both backfilled as ACTIVE
+    const hostLeg = createWargameSimHost();
+    hostLeg.dispatch({ type: COMMAND_TYPES.START_NEW_CAMPAIGN, payload: { houseName: 'Legacy1', worldName: 'OldWorld', seedCode: 'STAR-4101' } });
+    hostLeg.dispatch({ type: COMMAND_TYPES.FOUND_CITY, payload: { cityName: 'Oldkeep' } });
+    hostLeg.save();
+    const rawLeg1 = JSON.parse(localStorage.getItem(WARGAME_STORAGE_KEY));
+    delete rawLeg1.world.overworld.militaryTargets;
+    localStorage.setItem(WARGAME_STORAGE_KEY, JSON.stringify(rawLeg1));
+    const hostLeg1Load = createWargameSimHost();
+    hostLeg1Load.load();
+    const leg1Q = getMilitaryTargetById(hostLeg1Load.state.world.overworld, 'mtarget_quarry_blockade');
+    const leg1M = getMilitaryTargetById(hostLeg1Load.state.world.overworld, 'mtarget_mycelium_war_camp');
+    const legacyFreshOk41 = Boolean(leg1Q && leg1Q.status === MILITARY_TARGET_STATUS.ACTIVE && leg1M && leg1M.status === MILITARY_TARGET_STATUS.ACTIVE);
+
+    // Sub-case 2: Legacy save where quarry POI was already discovered -> quarry target migrated as CLEARED (no lockout), mycelium stays ACTIVE
+    const rawLeg2 = JSON.parse(JSON.stringify(rawLeg1));
+    const qPoiLeg2 = rawLeg2.world.overworld.pois.find(function(p) { return p && p.id === 'poi_dungeon_quarry'; });
+    if (qPoiLeg2) qPoiLeg2.discovered = true;
+    localStorage.setItem(WARGAME_STORAGE_KEY, JSON.stringify(rawLeg2));
+    const hostLeg2Load = createWargameSimHost();
+    hostLeg2Load.load();
+    const leg2Q = getMilitaryTargetById(hostLeg2Load.state.world.overworld, 'mtarget_quarry_blockade');
+    const leg2M = getMilitaryTargetById(hostLeg2Load.state.world.overworld, 'mtarget_mycelium_war_camp');
+    const legacyDiscoveredNoLockout41 = Boolean(
+      leg2Q && leg2Q.status === MILITARY_TARGET_STATUS.CLEARED &&
+      getBlockingMilitaryTargetForAccess(hostLeg2Load.state.world.overworld, 'overworld_poi', 'poi_dungeon_quarry') === null &&
+      leg2M && leg2M.status === MILITARY_TARGET_STATUS.ACTIVE
+    );
+
+    // Sub-case 3: Legacy save with existing dungeonWorld entry for mycelium -> mycelium target migrated as CLEARED & idempotent on re-save/re-load
+    const rawLeg3 = JSON.parse(JSON.stringify(rawLeg1));
+    rawLeg3.world.dungeonWorld = { dungeons: { dng_mycelium: { depth: 1, floors: {} } } };
+    localStorage.setItem(WARGAME_STORAGE_KEY, JSON.stringify(rawLeg3));
+    const hostLeg3Load = createWargameSimHost();
+    hostLeg3Load.load();
+    hostLeg3Load.save();
+    const hostLeg3Reload = createWargameSimHost();
+    hostLeg3Reload.load();
+    const leg3M = getMilitaryTargetById(hostLeg3Reload.state.world.overworld, 'mtarget_mycelium_war_camp');
+    const legacyEnteredNoLockout41 = Boolean(
+      leg3M && leg3M.status === MILITARY_TARGET_STATUS.CLEARED &&
+      getBlockingMilitaryTargetForAccess(hostLeg3Reload.state.world.overworld, 'overworld_poi', 'poi_dungeon_mycelium') === null
+    );
+
+    t41Checks = {
+      saveMarchOk: saveMarchOk41,
+      saveCombatOk: saveCombatOk41,
+      legacyFreshOk: legacyFreshOk41,
+      legacyDiscoveredNoLockout: legacyDiscoveredNoLockout41,
+      legacyEnteredNoLockout: legacyEnteredNoLockout41
+    };
+  } finally {
+    if (typeof localStorage !== 'undefined') {
+      if (prevSavedRaw41 === null) localStorage.removeItem(WARGAME_STORAGE_KEY);
+      else localStorage.setItem(WARGAME_STORAGE_KEY, prevSavedRaw41);
+    }
+  }
+  const failed41 = Object.keys(t41Checks).filter(function(k) { return !t41Checks[k]; });
+  const t41Pass = failed41.length === 0 && Object.keys(t41Checks).length > 0;
+  results.push({
+    name: '41. Military Target Persistence (March/Mid-Combat) & Zero-Lockout Legacy Save Migration (Task 05B-2)',
+    pass: t41Pass,
+    detail: t41Pass
+      ? 'Save/load across march & mid-combat recovery, idempotency, and all 3 zero-lockout legacy migration cases verified'
+      : 'Failed checks: ' + failed41.join(', ')
+  });
+
+  // =========================================================================
+  // Test 42: Military Target UI Interaction Contract (Inspect Without Auto-Redirect, Power Preview & Badges) (Task 05B-2)
+  // =========================================================================
+  const host42 = createWargameSimHost();
+  host42.dispatch({ type: COMMAND_TYPES.START_NEW_CAMPAIGN, payload: { houseName: 'House UI', worldName: 'UI Realm', seedCode: 'STAR-4200' } });
+  host42.dispatch({ type: COMMAND_TYPES.FOUND_CITY, payload: { cityName: 'Uikeep' } });
+  const city42 = getPrimaryCity(host42.state);
+  const ow42 = host42.state.world.overworld;
+  city42.stockpile.wood = 600; city42.stockpile.stone = 600; city42.stockpile.food = 600; city42.stockpile.gold = 600;
+  city42.buildings.quarry = 1;
+  const pB42 = city42.plots.findIndex(function(p) { return p && !p.buildingId; });
+  host42.dispatch({ type: COMMAND_TYPES.QUEUE_BUILDING, payload: { plotIndex: pB42, buildingId: 'barracks' } });
+  host42.stepClock(15000);
+  const pFC42 = city42.plots.findIndex(function(p) { return p && !p.buildingId; });
+  host42.dispatch({ type: COMMAND_TYPES.QUEUE_BUILDING, payload: { plotIndex: pFC42, buildingId: 'fighter_camp' } });
+  host42.stepClock(15000);
+  host42.dispatch({ type: COMMAND_TYPES.TRAIN_TROOPS, payload: { troopDefId: 'infantry', level: 1, quantity: 5 } });
+  host42.stepClock(60000);
+
+  const target42 = getMilitaryTargetById(ow42, 'mtarget_quarry_blockade');
+  const quarryPoi42 = ow42.pois.find(function(p) { return p && p.id === 'poi_dungeon_quarry'; });
+  revealOverworldVision(ow42, target42.x, target42.y, 2, { simTimeMs: host42.state.world.clock.simTimeMs, eventStream: host42.eventStream });
+  revealOverworldVision(ow42, quarryPoi42.x, quarryPoi42.y, 2, { simTimeMs: host42.state.world.clock.simTimeMs, eventStream: host42.eventStream });
+  quarryPoi42.discovered = true;
+
+  // Deploy a patrolling army elsewhere so we can verify selecting/inspecting target42 does NOT auto-redirect it
+  const nbr42 = getHexNeighbors(city42.x, city42.y, ow42).find(function(n) {
+    const t = ow42.tiles[n.y][n.x];
+    return t !== OW_TERRAIN_MOUNTAINS && t !== 'water' && t !== 4 && t !== 5;
+  });
+  const dep42 = host42.dispatch({
+    type: COMMAND_TYPES.DEPLOY_ARMY,
+    payload: { homeCityId: city42.id, targetX: nbr42.x, targetY: nbr42.y, stayDeployed: true, troops: [{ troopDefId: 'infantry', level: 1, quantity: 2 }] }
+  });
+  const army42 = dep42.data.army;
+
+  // Inspect target42 via transient state & sync UI
+  host42.state._selectedMilitaryTargetId = target42.id;
+  host42.state._deployArmyModalOpen = true;
+  host42.state._deployArmyDraft = { targetId: target42.id, targetX: target42.x, targetY: target42.y, stayDeployed: false, qtyByKey: { 'infantry:1': 3 } };
+  if (typeof document !== 'undefined') {
+    syncWargameUI(host42);
+  }
+  const noAutoRedirect42 = Boolean(army42 && army42.objective && army42.objective.type === ARMY_OBJECTIVE_TYPES.PATROL_HEX && !army42.objective.targetId);
+  const unitCardEl42 = (typeof document !== 'undefined') ? document.getElementById('wgSelectedUnitCard') : null;
+  const mtBarEl42 = (typeof document !== 'undefined') ? document.getElementById('wgMilitaryTargetsBar') : null;
+  const dngBarEl42 = (typeof document !== 'undefined') ? document.getElementById('wgDiscoveredDungeonsBar') : null;
+  const deployBodyEl42 = (typeof document !== 'undefined') ? document.getElementById('wgDeployArmyBody') : null;
+
+  const uiHtmlChecks42 = (typeof document === 'undefined' || !unitCardEl42) ? true : Boolean(
+    unitCardEl42.innerHTML.indexOf('Ironjaw Blockade Camp') !== -1 &&
+    unitCardEl42.innerHTML.indexOf('Sunken Copper Quarry') !== -1 &&
+    unitCardEl42.innerHTML.indexOf('deploy-to-target') !== -1 &&
+    unitCardEl42.innerHTML.indexOf('assign-army-target') !== -1 &&
+    (!mtBarEl42 || mtBarEl42.innerHTML.indexOf('Ironjaw Blockade Camp') !== -1) &&
+    (!dngBarEl42 || dngBarEl42.innerHTML.indexOf('Ironjaw Blockade Camp') !== -1) &&
+    (!deployBodyEl42 || (deployBodyEl42.innerHTML.indexOf('Threat Power: 100') !== -1 && deployBodyEl42.innerHTML.indexOf('Ironjaw Blockade Camp') !== -1))
+  );
+
+  // Clean up transient UI state & verify buildSerializableWargameState strips _selectedMilitaryTargetId
+  const serial42 = buildSerializableWargameState(host42.state);
+  const transientClean42 = Boolean(serial42 && serial42._selectedMilitaryTargetId === undefined);
+
+  const t42Checks = {
+    noAutoRedirect: noAutoRedirect42,
+    uiHtmlChecks: uiHtmlChecks42,
+    transientClean: transientClean42
+  };
+  const failed42 = Object.keys(t42Checks).filter(function(k) { return !t42Checks[k]; });
+  const t42Pass = failed42.length === 0;
+  results.push({
+    name: '42. Military Target UI Interaction Contract, Power Preview & Blocked-Access Badges (Task 05B-2)',
+    pass: t42Pass,
+    detail: t42Pass
+      ? 'Explicit target inspection without auto-redirect, Deploy/Assign controls, Threat Power preview, blocked dungeon badge & transient flag hygiene verified'
+      : 'Failed checks: ' + failed42.join(', ')
+  });
+
+  // =========================================================================
+  // Test 43: Prototype Feedback Batch 01 — PF-01..PF-05 (Nearby Target, Edge Scroll, Discoveries, Tooltips, Formation & Stay-Deployed)
+  // =========================================================================
+  const host43 = createWargameSimHost();
+  host43.dispatch({ type: COMMAND_TYPES.START_NEW_CAMPAIGN, payload: { houseName: 'House Feedback', worldName: 'UX Realm', seedCode: 'STAR-4300' } });
+  const ow43 = host43.state.world.overworld;
+  const nearTarget43 = getMilitaryTargetById(ow43, 'mtarget_quarry_blockade');
+  const distBeforeCity43 = nearTarget43 ? getHexDistance(ow43.spawnX, ow43.spawnY, nearTarget43.x, nearTarget43.y) : 99;
+  const undiscBeforeCity43 = Boolean(nearTarget43 && nearTarget43.discovered === false);
+
+  // PF-01: Founding the starting city immediately reveals the nearby initial combat target (within city vision radius 5)
+  host43.dispatch({ type: COMMAND_TYPES.FOUND_CITY, payload: { cityName: 'Frontkeep' } });
+  const city43 = getPrimaryCity(host43.state);
+  const pf01Ok43 = Boolean(
+    nearTarget43 &&
+    distBeforeCity43 <= 5 &&
+    undiscBeforeCity43 &&
+    nearTarget43.discovered === true &&
+    Boolean(findOverworldPath(ow43, city43.x, city43.y, nearTarget43.x, nearTarget43.y))
+  );
+
+  // PF-02: Edge scrolling velocity ramps smoothly near edges & stops in center / out-of-bounds
+  const vCenter = computeEdgeScrollVelocity(336, 240, 672, 480, 44, 360);
+  const vLeftNear = computeEdgeScrollVelocity(22, 240, 672, 480, 44, 360);
+  const vLeftEdge = computeEdgeScrollVelocity(2, 240, 672, 480, 44, 360);
+  const vBottomRight = computeEdgeScrollVelocity(670, 478, 672, 480, 44, 360);
+  const vOut = computeEdgeScrollVelocity(-10, 240, 672, 480, 44, 360);
+  const pf02Ok43 = Boolean(
+    vCenter.vx === 0 && vCenter.vy === 0 &&
+    vLeftNear.vx < 0 && vLeftEdge.vx < vLeftNear.vx &&
+    vBottomRight.vx > 0 && vBottomRight.vy > 0 &&
+    vOut.vx === 0 && vOut.vy === 0
+  );
+
+  // PF-03: Generalized Discoveries includes Threats, Resources, Locations & respects fog
+  const disc43 = collectOverworldDiscoveries(host43.state.world);
+  const pf03Ok43 = Boolean(
+    disc43.threats.some(function(t) { return t.id === 'mtarget_quarry_blockade'; }) &&
+    !disc43.threats.some(function(t) { return t.id === 'mtarget_mycelium_war_camp'; }) &&
+    disc43.resources.length >= 1 &&
+    disc43.locations.some(function(l) { return l.id === city43.id; })
+  );
+
+  // PF-04: Map tooltips respect fog of war & show contextual info on explored hexes
+  const farTarget43 = getMilitaryTargetById(ow43, 'mtarget_mycelium_war_camp');
+  const tipUnexplored = buildOverworldTileTooltipData(host43.state, farTarget43.x, farTarget43.y);
+  const tipNearTarget = buildOverworldTileTooltipData(host43.state, nearTarget43.x, nearTarget43.y);
+  const tipCity = buildOverworldTileTooltipData(host43.state, city43.x, city43.y);
+  const pf04Ok43 = Boolean(
+    tipUnexplored && tipUnexplored.explored === false && tipUnexplored.lines.join(' ').indexOf('Ashveil') === -1 &&
+    tipNearTarget && tipNearTarget.explored === true && tipNearTarget.title.indexOf('Ironjaw Blockade Camp') !== -1 &&
+    tipCity && tipCity.explored === true && tipCity.title.indexOf('Frontkeep') !== -1
+  );
+
+  // PF-05: Formation defaults to Field Army (not Hero Team) & stayDeployed=true keeps army deployed after victory!
+  city43.stockpile.wood = 800; city43.stockpile.stone = 800; city43.stockpile.food = 800; city43.stockpile.gold = 800;
+  city43.buildings.quarry = 1;
+  const pB43 = city43.plots.findIndex(function(p) { return p && !p.buildingId; });
+  host43.dispatch({ type: COMMAND_TYPES.QUEUE_BUILDING, payload: { plotIndex: pB43, buildingId: 'barracks' } });
+  host43.stepClock(15000);
+  const pFC43 = city43.plots.findIndex(function(p) { return p && !p.buildingId; });
+  host43.dispatch({ type: COMMAND_TYPES.QUEUE_BUILDING, payload: { plotIndex: pFC43, buildingId: 'fighter_camp' } });
+  host43.stepClock(15000);
+  host43.dispatch({ type: COMMAND_TYPES.TRAIN_TROOPS, payload: { troopDefId: 'infantry', level: 1, quantity: 5 } });
+  host43.stepClock(60000);
+
+  const depStay43 = host43.dispatch({
+    type: COMMAND_TYPES.DEPLOY_ARMY,
+    payload: { homeCityId: city43.id, targetId: nearTarget43.id, stayDeployed: true, troops: [{ troopDefId: 'infantry', level: 1, quantity: 5 }] }
+  });
+  const armyStay43 = depStay43.data && depStay43.data.army;
+  host43.stepClock(120000); // march + combat victory; stayDeployed=true must keep army ON MAP (idle, not returned!)
+  const pf05Ok43 = Boolean(
+    depStay43.ok && armyStay43 &&
+    nearTarget43.status === MILITARY_TARGET_STATUS.CLEARED &&
+    armyStay43.alive === true && !armyStay43.reintegrated &&
+    armyStay43.status === 'idle' &&
+    armyStay43.x === nearTarget43.x && armyStay43.y === nearTarget43.y &&
+    getArmyTotalTroopCount(host43.state.world, armyStay43.id) === 4
+  );
+
+  const t43Checks = {
+    pf01NearbyTarget: pf01Ok43,
+    pf02EdgeScroll: pf02Ok43,
+    pf03Discoveries: pf03Ok43,
+    pf04Tooltips: pf04Ok43,
+    pf05StayDeployedAndFormation: pf05Ok43
+  };
+  const failed43 = Object.keys(t43Checks).filter(function(k) { return !t43Checks[k]; });
+  const t43Pass = failed43.length === 0;
+  results.push({
+    name: '43. Prototype Feedback Batch 01: Nearby Target, Edge Scroll, Discoveries, Tooltips & Formation Stay-Deployed (PF-01..PF-05)',
+    pass: t43Pass,
+    detail: t43Pass
+      ? 'PF-01 nearby target discoverability, PF-02 edge scroll velocity, PF-03 categorized discoveries, PF-04 fog-safe tooltips & PF-05 stayDeployed verified'
+      : 'Failed checks: ' + failed43.join(', ')
   });
 
   return results;

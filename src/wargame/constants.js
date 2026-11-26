@@ -34,6 +34,7 @@ export const BASE_RECRUIT_QUEUE_LIMIT = 3; // Maximum heroes in recruitment queu
 export const BASE_TROOP_QUEUE_LIMIT = 3; // Maximum troop training batches in city queue (1 active + 2 pending)
 export const MAX_TROOP_BATCH_SIZE = 10; // Maximum soldiers queued in a single training batch
 export const ARMY_PATROL_DURATION_MS = 3000; // Tunable frontier patrol sweep duration after arriving at target hex
+export const ARMY_COMBAT_DURATION_MS = 3000; // Tunable military target engagement duration after arriving at target hex
 export const DEMOLISH_SALVAGE_RATIO = 0.35; // 35% salvage returned upon demolishing a building
 export const CANCEL_CLEANUP_TIME_RATIO = 0.50; // Cancelling active construction requires 50% of elapsed time for site cleanup
 
@@ -99,6 +100,10 @@ export const STREAM_TOPICS = {
   ARMY_OBJECTIVE_FAILED:    'military.armyObjectiveFailed',
   ARMY_RETURNING:           'military.armyReturning',
   ARMY_REINTEGRATED:        'military.armyReintegrated',
+  MILITARY_TARGET_DISCOVERED: 'military.targetDiscovered',
+  ARMY_COMBAT_STARTED:        'military.armyCombatStarted',
+  ARMY_COMBAT_RESOLVED:       'military.armyCombatResolved',
+  MILITARY_TARGET_CLEARED:    'military.targetCleared',
   HERO_DISMISSED:       'guild.heroDismissed',
   LEADER_CHANGED:       'guild.leaderChanged',
   STORAGE_UPDATED:      'city.storageUpdated',

@@ -16,6 +16,7 @@ export const TROOP_LOCATION_TYPES = {
 
 export const ARMY_OBJECTIVE_TYPES = {
   PATROL_HEX: 'patrol_hex',
+  ENGAGE_TARGET: 'engage_target',
   RETURN_HOME: 'return_home'
 };
 
@@ -602,4 +603,249 @@ export function allocateLowestArmyDisplayNumber(units, excludeArmyId) {
     candidate++;
   }
   return candidate;
+}
+
+// =============================================================================
+// Military Targets, Typed Access-Gating & Deterministic Combat (Task 05B-2)
+// =============================================================================
+export const MILITARY_TARGET_STATUS = {
+  ACTIVE: 'active',
+  CLEARED: 'cleared'
+};
+
+export const MILITARY_TARGET_ARCHETYPES = {
+  raider_blockade: {
+    id: 'raider_blockade',
+    name: 'Hostile Military Blockade',
+    icon: '⚔️',
+    accentColor: '#ef4444',
+    clearedColor: '#34d399',
+    enemyLabel: 'Organized Raider Warband',
+    desc: 'A fortified hostile military position denying safe Hero access to surrounding frontier locations.'
+  }
+};
+
+// Deterministic initial military targets (never blocks poi_dungeon_starfall so early onboarding stays intact)
+// PF-01: Ironjaw Blockade Camp sits at hex distance 5 from spawn so it is immediately discovered & visible
+// as soon as the player founds their starting Bastion City (city vision radius 5).
+export const DEFAULT_MILITARY_TARGET_SPECS = [
+  {
+    id: 'mtarget_quarry_blockade',
+    archetypeId: 'raider_blockade',
+    name: 'Ironjaw Blockade Camp',
+    desiredDx: -4,
+    desiredDy: 2,
+    enemyPower: 100,
+    enemyLabel: 'Ironjaw Raider Warband',
+    desc: 'Nearby fortified raider blockade barring Hero access to the Sunken Copper Quarry.',
+    blocksAccess: [
+      {
+        accessType: 'overworld_poi',
+        targetRef: 'poi_dungeon_quarry',
+        label: 'Sunken Copper Quarry'
+      }
+    ]
+  },
+  {
+    id: 'mtarget_mycelium_war_camp',
+    archetypeId: 'raider_blockade',
+    name: 'Ashveil War-Camp',
+    desiredDx: 10,
+    desiredDy: 6,
+    enemyPower: 180,
+    enemyLabel: 'Ashveil Vanguard Cohort',
+    desc: 'Entrenched frontier war-camp blocking safe Hero approaches to the Whispering Mycelium Labyrinth.',
+    blocksAccess: [
+      {
+        accessType: 'overworld_poi',
+        targetRef: 'poi_dungeon_mycelium',
+        label: 'Whispering Mycelium Labyrinth'
+      }
+    ]
+  }
+];
+
+export function getMilitaryTargetById(overworld, targetId) {
+  if (!overworld || !Array.isArray(overworld.militaryTargets) || !targetId) return null;
+  for (let i = 0; i < overworld.militaryTargets.length; i++) {
+    const t = overworld.militaryTargets[i];
+    if (t && t.id === targetId) return t;
+  }
+  return null;
+}
+
+export function getMilitaryTargetAtHex(overworld, x, y) {
+  if (!overworld || !Array.isArray(overworld.militaryTargets)) return null;
+  for (let i = 0; i < overworld.militaryTargets.length; i++) {
+    const t = overworld.militaryTargets[i];
+    if (t && t.x === x && t.y === y) return t;
+  }
+  return null;
+}
+
+// Authoritative access-gate query derived strictly from militaryTargets[].status
+export function getBlockingMilitaryTargetForAccess(overworld, accessType, targetRef) {
+  if (!overworld || !Array.isArray(overworld.militaryTargets) || !accessType || !targetRef) return null;
+  for (let i = 0; i < overworld.militaryTargets.length; i++) {
+    const t = overworld.militaryTargets[i];
+    if (!t || t.status === MILITARY_TARGET_STATUS.CLEARED) continue;
+    const blocks = Array.isArray(t.blocksAccess) ? t.blocksAccess : [];
+    for (let b = 0; b < blocks.length; b++) {
+      const desc = blocks[b];
+      if (desc && desc.accessType === accessType && desc.targetRef === targetRef) {
+        return t;
+      }
+    }
+  }
+  return null;
+}
+
+export function computeSingleTroopCombatPower(troopDef, level) {
+  if (!troopDef) return 0;
+  const stats = computeTroopStatsForLevel(troopDef, level || 1);
+  return Math.max(1, Math.round((stats.atk || 0) * 2 + (stats.def || 0) * 1.5 + (stats.hp || 0) * 0.2));
+}
+
+export function computeTroopListCombatPower(troopEntries) {
+  if (!Array.isArray(troopEntries) || troopEntries.length === 0) return 0;
+  let total = 0;
+  for (let i = 0; i < troopEntries.length; i++) {
+    const e = troopEntries[i];
+    if (!e) continue;
+    const cnt = Math.max(0, Math.floor(Number(e.count !== undefined ? e.count : (e.quantity || 0))));
+    if (cnt <= 0) continue;
+    const td = getTroopDefinition(e.troopDefId);
+    if (!td) continue;
+    total += cnt * computeSingleTroopCombatPower(td, e.level || 1);
+  }
+  return total;
+}
+
+export function computeArmyCombatPower(world, armyId) {
+  const groups = getArmyTroopGroups(world, armyId);
+  return computeTroopListCombatPower(groups);
+}
+
+// Deterministic Proportional Largest-Remainder Casualty Allocation (zero role bias)
+// Returns an array of { groupId, troopDefId, level, initialCount, lost, surviving }
+export function allocateProportionalCasualties(armyGroups, totalLosses) {
+  const validGroups = (Array.isArray(armyGroups) ? armyGroups : [])
+    .filter(function(g) { return g && (g.count || 0) > 0; })
+    .slice()
+    .sort(function(a, b) {
+      if (a.troopDefId !== b.troopDefId) return a.troopDefId < b.troopDefId ? -1 : 1;
+      const la = a.level || 1;
+      const lb = b.level || 1;
+      if (la !== lb) return la - lb;
+      const ia = String(a.id || '');
+      const ib = String(b.id || '');
+      return ia < ib ? -1 : (ia > ib ? 1 : 0);
+    });
+
+  let totalTroops = 0;
+  for (let i = 0; i < validGroups.length; i++) {
+    totalTroops += Math.floor(validGroups[i].count || 0);
+  }
+
+  const clampedLosses = Math.max(0, Math.min(Math.max(0, totalTroops - 1), Math.floor(Number(totalLosses || 0))));
+  const rows = validGroups.map(function(g) {
+    const cnt = Math.floor(g.count || 0);
+    const exact = totalTroops > 0 ? (clampedLosses * (cnt / totalTroops)) : 0;
+    const base = Math.min(cnt, Math.floor(exact));
+    return {
+      groupId: g.id,
+      troopDefId: g.troopDefId,
+      level: g.level || 1,
+      initialCount: cnt,
+      lost: base,
+      remainder: exact - base
+    };
+  });
+
+  let assigned = 0;
+  for (let i = 0; i < rows.length; i++) assigned += rows[i].lost;
+  let leftover = clampedLosses - assigned;
+
+  if (leftover > 0 && rows.length > 0) {
+    const order = rows.slice().sort(function(a, b) {
+      if (Math.abs(b.remainder - a.remainder) > 1e-9) return b.remainder - a.remainder;
+      if (b.initialCount !== a.initialCount) return b.initialCount - a.initialCount;
+      if (a.troopDefId !== b.troopDefId) return a.troopDefId < b.troopDefId ? -1 : 1;
+      if (a.level !== b.level) return a.level - b.level;
+      return String(a.groupId || '') < String(b.groupId || '') ? -1 : 1;
+    });
+
+    let guard = 0;
+    while (leftover > 0 && guard < rows.length * 4) {
+      let progressed = false;
+      for (let i = 0; i < order.length && leftover > 0; i++) {
+        const row = order[i];
+        if (row.lost < row.initialCount) {
+          row.lost++;
+          leftover--;
+          progressed = true;
+        }
+      }
+      if (!progressed) break;
+      guard++;
+    }
+  }
+
+  return rows.map(function(r) {
+    return {
+      groupId: r.groupId,
+      troopDefId: r.troopDefId,
+      level: r.level,
+      initialCount: r.initialCount,
+      lost: r.lost,
+      surviving: Math.max(0, r.initialCount - r.lost)
+    };
+  });
+}
+
+// Isolated, tunable deterministic combat resolver for Task 05B-2:
+// - Victory: armyPower >= enemyPower; lossRate = clamp(0.05, 0.25, (enemyPower / armyPower) * 0.25)
+// - Defeat:  armyPower < enemyPower;  lossRate = clamp(0.20, 0.45, 0.45 - (armyPower / enemyPower) * 0.20)
+// - Always leaves >= 1 surviving troop so army lifecycle & return/reintegration remain intact.
+export function resolveMilitaryTargetCombat(world, armyId, target) {
+  const groups = getArmyTroopGroups(world, armyId);
+  let totalTroops = 0;
+  for (let i = 0; i < groups.length; i++) {
+    totalTroops += Math.floor(groups[i].count || 0);
+  }
+  const armyPower = computeTroopListCombatPower(groups);
+  const enemyPower = Math.max(1, Math.floor(Number((target && target.enemyPower) || 100)));
+  const victory = totalTroops > 0 && armyPower >= enemyPower;
+
+  let lossRate = 0;
+  let totalLosses = 0;
+  if (totalTroops > 0) {
+    if (victory) {
+      const rawRate = (enemyPower / Math.max(1, armyPower)) * 0.25;
+      lossRate = Math.max(0.05, Math.min(0.25, rawRate));
+      totalLosses = Math.min(totalTroops - 1, Math.round(totalTroops * lossRate));
+    } else {
+      const rawRate = 0.45 - (armyPower / enemyPower) * 0.20;
+      lossRate = Math.max(0.20, Math.min(0.45, rawRate));
+      const minLoss = totalTroops > 1 ? 1 : 0;
+      totalLosses = Math.min(totalTroops - 1, Math.max(minLoss, Math.round(totalTroops * lossRate)));
+    }
+  }
+
+  const allocations = allocateProportionalCasualties(groups, totalLosses);
+  let actualLosses = 0;
+  for (let i = 0; i < allocations.length; i++) {
+    actualLosses += allocations[i].lost;
+  }
+
+  return {
+    victory: victory,
+    armyPower: armyPower,
+    enemyPower: enemyPower,
+    lossRate: lossRate,
+    initialTroops: totalTroops,
+    totalLosses: actualLosses,
+    survivingTroops: Math.max(0, totalTroops - actualLosses),
+    allocations: allocations
+  };
 }

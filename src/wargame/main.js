@@ -14,9 +14,11 @@ import {
   setWargameHoverTile,
   getWargameCameraOrigin,
   attachOverworldHexControls,
-  centerOverworldOnOffset
+  centerOverworldOnOffset,
+  stepOverworldEdgeScroll,
+  clearOverworldEdgeScrollPointer
 } from './ui/overworldView.js';
-import { syncWargameUI, updateHeaderFastTick } from './ui/wargameUiSync.js';
+import { syncWargameUI, updateHeaderFastTick, renderOverworldHoverTooltip } from './ui/wargameUiSync.js';
 import {
   tickWorldProgression,
   handleOpenResearchHub,
@@ -56,7 +58,9 @@ import {
   getTroopMaxUnlockedLevel,
   computeMaxRecruitableQuantity,
   computeMaxUpgradeableQuantity,
-  getCityTroopCountAtLevel
+  getCityTroopCountAtLevel,
+  getMilitaryTargetById,
+  getMilitaryTargetAtHex
 } from './data/troops.js';
 import { getSelectedOverworldUnit, getPrimaryCity } from './engine/state.js';
 import { evaluateWargameSelfTests } from './test/wargameSelfTest.js';
@@ -787,15 +791,23 @@ export function handleDisbandTroopsByLevel(troopDefId, level, quantity) {
   return res;
 }
 
-export function handleOpenDeployArmyModal(targetX, targetY) {
+export function handleOpenDeployArmyModal(targetX, targetY, targetId, formationType) {
   if (!simHost.state || !simHost.state.world) return;
   const city = getPrimaryCity(simHost.state);
   if (!city) return;
   const ow = simHost.state.world.overworld;
-  const defX = (typeof targetX === 'number' && !isNaN(targetX)) ? targetX : Math.min((ow.width || 56) - 1, city.x + 1);
-  const defY = (typeof targetY === 'number' && !isNaN(targetY)) ? targetY : city.y;
+  const target = targetId ? getMilitaryTargetById(ow, targetId) : null;
+  const defX = target ? target.x : ((typeof targetX === 'number' && !isNaN(targetX)) ? targetX : Math.min((ow.width || 56) - 1, city.x + 1));
+  const defY = target ? target.y : ((typeof targetY === 'number' && !isNaN(targetY)) ? targetY : city.y);
+  const heroParties = (ow.units || []).filter(function(u) { return u && u.alive && u.unitType === 'hero_party' && u.status !== 'in_dungeon'; });
+  // PF-05: Default explicitly to 'army' (Barracks Field Army), NEVER blindly defaulting to Hero Team
+  const resolvedType = target ? 'army' : (formationType === 'hero_party' && heroParties.length > 0 ? 'hero_party' : 'army');
+  simHost.state._pickingDeployHex = false;
   simHost.state._deployArmyModalOpen = true;
   simHost.state._deployArmyDraft = {
+    formationType: resolvedType,
+    heroPartyId: heroParties[0] ? heroParties[0].id : null,
+    targetId: target ? target.id : null,
     targetX: defX,
     targetY: defY,
     stayDeployed: false,
@@ -803,6 +815,82 @@ export function handleOpenDeployArmyModal(targetX, targetY) {
   };
   simHost.state._dirty = true;
   syncWargameUI(simHost);
+}
+
+export function handleSetDeployFormationType(formationType) {
+  if (!simHost.state || !simHost.state._deployArmyDraft) return;
+  if (simHost.state._deployArmyDraft.targetId) return; // Military targets require a Field Army
+  simHost.state._deployArmyDraft.formationType = (formationType === 'hero_party') ? 'hero_party' : 'army';
+  simHost.state._dirty = true;
+  syncWargameUI(simHost);
+}
+
+export function handleSelectDeployHeroParty(unitId) {
+  if (!simHost.state || !simHost.state._deployArmyDraft) return;
+  simHost.state._deployArmyDraft.heroPartyId = unitId || null;
+  simHost.state._dirty = true;
+  syncWargameUI(simHost);
+}
+
+export function handleStartPickDeployHex() {
+  if (!simHost.state || !simHost.state._deployArmyDraft) return;
+  simHost.state._pickingDeployHex = true;
+  simHost.state._deployArmyModalOpen = false;
+  simHost.state._dirty = true;
+  syncWargameUI(simHost);
+}
+
+export function handleSetDiscoveryFilter(category) {
+  if (!simHost.state) return;
+  const valid = category === 'threats' || category === 'dungeons' || category === 'resources' || category === 'locations';
+  simHost.state._discoveryFilter = valid ? category : 'all';
+  simHost.state._dirty = true;
+  syncWargameUI(simHost);
+}
+
+export function handleLocateOverworldHex(x, y, targetId) {
+  if (!simHost.state || !simHost.state.world || !simHost.state.world.overworld) return;
+  if (simHost.state.activeView !== WARGAME_VIEWS.OVERWORLD) {
+    simHost.dispatch({ type: COMMAND_TYPES.SWITCH_VIEW, payload: { view: WARGAME_VIEWS.OVERWORLD } });
+  }
+  centerOverworldOnOffset(x, y);
+  if (targetId) {
+    simHost.state._selectedMilitaryTargetId = targetId;
+  }
+  simHost.state._dirty = true;
+  syncWargameUI(simHost);
+  renderWargameOverworldCanvas(simHost);
+}
+
+export function handleInspectMilitaryTarget(targetId) {
+  if (!simHost.state || !simHost.state.world || !simHost.state.world.overworld) return;
+  const ow = simHost.state.world.overworld;
+  const mt = getMilitaryTargetById(ow, targetId);
+  if (!mt) return;
+  const isDisc = Boolean(mt.discovered || (ow.explored[mt.y] && ow.explored[mt.y][mt.x]));
+  if (!isDisc) return;
+  simHost.state._selectedMilitaryTargetId = mt.id;
+  simHost.state._dirty = true;
+  syncWargameUI(simHost);
+}
+
+export function handleCloseMilitaryTargetInspector() {
+  if (!simHost.state) return;
+  simHost.state._selectedMilitaryTargetId = null;
+  simHost.state._dirty = true;
+  syncWargameUI(simHost);
+}
+
+export function handleAssignArmyToTarget(armyId, targetId) {
+  if (!simHost.state || !simHost.state.world) return { ok: false };
+  const res = simHost.dispatch({
+    type: COMMAND_TYPES.REDIRECT_ARMY,
+    payload: { armyId: armyId, targetId: targetId }
+  });
+  simHost.state._dirty = true;
+  simHost.save();
+  syncWargameUI(simHost);
+  return res;
 }
 
 export function handleCloseDeployArmyModal() {
@@ -842,6 +930,27 @@ export function handleConfirmDeployArmy() {
   if (!simHost.state || !simHost.state.world || !simHost.state._deployArmyDraft) return { ok: false };
   const city = getPrimaryCity(simHost.state);
   const draft = simHost.state._deployArmyDraft;
+  const formationType = draft.targetId ? 'army' : (draft.formationType === 'hero_party' ? 'hero_party' : 'army');
+
+  if (formationType === 'hero_party') {
+    const resHero = simHost.dispatch({
+      type: COMMAND_TYPES.ORDER_UNIT_MARCH,
+      payload: {
+        unitId: draft.heroPartyId,
+        targetX: draft.targetX,
+        targetY: draft.targetY
+      }
+    });
+    if (resHero && resHero.ok) {
+      simHost.state._deployArmyModalOpen = false;
+      simHost.state._pickingDeployHex = false;
+    }
+    simHost.state._dirty = true;
+    simHost.save();
+    syncWargameUI(simHost);
+    return resHero;
+  }
+
   const troops = [];
   const keys = Object.keys(draft.qtyByKey || {});
   for (let i = 0; i < keys.length; i++) {
@@ -854,6 +963,7 @@ export function handleConfirmDeployArmy() {
     type: COMMAND_TYPES.DEPLOY_ARMY,
     payload: {
       homeCityId: city ? city.id : null,
+      targetId: draft.targetId || null,
       targetX: draft.targetX,
       targetY: draft.targetY,
       stayDeployed: Boolean(draft.stayDeployed),
@@ -862,6 +972,7 @@ export function handleConfirmDeployArmy() {
   });
   if (res && res.ok) {
     simHost.state._deployArmyModalOpen = false;
+    simHost.state._pickingDeployHex = false;
   }
   simHost.state._dirty = true;
   simHost.save();
@@ -1445,9 +1556,10 @@ function setupWargameListeners() {
   const canvas = document.getElementById('wgOverworldCanvas');
   if (canvas) {
     attachOverworldHexControls(canvas, {
-      onHoverOffset: function(off) {
+      onHoverOffset: function(off, pos) {
         if (!simHost.state.world || !simHost.state.world.overworld || !off) {
           setWargameHoverTile(null, null);
+          renderOverworldHoverTooltip(simHost.state, null, null);
           return;
         }
         const ow = simHost.state.world.overworld;
@@ -1458,8 +1570,10 @@ function setupWargameListeners() {
             previewRoute = findOverworldPath(ow, selUnit.x, selUnit.y, off.x, off.y);
           }
           setWargameHoverTile({ x: off.x, y: off.y }, previewRoute);
+          renderOverworldHoverTooltip(simHost.state, { x: off.x, y: off.y }, pos);
         } else {
           setWargameHoverTile(null, null);
+          renderOverworldHoverTooltip(simHost.state, null, null);
         }
       },
       onTapOffset: function(off) {
@@ -1467,18 +1581,42 @@ function setupWargameListeners() {
         const ow = simHost.state.world.overworld;
         if (off.x < 0 || off.x >= ow.width || off.y < 0 || off.y >= ow.height) return;
 
+        // PF-05: Picking a map tile for Army/Team Formation destination
+        if (simHost.state._pickingDeployHex && simHost.state._deployArmyDraft) {
+          simHost.state._pickingDeployHex = false;
+          simHost.state._deployArmyDraft.targetX = off.x;
+          simHost.state._deployArmyDraft.targetY = off.y;
+          simHost.state._deployArmyDraft.targetId = null;
+          simHost.state._deployArmyModalOpen = true;
+          simHost.state._dirty = true;
+          syncWargameUI(simHost);
+          return;
+        }
+
+        // Task 05B-2 explicit UI contract: tapping a discovered military target ALWAYS selects & inspects it
+        // and NEVER auto-redirects an army or marches a unit without explicit Deploy/Assign confirmation.
+        const tappedTarget = getMilitaryTargetAtHex(ow, off.x, off.y);
+        if (tappedTarget && (tappedTarget.discovered || (ow.explored[tappedTarget.y] && ow.explored[tappedTarget.y][tappedTarget.x]))) {
+          simHost.state._selectedMilitaryTargetId = tappedTarget.id;
+          simHost.state._dirty = true;
+          syncWargameUI(simHost);
+          return;
+        }
+
         // Selecting an existing player unit/army on the tapped hex
         const tappedUnit = (ow.units || []).find(function(u) {
           return u && u.alive && u.x === off.x && u.y === off.y;
         });
         const selUnit = getSelectedOverworldUnit(simHost.state);
         if (tappedUnit && (!selUnit || tappedUnit.id !== selUnit.id)) {
+          simHost.state._selectedMilitaryTargetId = null;
           ow.selectedUnitId = tappedUnit.id;
           simHost.state._dirty = true;
           syncWargameUI(simHost);
           return;
         }
 
+        simHost.state._selectedMilitaryTargetId = null;
         if (selUnit && selUnit.alive) {
           if (selUnit.unitType === 'army') {
             simHost.dispatch({
@@ -1503,6 +1641,8 @@ function setupWargameListeners() {
 
     canvas.addEventListener('mouseleave', function() {
       setWargameHoverTile(null, null);
+      clearOverworldEdgeScrollPointer();
+      renderOverworldHoverTooltip(simHost.state, null, null);
     });
   }
 
@@ -1687,6 +1827,7 @@ function wargameMainLoop(timestamp) {
     }
 
     if (simHost.state.activeView === WARGAME_VIEWS.OVERWORLD) {
+      stepOverworldEdgeScroll(elapsedRealMs / 1000, simHost.state);
       renderWargameOverworldCanvas(simHost);
     }
     updateHeaderFastTick(simHost);
@@ -1746,6 +1887,14 @@ export const WargameApp = {
   handleDisbandTroopsByLevel: handleDisbandTroopsByLevel,
   handleOpenDeployArmyModal: handleOpenDeployArmyModal,
   handleCloseDeployArmyModal: handleCloseDeployArmyModal,
+  handleSetDeployFormationType: handleSetDeployFormationType,
+  handleSelectDeployHeroParty: handleSelectDeployHeroParty,
+  handleStartPickDeployHex: handleStartPickDeployHex,
+  handleSetDiscoveryFilter: handleSetDiscoveryFilter,
+  handleLocateOverworldHex: handleLocateOverworldHex,
+  handleInspectMilitaryTarget: handleInspectMilitaryTarget,
+  handleCloseMilitaryTargetInspector: handleCloseMilitaryTargetInspector,
+  handleAssignArmyToTarget: handleAssignArmyToTarget,
   handleSetDeployTargetCoord: handleSetDeployTargetCoord,
   handleSetDeployTroopQty: handleSetDeployTroopQty,
   handleToggleDeployStayDeployed: handleToggleDeployStayDeployed,

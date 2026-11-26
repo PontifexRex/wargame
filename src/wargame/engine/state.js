@@ -19,7 +19,7 @@ import {
   CITY_STORAGE_BASE_CAPACITY,
   BASE_TROOP_QUEUE_LIMIT
 } from '../constants.js';
-import { generateOverworldMap, isOverworldTilePassable } from './pathfinding.js';
+import { generateOverworldMap, isOverworldTilePassable, createDefaultMilitaryTargets } from './pathfinding.js';
 import { isInOverworldBounds, areHexesAdjacent } from './hexSpatial.js';
 import { createInitialTasksState } from './taskEngine.js';
 import { CITY_PLOT_SLOTS, CITY_BUILDINGS_CATALOG } from '../data/buildings.js';
@@ -27,6 +27,8 @@ import {
   getTroopDefinition,
   normalizeLegacyTroopDefId,
   TROOP_LOCATION_TYPES,
+  MILITARY_TARGET_STATUS,
+  getBlockingMilitaryTargetForAccess,
   isActiveDeployedArmy,
   parseArmyDisplayNumber
 } from '../data/troops.js';
@@ -488,7 +490,8 @@ export function reconcileLoadedWorldIntegrity(parsed) {
           payload: {
             armyId: u.id,
             objectiveId: u.objective.id,
-            objectiveType: u.objective.type
+            objectiveType: u.objective.type,
+            targetId: u.objective.targetId || null
           }
         };
         u.objective.jobId = recObjJobId;
@@ -727,6 +730,61 @@ export function reconcileLoadedWorldIntegrity(parsed) {
     au.shortName = 'Army #' + cand;
   }
 
+  // 7d. Reconcile & Zero-Lockout Legacy Backfill for Overworld Military Targets (Task 05B-2)
+  if (!Array.isArray(ow.militaryTargets)) {
+    const primaryC = (w.activeCityId && w.cities[w.activeCityId]) ? w.cities[w.activeCityId] : (cityIds.length > 0 ? w.cities[cityIds[0]] : null);
+    const originX = primaryC ? primaryC.x : ow.spawnX;
+    const originY = primaryC ? primaryC.y : ow.spawnY;
+    const backfilled = createDefaultMilitaryTargets(ow, w.cities, originX, originY);
+    const poisList = Array.isArray(ow.pois) ? ow.pois : [];
+    const dngDict = (dngWorld && dngWorld.dungeons && typeof dngWorld.dungeons === 'object') ? dngWorld.dungeons : null;
+
+    for (let ti = 0; ti < backfilled.length; ti++) {
+      const mt = backfilled[ti];
+      mt.discovered = Boolean(ow.explored[mt.y] && ow.explored[mt.y][mt.x]);
+      let legacyProgressed = false;
+      const blocks = Array.isArray(mt.blocksAccess) ? mt.blocksAccess : [];
+      for (let bi = 0; bi < blocks.length; bi++) {
+        const desc = blocks[bi];
+        if (!desc || desc.accessType !== 'overworld_poi') continue;
+        const linkedPoi = poisList.find(function(p) { return p && p.id === desc.targetRef; });
+        if (!linkedPoi) continue;
+        const poiExplored = Boolean(linkedPoi.discovered || (ow.explored[linkedPoi.y] && ow.explored[linkedPoi.y][linkedPoi.x]));
+        const unitInLinkedDng = units.some(function(u) {
+          return u && u.alive && u.status === 'in_dungeon' &&
+            (u.activeDungeonPoiId === linkedPoi.id || (linkedPoi.dungeonId && u.activeDungeonId === linkedPoi.dungeonId));
+        });
+        const dngPreviouslyEntered = Boolean(dngDict && linkedPoi.dungeonId && dngDict[linkedPoi.dungeonId]);
+        if (poiExplored || unitInLinkedDng || dngPreviouslyEntered) {
+          legacyProgressed = true;
+          break;
+        }
+      }
+      if (legacyProgressed) {
+        mt.status = MILITARY_TARGET_STATUS.CLEARED;
+        mt.migratedCleared = true;
+      }
+    }
+    ow.militaryTargets = backfilled;
+  } else {
+    for (let ti = 0; ti < ow.militaryTargets.length; ti++) {
+      const mt = ow.militaryTargets[ti];
+      if (!mt) continue;
+      if (mt.status !== MILITARY_TARGET_STATUS.CLEARED && mt.status !== MILITARY_TARGET_STATUS.ACTIVE) {
+        mt.status = MILITARY_TARGET_STATUS.ACTIVE;
+      }
+      if (typeof mt.discovered !== 'boolean') {
+        mt.discovered = Boolean(ow.explored[mt.y] && ow.explored[mt.y][mt.x]);
+      }
+      if (!Array.isArray(mt.blocksAccess)) {
+        mt.blocksAccess = [];
+      }
+      if (typeof mt.enemyPower !== 'number' || !isFinite(mt.enemyPower) || mt.enemyPower < 1) {
+        mt.enemyPower = 100;
+      }
+    }
+  }
+
   w.scheduledJobs = cleanJobs;
   return cleanJobs;
 }
@@ -902,4 +960,123 @@ export function loadWargameState(scheduler = null, options = null) {
   } catch (e) {
     return null;
   }
+}
+
+// Generalized Overworld Discoveries Aggregator (PF-03)
+// Categorizes all discovered Overworld features (Threats, Dungeons, Resources/POIs, Locations)
+// strictly respecting exploration/discovery visibility rules.
+export function collectOverworldDiscoveries(world) {
+  const empty = { threats: [], dungeons: [], resources: [], locations: [], all: [] };
+  if (!world || !world.overworld) return empty;
+  const ow = world.overworld;
+  const explored = ow.explored || [];
+  const isExplored = function(x, y) {
+    return Boolean(explored[y] && explored[y][x]);
+  };
+
+  const threats = [];
+  const dungeons = [];
+  const resources = [];
+  const locations = [];
+
+  // 1. Discovered Military Targets (Threats)
+  const mTargets = Array.isArray(ow.militaryTargets) ? ow.militaryTargets : [];
+  for (let i = 0; i < mTargets.length; i++) {
+    const mt = mTargets[i];
+    if (!mt) continue;
+    if (!mt.discovered && !isExplored(mt.x, mt.y)) continue;
+    const isCleared = mt.status === MILITARY_TARGET_STATUS.CLEARED;
+    threats.push({
+      id: mt.id,
+      category: 'threats',
+      kind: 'military_target',
+      name: mt.name,
+      x: mt.x,
+      y: mt.y,
+      icon: isCleared ? '✓' : '⚔️',
+      status: mt.status,
+      enemyPower: mt.enemyPower || 100,
+      blocksLabels: (mt.blocksAccess || []).map(function(b) { return b.label || b.targetRef; })
+    });
+  }
+
+  // 2. Discovered Wandering Hostiles (Adventure-Scale Threats — only when explored & alive)
+  const hostiles = Array.isArray(ow.hostiles) ? ow.hostiles : [];
+  for (let i = 0; i < hostiles.length; i++) {
+    const h = hostiles[i];
+    if (!h || !h.alive) continue;
+    if (!isExplored(h.x, h.y)) continue;
+    threats.push({
+      id: h.id,
+      category: 'threats',
+      kind: 'adventure_hostile',
+      name: h.name,
+      x: h.x,
+      y: h.y,
+      icon: h.icon || '☠',
+      status: 'active',
+      level: h.level || 1,
+      enemyPower: h.power || 18
+    });
+  }
+
+  // 3. Discovered POIs (Dungeons & Resource Nodes / Caches)
+  const pois = Array.isArray(ow.pois) ? ow.pois : [];
+  for (let i = 0; i < pois.length; i++) {
+    const p = pois[i];
+    if (!p) continue;
+    if (!p.discovered && !isExplored(p.x, p.y)) continue;
+    if (p.type === 'dungeon_entrance') {
+      const blocker = getBlockingMilitaryTargetForAccess(ow, 'overworld_poi', p.id);
+      dungeons.push({
+        id: p.id,
+        category: 'dungeons',
+        kind: 'dungeon_entrance',
+        name: p.name,
+        x: p.x,
+        y: p.y,
+        icon: 'Ω',
+        accentColor: p.accentColor || '#f87171',
+        recommendedLevel: p.recommendedLevel || 1,
+        blockedBy: blocker ? { id: blocker.id, name: blocker.name } : null
+      });
+    } else {
+      resources.push({
+        id: p.id,
+        category: 'resources',
+        kind: p.type || 'resource_poi',
+        name: p.name,
+        x: p.x,
+        y: p.y,
+        icon: p.type === 'timber_camp' ? '🌲' : (p.type === 'stone_outcrop' ? '⛏️' : '📦'),
+        depleted: Boolean(p.depleted)
+      });
+    }
+  }
+
+  // 4. Founded Cities (Locations)
+  const cities = Object.values(world.cities || {});
+  for (let i = 0; i < cities.length; i++) {
+    const c = cities[i];
+    if (!c) continue;
+    locations.push({
+      id: c.id,
+      category: 'locations',
+      kind: 'city',
+      name: c.name,
+      x: c.x,
+      y: c.y,
+      icon: '🏰',
+      level: c.level || 1
+    });
+  }
+
+  const all = threats.concat(dungeons, resources, locations);
+  return {
+    threats: threats,
+    dungeons: dungeons,
+    resources: resources,
+    locations: locations,
+    all: all
+  };
 }
