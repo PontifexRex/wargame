@@ -275,6 +275,7 @@ export function syncWargameUI(simHost) {
   renderProgressionModals(simHost);
   renderDevPortalModal(simHost);
   renderDeployArmyModal(simHost);
+  renderBattleFeedbackOverlays(simHost);
   renderScreenInfoModal(simHost);
   renderQuickMapDocks(simHost);
   syncMobileDrawers(simHost);
@@ -1506,13 +1507,22 @@ export function renderLeftCommandSidebar(simHost) {
       } else if (selUnit.unitType === 'army' && selUnit.status === 'objective_in_progress' && selUnit.objective) {
         const objRemMs = Math.max(0, (selUnit.objective.dueSimTimeMs || 0) - simTimeMs);
         const isCombatObj = selUnit.objective.type === ARMY_OBJECTIVE_TYPES.ENGAGE_TARGET;
+        const activeBattle = isCombatObj ? selUnit.objective.battle : null;
+        const roundLabel = activeBattle
+          ? ('Round ' + Math.min(activeBattle.plannedRounds || 1, (activeBattle.currentRound || 0) + 1) + ' / ' + (activeBattle.plannedRounds || 1))
+          : '';
         marchHtml = `
           <div class="p-2 rounded bg-[#111722] border ${isCombatObj ? 'border-[#ef4444]/60' : 'border-[#c084fc]/50'} space-y-1 text-[11px] font-mono">
             <div class="flex items-center justify-between">
-              <span class="${isCombatObj ? 'text-[#f87171]' : 'text-[#c084fc]'} font-bold">${isCombatObj ? ('⚔️ Engaging: ' + (selUnit.objective.targetName || 'Military Target')) : ('🧭 Executing: ' + selUnit.objective.type)}</span>
+              <span class="${isCombatObj ? 'text-[#f87171]' : 'text-[#c084fc]'} font-bold">${isCombatObj ? ('⚔️ Battle: ' + (selUnit.objective.targetName || 'Military Target')) : ('🧭 Executing: ' + selUnit.objective.type)}</span>
               <span class="text-[#34d399]">${formatSimDuration(objRemMs)}</span>
             </div>
-            <div class="text-[10px] text-[#8b949e]">Location: (${selUnit.x}, ${selUnit.y})</div>
+            ${activeBattle ? `
+              <div class="flex items-center justify-between text-[10px] text-[#fbbf24]">
+                <span>${roundLabel}</span>
+                <span>Enemy Threat: ${activeBattle.finalStrengths ? activeBattle.finalStrengths.enemyPower : activeBattle.initialStrengths.enemyPower}</span>
+              </div>
+            ` : `<div class="text-[10px] text-[#8b949e]">Location: (${selUnit.x}, ${selUnit.y})</div>`}
           </div>
         `;
       } else {
@@ -2497,7 +2507,12 @@ export function formatEventSummary(ev) {
     return '— Discovered Military Threat: ' + p.targetName + ' (Power ' + p.enemyPower + ') at (' + p.x + ',' + p.y + ')!';
   }
   if (ev.topic === STREAM_TOPICS.ARMY_COMBAT_STARTED) {
-    return '— ' + p.armyName + ' engaged ' + p.targetName + ' at (' + p.x + ',' + p.y + ')!';
+    return '— ' + p.armyName + ' engaged ' + p.targetName + ' (' + (p.plannedRounds || 1) + ' rounds) at (' + p.x + ',' + p.y + ')!';
+  }
+  if (ev.topic === STREAM_TOPICS.ARMY_COMBAT_ROUND_RESOLVED) {
+    const fl = p.friendlyLosses > 0 ? ('-' + p.friendlyLosses + ' troops') : '0 troop losses';
+    const el = p.enemyPowerLost > 0 ? ('-' + p.enemyPowerLost + ' enemy threat') : '0 enemy losses';
+    return '— Round ' + p.round + '/' + (p.plannedRounds || p.round) + ' (' + p.targetName + '): ' + fl + ', ' + el;
   }
   if (ev.topic === STREAM_TOPICS.ARMY_COMBAT_RESOLVED) {
     return '— ' + (p.victory ? 'VICTORY: ' : 'DEFEAT: ') + p.armyName + ' vs ' + p.targetName + ' (' + p.armyPower + ' vs ' + p.enemyPower + ', lost ' + p.totalLosses + ', ' + p.survivingTroops + ' survived)';
@@ -2837,4 +2852,83 @@ export function renderOverworldHoverTooltip(state, tile, screenPos) {
     el.style.top = topPx + 'px';
   }
   el.classList.remove('hidden');
+}
+
+// =============================================================================
+// CB-03 & CB-04: Victory/Defeat Outcome Banner (~2s) & Battle Results Popup
+// =============================================================================
+export function renderBattleFeedbackOverlays(simHost) {
+  if (typeof document === 'undefined' || !simHost || !simHost.state) return;
+  const state = simHost.state;
+
+  // 1. CB-03: Prominent Victory / Defeat Outcome Banner
+  const bannerEl = document.getElementById('wgBattleOutcomeBanner');
+  if (bannerEl) {
+    const banner = state._battleOutcomeBanner || null;
+    if (!banner) {
+      bannerEl.classList.add('hidden');
+    } else {
+      const isWin = Boolean(banner.victory);
+      const bannerHtml = `
+        <div class="px-6 py-3 rounded-xl border-2 shadow-2xl text-center backdrop-blur-md ${isWin ? 'bg-[#064e3b]/95 border-[#34d399] text-[#ecfdf5]' : 'bg-[#450a0a]/95 border-[#ef4444] text-[#fef2f2]'}">
+          <div class="text-lg md:text-xl font-display font-extrabold tracking-widest uppercase ${isWin ? 'text-[#fbbf24]' : 'text-[#fca5a5]'}">${isWin ? '⚔️ VICTORY ⚔️' : '💀 DEFEAT 💀'}</div>
+          <div class="text-xs font-mono mt-0.5">${banner.armyName || 'Field Army'} vs ${banner.targetName || 'Hostile Force'}</div>
+        </div>
+      `;
+      setHtmlIfChanged(bannerEl, bannerHtml);
+      bannerEl.classList.remove('hidden');
+    }
+  }
+
+  // 2. CB-04: Compact Battle Results Summary Popup
+  const modal = document.getElementById('wgBattleResultsModal');
+  const body = document.getElementById('wgBattleResultsBody');
+  if (!modal || !body) return;
+  const rpt = state._battleResultsPopup || null;
+  if (!rpt) {
+    modal.classList.add('hidden');
+    return;
+  }
+
+  const isWin = Boolean(rpt.victory);
+  const rewardsHtml = (isWin && Array.isArray(rpt.unlockedLabels) && rpt.unlockedLabels.length > 0)
+    ? `
+      <div class="p-2.5 rounded bg-[#064e3b]/35 border border-[#34d399]/50 text-xs font-mono text-[#6ee7b7]">
+        <div class="text-[10px] uppercase text-[#fbbf24] font-bold mb-0.5">Access Unlocked / Rewards</div>
+        <div>✓ ${rpt.unlockedLabels.join(', ')} — Now open for Hero Parties</div>
+      </div>
+    `
+    : (isWin
+      ? '<div class="p-2 rounded bg-[#111722] border border-[#283347] text-[11px] font-mono text-[#94a3b8]">Target permanently cleared.</div>'
+      : '<div class="p-2 rounded bg-[#450a0a]/30 border border-[#f87171]/40 text-[11px] font-mono text-[#fecaca]">Target remains active. Surviving troops are retreating to Barracks to regroup.</div>');
+
+  const html = `
+    <div class="px-4 py-3 border-b border-[#283347] flex items-center justify-between ${isWin ? 'bg-[#064e3b]/50' : 'bg-[#450a0a]/50'}">
+      <div>
+        <div class="text-base font-display font-bold uppercase tracking-wider ${isWin ? 'text-[#34d399]' : 'text-[#f87171]'}">${isWin ? '⚔️ Battle Victory' : '💀 Battle Defeat'}</div>
+        <div class="text-[11px] font-mono text-[#cbd5e1]">${rpt.targetName || 'Military Target'} (${rpt.x !== undefined ? rpt.x : '?'}, ${rpt.y !== undefined ? rpt.y : '?'}) • ${rpt.roundCount || 1} Round${(rpt.roundCount || 1) === 1 ? '' : 's'}</div>
+      </div>
+      <button data-action="dismiss-battle-results" onclick="window.WargameApp.handleDismissBattleResultsPopup()" class="px-2 py-1 rounded bg-[#1a2232] hover:bg-[#283347] text-xs font-mono text-[#e6edf3] cursor-pointer">✕</button>
+    </div>
+    <div class="p-4 space-y-3 text-xs font-mono">
+      <div class="grid grid-cols-2 gap-2.5">
+        <div class="p-2.5 rounded bg-[#080b11] border border-[#38bdf8]/40 space-y-1">
+          <div class="text-[10px] uppercase text-[#38bdf8] font-bold">🛡️ ${rpt.armyName || 'Friendly Army'}</div>
+          <div class="flex justify-between"><span class="text-[#8b949e]">Starting:</span><span class="text-[#e6edf3]">${rpt.initialTroops || 0} (Pwr ${rpt.armyPower || 0})</span></div>
+          <div class="flex justify-between"><span class="text-[#8b949e]">Surviving:</span><span class="text-[#34d399] font-bold">${rpt.survivingTroops || 0}</span></div>
+          <div class="flex justify-between"><span class="text-[#8b949e]">Casualties:</span><span class="${(rpt.totalLosses || 0) > 0 ? 'text-[#f87171]' : 'text-[#94a3b8]'} font-bold">${rpt.totalLosses || 0}</span></div>
+        </div>
+        <div class="p-2.5 rounded bg-[#080b11] border border-[#ef4444]/40 space-y-1">
+          <div class="text-[10px] uppercase text-[#f87171] font-bold">⚔️ Enemy Force</div>
+          <div class="flex justify-between"><span class="text-[#8b949e]">Starting:</span><span class="text-[#e6edf3]">Pwr ${rpt.enemyInitialPower !== undefined ? rpt.enemyInitialPower : (rpt.enemyPower || 0)}</span></div>
+          <div class="flex justify-between"><span class="text-[#8b949e]">Surviving:</span><span class="text-[#fbbf24] font-bold">Pwr ${rpt.enemySurvivingPower !== undefined ? rpt.enemySurvivingPower : (isWin ? 0 : (rpt.enemyPower || 0))}</span></div>
+          <div class="flex justify-between"><span class="text-[#8b949e]">Losses:</span><span class="text-[#f87171] font-bold">${rpt.enemyLosses !== undefined ? rpt.enemyLosses : (isWin ? (rpt.enemyPower || 0) : 0)}</span></div>
+        </div>
+      </div>
+      ${rewardsHtml}
+      <button data-action="dismiss-battle-results" onclick="window.WargameApp.handleDismissBattleResultsPopup()" class="w-full py-2 rounded-lg font-bold text-xs uppercase tracking-wider cursor-pointer ${isWin ? 'bg-[#34d399] hover:bg-[#10b981] text-[#080b11]' : 'bg-[#fbbf24] hover:bg-[#f59e0b] text-[#080b11]'}">Continue</button>
+    </div>
+  `;
+  setHtmlIfChanged(body, html);
+  modal.classList.remove('hidden');
 }

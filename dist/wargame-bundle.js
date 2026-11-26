@@ -39,7 +39,10 @@ const BASE_RECRUIT_QUEUE_LIMIT = 3; // Maximum heroes in recruitment queue (1 ac
 const BASE_TROOP_QUEUE_LIMIT = 3; // Maximum troop training batches in city queue (1 active + 2 pending)
 const MAX_TROOP_BATCH_SIZE = 10; // Maximum soldiers queued in a single training batch
 const ARMY_PATROL_DURATION_MS = 3000; // Tunable frontier patrol sweep duration after arriving at target hex
-const ARMY_COMBAT_DURATION_MS = 3000; // Tunable military target engagement duration after arriving at target hex
+const ARMY_COMBAT_ROUND_DURATION_MS = 3000; // Tunable per-round combat duration (CB-01: default 3s)
+const ARMY_COMBAT_DURATION_MS = ARMY_COMBAT_ROUND_DURATION_MS; // Backward-compatible alias for single-round duration
+const MAX_MILITARY_COMBAT_ROUNDS = 10; // Hard stalemate safety cap (CB-01)
+const BATTLE_OUTCOME_BANNER_DURATION_MS = 2000; // Victory/Defeat banner duration before results popup (CB-03)
 const DEMOLISH_SALVAGE_RATIO = 0.35; // 35% salvage returned upon demolishing a building
 const CANCEL_CLEANUP_TIME_RATIO = 0.50; // Cancelling active construction requires 50% of elapsed time for site cleanup
 
@@ -107,6 +110,7 @@ const STREAM_TOPICS = {
   ARMY_REINTEGRATED:        'military.armyReintegrated',
   MILITARY_TARGET_DISCOVERED: 'military.targetDiscovered',
   ARMY_COMBAT_STARTED:        'military.armyCombatStarted',
+  ARMY_COMBAT_ROUND_RESOLVED: 'military.armyCombatRoundResolved',
   ARMY_COMBAT_RESOLVED:       'military.armyCombatResolved',
   MILITARY_TARGET_CLEARED:    'military.targetCleared',
   HERO_DISMISSED:       'guild.heroDismissed',
@@ -2581,6 +2585,173 @@ function resolveMilitaryTargetCombat(world, armyId, target) {
   };
 }
 
+// =============================================================================
+// Timed Round-Based Battle State & Step Calculator (CB-01 & CB-05)
+// Preserves exact 05B-2 combat outcome and total casualty formulas while
+// executing discrete, authoritative rounds separated from UI animations.
+// =============================================================================
+function computePlannedCombatRounds(armyPower, enemyPower, maxRounds) {
+  const cap = typeof maxRounds === 'number' && maxRounds >= 1 ? Math.floor(maxRounds) : (MAX_MILITARY_COMBAT_ROUNDS || 10);
+  const ratio = (armyPower || 0) / Math.max(1, enemyPower || 1);
+  let planned = 3;
+  if (ratio >= 2.0) {
+    planned = 1; // Overwhelming force vs very weak enemy finishes in 1 round
+  } else if (ratio >= 1.35 || ratio < 0.60) {
+    planned = 2; // Clear advantage or heavy mismatch finishes in 2 rounds
+  } else {
+    planned = 3; // Close / equal-strength engagement plays across 3 rounds
+  }
+  return Math.max(1, Math.min(cap, planned));
+}
+
+function createMilitaryBattleState(world, army, target, simTimeMs, roundDurationMs) {
+  const baseRes = resolveMilitaryTargetCombat(world, army ? army.id : null, target);
+  const maxRounds = MAX_MILITARY_COMBAT_ROUNDS || 10;
+  const plannedRounds = computePlannedCombatRounds(baseRes.armyPower, baseRes.enemyPower, maxRounds);
+  const rDur = Math.max(250, typeof roundDurationMs === 'number' && isFinite(roundDurationMs) ? roundDurationMs : (ARMY_COMBAT_ROUND_DURATION_MS || 3000));
+
+  const plannedEnemyTotalLoss = baseRes.victory
+    ? baseRes.enemyPower
+    : Math.max(1, Math.min(baseRes.enemyPower - 1, Math.round(baseRes.enemyPower * Math.min(0.65, (baseRes.armyPower / Math.max(1, baseRes.enemyPower)) * 0.60))));
+
+  const unlockedLabels = baseRes.victory && target && Array.isArray(target.blocksAccess)
+    ? target.blocksAccess.map(function(b) { return b.label || b.targetRef; })
+    : [];
+
+  return {
+    battleId: 'battle_' + (army ? army.id : 'army') + '_' + (target ? target.id : 'target') + '_' + (simTimeMs || 0),
+    participants: {
+      friendly: {
+        armyId: army ? army.id : null,
+        armyName: army ? (army.shortName || army.name) : 'Field Army',
+        homeCityId: army ? (army.homeCityId || null) : null
+      },
+      enemy: {
+        targetId: target ? target.id : null,
+        targetName: target ? target.name : 'Military Target',
+        enemyLabel: target ? (target.enemyLabel || 'Hostile Force') : 'Hostile Force'
+      }
+    },
+    location: {
+      x: target ? target.x : (army ? army.x : 0),
+      y: target ? target.y : (army ? army.y : 0)
+    },
+    targetId: target ? target.id : null,
+    targetName: target ? target.name : 'Military Target',
+    startedAtSimMs: simTimeMs || 0,
+    endedAtSimMs: null,
+    roundDurationMs: rDur,
+    currentRound: 0,
+    maxRounds: maxRounds,
+    plannedRounds: plannedRounds,
+    expectedVictory: baseRes.victory,
+    initialStrengths: {
+      friendlyTroops: baseRes.initialTroops,
+      friendlyPower: baseRes.armyPower,
+      enemyPower: baseRes.enemyPower
+    },
+    finalStrengths: {
+      friendlyTroops: baseRes.initialTroops,
+      friendlyPower: baseRes.armyPower,
+      enemyPower: baseRes.enemyPower
+    },
+    friendlyTotalLosses: 0,
+    enemyTotalLosses: 0,
+    plannedFriendlyLossesRemaining: baseRes.totalLosses,
+    plannedEnemyLossesRemaining: plannedEnemyTotalLoss,
+    outcome: null,
+    rounds: [],
+    casualtyEvents: [],
+    rewards: {
+      unlockedLabels: unlockedLabels
+    }
+  };
+}
+
+// Pure per-round combat step calculator (returns round delta & terminal status without mutating troopGroups directly)
+function computeNextBattleRoundStep(world, armyId, battle, simTimeMs) {
+  if (!battle || battle.outcome) {
+    return { skipped: true, terminal: true };
+  }
+  const nextRound = (battle.currentRound || 0) + 1;
+  const remainingRounds = Math.max(1, (battle.plannedRounds || 1) - (battle.currentRound || 0));
+  const isFinalPlanned = nextRound >= (battle.plannedRounds || 1);
+  const isStalemateCap = nextRound >= (battle.maxRounds || MAX_MILITARY_COMBAT_ROUNDS || 10);
+
+  const liveGroups = getArmyTroopGroups(world, armyId);
+  let liveTroops = 0;
+  for (let i = 0; i < liveGroups.length; i++) {
+    liveTroops += Math.floor(liveGroups[i].count || 0);
+  }
+
+  // Distribute remaining planned friendly losses evenly across remaining rounds
+  const remFriendly = Math.max(0, Math.floor(battle.plannedFriendlyLossesRemaining || 0));
+  const rawFriendlyThisRound = isFinalPlanned || isStalemateCap
+    ? remFriendly
+    : Math.floor(remFriendly / remainingRounds);
+  const friendlyLossesTarget = Math.min(Math.max(0, liveTroops - 1), rawFriendlyThisRound);
+  const allocations = allocateProportionalCasualties(liveGroups, friendlyLossesTarget);
+  let friendlyLosses = 0;
+  for (let i = 0; i < allocations.length; i++) {
+    friendlyLosses += allocations[i].lost;
+  }
+
+  // Distribute remaining planned enemy power loss evenly across remaining rounds
+  const remEnemy = Math.max(0, Math.floor(battle.plannedEnemyLossesRemaining || 0));
+  const enemyPowerLost = isFinalPlanned || isStalemateCap
+    ? remEnemy
+    : Math.max(remEnemy > 0 ? 1 : 0, Math.floor(remEnemy / remainingRounds));
+
+  const friendlyTroopsAfter = Math.max(0, liveTroops - friendlyLosses);
+  const enemyPowerAfter = Math.max(0, (battle.finalStrengths ? battle.finalStrengths.enemyPower : 0) - enemyPowerLost);
+
+  // Terminal condition check (including stalemate safety cap)
+  const terminal = Boolean(
+    isFinalPlanned ||
+    isStalemateCap ||
+    enemyPowerAfter <= 0 ||
+    liveTroops <= 0
+  );
+  const outcome = terminal
+    ? (battle.expectedVictory && liveTroops > 0 ? 'victory' : 'defeat')
+    : null;
+
+  const casualtyEvents = [];
+  if (friendlyLosses > 0) {
+    casualtyEvents.push({
+      round: nextRound,
+      simTimeMs: simTimeMs || 0,
+      side: 'friendly',
+      amount: friendlyLosses,
+      unitLabel: 'Troops'
+    });
+  }
+  if (enemyPowerLost > 0) {
+    casualtyEvents.push({
+      round: nextRound,
+      simTimeMs: simTimeMs || 0,
+      side: 'enemy',
+      amount: enemyPowerLost,
+      unitLabel: 'Threat'
+    });
+  }
+
+  return {
+    skipped: false,
+    round: nextRound,
+    simTimeMs: simTimeMs || 0,
+    friendlyLosses: friendlyLosses,
+    enemyPowerLost: enemyPowerLost,
+    allocations: allocations,
+    friendlyTroopsAfter: friendlyTroopsAfter,
+    enemyPowerAfter: enemyPowerAfter,
+    casualtyEvents: casualtyEvents,
+    terminal: terminal,
+    stalemateCapped: Boolean(isStalemateCap && !isFinalPlanned),
+    outcome: outcome
+  };
+}
+
   // --- Module: src/engine/rng.js ---
 // Deterministic Seeded PRNG (Mulberry32) & Seed String Hashing
 
@@ -3338,6 +3509,129 @@ function createDefaultMilitaryTargets(overworld, citiesMap, reachOriginX, reachO
   }
 
   return targets;
+}
+
+// DC-01: Developer-only military combat site spawner reusing the exact same target model,
+// non-destructive placement rules, and discovery/visibility contract as standard targets.
+function spawnMilitaryCombatSite(world, options) {
+  if (!world || !world.overworld || !world.overworld.tiles) {
+    return { ok: false, reason: 'No active Overworld map' };
+  }
+  const ow = world.overworld;
+  const opts = options || {};
+  const archId = opts.archetypeId && MILITARY_TARGET_ARCHETYPES[opts.archetypeId]
+    ? opts.archetypeId
+    : 'raider_blockade';
+  const arch = MILITARY_TARGET_ARCHETYPES[archId];
+  if (!arch) {
+    return { ok: false, reason: 'Unknown military target archetype: ' + String(opts.archetypeId || '') };
+  }
+
+  const citiesMap = world.cities || {};
+  const primaryCity = (world.activeCityId && citiesMap[world.activeCityId])
+    ? citiesMap[world.activeCityId]
+    : (Object.keys(citiesMap).length > 0 ? citiesMap[Object.keys(citiesMap)[0]] : null);
+  const reachOriginX = primaryCity ? primaryCity.x : ow.spawnX;
+  const reachOriginY = primaryCity ? primaryCity.y : ow.spawnY;
+
+  if (!Array.isArray(ow.militaryTargets)) {
+    ow.militaryTargets = [];
+  }
+
+  const occupied = {};
+  const markOcc = function(x, y) {
+    if (typeof x === 'number' && typeof y === 'number') {
+      occupied[x + ',' + y] = true;
+    }
+  };
+  markOcc(ow.spawnX, ow.spawnY);
+  const pois = Array.isArray(ow.pois) ? ow.pois : [];
+  for (let i = 0; i < pois.length; i++) {
+    if (pois[i]) markOcc(pois[i].x, pois[i].y);
+  }
+  const hostiles = Array.isArray(ow.hostiles) ? ow.hostiles : [];
+  for (let i = 0; i < hostiles.length; i++) {
+    if (hostiles[i] && hostiles[i].alive !== false) markOcc(hostiles[i].x, hostiles[i].y);
+  }
+  const units = Array.isArray(ow.units) ? ow.units : [];
+  for (let i = 0; i < units.length; i++) {
+    if (units[i] && units[i].alive !== false) markOcc(units[i].x, units[i].y);
+  }
+  const cKeys = Object.keys(citiesMap);
+  for (let i = 0; i < cKeys.length; i++) {
+    const c = citiesMap[cKeys[i]];
+    if (c) markOcc(c.x, c.y);
+  }
+  for (let i = 0; i < ow.militaryTargets.length; i++) {
+    const mt = ow.militaryTargets[i];
+    if (mt) markOcc(mt.x, mt.y);
+  }
+
+  const hasExplicitCoords = typeof opts.x === 'number' && typeof opts.y === 'number' && isFinite(opts.x) && isFinite(opts.y);
+  const desiredX = hasExplicitCoords ? Math.floor(opts.x) : (reachOriginX - 2);
+  const desiredY = hasExplicitCoords ? Math.floor(opts.y) : (reachOriginY + 1);
+  const strictLocation = Boolean(opts.strictLocation);
+
+  let chosenPos = null;
+  let usedFallbackLocation = false;
+
+  if (hasExplicitCoords) {
+    const inInnerBounds = desiredX > 0 && desiredY > 0 && desiredX < ow.width - 1 && desiredY < ow.height - 1;
+    const exactKey = desiredX + ',' + desiredY;
+    const exactPassable = inInnerBounds && !occupied[exactKey] && isOverworldTilePassable(ow, desiredX, desiredY);
+    const exactReachable = exactPassable && !(desiredX === reachOriginX && desiredY === reachOriginY) &&
+      Boolean(findOverworldPath(ow, reachOriginX, reachOriginY, desiredX, desiredY));
+    if (exactReachable) {
+      chosenPos = { x: desiredX, y: desiredY };
+    } else if (strictLocation) {
+      return { ok: false, reason: 'Requested hex (' + desiredX + ', ' + desiredY + ') is invalid, occupied, impassable, or unreachable' };
+    } else {
+      chosenPos = findValidMilitaryTargetHex(ow, desiredX, desiredY, occupied, reachOriginX, reachOriginY, 8);
+      usedFallbackLocation = Boolean(chosenPos);
+    }
+  } else {
+    chosenPos = findValidMilitaryTargetHex(ow, desiredX, desiredY, occupied, reachOriginX, reachOriginY, 8);
+  }
+
+  if (!chosenPos) {
+    return { ok: false, reason: 'No valid reachable hex available near (' + desiredX + ', ' + desiredY + ')' };
+  }
+
+  const simTimeMs = (world.clock && typeof world.clock.simTimeMs === 'number') ? world.clock.simTimeMs : 0;
+  const existingDevCount = ow.militaryTargets.filter(function(t) { return t && t.devSpawned; }).length;
+  const seq = existingDevCount + 1;
+  const targetId = 'mtarget_dev_' + seq + '_' + simTimeMs + '_' + Math.floor(Math.random() * 10000);
+  const enemyPower = (typeof opts.enemyPower === 'number' && isFinite(opts.enemyPower) && opts.enemyPower >= 1)
+    ? Math.floor(opts.enemyPower)
+    : 100;
+  const isAlreadyExplored = Boolean(ow.explored && ow.explored[chosenPos.y] && ow.explored[chosenPos.y][chosenPos.x]);
+
+  const newTarget = {
+    id: targetId,
+    archetypeId: arch.id,
+    name: opts.name ? String(opts.name) : ('Raider Blockade Camp #' + seq),
+    icon: arch.icon || '⚔️',
+    accentColor: arch.accentColor || '#ef4444',
+    clearedColor: arch.clearedColor || '#34d399',
+    x: chosenPos.x,
+    y: chosenPos.y,
+    discovered: isAlreadyExplored, // Strictly obeys normal exploration rules (never bypasses fog!)
+    status: MILITARY_TARGET_STATUS.ACTIVE,
+    enemyPower: enemyPower,
+    enemyLabel: arch.enemyLabel || 'Organized Raider Warband',
+    desc: arch.desc || 'Fortified hostile military position spawned for combat testing.',
+    blocksAccess: [],
+    clearedAtSimMs: null,
+    clearedByArmyId: null,
+    devSpawned: true
+  };
+
+  ow.militaryTargets.push(newTarget);
+  return {
+    ok: true,
+    target: newTarget,
+    usedFallbackLocation: usedFallbackLocation
+  };
 }
 
 function revealOverworldVision(overworld, cx, cy, radius = 4, options = null) {
@@ -8771,6 +9065,7 @@ function createNewCampaignWorldState(options = {}) {
       heroes: [],
       parties: [],
       troopGroups: [],
+      battleHistory: [],
       tasks: createInitialTasksState(),
       progression: createDefaultProgressionState(0),
       scheduledJobs: [],
@@ -9024,6 +9319,7 @@ function reconcileLoadedWorldIntegrity(parsed) {
   if (!w.cities || typeof w.cities !== 'object') w.cities = {};
   if (!Array.isArray(w.heroes)) w.heroes = [];
   if (!Array.isArray(w.parties)) w.parties = [];
+  if (!Array.isArray(w.battleHistory)) w.battleHistory = [];
 
   // 0. Normalize activeView on load so stale/invalid facility views never trap the player in Adventurers Guild
   const cityIds = Object.keys(w.cities);
@@ -9157,7 +9453,9 @@ function reconcileLoadedWorldIntegrity(parsed) {
             armyId: u.id,
             objectiveId: u.objective.id,
             objectiveType: u.objective.type,
-            targetId: u.objective.targetId || null
+            targetId: u.objective.targetId || null,
+            battleId: u.objective.battle ? u.objective.battle.battleId : null,
+            expectedRound: u.objective.battle ? ((u.objective.battle.currentRound || 0) + 1) : 1
           }
         };
         u.objective.jobId = recObjJobId;
@@ -13049,18 +13347,21 @@ function handleArmyArrival(army, state, scheduler, simTimeMs, eventStream) {
       return;
     }
 
-    const combatDur = Math.max(250, ARMY_COMBAT_DURATION_MS || 3000);
+    const roundDur = Math.max(250, ARMY_COMBAT_ROUND_DURATION_MS || ARMY_COMBAT_DURATION_MS || 3000);
+    const battle = createMilitaryBattleState(state.world, army, target, simTimeMs, roundDur);
     const job = scheduler ? scheduler.scheduleJob({
-      jobId: 'army_cbt_' + army.id + '_' + simTimeMs + '_' + Math.floor(Math.random() * 10000),
+      jobId: 'army_cbt_' + army.id + '_r1_' + simTimeMs + '_' + Math.floor(Math.random() * 10000),
       jobType: 'ARMY_OBJECTIVE_COMPLETE',
       ownerId: army.id,
       startSimTimeMs: simTimeMs,
-      dueSimTimeMs: simTimeMs + combatDur,
+      dueSimTimeMs: simTimeMs + roundDur,
       payload: {
         armyId: army.id,
         objectiveId: army.objective.id,
         objectiveType: army.objective.type,
-        targetId: target.id
+        targetId: target.id,
+        battleId: battle.battleId,
+        expectedRound: 1
       }
     }) : null;
 
@@ -13068,18 +13369,24 @@ function handleArmyArrival(army, state, scheduler, simTimeMs, eventStream) {
     army.objective.status = ARMY_OBJECTIVE_STATUS.IN_PROGRESS;
     army.objective.jobId = job ? job.jobId : null;
     army.objective.startSimTimeMs = simTimeMs;
-    army.objective.dueSimTimeMs = simTimeMs + combatDur;
+    army.objective.dueSimTimeMs = simTimeMs + roundDur;
+    army.objective.battle = battle;
 
     if (eventStream) {
       eventStream.publish(STREAM_TOPICS.ARMY_COMBAT_STARTED, {
+        battleId: battle.battleId,
         armyId: army.id,
         armyName: army.shortName || army.name,
         targetId: target.id,
         targetName: target.name,
         enemyPower: target.enemyPower,
+        friendlyPower: battle.initialStrengths.friendlyPower,
+        friendlyTroops: battle.initialStrengths.friendlyTroops,
+        plannedRounds: battle.plannedRounds,
+        roundDurationMs: roundDur,
         x: target.x,
         y: target.y,
-        durationMs: combatDur
+        durationMs: roundDur
       }, simTimeMs);
     }
     return;
@@ -13163,25 +13470,160 @@ function resolveArmyObjectiveCompleteJob(job, state, scheduler, eventStream) {
       return;
     }
 
-    const combatRes = resolveMilitaryTargetCombat(state.world, army.id, target);
-    applyArmyCombatCasualties(state.world, army.id, combatRes.allocations);
+    // Backfill battle state if resuming a pre-CB01 mid-combat save
+    if (!army.objective.battle) {
+      army.objective.battle = createMilitaryBattleState(
+        state.world,
+        army,
+        target,
+        army.objective.startSimTimeMs || job.dueSimTimeMs,
+        ARMY_COMBAT_ROUND_DURATION_MS
+      );
+    }
+    const battle = army.objective.battle;
 
-    const unlockedLabels = combatRes.victory && Array.isArray(target.blocksAccess)
+    // Strict per-round idempotency guard: never apply the same round twice
+    if (typeof p.expectedRound === 'number' && p.expectedRound !== (battle.currentRound || 0) + 1) {
+      return;
+    }
+
+    const step = computeNextBattleRoundStep(state.world, army.id, battle, job.dueSimTimeMs);
+    if (step.skipped) return;
+
+    // Apply this round's casualties directly to authoritative world.troopGroups[]
+    if (step.friendlyLosses > 0) {
+      applyArmyCombatCasualties(state.world, army.id, step.allocations);
+    }
+
+    const updatedFriendlyPower = computeArmyCombatPower(state.world, army.id);
+    battle.currentRound = step.round;
+    battle.friendlyTotalLosses = (battle.friendlyTotalLosses || 0) + step.friendlyLosses;
+    battle.enemyTotalLosses = (battle.enemyTotalLosses || 0) + step.enemyPowerLost;
+    battle.plannedFriendlyLossesRemaining = Math.max(0, (battle.plannedFriendlyLossesRemaining || 0) - step.friendlyLosses);
+    battle.plannedEnemyLossesRemaining = Math.max(0, (battle.plannedEnemyLossesRemaining || 0) - step.enemyPowerLost);
+    battle.finalStrengths = {
+      friendlyTroops: step.friendlyTroopsAfter,
+      friendlyPower: updatedFriendlyPower,
+      enemyPower: step.enemyPowerAfter
+    };
+
+    const roundEntry = {
+      round: step.round,
+      simTimeMs: job.dueSimTimeMs,
+      friendlyLosses: step.friendlyLosses,
+      enemyPowerLost: step.enemyPowerLost,
+      friendlyTroopsAfter: step.friendlyTroopsAfter,
+      friendlyPowerAfter: updatedFriendlyPower,
+      enemyPowerAfter: step.enemyPowerAfter,
+      casualtyEvents: step.casualtyEvents
+    };
+    if (!Array.isArray(battle.rounds)) battle.rounds = [];
+    battle.rounds.push(roundEntry);
+    if (!Array.isArray(battle.casualtyEvents)) battle.casualtyEvents = [];
+    for (let ci = 0; ci < step.casualtyEvents.length; ci++) {
+      battle.casualtyEvents.push(step.casualtyEvents[ci]);
+    }
+
+    if (eventStream) {
+      eventStream.publish(STREAM_TOPICS.ARMY_COMBAT_ROUND_RESOLVED, {
+        battleId: battle.battleId,
+        armyId: army.id,
+        armyName: army.shortName || army.name,
+        targetId: target.id,
+        targetName: target.name,
+        x: target.x,
+        y: target.y,
+        round: step.round,
+        plannedRounds: battle.plannedRounds,
+        friendlyLosses: step.friendlyLosses,
+        enemyPowerLost: step.enemyPowerLost,
+        friendlyTroopsAfter: step.friendlyTroopsAfter,
+        enemyPowerAfter: step.enemyPowerAfter,
+        terminal: step.terminal
+      }, job.dueSimTimeMs);
+    }
+
+    // If battle has not reached a terminal condition, schedule the next discrete round
+    if (!step.terminal) {
+      const nextRound = battle.currentRound + 1;
+      const nextDur = Math.max(250, battle.roundDurationMs || ARMY_COMBAT_ROUND_DURATION_MS || 3000);
+      const nextJob = scheduler ? scheduler.scheduleJob({
+        jobId: 'army_cbt_' + army.id + '_r' + nextRound + '_' + job.dueSimTimeMs + '_' + Math.floor(Math.random() * 10000),
+        jobType: 'ARMY_OBJECTIVE_COMPLETE',
+        ownerId: army.id,
+        startSimTimeMs: job.dueSimTimeMs,
+        dueSimTimeMs: job.dueSimTimeMs + nextDur,
+        payload: {
+          armyId: army.id,
+          objectiveId: army.objective.id,
+          objectiveType: army.objective.type,
+          targetId: target.id,
+          battleId: battle.battleId,
+          expectedRound: nextRound
+        }
+      }) : null;
+      army.objective.jobId = nextJob ? nextJob.jobId : null;
+      army.objective.startSimTimeMs = job.dueSimTimeMs;
+      army.objective.dueSimTimeMs = job.dueSimTimeMs + nextDur;
+      state._dirty = true;
+      saveWargameState(state, scheduler);
+      return;
+    }
+
+    // Terminal round reached: finalize battle record & preserve for future reporting (CB-05)
+    const isVictory = step.outcome === 'victory';
+    battle.endedAtSimMs = job.dueSimTimeMs;
+    battle.outcome = step.outcome;
+    battle.roundCount = battle.currentRound;
+    const unlockedLabels = isVictory && Array.isArray(target.blocksAccess)
       ? target.blocksAccess.map(function(b) { return b.label || b.targetRef; })
       : [];
+    battle.rewards = { unlockedLabels: unlockedLabels };
+
+    if (!Array.isArray(state.world.battleHistory)) state.world.battleHistory = [];
+    state.world.battleHistory.push({
+      battleId: battle.battleId,
+      participants: battle.participants,
+      location: battle.location,
+      targetId: battle.targetId,
+      targetName: battle.targetName,
+      startedAtSimMs: battle.startedAtSimMs,
+      endedAtSimMs: battle.endedAtSimMs,
+      roundCount: battle.roundCount,
+      rounds: battle.rounds.slice(),
+      casualtyEvents: battle.casualtyEvents.slice(),
+      initialStrengths: battle.initialStrengths,
+      finalStrengths: battle.finalStrengths,
+      friendlyTotalLosses: battle.friendlyTotalLosses,
+      enemyTotalLosses: battle.enemyTotalLosses,
+      outcome: battle.outcome,
+      rewards: battle.rewards
+    });
+    if (state.world.battleHistory.length > 50) {
+      state.world.battleHistory.shift();
+    }
 
     const report = {
+      battleId: battle.battleId,
       simTimeMs: job.dueSimTimeMs,
       armyId: army.id,
       armyName: army.shortName || army.name,
       targetId: target.id,
       targetName: target.name,
-      victory: combatRes.victory,
-      armyPower: combatRes.armyPower,
-      enemyPower: combatRes.enemyPower,
-      initialTroops: combatRes.initialTroops,
-      totalLosses: combatRes.totalLosses,
-      survivingTroops: combatRes.survivingTroops,
+      x: target.x,
+      y: target.y,
+      roundCount: battle.roundCount,
+      victory: isVictory,
+      outcome: battle.outcome,
+      armyPower: battle.initialStrengths.friendlyPower,
+      enemyPower: battle.initialStrengths.enemyPower,
+      initialTroops: battle.initialStrengths.friendlyTroops,
+      totalLosses: battle.friendlyTotalLosses,
+      survivingTroops: battle.finalStrengths.friendlyTroops,
+      survivingPower: battle.finalStrengths.friendlyPower,
+      enemyInitialPower: battle.initialStrengths.enemyPower,
+      enemySurvivingPower: battle.finalStrengths.enemyPower,
+      enemyLosses: battle.enemyTotalLosses,
       unlockedLabels: unlockedLabels
     };
     army.lastCombatResult = report;
@@ -13189,7 +13631,7 @@ function resolveArmyObjectiveCompleteJob(job, state, scheduler, eventStream) {
     army.objective.jobId = null;
     army.status = 'idle';
 
-    if (combatRes.victory) {
+    if (isVictory) {
       target.status = MILITARY_TARGET_STATUS.CLEARED;
       target.clearedAtSimMs = job.dueSimTimeMs;
       target.clearedByArmyId = army.id;
@@ -16815,9 +17257,80 @@ let owAttachedCanvas = null;
 let owUserPanned = false;
 let owPointerScreenPos = null; // PF-02: { sx, sy } inside canvas for edge scrolling
 let owPointerDragging = false;
+let owFloatingCombatTexts = []; // CB-02: Presentation-only floating casualty numbers (never affects simulation!)
 
 const OVERWORLD_EDGE_SCROLL_ZONE_PX = 44;
 const OVERWORLD_EDGE_SCROLL_MAX_SPEED_PX = 360;
+const COMBAT_FLOATER_DURATION_MS = 1600;
+
+// CB-02: Spawn floating casualty numbers strictly from authoritative round results (zero losses -> no floater)
+function spawnOverworldCasualtyFloaters(roundPayload, nowMs) {
+  if (!roundPayload) return [];
+  const t0 = typeof nowMs === 'number' ? nowMs : Date.now();
+  const x = typeof roundPayload.x === 'number' ? roundPayload.x : 0;
+  const y = typeof roundPayload.y === 'number' ? roundPayload.y : 0;
+  const round = roundPayload.round || 1;
+  const created = [];
+
+  // Stagger vertical offset if other floaters are already active at this hex so numbers never overlap excessively
+  const activeAtHex = owFloatingCombatTexts.filter(function(f) {
+    return f.x === x && f.y === y && (t0 - f.createdAtMs) < f.durationMs;
+  }).length;
+  const staggerY = (activeAtHex % 3) * 14;
+
+  if ((roundPayload.friendlyLosses || 0) > 0) {
+    const fObj = {
+      id: 'flt_f_' + round + '_' + t0 + '_' + Math.floor(Math.random() * 1000),
+      side: 'friendly',
+      x: x,
+      y: y,
+      ox: -18,
+      oy: -10 - staggerY,
+      text: '-' + roundPayload.friendlyLosses + ' Troops',
+      color: '#fb923c',
+      bg: 'rgba(69, 10, 10, 0.88)',
+      createdAtMs: t0,
+      durationMs: COMBAT_FLOATER_DURATION_MS
+    };
+    owFloatingCombatTexts.push(fObj);
+    created.push(fObj);
+  }
+
+  if ((roundPayload.enemyPowerLost || 0) > 0) {
+    const eObj = {
+      id: 'flt_e_' + round + '_' + t0 + '_' + Math.floor(Math.random() * 1000),
+      side: 'enemy',
+      x: x,
+      y: y,
+      ox: 18,
+      oy: -14 - staggerY,
+      text: '-' + roundPayload.enemyPowerLost + ' Threat',
+      color: '#fef08a',
+      bg: 'rgba(127, 29, 29, 0.90)',
+      createdAtMs: t0,
+      durationMs: COMBAT_FLOATER_DURATION_MS
+    };
+    owFloatingCombatTexts.push(eObj);
+    created.push(eObj);
+  }
+
+  if (owFloatingCombatTexts.length > 40) {
+    owFloatingCombatTexts = owFloatingCombatTexts.slice(owFloatingCombatTexts.length - 40);
+  }
+  return created;
+}
+
+function getActiveOverworldCasualtyFloaters(nowMs) {
+  const t = typeof nowMs === 'number' ? nowMs : Date.now();
+  owFloatingCombatTexts = owFloatingCombatTexts.filter(function(f) {
+    return (t - f.createdAtMs) < f.durationMs;
+  });
+  return owFloatingCombatTexts.slice();
+}
+
+function clearOverworldCasualtyFloaters() {
+  owFloatingCombatTexts = [];
+}
 
 // Pure, testable edge-scroll velocity calculator (PF-02)
 function computeEdgeScrollVelocity(sx, sy, width, height, edgeZonePx, maxSpeedPxPerSec) {
@@ -17423,6 +17936,32 @@ function renderWargameOverworldCanvas(simHost) {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(u.unitType === 'army' ? '🛡️' : (u.unitType === 'hero_party' ? '⚔️' : '🚩'), s.sx, s.sy);
+  }
+
+  // 8. Render Floating Combat Casualty Numbers (CB-02 — presentation-only, rises upward & fades smoothly)
+  const nowFloatMs = Date.now();
+  const activeFloaters = getActiveOverworldCasualtyFloaters(nowFloatMs);
+  for (let fi = 0; fi < activeFloaters.length; fi++) {
+    const fl = activeFloaters[fi];
+    const progress = Math.max(0, Math.min(1, (nowFloatMs - fl.createdAtMs) / Math.max(1, fl.durationMs)));
+    const alpha = Math.max(0, 1 - progress * progress);
+    const wPos = owHexAdapter.tileToWorld(owHexAdapter.offsetToAxial(fl.x, fl.y));
+    const sPos = vp.worldToScreen(wPos.wx, wPos.wy);
+    const drawX = sPos.sx + fl.ox * z;
+    const drawY = sPos.sy + (fl.oy - progress * 38) * z;
+
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.font = 'bold ' + Math.max(10, Math.round(11 * z)) + 'px monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    const boxW = Math.max(58, fl.text.length * 6.8) * z;
+    const boxH = 15 * z;
+    ctx.fillStyle = fl.bg || 'rgba(15, 23, 42, 0.88)';
+    ctx.fillRect(drawX - boxW * 0.5, drawY - boxH * 0.5, boxW, boxH);
+    ctx.fillStyle = fl.color || '#f87171';
+    ctx.fillText(fl.text, drawX, drawY);
+    ctx.restore();
   }
 }
 
@@ -20170,6 +20709,8 @@ function handleCancelHeroTrainingAction(simHost, heroId, trainingDefinitionId) {
 
 
 
+
+
 function renderDevPortalModal(simHost, forceRender) {
   const modal = document.getElementById('wgDevPortalModal');
   if (!modal) return;
@@ -20260,8 +20801,50 @@ function renderDevPortalModal(simHost, forceRender) {
     `;
   }).join('');
 
+  // 3b. DC-01: Developer Combat Site Spawner
+  const archIds = Object.keys(MILITARY_TARGET_ARCHETYPES || {});
+  const archOptsHtml = archIds.map(function(aid) {
+    const a = MILITARY_TARGET_ARCHETYPES[aid];
+    return '<option value="' + aid + '">' + (a.icon || '⚔️') + ' ' + a.name + '</option>';
+  }).join('');
+  const devSpawnFeedback = state._devCombatSiteFeedback || '';
+  const defSpawnX = city ? Math.max(1, city.x - 2) : (world.overworld ? Math.max(1, world.overworld.spawnX - 2) : 26);
+  const defSpawnY = city ? Math.max(1, city.y + 1) : (world.overworld ? Math.max(1, world.overworld.spawnY + 1) : 21);
+
   bodyEl.innerHTML = `
     <div class="space-y-4">
+      <div class="p-3 rounded-lg bg-[#080b11] border border-[#ef4444]/50 space-y-2.5">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <div class="text-xs font-bold text-[#f87171] uppercase">⚔️ Spawn Military Combat Site (DC-01)</div>
+            <div class="text-[10px] text-[#94a3b8]">Spawn a valid military target for repeated combat testing without resetting progress.</div>
+          </div>
+          <button data-action="dev-spawn-combat-site" onclick="window.WargameApp.handleDevSpawnCombatSite()" class="px-3 py-1.5 rounded bg-[#ef4444] hover:bg-[#dc2626] text-[#080b11] text-[10px] font-mono font-bold uppercase cursor-pointer">⚔️ Spawn Combat Site</button>
+        </div>
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs font-mono">
+          <label class="space-y-1">
+            <span class="text-[10px] text-[#94a3b8] block">Combat Site Type</span>
+            <select id="wgDevCombatSiteType" class="w-full px-2 py-1 rounded bg-[#111722] border border-[#334155] text-[#e6edf3] text-xs">${archOptsHtml}</select>
+          </label>
+          <label class="space-y-1">
+            <span class="text-[10px] text-[#94a3b8] block">Threat Power</span>
+            <select id="wgDevCombatSitePower" class="w-full px-2 py-1 rounded bg-[#111722] border border-[#334155] text-[#e6edf3] text-xs">
+              <option value="60">60 — Weak (1-Round Test)</option>
+              <option value="100" selected>100 — Standard (Default)</option>
+              <option value="180">180 — Strong (Multi-Round)</option>
+            </select>
+          </label>
+          <div class="space-y-1">
+            <span class="text-[10px] text-[#94a3b8] block">Location (blank = Near City)</span>
+            <div class="flex items-center gap-1">
+              <input id="wgDevCombatSiteX" type="number" placeholder="X (${defSpawnX})" class="w-1/2 px-2 py-1 rounded bg-[#111722] border border-[#334155] text-[#e6edf3] text-xs" />
+              <input id="wgDevCombatSiteY" type="number" placeholder="Y (${defSpawnY})" class="w-1/2 px-2 py-1 rounded bg-[#111722] border border-[#334155] text-[#e6edf3] text-xs" />
+            </div>
+          </div>
+        </div>
+        ${devSpawnFeedback ? `<div class="text-[11px] font-mono px-2 py-1 rounded bg-[#111722] border border-[#283347] text-[#fbbf24]">${devSpawnFeedback}</div>` : ''}
+      </div>
+
       <div class="p-3 rounded-lg bg-[#080b11] border border-[#fbbf24]/40 flex flex-wrap items-center justify-between gap-2">
         <div>
           <div class="text-xs font-bold text-[#fbbf24] uppercase">⚡ Live Simulation &amp; Offline Testing Tools</div>
@@ -20430,6 +21013,53 @@ function handleDevCompleteQueuesAction(simHost) {
   simHost.state._devPortalNeedsRender = true;
   renderDevPortalModal(simHost, true);
   return { ok: true };
+}
+
+function handleDevSpawnCombatSiteAction(simHost, explicitOptions) {
+  if (!simHost || !simHost.state || !simHost.state.world) {
+    return { ok: false, reason: 'No active campaign world' };
+  }
+  const opts = Object.assign({}, explicitOptions || {});
+  if (typeof document !== 'undefined') {
+    const portalBody = document.getElementById('wgDevPortalBody');
+    if (portalBody && typeof portalBody.querySelector === 'function') {
+      if (!opts.archetypeId) {
+        const typeEl = portalBody.querySelector('#wgDevCombatSiteType');
+        if (typeEl && typeEl.value) opts.archetypeId = typeEl.value;
+      }
+      if (typeof opts.enemyPower !== 'number') {
+        const pwrEl = portalBody.querySelector('#wgDevCombatSitePower');
+        if (pwrEl && pwrEl.value) opts.enemyPower = parseInt(pwrEl.value, 10);
+      }
+      if (typeof opts.x !== 'number' && typeof opts.y !== 'number') {
+        const xEl = portalBody.querySelector('#wgDevCombatSiteX');
+        const yEl = portalBody.querySelector('#wgDevCombatSiteY');
+        if (xEl && yEl && xEl.value !== '' && yEl.value !== '') {
+          const px = parseInt(xEl.value, 10);
+          const py = parseInt(yEl.value, 10);
+          if (isFinite(px) && isFinite(py)) {
+            opts.x = px;
+            opts.y = py;
+          }
+        }
+      }
+    }
+  }
+
+  const res = spawnMilitaryCombatSite(simHost.state.world, opts);
+  if (res.ok && res.target) {
+    const t = res.target;
+    simHost.state._devCombatSiteFeedback = '✓ Spawned ' + t.name + ' (Power ' + t.enemyPower + ') at (' + t.x + ', ' + t.y + ')' +
+      (t.discovered ? ' [Discovered]' : ' [Unexplored — scout to discover]') +
+      (res.usedFallbackLocation ? ' (used nearest valid hex)' : '');
+    simHost.state._dirty = true;
+    simHost.save();
+  } else {
+    simHost.state._devCombatSiteFeedback = '✕ Spawn failed: ' + ((res && res.reason) || 'Invalid location');
+  }
+  simHost.state._devPortalNeedsRender = true;
+  renderDevPortalModal(simHost, true);
+  return res;
 }
 
   // --- Module: src/data/items.js ---
@@ -21813,6 +22443,7 @@ function syncWargameUI(simHost) {
   renderProgressionModals(simHost);
   renderDevPortalModal(simHost);
   renderDeployArmyModal(simHost);
+  renderBattleFeedbackOverlays(simHost);
   renderScreenInfoModal(simHost);
   renderQuickMapDocks(simHost);
   syncMobileDrawers(simHost);
@@ -23044,13 +23675,22 @@ function renderLeftCommandSidebar(simHost) {
       } else if (selUnit.unitType === 'army' && selUnit.status === 'objective_in_progress' && selUnit.objective) {
         const objRemMs = Math.max(0, (selUnit.objective.dueSimTimeMs || 0) - simTimeMs);
         const isCombatObj = selUnit.objective.type === ARMY_OBJECTIVE_TYPES.ENGAGE_TARGET;
+        const activeBattle = isCombatObj ? selUnit.objective.battle : null;
+        const roundLabel = activeBattle
+          ? ('Round ' + Math.min(activeBattle.plannedRounds || 1, (activeBattle.currentRound || 0) + 1) + ' / ' + (activeBattle.plannedRounds || 1))
+          : '';
         marchHtml = `
           <div class="p-2 rounded bg-[#111722] border ${isCombatObj ? 'border-[#ef4444]/60' : 'border-[#c084fc]/50'} space-y-1 text-[11px] font-mono">
             <div class="flex items-center justify-between">
-              <span class="${isCombatObj ? 'text-[#f87171]' : 'text-[#c084fc]'} font-bold">${isCombatObj ? ('⚔️ Engaging: ' + (selUnit.objective.targetName || 'Military Target')) : ('🧭 Executing: ' + selUnit.objective.type)}</span>
+              <span class="${isCombatObj ? 'text-[#f87171]' : 'text-[#c084fc]'} font-bold">${isCombatObj ? ('⚔️ Battle: ' + (selUnit.objective.targetName || 'Military Target')) : ('🧭 Executing: ' + selUnit.objective.type)}</span>
               <span class="text-[#34d399]">${formatSimDuration(objRemMs)}</span>
             </div>
-            <div class="text-[10px] text-[#8b949e]">Location: (${selUnit.x}, ${selUnit.y})</div>
+            ${activeBattle ? `
+              <div class="flex items-center justify-between text-[10px] text-[#fbbf24]">
+                <span>${roundLabel}</span>
+                <span>Enemy Threat: ${activeBattle.finalStrengths ? activeBattle.finalStrengths.enemyPower : activeBattle.initialStrengths.enemyPower}</span>
+              </div>
+            ` : `<div class="text-[10px] text-[#8b949e]">Location: (${selUnit.x}, ${selUnit.y})</div>`}
           </div>
         `;
       } else {
@@ -24035,7 +24675,12 @@ function formatEventSummary(ev) {
     return '— Discovered Military Threat: ' + p.targetName + ' (Power ' + p.enemyPower + ') at (' + p.x + ',' + p.y + ')!';
   }
   if (ev.topic === STREAM_TOPICS.ARMY_COMBAT_STARTED) {
-    return '— ' + p.armyName + ' engaged ' + p.targetName + ' at (' + p.x + ',' + p.y + ')!';
+    return '— ' + p.armyName + ' engaged ' + p.targetName + ' (' + (p.plannedRounds || 1) + ' rounds) at (' + p.x + ',' + p.y + ')!';
+  }
+  if (ev.topic === STREAM_TOPICS.ARMY_COMBAT_ROUND_RESOLVED) {
+    const fl = p.friendlyLosses > 0 ? ('-' + p.friendlyLosses + ' troops') : '0 troop losses';
+    const el = p.enemyPowerLost > 0 ? ('-' + p.enemyPowerLost + ' enemy threat') : '0 enemy losses';
+    return '— Round ' + p.round + '/' + (p.plannedRounds || p.round) + ' (' + p.targetName + '): ' + fl + ', ' + el;
   }
   if (ev.topic === STREAM_TOPICS.ARMY_COMBAT_RESOLVED) {
     return '— ' + (p.victory ? 'VICTORY: ' : 'DEFEAT: ') + p.armyName + ' vs ' + p.targetName + ' (' + p.armyPower + ' vs ' + p.enemyPower + ', lost ' + p.totalLosses + ', ' + p.survivingTroops + ' survived)';
@@ -24375,6 +25020,85 @@ function renderOverworldHoverTooltip(state, tile, screenPos) {
     el.style.top = topPx + 'px';
   }
   el.classList.remove('hidden');
+}
+
+// =============================================================================
+// CB-03 & CB-04: Victory/Defeat Outcome Banner (~2s) & Battle Results Popup
+// =============================================================================
+function renderBattleFeedbackOverlays(simHost) {
+  if (typeof document === 'undefined' || !simHost || !simHost.state) return;
+  const state = simHost.state;
+
+  // 1. CB-03: Prominent Victory / Defeat Outcome Banner
+  const bannerEl = document.getElementById('wgBattleOutcomeBanner');
+  if (bannerEl) {
+    const banner = state._battleOutcomeBanner || null;
+    if (!banner) {
+      bannerEl.classList.add('hidden');
+    } else {
+      const isWin = Boolean(banner.victory);
+      const bannerHtml = `
+        <div class="px-6 py-3 rounded-xl border-2 shadow-2xl text-center backdrop-blur-md ${isWin ? 'bg-[#064e3b]/95 border-[#34d399] text-[#ecfdf5]' : 'bg-[#450a0a]/95 border-[#ef4444] text-[#fef2f2]'}">
+          <div class="text-lg md:text-xl font-display font-extrabold tracking-widest uppercase ${isWin ? 'text-[#fbbf24]' : 'text-[#fca5a5]'}">${isWin ? '⚔️ VICTORY ⚔️' : '💀 DEFEAT 💀'}</div>
+          <div class="text-xs font-mono mt-0.5">${banner.armyName || 'Field Army'} vs ${banner.targetName || 'Hostile Force'}</div>
+        </div>
+      `;
+      setHtmlIfChanged(bannerEl, bannerHtml);
+      bannerEl.classList.remove('hidden');
+    }
+  }
+
+  // 2. CB-04: Compact Battle Results Summary Popup
+  const modal = document.getElementById('wgBattleResultsModal');
+  const body = document.getElementById('wgBattleResultsBody');
+  if (!modal || !body) return;
+  const rpt = state._battleResultsPopup || null;
+  if (!rpt) {
+    modal.classList.add('hidden');
+    return;
+  }
+
+  const isWin = Boolean(rpt.victory);
+  const rewardsHtml = (isWin && Array.isArray(rpt.unlockedLabels) && rpt.unlockedLabels.length > 0)
+    ? `
+      <div class="p-2.5 rounded bg-[#064e3b]/35 border border-[#34d399]/50 text-xs font-mono text-[#6ee7b7]">
+        <div class="text-[10px] uppercase text-[#fbbf24] font-bold mb-0.5">Access Unlocked / Rewards</div>
+        <div>✓ ${rpt.unlockedLabels.join(', ')} — Now open for Hero Parties</div>
+      </div>
+    `
+    : (isWin
+      ? '<div class="p-2 rounded bg-[#111722] border border-[#283347] text-[11px] font-mono text-[#94a3b8]">Target permanently cleared.</div>'
+      : '<div class="p-2 rounded bg-[#450a0a]/30 border border-[#f87171]/40 text-[11px] font-mono text-[#fecaca]">Target remains active. Surviving troops are retreating to Barracks to regroup.</div>');
+
+  const html = `
+    <div class="px-4 py-3 border-b border-[#283347] flex items-center justify-between ${isWin ? 'bg-[#064e3b]/50' : 'bg-[#450a0a]/50'}">
+      <div>
+        <div class="text-base font-display font-bold uppercase tracking-wider ${isWin ? 'text-[#34d399]' : 'text-[#f87171]'}">${isWin ? '⚔️ Battle Victory' : '💀 Battle Defeat'}</div>
+        <div class="text-[11px] font-mono text-[#cbd5e1]">${rpt.targetName || 'Military Target'} (${rpt.x !== undefined ? rpt.x : '?'}, ${rpt.y !== undefined ? rpt.y : '?'}) • ${rpt.roundCount || 1} Round${(rpt.roundCount || 1) === 1 ? '' : 's'}</div>
+      </div>
+      <button data-action="dismiss-battle-results" onclick="window.WargameApp.handleDismissBattleResultsPopup()" class="px-2 py-1 rounded bg-[#1a2232] hover:bg-[#283347] text-xs font-mono text-[#e6edf3] cursor-pointer">✕</button>
+    </div>
+    <div class="p-4 space-y-3 text-xs font-mono">
+      <div class="grid grid-cols-2 gap-2.5">
+        <div class="p-2.5 rounded bg-[#080b11] border border-[#38bdf8]/40 space-y-1">
+          <div class="text-[10px] uppercase text-[#38bdf8] font-bold">🛡️ ${rpt.armyName || 'Friendly Army'}</div>
+          <div class="flex justify-between"><span class="text-[#8b949e]">Starting:</span><span class="text-[#e6edf3]">${rpt.initialTroops || 0} (Pwr ${rpt.armyPower || 0})</span></div>
+          <div class="flex justify-between"><span class="text-[#8b949e]">Surviving:</span><span class="text-[#34d399] font-bold">${rpt.survivingTroops || 0}</span></div>
+          <div class="flex justify-between"><span class="text-[#8b949e]">Casualties:</span><span class="${(rpt.totalLosses || 0) > 0 ? 'text-[#f87171]' : 'text-[#94a3b8]'} font-bold">${rpt.totalLosses || 0}</span></div>
+        </div>
+        <div class="p-2.5 rounded bg-[#080b11] border border-[#ef4444]/40 space-y-1">
+          <div class="text-[10px] uppercase text-[#f87171] font-bold">⚔️ Enemy Force</div>
+          <div class="flex justify-between"><span class="text-[#8b949e]">Starting:</span><span class="text-[#e6edf3]">Pwr ${rpt.enemyInitialPower !== undefined ? rpt.enemyInitialPower : (rpt.enemyPower || 0)}</span></div>
+          <div class="flex justify-between"><span class="text-[#8b949e]">Surviving:</span><span class="text-[#fbbf24] font-bold">Pwr ${rpt.enemySurvivingPower !== undefined ? rpt.enemySurvivingPower : (isWin ? 0 : (rpt.enemyPower || 0))}</span></div>
+          <div class="flex justify-between"><span class="text-[#8b949e]">Losses:</span><span class="text-[#f87171] font-bold">${rpt.enemyLosses !== undefined ? rpt.enemyLosses : (isWin ? (rpt.enemyPower || 0) : 0)}</span></div>
+        </div>
+      </div>
+      ${rewardsHtml}
+      <button data-action="dismiss-battle-results" onclick="window.WargameApp.handleDismissBattleResultsPopup()" class="w-full py-2 rounded-lg font-bold text-xs uppercase tracking-wider cursor-pointer ${isWin ? 'bg-[#34d399] hover:bg-[#10b981] text-[#080b11]' : 'bg-[#fbbf24] hover:bg-[#f59e0b] text-[#080b11]'}">Continue</button>
+    </div>
+  `;
+  setHtmlIfChanged(body, html);
+  modal.classList.remove('hidden');
 }
 
   // --- Module: src/data/ores.js ---
@@ -34629,7 +35353,8 @@ function evaluateWargameSelfTests() {
 
     const host41c = createWargameSimHost();
     const loadMid41 = host41c.load();
-    host41c.stepClock(ARMY_COMBAT_DURATION_MS + 1000);
+    // Advance across all discrete combat rounds (CB-01: 3 rounds x 3s = 9s)
+    host41c.stepClock((ARMY_COMBAT_ROUND_DURATION_MS || 3000) * 4);
     const tAfterMid41 = getMilitaryTargetById(host41c.state.world.overworld, target41.id);
     const army41c = host41c.state.world.overworld.units.find(function(u) { return u && u.id === armyId41; });
     const countBeforeReplay41 = getArmyTotalTroopCount(host41c.state.world, armyId41);
@@ -34883,6 +35608,258 @@ function evaluateWargameSelfTests() {
     detail: t43Pass
       ? 'PF-01 nearby target discoverability, PF-02 edge scroll velocity, PF-03 categorized discoveries, PF-04 fog-safe tooltips & PF-05 stayDeployed verified'
       : 'Failed checks: ' + failed43.join(', ')
+  });
+
+  // =========================================================================
+  // Test 44: Combat Feedback Batch 02 — Timed Rounds, Floating Casualties, Banner/Results & Battle History (CB-01..CB-05)
+  // =========================================================================
+  const host44 = createWargameSimHost();
+  host44.dispatch({ type: COMMAND_TYPES.START_NEW_CAMPAIGN, payload: { houseName: 'House Rounds', worldName: 'Battle Realm', seedCode: 'STAR-4400' } });
+  host44.dispatch({ type: COMMAND_TYPES.FOUND_CITY, payload: { cityName: 'Roundkeep' } });
+  const city44 = getPrimaryCity(host44.state);
+  const ow44 = host44.state.world.overworld;
+  city44.stockpile.wood = 900; city44.stockpile.stone = 900; city44.stockpile.food = 900; city44.stockpile.gold = 900;
+  city44.buildings.quarry = 1;
+  city44.buildings.meeting_hall = 2;
+  const pB44 = city44.plots.findIndex(function(p) { return p && !p.buildingId; });
+  host44.dispatch({ type: COMMAND_TYPES.QUEUE_BUILDING, payload: { plotIndex: pB44, buildingId: 'barracks' } });
+  host44.stepClock(15000);
+  host44.dispatch({ type: COMMAND_TYPES.QUEUE_BUILDING, payload: { plotIndex: pB44, buildingId: 'barracks' } });
+  host44.stepClock(30000);
+  const pFC44 = city44.plots.findIndex(function(p) { return p && !p.buildingId; });
+  host44.dispatch({ type: COMMAND_TYPES.QUEUE_BUILDING, payload: { plotIndex: pFC44, buildingId: 'fighter_camp' } });
+  host44.stepClock(15000);
+  host44.dispatch({ type: COMMAND_TYPES.TRAIN_TROOPS, payload: { troopDefId: 'infantry', level: 1, quantity: 10 } });
+  host44.stepClock(110000);
+
+  // 1. Round planning: very weak enemy (ratio >= 2.0) -> 1 round; equal-strength (ratio 1.25) -> 3 rounds
+  const oneRoundVsWeak44 = computePlannedCombatRounds(220, 100) === 1;
+  const multiRoundVsEqual44 = computePlannedCombatRounds(125, 100) === 3;
+
+  // 2. Multi-round discrete progression & non-instant resolution on mtarget_quarry_blockade (5 Inf Lv1 = 125 vs 100 -> 3 rounds)
+  const target44 = getMilitaryTargetById(ow44, 'mtarget_quarry_blockade');
+  const roundEvents44 = [];
+  const resolvedEvents44 = [];
+  host44.eventStream.subscribe(STREAM_TOPICS.ARMY_COMBAT_ROUND_RESOLVED, function(ev) { roundEvents44.push(ev.payload); });
+  host44.eventStream.subscribe(STREAM_TOPICS.ARMY_COMBAT_RESOLVED, function(ev) { resolvedEvents44.push(ev.payload); });
+
+  const dep44 = host44.dispatch({
+    type: COMMAND_TYPES.DEPLOY_ARMY,
+    payload: { homeCityId: city44.id, targetId: target44.id, stayDeployed: true, troops: [{ troopDefId: 'infantry', level: 1, quantity: 5 }] }
+  });
+  const army44 = dep44.data && dep44.data.army;
+  // Advance until army arrives & enters battle (status === 'objective_in_progress')
+  let marchGuard44 = 0;
+  while (army44 && army44.status === 'marching' && marchGuard44 < 40) {
+    host44.stepClock(3000);
+    marchGuard44++;
+  }
+  const notInstantOnArrival44 = Boolean(
+    army44 && army44.status === 'objective_in_progress' &&
+    army44.objective && army44.objective.battle &&
+    army44.objective.battle.currentRound === 0 &&
+    resolvedEvents44.length === 0
+  );
+
+  // Step 1 round (3000ms) -> Round 1 resolves, battle still in progress!
+  host44.stepClock(ARMY_COMBAT_ROUND_DURATION_MS || 3000);
+  const midRound1Ok44 = Boolean(
+    army44.status === 'objective_in_progress' &&
+    army44.objective.battle.currentRound === 1 &&
+    roundEvents44.length === 1 &&
+    resolvedEvents44.length === 0 &&
+    army44.objective.battle.finalStrengths.enemyPower < 100 &&
+    army44.objective.battle.finalStrengths.enemyPower > 0
+  );
+
+  // Replay Round 1 job -> strict idempotency (cannot apply Round 1 twice!)
+  const enemyBeforeReplay44 = army44.objective.battle.finalStrengths.enemyPower;
+  resolveArmyObjectiveCompleteJob({
+    jobId: army44.objective.jobId,
+    dueSimTimeMs: host44.state.world.clock.simTimeMs,
+    payload: { armyId: army44.id, targetId: target44.id, expectedRound: 1 }
+  }, host44.state, host44.scheduler, host44.eventStream);
+  const roundIdempotent44 = army44.objective.battle.currentRound === 1 && army44.objective.battle.finalStrengths.enemyPower === enemyBeforeReplay44;
+
+  // Step remaining 2 rounds -> battle concludes with Victory, exact 1 total friendly loss, & full CB-05 battleHistory record
+  host44.stepClock((ARMY_COMBAT_ROUND_DURATION_MS || 3000) * 2 + 500);
+  const hist44 = host44.state.world.battleHistory || [];
+  const lastBattle44 = hist44.length > 0 ? hist44[hist44.length - 1] : null;
+  const multiRoundFinishAndHistoryOk44 = Boolean(
+    target44.status === MILITARY_TARGET_STATUS.CLEARED &&
+    roundEvents44.length === 3 &&
+    resolvedEvents44.length === 1 &&
+    resolvedEvents44[0].victory === true &&
+    resolvedEvents44[0].totalLosses === 1 &&
+    resolvedEvents44[0].survivingTroops === 4 &&
+    lastBattle44 &&
+    lastBattle44.battleId &&
+    lastBattle44.roundCount === 3 &&
+    lastBattle44.rounds.length === 3 &&
+    lastBattle44.participants && lastBattle44.participants.friendly && lastBattle44.participants.enemy &&
+    lastBattle44.initialStrengths && lastBattle44.finalStrengths &&
+    lastBattle44.outcome === 'victory' &&
+    lastBattle44.rewards && lastBattle44.rewards.unlockedLabels.length === 1 &&
+    lastBattle44.location && lastBattle44.targetId === target44.id
+  );
+
+  // 3. CB-02: Floating casualty numbers (spawns only for sides with losses > 0, staggered, expires cleanly)
+  clearOverworldCasualtyFloaters();
+  const fBoth = spawnOverworldCasualtyFloaters({ x: 5, y: 5, round: 1, friendlyLosses: 2, enemyPowerLost: 35 }, 1000);
+  const fEnemyOnly = spawnOverworldCasualtyFloaters({ x: 5, y: 5, round: 2, friendlyLosses: 0, enemyPowerLost: 40 }, 1050);
+  const activeMid44 = getActiveOverworldCasualtyFloaters(1500);
+  const activeExpired44 = getActiveOverworldCasualtyFloaters(1000 + COMBAT_FLOATER_DURATION_MS + 200);
+  const floatersOk44 = Boolean(
+    fBoth.length === 2 &&
+    fBoth[0].side === 'friendly' && fBoth[1].side === 'enemy' &&
+    fEnemyOnly.length === 1 && fEnemyOnly[0].side === 'enemy' && // zero friendly losses -> no misleading floater!
+    fEnemyOnly[0].oy !== fBoth[1].oy && // staggered vertically to avoid overlap
+    activeMid44.length === 3 &&
+    activeExpired44.length === 0
+  );
+
+  // 4. Stalemate safety cap check (battle cannot continue past maxRounds)
+  const stalemateBattle44 = {
+    currentRound: (MAX_MILITARY_COMBAT_ROUNDS || 10) - 1,
+    maxRounds: MAX_MILITARY_COMBAT_ROUNDS || 10,
+    plannedRounds: 99,
+    expectedVictory: false,
+    plannedFriendlyLossesRemaining: 0,
+    plannedEnemyLossesRemaining: 0,
+    finalStrengths: { friendlyTroops: 4, friendlyPower: 100, enemyPower: 100 },
+    outcome: null
+  };
+  const stalemateStep44 = computeNextBattleRoundStep(host44.state.world, army44.id, stalemateBattle44, 5000);
+  const stalemateSafeOk44 = Boolean(stalemateStep44.terminal === true && stalemateStep44.stalemateCapped === true && stalemateStep44.outcome === 'defeat');
+
+  // 5. CB-03 & CB-04: Banner & Battle Results Popup DOM rendering check
+  host44.state._battleOutcomeBanner = { battleId: lastBattle44.battleId, victory: true, armyName: 'Army #1', targetName: target44.name, report: resolvedEvents44[0], expiresAtRealMs: Date.now() + 2000 };
+  host44.state._battleResultsPopup = resolvedEvents44[0];
+  if (typeof document !== 'undefined') {
+    syncWargameUI(host44);
+  }
+  const bannerEl44 = (typeof document !== 'undefined') ? document.getElementById('wgBattleOutcomeBanner') : null;
+  const popupBody44 = (typeof document !== 'undefined') ? document.getElementById('wgBattleResultsBody') : null;
+  const overlaysOk44 = (typeof document === 'undefined' || !bannerEl44 || !popupBody44) ? true : Boolean(
+    bannerEl44.innerHTML.indexOf('VICTORY') !== -1 &&
+    popupBody44.innerHTML.indexOf('Battle Victory') !== -1 &&
+    popupBody44.innerHTML.indexOf('Ironjaw Blockade Camp') !== -1 &&
+    popupBody44.innerHTML.indexOf('Sunken Copper Quarry') !== -1 &&
+    popupBody44.innerHTML.indexOf('dismiss-battle-results') !== -1
+  );
+
+  const t44Checks = {
+    oneRoundVsWeak: oneRoundVsWeak44,
+    multiRoundVsEqual: multiRoundVsEqual44,
+    notInstantOnArrival: notInstantOnArrival44,
+    midRound1Ok: midRound1Ok44,
+    roundIdempotent: roundIdempotent44,
+    multiRoundFinishAndHistoryOk: multiRoundFinishAndHistoryOk44,
+    floatersOk: floatersOk44,
+    stalemateSafeOk: stalemateSafeOk44,
+    overlaysOk: overlaysOk44
+  };
+  const failed44 = Object.keys(t44Checks).filter(function(k) { return !t44Checks[k]; });
+  const t44Pass = failed44.length === 0;
+  results.push({
+    name: '44. Combat Feedback Batch 02: Timed Rounds, Casualty Floaters, Victory/Defeat Banner, Results Popup & Battle History (CB-01..CB-05)',
+    pass: t44Pass,
+    detail: t44Pass
+      ? 'Discrete timed rounds (1-round & multi-round), round idempotency, stalemate cap, floating casualty spawn/stagger/expiry, outcome banner, results popup & CB-05 battleHistory verified'
+      : 'Failed checks: ' + failed44.join(', ')
+  });
+
+  // =========================================================================
+  // Test 45: Developer Console Combat Site Spawning (Addendum DC-01)
+  // =========================================================================
+  const host45 = createWargameSimHost();
+  host45.dispatch({ type: COMMAND_TYPES.START_NEW_CAMPAIGN, payload: { houseName: 'House DevSpawn', worldName: 'Dev Realm', seedCode: 'STAR-4500' } });
+  host45.dispatch({ type: COMMAND_TYPES.FOUND_CITY, payload: { cityName: 'Devkeep' } });
+  const city45 = getPrimaryCity(host45.state);
+  const ow45 = host45.state.world.overworld;
+  city45.stockpile.wood = 800; city45.stockpile.stone = 800; city45.stockpile.food = 800; city45.stockpile.gold = 800;
+  city45.buildings.quarry = 1;
+  const pB45 = city45.plots.findIndex(function(p) { return p && !p.buildingId; });
+  host45.dispatch({ type: COMMAND_TYPES.QUEUE_BUILDING, payload: { plotIndex: pB45, buildingId: 'barracks' } });
+  host45.stepClock(15000);
+  const pFC45 = city45.plots.findIndex(function(p) { return p && !p.buildingId; });
+  host45.dispatch({ type: COMMAND_TYPES.QUEUE_BUILDING, payload: { plotIndex: pFC45, buildingId: 'fighter_camp' } });
+  host45.stepClock(15000);
+  host45.dispatch({ type: COMMAND_TYPES.TRAIN_TROOPS, payload: { troopDefId: 'infantry', level: 1, quantity: 5 } });
+  host45.stepClock(60000);
+
+  const initialCount45 = ow45.militaryTargets.length;
+  const origTargetSnapshot45 = JSON.stringify(ow45.militaryTargets[0]);
+
+  // 1. Spawn default combat site near city -> valid, unique, existing targets unchanged
+  const sp1 = spawnMilitaryCombatSite(host45.state.world, { enemyPower: 60 });
+  const sp2 = spawnMilitaryCombatSite(host45.state.world, { enemyPower: 100 });
+  const defaultAndMultipleOk45 = Boolean(
+    sp1.ok && sp2.ok &&
+    sp1.target.id !== sp2.target.id &&
+    !(sp1.target.x === sp2.target.x && sp1.target.y === sp2.target.y) &&
+    ow45.militaryTargets.length === initialCount45 + 2 &&
+    JSON.stringify(ow45.militaryTargets[0]) === origTargetSnapshot45 &&
+    sp1.target.status === MILITARY_TARGET_STATUS.ACTIVE &&
+    Boolean(findOverworldPath(ow45, city45.x, city45.y, sp1.target.x, sp1.target.y))
+  );
+
+  // 2. Spawn at invalid/occupied location (city hex) -> strict rejects safely, non-strict finds valid nearby fallback
+  const spStrictReject = spawnMilitaryCombatSite(host45.state.world, { x: city45.x, y: city45.y, strictLocation: true });
+  const spFallback = spawnMilitaryCombatSite(host45.state.world, { x: city45.x, y: city45.y, strictLocation: false });
+  const invalidHandlingOk45 = Boolean(
+    !spStrictReject.ok &&
+    spFallback.ok && spFallback.usedFallbackLocation === true &&
+    !(spFallback.target.x === city45.x && spFallback.target.y === city45.y)
+  );
+
+  // 3. Spawn in unexplored area -> respects fog (discovered: false), then normal reveal discovers it!
+  let unexpSpot45 = null;
+  for (let y = 2; y < ow45.height - 2 && !unexpSpot45; y++) {
+    for (let x = 2; x < ow45.width - 2 && !unexpSpot45; x++) {
+      if (!ow45.explored[y][x] && ow45.tiles[y][x] !== OW_TERRAIN_MOUNTAINS && ow45.tiles[y][x] !== 5 && findOverworldPath(ow45, city45.x, city45.y, x, y)) {
+        const occ = ow45.pois.some(function(p) { return p.x === x && p.y === y; }) ||
+          ow45.hostiles.some(function(h) { return h.x === x && h.y === y; }) ||
+          ow45.militaryTargets.some(function(m) { return m.x === x && m.y === y; });
+        if (!occ) unexpSpot45 = { x: x, y: y };
+      }
+    }
+  }
+  const spFog = unexpSpot45 ? spawnMilitaryCombatSite(host45.state.world, { x: unexpSpot45.x, y: unexpSpot45.y, strictLocation: true }) : { ok: false };
+  const fogHiddenBefore45 = Boolean(spFog.ok && spFog.target.x === unexpSpot45.x && spFog.target.y === unexpSpot45.y && spFog.target.discovered === false);
+  if (spFog.ok) {
+    revealOverworldVision(ow45, spFog.target.x, spFog.target.y, 2, { simTimeMs: host45.state.world.clock.simTimeMs, eventStream: host45.eventStream });
+  }
+  const fogDiscoveryOk45 = Boolean(fogHiddenBefore45 && spFog.target.discovered === true);
+
+  // 4. Engage & clear spawned target (sp1, power 60 vs 5 Inf power 125 -> 1-round victory), then spawn another!
+  const depDev45 = host45.dispatch({
+    type: COMMAND_TYPES.DEPLOY_ARMY,
+    payload: { homeCityId: city45.id, targetId: sp1.target.id, stayDeployed: false, troops: [{ troopDefId: 'infantry', level: 1, quantity: 5 }] }
+  });
+  host45.stepClock(120000);
+  const spAfterClear = spawnMilitaryCombatSite(host45.state.world, { enemyPower: 100 });
+  const engageClearAndRespawnOk45 = Boolean(
+    depDev45.ok &&
+    sp1.target.status === MILITARY_TARGET_STATUS.CLEARED &&
+    spAfterClear.ok && spAfterClear.target.status === MILITARY_TARGET_STATUS.ACTIVE &&
+    city45.name === 'Devkeep' // No game reset, player progress intact
+  );
+
+  const t45Checks = {
+    defaultAndMultipleOk: defaultAndMultipleOk45,
+    invalidHandlingOk: invalidHandlingOk45,
+    fogDiscoveryOk: fogDiscoveryOk45,
+    engageClearAndRespawnOk: engageClearAndRespawnOk45
+  };
+  const failed45 = Object.keys(t45Checks).filter(function(k) { return !t45Checks[k]; });
+  const t45Pass = failed45.length === 0;
+  results.push({
+    name: '45. Developer Console Combat Site Spawning, Fog Respect, Engagement & Repeat Spawn (DC-01)',
+    pass: t45Pass,
+    detail: t45Pass
+      ? 'Default/multiple spawns, strict/fallback invalid-location handling, fog-of-war discovery, normal combat clearance & repeat spawning verified'
+      : 'Failed checks: ' + failed45.join(', ')
   });
 
   return results;
@@ -38028,6 +39005,14 @@ function handleInspectMilitaryTarget(targetId) {
   syncWargameUI(simHost);
 }
 
+function handleDismissBattleResultsPopup() {
+  if (!simHost.state) return;
+  simHost.state._battleResultsPopup = null;
+  simHost.state._battleOutcomeBanner = null;
+  simHost.state._dirty = true;
+  syncWargameUI(simHost);
+}
+
 function handleCloseMilitaryTargetInspector() {
   if (!simHost.state) return;
   simHost.state._selectedMilitaryTargetId = null;
@@ -38984,6 +39969,14 @@ function wargameMainLoop(timestamp) {
       stepOverworldEdgeScroll(elapsedRealMs / 1000, simHost.state);
       renderWargameOverworldCanvas(simHost);
     }
+
+    // CB-03 -> CB-04: Transition Victory/Defeat banner (~2s) cleanly into Battle Results Popup
+    if (simHost.state._battleOutcomeBanner && Date.now() >= simHost.state._battleOutcomeBanner.expiresAtRealMs) {
+      simHost.state._battleResultsPopup = simHost.state._battleOutcomeBanner.report || null;
+      simHost.state._battleOutcomeBanner = null;
+      simHost.state._dirty = true;
+    }
+
     updateHeaderFastTick(simHost);
 
     // Throttle DOM rebuilds so buttons don't get destroyed mid-click
@@ -39048,6 +40041,7 @@ const WargameApp = {
   handleLocateOverworldHex: handleLocateOverworldHex,
   handleInspectMilitaryTarget: handleInspectMilitaryTarget,
   handleCloseMilitaryTargetInspector: handleCloseMilitaryTargetInspector,
+  handleDismissBattleResultsPopup: handleDismissBattleResultsPopup,
   handleAssignArmyToTarget: handleAssignArmyToTarget,
   handleSetDeployTargetCoord: handleSetDeployTargetCoord,
   handleSetDeployTroopQty: handleSetDeployTroopQty,
@@ -39125,12 +40119,40 @@ const WargameApp = {
   handleDevResetConfigs: function() { return handleDevResetConfigsAction(simHost); },
   handleDevTimeJump: function(sec) { return handleDevTimeJumpAction(simHost, sec); },
   handleDevCompleteQueues: function() { return handleDevCompleteQueuesAction(simHost); },
+  handleDevSpawnCombatSite: function(opts) {
+    const res = handleDevSpawnCombatSiteAction(simHost, opts);
+    syncWargameUI(simHost);
+    return res;
+  },
   syncWargameUI: function() { syncWargameUI(simHost); }
 };
 
 function bootstrapWargame() {
   if (wargameBootstrapped) return;
   wargameBootstrapped = true;
+
+  // CB-02 & CB-03: Subscribe presentation feedback strictly to authoritative combat events
+  simHost.eventStream.subscribe(STREAM_TOPICS.ARMY_COMBAT_ROUND_RESOLVED, function(ev) {
+    if (ev && ev.payload) {
+      spawnOverworldCasualtyFloaters(ev.payload);
+      simHost.state._dirty = true;
+    }
+  });
+  simHost.eventStream.subscribe(STREAM_TOPICS.ARMY_COMBAT_RESOLVED, function(ev) {
+    if (ev && ev.payload) {
+      const rpt = ev.payload;
+      simHost.state._battleOutcomeBanner = {
+        battleId: rpt.battleId || null,
+        victory: Boolean(rpt.victory),
+        armyName: rpt.armyName || 'Field Army',
+        targetName: rpt.targetName || 'Military Target',
+        report: rpt,
+        expiresAtRealMs: Date.now() + (BATTLE_OUTCOME_BANNER_DURATION_MS || 2000)
+      };
+      simHost.state._battleResultsPopup = null;
+      simHost.state._dirty = true;
+    }
+  });
 
   setupWargameListeners();
   appContext.syncFromCampaignPhase();

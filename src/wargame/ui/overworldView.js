@@ -36,9 +36,80 @@ let owAttachedCanvas = null;
 let owUserPanned = false;
 let owPointerScreenPos = null; // PF-02: { sx, sy } inside canvas for edge scrolling
 let owPointerDragging = false;
+let owFloatingCombatTexts = []; // CB-02: Presentation-only floating casualty numbers (never affects simulation!)
 
 export const OVERWORLD_EDGE_SCROLL_ZONE_PX = 44;
 export const OVERWORLD_EDGE_SCROLL_MAX_SPEED_PX = 360;
+export const COMBAT_FLOATER_DURATION_MS = 1600;
+
+// CB-02: Spawn floating casualty numbers strictly from authoritative round results (zero losses -> no floater)
+export function spawnOverworldCasualtyFloaters(roundPayload, nowMs) {
+  if (!roundPayload) return [];
+  const t0 = typeof nowMs === 'number' ? nowMs : Date.now();
+  const x = typeof roundPayload.x === 'number' ? roundPayload.x : 0;
+  const y = typeof roundPayload.y === 'number' ? roundPayload.y : 0;
+  const round = roundPayload.round || 1;
+  const created = [];
+
+  // Stagger vertical offset if other floaters are already active at this hex so numbers never overlap excessively
+  const activeAtHex = owFloatingCombatTexts.filter(function(f) {
+    return f.x === x && f.y === y && (t0 - f.createdAtMs) < f.durationMs;
+  }).length;
+  const staggerY = (activeAtHex % 3) * 14;
+
+  if ((roundPayload.friendlyLosses || 0) > 0) {
+    const fObj = {
+      id: 'flt_f_' + round + '_' + t0 + '_' + Math.floor(Math.random() * 1000),
+      side: 'friendly',
+      x: x,
+      y: y,
+      ox: -18,
+      oy: -10 - staggerY,
+      text: '-' + roundPayload.friendlyLosses + ' Troops',
+      color: '#fb923c',
+      bg: 'rgba(69, 10, 10, 0.88)',
+      createdAtMs: t0,
+      durationMs: COMBAT_FLOATER_DURATION_MS
+    };
+    owFloatingCombatTexts.push(fObj);
+    created.push(fObj);
+  }
+
+  if ((roundPayload.enemyPowerLost || 0) > 0) {
+    const eObj = {
+      id: 'flt_e_' + round + '_' + t0 + '_' + Math.floor(Math.random() * 1000),
+      side: 'enemy',
+      x: x,
+      y: y,
+      ox: 18,
+      oy: -14 - staggerY,
+      text: '-' + roundPayload.enemyPowerLost + ' Threat',
+      color: '#fef08a',
+      bg: 'rgba(127, 29, 29, 0.90)',
+      createdAtMs: t0,
+      durationMs: COMBAT_FLOATER_DURATION_MS
+    };
+    owFloatingCombatTexts.push(eObj);
+    created.push(eObj);
+  }
+
+  if (owFloatingCombatTexts.length > 40) {
+    owFloatingCombatTexts = owFloatingCombatTexts.slice(owFloatingCombatTexts.length - 40);
+  }
+  return created;
+}
+
+export function getActiveOverworldCasualtyFloaters(nowMs) {
+  const t = typeof nowMs === 'number' ? nowMs : Date.now();
+  owFloatingCombatTexts = owFloatingCombatTexts.filter(function(f) {
+    return (t - f.createdAtMs) < f.durationMs;
+  });
+  return owFloatingCombatTexts.slice();
+}
+
+export function clearOverworldCasualtyFloaters() {
+  owFloatingCombatTexts = [];
+}
 
 // Pure, testable edge-scroll velocity calculator (PF-02)
 export function computeEdgeScrollVelocity(sx, sy, width, height, edgeZonePx, maxSpeedPxPerSec) {
@@ -644,5 +715,31 @@ export function renderWargameOverworldCanvas(simHost) {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(u.unitType === 'army' ? '🛡️' : (u.unitType === 'hero_party' ? '⚔️' : '🚩'), s.sx, s.sy);
+  }
+
+  // 8. Render Floating Combat Casualty Numbers (CB-02 — presentation-only, rises upward & fades smoothly)
+  const nowFloatMs = Date.now();
+  const activeFloaters = getActiveOverworldCasualtyFloaters(nowFloatMs);
+  for (let fi = 0; fi < activeFloaters.length; fi++) {
+    const fl = activeFloaters[fi];
+    const progress = Math.max(0, Math.min(1, (nowFloatMs - fl.createdAtMs) / Math.max(1, fl.durationMs)));
+    const alpha = Math.max(0, 1 - progress * progress);
+    const wPos = owHexAdapter.tileToWorld(owHexAdapter.offsetToAxial(fl.x, fl.y));
+    const sPos = vp.worldToScreen(wPos.wx, wPos.wy);
+    const drawX = sPos.sx + fl.ox * z;
+    const drawY = sPos.sy + (fl.oy - progress * 38) * z;
+
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.font = 'bold ' + Math.max(10, Math.round(11 * z)) + 'px monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    const boxW = Math.max(58, fl.text.length * 6.8) * z;
+    const boxH = 15 * z;
+    ctx.fillStyle = fl.bg || 'rgba(15, 23, 42, 0.88)';
+    ctx.fillRect(drawX - boxW * 0.5, drawY - boxH * 0.5, boxW, boxH);
+    ctx.fillStyle = fl.color || '#f87171';
+    ctx.fillText(fl.text, drawX, drawY);
+    ctx.restore();
   }
 }

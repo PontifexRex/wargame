@@ -7,7 +7,9 @@ import {
   COMMAND_TYPES,
   WARGAME_STORAGE_KEY,
   ARMY_PATROL_DURATION_MS,
-  ARMY_COMBAT_DURATION_MS
+  ARMY_COMBAT_DURATION_MS,
+  ARMY_COMBAT_ROUND_DURATION_MS,
+  MAX_MILITARY_COMBAT_ROUNDS
 } from '../constants.js';
 import { createWargameSimHost } from '../engine/simHost.js';
 import { createMinHeapPriorityQueue } from '../engine/scheduler.js';
@@ -35,6 +37,7 @@ import {
   findOverworldPath,
   revealOverworldVision,
   findValidMilitaryTargetHex,
+  spawnMilitaryCombatSite,
   MIN_OVERWORLD_MARCH_COST_MS
 } from '../engine/pathfinding.js';
 import {
@@ -42,7 +45,15 @@ import {
   OW_TERRAIN_HILLS,
   OW_TERRAIN_MOUNTAINS
 } from '../data/terrain.js';
-import { interpolateHexSegment, computeOverworldCameraFollow, computeEdgeScrollVelocity } from '../ui/overworldView.js';
+import {
+  interpolateHexSegment,
+  computeOverworldCameraFollow,
+  computeEdgeScrollVelocity,
+  spawnOverworldCasualtyFloaters,
+  getActiveOverworldCasualtyFloaters,
+  clearOverworldCasualtyFloaters,
+  COMBAT_FLOATER_DURATION_MS
+} from '../ui/overworldView.js';
 import { CITY_BUILDINGS_CATALOG, computeBuildingDurationMs, isBuildingPrerequisiteMet, computeMaxPartySize, getCityRecruitableClasses, getCityAcademyBenefitEffects } from '../data/buildings.js';
 import {
   TROOP_CATALOG,
@@ -70,7 +81,9 @@ import {
   getBlockingMilitaryTargetForAccess,
   computeArmyCombatPower,
   allocateProportionalCasualties,
-  resolveMilitaryTargetCombat
+  resolveMilitaryTargetCombat,
+  computePlannedCombatRounds,
+  computeNextBattleRoundStep
 } from '../data/troops.js';
 import { resolveTroopUpgradeUnitJob, reintegrateArmyIntoBarracks, resolveArmyObjectiveCompleteJob } from '../engine/queues.js';
 import {
@@ -4350,7 +4363,8 @@ export function evaluateWargameSelfTests() {
 
     const host41c = createWargameSimHost();
     const loadMid41 = host41c.load();
-    host41c.stepClock(ARMY_COMBAT_DURATION_MS + 1000);
+    // Advance across all discrete combat rounds (CB-01: 3 rounds x 3s = 9s)
+    host41c.stepClock((ARMY_COMBAT_ROUND_DURATION_MS || 3000) * 4);
     const tAfterMid41 = getMilitaryTargetById(host41c.state.world.overworld, target41.id);
     const army41c = host41c.state.world.overworld.units.find(function(u) { return u && u.id === armyId41; });
     const countBeforeReplay41 = getArmyTotalTroopCount(host41c.state.world, armyId41);
@@ -4604,6 +4618,258 @@ export function evaluateWargameSelfTests() {
     detail: t43Pass
       ? 'PF-01 nearby target discoverability, PF-02 edge scroll velocity, PF-03 categorized discoveries, PF-04 fog-safe tooltips & PF-05 stayDeployed verified'
       : 'Failed checks: ' + failed43.join(', ')
+  });
+
+  // =========================================================================
+  // Test 44: Combat Feedback Batch 02 — Timed Rounds, Floating Casualties, Banner/Results & Battle History (CB-01..CB-05)
+  // =========================================================================
+  const host44 = createWargameSimHost();
+  host44.dispatch({ type: COMMAND_TYPES.START_NEW_CAMPAIGN, payload: { houseName: 'House Rounds', worldName: 'Battle Realm', seedCode: 'STAR-4400' } });
+  host44.dispatch({ type: COMMAND_TYPES.FOUND_CITY, payload: { cityName: 'Roundkeep' } });
+  const city44 = getPrimaryCity(host44.state);
+  const ow44 = host44.state.world.overworld;
+  city44.stockpile.wood = 900; city44.stockpile.stone = 900; city44.stockpile.food = 900; city44.stockpile.gold = 900;
+  city44.buildings.quarry = 1;
+  city44.buildings.meeting_hall = 2;
+  const pB44 = city44.plots.findIndex(function(p) { return p && !p.buildingId; });
+  host44.dispatch({ type: COMMAND_TYPES.QUEUE_BUILDING, payload: { plotIndex: pB44, buildingId: 'barracks' } });
+  host44.stepClock(15000);
+  host44.dispatch({ type: COMMAND_TYPES.QUEUE_BUILDING, payload: { plotIndex: pB44, buildingId: 'barracks' } });
+  host44.stepClock(30000);
+  const pFC44 = city44.plots.findIndex(function(p) { return p && !p.buildingId; });
+  host44.dispatch({ type: COMMAND_TYPES.QUEUE_BUILDING, payload: { plotIndex: pFC44, buildingId: 'fighter_camp' } });
+  host44.stepClock(15000);
+  host44.dispatch({ type: COMMAND_TYPES.TRAIN_TROOPS, payload: { troopDefId: 'infantry', level: 1, quantity: 10 } });
+  host44.stepClock(110000);
+
+  // 1. Round planning: very weak enemy (ratio >= 2.0) -> 1 round; equal-strength (ratio 1.25) -> 3 rounds
+  const oneRoundVsWeak44 = computePlannedCombatRounds(220, 100) === 1;
+  const multiRoundVsEqual44 = computePlannedCombatRounds(125, 100) === 3;
+
+  // 2. Multi-round discrete progression & non-instant resolution on mtarget_quarry_blockade (5 Inf Lv1 = 125 vs 100 -> 3 rounds)
+  const target44 = getMilitaryTargetById(ow44, 'mtarget_quarry_blockade');
+  const roundEvents44 = [];
+  const resolvedEvents44 = [];
+  host44.eventStream.subscribe(STREAM_TOPICS.ARMY_COMBAT_ROUND_RESOLVED, function(ev) { roundEvents44.push(ev.payload); });
+  host44.eventStream.subscribe(STREAM_TOPICS.ARMY_COMBAT_RESOLVED, function(ev) { resolvedEvents44.push(ev.payload); });
+
+  const dep44 = host44.dispatch({
+    type: COMMAND_TYPES.DEPLOY_ARMY,
+    payload: { homeCityId: city44.id, targetId: target44.id, stayDeployed: true, troops: [{ troopDefId: 'infantry', level: 1, quantity: 5 }] }
+  });
+  const army44 = dep44.data && dep44.data.army;
+  // Advance until army arrives & enters battle (status === 'objective_in_progress')
+  let marchGuard44 = 0;
+  while (army44 && army44.status === 'marching' && marchGuard44 < 40) {
+    host44.stepClock(3000);
+    marchGuard44++;
+  }
+  const notInstantOnArrival44 = Boolean(
+    army44 && army44.status === 'objective_in_progress' &&
+    army44.objective && army44.objective.battle &&
+    army44.objective.battle.currentRound === 0 &&
+    resolvedEvents44.length === 0
+  );
+
+  // Step 1 round (3000ms) -> Round 1 resolves, battle still in progress!
+  host44.stepClock(ARMY_COMBAT_ROUND_DURATION_MS || 3000);
+  const midRound1Ok44 = Boolean(
+    army44.status === 'objective_in_progress' &&
+    army44.objective.battle.currentRound === 1 &&
+    roundEvents44.length === 1 &&
+    resolvedEvents44.length === 0 &&
+    army44.objective.battle.finalStrengths.enemyPower < 100 &&
+    army44.objective.battle.finalStrengths.enemyPower > 0
+  );
+
+  // Replay Round 1 job -> strict idempotency (cannot apply Round 1 twice!)
+  const enemyBeforeReplay44 = army44.objective.battle.finalStrengths.enemyPower;
+  resolveArmyObjectiveCompleteJob({
+    jobId: army44.objective.jobId,
+    dueSimTimeMs: host44.state.world.clock.simTimeMs,
+    payload: { armyId: army44.id, targetId: target44.id, expectedRound: 1 }
+  }, host44.state, host44.scheduler, host44.eventStream);
+  const roundIdempotent44 = army44.objective.battle.currentRound === 1 && army44.objective.battle.finalStrengths.enemyPower === enemyBeforeReplay44;
+
+  // Step remaining 2 rounds -> battle concludes with Victory, exact 1 total friendly loss, & full CB-05 battleHistory record
+  host44.stepClock((ARMY_COMBAT_ROUND_DURATION_MS || 3000) * 2 + 500);
+  const hist44 = host44.state.world.battleHistory || [];
+  const lastBattle44 = hist44.length > 0 ? hist44[hist44.length - 1] : null;
+  const multiRoundFinishAndHistoryOk44 = Boolean(
+    target44.status === MILITARY_TARGET_STATUS.CLEARED &&
+    roundEvents44.length === 3 &&
+    resolvedEvents44.length === 1 &&
+    resolvedEvents44[0].victory === true &&
+    resolvedEvents44[0].totalLosses === 1 &&
+    resolvedEvents44[0].survivingTroops === 4 &&
+    lastBattle44 &&
+    lastBattle44.battleId &&
+    lastBattle44.roundCount === 3 &&
+    lastBattle44.rounds.length === 3 &&
+    lastBattle44.participants && lastBattle44.participants.friendly && lastBattle44.participants.enemy &&
+    lastBattle44.initialStrengths && lastBattle44.finalStrengths &&
+    lastBattle44.outcome === 'victory' &&
+    lastBattle44.rewards && lastBattle44.rewards.unlockedLabels.length === 1 &&
+    lastBattle44.location && lastBattle44.targetId === target44.id
+  );
+
+  // 3. CB-02: Floating casualty numbers (spawns only for sides with losses > 0, staggered, expires cleanly)
+  clearOverworldCasualtyFloaters();
+  const fBoth = spawnOverworldCasualtyFloaters({ x: 5, y: 5, round: 1, friendlyLosses: 2, enemyPowerLost: 35 }, 1000);
+  const fEnemyOnly = spawnOverworldCasualtyFloaters({ x: 5, y: 5, round: 2, friendlyLosses: 0, enemyPowerLost: 40 }, 1050);
+  const activeMid44 = getActiveOverworldCasualtyFloaters(1500);
+  const activeExpired44 = getActiveOverworldCasualtyFloaters(1000 + COMBAT_FLOATER_DURATION_MS + 200);
+  const floatersOk44 = Boolean(
+    fBoth.length === 2 &&
+    fBoth[0].side === 'friendly' && fBoth[1].side === 'enemy' &&
+    fEnemyOnly.length === 1 && fEnemyOnly[0].side === 'enemy' && // zero friendly losses -> no misleading floater!
+    fEnemyOnly[0].oy !== fBoth[1].oy && // staggered vertically to avoid overlap
+    activeMid44.length === 3 &&
+    activeExpired44.length === 0
+  );
+
+  // 4. Stalemate safety cap check (battle cannot continue past maxRounds)
+  const stalemateBattle44 = {
+    currentRound: (MAX_MILITARY_COMBAT_ROUNDS || 10) - 1,
+    maxRounds: MAX_MILITARY_COMBAT_ROUNDS || 10,
+    plannedRounds: 99,
+    expectedVictory: false,
+    plannedFriendlyLossesRemaining: 0,
+    plannedEnemyLossesRemaining: 0,
+    finalStrengths: { friendlyTroops: 4, friendlyPower: 100, enemyPower: 100 },
+    outcome: null
+  };
+  const stalemateStep44 = computeNextBattleRoundStep(host44.state.world, army44.id, stalemateBattle44, 5000);
+  const stalemateSafeOk44 = Boolean(stalemateStep44.terminal === true && stalemateStep44.stalemateCapped === true && stalemateStep44.outcome === 'defeat');
+
+  // 5. CB-03 & CB-04: Banner & Battle Results Popup DOM rendering check
+  host44.state._battleOutcomeBanner = { battleId: lastBattle44.battleId, victory: true, armyName: 'Army #1', targetName: target44.name, report: resolvedEvents44[0], expiresAtRealMs: Date.now() + 2000 };
+  host44.state._battleResultsPopup = resolvedEvents44[0];
+  if (typeof document !== 'undefined') {
+    syncWargameUI(host44);
+  }
+  const bannerEl44 = (typeof document !== 'undefined') ? document.getElementById('wgBattleOutcomeBanner') : null;
+  const popupBody44 = (typeof document !== 'undefined') ? document.getElementById('wgBattleResultsBody') : null;
+  const overlaysOk44 = (typeof document === 'undefined' || !bannerEl44 || !popupBody44) ? true : Boolean(
+    bannerEl44.innerHTML.indexOf('VICTORY') !== -1 &&
+    popupBody44.innerHTML.indexOf('Battle Victory') !== -1 &&
+    popupBody44.innerHTML.indexOf('Ironjaw Blockade Camp') !== -1 &&
+    popupBody44.innerHTML.indexOf('Sunken Copper Quarry') !== -1 &&
+    popupBody44.innerHTML.indexOf('dismiss-battle-results') !== -1
+  );
+
+  const t44Checks = {
+    oneRoundVsWeak: oneRoundVsWeak44,
+    multiRoundVsEqual: multiRoundVsEqual44,
+    notInstantOnArrival: notInstantOnArrival44,
+    midRound1Ok: midRound1Ok44,
+    roundIdempotent: roundIdempotent44,
+    multiRoundFinishAndHistoryOk: multiRoundFinishAndHistoryOk44,
+    floatersOk: floatersOk44,
+    stalemateSafeOk: stalemateSafeOk44,
+    overlaysOk: overlaysOk44
+  };
+  const failed44 = Object.keys(t44Checks).filter(function(k) { return !t44Checks[k]; });
+  const t44Pass = failed44.length === 0;
+  results.push({
+    name: '44. Combat Feedback Batch 02: Timed Rounds, Casualty Floaters, Victory/Defeat Banner, Results Popup & Battle History (CB-01..CB-05)',
+    pass: t44Pass,
+    detail: t44Pass
+      ? 'Discrete timed rounds (1-round & multi-round), round idempotency, stalemate cap, floating casualty spawn/stagger/expiry, outcome banner, results popup & CB-05 battleHistory verified'
+      : 'Failed checks: ' + failed44.join(', ')
+  });
+
+  // =========================================================================
+  // Test 45: Developer Console Combat Site Spawning (Addendum DC-01)
+  // =========================================================================
+  const host45 = createWargameSimHost();
+  host45.dispatch({ type: COMMAND_TYPES.START_NEW_CAMPAIGN, payload: { houseName: 'House DevSpawn', worldName: 'Dev Realm', seedCode: 'STAR-4500' } });
+  host45.dispatch({ type: COMMAND_TYPES.FOUND_CITY, payload: { cityName: 'Devkeep' } });
+  const city45 = getPrimaryCity(host45.state);
+  const ow45 = host45.state.world.overworld;
+  city45.stockpile.wood = 800; city45.stockpile.stone = 800; city45.stockpile.food = 800; city45.stockpile.gold = 800;
+  city45.buildings.quarry = 1;
+  const pB45 = city45.plots.findIndex(function(p) { return p && !p.buildingId; });
+  host45.dispatch({ type: COMMAND_TYPES.QUEUE_BUILDING, payload: { plotIndex: pB45, buildingId: 'barracks' } });
+  host45.stepClock(15000);
+  const pFC45 = city45.plots.findIndex(function(p) { return p && !p.buildingId; });
+  host45.dispatch({ type: COMMAND_TYPES.QUEUE_BUILDING, payload: { plotIndex: pFC45, buildingId: 'fighter_camp' } });
+  host45.stepClock(15000);
+  host45.dispatch({ type: COMMAND_TYPES.TRAIN_TROOPS, payload: { troopDefId: 'infantry', level: 1, quantity: 5 } });
+  host45.stepClock(60000);
+
+  const initialCount45 = ow45.militaryTargets.length;
+  const origTargetSnapshot45 = JSON.stringify(ow45.militaryTargets[0]);
+
+  // 1. Spawn default combat site near city -> valid, unique, existing targets unchanged
+  const sp1 = spawnMilitaryCombatSite(host45.state.world, { enemyPower: 60 });
+  const sp2 = spawnMilitaryCombatSite(host45.state.world, { enemyPower: 100 });
+  const defaultAndMultipleOk45 = Boolean(
+    sp1.ok && sp2.ok &&
+    sp1.target.id !== sp2.target.id &&
+    !(sp1.target.x === sp2.target.x && sp1.target.y === sp2.target.y) &&
+    ow45.militaryTargets.length === initialCount45 + 2 &&
+    JSON.stringify(ow45.militaryTargets[0]) === origTargetSnapshot45 &&
+    sp1.target.status === MILITARY_TARGET_STATUS.ACTIVE &&
+    Boolean(findOverworldPath(ow45, city45.x, city45.y, sp1.target.x, sp1.target.y))
+  );
+
+  // 2. Spawn at invalid/occupied location (city hex) -> strict rejects safely, non-strict finds valid nearby fallback
+  const spStrictReject = spawnMilitaryCombatSite(host45.state.world, { x: city45.x, y: city45.y, strictLocation: true });
+  const spFallback = spawnMilitaryCombatSite(host45.state.world, { x: city45.x, y: city45.y, strictLocation: false });
+  const invalidHandlingOk45 = Boolean(
+    !spStrictReject.ok &&
+    spFallback.ok && spFallback.usedFallbackLocation === true &&
+    !(spFallback.target.x === city45.x && spFallback.target.y === city45.y)
+  );
+
+  // 3. Spawn in unexplored area -> respects fog (discovered: false), then normal reveal discovers it!
+  let unexpSpot45 = null;
+  for (let y = 2; y < ow45.height - 2 && !unexpSpot45; y++) {
+    for (let x = 2; x < ow45.width - 2 && !unexpSpot45; x++) {
+      if (!ow45.explored[y][x] && ow45.tiles[y][x] !== OW_TERRAIN_MOUNTAINS && ow45.tiles[y][x] !== 5 && findOverworldPath(ow45, city45.x, city45.y, x, y)) {
+        const occ = ow45.pois.some(function(p) { return p.x === x && p.y === y; }) ||
+          ow45.hostiles.some(function(h) { return h.x === x && h.y === y; }) ||
+          ow45.militaryTargets.some(function(m) { return m.x === x && m.y === y; });
+        if (!occ) unexpSpot45 = { x: x, y: y };
+      }
+    }
+  }
+  const spFog = unexpSpot45 ? spawnMilitaryCombatSite(host45.state.world, { x: unexpSpot45.x, y: unexpSpot45.y, strictLocation: true }) : { ok: false };
+  const fogHiddenBefore45 = Boolean(spFog.ok && spFog.target.x === unexpSpot45.x && spFog.target.y === unexpSpot45.y && spFog.target.discovered === false);
+  if (spFog.ok) {
+    revealOverworldVision(ow45, spFog.target.x, spFog.target.y, 2, { simTimeMs: host45.state.world.clock.simTimeMs, eventStream: host45.eventStream });
+  }
+  const fogDiscoveryOk45 = Boolean(fogHiddenBefore45 && spFog.target.discovered === true);
+
+  // 4. Engage & clear spawned target (sp1, power 60 vs 5 Inf power 125 -> 1-round victory), then spawn another!
+  const depDev45 = host45.dispatch({
+    type: COMMAND_TYPES.DEPLOY_ARMY,
+    payload: { homeCityId: city45.id, targetId: sp1.target.id, stayDeployed: false, troops: [{ troopDefId: 'infantry', level: 1, quantity: 5 }] }
+  });
+  host45.stepClock(120000);
+  const spAfterClear = spawnMilitaryCombatSite(host45.state.world, { enemyPower: 100 });
+  const engageClearAndRespawnOk45 = Boolean(
+    depDev45.ok &&
+    sp1.target.status === MILITARY_TARGET_STATUS.CLEARED &&
+    spAfterClear.ok && spAfterClear.target.status === MILITARY_TARGET_STATUS.ACTIVE &&
+    city45.name === 'Devkeep' // No game reset, player progress intact
+  );
+
+  const t45Checks = {
+    defaultAndMultipleOk: defaultAndMultipleOk45,
+    invalidHandlingOk: invalidHandlingOk45,
+    fogDiscoveryOk: fogDiscoveryOk45,
+    engageClearAndRespawnOk: engageClearAndRespawnOk45
+  };
+  const failed45 = Object.keys(t45Checks).filter(function(k) { return !t45Checks[k]; });
+  const t45Pass = failed45.length === 0;
+  results.push({
+    name: '45. Developer Console Combat Site Spawning, Fog Respect, Engagement & Repeat Spawn (DC-01)',
+    pass: t45Pass,
+    detail: t45Pass
+      ? 'Default/multiple spawns, strict/fallback invalid-location handling, fog-of-war discovery, normal combat clearance & repeat spawning verified'
+      : 'Failed checks: ' + failed45.join(', ')
   });
 
   return results;

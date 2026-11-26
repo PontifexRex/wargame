@@ -2,7 +2,11 @@
 // Strictly separates Barracks military troops (locationType: 'barracks') from City Garrison militia.
 
 import { CITY_BUILDINGS_CATALOG } from './buildings.js';
-import { BASE_TROOP_QUEUE_LIMIT } from '../constants.js';
+import {
+  BASE_TROOP_QUEUE_LIMIT,
+  ARMY_COMBAT_ROUND_DURATION_MS,
+  MAX_MILITARY_COMBAT_ROUNDS
+} from '../constants.js';
 
 export const TROOP_ROLES = {
   INFANTRY: 'infantry',
@@ -847,5 +851,172 @@ export function resolveMilitaryTargetCombat(world, armyId, target) {
     totalLosses: actualLosses,
     survivingTroops: Math.max(0, totalTroops - actualLosses),
     allocations: allocations
+  };
+}
+
+// =============================================================================
+// Timed Round-Based Battle State & Step Calculator (CB-01 & CB-05)
+// Preserves exact 05B-2 combat outcome and total casualty formulas while
+// executing discrete, authoritative rounds separated from UI animations.
+// =============================================================================
+export function computePlannedCombatRounds(armyPower, enemyPower, maxRounds) {
+  const cap = typeof maxRounds === 'number' && maxRounds >= 1 ? Math.floor(maxRounds) : (MAX_MILITARY_COMBAT_ROUNDS || 10);
+  const ratio = (armyPower || 0) / Math.max(1, enemyPower || 1);
+  let planned = 3;
+  if (ratio >= 2.0) {
+    planned = 1; // Overwhelming force vs very weak enemy finishes in 1 round
+  } else if (ratio >= 1.35 || ratio < 0.60) {
+    planned = 2; // Clear advantage or heavy mismatch finishes in 2 rounds
+  } else {
+    planned = 3; // Close / equal-strength engagement plays across 3 rounds
+  }
+  return Math.max(1, Math.min(cap, planned));
+}
+
+export function createMilitaryBattleState(world, army, target, simTimeMs, roundDurationMs) {
+  const baseRes = resolveMilitaryTargetCombat(world, army ? army.id : null, target);
+  const maxRounds = MAX_MILITARY_COMBAT_ROUNDS || 10;
+  const plannedRounds = computePlannedCombatRounds(baseRes.armyPower, baseRes.enemyPower, maxRounds);
+  const rDur = Math.max(250, typeof roundDurationMs === 'number' && isFinite(roundDurationMs) ? roundDurationMs : (ARMY_COMBAT_ROUND_DURATION_MS || 3000));
+
+  const plannedEnemyTotalLoss = baseRes.victory
+    ? baseRes.enemyPower
+    : Math.max(1, Math.min(baseRes.enemyPower - 1, Math.round(baseRes.enemyPower * Math.min(0.65, (baseRes.armyPower / Math.max(1, baseRes.enemyPower)) * 0.60))));
+
+  const unlockedLabels = baseRes.victory && target && Array.isArray(target.blocksAccess)
+    ? target.blocksAccess.map(function(b) { return b.label || b.targetRef; })
+    : [];
+
+  return {
+    battleId: 'battle_' + (army ? army.id : 'army') + '_' + (target ? target.id : 'target') + '_' + (simTimeMs || 0),
+    participants: {
+      friendly: {
+        armyId: army ? army.id : null,
+        armyName: army ? (army.shortName || army.name) : 'Field Army',
+        homeCityId: army ? (army.homeCityId || null) : null
+      },
+      enemy: {
+        targetId: target ? target.id : null,
+        targetName: target ? target.name : 'Military Target',
+        enemyLabel: target ? (target.enemyLabel || 'Hostile Force') : 'Hostile Force'
+      }
+    },
+    location: {
+      x: target ? target.x : (army ? army.x : 0),
+      y: target ? target.y : (army ? army.y : 0)
+    },
+    targetId: target ? target.id : null,
+    targetName: target ? target.name : 'Military Target',
+    startedAtSimMs: simTimeMs || 0,
+    endedAtSimMs: null,
+    roundDurationMs: rDur,
+    currentRound: 0,
+    maxRounds: maxRounds,
+    plannedRounds: plannedRounds,
+    expectedVictory: baseRes.victory,
+    initialStrengths: {
+      friendlyTroops: baseRes.initialTroops,
+      friendlyPower: baseRes.armyPower,
+      enemyPower: baseRes.enemyPower
+    },
+    finalStrengths: {
+      friendlyTroops: baseRes.initialTroops,
+      friendlyPower: baseRes.armyPower,
+      enemyPower: baseRes.enemyPower
+    },
+    friendlyTotalLosses: 0,
+    enemyTotalLosses: 0,
+    plannedFriendlyLossesRemaining: baseRes.totalLosses,
+    plannedEnemyLossesRemaining: plannedEnemyTotalLoss,
+    outcome: null,
+    rounds: [],
+    casualtyEvents: [],
+    rewards: {
+      unlockedLabels: unlockedLabels
+    }
+  };
+}
+
+// Pure per-round combat step calculator (returns round delta & terminal status without mutating troopGroups directly)
+export function computeNextBattleRoundStep(world, armyId, battle, simTimeMs) {
+  if (!battle || battle.outcome) {
+    return { skipped: true, terminal: true };
+  }
+  const nextRound = (battle.currentRound || 0) + 1;
+  const remainingRounds = Math.max(1, (battle.plannedRounds || 1) - (battle.currentRound || 0));
+  const isFinalPlanned = nextRound >= (battle.plannedRounds || 1);
+  const isStalemateCap = nextRound >= (battle.maxRounds || MAX_MILITARY_COMBAT_ROUNDS || 10);
+
+  const liveGroups = getArmyTroopGroups(world, armyId);
+  let liveTroops = 0;
+  for (let i = 0; i < liveGroups.length; i++) {
+    liveTroops += Math.floor(liveGroups[i].count || 0);
+  }
+
+  // Distribute remaining planned friendly losses evenly across remaining rounds
+  const remFriendly = Math.max(0, Math.floor(battle.plannedFriendlyLossesRemaining || 0));
+  const rawFriendlyThisRound = isFinalPlanned || isStalemateCap
+    ? remFriendly
+    : Math.floor(remFriendly / remainingRounds);
+  const friendlyLossesTarget = Math.min(Math.max(0, liveTroops - 1), rawFriendlyThisRound);
+  const allocations = allocateProportionalCasualties(liveGroups, friendlyLossesTarget);
+  let friendlyLosses = 0;
+  for (let i = 0; i < allocations.length; i++) {
+    friendlyLosses += allocations[i].lost;
+  }
+
+  // Distribute remaining planned enemy power loss evenly across remaining rounds
+  const remEnemy = Math.max(0, Math.floor(battle.plannedEnemyLossesRemaining || 0));
+  const enemyPowerLost = isFinalPlanned || isStalemateCap
+    ? remEnemy
+    : Math.max(remEnemy > 0 ? 1 : 0, Math.floor(remEnemy / remainingRounds));
+
+  const friendlyTroopsAfter = Math.max(0, liveTroops - friendlyLosses);
+  const enemyPowerAfter = Math.max(0, (battle.finalStrengths ? battle.finalStrengths.enemyPower : 0) - enemyPowerLost);
+
+  // Terminal condition check (including stalemate safety cap)
+  const terminal = Boolean(
+    isFinalPlanned ||
+    isStalemateCap ||
+    enemyPowerAfter <= 0 ||
+    liveTroops <= 0
+  );
+  const outcome = terminal
+    ? (battle.expectedVictory && liveTroops > 0 ? 'victory' : 'defeat')
+    : null;
+
+  const casualtyEvents = [];
+  if (friendlyLosses > 0) {
+    casualtyEvents.push({
+      round: nextRound,
+      simTimeMs: simTimeMs || 0,
+      side: 'friendly',
+      amount: friendlyLosses,
+      unitLabel: 'Troops'
+    });
+  }
+  if (enemyPowerLost > 0) {
+    casualtyEvents.push({
+      round: nextRound,
+      simTimeMs: simTimeMs || 0,
+      side: 'enemy',
+      amount: enemyPowerLost,
+      unitLabel: 'Threat'
+    });
+  }
+
+  return {
+    skipped: false,
+    round: nextRound,
+    simTimeMs: simTimeMs || 0,
+    friendlyLosses: friendlyLosses,
+    enemyPowerLost: enemyPowerLost,
+    allocations: allocations,
+    friendlyTroopsAfter: friendlyTroopsAfter,
+    enemyPowerAfter: enemyPowerAfter,
+    casualtyEvents: casualtyEvents,
+    terminal: terminal,
+    stalemateCapped: Boolean(isStalemateCap && !isFinalPlanned),
+    outcome: outcome
   };
 }

@@ -23,6 +23,8 @@ import { advanceTrainingProgress } from '../../progression/trainingService.js';
 import { processPassiveAccrual } from '../../progression/accrualService.js';
 import { getPrimaryCity } from '../engine/state.js';
 import { getCanonicalPlayerId } from '../../core/canonicalIdentity.js';
+import { MILITARY_TARGET_ARCHETYPES } from '../data/troops.js';
+import { spawnMilitaryCombatSite } from '../engine/pathfinding.js';
 
 export function renderDevPortalModal(simHost, forceRender) {
   const modal = document.getElementById('wgDevPortalModal');
@@ -114,8 +116,50 @@ export function renderDevPortalModal(simHost, forceRender) {
     `;
   }).join('');
 
+  // 3b. DC-01: Developer Combat Site Spawner
+  const archIds = Object.keys(MILITARY_TARGET_ARCHETYPES || {});
+  const archOptsHtml = archIds.map(function(aid) {
+    const a = MILITARY_TARGET_ARCHETYPES[aid];
+    return '<option value="' + aid + '">' + (a.icon || '⚔️') + ' ' + a.name + '</option>';
+  }).join('');
+  const devSpawnFeedback = state._devCombatSiteFeedback || '';
+  const defSpawnX = city ? Math.max(1, city.x - 2) : (world.overworld ? Math.max(1, world.overworld.spawnX - 2) : 26);
+  const defSpawnY = city ? Math.max(1, city.y + 1) : (world.overworld ? Math.max(1, world.overworld.spawnY + 1) : 21);
+
   bodyEl.innerHTML = `
     <div class="space-y-4">
+      <div class="p-3 rounded-lg bg-[#080b11] border border-[#ef4444]/50 space-y-2.5">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <div class="text-xs font-bold text-[#f87171] uppercase">⚔️ Spawn Military Combat Site (DC-01)</div>
+            <div class="text-[10px] text-[#94a3b8]">Spawn a valid military target for repeated combat testing without resetting progress.</div>
+          </div>
+          <button data-action="dev-spawn-combat-site" onclick="window.WargameApp.handleDevSpawnCombatSite()" class="px-3 py-1.5 rounded bg-[#ef4444] hover:bg-[#dc2626] text-[#080b11] text-[10px] font-mono font-bold uppercase cursor-pointer">⚔️ Spawn Combat Site</button>
+        </div>
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs font-mono">
+          <label class="space-y-1">
+            <span class="text-[10px] text-[#94a3b8] block">Combat Site Type</span>
+            <select id="wgDevCombatSiteType" class="w-full px-2 py-1 rounded bg-[#111722] border border-[#334155] text-[#e6edf3] text-xs">${archOptsHtml}</select>
+          </label>
+          <label class="space-y-1">
+            <span class="text-[10px] text-[#94a3b8] block">Threat Power</span>
+            <select id="wgDevCombatSitePower" class="w-full px-2 py-1 rounded bg-[#111722] border border-[#334155] text-[#e6edf3] text-xs">
+              <option value="60">60 — Weak (1-Round Test)</option>
+              <option value="100" selected>100 — Standard (Default)</option>
+              <option value="180">180 — Strong (Multi-Round)</option>
+            </select>
+          </label>
+          <div class="space-y-1">
+            <span class="text-[10px] text-[#94a3b8] block">Location (blank = Near City)</span>
+            <div class="flex items-center gap-1">
+              <input id="wgDevCombatSiteX" type="number" placeholder="X (${defSpawnX})" class="w-1/2 px-2 py-1 rounded bg-[#111722] border border-[#334155] text-[#e6edf3] text-xs" />
+              <input id="wgDevCombatSiteY" type="number" placeholder="Y (${defSpawnY})" class="w-1/2 px-2 py-1 rounded bg-[#111722] border border-[#334155] text-[#e6edf3] text-xs" />
+            </div>
+          </div>
+        </div>
+        ${devSpawnFeedback ? `<div class="text-[11px] font-mono px-2 py-1 rounded bg-[#111722] border border-[#283347] text-[#fbbf24]">${devSpawnFeedback}</div>` : ''}
+      </div>
+
       <div class="p-3 rounded-lg bg-[#080b11] border border-[#fbbf24]/40 flex flex-wrap items-center justify-between gap-2">
         <div>
           <div class="text-xs font-bold text-[#fbbf24] uppercase">⚡ Live Simulation &amp; Offline Testing Tools</div>
@@ -284,4 +328,51 @@ export function handleDevCompleteQueuesAction(simHost) {
   simHost.state._devPortalNeedsRender = true;
   renderDevPortalModal(simHost, true);
   return { ok: true };
+}
+
+export function handleDevSpawnCombatSiteAction(simHost, explicitOptions) {
+  if (!simHost || !simHost.state || !simHost.state.world) {
+    return { ok: false, reason: 'No active campaign world' };
+  }
+  const opts = Object.assign({}, explicitOptions || {});
+  if (typeof document !== 'undefined') {
+    const portalBody = document.getElementById('wgDevPortalBody');
+    if (portalBody && typeof portalBody.querySelector === 'function') {
+      if (!opts.archetypeId) {
+        const typeEl = portalBody.querySelector('#wgDevCombatSiteType');
+        if (typeEl && typeEl.value) opts.archetypeId = typeEl.value;
+      }
+      if (typeof opts.enemyPower !== 'number') {
+        const pwrEl = portalBody.querySelector('#wgDevCombatSitePower');
+        if (pwrEl && pwrEl.value) opts.enemyPower = parseInt(pwrEl.value, 10);
+      }
+      if (typeof opts.x !== 'number' && typeof opts.y !== 'number') {
+        const xEl = portalBody.querySelector('#wgDevCombatSiteX');
+        const yEl = portalBody.querySelector('#wgDevCombatSiteY');
+        if (xEl && yEl && xEl.value !== '' && yEl.value !== '') {
+          const px = parseInt(xEl.value, 10);
+          const py = parseInt(yEl.value, 10);
+          if (isFinite(px) && isFinite(py)) {
+            opts.x = px;
+            opts.y = py;
+          }
+        }
+      }
+    }
+  }
+
+  const res = spawnMilitaryCombatSite(simHost.state.world, opts);
+  if (res.ok && res.target) {
+    const t = res.target;
+    simHost.state._devCombatSiteFeedback = '✓ Spawned ' + t.name + ' (Power ' + t.enemyPower + ') at (' + t.x + ', ' + t.y + ')' +
+      (t.discovered ? ' [Discovered]' : ' [Unexplored — scout to discover]') +
+      (res.usedFallbackLocation ? ' (used nearest valid hex)' : '');
+    simHost.state._dirty = true;
+    simHost.save();
+  } else {
+    simHost.state._devCombatSiteFeedback = '✕ Spawn failed: ' + ((res && res.reason) || 'Invalid location');
+  }
+  simHost.state._devPortalNeedsRender = true;
+  renderDevPortalModal(simHost, true);
+  return res;
 }

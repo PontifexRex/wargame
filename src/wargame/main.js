@@ -3,10 +3,12 @@
 import {
   CAMPAIGN_PHASES,
   WARGAME_VIEWS,
+  STREAM_TOPICS,
   COMMAND_TYPES,
   OVERWORLD_VIEWPORT_W,
   OVERWORLD_VIEWPORT_H,
-  OVERWORLD_TILE_SIZE
+  OVERWORLD_TILE_SIZE,
+  BATTLE_OUTCOME_BANNER_DURATION_MS
 } from './constants.js';
 import { createWargameSimHost } from './engine/simHost.js';
 import {
@@ -16,7 +18,8 @@ import {
   attachOverworldHexControls,
   centerOverworldOnOffset,
   stepOverworldEdgeScroll,
-  clearOverworldEdgeScrollPointer
+  clearOverworldEdgeScrollPointer,
+  spawnOverworldCasualtyFloaters
 } from './ui/overworldView.js';
 import { syncWargameUI, updateHeaderFastTick, renderOverworldHoverTooltip } from './ui/wargameUiSync.js';
 import {
@@ -48,7 +51,8 @@ import {
   handleDevSetConfigAction,
   handleDevResetConfigsAction,
   handleDevTimeJumpAction,
-  handleDevCompleteQueuesAction
+  handleDevCompleteQueuesAction,
+  handleDevSpawnCombatSiteAction
 } from './ui/devPortal.js';
 import { attachCityIsoControls, renderCityIsoCanvas } from './ui/cityIsoCanvas.js';
 import { findOverworldPath, isOverworldTilePassable } from './engine/pathfinding.js';
@@ -870,6 +874,14 @@ export function handleInspectMilitaryTarget(targetId) {
   const isDisc = Boolean(mt.discovered || (ow.explored[mt.y] && ow.explored[mt.y][mt.x]));
   if (!isDisc) return;
   simHost.state._selectedMilitaryTargetId = mt.id;
+  simHost.state._dirty = true;
+  syncWargameUI(simHost);
+}
+
+export function handleDismissBattleResultsPopup() {
+  if (!simHost.state) return;
+  simHost.state._battleResultsPopup = null;
+  simHost.state._battleOutcomeBanner = null;
   simHost.state._dirty = true;
   syncWargameUI(simHost);
 }
@@ -1830,6 +1842,14 @@ function wargameMainLoop(timestamp) {
       stepOverworldEdgeScroll(elapsedRealMs / 1000, simHost.state);
       renderWargameOverworldCanvas(simHost);
     }
+
+    // CB-03 -> CB-04: Transition Victory/Defeat banner (~2s) cleanly into Battle Results Popup
+    if (simHost.state._battleOutcomeBanner && Date.now() >= simHost.state._battleOutcomeBanner.expiresAtRealMs) {
+      simHost.state._battleResultsPopup = simHost.state._battleOutcomeBanner.report || null;
+      simHost.state._battleOutcomeBanner = null;
+      simHost.state._dirty = true;
+    }
+
     updateHeaderFastTick(simHost);
 
     // Throttle DOM rebuilds so buttons don't get destroyed mid-click
@@ -1894,6 +1914,7 @@ export const WargameApp = {
   handleLocateOverworldHex: handleLocateOverworldHex,
   handleInspectMilitaryTarget: handleInspectMilitaryTarget,
   handleCloseMilitaryTargetInspector: handleCloseMilitaryTargetInspector,
+  handleDismissBattleResultsPopup: handleDismissBattleResultsPopup,
   handleAssignArmyToTarget: handleAssignArmyToTarget,
   handleSetDeployTargetCoord: handleSetDeployTargetCoord,
   handleSetDeployTroopQty: handleSetDeployTroopQty,
@@ -1971,12 +1992,40 @@ export const WargameApp = {
   handleDevResetConfigs: function() { return handleDevResetConfigsAction(simHost); },
   handleDevTimeJump: function(sec) { return handleDevTimeJumpAction(simHost, sec); },
   handleDevCompleteQueues: function() { return handleDevCompleteQueuesAction(simHost); },
+  handleDevSpawnCombatSite: function(opts) {
+    const res = handleDevSpawnCombatSiteAction(simHost, opts);
+    syncWargameUI(simHost);
+    return res;
+  },
   syncWargameUI: function() { syncWargameUI(simHost); }
 };
 
 export function bootstrapWargame() {
   if (wargameBootstrapped) return;
   wargameBootstrapped = true;
+
+  // CB-02 & CB-03: Subscribe presentation feedback strictly to authoritative combat events
+  simHost.eventStream.subscribe(STREAM_TOPICS.ARMY_COMBAT_ROUND_RESOLVED, function(ev) {
+    if (ev && ev.payload) {
+      spawnOverworldCasualtyFloaters(ev.payload);
+      simHost.state._dirty = true;
+    }
+  });
+  simHost.eventStream.subscribe(STREAM_TOPICS.ARMY_COMBAT_RESOLVED, function(ev) {
+    if (ev && ev.payload) {
+      const rpt = ev.payload;
+      simHost.state._battleOutcomeBanner = {
+        battleId: rpt.battleId || null,
+        victory: Boolean(rpt.victory),
+        armyName: rpt.armyName || 'Field Army',
+        targetName: rpt.targetName || 'Military Target',
+        report: rpt,
+        expiresAtRealMs: Date.now() + (BATTLE_OUTCOME_BANNER_DURATION_MS || 2000)
+      };
+      simHost.state._battleResultsPopup = null;
+      simHost.state._dirty = true;
+    }
+  });
 
   setupWargameListeners();
   appContext.syncFromCampaignPhase();

@@ -7,7 +7,8 @@ import {
   BASE_HERO_RECRUIT_DURATION_MS,
   WINDMILL_ADJACENCY_BONUS,
   ARMY_PATROL_DURATION_MS,
-  ARMY_COMBAT_DURATION_MS
+  ARMY_COMBAT_DURATION_MS,
+  ARMY_COMBAT_ROUND_DURATION_MS
 } from '../constants.js';
 import { CITY_BUILDINGS_CATALOG } from '../data/buildings.js';
 import {
@@ -20,7 +21,9 @@ import {
   MILITARY_TARGET_STATUS,
   getArmyTroopGroups,
   getMilitaryTargetById,
-  resolveMilitaryTargetCombat
+  computeArmyCombatPower,
+  createMilitaryBattleState,
+  computeNextBattleRoundStep
 } from '../data/troops.js';
 import { UNIT_ARCHETYPES, RECRUITABLE_HERO_CLASSES } from '../data/terrain.js';
 import { revealOverworldVision, findOverworldPath } from './pathfinding.js';
@@ -1299,18 +1302,21 @@ export function handleArmyArrival(army, state, scheduler, simTimeMs, eventStream
       return;
     }
 
-    const combatDur = Math.max(250, ARMY_COMBAT_DURATION_MS || 3000);
+    const roundDur = Math.max(250, ARMY_COMBAT_ROUND_DURATION_MS || ARMY_COMBAT_DURATION_MS || 3000);
+    const battle = createMilitaryBattleState(state.world, army, target, simTimeMs, roundDur);
     const job = scheduler ? scheduler.scheduleJob({
-      jobId: 'army_cbt_' + army.id + '_' + simTimeMs + '_' + Math.floor(Math.random() * 10000),
+      jobId: 'army_cbt_' + army.id + '_r1_' + simTimeMs + '_' + Math.floor(Math.random() * 10000),
       jobType: 'ARMY_OBJECTIVE_COMPLETE',
       ownerId: army.id,
       startSimTimeMs: simTimeMs,
-      dueSimTimeMs: simTimeMs + combatDur,
+      dueSimTimeMs: simTimeMs + roundDur,
       payload: {
         armyId: army.id,
         objectiveId: army.objective.id,
         objectiveType: army.objective.type,
-        targetId: target.id
+        targetId: target.id,
+        battleId: battle.battleId,
+        expectedRound: 1
       }
     }) : null;
 
@@ -1318,18 +1324,24 @@ export function handleArmyArrival(army, state, scheduler, simTimeMs, eventStream
     army.objective.status = ARMY_OBJECTIVE_STATUS.IN_PROGRESS;
     army.objective.jobId = job ? job.jobId : null;
     army.objective.startSimTimeMs = simTimeMs;
-    army.objective.dueSimTimeMs = simTimeMs + combatDur;
+    army.objective.dueSimTimeMs = simTimeMs + roundDur;
+    army.objective.battle = battle;
 
     if (eventStream) {
       eventStream.publish(STREAM_TOPICS.ARMY_COMBAT_STARTED, {
+        battleId: battle.battleId,
         armyId: army.id,
         armyName: army.shortName || army.name,
         targetId: target.id,
         targetName: target.name,
         enemyPower: target.enemyPower,
+        friendlyPower: battle.initialStrengths.friendlyPower,
+        friendlyTroops: battle.initialStrengths.friendlyTroops,
+        plannedRounds: battle.plannedRounds,
+        roundDurationMs: roundDur,
         x: target.x,
         y: target.y,
-        durationMs: combatDur
+        durationMs: roundDur
       }, simTimeMs);
     }
     return;
@@ -1413,25 +1425,160 @@ export function resolveArmyObjectiveCompleteJob(job, state, scheduler, eventStre
       return;
     }
 
-    const combatRes = resolveMilitaryTargetCombat(state.world, army.id, target);
-    applyArmyCombatCasualties(state.world, army.id, combatRes.allocations);
+    // Backfill battle state if resuming a pre-CB01 mid-combat save
+    if (!army.objective.battle) {
+      army.objective.battle = createMilitaryBattleState(
+        state.world,
+        army,
+        target,
+        army.objective.startSimTimeMs || job.dueSimTimeMs,
+        ARMY_COMBAT_ROUND_DURATION_MS
+      );
+    }
+    const battle = army.objective.battle;
 
-    const unlockedLabels = combatRes.victory && Array.isArray(target.blocksAccess)
+    // Strict per-round idempotency guard: never apply the same round twice
+    if (typeof p.expectedRound === 'number' && p.expectedRound !== (battle.currentRound || 0) + 1) {
+      return;
+    }
+
+    const step = computeNextBattleRoundStep(state.world, army.id, battle, job.dueSimTimeMs);
+    if (step.skipped) return;
+
+    // Apply this round's casualties directly to authoritative world.troopGroups[]
+    if (step.friendlyLosses > 0) {
+      applyArmyCombatCasualties(state.world, army.id, step.allocations);
+    }
+
+    const updatedFriendlyPower = computeArmyCombatPower(state.world, army.id);
+    battle.currentRound = step.round;
+    battle.friendlyTotalLosses = (battle.friendlyTotalLosses || 0) + step.friendlyLosses;
+    battle.enemyTotalLosses = (battle.enemyTotalLosses || 0) + step.enemyPowerLost;
+    battle.plannedFriendlyLossesRemaining = Math.max(0, (battle.plannedFriendlyLossesRemaining || 0) - step.friendlyLosses);
+    battle.plannedEnemyLossesRemaining = Math.max(0, (battle.plannedEnemyLossesRemaining || 0) - step.enemyPowerLost);
+    battle.finalStrengths = {
+      friendlyTroops: step.friendlyTroopsAfter,
+      friendlyPower: updatedFriendlyPower,
+      enemyPower: step.enemyPowerAfter
+    };
+
+    const roundEntry = {
+      round: step.round,
+      simTimeMs: job.dueSimTimeMs,
+      friendlyLosses: step.friendlyLosses,
+      enemyPowerLost: step.enemyPowerLost,
+      friendlyTroopsAfter: step.friendlyTroopsAfter,
+      friendlyPowerAfter: updatedFriendlyPower,
+      enemyPowerAfter: step.enemyPowerAfter,
+      casualtyEvents: step.casualtyEvents
+    };
+    if (!Array.isArray(battle.rounds)) battle.rounds = [];
+    battle.rounds.push(roundEntry);
+    if (!Array.isArray(battle.casualtyEvents)) battle.casualtyEvents = [];
+    for (let ci = 0; ci < step.casualtyEvents.length; ci++) {
+      battle.casualtyEvents.push(step.casualtyEvents[ci]);
+    }
+
+    if (eventStream) {
+      eventStream.publish(STREAM_TOPICS.ARMY_COMBAT_ROUND_RESOLVED, {
+        battleId: battle.battleId,
+        armyId: army.id,
+        armyName: army.shortName || army.name,
+        targetId: target.id,
+        targetName: target.name,
+        x: target.x,
+        y: target.y,
+        round: step.round,
+        plannedRounds: battle.plannedRounds,
+        friendlyLosses: step.friendlyLosses,
+        enemyPowerLost: step.enemyPowerLost,
+        friendlyTroopsAfter: step.friendlyTroopsAfter,
+        enemyPowerAfter: step.enemyPowerAfter,
+        terminal: step.terminal
+      }, job.dueSimTimeMs);
+    }
+
+    // If battle has not reached a terminal condition, schedule the next discrete round
+    if (!step.terminal) {
+      const nextRound = battle.currentRound + 1;
+      const nextDur = Math.max(250, battle.roundDurationMs || ARMY_COMBAT_ROUND_DURATION_MS || 3000);
+      const nextJob = scheduler ? scheduler.scheduleJob({
+        jobId: 'army_cbt_' + army.id + '_r' + nextRound + '_' + job.dueSimTimeMs + '_' + Math.floor(Math.random() * 10000),
+        jobType: 'ARMY_OBJECTIVE_COMPLETE',
+        ownerId: army.id,
+        startSimTimeMs: job.dueSimTimeMs,
+        dueSimTimeMs: job.dueSimTimeMs + nextDur,
+        payload: {
+          armyId: army.id,
+          objectiveId: army.objective.id,
+          objectiveType: army.objective.type,
+          targetId: target.id,
+          battleId: battle.battleId,
+          expectedRound: nextRound
+        }
+      }) : null;
+      army.objective.jobId = nextJob ? nextJob.jobId : null;
+      army.objective.startSimTimeMs = job.dueSimTimeMs;
+      army.objective.dueSimTimeMs = job.dueSimTimeMs + nextDur;
+      state._dirty = true;
+      saveWargameState(state, scheduler);
+      return;
+    }
+
+    // Terminal round reached: finalize battle record & preserve for future reporting (CB-05)
+    const isVictory = step.outcome === 'victory';
+    battle.endedAtSimMs = job.dueSimTimeMs;
+    battle.outcome = step.outcome;
+    battle.roundCount = battle.currentRound;
+    const unlockedLabels = isVictory && Array.isArray(target.blocksAccess)
       ? target.blocksAccess.map(function(b) { return b.label || b.targetRef; })
       : [];
+    battle.rewards = { unlockedLabels: unlockedLabels };
+
+    if (!Array.isArray(state.world.battleHistory)) state.world.battleHistory = [];
+    state.world.battleHistory.push({
+      battleId: battle.battleId,
+      participants: battle.participants,
+      location: battle.location,
+      targetId: battle.targetId,
+      targetName: battle.targetName,
+      startedAtSimMs: battle.startedAtSimMs,
+      endedAtSimMs: battle.endedAtSimMs,
+      roundCount: battle.roundCount,
+      rounds: battle.rounds.slice(),
+      casualtyEvents: battle.casualtyEvents.slice(),
+      initialStrengths: battle.initialStrengths,
+      finalStrengths: battle.finalStrengths,
+      friendlyTotalLosses: battle.friendlyTotalLosses,
+      enemyTotalLosses: battle.enemyTotalLosses,
+      outcome: battle.outcome,
+      rewards: battle.rewards
+    });
+    if (state.world.battleHistory.length > 50) {
+      state.world.battleHistory.shift();
+    }
 
     const report = {
+      battleId: battle.battleId,
       simTimeMs: job.dueSimTimeMs,
       armyId: army.id,
       armyName: army.shortName || army.name,
       targetId: target.id,
       targetName: target.name,
-      victory: combatRes.victory,
-      armyPower: combatRes.armyPower,
-      enemyPower: combatRes.enemyPower,
-      initialTroops: combatRes.initialTroops,
-      totalLosses: combatRes.totalLosses,
-      survivingTroops: combatRes.survivingTroops,
+      x: target.x,
+      y: target.y,
+      roundCount: battle.roundCount,
+      victory: isVictory,
+      outcome: battle.outcome,
+      armyPower: battle.initialStrengths.friendlyPower,
+      enemyPower: battle.initialStrengths.enemyPower,
+      initialTroops: battle.initialStrengths.friendlyTroops,
+      totalLosses: battle.friendlyTotalLosses,
+      survivingTroops: battle.finalStrengths.friendlyTroops,
+      survivingPower: battle.finalStrengths.friendlyPower,
+      enemyInitialPower: battle.initialStrengths.enemyPower,
+      enemySurvivingPower: battle.finalStrengths.enemyPower,
+      enemyLosses: battle.enemyTotalLosses,
       unlockedLabels: unlockedLabels
     };
     army.lastCombatResult = report;
@@ -1439,7 +1586,7 @@ export function resolveArmyObjectiveCompleteJob(job, state, scheduler, eventStre
     army.objective.jobId = null;
     army.status = 'idle';
 
-    if (combatRes.victory) {
+    if (isVictory) {
       target.status = MILITARY_TARGET_STATUS.CLEARED;
       target.clearedAtSimMs = job.dueSimTimeMs;
       target.clearedByArmyId = army.id;

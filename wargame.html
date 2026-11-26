@@ -232,6 +232,8 @@
             <canvas id="wgOverworldCanvas" width="672" height="480" class="max-w-full h-auto cursor-crosshair"></canvas>
             <!-- PF-04: Visibility-Respecting Map Hover Tooltip -->
             <div id="wgOverworldTooltip" class="hidden pointer-events-none absolute z-20 max-w-[230px] p-2 rounded-lg bg-[#080b11]/95 border border-[#38bdf8]/50 shadow-xl text-[11px] font-mono text-[#e6edf3]"></div>
+            <!-- CB-03: Prominent Victory / Defeat Battle Outcome Banner (~2s) -->
+            <div id="wgBattleOutcomeBanner" class="hidden pointer-events-none absolute inset-x-0 top-6 z-30 flex justify-center px-4"></div>
             <div class="absolute bottom-2 left-2 pointer-events-none bg-[#080b11]/85 backdrop-blur px-2.5 py-1 rounded border border-[#283347] text-[10px] font-mono text-[#8b949e] hidden sm:flex items-center gap-2.5">
               <span><strong class="text-[#e6edf3]">Click Tile:</strong> March / Inspect</span>
               <span><strong class="text-[#fbbf24]">Drag / Edge:</strong> Pan Map</span>
@@ -563,6 +565,11 @@
   <!-- Lightweight Field Army Deployment Modal (Task 05B-1) -->
   <div id="wgDeployArmyModal" class="hidden fixed inset-0 z-50 flex items-end md:items-center justify-center bg-black/85 backdrop-blur-sm p-0 md:p-4">
     <div id="wgDeployArmyBody" class="w-full md:max-w-xl bg-[#0e1524] border-t md:border border-[#f87171]/60 rounded-t-2xl md:rounded-xl shadow-2xl overflow-hidden flex flex-col max-h-[90dvh]"></div>
+  </div>
+
+  <!-- CB-04: Battle Results Summary Popup Modal -->
+  <div id="wgBattleResultsModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+    <div id="wgBattleResultsBody" class="w-full max-w-md bg-[#0e1524] border border-[#fbbf24]/60 rounded-xl shadow-2xl overflow-hidden flex flex-col max-h-[88dvh]"></div>
   </div>
 
   <!-- Wargame Developer Portal Modal (Live Currencies & Auto-Surfaced Key Configs) -->

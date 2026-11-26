@@ -105,6 +105,7 @@ export function createNewCampaignWorldState(options = {}) {
       heroes: [],
       parties: [],
       troopGroups: [],
+      battleHistory: [],
       tasks: createInitialTasksState(),
       progression: createDefaultProgressionState(0),
       scheduledJobs: [],
@@ -358,6 +359,7 @@ export function reconcileLoadedWorldIntegrity(parsed) {
   if (!w.cities || typeof w.cities !== 'object') w.cities = {};
   if (!Array.isArray(w.heroes)) w.heroes = [];
   if (!Array.isArray(w.parties)) w.parties = [];
+  if (!Array.isArray(w.battleHistory)) w.battleHistory = [];
 
   // 0. Normalize activeView on load so stale/invalid facility views never trap the player in Adventurers Guild
   const cityIds = Object.keys(w.cities);
@@ -491,7 +493,9 @@ export function reconcileLoadedWorldIntegrity(parsed) {
             armyId: u.id,
             objectiveId: u.objective.id,
             objectiveType: u.objective.type,
-            targetId: u.objective.targetId || null
+            targetId: u.objective.targetId || null,
+            battleId: u.objective.battle ? u.objective.battle.battleId : null,
+            expectedRound: u.objective.battle ? ((u.objective.battle.currentRound || 0) + 1) : 1
           }
         };
         u.objective.jobId = recObjJobId;

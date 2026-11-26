@@ -377,6 +377,129 @@ export function createDefaultMilitaryTargets(overworld, citiesMap, reachOriginX,
   return targets;
 }
 
+// DC-01: Developer-only military combat site spawner reusing the exact same target model,
+// non-destructive placement rules, and discovery/visibility contract as standard targets.
+export function spawnMilitaryCombatSite(world, options) {
+  if (!world || !world.overworld || !world.overworld.tiles) {
+    return { ok: false, reason: 'No active Overworld map' };
+  }
+  const ow = world.overworld;
+  const opts = options || {};
+  const archId = opts.archetypeId && MILITARY_TARGET_ARCHETYPES[opts.archetypeId]
+    ? opts.archetypeId
+    : 'raider_blockade';
+  const arch = MILITARY_TARGET_ARCHETYPES[archId];
+  if (!arch) {
+    return { ok: false, reason: 'Unknown military target archetype: ' + String(opts.archetypeId || '') };
+  }
+
+  const citiesMap = world.cities || {};
+  const primaryCity = (world.activeCityId && citiesMap[world.activeCityId])
+    ? citiesMap[world.activeCityId]
+    : (Object.keys(citiesMap).length > 0 ? citiesMap[Object.keys(citiesMap)[0]] : null);
+  const reachOriginX = primaryCity ? primaryCity.x : ow.spawnX;
+  const reachOriginY = primaryCity ? primaryCity.y : ow.spawnY;
+
+  if (!Array.isArray(ow.militaryTargets)) {
+    ow.militaryTargets = [];
+  }
+
+  const occupied = {};
+  const markOcc = function(x, y) {
+    if (typeof x === 'number' && typeof y === 'number') {
+      occupied[x + ',' + y] = true;
+    }
+  };
+  markOcc(ow.spawnX, ow.spawnY);
+  const pois = Array.isArray(ow.pois) ? ow.pois : [];
+  for (let i = 0; i < pois.length; i++) {
+    if (pois[i]) markOcc(pois[i].x, pois[i].y);
+  }
+  const hostiles = Array.isArray(ow.hostiles) ? ow.hostiles : [];
+  for (let i = 0; i < hostiles.length; i++) {
+    if (hostiles[i] && hostiles[i].alive !== false) markOcc(hostiles[i].x, hostiles[i].y);
+  }
+  const units = Array.isArray(ow.units) ? ow.units : [];
+  for (let i = 0; i < units.length; i++) {
+    if (units[i] && units[i].alive !== false) markOcc(units[i].x, units[i].y);
+  }
+  const cKeys = Object.keys(citiesMap);
+  for (let i = 0; i < cKeys.length; i++) {
+    const c = citiesMap[cKeys[i]];
+    if (c) markOcc(c.x, c.y);
+  }
+  for (let i = 0; i < ow.militaryTargets.length; i++) {
+    const mt = ow.militaryTargets[i];
+    if (mt) markOcc(mt.x, mt.y);
+  }
+
+  const hasExplicitCoords = typeof opts.x === 'number' && typeof opts.y === 'number' && isFinite(opts.x) && isFinite(opts.y);
+  const desiredX = hasExplicitCoords ? Math.floor(opts.x) : (reachOriginX - 2);
+  const desiredY = hasExplicitCoords ? Math.floor(opts.y) : (reachOriginY + 1);
+  const strictLocation = Boolean(opts.strictLocation);
+
+  let chosenPos = null;
+  let usedFallbackLocation = false;
+
+  if (hasExplicitCoords) {
+    const inInnerBounds = desiredX > 0 && desiredY > 0 && desiredX < ow.width - 1 && desiredY < ow.height - 1;
+    const exactKey = desiredX + ',' + desiredY;
+    const exactPassable = inInnerBounds && !occupied[exactKey] && isOverworldTilePassable(ow, desiredX, desiredY);
+    const exactReachable = exactPassable && !(desiredX === reachOriginX && desiredY === reachOriginY) &&
+      Boolean(findOverworldPath(ow, reachOriginX, reachOriginY, desiredX, desiredY));
+    if (exactReachable) {
+      chosenPos = { x: desiredX, y: desiredY };
+    } else if (strictLocation) {
+      return { ok: false, reason: 'Requested hex (' + desiredX + ', ' + desiredY + ') is invalid, occupied, impassable, or unreachable' };
+    } else {
+      chosenPos = findValidMilitaryTargetHex(ow, desiredX, desiredY, occupied, reachOriginX, reachOriginY, 8);
+      usedFallbackLocation = Boolean(chosenPos);
+    }
+  } else {
+    chosenPos = findValidMilitaryTargetHex(ow, desiredX, desiredY, occupied, reachOriginX, reachOriginY, 8);
+  }
+
+  if (!chosenPos) {
+    return { ok: false, reason: 'No valid reachable hex available near (' + desiredX + ', ' + desiredY + ')' };
+  }
+
+  const simTimeMs = (world.clock && typeof world.clock.simTimeMs === 'number') ? world.clock.simTimeMs : 0;
+  const existingDevCount = ow.militaryTargets.filter(function(t) { return t && t.devSpawned; }).length;
+  const seq = existingDevCount + 1;
+  const targetId = 'mtarget_dev_' + seq + '_' + simTimeMs + '_' + Math.floor(Math.random() * 10000);
+  const enemyPower = (typeof opts.enemyPower === 'number' && isFinite(opts.enemyPower) && opts.enemyPower >= 1)
+    ? Math.floor(opts.enemyPower)
+    : 100;
+  const isAlreadyExplored = Boolean(ow.explored && ow.explored[chosenPos.y] && ow.explored[chosenPos.y][chosenPos.x]);
+
+  const newTarget = {
+    id: targetId,
+    archetypeId: arch.id,
+    name: opts.name ? String(opts.name) : ('Raider Blockade Camp #' + seq),
+    icon: arch.icon || '⚔️',
+    accentColor: arch.accentColor || '#ef4444',
+    clearedColor: arch.clearedColor || '#34d399',
+    x: chosenPos.x,
+    y: chosenPos.y,
+    discovered: isAlreadyExplored, // Strictly obeys normal exploration rules (never bypasses fog!)
+    status: MILITARY_TARGET_STATUS.ACTIVE,
+    enemyPower: enemyPower,
+    enemyLabel: arch.enemyLabel || 'Organized Raider Warband',
+    desc: arch.desc || 'Fortified hostile military position spawned for combat testing.',
+    blocksAccess: [],
+    clearedAtSimMs: null,
+    clearedByArmyId: null,
+    devSpawned: true
+  };
+
+  ow.militaryTargets.push(newTarget);
+  return {
+    ok: true,
+    target: newTarget,
+    usedFallbackLocation: usedFallbackLocation
+  };
+}
+
 export function revealOverworldVision(overworld, cx, cy, radius = 4, options = null) {
   if (!overworld || !overworld.explored) return [];
   const inRange = getHexesInRange(cx, cy, radius, overworld);
