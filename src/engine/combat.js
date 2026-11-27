@@ -785,6 +785,9 @@ export function processTurn(state = gameState) {
   if (h.classId === 'paladin' && state.turn % 3 === 0) {
     h.hp = Math.min(h.maxHp, h.hp + 1);
   }
+  if (h.classId === 'cleric' && state.turn % 2 === 0) {
+    h.mp = Math.min(h.maxMp, h.mp + 1);
+  }
 
   // Hero Status & Shrine Buff Ticks
   if (h.statuses && h.statuses.length > 0) {
@@ -921,7 +924,10 @@ export function getSkillTargetingInfo(state = gameState) {
     return { valid: false, reason: 'not_in_dungeon', targets: [], targetCoords: [], canAfford: false, reachRadius: 0 };
   }
   const h = state.hero;
-  const cls = CLASSES[h.classId] || CLASSES.fighter;
+  const cls = CLASSES[h.classId];
+  if (!cls) {
+    return { valid: false, reason: 'unknown_class', targets: [], targetCoords: [], canAfford: false, reachRadius: 0 };
+  }
   const floor = ensureDungeonFloorHydrated(state.dungeon, state.dungeon.currentFloor);
   if (!floor || !floor.monsters) {
     return { valid: false, reason: 'no_floor', targets: [], targetCoords: [], canAfford: false, reachRadius: 0 };
@@ -988,6 +994,12 @@ export function getSkillTargetingInfo(state = gameState) {
     reachRadius = 1.5;
     const t = floor.monsters.find(m => m.hp > 0 && Math.hypot(m.x - h.x, m.y - h.y) <= 1.5);
     if (t) targets.push(t);
+  } else if (h.classId === 'cleric') {
+    reachRadius = 3.2;
+    const visTargets = floor.monsters
+      .filter(m => m.hp > 0 && Math.hypot(m.x - h.x, m.y - h.y) <= 3.2 && hasLineOfSight(floor, h.x, h.y, m.x, m.y))
+      .sort((a, b) => Math.hypot(a.x - h.x, a.y - h.y) - Math.hypot(b.x - h.x, b.y - h.y));
+    if (visTargets.length > 0) targets.push(visTargets[0]);
   }
 
   const targetCoords = targets.map(m => ({ x: m.x, y: m.y }));
@@ -1013,6 +1025,7 @@ export function executeClassSkill(state = gameState) {
   if (state.inGuild) return { ok: false, reason: 'in_guild' };
   const h = state.hero;
   const cls = CLASSES[h.classId];
+  if (!cls) return { ok: false, reason: 'unknown_class' };
   const floor = ensureDungeonFloorHydrated(state.dungeon, state.dungeon.currentFloor);
   if (!floor) return { ok: false, reason: 'no_floor' };
 
@@ -1274,6 +1287,42 @@ export function executeClassSkill(state = gameState) {
     if (target.hp <= 0) killMonster(target, state);
     if (state === gameState) processTurn(state);
     return { ok: true, skill: 'torch_flare', dmg };
+  }
+
+  // 7. CLERIC: Sacred Ward (Requires visible foe within 3 tiles before deducting MP; deals 160% holy/INT dmg + heals 20% Max HP)
+  if (h.classId === 'cleric') {
+    const visTargets = floor.monsters
+      .filter(m => m.hp > 0 && Math.hypot(m.x - h.x, m.y - h.y) <= 3.2 && hasLineOfSight(floor, h.x, h.y, m.x, m.y))
+      .sort((a, b) => Math.hypot(a.x - h.x, a.y - h.y) - Math.hypot(b.x - h.x, b.y - h.y));
+    const target = visTargets[0] || null;
+    if (!target) {
+      if (state === gameState) {
+        ui.floatingText(h.x, h.y, 'No Visible Foe!', '#fef08a');
+        ui.log('Sacred Ward requires a visible monster within 3 tiles.', 'bad');
+      }
+      return { ok: false, reason: 'no_target_in_range' };
+    }
+
+    h.mp -= effectiveCost;
+    const masteryMult = getCodexMasteryMultiplier(target.id, state);
+    const spellBase = Math.max(h.atk, Math.round((h.computedInt || h.int || 12) * 1.6));
+    const dmg = Math.max(5, Math.round(spellBase * 1.6 * masteryMult) - Math.floor(target.def * 0.4));
+    const healAmt = Math.max(6, Math.round(h.maxHp * 0.20));
+    target.hp -= dmg;
+    h.hp = Math.min(h.maxHp, h.hp + healAmt);
+
+    if (state === gameState) {
+      playSound('spell');
+      ui.floatingText(target.x, target.y, `-${dmg} SACRED WARD!`, '#fef08a');
+      ui.floatingText(h.x, h.y, `+${healAmt} HP`, '#34d399');
+      ui.log(`Sacred Ward strikes ${target.name} for ${dmg} holy damage and restores +${healAmt} HP!`, 'gold');
+      if (typeof ui.combatAnim === 'function') {
+        ui.combatAnim(target.x, target.y, 'crit_slash', '#fef08a');
+      }
+    }
+    if (target.hp <= 0) killMonster(target, state);
+    if (state === gameState) processTurn(state);
+    return { ok: true, skill: 'sacred_ward', dmg, healAmt };
   }
 
   return { ok: false };

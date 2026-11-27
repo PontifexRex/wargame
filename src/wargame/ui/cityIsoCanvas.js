@@ -193,8 +193,8 @@ function drawArchitecturalBuilding(ctx, vp, coord, bDef, plot, onRepaint) {
     return;
   }
 
-  // 1. GARDEN / FARMSTEAD: Sunlit plowed earth crop furrows + fence + thatched toolshed
-  if (id === 'garden' || id === 'farmstead') {
+  // 1. GARDEN: Sunlit plowed earth crop furrows + fence + thatched toolshed
+  if (id === 'garden') {
     const rx = 28 * z;
     const ry = 14 * z;
     // Rich dark soil bed
@@ -309,8 +309,8 @@ function drawArchitecturalBuilding(ctx, vp, coord, bDef, plot, onRepaint) {
     return;
   }
 
-  // 5. LUMBER CAMP / SAWMILL: Timber shed + stacked cut pine logs
-  if (id === 'lumber_camp' || id === 'lumber_hut' || id === 'sawmill') {
+  // 5. LUMBER CAMP: Timber shed + stacked cut pine logs
+  if (id === 'lumber_camp') {
     const shed = drawIsoBox(ctx, cx - 5 * z, cy - 2 * z, 16 * z, 8 * z, 11 * z, { left: '#a47148', right: '#6b4423' });
     drawPitchedRoof(ctx, shed, cx - 5 * z, cy - 2 * z, 11 * z, 7 * z, '#854d0e', '#573309');
     // Stacked logs in front yard
@@ -365,16 +365,15 @@ function drawArchitecturalBuilding(ctx, vp, coord, bDef, plot, onRepaint) {
     return;
   }
 
-  // 8. SMELTERY / BLACKSMITH / STAR-FORGE: Ashlar foundry + smoking chimney + glowing furnace
-  if (id === 'smeltery' || id === 'blacksmith' || id === 'star_forge') {
+  // 8. SMELTERY / BLACKSMITH: Ashlar foundry + smoking chimney + glowing furnace
+  if (id === 'smeltery' || id === 'blacksmith') {
     const h = (14 + lvl * 2.5) * z;
     const box = drawIsoBox(ctx, cx, cy + 2 * z, 23 * z, 11.5 * z, h, { left: '#57534e', right: '#3b3734' });
     drawPitchedRoof(ctx, box, cx, cy + 2 * z, h, 9 * z, '#334155', '#1e293b');
     // Tall blast chimney
     drawIsoBox(ctx, cx - 10 * z, cy - h + 1 * z, 5 * z, 2.5 * z, 15 * z, { left: '#78716c', right: '#44403c', top: '#292524' });
     // Glowing furnace arch
-    const glow = id === 'star_forge' ? '#38bdf8' : '#f97316';
-    drawIsoWindow(ctx, cx + 9 * z, cy - 3 * z, 7 * z, 8 * z, glow);
+    drawIsoWindow(ctx, cx + 9 * z, cy - 3 * z, 7 * z, 8 * z, '#f97316');
     // Smoke puff
     ctx.fillStyle = 'rgba(203, 213, 225, 0.35)';
     ctx.beginPath();
@@ -397,8 +396,8 @@ function drawArchitecturalBuilding(ctx, vp, coord, bDef, plot, onRepaint) {
     return;
   }
 
-  // 10. TEMPLE CHAPTERHOUSE / SHRINE: Pale limestone sanctuary + tall golden spire + stained glass
-  if (id === 'temple_chapterhouse' || id === 'shrine') {
+  // 10. TEMPLE CHAPTERHOUSE: Pale limestone sanctuary + tall golden spire + stained glass
+  if (id === 'temple_chapterhouse') {
     const h = (16 + lvl * 3) * z;
     const nave = drawIsoBox(ctx, cx, cy + 2 * z, 23 * z, 11.5 * z, h, { left: '#f1f5f9', right: '#cbd5e1' });
     const apex = drawPitchedRoof(ctx, nave, cx, cy + 2 * z, h, 14 * z, '#e2e8f0', '#94a3b8');
@@ -419,7 +418,7 @@ function drawArchitecturalBuilding(ctx, vp, coord, bDef, plot, onRepaint) {
   }
 
   // 11. MEETING HALL / TOWN HALL: Grand Tiered Stone Citadel + Central Clock Turret + Gold Banner
-  if (id === 'meeting_hall' || id === 'town_hall') {
+  if (id === 'meeting_hall') {
     const h = (20 + lvl * 3.5) * z;
     const main = drawIsoBox(ctx, cx, cy + 2 * z, 27 * z, 13.5 * z, h, { left: '#d6cfc2', right: '#9b9388' });
     const apex = drawPitchedRoof(ctx, main, cx, cy + 2 * z, h, 12 * z, '#475569', '#1e293b');

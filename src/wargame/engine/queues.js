@@ -25,10 +25,18 @@ import {
   createMilitaryBattleState,
   computeNextBattleRoundStep
 } from '../data/troops.js';
-import { UNIT_ARCHETYPES, RECRUITABLE_HERO_CLASSES } from '../data/terrain.js';
+import { UNIT_ARCHETYPES } from '../data/terrain.js';
+import { getRecruitableHeroEntry } from '../data/heroRecruitment.js';
+import { CLASSES } from '../../data/classes.js';
 import { revealOverworldVision, findOverworldPath } from './pathfinding.js';
 import { evaluateTaskDAG } from './taskEngine.js';
-import { saveWargameState, getPrimaryCity, computeCityStorageCaps } from './state.js';
+import {
+  saveWargameState,
+  getPrimaryCity,
+  computeCityStorageCaps,
+  DEFAULT_PERSISTENT_HERO_MAX_XP,
+  normalizePersistentHeroInstance
+} from './state.js';
 import { getCanonicalPlayerId } from '../../core/canonicalIdentity.js';
 
 export function scheduleNextMarchStep(unit, state, scheduler) {
@@ -418,17 +426,8 @@ export function resolveBuildingCompleteJob(job, state, scheduler, eventStream) {
   if (!city.buildings) city.buildings = {};
   city.buildings[bId] = Math.max(city.buildings[bId] || 0, targetLvl);
 
-  if (bId === 'town_hall' || bId === 'meeting_hall') {
-    city.buildings.town_hall = Math.max(city.buildings.town_hall || 0, targetLvl);
-    city.buildings.meeting_hall = Math.max(city.buildings.meeting_hall || 0, targetLvl);
+  if (bId === 'meeting_hall') {
     city.level = Math.max(city.level || 1, targetLvl);
-  } else if (bId === 'garden' || bId === 'farmstead') {
-    city.buildings.garden = Math.max(city.buildings.garden || 0, targetLvl);
-    city.buildings.farmstead = Math.max(city.buildings.farmstead || 0, targetLvl);
-  } else if (bId === 'lumber_camp' || bId === 'lumber_hut' || bId === 'sawmill') {
-    city.buildings.lumber_camp = Math.max(city.buildings.lumber_camp || 0, targetLvl);
-    city.buildings.lumber_hut = Math.max(city.buildings.lumber_hut || 0, targetLvl);
-    city.buildings.sawmill = Math.max(city.buildings.sawmill || 0, targetLvl);
   }
 
   const plot = (city.plots || []).find(function(pl) { return pl.plotIndex === p.plotIndex; });
@@ -521,10 +520,6 @@ export function resolveBuildingDemolishJob(job, state, scheduler, eventStream) {
       if (city.buildings) city.buildings[bId] = highestLvl;
     } else if (city.buildings) {
       delete city.buildings[bId];
-      if (bId === 'sawmill') delete city.buildings.lumber_hut;
-      if (bId === 'lumber_hut') delete city.buildings.sawmill;
-      if (bId === 'farmstead') delete city.buildings.garden;
-      if (bId === 'garden') delete city.buildings.farmstead;
     }
   } else {
     // Site cleanup after cancelled construction
@@ -670,20 +665,51 @@ export function resolveRecruitHeroJob(job, state, scheduler, eventStream) {
   const city = (world.cities && world.cities[p.cityId]) || getPrimaryCity(state);
   const ow = world.overworld;
 
-  const classDef = RECRUITABLE_HERO_CLASSES.find(function(c) { return c.classId === p.classId; });
+  const classDef = getRecruitableHeroEntry(p.classId);
   if (!classDef) return;
 
   const heroIndex = (world.heroes || []).length + 1;
   const heroName = String(p.heroName || (classDef.name + ' #' + heroIndex)).trim();
-  const starterEq = {
-    weapon:    { uid: 'eq_w_' + heroIndex, slot: 'weapon',    name: 'Guild Iron Blade',     rarity: 'common', atk: 6, def: 0, value: 25 },
-    armor:     { uid: 'eq_a_' + heroIndex, slot: 'armor',     name: 'Vanguard Cuirass',     rarity: 'common', atk: 0, def: 5, value: 25 },
-    helm:      { uid: 'eq_h_' + heroIndex, slot: 'helm',      name: 'Scout Steel Helm',     rarity: 'common', atk: 0, def: 2, value: 15 },
-    boots:     { uid: 'eq_b_' + heroIndex, slot: 'boots',     name: 'Frontier Greaves',     rarity: 'common', atk: 0, def: 2, value: 15 },
-    accessory: null,
-    pickaxe:   { uid: 'eq_p_' + heroIndex, slot: 'pickaxe',   name: 'Copper Miner Pickaxe', rarity: 'common', tier: 1, maxDurability: 25, durability: 25, value: 20 }
+
+  // HR-02: Reuse canonical class-specific starterGear definitions from src/data/classes.js
+  const canonicalClassDef = CLASSES && CLASSES[classDef.classId] ? CLASSES[classDef.classId] : null;
+  const rawStarter = canonicalClassDef && canonicalClassDef.starterGear ? canonicalClassDef.starterGear : null;
+  const cloneStarterSlot = function(slotKey) {
+    const src = rawStarter && rawStarter[slotKey] ? rawStarter[slotKey] : null;
+    if (!src) return null;
+    const copy = Object.assign({}, src, {
+      uid: 'eq_' + slotKey + '_' + heroIndex + '_' + classDef.classId,
+      affixes: Array.isArray(src.affixes) ? src.affixes.slice() : []
+    });
+    if (slotKey === 'pickaxe') {
+      const maxD = copy.maxDur || copy.maxDurability || 28;
+      const curD = copy.curDur !== undefined ? copy.curDur : (copy.durability !== undefined ? copy.durability : maxD);
+      copy.curDur = curD;
+      copy.maxDur = maxD;
+      copy.durability = curD;
+      copy.maxDurability = maxD;
+      if (!copy.tier) copy.tier = 1;
+    }
+    return copy;
   };
-  const heroObj = {
+  const starterEq = rawStarter
+    ? {
+        weapon:    cloneStarterSlot('weapon'),
+        armor:     cloneStarterSlot('armor'),
+        helm:      cloneStarterSlot('helm'),
+        boots:     cloneStarterSlot('boots'),
+        accessory: cloneStarterSlot('accessory'),
+        pickaxe:   cloneStarterSlot('pickaxe')
+      }
+    : {
+        weapon:    { uid: 'eq_w_' + heroIndex, slot: 'weapon',    name: 'Guild Iron Blade',     rarity: 'common', atk: 6, def: 0, value: 25 },
+        armor:     { uid: 'eq_a_' + heroIndex, slot: 'armor',     name: 'Vanguard Cuirass',     rarity: 'common', atk: 0, def: 5, value: 25 },
+        helm:      { uid: 'eq_h_' + heroIndex, slot: 'helm',      name: 'Scout Steel Helm',     rarity: 'common', atk: 0, def: 2, value: 15 },
+        boots:     { uid: 'eq_b_' + heroIndex, slot: 'boots',     name: 'Frontier Greaves',     rarity: 'common', atk: 0, def: 2, value: 15 },
+        accessory: null,
+        pickaxe:   { uid: 'eq_p_' + heroIndex, slot: 'pickaxe',   name: 'Copper Miner Pickaxe', rarity: 'common', tier: 1, curDur: 25, maxDur: 25, maxDurability: 25, durability: 25, value: 20 }
+      };
+  const heroObj = normalizePersistentHeroInstance({
     id: 'hero_' + heroIndex + '_' + classDef.classId,
     name: heroName,
     classId: classDef.classId,
@@ -693,6 +719,11 @@ export function resolveRecruitHeroJob(job, state, scheduler, eventStream) {
     color: classDef.color,
     level: 1,
     xp: 0,
+    maxXp: DEFAULT_PERSISTENT_HERO_MAX_XP,
+    bonusStats: { str: 0, dex: 0, int: 0, vit: 0 },
+    statPoints: 0,
+    talentPoints: 0,
+    talentsAllocated: {},
     stats: Object.assign({}, classDef.baseStats),
     equipment: starterEq,
     cosmetics: { cloak: null, aura: null, banner_crest: null, weapon_glow: null },
@@ -701,7 +732,7 @@ export function resolveRecruitHeroJob(job, state, scheduler, eventStream) {
     ],
     ownerPlayerId: getCanonicalPlayerId(state),
     recruitedAtSimMs: job.dueSimTimeMs
-  };
+  });
 
   if (!world.heroes) world.heroes = [];
   world.heroes.push(heroObj);
@@ -1697,8 +1728,8 @@ export function processResourceProductionTick(state, eventStream) {
         const lvl = plot.level || 0;
         if (!bId || lvl <= 0 || plot.underConstruction || plot.demolishing || plot.relocating) continue;
 
-        // Skip meeting_hall / town_hall here because token baseline is already accounted for
-        if (bId === 'meeting_hall' || bId === 'town_hall') continue;
+        // Skip meeting_hall here because token baseline is already accounted for
+        if (bId === 'meeting_hall') continue;
 
         const bDef = CITY_BUILDINGS_CATALOG[bId];
         if (!bDef || !bDef.productionPerTick) continue;
@@ -1737,7 +1768,7 @@ export function processResourceProductionTick(state, eventStream) {
       const bKeys = Object.keys(city.buildings);
       for (let k = 0; k < bKeys.length; k++) {
         const bId = bKeys[k];
-        if (bId === 'town_hall' || bId === 'meeting_hall') continue;
+        if (bId === 'meeting_hall') continue;
         const lvl = city.buildings[bId] || 0;
         if (lvl <= 0) continue;
         const bDef = CITY_BUILDINGS_CATALOG[bId];

@@ -450,6 +450,7 @@ export function recomputeHeroDerivedStats(fullRestore = false, state = gameState
   if (h.classId === 'thief')   flatCrit += 15;
   if (h.classId === 'ranger')  flatDodge += 15;
   if (h.classId === 'paladin') flatDef += 10;
+  if (h.classId === 'cleric')  flatDef += 5;
 
   // Talent Bonuses
   const t = h.talentsAllocated || {};

@@ -144,5 +144,29 @@ export const CLASSES = {
     skillCost: 11,
     skillRange: 1,
     skillDesc: 'Blasts an adjacent foe with searing torchlight for 180% damage and stuns them for 1 turn.'
+  },
+  cleric: {
+    id: 'cleric',
+    name: 'Cleric',
+    title: 'Temple Devotee',
+    color: '#fef08a',
+    baseStats: { str: 10, dex: 9, int: 15, vit: 13 },
+    hpBase: 100,
+    mpBase: 65,
+    vision: 5,
+    starterGear: {
+      weapon:    { uid: 'w_start_c', name: 'Sanctified Rod', slot: 'weapon', rarity: 'common', atk: 5, int: 2, value: 20, affixes: [] },
+      armor:     { uid: 'a_start_c', name: 'Acolyte Vestments', slot: 'armor', rarity: 'common', def: 5, maxMp: 10, value: 20, affixes: [] },
+      helm:      { uid: 'h_start_c', name: 'Temple Hood', slot: 'helm', rarity: 'common', def: 2, int: 1, value: 12, affixes: [] },
+      boots:     { uid: 'b_start_c', name: 'Sanctuary Sandals', slot: 'boots', rarity: 'common', def: 2, value: 12, affixes: [] },
+      accessory: { uid: 'acc_start_c', name: 'Blessing Charm', slot: 'accessory', rarity: 'common', maxHp: 10, maxMp: 8, value: 15, affixes: [] },
+      pickaxe:   { uid: 'pick_start_c', name: 'Iron Pickaxe', slot: 'pickaxe', rarity: 'common', curDur: 28, maxDur: 28, value: 25, affixes: [] }
+    },
+    passiveName: 'Sanctuary Ward',
+    passiveDesc: '+5 Armor & restores +1 MP every 2 turns.',
+    skillName: 'Sacred Ward',
+    skillCost: 14,
+    skillRange: 3,
+    skillDesc: 'Channels holy light against a visible foe within 3 tiles for 160% holy damage and restores 20% Max HP.'
   }
 };

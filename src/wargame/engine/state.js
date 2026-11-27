@@ -22,7 +22,7 @@ import {
 import { generateOverworldMap, isOverworldTilePassable, createDefaultMilitaryTargets } from './pathfinding.js';
 import { isInOverworldBounds, areHexesAdjacent } from './hexSpatial.js';
 import { createInitialTasksState } from './taskEngine.js';
-import { CITY_PLOT_SLOTS, CITY_BUILDINGS_CATALOG } from '../data/buildings.js';
+import { CITY_PLOT_SLOTS, CITY_BUILDINGS_CATALOG, normalizeBuildingId } from '../data/buildings.js';
 import {
   getTroopDefinition,
   normalizeLegacyTroopDefId,
@@ -140,7 +140,7 @@ export function createDefaultCityPlots() {
       x: px,
       y: py,
       label: isCenter ? 'Meeting Hall Plot' : ('Plot (' + px + ', ' + py + ')'),
-      buildingId: isCenter ? 'town_hall' : null,
+      buildingId: isCenter ? 'meeting_hall' : null,
       level: isCenter ? 1 : 0,
       underConstruction: false,
       demolishing: false,
@@ -351,6 +351,75 @@ export function validateWargameSavePayload(parsed) {
   return { ok: true };
 }
 
+export const DEFAULT_PERSISTENT_HERO_MAX_XP = 60;
+
+// Idempotent, non-destructive normalizer for canonical persistent hero-instance fields (HR-10).
+// Initializes only missing or invalid existing-schema fields; never alters class, stats, ownership,
+// or legitimate progression/equipment values.
+export function normalizePersistentHeroInstance(hero) {
+  if (!hero || typeof hero !== 'object') return hero;
+
+  if (typeof hero.level !== 'number' || !isFinite(hero.level) || hero.level < 1) {
+    hero.level = 1;
+  }
+  if (typeof hero.xp !== 'number' || !isFinite(hero.xp) || hero.xp < 0) {
+    hero.xp = 0;
+  }
+  if (typeof hero.maxXp !== 'number' || !isFinite(hero.maxXp) || hero.maxXp <= 0) {
+    hero.maxXp = DEFAULT_PERSISTENT_HERO_MAX_XP;
+  }
+
+  if (!hero.bonusStats || typeof hero.bonusStats !== 'object' || Array.isArray(hero.bonusStats)) {
+    hero.bonusStats = { str: 0, dex: 0, int: 0, vit: 0 };
+  } else {
+    const statKeys = ['str', 'dex', 'int', 'vit'];
+    for (let si = 0; si < statKeys.length; si++) {
+      const sk = statKeys[si];
+      if (typeof hero.bonusStats[sk] !== 'number' || !isFinite(hero.bonusStats[sk])) {
+        hero.bonusStats[sk] = 0;
+      }
+    }
+  }
+
+  if (typeof hero.statPoints !== 'number' || !isFinite(hero.statPoints) || hero.statPoints < 0) {
+    hero.statPoints = 0;
+  }
+  if (typeof hero.talentPoints !== 'number' || !isFinite(hero.talentPoints) || hero.talentPoints < 0) {
+    hero.talentPoints = 0;
+  }
+  if (!hero.talentsAllocated || typeof hero.talentsAllocated !== 'object' || Array.isArray(hero.talentsAllocated)) {
+    hero.talentsAllocated = {};
+  }
+
+  const eqSlots = ['weapon', 'armor', 'helm', 'boots', 'accessory', 'pickaxe'];
+  if (!hero.equipment || typeof hero.equipment !== 'object' || Array.isArray(hero.equipment)) {
+    hero.equipment = { weapon: null, armor: null, helm: null, boots: null, accessory: null, pickaxe: null };
+  } else {
+    for (let ei = 0; ei < eqSlots.length; ei++) {
+      if (hero.equipment[eqSlots[ei]] === undefined) {
+        hero.equipment[eqSlots[ei]] = null;
+      }
+    }
+  }
+
+  const cosSlots = ['cloak', 'aura', 'banner_crest', 'weapon_glow'];
+  if (!hero.cosmetics || typeof hero.cosmetics !== 'object' || Array.isArray(hero.cosmetics)) {
+    hero.cosmetics = { cloak: null, aura: null, banner_crest: null, weapon_glow: null };
+  } else {
+    for (let ci = 0; ci < cosSlots.length; ci++) {
+      if (hero.cosmetics[cosSlots[ci]] === undefined) {
+        hero.cosmetics[cosSlots[ci]] = null;
+      }
+    }
+  }
+
+  if (!Array.isArray(hero.bagGear)) {
+    hero.bagGear = [];
+  }
+
+  return hero;
+}
+
 export function reconcileLoadedWorldIntegrity(parsed) {
   const w = parsed.world;
   const ow = w.overworld;
@@ -377,10 +446,13 @@ export function reconcileLoadedWorldIntegrity(parsed) {
     w.activeCityId = cityIds[0];
   }
 
-  // 2. Reconcile hero IDs, roster leader & party memberships (never delete valid entities)
+  // 2. Reconcile hero IDs, persistent hero-instance fields, roster leader & party memberships (never delete valid entities)
   const heroIdSet = {};
   for (let i = 0; i < w.heroes.length; i++) {
-    if (w.heroes[i] && w.heroes[i].id) heroIdSet[w.heroes[i].id] = true;
+    if (w.heroes[i]) {
+      normalizePersistentHeroInstance(w.heroes[i]);
+      if (w.heroes[i].id) heroIdSet[w.heroes[i].id] = true;
+    }
   }
   if (w.roster) {
     if (w.roster.overallLeaderHeroId && !heroIdSet[w.roster.overallLeaderHeroId]) {
@@ -520,6 +592,113 @@ export function reconcileLoadedWorldIntegrity(parsed) {
         u.activeDungeonId = null;
       }
     }
+  }
+
+  // 5b. Normalize Legacy & Obsolete Building IDs across Plots, Buildings Map, Build Queues & Jobs (HR-02)
+  // Maps: town_hall->meeting_hall, farmstead->garden, lumber_hut/sawmill->lumber_camp,
+  //       shrine->temple_chapterhouse, mage_guild->mages_guild, star_forge->blacksmith, temple_of_war->null
+  const validScheduledJobs = [];
+  for (let ji = 0; ji < cleanJobs.length; ji++) {
+    const j = cleanJobs[ji];
+    if (j && j.payload && typeof j.payload.buildingId === 'string') {
+      const normJobBId = normalizeBuildingId(j.payload.buildingId);
+      if (!normJobBId || !CITY_BUILDINGS_CATALOG[normJobBId]) {
+        delete jobMap[j.jobId];
+        continue;
+      }
+      j.payload.buildingId = normJobBId;
+    }
+    validScheduledJobs.push(j);
+  }
+  cleanJobs.length = 0;
+  for (let ji = 0; ji < validScheduledJobs.length; ji++) {
+    cleanJobs.push(validScheduledJobs[ji]);
+  }
+
+  const centerPlotIdx = CITY_CENTER_PLOT_INDEX !== undefined ? CITY_CENTER_PLOT_INDEX : 27;
+  for (let ci = 0; ci < cityIds.length; ci++) {
+    const c = w.cities[cityIds[ci]];
+    if (!c) continue;
+
+    // Normalize city.plots[] & prevent duplicate meeting_hall plots
+    if (Array.isArray(c.plots)) {
+      let bestHallLevel = 0;
+      const hallPlots = [];
+      for (let pi = 0; pi < c.plots.length; pi++) {
+        const pl = c.plots[pi];
+        if (!pl || !pl.buildingId) continue;
+        const normId = normalizeBuildingId(pl.buildingId);
+        if (!normId || !CITY_BUILDINGS_CATALOG[normId]) {
+          pl.buildingId = null;
+          pl.level = 0;
+          pl.underConstruction = false;
+          pl.demolishing = false;
+          pl.relocating = false;
+          pl.activeJobId = null;
+          continue;
+        }
+        pl.buildingId = normId;
+        if (normId === 'meeting_hall') {
+          bestHallLevel = Math.max(bestHallLevel, pl.level || 1);
+          hallPlots.push(pl);
+        }
+      }
+      if (hallPlots.length > 1) {
+        const primaryHall = hallPlots.find(function(hp) { return hp.plotIndex === centerPlotIdx; }) || hallPlots[0];
+        primaryHall.level = Math.max(primaryHall.level || 1, bestHallLevel);
+        for (let hi = 0; hi < hallPlots.length; hi++) {
+          if (hallPlots[hi] !== primaryHall) {
+            hallPlots[hi].buildingId = null;
+            hallPlots[hi].level = 0;
+            hallPlots[hi].underConstruction = false;
+            hallPlots[hi].demolishing = false;
+            hallPlots[hi].relocating = false;
+            hallPlots[hi].activeJobId = null;
+          }
+        }
+      }
+    }
+
+    // Normalize city.buildQueue[]
+    if (Array.isArray(c.buildQueue)) {
+      const cleanBQ = [];
+      for (let bi = 0; bi < c.buildQueue.length; bi++) {
+        const bq = c.buildQueue[bi];
+        if (!bq) continue;
+        const normId = normalizeBuildingId(bq.buildingId);
+        if (!normId || !CITY_BUILDINGS_CATALOG[normId]) continue;
+        bq.buildingId = normId;
+        bq.buildingName = CITY_BUILDINGS_CATALOG[normId].name;
+        cleanBQ.push(bq);
+      }
+      c.buildQueue = cleanBQ;
+    }
+
+    // Merge & deduplicate city.buildings map strictly into canonical IDs (zero double benefits)
+    const canonicalBuildings = {};
+    if (c.buildings && typeof c.buildings === 'object') {
+      const rawKeys = Object.keys(c.buildings);
+      for (let ki = 0; ki < rawKeys.length; ki++) {
+        const rk = rawKeys[ki];
+        const lvl = Math.floor(Number(c.buildings[rk] || 0));
+        if (lvl <= 0) continue;
+        const normId = normalizeBuildingId(rk);
+        if (!normId || !CITY_BUILDINGS_CATALOG[normId]) continue;
+        canonicalBuildings[normId] = Math.max(canonicalBuildings[normId] || 0, lvl);
+      }
+    }
+    if (Array.isArray(c.plots)) {
+      for (let pi = 0; pi < c.plots.length; pi++) {
+        const pl = c.plots[pi];
+        if (pl && pl.buildingId && CITY_BUILDINGS_CATALOG[pl.buildingId] && (pl.level || 0) > 0 && !pl.demolishing) {
+          canonicalBuildings[pl.buildingId] = Math.max(canonicalBuildings[pl.buildingId] || 0, pl.level);
+        }
+      }
+    }
+    if (!canonicalBuildings.meeting_hall) {
+      canonicalBuildings.meeting_hall = Math.max(1, c.level || 1);
+    }
+    c.buildings = canonicalBuildings;
   }
 
   // 6. Reconcile orphaned active city build/recruitment queue items
@@ -877,25 +1056,8 @@ export function loadWargameState(scheduler = null, options = null) {
     }
     if (Array.isArray(parsed.world.heroes)) {
       for (let hi = 0; hi < parsed.world.heroes.length; hi++) {
-        const hh = parsed.world.heroes[hi];
-        if (!hh.equipment) {
-          hh.equipment = { weapon: null, armor: null, helm: null, boots: null, accessory: null, pickaxe: null };
-        }
-        if (!hh.cosmetics) {
-          hh.cosmetics = { cloak: null, aura: null, banner_crest: null, weapon_glow: null };
-        }
-        if (!Array.isArray(hh.bagGear)) {
-          hh.bagGear = [];
-        }
-        // Backfill Task 02 hero progression fields ONLY when absent (never overwrite existing progression!)
-        if (typeof hh.maxXp !== 'number' || hh.maxXp <= 0) hh.maxXp = 60;
-        if (!hh.bonusStats || typeof hh.bonusStats !== 'object') {
-          hh.bonusStats = { str: 0, dex: 0, int: 0, vit: 0 };
-        }
-        if (typeof hh.statPoints !== 'number') hh.statPoints = 0;
-        if (typeof hh.talentPoints !== 'number') hh.talentPoints = 0;
-        if (!hh.talentsAllocated || typeof hh.talentsAllocated !== 'object') {
-          hh.talentsAllocated = {};
+        if (parsed.world.heroes[hi]) {
+          normalizePersistentHeroInstance(parsed.world.heroes[hi]);
         }
       }
     }
@@ -913,8 +1075,9 @@ export function loadWargameState(scheduler = null, options = null) {
           c.gems = { ruby: 1, emerald: 1, sapphire: 0, topaz: 0, void_diamond: 0 };
         }
         if (!c.buildings) c.buildings = {};
-        if (c.buildings.town_hall && !c.buildings.meeting_hall) {
-          c.buildings.meeting_hall = c.buildings.town_hall;
+        if (c.buildings.town_hall) {
+          c.buildings.meeting_hall = Math.max(c.buildings.meeting_hall || 0, c.buildings.town_hall);
+          delete c.buildings.town_hall;
         }
         if (!Array.isArray(c.buildQueue)) c.buildQueue = [];
         if (!c.maxBuildQueueSlots) c.maxBuildQueueSlots = 3;
@@ -934,11 +1097,12 @@ export function loadWargameState(scheduler = null, options = null) {
             for (let p = 0; p < c.plots.length; p++) {
               const oldP = c.plots[p];
               if (oldP && oldP.buildingId) {
-                const targetIdx = (oldP.plotIndex === 0 && oldP.buildingId === 'town_hall')
+                const normOldBId = normalizeBuildingId(oldP.buildingId);
+                const targetIdx = (oldP.plotIndex === 0 && normOldBId === 'meeting_hall')
                   ? (CITY_CENTER_PLOT_INDEX !== undefined ? CITY_CENTER_PLOT_INDEX : 27)
                   : oldP.plotIndex;
-                if (freshPlots[targetIdx]) {
-                  freshPlots[targetIdx].buildingId = oldP.buildingId;
+                if (normOldBId && CITY_BUILDINGS_CATALOG[normOldBId] && freshPlots[targetIdx]) {
+                  freshPlots[targetIdx].buildingId = normOldBId;
                   freshPlots[targetIdx].level = oldP.level || 1;
                   freshPlots[targetIdx].underConstruction = Boolean(oldP.underConstruction);
                   freshPlots[targetIdx].demolishing = Boolean(oldP.demolishing);

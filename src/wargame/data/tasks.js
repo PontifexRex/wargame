@@ -71,7 +71,7 @@ export const CAMPAIGN_TASKS_DAG = [
       const cities = Object.values(state.world.cities);
       for (let i = 0; i < cities.length; i++) {
         const b = cities[i].buildings || {};
-        if ((b.garden && b.garden >= 1) || (b.farmstead && b.farmstead >= 1)) {
+        if (b.garden && b.garden >= 1) {
           return { completed: true, progress: 1, target: 1 };
         }
       }
@@ -134,7 +134,7 @@ export const CAMPAIGN_TASKS_DAG = [
       const cities = Object.values(state.world.cities);
       for (let i = 0; i < cities.length; i++) {
         const b = cities[i].buildings || {};
-        if ((b.lumber_camp && b.lumber_camp >= 1) || (b.lumber_hut && b.lumber_hut >= 1) || (b.sawmill && b.sawmill >= 1)) {
+        if (b.lumber_camp && b.lumber_camp >= 1) {
           return { completed: true, progress: 1, target: 1 };
         }
       }

@@ -676,86 +676,6 @@ const UNIT_ARCHETYPES = {
   }
 };
 
-const RECRUITABLE_HERO_CLASSES = [
-  {
-    classId: 'adventurer',
-    name: 'Guild Adventurer',
-    title: 'Starfall Delver',
-    icon: '🧭',
-    color: '#38bdf8',
-    costGold: 35,
-    costFood: 20,
-    baseStats: { str: 12, dex: 12, int: 11, vit: 13, hp: 160, mp: 68, atk: 24, def: 14 },
-    specialty: 'Versatile dungeon delver trained at the Adventurers Guild: Torch Flare stun, extra vision, and reinforced mining.'
-  },
-  {
-    classId: 'fighter',
-    name: 'Ironclad Fighter',
-    title: 'Vanguard Commander',
-    icon: '🛡️',
-    color: '#f87171',
-    costGold: 50,
-    costFood: 30,
-    baseStats: { str: 15, dex: 10, int: 8, vit: 14, hp: 186, mp: 59, atk: 28, def: 16 },
-    specialty: 'Frontline bastion defence, Whirlwind Cleave, and door breaching.'
-  },
-  {
-    classId: 'ranger',
-    name: 'Deepwood Ranger',
-    title: 'Hawkeye Pathfinder',
-    icon: '🏹',
-    color: '#34d399',
-    costGold: 50,
-    costFood: 30,
-    baseStats: { str: 12, dex: 15, int: 11, vit: 11, hp: 145, mp: 68, atk: 26, def: 12 },
-    specialty: '+2 Overworld Vision, trap disarming, and Starfall Volley.'
-  },
-  {
-    classId: 'mage',
-    name: 'Astral Elementalist',
-    title: 'Starweaver Adept',
-    icon: '✨',
-    color: '#60a5fa',
-    costGold: 60,
-    costFood: 30,
-    baseStats: { str: 7, dex: 10, int: 17, vit: 10, hp: 122, mp: 131, atk: 31, def: 10 },
-    specialty: 'High-area Starfall Nova and arcane rune-seal dispelling.'
-  },
-  {
-    classId: 'thief',
-    name: 'Shadowblade Rogue',
-    title: 'Silent Infiltrator',
-    icon: '🗡️',
-    color: '#c084fc',
-    costGold: 50,
-    costFood: 30,
-    baseStats: { str: 9, dex: 16, int: 11, vit: 10, hp: 130, mp: 78, atk: 27, def: 11 },
-    specialty: 'Master lockpicking, secret door discovery, and Shadowstep Strike.'
-  },
-  {
-    classId: 'cleric',
-    name: 'Acolyte Cleric',
-    title: 'Temple Devotee',
-    icon: '✝️',
-    color: '#fef08a',
-    costGold: 55,
-    costFood: 30,
-    baseStats: { str: 10, dex: 9, int: 15, vit: 13, hp: 162, mp: 105, atk: 22, def: 15 },
-    specialty: 'Entry-level Temple Chapterhouse healer, blessing wards, and undead turning.'
-  },
-  {
-    classId: 'paladin',
-    name: 'Radiant Crusader',
-    title: 'Dawn Warden',
-    icon: '☀️',
-    color: '#fbbf24',
-    costGold: 65,
-    costFood: 35,
-    baseStats: { str: 14, dex: 9, int: 12, vit: 15, hp: 195, mp: 86, atk: 27, def: 20 },
-    specialty: 'Temple Chapterhouse Tier-2 Champion: Aura of Radiance, Holy Smite, and Divine Intervention.'
-  }
-];
-
 const OVERWORLD_DUNGEON_CATALOG = [
   {
     poiId: 'poi_dungeon_starfall',
@@ -845,24 +765,32 @@ const OVERWORLD_HOSTILE_ARCHETYPES = {
   // --- Module: src/wargame/data/buildings.js ---
 // City Building Definitions, Paced Tier 1 Catalog, Construction Costs & Doubling Build Durations
 
+// Canonical normalization map for legacy & removed building IDs (HR-02)
+const LEGACY_BUILDING_ID_MAP = {
+  town_hall: 'meeting_hall',
+  farmstead: 'garden',
+  lumber_hut: 'lumber_camp',
+  sawmill: 'lumber_camp',
+  shrine: 'temple_chapterhouse',
+  mage_guild: 'mages_guild',
+  star_forge: 'blacksmith',
+  temple_of_war: null
+};
+
+function normalizeBuildingId(buildingId) {
+  if (!buildingId || typeof buildingId !== 'string') return null;
+  if (Object.prototype.hasOwnProperty.call(LEGACY_BUILDING_ID_MAP, buildingId)) {
+    return LEGACY_BUILDING_ID_MAP[buildingId];
+  }
+  return buildingId;
+}
+
 const CITY_BUILDINGS_CATALOG = {
   // ---------------------------------------------------------------------------
   // 1. CIVIC STRUCTURES
   // ---------------------------------------------------------------------------
   meeting_hall: {
     id: 'meeting_hall',
-    name: 'Meeting Hall',
-    icon: '🏛️',
-    category: 'civic',
-    color: '#fbbf24',
-    maxLevel: 5,
-    baseBuildTimeMs: 5000,
-    baseCost: { wood: 40, stone: 40, gold: 20 },
-    productionPerTick: { food: 1, wood: 1, stone: 1, gold: 1, water: 1 },
-    desc: 'The central administration hall of your settlement. Governs town decisions and sets the maximum level cap for all structures.'
-  },
-  town_hall: {
-    id: 'town_hall',
     name: 'Meeting Hall',
     icon: '🏛️',
     category: 'civic',
@@ -916,19 +844,6 @@ const CITY_BUILDINGS_CATALOG = {
     requires: { meeting_hall: 1, hut: 1 },
     desc: 'Grows vegetables and staple crops to feed your population and prevent starvation.'
   },
-  farmstead: {
-    id: 'farmstead',
-    name: 'Garden',
-    icon: '🌱',
-    category: 'economy',
-    color: '#f97316',
-    maxLevel: 5,
-    baseBuildTimeMs: 3500,
-    baseCost: { wood: 20, stone: 5, gold: 0 },
-    productionPerTick: { food: 6 },
-    requires: { meeting_hall: 1, hut: 1 },
-    desc: 'Grows vegetables and staple crops to feed your population and prevent starvation.'
-  },
   lumber_camp: {
     id: 'lumber_camp',
     name: 'Lumber Camp',
@@ -941,33 +856,6 @@ const CITY_BUILDINGS_CATALOG = {
     productionPerTick: { wood: 6 },
     requires: { meeting_hall: 1, well: 1 },
     requiredPopulation: 12,
-    desc: 'Fells and cuts seasoned timber to supply construction materials for the town.'
-  },
-  lumber_hut: {
-    id: 'lumber_hut',
-    name: 'Lumber Camp',
-    icon: '🪓',
-    category: 'economy',
-    color: '#4ade80',
-    maxLevel: 5,
-    baseBuildTimeMs: 4000,
-    baseCost: { wood: 15, stone: 10, gold: 0 },
-    productionPerTick: { wood: 6 },
-    requires: { meeting_hall: 1, well: 1 },
-    requiredPopulation: 12,
-    desc: 'Fells and cuts seasoned timber to supply construction materials for the town.'
-  },
-  sawmill: {
-    id: 'sawmill',
-    name: 'Lumber Camp',
-    icon: '🪓',
-    category: 'economy',
-    color: '#4ade80',
-    maxLevel: 5,
-    baseBuildTimeMs: 4000,
-    baseCost: { wood: 15, stone: 10, gold: 0 },
-    productionPerTick: { wood: 6 },
-    requires: { meeting_hall: 1 },
     desc: 'Fells and cuts seasoned timber to supply construction materials for the town.'
   },
   quarry: {
@@ -1141,7 +1029,7 @@ const CITY_BUILDINGS_CATALOG = {
     maxLevel: 3,
     baseBuildTimeMs: 5000,
     baseCost: { wood: 35, stone: 25, gold: 10 },
-    adjacencyBonus: { ratio: 0.20, targets: ['garden', 'farmstead', 'mine', 'lumber_camp', 'lumber_hut', 'sawmill', 'quarry'] },
+    adjacencyBonus: { ratio: 0.20, targets: ['garden', 'mine', 'lumber_camp', 'quarry'] },
     requires: { meeting_hall: 1, garden: 1, lumber_camp: 1 },
     desc: 'Harnesses wind energy to boost productivity of adjacent Gardens, Mines, and Lumber Camps by +20%.'
   },
@@ -1337,63 +1225,11 @@ const CITY_BUILDINGS_CATALOG = {
       shop:       { catalogId: 'shop_rangers_exclusive' }
     },
     desc: 'Frontier pathfinder lodge recruiting Rangers, offering scouting quests, archery training, research, and bows.'
-  },
-  shrine: {
-    id: 'shrine',
-    name: 'Shrine',
-    icon: '🕊️',
-    category: 'arcane',
-    color: '#fef08a',
-    maxLevel: 3,
-    baseBuildTimeMs: 5500,
-    baseCost: { wood: 35, stone: 40, gold: 25 },
-    requires: { meeting_hall: 1, guild_hall: 1 },
-    recruits: ['paladin', 'cleric'],
-    desc: 'Sanctuary for divine communion. Prepares holy champions (Paladins, Clerics) to shield your troops.'
-  },
-  mage_guild: {
-    id: 'mage_guild',
-    name: 'Mage Guild',
-    icon: '🔮',
-    category: 'arcane',
-    color: '#c084fc',
-    maxLevel: 3,
-    baseBuildTimeMs: 6500,
-    baseCost: { wood: 40, stone: 45, gold: 35 },
-    requires: { meeting_hall: 2, guild_hall: 1 },
-    recruits: ['mage', 'elementalist'],
-    desc: 'Academy of the astral elements. Enrolls Mages and Elementalists wielding arcane forces.'
-  },
-  star_forge: {
-    id: 'star_forge',
-    name: 'Astral Star-Forge',
-    icon: '🔥',
-    category: 'arcane',
-    color: '#c084fc',
-    maxLevel: 3,
-    baseBuildTimeMs: 7000,
-    baseCost: { wood: 40, stone: 60, gold: 50 },
-    productionPerTick: { gold: 4 },
-    requires: { guild_hall: 1 },
-    desc: 'Smelts subterranean star-ores brought back from dungeons into masterwork relics.'
-  },
-  temple_of_war: {
-    id: 'temple_of_war',
-    name: 'Sanctum of the War Gods',
-    icon: '🏛️',
-    category: 'arcane',
-    color: '#38bdf8',
-    maxLevel: 3,
-    baseBuildTimeMs: 6500,
-    baseCost: { wood: 35, stone: 55, gold: 40 },
-    productionPerTick: {},
-    requires: { meeting_hall: 1 },
-    desc: 'Channels Divine War Reimbursement—honorable battles grant divine favor and rapid troop recovery.'
   }
 };
 
 const CITY_PLOT_SLOTS = [
-  { plotIndex: 0, label: 'Meeting Hall Plot', defaultBuilding: 'town_hall', lockedTo: 'town_hall' },
+  { plotIndex: 0, label: 'Meeting Hall Plot', defaultBuilding: 'meeting_hall', lockedTo: 'meeting_hall' },
   { plotIndex: 1, label: 'Plot 1', recommended: 'hut' },
   { plotIndex: 2, label: 'Plot 2', recommended: 'garden' },
   { plotIndex: 3, label: 'Plot 3', recommended: 'well' },
@@ -1423,18 +1259,9 @@ function isBuildingPrerequisiteMet(city, buildingId) {
     const bldgs = city.buildings || {};
     const reqKeys = Object.keys(bDef.requires);
     for (let i = 0; i < reqKeys.length; i++) {
-      const reqB = reqKeys[i];
-      const reqLvl = bDef.requires[reqB];
-      let curLvl = 0;
-      if (reqB === 'meeting_hall' || reqB === 'town_hall') {
-        curLvl = Math.max(bldgs.meeting_hall || 0, bldgs.town_hall || 0);
-      } else if (reqB === 'garden' || reqB === 'farmstead') {
-        curLvl = Math.max(bldgs.garden || 0, bldgs.farmstead || 0);
-      } else if (reqB === 'lumber_camp' || reqB === 'lumber_hut' || reqB === 'sawmill') {
-        curLvl = Math.max(bldgs.lumber_camp || 0, bldgs.lumber_hut || 0, bldgs.sawmill || 0);
-      } else {
-        curLvl = bldgs[reqB] || 0;
-      }
+      const reqB = normalizeBuildingId(reqKeys[i]);
+      const reqLvl = bDef.requires[reqKeys[i]];
+      const curLvl = (reqB && bldgs[reqB]) ? bldgs[reqB] : 0;
       if (curLvl < reqLvl) {
         return false;
       }
@@ -1462,18 +1289,9 @@ function getBuildingPrerequisiteMissingReason(city, buildingId) {
     const bldgs = city.buildings || {};
     const reqKeys = Object.keys(bDef.requires);
     for (let i = 0; i < reqKeys.length; i++) {
-      const reqB = reqKeys[i];
-      const reqLvl = bDef.requires[reqB];
-      let curLvl = 0;
-      if (reqB === 'meeting_hall' || reqB === 'town_hall') {
-        curLvl = Math.max(bldgs.meeting_hall || 0, bldgs.town_hall || 0);
-      } else if (reqB === 'garden' || reqB === 'farmstead') {
-        curLvl = Math.max(bldgs.garden || 0, bldgs.farmstead || 0);
-      } else if (reqB === 'lumber_camp' || reqB === 'lumber_hut' || reqB === 'sawmill') {
-        curLvl = Math.max(bldgs.lumber_camp || 0, bldgs.lumber_hut || 0, bldgs.sawmill || 0);
-      } else {
-        curLvl = bldgs[reqB] || 0;
-      }
+      const reqB = normalizeBuildingId(reqKeys[i]);
+      const reqLvl = bDef.requires[reqKeys[i]];
+      const curLvl = (reqB && bldgs[reqB]) ? bldgs[reqB] : 0;
       if (curLvl < reqLvl) {
         const reqDef = CITY_BUILDINGS_CATALOG[reqB];
         return 'Requires ' + (reqDef ? reqDef.name : reqB) + ' Level ' + reqLvl;
@@ -3853,7 +3671,7 @@ const CAMPAIGN_TASKS_DAG = [
       const cities = Object.values(state.world.cities);
       for (let i = 0; i < cities.length; i++) {
         const b = cities[i].buildings || {};
-        if ((b.garden && b.garden >= 1) || (b.farmstead && b.farmstead >= 1)) {
+        if (b.garden && b.garden >= 1) {
           return { completed: true, progress: 1, target: 1 };
         }
       }
@@ -3916,7 +3734,7 @@ const CAMPAIGN_TASKS_DAG = [
       const cities = Object.values(state.world.cities);
       for (let i = 0; i < cities.length; i++) {
         const b = cities[i].buildings || {};
-        if ((b.lumber_camp && b.lumber_camp >= 1) || (b.lumber_hut && b.lumber_hut >= 1) || (b.sawmill && b.sawmill >= 1)) {
+        if (b.lumber_camp && b.lumber_camp >= 1) {
           return { completed: true, progress: 1, target: 1 };
         }
       }
@@ -5107,6 +4925,30 @@ const CLASSES = {
     skillCost: 11,
     skillRange: 1,
     skillDesc: 'Blasts an adjacent foe with searing torchlight for 180% damage and stuns them for 1 turn.'
+  },
+  cleric: {
+    id: 'cleric',
+    name: 'Cleric',
+    title: 'Temple Devotee',
+    color: '#fef08a',
+    baseStats: { str: 10, dex: 9, int: 15, vit: 13 },
+    hpBase: 100,
+    mpBase: 65,
+    vision: 5,
+    starterGear: {
+      weapon:    { uid: 'w_start_c', name: 'Sanctified Rod', slot: 'weapon', rarity: 'common', atk: 5, int: 2, value: 20, affixes: [] },
+      armor:     { uid: 'a_start_c', name: 'Acolyte Vestments', slot: 'armor', rarity: 'common', def: 5, maxMp: 10, value: 20, affixes: [] },
+      helm:      { uid: 'h_start_c', name: 'Temple Hood', slot: 'helm', rarity: 'common', def: 2, int: 1, value: 12, affixes: [] },
+      boots:     { uid: 'b_start_c', name: 'Sanctuary Sandals', slot: 'boots', rarity: 'common', def: 2, value: 12, affixes: [] },
+      accessory: { uid: 'acc_start_c', name: 'Blessing Charm', slot: 'accessory', rarity: 'common', maxHp: 10, maxMp: 8, value: 15, affixes: [] },
+      pickaxe:   { uid: 'pick_start_c', name: 'Iron Pickaxe', slot: 'pickaxe', rarity: 'common', curDur: 28, maxDur: 28, value: 25, affixes: [] }
+    },
+    passiveName: 'Sanctuary Ward',
+    passiveDesc: '+5 Armor & restores +1 MP every 2 turns.',
+    skillName: 'Sacred Ward',
+    skillCost: 14,
+    skillRange: 3,
+    skillDesc: 'Channels holy light against a visible foe within 3 tiles for 160% holy damage and restores 20% Max HP.'
   }
 };
 
@@ -8682,6 +8524,7 @@ function recomputeHeroDerivedStats(fullRestore = false, state = gameState) {
   if (h.classId === 'thief')   flatCrit += 15;
   if (h.classId === 'ranger')  flatDodge += 15;
   if (h.classId === 'paladin') flatDef += 10;
+  if (h.classId === 'cleric')  flatDef += 5;
 
   // Talent Bonuses
   const t = h.talentsAllocated || {};
@@ -9100,7 +8943,7 @@ function createDefaultCityPlots() {
       x: px,
       y: py,
       label: isCenter ? 'Meeting Hall Plot' : ('Plot (' + px + ', ' + py + ')'),
-      buildingId: isCenter ? 'town_hall' : null,
+      buildingId: isCenter ? 'meeting_hall' : null,
       level: isCenter ? 1 : 0,
       underConstruction: false,
       demolishing: false,
@@ -9311,6 +9154,75 @@ function validateWargameSavePayload(parsed) {
   return { ok: true };
 }
 
+const DEFAULT_PERSISTENT_HERO_MAX_XP = 60;
+
+// Idempotent, non-destructive normalizer for canonical persistent hero-instance fields (HR-10).
+// Initializes only missing or invalid existing-schema fields; never alters class, stats, ownership,
+// or legitimate progression/equipment values.
+function normalizePersistentHeroInstance(hero) {
+  if (!hero || typeof hero !== 'object') return hero;
+
+  if (typeof hero.level !== 'number' || !isFinite(hero.level) || hero.level < 1) {
+    hero.level = 1;
+  }
+  if (typeof hero.xp !== 'number' || !isFinite(hero.xp) || hero.xp < 0) {
+    hero.xp = 0;
+  }
+  if (typeof hero.maxXp !== 'number' || !isFinite(hero.maxXp) || hero.maxXp <= 0) {
+    hero.maxXp = DEFAULT_PERSISTENT_HERO_MAX_XP;
+  }
+
+  if (!hero.bonusStats || typeof hero.bonusStats !== 'object' || Array.isArray(hero.bonusStats)) {
+    hero.bonusStats = { str: 0, dex: 0, int: 0, vit: 0 };
+  } else {
+    const statKeys = ['str', 'dex', 'int', 'vit'];
+    for (let si = 0; si < statKeys.length; si++) {
+      const sk = statKeys[si];
+      if (typeof hero.bonusStats[sk] !== 'number' || !isFinite(hero.bonusStats[sk])) {
+        hero.bonusStats[sk] = 0;
+      }
+    }
+  }
+
+  if (typeof hero.statPoints !== 'number' || !isFinite(hero.statPoints) || hero.statPoints < 0) {
+    hero.statPoints = 0;
+  }
+  if (typeof hero.talentPoints !== 'number' || !isFinite(hero.talentPoints) || hero.talentPoints < 0) {
+    hero.talentPoints = 0;
+  }
+  if (!hero.talentsAllocated || typeof hero.talentsAllocated !== 'object' || Array.isArray(hero.talentsAllocated)) {
+    hero.talentsAllocated = {};
+  }
+
+  const eqSlots = ['weapon', 'armor', 'helm', 'boots', 'accessory', 'pickaxe'];
+  if (!hero.equipment || typeof hero.equipment !== 'object' || Array.isArray(hero.equipment)) {
+    hero.equipment = { weapon: null, armor: null, helm: null, boots: null, accessory: null, pickaxe: null };
+  } else {
+    for (let ei = 0; ei < eqSlots.length; ei++) {
+      if (hero.equipment[eqSlots[ei]] === undefined) {
+        hero.equipment[eqSlots[ei]] = null;
+      }
+    }
+  }
+
+  const cosSlots = ['cloak', 'aura', 'banner_crest', 'weapon_glow'];
+  if (!hero.cosmetics || typeof hero.cosmetics !== 'object' || Array.isArray(hero.cosmetics)) {
+    hero.cosmetics = { cloak: null, aura: null, banner_crest: null, weapon_glow: null };
+  } else {
+    for (let ci = 0; ci < cosSlots.length; ci++) {
+      if (hero.cosmetics[cosSlots[ci]] === undefined) {
+        hero.cosmetics[cosSlots[ci]] = null;
+      }
+    }
+  }
+
+  if (!Array.isArray(hero.bagGear)) {
+    hero.bagGear = [];
+  }
+
+  return hero;
+}
+
 function reconcileLoadedWorldIntegrity(parsed) {
   const w = parsed.world;
   const ow = w.overworld;
@@ -9337,10 +9249,13 @@ function reconcileLoadedWorldIntegrity(parsed) {
     w.activeCityId = cityIds[0];
   }
 
-  // 2. Reconcile hero IDs, roster leader & party memberships (never delete valid entities)
+  // 2. Reconcile hero IDs, persistent hero-instance fields, roster leader & party memberships (never delete valid entities)
   const heroIdSet = {};
   for (let i = 0; i < w.heroes.length; i++) {
-    if (w.heroes[i] && w.heroes[i].id) heroIdSet[w.heroes[i].id] = true;
+    if (w.heroes[i]) {
+      normalizePersistentHeroInstance(w.heroes[i]);
+      if (w.heroes[i].id) heroIdSet[w.heroes[i].id] = true;
+    }
   }
   if (w.roster) {
     if (w.roster.overallLeaderHeroId && !heroIdSet[w.roster.overallLeaderHeroId]) {
@@ -9480,6 +9395,113 @@ function reconcileLoadedWorldIntegrity(parsed) {
         u.activeDungeonId = null;
       }
     }
+  }
+
+  // 5b. Normalize Legacy & Obsolete Building IDs across Plots, Buildings Map, Build Queues & Jobs (HR-02)
+  // Maps: town_hall->meeting_hall, farmstead->garden, lumber_hut/sawmill->lumber_camp,
+  //       shrine->temple_chapterhouse, mage_guild->mages_guild, star_forge->blacksmith, temple_of_war->null
+  const validScheduledJobs = [];
+  for (let ji = 0; ji < cleanJobs.length; ji++) {
+    const j = cleanJobs[ji];
+    if (j && j.payload && typeof j.payload.buildingId === 'string') {
+      const normJobBId = normalizeBuildingId(j.payload.buildingId);
+      if (!normJobBId || !CITY_BUILDINGS_CATALOG[normJobBId]) {
+        delete jobMap[j.jobId];
+        continue;
+      }
+      j.payload.buildingId = normJobBId;
+    }
+    validScheduledJobs.push(j);
+  }
+  cleanJobs.length = 0;
+  for (let ji = 0; ji < validScheduledJobs.length; ji++) {
+    cleanJobs.push(validScheduledJobs[ji]);
+  }
+
+  const centerPlotIdx = CITY_CENTER_PLOT_INDEX !== undefined ? CITY_CENTER_PLOT_INDEX : 27;
+  for (let ci = 0; ci < cityIds.length; ci++) {
+    const c = w.cities[cityIds[ci]];
+    if (!c) continue;
+
+    // Normalize city.plots[] & prevent duplicate meeting_hall plots
+    if (Array.isArray(c.plots)) {
+      let bestHallLevel = 0;
+      const hallPlots = [];
+      for (let pi = 0; pi < c.plots.length; pi++) {
+        const pl = c.plots[pi];
+        if (!pl || !pl.buildingId) continue;
+        const normId = normalizeBuildingId(pl.buildingId);
+        if (!normId || !CITY_BUILDINGS_CATALOG[normId]) {
+          pl.buildingId = null;
+          pl.level = 0;
+          pl.underConstruction = false;
+          pl.demolishing = false;
+          pl.relocating = false;
+          pl.activeJobId = null;
+          continue;
+        }
+        pl.buildingId = normId;
+        if (normId === 'meeting_hall') {
+          bestHallLevel = Math.max(bestHallLevel, pl.level || 1);
+          hallPlots.push(pl);
+        }
+      }
+      if (hallPlots.length > 1) {
+        const primaryHall = hallPlots.find(function(hp) { return hp.plotIndex === centerPlotIdx; }) || hallPlots[0];
+        primaryHall.level = Math.max(primaryHall.level || 1, bestHallLevel);
+        for (let hi = 0; hi < hallPlots.length; hi++) {
+          if (hallPlots[hi] !== primaryHall) {
+            hallPlots[hi].buildingId = null;
+            hallPlots[hi].level = 0;
+            hallPlots[hi].underConstruction = false;
+            hallPlots[hi].demolishing = false;
+            hallPlots[hi].relocating = false;
+            hallPlots[hi].activeJobId = null;
+          }
+        }
+      }
+    }
+
+    // Normalize city.buildQueue[]
+    if (Array.isArray(c.buildQueue)) {
+      const cleanBQ = [];
+      for (let bi = 0; bi < c.buildQueue.length; bi++) {
+        const bq = c.buildQueue[bi];
+        if (!bq) continue;
+        const normId = normalizeBuildingId(bq.buildingId);
+        if (!normId || !CITY_BUILDINGS_CATALOG[normId]) continue;
+        bq.buildingId = normId;
+        bq.buildingName = CITY_BUILDINGS_CATALOG[normId].name;
+        cleanBQ.push(bq);
+      }
+      c.buildQueue = cleanBQ;
+    }
+
+    // Merge & deduplicate city.buildings map strictly into canonical IDs (zero double benefits)
+    const canonicalBuildings = {};
+    if (c.buildings && typeof c.buildings === 'object') {
+      const rawKeys = Object.keys(c.buildings);
+      for (let ki = 0; ki < rawKeys.length; ki++) {
+        const rk = rawKeys[ki];
+        const lvl = Math.floor(Number(c.buildings[rk] || 0));
+        if (lvl <= 0) continue;
+        const normId = normalizeBuildingId(rk);
+        if (!normId || !CITY_BUILDINGS_CATALOG[normId]) continue;
+        canonicalBuildings[normId] = Math.max(canonicalBuildings[normId] || 0, lvl);
+      }
+    }
+    if (Array.isArray(c.plots)) {
+      for (let pi = 0; pi < c.plots.length; pi++) {
+        const pl = c.plots[pi];
+        if (pl && pl.buildingId && CITY_BUILDINGS_CATALOG[pl.buildingId] && (pl.level || 0) > 0 && !pl.demolishing) {
+          canonicalBuildings[pl.buildingId] = Math.max(canonicalBuildings[pl.buildingId] || 0, pl.level);
+        }
+      }
+    }
+    if (!canonicalBuildings.meeting_hall) {
+      canonicalBuildings.meeting_hall = Math.max(1, c.level || 1);
+    }
+    c.buildings = canonicalBuildings;
   }
 
   // 6. Reconcile orphaned active city build/recruitment queue items
@@ -9837,25 +9859,8 @@ function loadWargameState(scheduler = null, options = null) {
     }
     if (Array.isArray(parsed.world.heroes)) {
       for (let hi = 0; hi < parsed.world.heroes.length; hi++) {
-        const hh = parsed.world.heroes[hi];
-        if (!hh.equipment) {
-          hh.equipment = { weapon: null, armor: null, helm: null, boots: null, accessory: null, pickaxe: null };
-        }
-        if (!hh.cosmetics) {
-          hh.cosmetics = { cloak: null, aura: null, banner_crest: null, weapon_glow: null };
-        }
-        if (!Array.isArray(hh.bagGear)) {
-          hh.bagGear = [];
-        }
-        // Backfill Task 02 hero progression fields ONLY when absent (never overwrite existing progression!)
-        if (typeof hh.maxXp !== 'number' || hh.maxXp <= 0) hh.maxXp = 60;
-        if (!hh.bonusStats || typeof hh.bonusStats !== 'object') {
-          hh.bonusStats = { str: 0, dex: 0, int: 0, vit: 0 };
-        }
-        if (typeof hh.statPoints !== 'number') hh.statPoints = 0;
-        if (typeof hh.talentPoints !== 'number') hh.talentPoints = 0;
-        if (!hh.talentsAllocated || typeof hh.talentsAllocated !== 'object') {
-          hh.talentsAllocated = {};
+        if (parsed.world.heroes[hi]) {
+          normalizePersistentHeroInstance(parsed.world.heroes[hi]);
         }
       }
     }
@@ -9873,8 +9878,9 @@ function loadWargameState(scheduler = null, options = null) {
           c.gems = { ruby: 1, emerald: 1, sapphire: 0, topaz: 0, void_diamond: 0 };
         }
         if (!c.buildings) c.buildings = {};
-        if (c.buildings.town_hall && !c.buildings.meeting_hall) {
-          c.buildings.meeting_hall = c.buildings.town_hall;
+        if (c.buildings.town_hall) {
+          c.buildings.meeting_hall = Math.max(c.buildings.meeting_hall || 0, c.buildings.town_hall);
+          delete c.buildings.town_hall;
         }
         if (!Array.isArray(c.buildQueue)) c.buildQueue = [];
         if (!c.maxBuildQueueSlots) c.maxBuildQueueSlots = 3;
@@ -9894,11 +9900,12 @@ function loadWargameState(scheduler = null, options = null) {
             for (let p = 0; p < c.plots.length; p++) {
               const oldP = c.plots[p];
               if (oldP && oldP.buildingId) {
-                const targetIdx = (oldP.plotIndex === 0 && oldP.buildingId === 'town_hall')
+                const normOldBId = normalizeBuildingId(oldP.buildingId);
+                const targetIdx = (oldP.plotIndex === 0 && normOldBId === 'meeting_hall')
                   ? (CITY_CENTER_PLOT_INDEX !== undefined ? CITY_CENTER_PLOT_INDEX : 27)
                   : oldP.plotIndex;
-                if (freshPlots[targetIdx]) {
-                  freshPlots[targetIdx].buildingId = oldP.buildingId;
+                if (normOldBId && CITY_BUILDINGS_CATALOG[normOldBId] && freshPlots[targetIdx]) {
+                  freshPlots[targetIdx].buildingId = normOldBId;
                   freshPlots[targetIdx].level = oldP.level || 1;
                   freshPlots[targetIdx].underConstruction = Boolean(oldP.underConstruction);
                   freshPlots[targetIdx].demolishing = Boolean(oldP.demolishing);
@@ -10043,6 +10050,148 @@ function collectOverworldDiscoveries(world) {
     locations: locations,
     all: all
   };
+}
+
+  // --- Module: src/wargame/data/heroRecruitment.js ---
+// Hero Recruitment Metadata Catalog (HR-11)
+// Separates Wargame recruitment-specific metadata (costs, timers, icons, specialty copy)
+// from canonical hero class definitions owned by src/data/classes.js (CLASSES).
+// Canonical identity (name, title, color) and base attributes (str, dex, int, vit)
+// are always resolved from CLASSES rather than duplicated here.
+
+
+
+const HERO_RECRUITMENT_ORDER = [
+  'adventurer',
+  'fighter',
+  'ranger',
+  'mage',
+  'thief',
+  'cleric',
+  'paladin'
+];
+
+// Recruitment-specific metadata keyed by canonical classId.
+// Note: overworldCombatPreview retains the existing prototype Overworld skirmish/card
+// hp/mp/atk/def snapshot temporarily until a shared derived-stat calculator is introduced
+// after stat-system design is finalized. It is NOT an independent class definition.
+const HERO_RECRUITMENT_CATALOG = {
+  adventurer: {
+    classId: 'adventurer',
+    icon: '🧭',
+    costGold: 35,
+    costFood: 20,
+    durationMs: BASE_HERO_RECRUIT_DURATION_MS,
+    specialty: 'Versatile dungeon delver trained at the Adventurers Guild: Torch Flare stun, extra vision, and reinforced mining.',
+    overworldCombatPreview: { hp: 160, mp: 68, atk: 24, def: 14 }
+  },
+  fighter: {
+    classId: 'fighter',
+    icon: '🛡️',
+    costGold: 50,
+    costFood: 30,
+    durationMs: BASE_HERO_RECRUIT_DURATION_MS,
+    specialty: 'Frontline bastion defence, Whirlwind Cleave, and door breaching.',
+    overworldCombatPreview: { hp: 186, mp: 59, atk: 28, def: 16 }
+  },
+  ranger: {
+    classId: 'ranger',
+    icon: '🏹',
+    costGold: 50,
+    costFood: 30,
+    durationMs: BASE_HERO_RECRUIT_DURATION_MS,
+    specialty: '+2 Overworld Vision, trap disarming, and Starfall Volley.',
+    overworldCombatPreview: { hp: 145, mp: 68, atk: 26, def: 12 }
+  },
+  mage: {
+    classId: 'mage',
+    icon: '✨',
+    costGold: 60,
+    costFood: 30,
+    durationMs: BASE_HERO_RECRUIT_DURATION_MS,
+    specialty: 'High-area Starfall Nova and arcane rune-seal dispelling.',
+    overworldCombatPreview: { hp: 122, mp: 131, atk: 31, def: 10 }
+  },
+  thief: {
+    classId: 'thief',
+    icon: '🗡️',
+    costGold: 50,
+    costFood: 30,
+    durationMs: BASE_HERO_RECRUIT_DURATION_MS,
+    specialty: 'Master lockpicking, secret door discovery, and Shadowstep Strike.',
+    overworldCombatPreview: { hp: 130, mp: 78, atk: 27, def: 11 }
+  },
+  cleric: {
+    classId: 'cleric',
+    icon: '✝️',
+    costGold: 55,
+    costFood: 30,
+    durationMs: BASE_HERO_RECRUIT_DURATION_MS,
+    specialty: 'Entry-level Temple Chapterhouse healer, blessing wards, and undead turning.',
+    overworldCombatPreview: { hp: 162, mp: 105, atk: 22, def: 15 }
+  },
+  paladin: {
+    classId: 'paladin',
+    icon: '☀️',
+    costGold: 65,
+    costFood: 35,
+    durationMs: BASE_HERO_RECRUIT_DURATION_MS,
+    specialty: 'Temple Chapterhouse Tier-2 Champion: Aura of Radiance, Holy Smite, and Divine Intervention.',
+    overworldCombatPreview: { hp: 195, mp: 86, atk: 27, def: 20 }
+  }
+};
+
+function isClassRecruitable(classId) {
+  return Boolean(classId && HERO_RECRUITMENT_CATALOG[classId] && CLASSES[classId]);
+}
+
+// Composes a recruitment descriptor by resolving canonical class identity & base attributes
+// from CLASSES and merging recruitment-only metadata from HERO_RECRUITMENT_CATALOG.
+function getRecruitableHeroEntry(classId) {
+  if (!classId) return null;
+  const rec = HERO_RECRUITMENT_CATALOG[classId];
+  const cls = CLASSES[classId];
+  if (!rec || !cls) return null;
+
+  const canonicalAttrs = cls.baseStats || { str: 10, dex: 10, int: 10, vit: 10 };
+  const preview = rec.overworldCombatPreview || { hp: cls.hpBase || 100, mp: cls.mpBase || 40, atk: 12, def: 8 };
+
+  return {
+    classId: cls.id,
+    name: cls.name,
+    title: cls.title,
+    color: cls.color,
+    icon: rec.icon,
+    costGold: rec.costGold,
+    costFood: rec.costFood,
+    durationMs: rec.durationMs || BASE_HERO_RECRUIT_DURATION_MS,
+    specialty: rec.specialty,
+    baseAttributes: {
+      str: canonicalAttrs.str,
+      dex: canonicalAttrs.dex,
+      int: canonicalAttrs.int,
+      vit: canonicalAttrs.vit
+    },
+    baseStats: {
+      str: canonicalAttrs.str,
+      dex: canonicalAttrs.dex,
+      int: canonicalAttrs.int,
+      vit: canonicalAttrs.vit,
+      hp: preview.hp,
+      mp: preview.mp,
+      atk: preview.atk,
+      def: preview.def
+    }
+  };
+}
+
+function getAllRecruitableHeroEntries() {
+  const out = [];
+  for (let i = 0; i < HERO_RECRUITMENT_ORDER.length; i++) {
+    const entry = getRecruitableHeroEntry(HERO_RECRUITMENT_ORDER[i]);
+    if (entry) out.push(entry);
+  }
+  return out;
 }
 
   // --- Module: src/progression/researchCatalog.js ---
@@ -12076,6 +12225,8 @@ function resolveUnlockState(target, effects, options) {
 
 
 
+
+
 function scheduleNextMarchStep(unit, state, scheduler) {
   if (!unit || !unit.marchPlan || !Array.isArray(unit.marchPlan.remainingPath) || unit.marchPlan.remainingPath.length === 0) {
     return null;
@@ -12463,17 +12614,8 @@ function resolveBuildingCompleteJob(job, state, scheduler, eventStream) {
   if (!city.buildings) city.buildings = {};
   city.buildings[bId] = Math.max(city.buildings[bId] || 0, targetLvl);
 
-  if (bId === 'town_hall' || bId === 'meeting_hall') {
-    city.buildings.town_hall = Math.max(city.buildings.town_hall || 0, targetLvl);
-    city.buildings.meeting_hall = Math.max(city.buildings.meeting_hall || 0, targetLvl);
+  if (bId === 'meeting_hall') {
     city.level = Math.max(city.level || 1, targetLvl);
-  } else if (bId === 'garden' || bId === 'farmstead') {
-    city.buildings.garden = Math.max(city.buildings.garden || 0, targetLvl);
-    city.buildings.farmstead = Math.max(city.buildings.farmstead || 0, targetLvl);
-  } else if (bId === 'lumber_camp' || bId === 'lumber_hut' || bId === 'sawmill') {
-    city.buildings.lumber_camp = Math.max(city.buildings.lumber_camp || 0, targetLvl);
-    city.buildings.lumber_hut = Math.max(city.buildings.lumber_hut || 0, targetLvl);
-    city.buildings.sawmill = Math.max(city.buildings.sawmill || 0, targetLvl);
   }
 
   const plot = (city.plots || []).find(function(pl) { return pl.plotIndex === p.plotIndex; });
@@ -12566,10 +12708,6 @@ function resolveBuildingDemolishJob(job, state, scheduler, eventStream) {
       if (city.buildings) city.buildings[bId] = highestLvl;
     } else if (city.buildings) {
       delete city.buildings[bId];
-      if (bId === 'sawmill') delete city.buildings.lumber_hut;
-      if (bId === 'lumber_hut') delete city.buildings.sawmill;
-      if (bId === 'farmstead') delete city.buildings.garden;
-      if (bId === 'garden') delete city.buildings.farmstead;
     }
   } else {
     // Site cleanup after cancelled construction
@@ -12715,20 +12853,51 @@ function resolveRecruitHeroJob(job, state, scheduler, eventStream) {
   const city = (world.cities && world.cities[p.cityId]) || getPrimaryCity(state);
   const ow = world.overworld;
 
-  const classDef = RECRUITABLE_HERO_CLASSES.find(function(c) { return c.classId === p.classId; });
+  const classDef = getRecruitableHeroEntry(p.classId);
   if (!classDef) return;
 
   const heroIndex = (world.heroes || []).length + 1;
   const heroName = String(p.heroName || (classDef.name + ' #' + heroIndex)).trim();
-  const starterEq = {
-    weapon:    { uid: 'eq_w_' + heroIndex, slot: 'weapon',    name: 'Guild Iron Blade',     rarity: 'common', atk: 6, def: 0, value: 25 },
-    armor:     { uid: 'eq_a_' + heroIndex, slot: 'armor',     name: 'Vanguard Cuirass',     rarity: 'common', atk: 0, def: 5, value: 25 },
-    helm:      { uid: 'eq_h_' + heroIndex, slot: 'helm',      name: 'Scout Steel Helm',     rarity: 'common', atk: 0, def: 2, value: 15 },
-    boots:     { uid: 'eq_b_' + heroIndex, slot: 'boots',     name: 'Frontier Greaves',     rarity: 'common', atk: 0, def: 2, value: 15 },
-    accessory: null,
-    pickaxe:   { uid: 'eq_p_' + heroIndex, slot: 'pickaxe',   name: 'Copper Miner Pickaxe', rarity: 'common', tier: 1, maxDurability: 25, durability: 25, value: 20 }
+
+  // HR-02: Reuse canonical class-specific starterGear definitions from src/data/classes.js
+  const canonicalClassDef = CLASSES && CLASSES[classDef.classId] ? CLASSES[classDef.classId] : null;
+  const rawStarter = canonicalClassDef && canonicalClassDef.starterGear ? canonicalClassDef.starterGear : null;
+  const cloneStarterSlot = function(slotKey) {
+    const src = rawStarter && rawStarter[slotKey] ? rawStarter[slotKey] : null;
+    if (!src) return null;
+    const copy = Object.assign({}, src, {
+      uid: 'eq_' + slotKey + '_' + heroIndex + '_' + classDef.classId,
+      affixes: Array.isArray(src.affixes) ? src.affixes.slice() : []
+    });
+    if (slotKey === 'pickaxe') {
+      const maxD = copy.maxDur || copy.maxDurability || 28;
+      const curD = copy.curDur !== undefined ? copy.curDur : (copy.durability !== undefined ? copy.durability : maxD);
+      copy.curDur = curD;
+      copy.maxDur = maxD;
+      copy.durability = curD;
+      copy.maxDurability = maxD;
+      if (!copy.tier) copy.tier = 1;
+    }
+    return copy;
   };
-  const heroObj = {
+  const starterEq = rawStarter
+    ? {
+        weapon:    cloneStarterSlot('weapon'),
+        armor:     cloneStarterSlot('armor'),
+        helm:      cloneStarterSlot('helm'),
+        boots:     cloneStarterSlot('boots'),
+        accessory: cloneStarterSlot('accessory'),
+        pickaxe:   cloneStarterSlot('pickaxe')
+      }
+    : {
+        weapon:    { uid: 'eq_w_' + heroIndex, slot: 'weapon',    name: 'Guild Iron Blade',     rarity: 'common', atk: 6, def: 0, value: 25 },
+        armor:     { uid: 'eq_a_' + heroIndex, slot: 'armor',     name: 'Vanguard Cuirass',     rarity: 'common', atk: 0, def: 5, value: 25 },
+        helm:      { uid: 'eq_h_' + heroIndex, slot: 'helm',      name: 'Scout Steel Helm',     rarity: 'common', atk: 0, def: 2, value: 15 },
+        boots:     { uid: 'eq_b_' + heroIndex, slot: 'boots',     name: 'Frontier Greaves',     rarity: 'common', atk: 0, def: 2, value: 15 },
+        accessory: null,
+        pickaxe:   { uid: 'eq_p_' + heroIndex, slot: 'pickaxe',   name: 'Copper Miner Pickaxe', rarity: 'common', tier: 1, curDur: 25, maxDur: 25, maxDurability: 25, durability: 25, value: 20 }
+      };
+  const heroObj = normalizePersistentHeroInstance({
     id: 'hero_' + heroIndex + '_' + classDef.classId,
     name: heroName,
     classId: classDef.classId,
@@ -12738,6 +12907,11 @@ function resolveRecruitHeroJob(job, state, scheduler, eventStream) {
     color: classDef.color,
     level: 1,
     xp: 0,
+    maxXp: DEFAULT_PERSISTENT_HERO_MAX_XP,
+    bonusStats: { str: 0, dex: 0, int: 0, vit: 0 },
+    statPoints: 0,
+    talentPoints: 0,
+    talentsAllocated: {},
     stats: Object.assign({}, classDef.baseStats),
     equipment: starterEq,
     cosmetics: { cloak: null, aura: null, banner_crest: null, weapon_glow: null },
@@ -12746,7 +12920,7 @@ function resolveRecruitHeroJob(job, state, scheduler, eventStream) {
     ],
     ownerPlayerId: getCanonicalPlayerId(state),
     recruitedAtSimMs: job.dueSimTimeMs
-  };
+  });
 
   if (!world.heroes) world.heroes = [];
   world.heroes.push(heroObj);
@@ -13742,8 +13916,8 @@ function processResourceProductionTick(state, eventStream) {
         const lvl = plot.level || 0;
         if (!bId || lvl <= 0 || plot.underConstruction || plot.demolishing || plot.relocating) continue;
 
-        // Skip meeting_hall / town_hall here because token baseline is already accounted for
-        if (bId === 'meeting_hall' || bId === 'town_hall') continue;
+        // Skip meeting_hall here because token baseline is already accounted for
+        if (bId === 'meeting_hall') continue;
 
         const bDef = CITY_BUILDINGS_CATALOG[bId];
         if (!bDef || !bDef.productionPerTick) continue;
@@ -13782,7 +13956,7 @@ function processResourceProductionTick(state, eventStream) {
       const bKeys = Object.keys(city.buildings);
       for (let k = 0; k < bKeys.length; k++) {
         const bId = bKeys[k];
-        if (bId === 'town_hall' || bId === 'meeting_hall') continue;
+        if (bId === 'meeting_hall') continue;
         const lvl = city.buildings[bId] || 0;
         if (lvl <= 0) continue;
         const bDef = CITY_BUILDINGS_CATALOG[bId];
@@ -14023,6 +14197,7 @@ function consumeBridgeHandoff(expectedDirection) {
   // --- Module: src/wargame/engine/commandBus.js ---
 // Authoritative Command Bus & Simulation Host Engine
 // All player actions are dispatched as serializable Command Envelopes, validated, and applied to the World state.
+
 
 
 
@@ -14296,9 +14471,8 @@ function dispatchWargameCommand(commandEnvelope, state, scheduler, eventStream) 
         topaz: 0,
         void_diamond: 0
       },
-      // IMPORTANT: Only town_hall / meeting_hall starts at level 1!
+      // IMPORTANT: Only canonical meeting_hall starts at level 1!
       buildings: {
-        town_hall: 1,
         meeting_hall: 1
       },
       population: {
@@ -14428,14 +14602,7 @@ function dispatchWargameCommand(commandEnvelope, state, scheduler, eventStream) 
       return reject('That plot already has an active order');
     }
 
-    const isSameBuilding = (plot.buildingId === buildingId) ||
-      (plot.buildingId === 'town_hall' && buildingId === 'meeting_hall') ||
-      (plot.buildingId === 'meeting_hall' && buildingId === 'town_hall') ||
-      (plot.buildingId === 'farmstead' && buildingId === 'garden') ||
-      (plot.buildingId === 'garden' && buildingId === 'farmstead') ||
-      (plot.buildingId === 'sawmill' && (buildingId === 'lumber_camp' || buildingId === 'lumber_hut')) ||
-      (plot.buildingId === 'lumber_hut' && (buildingId === 'lumber_camp' || buildingId === 'sawmill')) ||
-      (plot.buildingId === 'lumber_camp' && (buildingId === 'sawmill' || buildingId === 'lumber_hut'));
+    const isSameBuilding = (plot.buildingId === buildingId);
 
     if (plot.buildingId && !isSameBuilding) {
       return reject('Plot is already occupied by ' + plot.buildingId);
@@ -14454,10 +14621,9 @@ function dispatchWargameCommand(commandEnvelope, state, scheduler, eventStream) 
     }
 
     // Meeting Hall Rule: No building in the city can exceed the level of the Meeting Hall
-    if (buildingId !== 'meeting_hall' && buildingId !== 'town_hall') {
+    if (buildingId !== 'meeting_hall') {
       const meetingHallLevel = Math.max(
         (city.buildings && city.buildings.meeting_hall) || 0,
-        (city.buildings && city.buildings.town_hall) || 0,
         1
       );
       if (targetLevel > meetingHallLevel) {
@@ -14713,7 +14879,7 @@ function dispatchWargameCommand(commandEnvelope, state, scheduler, eventStream) 
       return reject('No established building to demolish on this plot');
     }
 
-    if (plot.buildingId === 'town_hall' || plot.buildingId === 'meeting_hall') {
+    if (plot.buildingId === 'meeting_hall') {
       return reject('The Meeting Hall cannot be demolished');
     }
 
@@ -14772,7 +14938,7 @@ function dispatchWargameCommand(commandEnvelope, state, scheduler, eventStream) 
     }
 
     const classId = payload.classId || 'adventurer';
-    const classDef = RECRUITABLE_HERO_CLASSES.find(function(c) { return c.classId === classId; });
+    const classDef = getRecruitableHeroEntry(classId);
     if (!classDef) {
       return reject('Unknown hero class: ' + classId);
     }
@@ -14806,6 +14972,7 @@ function dispatchWargameCommand(commandEnvelope, state, scheduler, eventStream) 
 
     const heroIndex = (world.heroes || []).length + city.recruitmentQueue.length + 1;
     const heroName = String(payload.heroName || (classDef.name + ' #' + heroIndex)).trim();
+    const recruitDurMs = classDef.durationMs || BASE_HERO_RECRUIT_DURATION_MS;
     const queueItem = {
       queueItemId: 'rec_' + city.id + '_' + Date.now() + '_' + Math.floor(Math.random() * 1000),
       cityId: city.id,
@@ -14814,7 +14981,7 @@ function dispatchWargameCommand(commandEnvelope, state, scheduler, eventStream) 
       heroName: heroName,
       costGold: classDef.costGold,
       costFood: classDef.costFood,
-      durationMs: BASE_HERO_RECRUIT_DURATION_MS,
+      durationMs: recruitDurMs,
       status: 'queued',
       jobId: null,
       startSimTimeMs: null,
@@ -14829,7 +14996,7 @@ function dispatchWargameCommand(commandEnvelope, state, scheduler, eventStream) 
         cityId: city.id,
         classId: classDef.classId,
         heroName: heroName,
-        durationMs: BASE_HERO_RECRUIT_DURATION_MS
+        durationMs: recruitDurMs
       }, simTimeMs);
     }
 
@@ -21868,8 +22035,8 @@ function drawArchitecturalBuilding(ctx, vp, coord, bDef, plot, onRepaint) {
     return;
   }
 
-  // 1. GARDEN / FARMSTEAD: Sunlit plowed earth crop furrows + fence + thatched toolshed
-  if (id === 'garden' || id === 'farmstead') {
+  // 1. GARDEN: Sunlit plowed earth crop furrows + fence + thatched toolshed
+  if (id === 'garden') {
     const rx = 28 * z;
     const ry = 14 * z;
     // Rich dark soil bed
@@ -21984,8 +22151,8 @@ function drawArchitecturalBuilding(ctx, vp, coord, bDef, plot, onRepaint) {
     return;
   }
 
-  // 5. LUMBER CAMP / SAWMILL: Timber shed + stacked cut pine logs
-  if (id === 'lumber_camp' || id === 'lumber_hut' || id === 'sawmill') {
+  // 5. LUMBER CAMP: Timber shed + stacked cut pine logs
+  if (id === 'lumber_camp') {
     const shed = drawIsoBox(ctx, cx - 5 * z, cy - 2 * z, 16 * z, 8 * z, 11 * z, { left: '#a47148', right: '#6b4423' });
     drawPitchedRoof(ctx, shed, cx - 5 * z, cy - 2 * z, 11 * z, 7 * z, '#854d0e', '#573309');
     // Stacked logs in front yard
@@ -22040,16 +22207,15 @@ function drawArchitecturalBuilding(ctx, vp, coord, bDef, plot, onRepaint) {
     return;
   }
 
-  // 8. SMELTERY / BLACKSMITH / STAR-FORGE: Ashlar foundry + smoking chimney + glowing furnace
-  if (id === 'smeltery' || id === 'blacksmith' || id === 'star_forge') {
+  // 8. SMELTERY / BLACKSMITH: Ashlar foundry + smoking chimney + glowing furnace
+  if (id === 'smeltery' || id === 'blacksmith') {
     const h = (14 + lvl * 2.5) * z;
     const box = drawIsoBox(ctx, cx, cy + 2 * z, 23 * z, 11.5 * z, h, { left: '#57534e', right: '#3b3734' });
     drawPitchedRoof(ctx, box, cx, cy + 2 * z, h, 9 * z, '#334155', '#1e293b');
     // Tall blast chimney
     drawIsoBox(ctx, cx - 10 * z, cy - h + 1 * z, 5 * z, 2.5 * z, 15 * z, { left: '#78716c', right: '#44403c', top: '#292524' });
     // Glowing furnace arch
-    const glow = id === 'star_forge' ? '#38bdf8' : '#f97316';
-    drawIsoWindow(ctx, cx + 9 * z, cy - 3 * z, 7 * z, 8 * z, glow);
+    drawIsoWindow(ctx, cx + 9 * z, cy - 3 * z, 7 * z, 8 * z, '#f97316');
     // Smoke puff
     ctx.fillStyle = 'rgba(203, 213, 225, 0.35)';
     ctx.beginPath();
@@ -22072,8 +22238,8 @@ function drawArchitecturalBuilding(ctx, vp, coord, bDef, plot, onRepaint) {
     return;
   }
 
-  // 10. TEMPLE CHAPTERHOUSE / SHRINE: Pale limestone sanctuary + tall golden spire + stained glass
-  if (id === 'temple_chapterhouse' || id === 'shrine') {
+  // 10. TEMPLE CHAPTERHOUSE: Pale limestone sanctuary + tall golden spire + stained glass
+  if (id === 'temple_chapterhouse') {
     const h = (16 + lvl * 3) * z;
     const nave = drawIsoBox(ctx, cx, cy + 2 * z, 23 * z, 11.5 * z, h, { left: '#f1f5f9', right: '#cbd5e1' });
     const apex = drawPitchedRoof(ctx, nave, cx, cy + 2 * z, h, 14 * z, '#e2e8f0', '#94a3b8');
@@ -22094,7 +22260,7 @@ function drawArchitecturalBuilding(ctx, vp, coord, bDef, plot, onRepaint) {
   }
 
   // 11. MEETING HALL / TOWN HALL: Grand Tiered Stone Citadel + Central Clock Turret + Gold Banner
-  if (id === 'meeting_hall' || id === 'town_hall') {
+  if (id === 'meeting_hall') {
     const h = (20 + lvl * 3.5) * z;
     const main = drawIsoBox(ctx, cx, cy + 2 * z, 27 * z, 13.5 * z, h, { left: '#d6cfc2', right: '#9b9388' });
     const apex = drawPitchedRoof(ctx, main, cx, cy + 2 * z, h, 12 * z, '#475569', '#1e293b');
@@ -22227,6 +22393,7 @@ function renderCityIsoCanvas(simHost) {
 
   // --- Module: src/wargame/ui/wargameUiSync.js ---
 // Wargame DOM Synchronizer — Start Screen, Pioneer Overworld HUD, Real-Time City Builder, Guild Recruitment & Event Feed
+
 
 
 
@@ -22726,8 +22893,8 @@ function buildUnifiedGuildServicesHtml(simHost, bId, city, bDef, lvl, activePlot
   const isMaxLvl = nextLvl > (bDef.maxLevel || 5);
   const upgCost = !isMaxLvl ? computeBuildingUpgradeCost(bId, nextLvl) : null;
   const upgDur = !isMaxLvl ? computeBuildingDurationMs(bId, nextLvl) : 0;
-  const mhLvl = (city.buildings && (city.buildings.meeting_hall || city.buildings.town_hall)) || 1;
-  const isMH = (bId === 'meeting_hall' || bId === 'town_hall');
+  const mhLvl = (city.buildings && city.buildings.meeting_hall) || 1;
+  const isMH = (bId === 'meeting_hall');
   const cappedByMH = !isMH && nextLvl > mhLvl;
   const canAffordUpg = Boolean(
     !isMaxLvl && !cappedByMH && activePlot && !activePlot.underConstruction &&
@@ -22746,7 +22913,7 @@ function buildUnifiedGuildServicesHtml(simHost, bId, city, bDef, lvl, activePlot
   // Dedicated Sub-Pages: Recruit / Quest Board / Shop (opened from the clean action row)
   if (subPage === 'recruit' && fac.recruitment && Array.isArray(fac.recruitment.classes)) {
     const classCards = fac.recruitment.classes.map(function(entry) {
-      const cDef = RECRUITABLE_HERO_CLASSES.find(function(c) { return c.classId === entry.classId; });
+      const cDef = getRecruitableHeroEntry(entry.classId);
       if (!cDef) return '';
       const unlocked = lvl >= (entry.minLevel || 1);
       const canAfford = unlocked && (city.stockpile.gold || 0) >= cDef.costGold && (city.stockpile.food || 0) >= cDef.costFood;
@@ -23476,8 +23643,8 @@ function buildUnifiedBuildingStageHtml(simHost, bId, city) {
   const isMaxLvl = nextLvl > (bDef.maxLevel || 5);
   const upgCost = !isMaxLvl ? computeBuildingUpgradeCost(bId, nextLvl) : null;
   const upgDur = !isMaxLvl ? computeBuildingDurationMs(bId, nextLvl) : 0;
-  const mhLvl = (city.buildings && (city.buildings.meeting_hall || city.buildings.town_hall)) || 1;
-  const isMH = (bId === 'meeting_hall' || bId === 'town_hall');
+  const mhLvl = (city.buildings && city.buildings.meeting_hall) || 1;
+  const isMH = (bId === 'meeting_hall');
   const cappedByMH = !isMH && nextLvl > mhLvl;
   const canAffordUpg = Boolean(
     !isMaxLvl && !cappedByMH && activePlot && !activePlot.underConstruction &&
@@ -24223,7 +24390,7 @@ function renderCityBuilderPanel(simHost) {
       borderClass = 'border border-amber-400 bg-amber-950/30 animate-pulse';
       icon = '🔨';
       label = `<span class="text-[7px] font-mono text-amber-400 font-bold leading-none">BUILD</span>`;
-    } else if (bId === 'town_hall' || bId === 'meeting_hall') {
+    } else if (bId === 'meeting_hall') {
       borderClass = 'border-2 border-amber-400 bg-amber-950/20 shadow';
       icon = bDef ? bDef.icon : '🏛️';
       label = `<span class="text-[7px] font-mono text-amber-400 font-bold leading-none">Hall ${plot.level}</span>`;
@@ -24332,10 +24499,9 @@ function renderCityBuilderPanel(simHost) {
 
     const meetingHallLevel = Math.max(
       (city.buildings && city.buildings.meeting_hall) || 0,
-      (city.buildings && city.buildings.town_hall) || 0,
       1
     );
-    const blockedByMeetingHall = (curBId !== 'meeting_hall' && curBId !== 'town_hall' && nextLevel > meetingHallLevel);
+    const blockedByMeetingHall = (curBId !== 'meeting_hall' && nextLevel > meetingHallLevel);
 
     const canAfford = (city.stockpile.wood  || 0) >= (upgradeCost.wood  || 0) &&
                       (city.stockpile.stone || 0) >= (upgradeCost.stone || 0) &&
@@ -24425,7 +24591,7 @@ function renderCityBuilderPanel(simHost) {
             <button data-action="start-move-mode" data-plot-index="${selPlot.plotIndex}" onclick="window.WargameApp.handleStartMoveMode(${selPlot.plotIndex})" class="py-1.5 px-2 rounded bg-[#1a2232] hover:bg-sky-500/20 text-sky-400 border border-sky-500/40 text-[11px] font-mono font-bold cursor-pointer text-center">
               ↔ Relocate (2.5s)
             </button>
-            ${(curBId !== 'town_hall' && curBId !== 'meeting_hall') ? `
+            ${(curBId !== 'meeting_hall') ? `
               <button data-action="demolish-building" data-plot-index="${selPlot.plotIndex}" onclick="window.WargameApp.handleDemolishBuilding(${selPlot.plotIndex})" class="py-1.5 px-2 rounded bg-[#1a2232] hover:bg-red-500/20 text-red-400 border border-red-500/40 text-[11px] font-mono font-bold cursor-pointer text-center">
                 🔥 Demolish (35%)
               </button>
@@ -24481,7 +24647,7 @@ function renderCityBuilderPanel(simHost) {
       // Hide meeting hall (founded at center plot) and legacy aliases
       // Only show buildings whose prerequisites are currently satisfied!
       const constructibleKeys = Object.keys(CITY_BUILDINGS_CATALOG).filter(function(k) {
-        if (k === 'town_hall' || k === 'meeting_hall' || k === 'farmstead' || k === 'sawmill' || k === 'lumber_hut') return false;
+        if (k === 'meeting_hall') return false;
         return isBuildingPrerequisiteMet(city, k);
       });
 
@@ -28454,6 +28620,9 @@ function usePocketPortal(state = gameState, autoStepThrough = true) {
 const CANONICAL_EQ_SLOTS = ['weapon', 'armor', 'helm', 'boots', 'accessory', 'pickaxe'];
 
 function createDungeonHeroForClass(classId, canonicalHero, ownerPlayerId) {
+  if (canonicalHero && typeof canonicalHero === 'object') {
+    normalizePersistentHeroInstance(canonicalHero);
+  }
   const cls = CLASSES[classId] || CLASSES.fighter;
   const startEq = cls.starterGear || {};
   const base = cls.baseStats || { str: 10, dex: 10, int: 10, vit: 10 };
@@ -28482,7 +28651,7 @@ function createDungeonHeroForClass(classId, canonicalHero, ownerPlayerId) {
     name: (canonicalHero && canonicalHero.name) || cls.name,
     level: (canonicalHero && typeof canonicalHero.level === 'number' && canonicalHero.level >= 1) ? canonicalHero.level : 1,
     xp: (canonicalHero && typeof canonicalHero.xp === 'number' && canonicalHero.xp >= 0) ? canonicalHero.xp : 0,
-    maxXp: (canonicalHero && typeof canonicalHero.maxXp === 'number' && canonicalHero.maxXp > 0) ? canonicalHero.maxXp : 60,
+    maxXp: (canonicalHero && typeof canonicalHero.maxXp === 'number' && canonicalHero.maxXp > 0) ? canonicalHero.maxXp : DEFAULT_PERSISTENT_HERO_MAX_XP,
     x: 1,
     y: 1,
     hp: cls.hpBase || 100,
@@ -28516,6 +28685,9 @@ function bindCanonicalHeroToDungeonState(simHost, dungeonState, entryInfo) {
   const canonicalHero = (world.heroes || []).find(function(h) {
     return h.id === entryInfo.heroId;
   }) || null;
+  if (canonicalHero) {
+    normalizePersistentHeroInstance(canonicalHero);
+  }
 
   const classId = (canonicalHero && canonicalHero.classId) || entryInfo.heroClassId || 'fighter';
   const city = getPrimaryCity(simHost.state);
@@ -30096,6 +30268,9 @@ function processTurn(state = gameState) {
   if (h.classId === 'paladin' && state.turn % 3 === 0) {
     h.hp = Math.min(h.maxHp, h.hp + 1);
   }
+  if (h.classId === 'cleric' && state.turn % 2 === 0) {
+    h.mp = Math.min(h.maxMp, h.mp + 1);
+  }
 
   // Hero Status & Shrine Buff Ticks
   if (h.statuses && h.statuses.length > 0) {
@@ -30232,7 +30407,10 @@ function getSkillTargetingInfo(state = gameState) {
     return { valid: false, reason: 'not_in_dungeon', targets: [], targetCoords: [], canAfford: false, reachRadius: 0 };
   }
   const h = state.hero;
-  const cls = CLASSES[h.classId] || CLASSES.fighter;
+  const cls = CLASSES[h.classId];
+  if (!cls) {
+    return { valid: false, reason: 'unknown_class', targets: [], targetCoords: [], canAfford: false, reachRadius: 0 };
+  }
   const floor = ensureDungeonFloorHydrated(state.dungeon, state.dungeon.currentFloor);
   if (!floor || !floor.monsters) {
     return { valid: false, reason: 'no_floor', targets: [], targetCoords: [], canAfford: false, reachRadius: 0 };
@@ -30299,6 +30477,12 @@ function getSkillTargetingInfo(state = gameState) {
     reachRadius = 1.5;
     const t = floor.monsters.find(m => m.hp > 0 && Math.hypot(m.x - h.x, m.y - h.y) <= 1.5);
     if (t) targets.push(t);
+  } else if (h.classId === 'cleric') {
+    reachRadius = 3.2;
+    const visTargets = floor.monsters
+      .filter(m => m.hp > 0 && Math.hypot(m.x - h.x, m.y - h.y) <= 3.2 && hasLineOfSight(floor, h.x, h.y, m.x, m.y))
+      .sort((a, b) => Math.hypot(a.x - h.x, a.y - h.y) - Math.hypot(b.x - h.x, b.y - h.y));
+    if (visTargets.length > 0) targets.push(visTargets[0]);
   }
 
   const targetCoords = targets.map(m => ({ x: m.x, y: m.y }));
@@ -30324,6 +30508,7 @@ function executeClassSkill(state = gameState) {
   if (state.inGuild) return { ok: false, reason: 'in_guild' };
   const h = state.hero;
   const cls = CLASSES[h.classId];
+  if (!cls) return { ok: false, reason: 'unknown_class' };
   const floor = ensureDungeonFloorHydrated(state.dungeon, state.dungeon.currentFloor);
   if (!floor) return { ok: false, reason: 'no_floor' };
 
@@ -30585,6 +30770,42 @@ function executeClassSkill(state = gameState) {
     if (target.hp <= 0) killMonster(target, state);
     if (state === gameState) processTurn(state);
     return { ok: true, skill: 'torch_flare', dmg };
+  }
+
+  // 7. CLERIC: Sacred Ward (Requires visible foe within 3 tiles before deducting MP; deals 160% holy/INT dmg + heals 20% Max HP)
+  if (h.classId === 'cleric') {
+    const visTargets = floor.monsters
+      .filter(m => m.hp > 0 && Math.hypot(m.x - h.x, m.y - h.y) <= 3.2 && hasLineOfSight(floor, h.x, h.y, m.x, m.y))
+      .sort((a, b) => Math.hypot(a.x - h.x, a.y - h.y) - Math.hypot(b.x - h.x, b.y - h.y));
+    const target = visTargets[0] || null;
+    if (!target) {
+      if (state === gameState) {
+        ui.floatingText(h.x, h.y, 'No Visible Foe!', '#fef08a');
+        ui.log('Sacred Ward requires a visible monster within 3 tiles.', 'bad');
+      }
+      return { ok: false, reason: 'no_target_in_range' };
+    }
+
+    h.mp -= effectiveCost;
+    const masteryMult = getCodexMasteryMultiplier(target.id, state);
+    const spellBase = Math.max(h.atk, Math.round((h.computedInt || h.int || 12) * 1.6));
+    const dmg = Math.max(5, Math.round(spellBase * 1.6 * masteryMult) - Math.floor(target.def * 0.4));
+    const healAmt = Math.max(6, Math.round(h.maxHp * 0.20));
+    target.hp -= dmg;
+    h.hp = Math.min(h.maxHp, h.hp + healAmt);
+
+    if (state === gameState) {
+      playSound('spell');
+      ui.floatingText(target.x, target.y, `-${dmg} SACRED WARD!`, '#fef08a');
+      ui.floatingText(h.x, h.y, `+${healAmt} HP`, '#34d399');
+      ui.log(`Sacred Ward strikes ${target.name} for ${dmg} holy damage and restores +${healAmt} HP!`, 'gold');
+      if (typeof ui.combatAnim === 'function') {
+        ui.combatAnim(target.x, target.y, 'crit_slash', '#fef08a');
+      }
+    }
+    if (target.hp <= 0) killMonster(target, state);
+    if (state === gameState) processTurn(state);
+    return { ok: true, skill: 'sacred_ward', dmg, healAmt };
   }
 
   return { ok: false };
@@ -31134,6 +31355,9 @@ function runCorridor(dx, dy, state = gameState) {
 
   // --- Module: src/wargame/test/wargameSelfTest.js ---
 // Headless & In-Browser Verification Suite for the Standalone Macro Wargame & Real-Time Simulation Engine
+
+
+
 
 
 
@@ -35862,6 +36086,504 @@ function evaluateWargameSelfTests() {
       : 'Failed checks: ' + failed45.join(', ')
   });
 
+  // =========================================================================
+  // Test 46: HR-02 — Obsolete Building Cleanup, Legacy Alias Migration, Cleric Dungeon Parity & Class Starter Gear
+  // =========================================================================
+  const prevSavedRaw46 = (typeof localStorage !== 'undefined') ? localStorage.getItem(WARGAME_STORAGE_KEY) : null;
+  let t46Checks = {};
+  try {
+    // 1. Obsolete & legacy IDs removed from catalog and rejected by QUEUE_BUILDING
+    const removedIds46 = ['shrine', 'mage_guild', 'star_forge', 'temple_of_war', 'town_hall', 'farmstead', 'lumber_hut', 'sawmill'];
+    const catalogClean46 = removedIds46.every(function(id) { return !CITY_BUILDINGS_CATALOG[id]; });
+
+    const host46 = createWargameSimHost();
+    host46.dispatch({ type: COMMAND_TYPES.START_NEW_CAMPAIGN, payload: { houseName: 'House Clean', worldName: 'Canon Realm', seedCode: 'STAR-4600' } });
+    host46.dispatch({ type: COMMAND_TYPES.FOUND_CITY, payload: { cityName: 'Canonkeep' } });
+    const city46 = getPrimaryCity(host46.state);
+    city46.stockpile.wood = 900; city46.stockpile.stone = 900; city46.stockpile.food = 900; city46.stockpile.gold = 900;
+    const emptyIdx46 = city46.plots.findIndex(function(p) { return p && !p.buildingId; });
+    const newCityCanonical46 = Boolean(
+      city46.buildings.meeting_hall === 1 &&
+      city46.buildings.town_hall === undefined &&
+      city46.plots[27] && city46.plots[27].buildingId === 'meeting_hall'
+    );
+    const obsoleteRejected46 = removedIds46.every(function(id) {
+      return !host46.dispatch({ type: COMMAND_TYPES.QUEUE_BUILDING, payload: { plotIndex: emptyIdx46, buildingId: id } }).ok;
+    });
+
+    // 2. Legacy save migration & deduplication + idempotency
+    host46.save();
+    const raw46 = JSON.parse(localStorage.getItem(WARGAME_STORAGE_KEY));
+    const cKey46 = Object.keys(raw46.world.cities)[0];
+    const legCity46 = raw46.world.cities[cKey46];
+    legCity46.buildings = {
+      town_hall: 2,
+      meeting_hall: 1,
+      farmstead: 2,
+      garden: 1,
+      lumber_hut: 1,
+      sawmill: 3,
+      lumber_camp: 2,
+      shrine: 1,
+      mage_guild: 2,
+      star_forge: 1,
+      temple_of_war: 2
+    };
+    legCity46.plots[27].buildingId = 'town_hall'; legCity46.plots[27].level = 2;
+    legCity46.plots[0].buildingId = 'meeting_hall'; legCity46.plots[0].level = 1; // duplicate hall plot!
+    legCity46.plots[1].buildingId = 'farmstead'; legCity46.plots[1].level = 2;
+    legCity46.plots[2].buildingId = 'sawmill'; legCity46.plots[2].level = 3;
+    legCity46.plots[3].buildingId = 'shrine'; legCity46.plots[3].level = 1;
+    legCity46.plots[4].buildingId = 'mage_guild'; legCity46.plots[4].level = 2;
+    legCity46.plots[5].buildingId = 'star_forge'; legCity46.plots[5].level = 1;
+    legCity46.plots[6].buildingId = 'temple_of_war'; legCity46.plots[6].level = 2;
+    legCity46.buildQueue = [
+      { queueItemId: 'bq_leg_1', buildingId: 'lumber_hut', buildingName: 'Lumber Hut', plotIndex: 7, targetLevel: 1, status: 'queued' },
+      { queueItemId: 'bq_leg_2', buildingId: 'temple_of_war', buildingName: 'Sanctum', plotIndex: 8, targetLevel: 1, status: 'queued' }
+    ];
+    localStorage.setItem(WARGAME_STORAGE_KEY, JSON.stringify(raw46));
+
+    const host46Load1 = createWargameSimHost();
+    const load1Ok46 = host46Load1.load();
+    host46Load1.save();
+    const host46Load2 = createWargameSimHost();
+    const load2Ok46 = host46Load2.load();
+    const mc46 = getPrimaryCity(host46Load2.state);
+    const hallPlotCount46 = mc46.plots.filter(function(p) { return p && p.buildingId === 'meeting_hall'; }).length;
+    const legacyMigratedOk46 = Boolean(
+      load1Ok46 && load2Ok46 &&
+      hallPlotCount46 === 1 &&
+      mc46.plots[27].buildingId === 'meeting_hall' && mc46.plots[27].level === 2 &&
+      mc46.plots[0].buildingId === null &&
+      mc46.plots[1].buildingId === 'garden' && mc46.plots[1].level === 2 &&
+      mc46.plots[2].buildingId === 'lumber_camp' && mc46.plots[2].level === 3 &&
+      mc46.plots[3].buildingId === 'temple_chapterhouse' && mc46.plots[3].level === 1 &&
+      mc46.plots[4].buildingId === 'mages_guild' && mc46.plots[4].level === 2 &&
+      mc46.plots[5].buildingId === 'blacksmith' && mc46.plots[5].level === 1 &&
+      mc46.plots[6].buildingId === null &&
+      mc46.buildings.meeting_hall === 2 &&
+      mc46.buildings.garden === 2 &&
+      mc46.buildings.lumber_camp === 3 &&
+      mc46.buildings.temple_chapterhouse === 1 &&
+      mc46.buildings.mages_guild === 2 &&
+      mc46.buildings.blacksmith === 1 &&
+      mc46.buildings.town_hall === undefined &&
+      mc46.buildings.farmstead === undefined &&
+      mc46.buildings.lumber_hut === undefined &&
+      mc46.buildings.sawmill === undefined &&
+      mc46.buildings.shrine === undefined &&
+      mc46.buildings.mage_guild === undefined &&
+      mc46.buildings.star_forge === undefined &&
+      mc46.buildings.temple_of_war === undefined &&
+      mc46.buildQueue.length === 1 && mc46.buildQueue[0].buildingId === 'lumber_camp'
+    );
+
+    // 3. Cleric dungeon class registration, skill targeting & Zero-Wasted-MP execution
+    const clericSandbox46 = createDefaultGameState();
+    clericSandbox46.inGuild = false;
+    clericSandbox46.dungeon.currentFloor = 1;
+    const cFloor46 = {
+      width: 9,
+      height: 9,
+      tiles: Array.from({ length: 9 }, function() { return Array.from({ length: 9 }, function() { return 1; }); }),
+      monsters: [],
+      chests: [],
+      traps: [],
+      shrines: [],
+      objects: [],
+      groundItems: []
+    };
+    clericSandbox46.dungeon.floors[1] = cFloor46;
+    clericSandbox46.hero = {
+      classId: 'cleric',
+      name: 'Sister Lyra',
+      level: 1,
+      xp: 0,
+      maxXp: 60,
+      x: 4,
+      y: 4,
+      equipment: Object.assign({}, CLASSES.cleric ? CLASSES.cleric.starterGear : {}),
+      bonusStats: { str: 0, dex: 0, int: 0, vit: 0 },
+      talentsAllocated: {},
+      statuses: []
+    };
+    recomputeHeroDerivedStats(true, clericSandbox46);
+    cFloor46.monsters = []; // no targets -> must NOT deduct MP
+    const mpPreEmpty46 = clericSandbox46.hero.mp;
+    const clericEmptySkill46 = executeClassSkill(clericSandbox46);
+    const mpAfterEmpty46 = clericSandbox46.hero.mp;
+    // Place visible monster 2 tiles away on floor
+    let foeSpot46 = null;
+    for (let dx = -2; dx <= 2 && !foeSpot46; dx++) {
+      for (let dy = -2; dy <= 2 && !foeSpot46; dy++) {
+        if ((dx === 0 && dy === 0) || Math.hypot(dx, dy) > 2.5) continue;
+        const tx = clericSandbox46.hero.x + dx;
+        const ty = clericSandbox46.hero.y + dy;
+        if (cFloor46.tiles[ty] && cFloor46.tiles[ty][tx] === 1) foeSpot46 = { x: tx, y: ty };
+      }
+    }
+    if (foeSpot46) {
+      cFloor46.monsters.push({ id: 'test_goblin', name: 'Test Goblin', x: foeSpot46.x, y: foeSpot46.y, hp: 100, maxHp: 100, atk: 5, def: 2, xp: 10 });
+    }
+    clericSandbox46.hero.hp = Math.max(1, clericSandbox46.hero.maxHp - 20);
+    const hpPreHeal46 = clericSandbox46.hero.hp;
+    const preview46 = getSkillTargetingInfo(clericSandbox46);
+    const clericHit46 = executeClassSkill(clericSandbox46);
+    const clericClassRegOk46 = Boolean(CLASSES.cleric && CLASSES.cleric.skillName === 'Sacred Ward' && clericSandbox46.hero.classId === 'cleric');
+    const clericZeroMpOk46 = Boolean(!clericEmptySkill46.ok && mpAfterEmpty46 === mpPreEmpty46);
+    const clericPreviewOk46 = Boolean(preview46 && preview46.valid === true && preview46.skillName === 'Sacred Ward');
+    const clericHitOk46 = Boolean(
+      clericHit46 && clericHit46.ok && clericHit46.skill === 'sacred_ward' &&
+      clericHit46.dmg > 0 && clericSandbox46.hero.hp > hpPreHeal46 &&
+      clericSandbox46.hero.mp === mpPreEmpty46 - CLASSES.cleric.skillCost
+    );
+    const clericDungeonOk46 = Boolean(clericClassRegOk46 && clericZeroMpOk46 && clericPreviewOk46 && clericHitOk46);
+
+    // 4. Class-specific starter equipment reused on Wargame recruitment (verify Cleric, Mage, Ranger)
+    const hostGear46 = createWargameSimHost();
+    hostGear46.dispatch({ type: COMMAND_TYPES.START_NEW_CAMPAIGN, payload: { houseName: 'House Gear', worldName: 'Gear Realm', seedCode: 'STAR-4602' } });
+    hostGear46.dispatch({ type: COMMAND_TYPES.FOUND_CITY, payload: { cityName: 'Gearkeep' } });
+    const gCity46 = getPrimaryCity(hostGear46.state);
+    gCity46.stockpile.gold = 900; gCity46.stockpile.food = 900;
+    gCity46.buildings.temple_chapterhouse = 1;
+    gCity46.buildings.mages_guild = 1;
+    gCity46.buildings.rangers_lodge = 1;
+    hostGear46.dispatch({ type: COMMAND_TYPES.RECRUIT_HERO, payload: { classId: 'cleric', heroName: 'Sister Lyra' } });
+    hostGear46.dispatch({ type: COMMAND_TYPES.RECRUIT_HERO, payload: { classId: 'mage', heroName: 'Vaelen' } });
+    hostGear46.dispatch({ type: COMMAND_TYPES.RECRUIT_HERO, payload: { classId: 'ranger', heroName: 'Kael' } });
+    hostGear46.stepClock(200000);
+    const hCleric46 = hostGear46.state.world.heroes.find(function(h) { return h.classId === 'cleric'; });
+    const hMage46 = hostGear46.state.world.heroes.find(function(h) { return h.classId === 'mage'; });
+    const hRanger46 = hostGear46.state.world.heroes.find(function(h) { return h.classId === 'ranger'; });
+    const starterGearOk46 = Boolean(
+      hCleric46 && hCleric46.equipment && hCleric46.equipment.weapon && hCleric46.equipment.weapon.name === 'Sanctified Rod' &&
+      hMage46 && hMage46.equipment && hMage46.equipment.weapon && hMage46.equipment.weapon.name === 'Astral Runestaff' &&
+      hRanger46 && hRanger46.equipment && hRanger46.equipment.weapon && hRanger46.equipment.weapon.name === 'Recurve Shortbow' &&
+      hCleric46.equipment.weapon.uid !== hMage46.equipment.weapon.uid
+    );
+
+    t46Checks = {
+      catalogClean: catalogClean46,
+      newCityCanonical: newCityCanonical46,
+      obsoleteRejected: obsoleteRejected46,
+      legacyMigratedOk: legacyMigratedOk46,
+      clericClassRegOk: clericClassRegOk46,
+      clericZeroMpOk: clericZeroMpOk46,
+      clericPreviewOk: clericPreviewOk46,
+      clericHitOk: clericHitOk46,
+      clericDungeonOk: clericDungeonOk46,
+      starterGearOk: starterGearOk46
+    };
+  } finally {
+    if (typeof localStorage !== 'undefined') {
+      if (prevSavedRaw46 === null) localStorage.removeItem(WARGAME_STORAGE_KEY);
+      else localStorage.setItem(WARGAME_STORAGE_KEY, prevSavedRaw46);
+    }
+  }
+  const failed46 = Object.keys(t46Checks).filter(function(k) { return !t46Checks[k]; });
+  const t46Pass = failed46.length === 0 && Object.keys(t46Checks).length > 0;
+  results.push({
+    name: '46. HR-02: Obsolete Building Cleanup, Legacy Alias Migration, Cleric Dungeon Parity & Class Starter Gear',
+    pass: t46Pass,
+    detail: t46Pass
+      ? 'Obsolete buildings removed, legacy aliases migrated & deduplicated idempotently, Cleric Sacred Ward verified in dungeon, and class starter gear reused on recruitment'
+      : 'Failed checks: ' + failed46.join(', ')
+  });
+
+  // =========================================================================
+  // Test 47: HR-10 Persistent Hero-Instance Initialization, Safe Normalization,
+  //          Idempotency Across Save/Load & Dungeon Compatibility
+  // =========================================================================
+  const prevSavedRaw47 = (typeof localStorage !== 'undefined') ? localStorage.getItem(WARGAME_STORAGE_KEY) : null;
+  let t47Checks = {};
+  try {
+    // 1. Newly recruited hero has complete canonical persistent fields immediately upon recruitment
+    const host47 = createWargameSimHost();
+    host47.dispatch({ type: COMMAND_TYPES.START_NEW_CAMPAIGN, payload: { houseName: 'House Foundation', worldName: 'Canon Realm', seedCode: 'STAR-4701' } });
+    host47.dispatch({ type: COMMAND_TYPES.FOUND_CITY, payload: { cityName: 'Canonkeep' } });
+    const city47 = getPrimaryCity(host47.state);
+    city47.stockpile.gold = 600; city47.stockpile.food = 600;
+    city47.buildings.fighters_guild = 1;
+    city47.buildings.temple_chapterhouse = 1;
+    host47.dispatch({ type: COMMAND_TYPES.RECRUIT_HERO, payload: { classId: 'fighter', heroName: 'Aldric Iron' } });
+    host47.dispatch({ type: COMMAND_TYPES.RECRUIT_HERO, payload: { classId: 'cleric', heroName: 'Sister Sera' } });
+    host47.stepClock(150000);
+
+    const newFighter47 = host47.state.world.heroes.find(function(h) { return h.classId === 'fighter'; });
+    const newCleric47 = host47.state.world.heroes.find(function(h) { return h.classId === 'cleric'; });
+    const newHeroInitOk47 = Boolean(
+      newFighter47 && newCleric47 &&
+      newFighter47.level === 1 && newFighter47.xp === 0 && newFighter47.maxXp === DEFAULT_PERSISTENT_HERO_MAX_XP &&
+      newFighter47.bonusStats && newFighter47.bonusStats.str === 0 && newFighter47.bonusStats.dex === 0 &&
+      newFighter47.bonusStats.int === 0 && newFighter47.bonusStats.vit === 0 &&
+      newFighter47.statPoints === 0 && newFighter47.talentPoints === 0 &&
+      newFighter47.talentsAllocated && typeof newFighter47.talentsAllocated === 'object' && Object.keys(newFighter47.talentsAllocated).length === 0 &&
+      newFighter47.equipment && newFighter47.equipment.weapon && newFighter47.equipment.pickaxe &&
+      newFighter47.cosmetics && Array.isArray(newFighter47.bagGear) &&
+      newCleric47.maxXp === DEFAULT_PERSISTENT_HERO_MAX_XP && newCleric47.statPoints === 0 && newCleric47.talentPoints === 0
+    );
+
+    // 2. Existing legacy/partial hero missing fields is safely normalized without altering class/ownership/valid values
+    const legacyHero47 = {
+      id: 'hero_legacy_47',
+      name: 'Old Scout',
+      classId: 'ranger',
+      ownerPlayerId: CANONICAL_PLAYER_ID,
+      level: 2,
+      xp: 15,
+      bonusStats: { str: 3 },
+      equipment: { weapon: { uid: 'legacy_bow', slot: 'weapon', name: 'Old Bow', atk: 9 } }
+    };
+    normalizePersistentHeroInstance(legacyHero47);
+    const legacyPartialOk47 = Boolean(
+      legacyHero47.classId === 'ranger' &&
+      legacyHero47.ownerPlayerId === CANONICAL_PLAYER_ID &&
+      legacyHero47.level === 2 &&
+      legacyHero47.xp === 15 &&
+      legacyHero47.maxXp === DEFAULT_PERSISTENT_HERO_MAX_XP &&
+      legacyHero47.bonusStats.str === 3 &&
+      legacyHero47.bonusStats.dex === 0 &&
+      legacyHero47.bonusStats.int === 0 &&
+      legacyHero47.bonusStats.vit === 0 &&
+      legacyHero47.statPoints === 0 &&
+      legacyHero47.talentPoints === 0 &&
+      legacyHero47.talentsAllocated && Object.keys(legacyHero47.talentsAllocated).length === 0 &&
+      legacyHero47.equipment.weapon && legacyHero47.equipment.weapon.uid === 'legacy_bow' &&
+      legacyHero47.equipment.armor === null && legacyHero47.equipment.pickaxe === null &&
+      legacyHero47.cosmetics && legacyHero47.cosmetics.cloak === null &&
+      Array.isArray(legacyHero47.bagGear)
+    );
+
+    // 3. Existing hero with complete nonzero progression, allocated stats, talents & equipment remains untouched
+    const veteranBefore47 = {
+      id: 'hero_vet_47',
+      name: 'Veteran Kael',
+      classId: 'fighter',
+      ownerPlayerId: CANONICAL_PLAYER_ID,
+      level: 4,
+      xp: 45,
+      maxXp: 165,
+      bonusStats: { str: 2, dex: 3, int: 1, vit: 2 },
+      statPoints: 2,
+      talentPoints: 1,
+      talentsAllocated: { f_a1: 2, f_a2: 1 },
+      stats: { str: 15, dex: 10, int: 8, vit: 14, hp: 186, mp: 59, atk: 28, def: 16 },
+      equipment: {
+        weapon: { uid: 'vet_wep', slot: 'weapon', name: 'Runed Claymore', atk: 16, str: 3 },
+        armor: { uid: 'vet_arm', slot: 'armor', name: 'Star Plate', def: 12 },
+        helm: null,
+        boots: null,
+        accessory: null,
+        pickaxe: { uid: 'vet_pick', slot: 'pickaxe', name: 'Mithril Pick', curDur: 50, maxDur: 50 }
+      },
+      cosmetics: { cloak: 'crimson_cape', aura: null, banner_crest: null, weapon_glow: null },
+      bagGear: [{ uid: 'vet_bag_1', slot: 'helm', name: 'Spare Coif', def: 3 }]
+    };
+    const vetSnapBefore47 = JSON.stringify(veteranBefore47);
+    normalizePersistentHeroInstance(veteranBefore47);
+    const vetPreservedOk47 = JSON.stringify(veteranBefore47) === vetSnapBefore47;
+
+    // 4. Save/Load normalization & double-load idempotence
+    // Inject a legacy hero (missing fields) + veteran hero (nonzero progression) into saved payload
+    host47.state.world.heroes.push({
+      id: 'hero_save_legacy_47',
+      name: 'Legacy Delver',
+      classId: 'mage',
+      ownerPlayerId: CANONICAL_PLAYER_ID,
+      level: 3,
+      xp: 22
+    });
+    host47.state.world.heroes.push(JSON.parse(vetSnapBefore47));
+    host47.save();
+
+    const loadA47 = createWargameSimHost();
+    const okA47 = loadA47.load();
+    const heroesSnapA47 = JSON.stringify(loadA47.state.world.heroes);
+    loadA47.save();
+
+    const loadB47 = createWargameSimHost();
+    const okB47 = loadB47.load();
+    const heroesSnapB47 = JSON.stringify(loadB47.state.world.heroes);
+
+    const loadedLegacy47 = loadB47.state.world.heroes.find(function(h) { return h.id === 'hero_save_legacy_47'; });
+    const loadedVet47 = loadB47.state.world.heroes.find(function(h) { return h.id === 'hero_vet_47'; });
+    const saveLoadIdempotentOk47 = Boolean(
+      okA47 && okB47 &&
+      heroesSnapA47 === heroesSnapB47 &&
+      loadedLegacy47 && loadedLegacy47.classId === 'mage' && loadedLegacy47.level === 3 && loadedLegacy47.xp === 22 &&
+      loadedLegacy47.maxXp === DEFAULT_PERSISTENT_HERO_MAX_XP &&
+      loadedLegacy47.bonusStats && loadedLegacy47.bonusStats.int === 0 &&
+      loadedLegacy47.statPoints === 0 && loadedLegacy47.talentPoints === 0 &&
+      loadedLegacy47.talentsAllocated &&
+      loadedVet47 && loadedVet47.level === 4 && loadedVet47.xp === 45 && loadedVet47.maxXp === 165 &&
+      loadedVet47.bonusStats.str === 2 && loadedVet47.bonusStats.dex === 3 &&
+      loadedVet47.statPoints === 2 && loadedVet47.talentPoints === 1 &&
+      loadedVet47.talentsAllocated.f_a1 === 2 && loadedVet47.equipment.weapon.uid === 'vet_wep'
+    );
+
+    // 5. Dungeon creation consumes canonical persistent hero representation consistently (no formula/class drift)
+    const dngVet47 = createDungeonHeroForClass(loadedVet47.classId, loadedVet47, CANONICAL_PLAYER_ID);
+    const dngSandbox47 = createDefaultGameState();
+    dngSandbox47.hero = dngVet47;
+    recomputeHeroDerivedStats(true, dngSandbox47);
+    const dungeonCompatOk47 = Boolean(
+      dngVet47.id === 'hero_vet_47' &&
+      dngVet47.classId === 'fighter' &&
+      dngVet47.level === 4 &&
+      dngVet47.xp === 45 &&
+      dngVet47.maxXp === 165 &&
+      dngVet47.bonusStats.str === 2 &&
+      dngVet47.bonusStats.dex === 3 &&
+      dngVet47.statPoints === 2 &&
+      dngVet47.talentPoints === 1 &&
+      dngVet47.talentsAllocated.f_a1 === 2 &&
+      dngVet47.equipment.weapon && dngVet47.equipment.weapon.uid === 'vet_wep' &&
+      dngVet47.maxHp > 120 && dngVet47.atk > 20
+    );
+
+    t47Checks = {
+      newHeroInitOk: newHeroInitOk47,
+      legacyPartialOk: legacyPartialOk47,
+      vetPreservedOk: vetPreservedOk47,
+      saveLoadIdempotentOk: saveLoadIdempotentOk47,
+      dungeonCompatOk: dungeonCompatOk47
+    };
+  } finally {
+    if (typeof localStorage !== 'undefined') {
+      if (prevSavedRaw47 === null) localStorage.removeItem(WARGAME_STORAGE_KEY);
+      else localStorage.setItem(WARGAME_STORAGE_KEY, prevSavedRaw47);
+    }
+  }
+  const failed47 = Object.keys(t47Checks).filter(function(k) { return !t47Checks[k]; });
+  const t47Pass = failed47.length === 0 && Object.keys(t47Checks).length > 0;
+  results.push({
+    name: '47. HR-10: Persistent Hero-Instance Initialization, Safe Normalization, Save/Load Idempotency & Dungeon Compatibility',
+    pass: t47Pass,
+    detail: t47Pass
+      ? 'Recruited heroes initialize all canonical persistent fields, legacy/partial records normalize non-destructively & idempotently, veteran progression is preserved, and dungeon sync consumes canonical fields'
+      : 'Failed checks: ' + failed47.join(', ')
+  });
+
+  // =========================================================================
+  // Test 48: HR-11 Canonical Class & Recruitment Metadata Separation
+  // =========================================================================
+  const expectedRecruitIds48 = ['adventurer', 'fighter', 'ranger', 'mage', 'thief', 'cleric', 'paladin'];
+  const allEntries48 = getAllRecruitableHeroEntries();
+  const catalogKeys48 = Object.keys(HERO_RECRUITMENT_CATALOG);
+
+  // 5.1 Catalog completeness
+  const completenessOk48 = Boolean(
+    catalogKeys48.length === expectedRecruitIds48.length &&
+    allEntries48.length === expectedRecruitIds48.length &&
+    HERO_RECRUITMENT_ORDER.length === expectedRecruitIds48.length &&
+    expectedRecruitIds48.every(function(cid) {
+      return isClassRecruitable(cid) && Boolean(CLASSES[cid]) && Boolean(getRecruitableHeroEntry(cid));
+    }) &&
+    !isClassRecruitable('unknown_class') &&
+    getRecruitableHeroEntry('unknown_class') === null
+  );
+
+  // Building recruitment entries all reference valid recruitable classes
+  let buildingRefsOk48 = true;
+  Object.keys(CITY_BUILDINGS_CATALOG).forEach(function(bId) {
+    const b = CITY_BUILDINGS_CATALOG[bId];
+    if (b && b.facilities && b.facilities.recruitment && Array.isArray(b.facilities.recruitment.classes)) {
+      b.facilities.recruitment.classes.forEach(function(rc) {
+        if (!isClassRecruitable(rc.classId)) buildingRefsOk48 = false;
+      });
+    }
+  });
+
+  // 5.2 Canonical data integrity (zero independent duplication of name/title/color/baseStats in HERO_RECRUITMENT_CATALOG)
+  const canonicalIntegrityOk48 = expectedRecruitIds48.every(function(cid) {
+    const rawRec = HERO_RECRUITMENT_CATALOG[cid];
+    const cls = CLASSES[cid];
+    const composed = getRecruitableHeroEntry(cid);
+    return Boolean(
+      rawRec && cls && composed &&
+      rawRec.name === undefined &&
+      rawRec.title === undefined &&
+      rawRec.color === undefined &&
+      rawRec.baseStats === undefined &&
+      composed.classId === cls.id &&
+      composed.name === cls.name &&
+      composed.title === cls.title &&
+      composed.color === cls.color &&
+      composed.baseAttributes.str === cls.baseStats.str &&
+      composed.baseAttributes.dex === cls.baseStats.dex &&
+      composed.baseAttributes.int === cls.baseStats.int &&
+      composed.baseAttributes.vit === cls.baseStats.vit &&
+      composed.baseStats.str === cls.baseStats.str &&
+      composed.baseStats.dex === cls.baseStats.dex &&
+      composed.baseStats.int === cls.baseStats.int &&
+      composed.baseStats.vit === cls.baseStats.vit
+    );
+  });
+
+  // 5.3 & 5.4 Recruitment behavior, costs/timers, UI rendering, HR-10 init, & dungeon compatibility
+  const advEntry48 = getRecruitableHeroEntry('adventurer');
+  const fgtEntry48 = getRecruitableHeroEntry('fighter');
+  const palEntry48 = getRecruitableHeroEntry('paladin');
+  const costsTimersOk48 = Boolean(
+    advEntry48.costGold === 35 && advEntry48.costFood === 20 && advEntry48.durationMs === 60000 &&
+    fgtEntry48.costGold === 50 && fgtEntry48.costFood === 30 && fgtEntry48.durationMs === 60000 &&
+    palEntry48.costGold === 65 && palEntry48.costFood === 35 && palEntry48.durationMs === 60000
+  );
+
+  const host48 = createWargameSimHost();
+  host48.dispatch({ type: COMMAND_TYPES.START_NEW_CAMPAIGN, payload: { houseName: 'House Canon', worldName: 'Split Realm', seedCode: 'STAR-4801' } });
+  host48.dispatch({ type: COMMAND_TYPES.FOUND_CITY, payload: { cityName: 'Canonburg' } });
+  const city48 = getPrimaryCity(host48.state);
+  city48.stockpile.gold = 500; city48.stockpile.food = 500;
+  city48.buildings.fighters_guild = 1;
+  city48.buildings.temple_chapterhouse = 2;
+
+  host48.state._openFacilityId = 'fighters_guild';
+  host48.state._facilityTab = 'recruit';
+  const fgtRecruitHtml48 = buildUnifiedBuildingStageHtml(host48, 'fighters_guild', city48);
+  const uiRenderOk48 = Boolean(
+    fgtRecruitHtml48 &&
+    fgtRecruitHtml48.indexOf(CLASSES.fighter.name) !== -1 &&
+    fgtRecruitHtml48.indexOf(CLASSES.fighter.title) !== -1 &&
+    fgtRecruitHtml48.indexOf('50g') !== -1 &&
+    fgtRecruitHtml48.indexOf('30 Food') !== -1
+  );
+
+  const recRes48 = host48.dispatch({ type: COMMAND_TYPES.RECRUIT_HERO, payload: { classId: 'paladin', heroName: 'Sir Gareth' } });
+  host48.stepClock(80000);
+  const palHero48 = host48.state.world.heroes.find(function(h) { return h.classId === 'paladin'; });
+  const dngPal48 = palHero48 ? createDungeonHeroForClass(palHero48.classId, palHero48, CANONICAL_PLAYER_ID) : null;
+  const integrationOk48 = Boolean(
+    recRes48.ok &&
+    palHero48 &&
+    palHero48.className === CLASSES.paladin.name &&
+    palHero48.title === CLASSES.paladin.title &&
+    palHero48.color === CLASSES.paladin.color &&
+    palHero48.ownerPlayerId === CANONICAL_PLAYER_ID &&
+    palHero48.maxXp === DEFAULT_PERSISTENT_HERO_MAX_XP &&
+    palHero48.bonusStats && palHero48.bonusStats.vit === 0 &&
+    palHero48.equipment && palHero48.equipment.weapon && palHero48.equipment.weapon.name === CLASSES.paladin.starterGear.weapon.name &&
+    dngPal48 && dngPal48.classId === 'paladin' && dngPal48.maxXp === DEFAULT_PERSISTENT_HERO_MAX_XP
+  );
+
+  const t48Checks = {
+    completenessOk: completenessOk48,
+    buildingRefsOk: buildingRefsOk48,
+    canonicalIntegrityOk: canonicalIntegrityOk48,
+    costsTimersOk: costsTimersOk48,
+    uiRenderOk: uiRenderOk48,
+    integrationOk: integrationOk48
+  };
+  const failed48 = Object.keys(t48Checks).filter(function(k) { return !t48Checks[k]; });
+  const t48Pass = failed48.length === 0;
+  results.push({
+    name: '48. HR-11: Canonical Class & Recruitment Metadata Separation',
+    pass: t48Pass,
+    detail: t48Pass
+      ? 'Recruitment catalog separated into heroRecruitment.js with zero duplicated class definitions, canonical CLASSES resolution, preserved costs/timers/UI, HR-10 init & dungeon parity'
+      : 'Failed checks: ' + failed48.join(', ')
+  });
+
   return results;
 }
 
@@ -38309,7 +39031,7 @@ function syncIntegratedDungeonHud() {
   if (!isDungeon || !gameState || !gameState.hero) return;
 
   const h = gameState.hero;
-  const cls = CLASSES[h.classId] || CLASSES.fighter;
+  const cls = CLASSES[h.classId] || { name: h.className || h.classId || 'Unknown', skillName: 'None', skillCost: 0 };
   const dng = gameState.dungeon || {};
   const titleEl = document.getElementById('wgDungeonTitleText');
   if (titleEl) titleEl.textContent = dng.name || 'The Starfall Vaults';

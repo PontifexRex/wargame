@@ -182,7 +182,7 @@ function syncIntegratedDungeonHud() {
   if (!isDungeon || !gameState || !gameState.hero) return;
 
   const h = gameState.hero;
-  const cls = CLASSES[h.classId] || CLASSES.fighter;
+  const cls = CLASSES[h.classId] || { name: h.className || h.classId || 'Unknown', skillName: 'None', skillCost: 0 };
   const dng = gameState.dungeon || {};
   const titleEl = document.getElementById('wgDungeonTitleText');
   if (titleEl) titleEl.textContent = dng.name || 'The Starfall Vaults';

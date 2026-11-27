@@ -1,23 +1,31 @@
 // City Building Definitions, Paced Tier 1 Catalog, Construction Costs & Doubling Build Durations
 
+// Canonical normalization map for legacy & removed building IDs (HR-02)
+export const LEGACY_BUILDING_ID_MAP = {
+  town_hall: 'meeting_hall',
+  farmstead: 'garden',
+  lumber_hut: 'lumber_camp',
+  sawmill: 'lumber_camp',
+  shrine: 'temple_chapterhouse',
+  mage_guild: 'mages_guild',
+  star_forge: 'blacksmith',
+  temple_of_war: null
+};
+
+export function normalizeBuildingId(buildingId) {
+  if (!buildingId || typeof buildingId !== 'string') return null;
+  if (Object.prototype.hasOwnProperty.call(LEGACY_BUILDING_ID_MAP, buildingId)) {
+    return LEGACY_BUILDING_ID_MAP[buildingId];
+  }
+  return buildingId;
+}
+
 export const CITY_BUILDINGS_CATALOG = {
   // ---------------------------------------------------------------------------
   // 1. CIVIC STRUCTURES
   // ---------------------------------------------------------------------------
   meeting_hall: {
     id: 'meeting_hall',
-    name: 'Meeting Hall',
-    icon: '🏛️',
-    category: 'civic',
-    color: '#fbbf24',
-    maxLevel: 5,
-    baseBuildTimeMs: 5000,
-    baseCost: { wood: 40, stone: 40, gold: 20 },
-    productionPerTick: { food: 1, wood: 1, stone: 1, gold: 1, water: 1 },
-    desc: 'The central administration hall of your settlement. Governs town decisions and sets the maximum level cap for all structures.'
-  },
-  town_hall: {
-    id: 'town_hall',
     name: 'Meeting Hall',
     icon: '🏛️',
     category: 'civic',
@@ -71,19 +79,6 @@ export const CITY_BUILDINGS_CATALOG = {
     requires: { meeting_hall: 1, hut: 1 },
     desc: 'Grows vegetables and staple crops to feed your population and prevent starvation.'
   },
-  farmstead: {
-    id: 'farmstead',
-    name: 'Garden',
-    icon: '🌱',
-    category: 'economy',
-    color: '#f97316',
-    maxLevel: 5,
-    baseBuildTimeMs: 3500,
-    baseCost: { wood: 20, stone: 5, gold: 0 },
-    productionPerTick: { food: 6 },
-    requires: { meeting_hall: 1, hut: 1 },
-    desc: 'Grows vegetables and staple crops to feed your population and prevent starvation.'
-  },
   lumber_camp: {
     id: 'lumber_camp',
     name: 'Lumber Camp',
@@ -96,33 +91,6 @@ export const CITY_BUILDINGS_CATALOG = {
     productionPerTick: { wood: 6 },
     requires: { meeting_hall: 1, well: 1 },
     requiredPopulation: 12,
-    desc: 'Fells and cuts seasoned timber to supply construction materials for the town.'
-  },
-  lumber_hut: {
-    id: 'lumber_hut',
-    name: 'Lumber Camp',
-    icon: '🪓',
-    category: 'economy',
-    color: '#4ade80',
-    maxLevel: 5,
-    baseBuildTimeMs: 4000,
-    baseCost: { wood: 15, stone: 10, gold: 0 },
-    productionPerTick: { wood: 6 },
-    requires: { meeting_hall: 1, well: 1 },
-    requiredPopulation: 12,
-    desc: 'Fells and cuts seasoned timber to supply construction materials for the town.'
-  },
-  sawmill: {
-    id: 'sawmill',
-    name: 'Lumber Camp',
-    icon: '🪓',
-    category: 'economy',
-    color: '#4ade80',
-    maxLevel: 5,
-    baseBuildTimeMs: 4000,
-    baseCost: { wood: 15, stone: 10, gold: 0 },
-    productionPerTick: { wood: 6 },
-    requires: { meeting_hall: 1 },
     desc: 'Fells and cuts seasoned timber to supply construction materials for the town.'
   },
   quarry: {
@@ -296,7 +264,7 @@ export const CITY_BUILDINGS_CATALOG = {
     maxLevel: 3,
     baseBuildTimeMs: 5000,
     baseCost: { wood: 35, stone: 25, gold: 10 },
-    adjacencyBonus: { ratio: 0.20, targets: ['garden', 'farmstead', 'mine', 'lumber_camp', 'lumber_hut', 'sawmill', 'quarry'] },
+    adjacencyBonus: { ratio: 0.20, targets: ['garden', 'mine', 'lumber_camp', 'quarry'] },
     requires: { meeting_hall: 1, garden: 1, lumber_camp: 1 },
     desc: 'Harnesses wind energy to boost productivity of adjacent Gardens, Mines, and Lumber Camps by +20%.'
   },
@@ -492,63 +460,11 @@ export const CITY_BUILDINGS_CATALOG = {
       shop:       { catalogId: 'shop_rangers_exclusive' }
     },
     desc: 'Frontier pathfinder lodge recruiting Rangers, offering scouting quests, archery training, research, and bows.'
-  },
-  shrine: {
-    id: 'shrine',
-    name: 'Shrine',
-    icon: '🕊️',
-    category: 'arcane',
-    color: '#fef08a',
-    maxLevel: 3,
-    baseBuildTimeMs: 5500,
-    baseCost: { wood: 35, stone: 40, gold: 25 },
-    requires: { meeting_hall: 1, guild_hall: 1 },
-    recruits: ['paladin', 'cleric'],
-    desc: 'Sanctuary for divine communion. Prepares holy champions (Paladins, Clerics) to shield your troops.'
-  },
-  mage_guild: {
-    id: 'mage_guild',
-    name: 'Mage Guild',
-    icon: '🔮',
-    category: 'arcane',
-    color: '#c084fc',
-    maxLevel: 3,
-    baseBuildTimeMs: 6500,
-    baseCost: { wood: 40, stone: 45, gold: 35 },
-    requires: { meeting_hall: 2, guild_hall: 1 },
-    recruits: ['mage', 'elementalist'],
-    desc: 'Academy of the astral elements. Enrolls Mages and Elementalists wielding arcane forces.'
-  },
-  star_forge: {
-    id: 'star_forge',
-    name: 'Astral Star-Forge',
-    icon: '🔥',
-    category: 'arcane',
-    color: '#c084fc',
-    maxLevel: 3,
-    baseBuildTimeMs: 7000,
-    baseCost: { wood: 40, stone: 60, gold: 50 },
-    productionPerTick: { gold: 4 },
-    requires: { guild_hall: 1 },
-    desc: 'Smelts subterranean star-ores brought back from dungeons into masterwork relics.'
-  },
-  temple_of_war: {
-    id: 'temple_of_war',
-    name: 'Sanctum of the War Gods',
-    icon: '🏛️',
-    category: 'arcane',
-    color: '#38bdf8',
-    maxLevel: 3,
-    baseBuildTimeMs: 6500,
-    baseCost: { wood: 35, stone: 55, gold: 40 },
-    productionPerTick: {},
-    requires: { meeting_hall: 1 },
-    desc: 'Channels Divine War Reimbursement—honorable battles grant divine favor and rapid troop recovery.'
   }
 };
 
 export const CITY_PLOT_SLOTS = [
-  { plotIndex: 0, label: 'Meeting Hall Plot', defaultBuilding: 'town_hall', lockedTo: 'town_hall' },
+  { plotIndex: 0, label: 'Meeting Hall Plot', defaultBuilding: 'meeting_hall', lockedTo: 'meeting_hall' },
   { plotIndex: 1, label: 'Plot 1', recommended: 'hut' },
   { plotIndex: 2, label: 'Plot 2', recommended: 'garden' },
   { plotIndex: 3, label: 'Plot 3', recommended: 'well' },
@@ -578,18 +494,9 @@ export function isBuildingPrerequisiteMet(city, buildingId) {
     const bldgs = city.buildings || {};
     const reqKeys = Object.keys(bDef.requires);
     for (let i = 0; i < reqKeys.length; i++) {
-      const reqB = reqKeys[i];
-      const reqLvl = bDef.requires[reqB];
-      let curLvl = 0;
-      if (reqB === 'meeting_hall' || reqB === 'town_hall') {
-        curLvl = Math.max(bldgs.meeting_hall || 0, bldgs.town_hall || 0);
-      } else if (reqB === 'garden' || reqB === 'farmstead') {
-        curLvl = Math.max(bldgs.garden || 0, bldgs.farmstead || 0);
-      } else if (reqB === 'lumber_camp' || reqB === 'lumber_hut' || reqB === 'sawmill') {
-        curLvl = Math.max(bldgs.lumber_camp || 0, bldgs.lumber_hut || 0, bldgs.sawmill || 0);
-      } else {
-        curLvl = bldgs[reqB] || 0;
-      }
+      const reqB = normalizeBuildingId(reqKeys[i]);
+      const reqLvl = bDef.requires[reqKeys[i]];
+      const curLvl = (reqB && bldgs[reqB]) ? bldgs[reqB] : 0;
       if (curLvl < reqLvl) {
         return false;
       }
@@ -617,18 +524,9 @@ export function getBuildingPrerequisiteMissingReason(city, buildingId) {
     const bldgs = city.buildings || {};
     const reqKeys = Object.keys(bDef.requires);
     for (let i = 0; i < reqKeys.length; i++) {
-      const reqB = reqKeys[i];
-      const reqLvl = bDef.requires[reqB];
-      let curLvl = 0;
-      if (reqB === 'meeting_hall' || reqB === 'town_hall') {
-        curLvl = Math.max(bldgs.meeting_hall || 0, bldgs.town_hall || 0);
-      } else if (reqB === 'garden' || reqB === 'farmstead') {
-        curLvl = Math.max(bldgs.garden || 0, bldgs.farmstead || 0);
-      } else if (reqB === 'lumber_camp' || reqB === 'lumber_hut' || reqB === 'sawmill') {
-        curLvl = Math.max(bldgs.lumber_camp || 0, bldgs.lumber_hut || 0, bldgs.sawmill || 0);
-      } else {
-        curLvl = bldgs[reqB] || 0;
-      }
+      const reqB = normalizeBuildingId(reqKeys[i]);
+      const reqLvl = bDef.requires[reqKeys[i]];
+      const curLvl = (reqB && bldgs[reqB]) ? bldgs[reqB] : 0;
       if (curLvl < reqLvl) {
         const reqDef = CITY_BUILDINGS_CATALOG[reqB];
         return 'Requires ' + (reqDef ? reqDef.name : reqB) + ' Level ' + reqLvl;

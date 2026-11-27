@@ -6,9 +6,9 @@ import {
   STREAM_TOPICS
 } from '../constants.js';
 import {
-  OVERWORLD_TERRAIN_DEFS,
-  RECRUITABLE_HERO_CLASSES
+  OVERWORLD_TERRAIN_DEFS
 } from '../data/terrain.js';
+import { getRecruitableHeroEntry } from '../data/heroRecruitment.js';
 import { getHexDistance } from '../engine/hexSpatial.js';
 import {
   CITY_BUILDINGS_CATALOG,
@@ -558,8 +558,8 @@ export function buildUnifiedGuildServicesHtml(simHost, bId, city, bDef, lvl, act
   const isMaxLvl = nextLvl > (bDef.maxLevel || 5);
   const upgCost = !isMaxLvl ? computeBuildingUpgradeCost(bId, nextLvl) : null;
   const upgDur = !isMaxLvl ? computeBuildingDurationMs(bId, nextLvl) : 0;
-  const mhLvl = (city.buildings && (city.buildings.meeting_hall || city.buildings.town_hall)) || 1;
-  const isMH = (bId === 'meeting_hall' || bId === 'town_hall');
+  const mhLvl = (city.buildings && city.buildings.meeting_hall) || 1;
+  const isMH = (bId === 'meeting_hall');
   const cappedByMH = !isMH && nextLvl > mhLvl;
   const canAffordUpg = Boolean(
     !isMaxLvl && !cappedByMH && activePlot && !activePlot.underConstruction &&
@@ -578,7 +578,7 @@ export function buildUnifiedGuildServicesHtml(simHost, bId, city, bDef, lvl, act
   // Dedicated Sub-Pages: Recruit / Quest Board / Shop (opened from the clean action row)
   if (subPage === 'recruit' && fac.recruitment && Array.isArray(fac.recruitment.classes)) {
     const classCards = fac.recruitment.classes.map(function(entry) {
-      const cDef = RECRUITABLE_HERO_CLASSES.find(function(c) { return c.classId === entry.classId; });
+      const cDef = getRecruitableHeroEntry(entry.classId);
       if (!cDef) return '';
       const unlocked = lvl >= (entry.minLevel || 1);
       const canAfford = unlocked && (city.stockpile.gold || 0) >= cDef.costGold && (city.stockpile.food || 0) >= cDef.costFood;
@@ -1308,8 +1308,8 @@ export function buildUnifiedBuildingStageHtml(simHost, bId, city) {
   const isMaxLvl = nextLvl > (bDef.maxLevel || 5);
   const upgCost = !isMaxLvl ? computeBuildingUpgradeCost(bId, nextLvl) : null;
   const upgDur = !isMaxLvl ? computeBuildingDurationMs(bId, nextLvl) : 0;
-  const mhLvl = (city.buildings && (city.buildings.meeting_hall || city.buildings.town_hall)) || 1;
-  const isMH = (bId === 'meeting_hall' || bId === 'town_hall');
+  const mhLvl = (city.buildings && city.buildings.meeting_hall) || 1;
+  const isMH = (bId === 'meeting_hall');
   const cappedByMH = !isMH && nextLvl > mhLvl;
   const canAffordUpg = Boolean(
     !isMaxLvl && !cappedByMH && activePlot && !activePlot.underConstruction &&
@@ -2055,7 +2055,7 @@ export function renderCityBuilderPanel(simHost) {
       borderClass = 'border border-amber-400 bg-amber-950/30 animate-pulse';
       icon = '🔨';
       label = `<span class="text-[7px] font-mono text-amber-400 font-bold leading-none">BUILD</span>`;
-    } else if (bId === 'town_hall' || bId === 'meeting_hall') {
+    } else if (bId === 'meeting_hall') {
       borderClass = 'border-2 border-amber-400 bg-amber-950/20 shadow';
       icon = bDef ? bDef.icon : '🏛️';
       label = `<span class="text-[7px] font-mono text-amber-400 font-bold leading-none">Hall ${plot.level}</span>`;
@@ -2164,10 +2164,9 @@ export function renderCityBuilderPanel(simHost) {
 
     const meetingHallLevel = Math.max(
       (city.buildings && city.buildings.meeting_hall) || 0,
-      (city.buildings && city.buildings.town_hall) || 0,
       1
     );
-    const blockedByMeetingHall = (curBId !== 'meeting_hall' && curBId !== 'town_hall' && nextLevel > meetingHallLevel);
+    const blockedByMeetingHall = (curBId !== 'meeting_hall' && nextLevel > meetingHallLevel);
 
     const canAfford = (city.stockpile.wood  || 0) >= (upgradeCost.wood  || 0) &&
                       (city.stockpile.stone || 0) >= (upgradeCost.stone || 0) &&
@@ -2257,7 +2256,7 @@ export function renderCityBuilderPanel(simHost) {
             <button data-action="start-move-mode" data-plot-index="${selPlot.plotIndex}" onclick="window.WargameApp.handleStartMoveMode(${selPlot.plotIndex})" class="py-1.5 px-2 rounded bg-[#1a2232] hover:bg-sky-500/20 text-sky-400 border border-sky-500/40 text-[11px] font-mono font-bold cursor-pointer text-center">
               ↔ Relocate (2.5s)
             </button>
-            ${(curBId !== 'town_hall' && curBId !== 'meeting_hall') ? `
+            ${(curBId !== 'meeting_hall') ? `
               <button data-action="demolish-building" data-plot-index="${selPlot.plotIndex}" onclick="window.WargameApp.handleDemolishBuilding(${selPlot.plotIndex})" class="py-1.5 px-2 rounded bg-[#1a2232] hover:bg-red-500/20 text-red-400 border border-red-500/40 text-[11px] font-mono font-bold cursor-pointer text-center">
                 🔥 Demolish (35%)
               </button>
@@ -2313,7 +2312,7 @@ export function renderCityBuilderPanel(simHost) {
       // Hide meeting hall (founded at center plot) and legacy aliases
       // Only show buildings whose prerequisites are currently satisfied!
       const constructibleKeys = Object.keys(CITY_BUILDINGS_CATALOG).filter(function(k) {
-        if (k === 'town_hall' || k === 'meeting_hall' || k === 'farmstead' || k === 'sawmill' || k === 'lumber_hut') return false;
+        if (k === 'meeting_hall') return false;
         return isBuildingPrerequisiteMet(city, k);
       });
 

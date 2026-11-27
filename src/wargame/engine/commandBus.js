@@ -22,9 +22,9 @@ import {
 } from '../constants.js';
 import {
   OVERWORLD_TERRAIN_DEFS,
-  UNIT_ARCHETYPES,
-  RECRUITABLE_HERO_CLASSES
+  UNIT_ARCHETYPES
 } from '../data/terrain.js';
+import { getRecruitableHeroEntry } from '../data/heroRecruitment.js';
 import {
   CITY_BUILDINGS_CATALOG,
   MARKET_EXCHANGE_RATES,
@@ -363,9 +363,8 @@ export function dispatchWargameCommand(commandEnvelope, state, scheduler, eventS
         topaz: 0,
         void_diamond: 0
       },
-      // IMPORTANT: Only town_hall / meeting_hall starts at level 1!
+      // IMPORTANT: Only canonical meeting_hall starts at level 1!
       buildings: {
-        town_hall: 1,
         meeting_hall: 1
       },
       population: {
@@ -495,14 +494,7 @@ export function dispatchWargameCommand(commandEnvelope, state, scheduler, eventS
       return reject('That plot already has an active order');
     }
 
-    const isSameBuilding = (plot.buildingId === buildingId) ||
-      (plot.buildingId === 'town_hall' && buildingId === 'meeting_hall') ||
-      (plot.buildingId === 'meeting_hall' && buildingId === 'town_hall') ||
-      (plot.buildingId === 'farmstead' && buildingId === 'garden') ||
-      (plot.buildingId === 'garden' && buildingId === 'farmstead') ||
-      (plot.buildingId === 'sawmill' && (buildingId === 'lumber_camp' || buildingId === 'lumber_hut')) ||
-      (plot.buildingId === 'lumber_hut' && (buildingId === 'lumber_camp' || buildingId === 'sawmill')) ||
-      (plot.buildingId === 'lumber_camp' && (buildingId === 'sawmill' || buildingId === 'lumber_hut'));
+    const isSameBuilding = (plot.buildingId === buildingId);
 
     if (plot.buildingId && !isSameBuilding) {
       return reject('Plot is already occupied by ' + plot.buildingId);
@@ -521,10 +513,9 @@ export function dispatchWargameCommand(commandEnvelope, state, scheduler, eventS
     }
 
     // Meeting Hall Rule: No building in the city can exceed the level of the Meeting Hall
-    if (buildingId !== 'meeting_hall' && buildingId !== 'town_hall') {
+    if (buildingId !== 'meeting_hall') {
       const meetingHallLevel = Math.max(
         (city.buildings && city.buildings.meeting_hall) || 0,
-        (city.buildings && city.buildings.town_hall) || 0,
         1
       );
       if (targetLevel > meetingHallLevel) {
@@ -780,7 +771,7 @@ export function dispatchWargameCommand(commandEnvelope, state, scheduler, eventS
       return reject('No established building to demolish on this plot');
     }
 
-    if (plot.buildingId === 'town_hall' || plot.buildingId === 'meeting_hall') {
+    if (plot.buildingId === 'meeting_hall') {
       return reject('The Meeting Hall cannot be demolished');
     }
 
@@ -839,7 +830,7 @@ export function dispatchWargameCommand(commandEnvelope, state, scheduler, eventS
     }
 
     const classId = payload.classId || 'adventurer';
-    const classDef = RECRUITABLE_HERO_CLASSES.find(function(c) { return c.classId === classId; });
+    const classDef = getRecruitableHeroEntry(classId);
     if (!classDef) {
       return reject('Unknown hero class: ' + classId);
     }
@@ -873,6 +864,7 @@ export function dispatchWargameCommand(commandEnvelope, state, scheduler, eventS
 
     const heroIndex = (world.heroes || []).length + city.recruitmentQueue.length + 1;
     const heroName = String(payload.heroName || (classDef.name + ' #' + heroIndex)).trim();
+    const recruitDurMs = classDef.durationMs || BASE_HERO_RECRUIT_DURATION_MS;
     const queueItem = {
       queueItemId: 'rec_' + city.id + '_' + Date.now() + '_' + Math.floor(Math.random() * 1000),
       cityId: city.id,
@@ -881,7 +873,7 @@ export function dispatchWargameCommand(commandEnvelope, state, scheduler, eventS
       heroName: heroName,
       costGold: classDef.costGold,
       costFood: classDef.costFood,
-      durationMs: BASE_HERO_RECRUIT_DURATION_MS,
+      durationMs: recruitDurMs,
       status: 'queued',
       jobId: null,
       startSimTimeMs: null,
@@ -896,7 +888,7 @@ export function dispatchWargameCommand(commandEnvelope, state, scheduler, eventS
         cityId: city.id,
         classId: classDef.classId,
         heroName: heroName,
-        durationMs: BASE_HERO_RECRUIT_DURATION_MS
+        durationMs: recruitDurMs
       }, simTimeMs);
     }
 

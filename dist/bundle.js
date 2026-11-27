@@ -211,6 +211,30 @@ const CLASSES = {
     skillCost: 11,
     skillRange: 1,
     skillDesc: 'Blasts an adjacent foe with searing torchlight for 180% damage and stuns them for 1 turn.'
+  },
+  cleric: {
+    id: 'cleric',
+    name: 'Cleric',
+    title: 'Temple Devotee',
+    color: '#fef08a',
+    baseStats: { str: 10, dex: 9, int: 15, vit: 13 },
+    hpBase: 100,
+    mpBase: 65,
+    vision: 5,
+    starterGear: {
+      weapon:    { uid: 'w_start_c', name: 'Sanctified Rod', slot: 'weapon', rarity: 'common', atk: 5, int: 2, value: 20, affixes: [] },
+      armor:     { uid: 'a_start_c', name: 'Acolyte Vestments', slot: 'armor', rarity: 'common', def: 5, maxMp: 10, value: 20, affixes: [] },
+      helm:      { uid: 'h_start_c', name: 'Temple Hood', slot: 'helm', rarity: 'common', def: 2, int: 1, value: 12, affixes: [] },
+      boots:     { uid: 'b_start_c', name: 'Sanctuary Sandals', slot: 'boots', rarity: 'common', def: 2, value: 12, affixes: [] },
+      accessory: { uid: 'acc_start_c', name: 'Blessing Charm', slot: 'accessory', rarity: 'common', maxHp: 10, maxMp: 8, value: 15, affixes: [] },
+      pickaxe:   { uid: 'pick_start_c', name: 'Iron Pickaxe', slot: 'pickaxe', rarity: 'common', curDur: 28, maxDur: 28, value: 25, affixes: [] }
+    },
+    passiveName: 'Sanctuary Ward',
+    passiveDesc: '+5 Armor & restores +1 MP every 2 turns.',
+    skillName: 'Sacred Ward',
+    skillCost: 14,
+    skillRange: 3,
+    skillDesc: 'Channels holy light against a visible foe within 3 tiles for 160% holy damage and restores 20% Max HP.'
   }
 };
 
@@ -3905,6 +3929,7 @@ function recomputeHeroDerivedStats(fullRestore = false, state = gameState) {
   if (h.classId === 'thief')   flatCrit += 15;
   if (h.classId === 'ranger')  flatDodge += 15;
   if (h.classId === 'paladin') flatDef += 10;
+  if (h.classId === 'cleric')  flatDef += 5;
 
   // Talent Bonuses
   const t = h.talentsAllocated || {};
@@ -8904,6 +8929,9 @@ function processTurn(state = gameState) {
   if (h.classId === 'paladin' && state.turn % 3 === 0) {
     h.hp = Math.min(h.maxHp, h.hp + 1);
   }
+  if (h.classId === 'cleric' && state.turn % 2 === 0) {
+    h.mp = Math.min(h.maxMp, h.mp + 1);
+  }
 
   // Hero Status & Shrine Buff Ticks
   if (h.statuses && h.statuses.length > 0) {
@@ -9040,7 +9068,10 @@ function getSkillTargetingInfo(state = gameState) {
     return { valid: false, reason: 'not_in_dungeon', targets: [], targetCoords: [], canAfford: false, reachRadius: 0 };
   }
   const h = state.hero;
-  const cls = CLASSES[h.classId] || CLASSES.fighter;
+  const cls = CLASSES[h.classId];
+  if (!cls) {
+    return { valid: false, reason: 'unknown_class', targets: [], targetCoords: [], canAfford: false, reachRadius: 0 };
+  }
   const floor = ensureDungeonFloorHydrated(state.dungeon, state.dungeon.currentFloor);
   if (!floor || !floor.monsters) {
     return { valid: false, reason: 'no_floor', targets: [], targetCoords: [], canAfford: false, reachRadius: 0 };
@@ -9107,6 +9138,12 @@ function getSkillTargetingInfo(state = gameState) {
     reachRadius = 1.5;
     const t = floor.monsters.find(m => m.hp > 0 && Math.hypot(m.x - h.x, m.y - h.y) <= 1.5);
     if (t) targets.push(t);
+  } else if (h.classId === 'cleric') {
+    reachRadius = 3.2;
+    const visTargets = floor.monsters
+      .filter(m => m.hp > 0 && Math.hypot(m.x - h.x, m.y - h.y) <= 3.2 && hasLineOfSight(floor, h.x, h.y, m.x, m.y))
+      .sort((a, b) => Math.hypot(a.x - h.x, a.y - h.y) - Math.hypot(b.x - h.x, b.y - h.y));
+    if (visTargets.length > 0) targets.push(visTargets[0]);
   }
 
   const targetCoords = targets.map(m => ({ x: m.x, y: m.y }));
@@ -9132,6 +9169,7 @@ function executeClassSkill(state = gameState) {
   if (state.inGuild) return { ok: false, reason: 'in_guild' };
   const h = state.hero;
   const cls = CLASSES[h.classId];
+  if (!cls) return { ok: false, reason: 'unknown_class' };
   const floor = ensureDungeonFloorHydrated(state.dungeon, state.dungeon.currentFloor);
   if (!floor) return { ok: false, reason: 'no_floor' };
 
@@ -9393,6 +9431,42 @@ function executeClassSkill(state = gameState) {
     if (target.hp <= 0) killMonster(target, state);
     if (state === gameState) processTurn(state);
     return { ok: true, skill: 'torch_flare', dmg };
+  }
+
+  // 7. CLERIC: Sacred Ward (Requires visible foe within 3 tiles before deducting MP; deals 160% holy/INT dmg + heals 20% Max HP)
+  if (h.classId === 'cleric') {
+    const visTargets = floor.monsters
+      .filter(m => m.hp > 0 && Math.hypot(m.x - h.x, m.y - h.y) <= 3.2 && hasLineOfSight(floor, h.x, h.y, m.x, m.y))
+      .sort((a, b) => Math.hypot(a.x - h.x, a.y - h.y) - Math.hypot(b.x - h.x, b.y - h.y));
+    const target = visTargets[0] || null;
+    if (!target) {
+      if (state === gameState) {
+        ui.floatingText(h.x, h.y, 'No Visible Foe!', '#fef08a');
+        ui.log('Sacred Ward requires a visible monster within 3 tiles.', 'bad');
+      }
+      return { ok: false, reason: 'no_target_in_range' };
+    }
+
+    h.mp -= effectiveCost;
+    const masteryMult = getCodexMasteryMultiplier(target.id, state);
+    const spellBase = Math.max(h.atk, Math.round((h.computedInt || h.int || 12) * 1.6));
+    const dmg = Math.max(5, Math.round(spellBase * 1.6 * masteryMult) - Math.floor(target.def * 0.4));
+    const healAmt = Math.max(6, Math.round(h.maxHp * 0.20));
+    target.hp -= dmg;
+    h.hp = Math.min(h.maxHp, h.hp + healAmt);
+
+    if (state === gameState) {
+      playSound('spell');
+      ui.floatingText(target.x, target.y, `-${dmg} SACRED WARD!`, '#fef08a');
+      ui.floatingText(h.x, h.y, `+${healAmt} HP`, '#34d399');
+      ui.log(`Sacred Ward strikes ${target.name} for ${dmg} holy damage and restores +${healAmt} HP!`, 'gold');
+      if (typeof ui.combatAnim === 'function') {
+        ui.combatAnim(target.x, target.y, 'crit_slash', '#fef08a');
+      }
+    }
+    if (target.hp <= 0) killMonster(target, state);
+    if (state === gameState) processTurn(state);
+    return { ok: true, skill: 'sacred_ward', dmg, healAmt };
   }
 
   return { ok: false };

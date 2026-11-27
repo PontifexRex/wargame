@@ -11,12 +11,19 @@ import {
 } from '../engine/state.js';
 import { applyWargameEntryHandoff } from '../engine/actions.js';
 import { COMMAND_TYPES } from '../wargame/constants.js';
-import { getPrimaryCity } from '../wargame/engine/state.js';
+import {
+  getPrimaryCity,
+  DEFAULT_PERSISTENT_HERO_MAX_XP,
+  normalizePersistentHeroInstance
+} from '../wargame/engine/state.js';
 import { getCanonicalPlayerId } from './canonicalIdentity.js';
 
 const CANONICAL_EQ_SLOTS = ['weapon', 'armor', 'helm', 'boots', 'accessory', 'pickaxe'];
 
 export function createDungeonHeroForClass(classId, canonicalHero, ownerPlayerId) {
+  if (canonicalHero && typeof canonicalHero === 'object') {
+    normalizePersistentHeroInstance(canonicalHero);
+  }
   const cls = CLASSES[classId] || CLASSES.fighter;
   const startEq = cls.starterGear || {};
   const base = cls.baseStats || { str: 10, dex: 10, int: 10, vit: 10 };
@@ -45,7 +52,7 @@ export function createDungeonHeroForClass(classId, canonicalHero, ownerPlayerId)
     name: (canonicalHero && canonicalHero.name) || cls.name,
     level: (canonicalHero && typeof canonicalHero.level === 'number' && canonicalHero.level >= 1) ? canonicalHero.level : 1,
     xp: (canonicalHero && typeof canonicalHero.xp === 'number' && canonicalHero.xp >= 0) ? canonicalHero.xp : 0,
-    maxXp: (canonicalHero && typeof canonicalHero.maxXp === 'number' && canonicalHero.maxXp > 0) ? canonicalHero.maxXp : 60,
+    maxXp: (canonicalHero && typeof canonicalHero.maxXp === 'number' && canonicalHero.maxXp > 0) ? canonicalHero.maxXp : DEFAULT_PERSISTENT_HERO_MAX_XP,
     x: 1,
     y: 1,
     hp: cls.hpBase || 100,
@@ -79,6 +86,9 @@ export function bindCanonicalHeroToDungeonState(simHost, dungeonState, entryInfo
   const canonicalHero = (world.heroes || []).find(function(h) {
     return h.id === entryInfo.heroId;
   }) || null;
+  if (canonicalHero) {
+    normalizePersistentHeroInstance(canonicalHero);
+  }
 
   const classId = (canonicalHero && canonicalHero.classId) || entryInfo.heroClassId || 'fighter';
   const city = getPrimaryCity(simHost.state);
