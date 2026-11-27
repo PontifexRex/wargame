@@ -434,7 +434,8 @@ export function getPickaxeMaxDurability(state = gameState) {
 export function recomputeHeroDerivedStats(fullRestore = false, state = gameState) {
   const h = state.hero;
   if (!h) return;
-  const cls = CLASSES[h.classId] || CLASSES.fighter;
+  const cls = (h.classId && CLASSES[h.classId]) ? CLASSES[h.classId] : null;
+  if (!cls) return;
   const bonus = h.bonusStats || { str: 0, dex: 0, int: 0, vit: 0 };
 
   let str = cls.baseStats.str + (h.level - 1) * 2 + (bonus.str || 0);

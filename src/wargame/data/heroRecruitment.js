@@ -5,7 +5,22 @@
 // are always resolved from CLASSES rather than duplicated here.
 
 import { CLASSES } from '../../data/classes.js';
-import { BASE_HERO_RECRUIT_DURATION_MS } from '../constants.js';
+import {
+  BASE_HERO_RECRUIT_DURATION_MS,
+  BASE_MAX_HERO_ROSTER,
+  BASE_RECRUIT_QUEUE_LIMIT
+} from '../constants.js';
+import { getCityRecruitableClasses } from './buildings.js';
+
+export const HERO_RECRUITMENT_ELIGIBILITY_STATES = {
+  ELIGIBLE: 'eligible',
+  NO_CITY: 'no_city',
+  UNKNOWN_CLASS: 'unknown_class',
+  LOCKED_BUILDING: 'locked_building',
+  ROSTER_FULL: 'roster_full',
+  QUEUE_FULL: 'queue_full',
+  INSUFFICIENT_RESOURCES: 'insufficient_resources'
+};
 
 export const HERO_RECRUITMENT_ORDER = [
   'adventurer',
@@ -138,4 +153,81 @@ export function getAllRecruitableHeroEntries() {
     if (entry) out.push(entry);
   }
   return out;
+}
+
+// Pure, deterministic recruitment eligibility evaluator (HR-12).
+// Uses canonical CLASSES, HERO_RECRUITMENT_CATALOG, and building unlocks from buildings.js.
+// Preserves all existing recruitment rules, caps, costs, and error messages.
+export function evaluateHeroRecruitmentEligibility(city, world, classId) {
+  if (!city) {
+    return {
+      eligible: false,
+      status: HERO_RECRUITMENT_ELIGIBILITY_STATES.NO_CITY,
+      reason: 'You must found a Bastion City before recruiting heroes',
+      classDef: null
+    };
+  }
+
+  const classDef = getRecruitableHeroEntry(classId);
+  if (!classDef) {
+    return {
+      eligible: false,
+      status: HERO_RECRUITMENT_ELIGIBILITY_STATES.UNKNOWN_CLASS,
+      reason: 'Unknown hero class: ' + classId,
+      classDef: null
+    };
+  }
+
+  const unlockedClasses = getCityRecruitableClasses(city);
+  if (unlockedClasses.indexOf(classId) === -1) {
+    return {
+      eligible: false,
+      status: HERO_RECRUITMENT_ELIGIBILITY_STATES.LOCKED_BUILDING,
+      reason: 'Build or upgrade the required Guild Hall / Chapterhouse to recruit ' + classDef.name,
+      classDef: classDef
+    };
+  }
+
+  const recruitQueue = Array.isArray(city.recruitmentQueue) ? city.recruitmentQueue : [];
+  const heroesList = (world && Array.isArray(world.heroes)) ? world.heroes : [];
+  const maxHeroes = (world && world.roster && world.roster.maxHeroes)
+    ? world.roster.maxHeroes
+    : (BASE_MAX_HERO_ROSTER || 3);
+  const totalActiveAndQueued = heroesList.length + recruitQueue.length;
+  if (totalActiveAndQueued >= maxHeroes) {
+    return {
+      eligible: false,
+      status: HERO_RECRUITMENT_ELIGIBILITY_STATES.ROSTER_FULL,
+      reason: 'Hero roster is full (' + totalActiveAndQueued + '/' + maxHeroes + '). Dismiss a Hero before recruiting another.',
+      classDef: classDef
+    };
+  }
+
+  const maxQueue = city.maxRecruitQueueSlots || BASE_RECRUIT_QUEUE_LIMIT || 3;
+  if (recruitQueue.length >= maxQueue) {
+    return {
+      eligible: false,
+      status: HERO_RECRUITMENT_ELIGIBILITY_STATES.QUEUE_FULL,
+      reason: 'Hero training grounds are full (Maximum ' + maxQueue + ' in training queue)',
+      classDef: classDef
+    };
+  }
+
+  const gold = (city.stockpile && city.stockpile.gold) || 0;
+  const food = (city.stockpile && city.stockpile.food) || 0;
+  if (gold < classDef.costGold || food < classDef.costFood) {
+    return {
+      eligible: false,
+      status: HERO_RECRUITMENT_ELIGIBILITY_STATES.INSUFFICIENT_RESOURCES,
+      reason: 'Insufficient Gold or Food to swear in ' + classDef.name + ' (Need ' + classDef.costGold + ' Gold, ' + classDef.costFood + ' Food)',
+      classDef: classDef
+    };
+  }
+
+  return {
+    eligible: true,
+    status: HERO_RECRUITMENT_ELIGIBILITY_STATES.ELIGIBLE,
+    reason: '',
+    classDef: classDef
+  };
 }

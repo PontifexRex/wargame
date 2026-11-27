@@ -329,7 +329,6 @@ export const CITY_BUILDINGS_CATALOG = {
     productionPerTick: { gold: 2 },
     requires: { meeting_hall: 1, quarry: 1 },
     requiredPopulation: 20,
-    recruits: ['adventurer'],
     interiorAssetId: 'city_interior_adventurers_guild_default_static',
     facilities: {
       recruitment: { classes: [{ classId: 'adventurer', minLevel: 1 }] },

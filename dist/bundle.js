@@ -73,6 +73,7 @@ const CLASSES = {
     name: 'Fighter',
     title: 'Iron Vanguard',
     color: '#f87171',
+    canEnterDungeon: true,
     baseStats: { str: 15, dex: 10, int: 8, vit: 14 },
     hpBase: 120,
     mpBase: 35,
@@ -97,6 +98,7 @@ const CLASSES = {
     name: 'Thief',
     title: 'Shadow Strider',
     color: '#c084fc',
+    canEnterDungeon: true,
     baseStats: { str: 9, dex: 16, int: 11, vit: 10 },
     hpBase: 90,
     mpBase: 45,
@@ -121,6 +123,7 @@ const CLASSES = {
     name: 'Mage',
     title: 'Starweaver Adept',
     color: '#60a5fa',
+    canEnterDungeon: true,
     baseStats: { str: 7, dex: 10, int: 17, vit: 10 },
     hpBase: 82,
     mpBase: 80,
@@ -145,6 +148,7 @@ const CLASSES = {
     name: 'Ranger',
     title: 'Deepwood Pathfinder',
     color: '#34d399',
+    canEnterDungeon: true,
     baseStats: { str: 12, dex: 15, int: 11, vit: 11 },
     hpBase: 95,
     mpBase: 45,
@@ -169,6 +173,7 @@ const CLASSES = {
     name: 'Paladin',
     title: 'Dawn Warden',
     color: '#fbbf24',
+    canEnterDungeon: true,
     baseStats: { str: 14, dex: 9, int: 12, vit: 15 },
     hpBase: 125,
     mpBase: 50,
@@ -193,6 +198,7 @@ const CLASSES = {
     name: 'Adventurer',
     title: 'Starfall Delver',
     color: '#38bdf8',
+    canEnterDungeon: true,
     baseStats: { str: 12, dex: 12, int: 11, vit: 13 },
     hpBase: 108,
     mpBase: 50,
@@ -217,6 +223,7 @@ const CLASSES = {
     name: 'Cleric',
     title: 'Temple Devotee',
     color: '#fef08a',
+    canEnterDungeon: true,
     baseStats: { str: 10, dex: 9, int: 15, vit: 13 },
     hpBase: 100,
     mpBase: 65,
@@ -237,6 +244,20 @@ const CLASSES = {
     skillDesc: 'Channels holy light against a visible foe within 3 tiles for 160% holy damage and restores 20% Max HP.'
   }
 };
+
+// Fail-closed canonical dungeon eligibility evaluators (HR-12).
+// Entities/classes without explicit canEnterDungeon === true are ineligible by default.
+function isClassDungeonEligible(classId) {
+  if (!classId || typeof classId !== 'string') return false;
+  const cls = CLASSES[classId];
+  return Boolean(cls && cls.canEnterDungeon === true);
+}
+
+function isHeroDungeonEligible(hero) {
+  if (!hero || typeof hero !== 'object') return false;
+  if (hero.canEnterDungeon === false) return false;
+  return isClassDungeonEligible(hero.classId);
+}
 
   // --- Module: src/data/gems.js ---
 // Astral Gem Catalog,Subterranean Shrine Variants, and Runic Trap Specifications
@@ -3913,7 +3934,8 @@ function getPickaxeMaxDurability(state = gameState) {
 function recomputeHeroDerivedStats(fullRestore = false, state = gameState) {
   const h = state.hero;
   if (!h) return;
-  const cls = CLASSES[h.classId] || CLASSES.fighter;
+  const cls = (h.classId && CLASSES[h.classId]) ? CLASSES[h.classId] : null;
+  if (!cls) return;
   const bonus = h.bonusStats || { str: 0, dex: 0, int: 0, vit: 0 };
 
   let str = cls.baseStats.str + (h.level - 1) * 2 + (bonus.str || 0);
@@ -5906,6 +5928,7 @@ function generateFloor(depth, dungeonConfig = null, dungeonSeed = null) {
 
 
 
+
 const actionCallbacks = {
   log: (msg, tone) => emitEngineEvent(ENGINE_EVENTS.LOG, { msg, tone }, gameState),
   updateUI: () => emitEngineEvent(ENGINE_EVENTS.UI_SYNC, {}, gameState),
@@ -6913,6 +6936,13 @@ function handleHeroDefeat(killerName = 'Abyssal Guardian', state = gameState) {
 
 function applyWargameEntryHandoff(handoff, state = gameState) {
   if (!handoff || !state) return false;
+  // HR-12: Fail-closed dungeon eligibility check before mutating dungeon state
+  if (handoff.hero && !isHeroDungeonEligible(handoff.hero)) {
+    return false;
+  }
+  if (!handoff.hero && state.hero && !isClassDungeonEligible(state.hero.classId)) {
+    return false;
+  }
   const dng = handoff.dungeon || {};
   const targetDungeonId = dng.dungeonId || 'dng_starfall';
   const targetProfileId = dng.profileId || 'starfall_vaults';
@@ -6970,7 +7000,7 @@ function applyWargameEntryHandoff(handoff, state = gameState) {
     cityCoords: handoff.cityCoords || null,
     partyUnitId: handoff.partyUnitId || null,
     heroId: (handoff.hero && handoff.hero.id) || null,
-    heroClassId: (handoff.hero && handoff.hero.classId) || 'fighter',
+    heroClassId: (handoff.hero && handoff.hero.classId) || (state.hero && state.hero.classId) || null,
     dungeonPoiId: dng.poiId || null,
     dungeonId: state.activeDungeonId,
     dungeonName: dng.name || (state.dungeon && state.dungeon.name) || 'The Starfall Vaults',

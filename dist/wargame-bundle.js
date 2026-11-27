@@ -1094,7 +1094,6 @@ const CITY_BUILDINGS_CATALOG = {
     productionPerTick: { gold: 2 },
     requires: { meeting_hall: 1, quarry: 1 },
     requiredPopulation: 20,
-    recruits: ['adventurer'],
     interiorAssetId: 'city_interior_adventurers_guild_default_static',
     facilities: {
       recruitment: { classes: [{ classId: 'adventurer', minLevel: 1 }] },
@@ -4104,6 +4103,201 @@ function getFormattedTasksList(state) {
   return list;
 }
 
+  // --- Module: src/data/classes.js ---
+// Complete 5 Playable Classes Registry (Fighter, Thief, Mage, Ranger, Paladin)
+
+const CLASSES = {
+  fighter: {
+    id: 'fighter',
+    name: 'Fighter',
+    title: 'Iron Vanguard',
+    color: '#f87171',
+    canEnterDungeon: true,
+    baseStats: { str: 15, dex: 10, int: 8, vit: 14 },
+    hpBase: 120,
+    mpBase: 35,
+    vision: 5,
+    starterGear: {
+      weapon:    { uid: 'w_start_f', name: 'Iron Broadsword', slot: 'weapon', rarity: 'common', atk: 8, str: 2, value: 20, affixes: [] },
+      armor:     { uid: 'a_start_f', name: 'Riveted Mail', slot: 'armor', rarity: 'common', def: 6, vit: 1, value: 20, affixes: [] },
+      helm:      { uid: 'h_start_f', name: 'Iron Coif', slot: 'helm', rarity: 'common', def: 2, value: 12, affixes: [] },
+      boots:     { uid: 'b_start_f', name: 'Heavy Sabatons', slot: 'boots', rarity: 'common', def: 2, value: 12, affixes: [] },
+      accessory: { uid: 'acc_start_f', name: 'Vanguard Signet', slot: 'accessory', rarity: 'common', atk: 1, crit: 2, value: 15, affixes: [] },
+      pickaxe:   { uid: 'pick_start_f', name: 'Iron Pickaxe', slot: 'pickaxe', rarity: 'common', curDur: 30, maxDur: 30, value: 25, affixes: [] }
+    },
+    passiveName: 'Unstoppable Stride',
+    passiveDesc: '+10 Max HP & reduces incoming physical damage by 15%.',
+    skillName: 'Whirlwind Cleave',
+    skillCost: 10,
+    skillRange: 1,
+    skillDesc: 'Cleaves all adjacent foes for 150% weapon damage and stuns them for 1 turn.'
+  },
+  thief: {
+    id: 'thief',
+    name: 'Thief',
+    title: 'Shadow Strider',
+    color: '#c084fc',
+    canEnterDungeon: true,
+    baseStats: { str: 9, dex: 16, int: 11, vit: 10 },
+    hpBase: 90,
+    mpBase: 45,
+    vision: 6,
+    starterGear: {
+      weapon:    { uid: 'w_start_t', name: 'Obsidian Stiletto', slot: 'weapon', rarity: 'common', atk: 7, crit: 8, value: 20, affixes: [] },
+      armor:     { uid: 'a_start_t', name: 'Shadow Leather', slot: 'armor', rarity: 'common', def: 3, dodge: 6, value: 20, affixes: [] },
+      helm:      { uid: 'h_start_t', name: 'Nightblade Cowl', slot: 'helm', rarity: 'common', def: 1, crit: 3, value: 12, affixes: [] },
+      boots:     { uid: 'b_start_t', name: 'Silent Footwraps', slot: 'boots', rarity: 'common', def: 1, dodge: 5, value: 12, affixes: [] },
+      accessory: { uid: 'acc_start_t', name: 'Prospector Die', slot: 'accessory', rarity: 'common', crit: 4, value: 15, affixes: [] },
+      pickaxe:   { uid: 'pick_start_t', name: 'Iron Pickaxe', slot: 'pickaxe', rarity: 'common', curDur: 28, maxDur: 28, value: 25, affixes: [] }
+    },
+    passiveName: 'Opportunist',
+    passiveDesc: '+15% Critical Strike chance & +25% gold found in chests.',
+    skillName: 'Shadowstep Strike',
+    skillCost: 12,
+    skillRange: 3,
+    skillDesc: 'Teleports to a free floor tile adjacent to a target within 3 tiles and strikes for 220% Crit damage.'
+  },
+  mage: {
+    id: 'mage',
+    name: 'Mage',
+    title: 'Starweaver Adept',
+    color: '#60a5fa',
+    canEnterDungeon: true,
+    baseStats: { str: 7, dex: 10, int: 17, vit: 10 },
+    hpBase: 82,
+    mpBase: 80,
+    vision: 6,
+    starterGear: {
+      weapon:    { uid: 'w_start_m', name: 'Astral Runestaff', slot: 'weapon', rarity: 'common', atk: 5, int: 3, value: 20, affixes: [] },
+      armor:     { uid: 'a_start_m', name: 'Starweaver Robes', slot: 'armor', rarity: 'common', def: 2, maxMp: 15, value: 20, affixes: [] },
+      helm:      { uid: 'h_start_m', name: 'Circlet of Will', slot: 'helm', rarity: 'common', def: 1, int: 2, value: 12, affixes: [] },
+      boots:     { uid: 'b_start_m', name: 'Leyline Slippers', slot: 'boots', rarity: 'common', def: 1, maxMp: 10, value: 12, affixes: [] },
+      accessory: { uid: 'acc_start_m', name: 'Vespera Shard', slot: 'accessory', rarity: 'common', maxMp: 15, value: 15, affixes: [] },
+      pickaxe:   { uid: 'pick_start_m', name: 'Iron Pickaxe', slot: 'pickaxe', rarity: 'common', curDur: 25, maxDur: 25, value: 25, affixes: [] }
+    },
+    passiveName: 'Arcane Surge',
+    passiveDesc: 'Regenerates +2 MP each turn and adds INT scaling to basic attacks.',
+    skillName: 'Starfall Nova',
+    skillCost: 16,
+    skillRange: 4,
+    skillDesc: 'Unleashes an astral detonation hitting all visible enemies within 4 tiles for 200% spell damage + Burn.'
+  },
+  ranger: {
+    id: 'ranger',
+    name: 'Ranger',
+    title: 'Deepwood Pathfinder',
+    color: '#34d399',
+    canEnterDungeon: true,
+    baseStats: { str: 12, dex: 15, int: 11, vit: 11 },
+    hpBase: 95,
+    mpBase: 45,
+    vision: 7,
+    starterGear: {
+      weapon:    { uid: 'w_start_r', name: 'Recurve Shortbow', slot: 'weapon', rarity: 'common', atk: 6, dex: 2, value: 20, affixes: [] },
+      armor:     { uid: 'a_start_r', name: 'Scout Gambeson', slot: 'armor', rarity: 'common', def: 4, dodge: 4, value: 20, affixes: [] },
+      helm:      { uid: 'h_start_r', name: 'Falconer Cap', slot: 'helm', rarity: 'common', def: 1, visionBonus: 1, value: 12, affixes: [] },
+      boots:     { uid: 'b_start_r', name: 'Trailrunner Boots', slot: 'boots', rarity: 'common', def: 1, dodge: 5, value: 12, affixes: [] },
+      accessory: { uid: 'acc_start_r', name: 'Quiver Trinket', slot: 'accessory', rarity: 'common', crit: 5, value: 15, affixes: [] },
+      pickaxe:   { uid: 'pick_start_r', name: 'Iron Pickaxe', slot: 'pickaxe', rarity: 'common', curDur: 25, maxDur: 25, value: 25, affixes: [] }
+    },
+    passiveName: 'Eagle Eye',
+    passiveDesc: '7-tile Torchlight vision & +15% Evasion.',
+    skillName: 'Starfall Volley',
+    skillCost: 14,
+    skillRange: 5,
+    skillDesc: 'Looses a piercing astral salvo striking up to 3 visible foes within 5 tiles for 180% weapon damage.'
+  },
+  paladin: {
+    id: 'paladin',
+    name: 'Paladin',
+    title: 'Dawn Warden',
+    color: '#fbbf24',
+    canEnterDungeon: true,
+    baseStats: { str: 14, dex: 9, int: 12, vit: 15 },
+    hpBase: 125,
+    mpBase: 50,
+    vision: 5,
+    starterGear: {
+      weapon:    { uid: 'w_start_p', name: 'Blessed Mace', slot: 'weapon', rarity: 'common', atk: 7, str: 1, value: 20, affixes: [] },
+      armor:     { uid: 'a_start_p', name: 'Crusader Hauberk', slot: 'armor', rarity: 'common', def: 7, vit: 1, value: 22, affixes: [] },
+      helm:      { uid: 'h_start_p', name: 'Steel Sallet', slot: 'helm', rarity: 'common', def: 3, value: 14, affixes: [] },
+      boots:     { uid: 'b_start_p', name: 'Plated Greaves', slot: 'boots', rarity: 'common', def: 2, value: 14, affixes: [] },
+      accessory: { uid: 'acc_start_p', name: 'Solar Medallion', slot: 'accessory', rarity: 'common', maxHp: 12, value: 18, affixes: [] },
+      pickaxe:   { uid: 'pick_start_p', name: 'Iron Pickaxe', slot: 'pickaxe', rarity: 'common', curDur: 28, maxDur: 28, value: 25, affixes: [] }
+    },
+    passiveName: 'Aura of Radiance',
+    passiveDesc: '+10 Armor & regenerates +1 HP every 3 turns.',
+    skillName: 'Holy Smite',
+    skillCost: 16,
+    skillRange: 1,
+    skillDesc: 'Strikes an adjacent foe for 240% holy damage and restores 15% of your Max HP.'
+  },
+  adventurer: {
+    id: 'adventurer',
+    name: 'Adventurer',
+    title: 'Starfall Delver',
+    color: '#38bdf8',
+    canEnterDungeon: true,
+    baseStats: { str: 12, dex: 12, int: 11, vit: 13 },
+    hpBase: 108,
+    mpBase: 50,
+    vision: 6,
+    starterGear: {
+      weapon:    { uid: 'w_start_a', name: 'Delver Shortsword', slot: 'weapon', rarity: 'common', atk: 7, dex: 1, value: 20, affixes: [] },
+      armor:     { uid: 'a_start_a', name: 'Expedition Brigandine', slot: 'armor', rarity: 'common', def: 5, vit: 1, value: 20, affixes: [] },
+      helm:      { uid: 'h_start_a', name: 'Lantern Cap', slot: 'helm', rarity: 'common', def: 2, visionBonus: 1, value: 12, affixes: [] },
+      boots:     { uid: 'b_start_a', name: 'Wayfarer Boots', slot: 'boots', rarity: 'common', def: 2, value: 12, affixes: [] },
+      accessory: { uid: 'acc_start_a', name: 'Guild Compass', slot: 'accessory', rarity: 'common', crit: 3, value: 15, affixes: [] },
+      pickaxe:   { uid: 'pick_start_a', name: 'Reinforced Pickaxe', slot: 'pickaxe', rarity: 'common', curDur: 34, maxDur: 34, value: 25, affixes: [] }
+    },
+    passiveName: 'Delver Grit',
+    passiveDesc: 'Balanced dungeon explorer with +1 Torchlight vision and durable mining pickaxe.',
+    skillName: 'Torch Flare',
+    skillCost: 11,
+    skillRange: 1,
+    skillDesc: 'Blasts an adjacent foe with searing torchlight for 180% damage and stuns them for 1 turn.'
+  },
+  cleric: {
+    id: 'cleric',
+    name: 'Cleric',
+    title: 'Temple Devotee',
+    color: '#fef08a',
+    canEnterDungeon: true,
+    baseStats: { str: 10, dex: 9, int: 15, vit: 13 },
+    hpBase: 100,
+    mpBase: 65,
+    vision: 5,
+    starterGear: {
+      weapon:    { uid: 'w_start_c', name: 'Sanctified Rod', slot: 'weapon', rarity: 'common', atk: 5, int: 2, value: 20, affixes: [] },
+      armor:     { uid: 'a_start_c', name: 'Acolyte Vestments', slot: 'armor', rarity: 'common', def: 5, maxMp: 10, value: 20, affixes: [] },
+      helm:      { uid: 'h_start_c', name: 'Temple Hood', slot: 'helm', rarity: 'common', def: 2, int: 1, value: 12, affixes: [] },
+      boots:     { uid: 'b_start_c', name: 'Sanctuary Sandals', slot: 'boots', rarity: 'common', def: 2, value: 12, affixes: [] },
+      accessory: { uid: 'acc_start_c', name: 'Blessing Charm', slot: 'accessory', rarity: 'common', maxHp: 10, maxMp: 8, value: 15, affixes: [] },
+      pickaxe:   { uid: 'pick_start_c', name: 'Iron Pickaxe', slot: 'pickaxe', rarity: 'common', curDur: 28, maxDur: 28, value: 25, affixes: [] }
+    },
+    passiveName: 'Sanctuary Ward',
+    passiveDesc: '+5 Armor & restores +1 MP every 2 turns.',
+    skillName: 'Sacred Ward',
+    skillCost: 14,
+    skillRange: 3,
+    skillDesc: 'Channels holy light against a visible foe within 3 tiles for 160% holy damage and restores 20% Max HP.'
+  }
+};
+
+// Fail-closed canonical dungeon eligibility evaluators (HR-12).
+// Entities/classes without explicit canEnterDungeon === true are ineligible by default.
+function isClassDungeonEligible(classId) {
+  if (!classId || typeof classId !== 'string') return false;
+  const cls = CLASSES[classId];
+  return Boolean(cls && cls.canEnterDungeon === true);
+}
+
+function isHeroDungeonEligible(hero) {
+  if (!hero || typeof hero !== 'object') return false;
+  if (hero.canEnterDungeon === false) return false;
+  return isClassDungeonEligible(hero.classId);
+}
+
   // --- Module: src/progression/currencyService.js ---
 // =============================================================================
 // GENERIC FIXED-PRECISION CURRENCY & TRANSACTION LEDGER SERVICE (Inc 10.1 / ADR-0015)
@@ -4776,180 +4970,6 @@ const RARITY = {
   rare:     { id: 'rare',     name: 'Rare',              color: '#60a5fa', mult: 2.0, affixes: 2 },
   epic:     { id: 'epic',     name: 'Epic',              color: '#c084fc', mult: 3.2, affixes: 3 },
   relic:    { id: 'relic',    name: 'Star-Forged Relic', color: '#fbbf24', mult: 5.5, affixes: 4 }
-};
-
-  // --- Module: src/data/classes.js ---
-// Complete 5 Playable Classes Registry (Fighter, Thief, Mage, Ranger, Paladin)
-
-const CLASSES = {
-  fighter: {
-    id: 'fighter',
-    name: 'Fighter',
-    title: 'Iron Vanguard',
-    color: '#f87171',
-    baseStats: { str: 15, dex: 10, int: 8, vit: 14 },
-    hpBase: 120,
-    mpBase: 35,
-    vision: 5,
-    starterGear: {
-      weapon:    { uid: 'w_start_f', name: 'Iron Broadsword', slot: 'weapon', rarity: 'common', atk: 8, str: 2, value: 20, affixes: [] },
-      armor:     { uid: 'a_start_f', name: 'Riveted Mail', slot: 'armor', rarity: 'common', def: 6, vit: 1, value: 20, affixes: [] },
-      helm:      { uid: 'h_start_f', name: 'Iron Coif', slot: 'helm', rarity: 'common', def: 2, value: 12, affixes: [] },
-      boots:     { uid: 'b_start_f', name: 'Heavy Sabatons', slot: 'boots', rarity: 'common', def: 2, value: 12, affixes: [] },
-      accessory: { uid: 'acc_start_f', name: 'Vanguard Signet', slot: 'accessory', rarity: 'common', atk: 1, crit: 2, value: 15, affixes: [] },
-      pickaxe:   { uid: 'pick_start_f', name: 'Iron Pickaxe', slot: 'pickaxe', rarity: 'common', curDur: 30, maxDur: 30, value: 25, affixes: [] }
-    },
-    passiveName: 'Unstoppable Stride',
-    passiveDesc: '+10 Max HP & reduces incoming physical damage by 15%.',
-    skillName: 'Whirlwind Cleave',
-    skillCost: 10,
-    skillRange: 1,
-    skillDesc: 'Cleaves all adjacent foes for 150% weapon damage and stuns them for 1 turn.'
-  },
-  thief: {
-    id: 'thief',
-    name: 'Thief',
-    title: 'Shadow Strider',
-    color: '#c084fc',
-    baseStats: { str: 9, dex: 16, int: 11, vit: 10 },
-    hpBase: 90,
-    mpBase: 45,
-    vision: 6,
-    starterGear: {
-      weapon:    { uid: 'w_start_t', name: 'Obsidian Stiletto', slot: 'weapon', rarity: 'common', atk: 7, crit: 8, value: 20, affixes: [] },
-      armor:     { uid: 'a_start_t', name: 'Shadow Leather', slot: 'armor', rarity: 'common', def: 3, dodge: 6, value: 20, affixes: [] },
-      helm:      { uid: 'h_start_t', name: 'Nightblade Cowl', slot: 'helm', rarity: 'common', def: 1, crit: 3, value: 12, affixes: [] },
-      boots:     { uid: 'b_start_t', name: 'Silent Footwraps', slot: 'boots', rarity: 'common', def: 1, dodge: 5, value: 12, affixes: [] },
-      accessory: { uid: 'acc_start_t', name: 'Prospector Die', slot: 'accessory', rarity: 'common', crit: 4, value: 15, affixes: [] },
-      pickaxe:   { uid: 'pick_start_t', name: 'Iron Pickaxe', slot: 'pickaxe', rarity: 'common', curDur: 28, maxDur: 28, value: 25, affixes: [] }
-    },
-    passiveName: 'Opportunist',
-    passiveDesc: '+15% Critical Strike chance & +25% gold found in chests.',
-    skillName: 'Shadowstep Strike',
-    skillCost: 12,
-    skillRange: 3,
-    skillDesc: 'Teleports to a free floor tile adjacent to a target within 3 tiles and strikes for 220% Crit damage.'
-  },
-  mage: {
-    id: 'mage',
-    name: 'Mage',
-    title: 'Starweaver Adept',
-    color: '#60a5fa',
-    baseStats: { str: 7, dex: 10, int: 17, vit: 10 },
-    hpBase: 82,
-    mpBase: 80,
-    vision: 6,
-    starterGear: {
-      weapon:    { uid: 'w_start_m', name: 'Astral Runestaff', slot: 'weapon', rarity: 'common', atk: 5, int: 3, value: 20, affixes: [] },
-      armor:     { uid: 'a_start_m', name: 'Starweaver Robes', slot: 'armor', rarity: 'common', def: 2, maxMp: 15, value: 20, affixes: [] },
-      helm:      { uid: 'h_start_m', name: 'Circlet of Will', slot: 'helm', rarity: 'common', def: 1, int: 2, value: 12, affixes: [] },
-      boots:     { uid: 'b_start_m', name: 'Leyline Slippers', slot: 'boots', rarity: 'common', def: 1, maxMp: 10, value: 12, affixes: [] },
-      accessory: { uid: 'acc_start_m', name: 'Vespera Shard', slot: 'accessory', rarity: 'common', maxMp: 15, value: 15, affixes: [] },
-      pickaxe:   { uid: 'pick_start_m', name: 'Iron Pickaxe', slot: 'pickaxe', rarity: 'common', curDur: 25, maxDur: 25, value: 25, affixes: [] }
-    },
-    passiveName: 'Arcane Surge',
-    passiveDesc: 'Regenerates +2 MP each turn and adds INT scaling to basic attacks.',
-    skillName: 'Starfall Nova',
-    skillCost: 16,
-    skillRange: 4,
-    skillDesc: 'Unleashes an astral detonation hitting all visible enemies within 4 tiles for 200% spell damage + Burn.'
-  },
-  ranger: {
-    id: 'ranger',
-    name: 'Ranger',
-    title: 'Deepwood Pathfinder',
-    color: '#34d399',
-    baseStats: { str: 12, dex: 15, int: 11, vit: 11 },
-    hpBase: 95,
-    mpBase: 45,
-    vision: 7,
-    starterGear: {
-      weapon:    { uid: 'w_start_r', name: 'Recurve Shortbow', slot: 'weapon', rarity: 'common', atk: 6, dex: 2, value: 20, affixes: [] },
-      armor:     { uid: 'a_start_r', name: 'Scout Gambeson', slot: 'armor', rarity: 'common', def: 4, dodge: 4, value: 20, affixes: [] },
-      helm:      { uid: 'h_start_r', name: 'Falconer Cap', slot: 'helm', rarity: 'common', def: 1, visionBonus: 1, value: 12, affixes: [] },
-      boots:     { uid: 'b_start_r', name: 'Trailrunner Boots', slot: 'boots', rarity: 'common', def: 1, dodge: 5, value: 12, affixes: [] },
-      accessory: { uid: 'acc_start_r', name: 'Quiver Trinket', slot: 'accessory', rarity: 'common', crit: 5, value: 15, affixes: [] },
-      pickaxe:   { uid: 'pick_start_r', name: 'Iron Pickaxe', slot: 'pickaxe', rarity: 'common', curDur: 25, maxDur: 25, value: 25, affixes: [] }
-    },
-    passiveName: 'Eagle Eye',
-    passiveDesc: '7-tile Torchlight vision & +15% Evasion.',
-    skillName: 'Starfall Volley',
-    skillCost: 14,
-    skillRange: 5,
-    skillDesc: 'Looses a piercing astral salvo striking up to 3 visible foes within 5 tiles for 180% weapon damage.'
-  },
-  paladin: {
-    id: 'paladin',
-    name: 'Paladin',
-    title: 'Dawn Warden',
-    color: '#fbbf24',
-    baseStats: { str: 14, dex: 9, int: 12, vit: 15 },
-    hpBase: 125,
-    mpBase: 50,
-    vision: 5,
-    starterGear: {
-      weapon:    { uid: 'w_start_p', name: 'Blessed Mace', slot: 'weapon', rarity: 'common', atk: 7, str: 1, value: 20, affixes: [] },
-      armor:     { uid: 'a_start_p', name: 'Crusader Hauberk', slot: 'armor', rarity: 'common', def: 7, vit: 1, value: 22, affixes: [] },
-      helm:      { uid: 'h_start_p', name: 'Steel Sallet', slot: 'helm', rarity: 'common', def: 3, value: 14, affixes: [] },
-      boots:     { uid: 'b_start_p', name: 'Plated Greaves', slot: 'boots', rarity: 'common', def: 2, value: 14, affixes: [] },
-      accessory: { uid: 'acc_start_p', name: 'Solar Medallion', slot: 'accessory', rarity: 'common', maxHp: 12, value: 18, affixes: [] },
-      pickaxe:   { uid: 'pick_start_p', name: 'Iron Pickaxe', slot: 'pickaxe', rarity: 'common', curDur: 28, maxDur: 28, value: 25, affixes: [] }
-    },
-    passiveName: 'Aura of Radiance',
-    passiveDesc: '+10 Armor & regenerates +1 HP every 3 turns.',
-    skillName: 'Holy Smite',
-    skillCost: 16,
-    skillRange: 1,
-    skillDesc: 'Strikes an adjacent foe for 240% holy damage and restores 15% of your Max HP.'
-  },
-  adventurer: {
-    id: 'adventurer',
-    name: 'Adventurer',
-    title: 'Starfall Delver',
-    color: '#38bdf8',
-    baseStats: { str: 12, dex: 12, int: 11, vit: 13 },
-    hpBase: 108,
-    mpBase: 50,
-    vision: 6,
-    starterGear: {
-      weapon:    { uid: 'w_start_a', name: 'Delver Shortsword', slot: 'weapon', rarity: 'common', atk: 7, dex: 1, value: 20, affixes: [] },
-      armor:     { uid: 'a_start_a', name: 'Expedition Brigandine', slot: 'armor', rarity: 'common', def: 5, vit: 1, value: 20, affixes: [] },
-      helm:      { uid: 'h_start_a', name: 'Lantern Cap', slot: 'helm', rarity: 'common', def: 2, visionBonus: 1, value: 12, affixes: [] },
-      boots:     { uid: 'b_start_a', name: 'Wayfarer Boots', slot: 'boots', rarity: 'common', def: 2, value: 12, affixes: [] },
-      accessory: { uid: 'acc_start_a', name: 'Guild Compass', slot: 'accessory', rarity: 'common', crit: 3, value: 15, affixes: [] },
-      pickaxe:   { uid: 'pick_start_a', name: 'Reinforced Pickaxe', slot: 'pickaxe', rarity: 'common', curDur: 34, maxDur: 34, value: 25, affixes: [] }
-    },
-    passiveName: 'Delver Grit',
-    passiveDesc: 'Balanced dungeon explorer with +1 Torchlight vision and durable mining pickaxe.',
-    skillName: 'Torch Flare',
-    skillCost: 11,
-    skillRange: 1,
-    skillDesc: 'Blasts an adjacent foe with searing torchlight for 180% damage and stuns them for 1 turn.'
-  },
-  cleric: {
-    id: 'cleric',
-    name: 'Cleric',
-    title: 'Temple Devotee',
-    color: '#fef08a',
-    baseStats: { str: 10, dex: 9, int: 15, vit: 13 },
-    hpBase: 100,
-    mpBase: 65,
-    vision: 5,
-    starterGear: {
-      weapon:    { uid: 'w_start_c', name: 'Sanctified Rod', slot: 'weapon', rarity: 'common', atk: 5, int: 2, value: 20, affixes: [] },
-      armor:     { uid: 'a_start_c', name: 'Acolyte Vestments', slot: 'armor', rarity: 'common', def: 5, maxMp: 10, value: 20, affixes: [] },
-      helm:      { uid: 'h_start_c', name: 'Temple Hood', slot: 'helm', rarity: 'common', def: 2, int: 1, value: 12, affixes: [] },
-      boots:     { uid: 'b_start_c', name: 'Sanctuary Sandals', slot: 'boots', rarity: 'common', def: 2, value: 12, affixes: [] },
-      accessory: { uid: 'acc_start_c', name: 'Blessing Charm', slot: 'accessory', rarity: 'common', maxHp: 10, maxMp: 8, value: 15, affixes: [] },
-      pickaxe:   { uid: 'pick_start_c', name: 'Iron Pickaxe', slot: 'pickaxe', rarity: 'common', curDur: 28, maxDur: 28, value: 25, affixes: [] }
-    },
-    passiveName: 'Sanctuary Ward',
-    passiveDesc: '+5 Armor & restores +1 MP every 2 turns.',
-    skillName: 'Sacred Ward',
-    skillCost: 14,
-    skillRange: 3,
-    skillDesc: 'Channels holy light against a visible foe within 3 tiles for 160% holy damage and restores 20% Max HP.'
-  }
 };
 
   // --- Module: src/data/gems.js ---
@@ -8508,7 +8528,8 @@ function getPickaxeMaxDurability(state = gameState) {
 function recomputeHeroDerivedStats(fullRestore = false, state = gameState) {
   const h = state.hero;
   if (!h) return;
-  const cls = CLASSES[h.classId] || CLASSES.fighter;
+  const cls = (h.classId && CLASSES[h.classId]) ? CLASSES[h.classId] : null;
+  if (!cls) return;
   const bonus = h.bonusStats || { str: 0, dex: 0, int: 0, vit: 0 };
 
   let str = cls.baseStats.str + (h.level - 1) * 2 + (bonus.str || 0);
@@ -8829,6 +8850,7 @@ function hydrateDungeonWorldSnapshot(snapshot, targetState = gameState) {
 
   // --- Module: src/wargame/engine/state.js ---
 // Wargame Authoritative State Store, Universe -> World -> Cities -> Units Hierarchy & Save Serialization
+
 
 
 
@@ -9218,6 +9240,12 @@ function normalizePersistentHeroInstance(hero) {
 
   if (!Array.isArray(hero.bagGear)) {
     hero.bagGear = [];
+  }
+
+  // HR-12: Fail-closed dungeon eligibility derived from canonical class metadata when omitted
+  // Preserves explicit false on non-adventuring entities/specialists.
+  if (typeof hero.canEnterDungeon !== 'boolean') {
+    hero.canEnterDungeon = isClassDungeonEligible(hero.classId);
   }
 
   return hero;
@@ -10061,6 +10089,17 @@ function collectOverworldDiscoveries(world) {
 
 
 
+
+const HERO_RECRUITMENT_ELIGIBILITY_STATES = {
+  ELIGIBLE: 'eligible',
+  NO_CITY: 'no_city',
+  UNKNOWN_CLASS: 'unknown_class',
+  LOCKED_BUILDING: 'locked_building',
+  ROSTER_FULL: 'roster_full',
+  QUEUE_FULL: 'queue_full',
+  INSUFFICIENT_RESOURCES: 'insufficient_resources'
+};
+
 const HERO_RECRUITMENT_ORDER = [
   'adventurer',
   'fighter',
@@ -10192,6 +10231,83 @@ function getAllRecruitableHeroEntries() {
     if (entry) out.push(entry);
   }
   return out;
+}
+
+// Pure, deterministic recruitment eligibility evaluator (HR-12).
+// Uses canonical CLASSES, HERO_RECRUITMENT_CATALOG, and building unlocks from buildings.js.
+// Preserves all existing recruitment rules, caps, costs, and error messages.
+function evaluateHeroRecruitmentEligibility(city, world, classId) {
+  if (!city) {
+    return {
+      eligible: false,
+      status: HERO_RECRUITMENT_ELIGIBILITY_STATES.NO_CITY,
+      reason: 'You must found a Bastion City before recruiting heroes',
+      classDef: null
+    };
+  }
+
+  const classDef = getRecruitableHeroEntry(classId);
+  if (!classDef) {
+    return {
+      eligible: false,
+      status: HERO_RECRUITMENT_ELIGIBILITY_STATES.UNKNOWN_CLASS,
+      reason: 'Unknown hero class: ' + classId,
+      classDef: null
+    };
+  }
+
+  const unlockedClasses = getCityRecruitableClasses(city);
+  if (unlockedClasses.indexOf(classId) === -1) {
+    return {
+      eligible: false,
+      status: HERO_RECRUITMENT_ELIGIBILITY_STATES.LOCKED_BUILDING,
+      reason: 'Build or upgrade the required Guild Hall / Chapterhouse to recruit ' + classDef.name,
+      classDef: classDef
+    };
+  }
+
+  const recruitQueue = Array.isArray(city.recruitmentQueue) ? city.recruitmentQueue : [];
+  const heroesList = (world && Array.isArray(world.heroes)) ? world.heroes : [];
+  const maxHeroes = (world && world.roster && world.roster.maxHeroes)
+    ? world.roster.maxHeroes
+    : (BASE_MAX_HERO_ROSTER || 3);
+  const totalActiveAndQueued = heroesList.length + recruitQueue.length;
+  if (totalActiveAndQueued >= maxHeroes) {
+    return {
+      eligible: false,
+      status: HERO_RECRUITMENT_ELIGIBILITY_STATES.ROSTER_FULL,
+      reason: 'Hero roster is full (' + totalActiveAndQueued + '/' + maxHeroes + '). Dismiss a Hero before recruiting another.',
+      classDef: classDef
+    };
+  }
+
+  const maxQueue = city.maxRecruitQueueSlots || BASE_RECRUIT_QUEUE_LIMIT || 3;
+  if (recruitQueue.length >= maxQueue) {
+    return {
+      eligible: false,
+      status: HERO_RECRUITMENT_ELIGIBILITY_STATES.QUEUE_FULL,
+      reason: 'Hero training grounds are full (Maximum ' + maxQueue + ' in training queue)',
+      classDef: classDef
+    };
+  }
+
+  const gold = (city.stockpile && city.stockpile.gold) || 0;
+  const food = (city.stockpile && city.stockpile.food) || 0;
+  if (gold < classDef.costGold || food < classDef.costFood) {
+    return {
+      eligible: false,
+      status: HERO_RECRUITMENT_ELIGIBILITY_STATES.INSUFFICIENT_RESOURCES,
+      reason: 'Insufficient Gold or Food to swear in ' + classDef.name + ' (Need ' + classDef.costGold + ' Gold, ' + classDef.costFood + ' Food)',
+      classDef: classDef
+    };
+  }
+
+  return {
+    eligible: true,
+    status: HERO_RECRUITMENT_ELIGIBILITY_STATES.ELIGIBLE,
+    reason: '',
+    classDef: classDef
+  };
 }
 
   // --- Module: src/progression/researchCatalog.js ---
@@ -12950,7 +13066,7 @@ function resolveRecruitHeroJob(job, state, scheduler, eventStream) {
     maxHp: heroObj.stats.hp,
     visionRadius: heroObj.classId === 'ranger' ? 7 : partyArch.visionRadius,
     canFoundCity: false,
-    canEnterDungeon: true,
+    canEnterDungeon: isHeroDungeonEligible(heroObj),
     alive: true,
     status: 'idle',
     cargo: null,
@@ -14214,6 +14330,7 @@ function consumeBridgeHandoff(expectedDirection) {
 
 
 
+
 function dispatchWargameCommand(commandEnvelope, state, scheduler, eventStream) {
   if (!commandEnvelope || !commandEnvelope.type) {
     return { ok: false, reason: 'Malformed command envelope' };
@@ -14933,40 +15050,17 @@ function dispatchWargameCommand(commandEnvelope, state, scheduler, eventStream) 
   // ---------------------------------------------------------------------------
   if (cmdType === COMMAND_TYPES.RECRUIT_HERO) {
     const city = getPrimaryCity(state);
-    if (!city) {
-      return reject('You must found a Bastion City before recruiting heroes');
-    }
-
     const classId = payload.classId || 'adventurer';
-    const classDef = getRecruitableHeroEntry(classId);
-    if (!classDef) {
-      return reject('Unknown hero class: ' + classId);
-    }
-
-    const unlockedClasses = getCityRecruitableClasses(city);
-    if (unlockedClasses.indexOf(classId) === -1) {
-      return reject('Build or upgrade the required Guild Hall / Chapterhouse to recruit ' + classDef.name);
+    const eligibility = evaluateHeroRecruitmentEligibility(city, world, classId);
+    if (!eligibility.eligible) {
+      return reject(eligibility.reason);
     }
 
     if (!Array.isArray(city.recruitmentQueue)) {
       city.recruitmentQueue = [];
     }
 
-    // Enforce global Hero Roster Cap (ADR-0012: starts at 3, dismiss a Hero to recruit another)
-    const maxHeroes = (world.roster && world.roster.maxHeroes) ? world.roster.maxHeroes : (BASE_MAX_HERO_ROSTER || 3);
-    const totalActiveAndQueued = (world.heroes ? world.heroes.length : 0) + city.recruitmentQueue.length;
-    if (totalActiveAndQueued >= maxHeroes) {
-      return reject('Hero roster is full (' + totalActiveAndQueued + '/' + maxHeroes + '). Dismiss a Hero before recruiting another.');
-    }
-
-    if (city.recruitmentQueue.length >= (city.maxRecruitQueueSlots || BASE_RECRUIT_QUEUE_LIMIT || 3)) {
-      return reject('Hero training grounds are full (Maximum ' + (city.maxRecruitQueueSlots || 3) + ' in training queue)');
-    }
-
-    if ((city.stockpile.gold || 0) < classDef.costGold || (city.stockpile.food || 0) < classDef.costFood) {
-      return reject('Insufficient Gold or Food to swear in ' + classDef.name + ' (Need ' + classDef.costGold + ' Gold, ' + classDef.costFood + ' Food)');
-    }
-
+    const classDef = eligibility.classDef;
     city.stockpile.gold -= classDef.costGold;
     city.stockpile.food -= classDef.costFood;
 
@@ -16508,8 +16602,12 @@ function dispatchWargameCommand(commandEnvelope, state, scheduler, eventStream) 
   if (cmdType === COMMAND_TYPES.MARCH_TO_DUNGEON) {
     const unitId = payload.unitId || ow.selectedUnitId;
     const unit = (ow.units || []).find(function(u) { return u.id === unitId && u.alive; });
-    if (!unit || !unit.canEnterDungeon) {
+    if (!unit || unit.canEnterDungeon !== true) {
       return reject('Select a Hero-led Vanguard Party to march on a Dungeon');
+    }
+    const marchLeaderHero = (world.heroes || []).find(function(h) { return h.id === unit.leaderHeroId; }) || null;
+    if (marchLeaderHero ? !isHeroDungeonEligible(marchLeaderHero) : !isClassDungeonEligible(unit.heroClassId)) {
+      return reject('Selected unit leader is not eligible to enter a Dungeon');
     }
     if (unit.status === 'in_dungeon') {
       return reject('Party is already delving inside a dungeon');
@@ -16549,8 +16647,18 @@ function dispatchWargameCommand(commandEnvelope, state, scheduler, eventStream) 
   if (cmdType === COMMAND_TYPES.ENTER_DUNGEON) {
     const unitId = payload.unitId || ow.selectedUnitId;
     const unit = (ow.units || []).find(function(u) { return u.id === unitId && u.alive; });
-    if (!unit || !unit.canEnterDungeon) {
+    if (!unit || unit.canEnterDungeon !== true) {
       return reject('Requires an active Hero-led Vanguard Party to enter a Dungeon');
+    }
+
+    // HR-12: Authoritative fail-closed hero/class dungeon admission check before any state mutation
+    const hero = (world.heroes || []).find(function(h) { return h.id === unit.leaderHeroId; }) || null;
+    if (hero) {
+      if (!isHeroDungeonEligible(hero)) {
+        return reject('Hero ' + (hero.name || hero.id) + ' (' + (hero.classId || 'unknown') + ') is not eligible to enter a Dungeon');
+      }
+    } else if (!isClassDungeonEligible(unit.heroClassId)) {
+      return reject('Party leader class (' + (unit.heroClassId || 'unknown') + ') is not eligible to enter a Dungeon');
     }
 
     const poi = (ow.pois || []).find(function(p) {
@@ -16584,7 +16692,6 @@ function dispatchWargameCommand(commandEnvelope, state, scheduler, eventStream) 
 
     world.stats.dungeonsEntered = (world.stats.dungeonsEntered || 0) + 1;
 
-    const hero = (world.heroes || []).find(function(h) { return h.id === unit.leaderHeroId; });
     const city = getPrimaryCity(state);
 
     const envelopeData = {
@@ -16599,6 +16706,7 @@ function dispatchWargameCommand(commandEnvelope, state, scheduler, eventStream) 
         id: hero.id,
         name: hero.name,
         classId: hero.classId,
+        canEnterDungeon: hero.canEnterDungeon,
         level: hero.level,
         xp: hero.xp,
         equipment: hero.equipment || null,
@@ -16606,7 +16714,8 @@ function dispatchWargameCommand(commandEnvelope, state, scheduler, eventStream) 
       } : {
         id: unit.leaderHeroId || 'hero_1',
         name: unit.shortName,
-        classId: unit.heroClassId || 'fighter',
+        classId: unit.heroClassId,
+        canEnterDungeon: true,
         level: 1,
         xp: 0
       },
@@ -26705,6 +26814,7 @@ function clearEngineEventListeners(eventName = null) {
 
 
 
+
 const actionCallbacks = {
   log: (msg, tone) => emitEngineEvent(ENGINE_EVENTS.LOG, { msg, tone }, gameState),
   updateUI: () => emitEngineEvent(ENGINE_EVENTS.UI_SYNC, {}, gameState),
@@ -27712,6 +27822,13 @@ function handleHeroDefeat(killerName = 'Abyssal Guardian', state = gameState) {
 
 function applyWargameEntryHandoff(handoff, state = gameState) {
   if (!handoff || !state) return false;
+  // HR-12: Fail-closed dungeon eligibility check before mutating dungeon state
+  if (handoff.hero && !isHeroDungeonEligible(handoff.hero)) {
+    return false;
+  }
+  if (!handoff.hero && state.hero && !isClassDungeonEligible(state.hero.classId)) {
+    return false;
+  }
   const dng = handoff.dungeon || {};
   const targetDungeonId = dng.dungeonId || 'dng_starfall';
   const targetProfileId = dng.profileId || 'starfall_vaults';
@@ -27769,7 +27886,7 @@ function applyWargameEntryHandoff(handoff, state = gameState) {
     cityCoords: handoff.cityCoords || null,
     partyUnitId: handoff.partyUnitId || null,
     heroId: (handoff.hero && handoff.hero.id) || null,
-    heroClassId: (handoff.hero && handoff.hero.classId) || 'fighter',
+    heroClassId: (handoff.hero && handoff.hero.classId) || (state.hero && state.hero.classId) || null,
     dungeonPoiId: dng.poiId || null,
     dungeonId: state.activeDungeonId,
     dungeonName: dng.name || (state.dungeon && state.dungeon.name) || 'The Starfall Vaults',
@@ -28622,8 +28739,14 @@ const CANONICAL_EQ_SLOTS = ['weapon', 'armor', 'helm', 'boots', 'accessory', 'pi
 function createDungeonHeroForClass(classId, canonicalHero, ownerPlayerId) {
   if (canonicalHero && typeof canonicalHero === 'object') {
     normalizePersistentHeroInstance(canonicalHero);
+    if (!isHeroDungeonEligible(canonicalHero)) {
+      return null;
+    }
   }
-  const cls = CLASSES[classId] || CLASSES.fighter;
+  if (!isClassDungeonEligible(classId)) {
+    return null;
+  }
+  const cls = CLASSES[classId];
   const startEq = cls.starterGear || {};
   const base = cls.baseStats || { str: 10, dex: 10, int: 10, vit: 10 };
   const eq = {
@@ -28682,6 +28805,15 @@ function bindCanonicalHeroToDungeonState(simHost, dungeonState, entryInfo) {
 
   const world = simHost.state.world;
   const playerId = getCanonicalPlayerId(simHost.state);
+
+  // HR-12: Validate Overworld unit eligibility if a partyUnitId is provided
+  if (entryInfo.partyUnitId && world.overworld && Array.isArray(world.overworld.units)) {
+    const unit = world.overworld.units.find(function(u) { return u && u.id === entryInfo.partyUnitId; });
+    if (unit && unit.canEnterDungeon !== true) {
+      return { ok: false, reason: 'unit_not_dungeon_eligible' };
+    }
+  }
+
   const canonicalHero = (world.heroes || []).find(function(h) {
     return h.id === entryInfo.heroId;
   }) || null;
@@ -28689,7 +28821,14 @@ function bindCanonicalHeroToDungeonState(simHost, dungeonState, entryInfo) {
     normalizePersistentHeroInstance(canonicalHero);
   }
 
-  const classId = (canonicalHero && canonicalHero.classId) || entryInfo.heroClassId || 'fighter';
+  const classId = (canonicalHero && canonicalHero.classId) || entryInfo.heroClassId || null;
+  if (!classId || !CLASSES[classId]) {
+    return { ok: false, reason: 'invalid_hero_class' };
+  }
+  if (canonicalHero ? !isHeroDungeonEligible(canonicalHero) : !isClassDungeonEligible(classId)) {
+    return { ok: false, reason: 'hero_not_dungeon_eligible' };
+  }
+
   const city = getPrimaryCity(simHost.state);
 
   // Ensure dungeonState has a valid hero bound to canonical identity & equipment
@@ -28701,7 +28840,11 @@ function bindCanonicalHeroToDungeonState(simHost, dungeonState, entryInfo) {
   );
 
   if (!sameHero) {
-    dungeonState.hero = createDungeonHeroForClass(classId, canonicalHero, playerId);
+    const createdHero = createDungeonHeroForClass(classId, canonicalHero, playerId);
+    if (!createdHero) {
+      return { ok: false, reason: 'dungeon_hero_creation_failed' };
+    }
+    dungeonState.hero = createdHero;
   } else {
     dungeonState.hero.id = canonicalHero.id;
     dungeonState.hero.ownerPlayerId = canonicalHero.ownerPlayerId || playerId;
@@ -36377,7 +36520,8 @@ function evaluateWargameSelfTests() {
         pickaxe: { uid: 'vet_pick', slot: 'pickaxe', name: 'Mithril Pick', curDur: 50, maxDur: 50 }
       },
       cosmetics: { cloak: 'crimson_cape', aura: null, banner_crest: null, weapon_glow: null },
-      bagGear: [{ uid: 'vet_bag_1', slot: 'helm', name: 'Spare Coif', def: 3 }]
+      bagGear: [{ uid: 'vet_bag_1', slot: 'helm', name: 'Spare Coif', def: 3 }],
+      canEnterDungeon: true
     };
     const vetSnapBefore47 = JSON.stringify(veteranBefore47);
     normalizePersistentHeroInstance(veteranBefore47);
@@ -36582,6 +36726,149 @@ function evaluateWargameSelfTests() {
     detail: t48Pass
       ? 'Recruitment catalog separated into heroRecruitment.js with zero duplicated class definitions, canonical CLASSES resolution, preserved costs/timers/UI, HR-10 init & dungeon parity'
       : 'Failed checks: ' + failed48.join(', ')
+  });
+
+  // =========================================================================
+  // Test 49: HR-12 Recruitment Eligibility, Fail-Closed Dungeon Capability
+  //          Guards, No Silent Fighter Fallback & Legacy Property Cleanup
+  // =========================================================================
+  const prevSavedRaw49 = (typeof localStorage !== 'undefined') ? localStorage.getItem(WARGAME_STORAGE_KEY) : null;
+  let t49Checks = {};
+  try {
+    // 1. Fail-closed canonical eligibility & legacy guild_hall.recruits removal
+    const failClosedOk49 = Boolean(
+      isClassDungeonEligible('adventurer') === true &&
+      isClassDungeonEligible('fighter') === true &&
+      isClassDungeonEligible('cleric') === true &&
+      isClassDungeonEligible('nonexistent_class') === false &&
+      isClassDungeonEligible(null) === false &&
+      isHeroDungeonEligible(null) === false &&
+      isHeroDungeonEligible({}) === false &&
+      isHeroDungeonEligible({ classId: 'fighter', canEnterDungeon: false }) === false &&
+      isHeroDungeonEligible({ classId: 'fighter' }) === true &&
+      CITY_BUILDINGS_CATALOG.guild_hall.recruits === undefined
+    );
+
+    // 2. Invalid class handling — ZERO silent fallback to Fighter
+    const invalidCreate49 = createDungeonHeroForClass('invalid_class_xyz', null, CANONICAL_PLAYER_ID);
+    const nonAdvHero49 = { id: 'hero_spec_49', name: 'Steward', classId: 'fighter', canEnterDungeon: false };
+    const nonAdvCreate49 = createDungeonHeroForClass('fighter', nonAdvHero49, CANONICAL_PLAYER_ID);
+    const dngState49 = createDefaultGameState();
+    const sentinelHero49 = { id: 'sentinel_hero', classId: 'mage', name: 'Sentinel' };
+    dngState49.hero = sentinelHero49;
+    const badHandoffOk49 = applyWargameEntryHandoff({
+      hero: { id: 'bad_h', classId: 'bogus_class', name: 'Bogus' },
+      dungeon: { dungeonId: 'dng_starfall', profileId: 'starfall_vaults' }
+    }, dngState49) === false && dngState49.hero === sentinelHero49;
+    const noFighterFallbackOk49 = Boolean(
+      invalidCreate49 === null &&
+      nonAdvCreate49 === null &&
+      badHandoffOk49
+    );
+
+    // 3. Authoritative engine admission enforcement (Settler, non-adventuring specialist, invalid class vs valid hero)
+    const host49 = createWargameSimHost();
+    host49.dispatch({ type: COMMAND_TYPES.START_NEW_CAMPAIGN, payload: { houseName: 'House Guard', worldName: 'Guard Realm', seedCode: 'STAR-4901' } });
+    // Before founding city: settler exists on overworld
+    const settler49 = host49.state.world.overworld.units.find(function(u) { return u.unitType === 'settler'; });
+    const dngPoi49 = host49.state.world.overworld.pois.find(function(p) { return p.type === 'dungeon_entrance'; });
+    if (settler49 && dngPoi49) {
+      dngPoi49.discovered = true;
+      settler49.x = dngPoi49.x;
+      settler49.y = dngPoi49.y;
+    }
+    const settlerEnterRejected49 = settler49
+      ? !host49.dispatch({ type: COMMAND_TYPES.ENTER_DUNGEON, payload: { unitId: settler49.id, poiId: dngPoi49 ? dngPoi49.id : null, skipStorageWrite: true } }).ok
+      : false;
+    const settlerBindRejected49 = settler49
+      ? !bindCanonicalHeroToDungeonState(host49, dngState49, { partyUnitId: settler49.id, heroId: 'none', heroClassId: 'fighter', dungeon: { dungeonId: 'dng_starfall' } }).ok
+      : false;
+
+    // Found city, recruit valid fighter, also inject a non-adventuring specialist hero & invalid-class hero
+    host49.dispatch({ type: COMMAND_TYPES.FOUND_CITY, payload: { cityName: 'Guardkeep' } });
+    const city49 = getPrimaryCity(host49.state);
+    city49.stockpile.gold = 500; city49.stockpile.food = 500;
+
+    // 4. Declarative recruitment eligibility evaluator checks
+    const evalLocked49 = evaluateHeroRecruitmentEligibility(city49, host49.state.world, 'fighter');
+    const evalUnknown49 = evaluateHeroRecruitmentEligibility(city49, host49.state.world, 'not_a_class');
+    const evalNoCity49 = evaluateHeroRecruitmentEligibility(null, host49.state.world, 'fighter');
+    city49.buildings.fighters_guild = 1;
+    const evalReady49 = evaluateHeroRecruitmentEligibility(city49, host49.state.world, 'fighter');
+    const recruitEvalOk49 = Boolean(
+      !evalNoCity49.eligible && evalNoCity49.status === HERO_RECRUITMENT_ELIGIBILITY_STATES.NO_CITY &&
+      !evalUnknown49.eligible && evalUnknown49.status === HERO_RECRUITMENT_ELIGIBILITY_STATES.UNKNOWN_CLASS &&
+      !evalLocked49.eligible && evalLocked49.status === HERO_RECRUITMENT_ELIGIBILITY_STATES.LOCKED_BUILDING &&
+      evalReady49.eligible && evalReady49.status === HERO_RECRUITMENT_ELIGIBILITY_STATES.ELIGIBLE
+    );
+
+    host49.dispatch({ type: COMMAND_TYPES.RECRUIT_HERO, payload: { classId: 'fighter', heroName: 'Bram Guard' } });
+    host49.stepClock(80000);
+    const validHero49 = host49.state.world.heroes.find(function(h) { return h.classId === 'fighter'; });
+    const validUnit49 = host49.state.world.overworld.units.find(function(u) { return u.leaderHeroId === validHero49.id; });
+
+    // Non-adventuring specialist (canEnterDungeon: false) cannot bind or enter
+    const specHero49 = normalizePersistentHeroInstance({ id: 'hero_civic_49', name: 'Steward Orin', classId: 'fighter', canEnterDungeon: false, ownerPlayerId: CANONICAL_PLAYER_ID });
+    const unknownClassHero49 = normalizePersistentHeroInstance({ id: 'hero_unknown_49', name: 'Mystery', classId: 'ghost_class', ownerPlayerId: CANONICAL_PLAYER_ID });
+    host49.state.world.heroes.push(specHero49);
+    host49.state.world.heroes.push(unknownClassHero49);
+
+    const specBindRejected49 = !bindCanonicalHeroToDungeonState(host49, dngState49, { heroId: specHero49.id, dungeon: { dungeonId: 'dng_starfall' } }).ok;
+    const unknownBindRejected49 = !bindCanonicalHeroToDungeonState(host49, dngState49, { heroId: unknownClassHero49.id, dungeon: { dungeonId: 'dng_starfall' } }).ok;
+    const stateNotCorrupted49 = dngState49.hero === sentinelHero49;
+
+    // Valid hero CAN enter & bind cleanly
+    const validBindRes49 = bindCanonicalHeroToDungeonState(host49, dngState49, {
+      partyUnitId: validUnit49.id,
+      heroId: validHero49.id,
+      heroClassId: validHero49.classId,
+      dungeon: { poiId: dngPoi49.id, dungeonId: dngPoi49.dungeonId, profileId: dngPoi49.profileId, name: dngPoi49.name, coords: { x: dngPoi49.x, y: dngPoi49.y } }
+    });
+
+    // Save/load preserves explicit false and rederives true for valid hero
+    host49.save();
+    const reload49 = createWargameSimHost();
+    reload49.load();
+    const relValid49 = reload49.state.world.heroes.find(function(h) { return h.id === validHero49.id; });
+    const relSpec49 = reload49.state.world.heroes.find(function(h) { return h.id === 'hero_civic_49'; });
+    const relUnknown49 = reload49.state.world.heroes.find(function(h) { return h.id === 'hero_unknown_49'; });
+    const saveEligibilityOk49 = Boolean(
+      relValid49 && relValid49.canEnterDungeon === true &&
+      relSpec49 && relSpec49.canEnterDungeon === false &&
+      relUnknown49 && relUnknown49.canEnterDungeon === false
+    );
+
+    const admissionGuardsOk49 = Boolean(
+      settlerEnterRejected49 &&
+      settlerBindRejected49 &&
+      specBindRejected49 &&
+      unknownBindRejected49 &&
+      stateNotCorrupted49 &&
+      validBindRes49.ok &&
+      dngState49.hero && dngState49.hero.id === validHero49.id && dngState49.hero.classId === 'fighter'
+    );
+
+    t49Checks = {
+      failClosedOk: failClosedOk49,
+      noFighterFallbackOk: noFighterFallbackOk49,
+      recruitEvalOk: recruitEvalOk49,
+      admissionGuardsOk: admissionGuardsOk49,
+      saveEligibilityOk: saveEligibilityOk49
+    };
+  } finally {
+    if (typeof localStorage !== 'undefined') {
+      if (prevSavedRaw49 === null) localStorage.removeItem(WARGAME_STORAGE_KEY);
+      else localStorage.setItem(WARGAME_STORAGE_KEY, prevSavedRaw49);
+    }
+  }
+  const failed49 = Object.keys(t49Checks).filter(function(k) { return !t49Checks[k]; });
+  const t49Pass = failed49.length === 0 && Object.keys(t49Checks).length > 0;
+  results.push({
+    name: '49. HR-12: Recruitment Eligibility, Fail-Closed Dungeon Capability Guards & No Silent Fighter Fallback',
+    pass: t49Pass,
+    detail: t49Pass
+      ? 'Fail-closed dungeon eligibility enforced across engine admission & sync, silent Fighter fallback removed, declarative recruitment evaluator verified, and guild_hall.recruits removed'
+      : 'Failed checks: ' + failed49.join(', ')
   });
 
   return results;

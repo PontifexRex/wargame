@@ -27,7 +27,7 @@ import {
 } from '../data/troops.js';
 import { UNIT_ARCHETYPES } from '../data/terrain.js';
 import { getRecruitableHeroEntry } from '../data/heroRecruitment.js';
-import { CLASSES } from '../../data/classes.js';
+import { CLASSES, isHeroDungeonEligible } from '../../data/classes.js';
 import { revealOverworldVision, findOverworldPath } from './pathfinding.js';
 import { evaluateTaskDAG } from './taskEngine.js';
 import {
@@ -762,7 +762,7 @@ export function resolveRecruitHeroJob(job, state, scheduler, eventStream) {
     maxHp: heroObj.stats.hp,
     visionRadius: heroObj.classId === 'ranger' ? 7 : partyArch.visionRadius,
     canFoundCity: false,
-    canEnterDungeon: true,
+    canEnterDungeon: isHeroDungeonEligible(heroObj),
     alive: true,
     status: 'idle',
     cargo: null,

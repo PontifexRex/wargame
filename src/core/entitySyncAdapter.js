@@ -4,7 +4,11 @@
 // Intended lifecycle: Permanent narrow boundary adapter while Strategy (real-time) and Dungeon (turn-based)
 // keep their specialized runtime schemas.
 
-import { CLASSES } from '../data/classes.js';
+import {
+  CLASSES,
+  isClassDungeonEligible,
+  isHeroDungeonEligible
+} from '../data/classes.js';
 import {
   normalizeEquipmentSockets,
   recomputeHeroDerivedStats
@@ -23,8 +27,14 @@ const CANONICAL_EQ_SLOTS = ['weapon', 'armor', 'helm', 'boots', 'accessory', 'pi
 export function createDungeonHeroForClass(classId, canonicalHero, ownerPlayerId) {
   if (canonicalHero && typeof canonicalHero === 'object') {
     normalizePersistentHeroInstance(canonicalHero);
+    if (!isHeroDungeonEligible(canonicalHero)) {
+      return null;
+    }
   }
-  const cls = CLASSES[classId] || CLASSES.fighter;
+  if (!isClassDungeonEligible(classId)) {
+    return null;
+  }
+  const cls = CLASSES[classId];
   const startEq = cls.starterGear || {};
   const base = cls.baseStats || { str: 10, dex: 10, int: 10, vit: 10 };
   const eq = {
@@ -83,6 +93,15 @@ export function bindCanonicalHeroToDungeonState(simHost, dungeonState, entryInfo
 
   const world = simHost.state.world;
   const playerId = getCanonicalPlayerId(simHost.state);
+
+  // HR-12: Validate Overworld unit eligibility if a partyUnitId is provided
+  if (entryInfo.partyUnitId && world.overworld && Array.isArray(world.overworld.units)) {
+    const unit = world.overworld.units.find(function(u) { return u && u.id === entryInfo.partyUnitId; });
+    if (unit && unit.canEnterDungeon !== true) {
+      return { ok: false, reason: 'unit_not_dungeon_eligible' };
+    }
+  }
+
   const canonicalHero = (world.heroes || []).find(function(h) {
     return h.id === entryInfo.heroId;
   }) || null;
@@ -90,7 +109,14 @@ export function bindCanonicalHeroToDungeonState(simHost, dungeonState, entryInfo
     normalizePersistentHeroInstance(canonicalHero);
   }
 
-  const classId = (canonicalHero && canonicalHero.classId) || entryInfo.heroClassId || 'fighter';
+  const classId = (canonicalHero && canonicalHero.classId) || entryInfo.heroClassId || null;
+  if (!classId || !CLASSES[classId]) {
+    return { ok: false, reason: 'invalid_hero_class' };
+  }
+  if (canonicalHero ? !isHeroDungeonEligible(canonicalHero) : !isClassDungeonEligible(classId)) {
+    return { ok: false, reason: 'hero_not_dungeon_eligible' };
+  }
+
   const city = getPrimaryCity(simHost.state);
 
   // Ensure dungeonState has a valid hero bound to canonical identity & equipment
@@ -102,7 +128,11 @@ export function bindCanonicalHeroToDungeonState(simHost, dungeonState, entryInfo
   );
 
   if (!sameHero) {
-    dungeonState.hero = createDungeonHeroForClass(classId, canonicalHero, playerId);
+    const createdHero = createDungeonHeroForClass(classId, canonicalHero, playerId);
+    if (!createdHero) {
+      return { ok: false, reason: 'dungeon_hero_creation_failed' };
+    }
+    dungeonState.hero = createdHero;
   } else {
     dungeonState.hero.id = canonicalHero.id;
     dungeonState.hero.ownerPlayerId = canonicalHero.ownerPlayerId || playerId;

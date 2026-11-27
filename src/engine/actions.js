@@ -19,6 +19,7 @@ import {
   BOUNTY_REROLL_COST
 } from '../constants.js';
 import { ORE_CATALOG, MINERAL_IDS } from '../data/ores.js';
+import { isClassDungeonEligible, isHeroDungeonEligible } from '../data/classes.js';
 import { GEM_IDS, GEM_CATALOG, SHRINE_CATALOG, TRAP_CATALOG } from '../data/gems.js';
 import { buildProceduralBountySet } from '../data/bounties.js';
 import { SHOP_ITEMS, computeItemPowerScore, isItemUpgrade } from '../data/items.js';
@@ -1059,6 +1060,13 @@ export function handleHeroDefeat(killerName = 'Abyssal Guardian', state = gameSt
 
 export function applyWargameEntryHandoff(handoff, state = gameState) {
   if (!handoff || !state) return false;
+  // HR-12: Fail-closed dungeon eligibility check before mutating dungeon state
+  if (handoff.hero && !isHeroDungeonEligible(handoff.hero)) {
+    return false;
+  }
+  if (!handoff.hero && state.hero && !isClassDungeonEligible(state.hero.classId)) {
+    return false;
+  }
   const dng = handoff.dungeon || {};
   const targetDungeonId = dng.dungeonId || 'dng_starfall';
   const targetProfileId = dng.profileId || 'starfall_vaults';
@@ -1116,7 +1124,7 @@ export function applyWargameEntryHandoff(handoff, state = gameState) {
     cityCoords: handoff.cityCoords || null,
     partyUnitId: handoff.partyUnitId || null,
     heroId: (handoff.hero && handoff.hero.id) || null,
-    heroClassId: (handoff.hero && handoff.hero.classId) || 'fighter',
+    heroClassId: (handoff.hero && handoff.hero.classId) || (state.hero && state.hero.classId) || null,
     dungeonPoiId: dng.poiId || null,
     dungeonId: state.activeDungeonId,
     dungeonName: dng.name || (state.dungeon && state.dungeon.name) || 'The Starfall Vaults',

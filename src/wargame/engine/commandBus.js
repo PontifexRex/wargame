@@ -24,7 +24,14 @@ import {
   OVERWORLD_TERRAIN_DEFS,
   UNIT_ARCHETYPES
 } from '../data/terrain.js';
-import { getRecruitableHeroEntry } from '../data/heroRecruitment.js';
+import {
+  getRecruitableHeroEntry,
+  evaluateHeroRecruitmentEligibility
+} from '../data/heroRecruitment.js';
+import {
+  isClassDungeonEligible,
+  isHeroDungeonEligible
+} from '../../data/classes.js';
 import {
   CITY_BUILDINGS_CATALOG,
   MARKET_EXCHANGE_RATES,
@@ -825,40 +832,17 @@ export function dispatchWargameCommand(commandEnvelope, state, scheduler, eventS
   // ---------------------------------------------------------------------------
   if (cmdType === COMMAND_TYPES.RECRUIT_HERO) {
     const city = getPrimaryCity(state);
-    if (!city) {
-      return reject('You must found a Bastion City before recruiting heroes');
-    }
-
     const classId = payload.classId || 'adventurer';
-    const classDef = getRecruitableHeroEntry(classId);
-    if (!classDef) {
-      return reject('Unknown hero class: ' + classId);
-    }
-
-    const unlockedClasses = getCityRecruitableClasses(city);
-    if (unlockedClasses.indexOf(classId) === -1) {
-      return reject('Build or upgrade the required Guild Hall / Chapterhouse to recruit ' + classDef.name);
+    const eligibility = evaluateHeroRecruitmentEligibility(city, world, classId);
+    if (!eligibility.eligible) {
+      return reject(eligibility.reason);
     }
 
     if (!Array.isArray(city.recruitmentQueue)) {
       city.recruitmentQueue = [];
     }
 
-    // Enforce global Hero Roster Cap (ADR-0012: starts at 3, dismiss a Hero to recruit another)
-    const maxHeroes = (world.roster && world.roster.maxHeroes) ? world.roster.maxHeroes : (BASE_MAX_HERO_ROSTER || 3);
-    const totalActiveAndQueued = (world.heroes ? world.heroes.length : 0) + city.recruitmentQueue.length;
-    if (totalActiveAndQueued >= maxHeroes) {
-      return reject('Hero roster is full (' + totalActiveAndQueued + '/' + maxHeroes + '). Dismiss a Hero before recruiting another.');
-    }
-
-    if (city.recruitmentQueue.length >= (city.maxRecruitQueueSlots || BASE_RECRUIT_QUEUE_LIMIT || 3)) {
-      return reject('Hero training grounds are full (Maximum ' + (city.maxRecruitQueueSlots || 3) + ' in training queue)');
-    }
-
-    if ((city.stockpile.gold || 0) < classDef.costGold || (city.stockpile.food || 0) < classDef.costFood) {
-      return reject('Insufficient Gold or Food to swear in ' + classDef.name + ' (Need ' + classDef.costGold + ' Gold, ' + classDef.costFood + ' Food)');
-    }
-
+    const classDef = eligibility.classDef;
     city.stockpile.gold -= classDef.costGold;
     city.stockpile.food -= classDef.costFood;
 
@@ -2400,8 +2384,12 @@ export function dispatchWargameCommand(commandEnvelope, state, scheduler, eventS
   if (cmdType === COMMAND_TYPES.MARCH_TO_DUNGEON) {
     const unitId = payload.unitId || ow.selectedUnitId;
     const unit = (ow.units || []).find(function(u) { return u.id === unitId && u.alive; });
-    if (!unit || !unit.canEnterDungeon) {
+    if (!unit || unit.canEnterDungeon !== true) {
       return reject('Select a Hero-led Vanguard Party to march on a Dungeon');
+    }
+    const marchLeaderHero = (world.heroes || []).find(function(h) { return h.id === unit.leaderHeroId; }) || null;
+    if (marchLeaderHero ? !isHeroDungeonEligible(marchLeaderHero) : !isClassDungeonEligible(unit.heroClassId)) {
+      return reject('Selected unit leader is not eligible to enter a Dungeon');
     }
     if (unit.status === 'in_dungeon') {
       return reject('Party is already delving inside a dungeon');
@@ -2441,8 +2429,18 @@ export function dispatchWargameCommand(commandEnvelope, state, scheduler, eventS
   if (cmdType === COMMAND_TYPES.ENTER_DUNGEON) {
     const unitId = payload.unitId || ow.selectedUnitId;
     const unit = (ow.units || []).find(function(u) { return u.id === unitId && u.alive; });
-    if (!unit || !unit.canEnterDungeon) {
+    if (!unit || unit.canEnterDungeon !== true) {
       return reject('Requires an active Hero-led Vanguard Party to enter a Dungeon');
+    }
+
+    // HR-12: Authoritative fail-closed hero/class dungeon admission check before any state mutation
+    const hero = (world.heroes || []).find(function(h) { return h.id === unit.leaderHeroId; }) || null;
+    if (hero) {
+      if (!isHeroDungeonEligible(hero)) {
+        return reject('Hero ' + (hero.name || hero.id) + ' (' + (hero.classId || 'unknown') + ') is not eligible to enter a Dungeon');
+      }
+    } else if (!isClassDungeonEligible(unit.heroClassId)) {
+      return reject('Party leader class (' + (unit.heroClassId || 'unknown') + ') is not eligible to enter a Dungeon');
     }
 
     const poi = (ow.pois || []).find(function(p) {
@@ -2476,7 +2474,6 @@ export function dispatchWargameCommand(commandEnvelope, state, scheduler, eventS
 
     world.stats.dungeonsEntered = (world.stats.dungeonsEntered || 0) + 1;
 
-    const hero = (world.heroes || []).find(function(h) { return h.id === unit.leaderHeroId; });
     const city = getPrimaryCity(state);
 
     const envelopeData = {
@@ -2491,6 +2488,7 @@ export function dispatchWargameCommand(commandEnvelope, state, scheduler, eventS
         id: hero.id,
         name: hero.name,
         classId: hero.classId,
+        canEnterDungeon: hero.canEnterDungeon,
         level: hero.level,
         xp: hero.xp,
         equipment: hero.equipment || null,
@@ -2498,7 +2496,8 @@ export function dispatchWargameCommand(commandEnvelope, state, scheduler, eventS
       } : {
         id: unit.leaderHeroId || 'hero_1',
         name: unit.shortName,
-        classId: unit.heroClassId || 'fighter',
+        classId: unit.heroClassId,
+        canEnterDungeon: true,
         level: 1,
         xp: 0
       },

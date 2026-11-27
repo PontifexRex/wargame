@@ -23,6 +23,7 @@ import { generateOverworldMap, isOverworldTilePassable, createDefaultMilitaryTar
 import { isInOverworldBounds, areHexesAdjacent } from './hexSpatial.js';
 import { createInitialTasksState } from './taskEngine.js';
 import { CITY_PLOT_SLOTS, CITY_BUILDINGS_CATALOG, normalizeBuildingId } from '../data/buildings.js';
+import { isClassDungeonEligible } from '../../data/classes.js';
 import {
   getTroopDefinition,
   normalizeLegacyTroopDefId,
@@ -415,6 +416,12 @@ export function normalizePersistentHeroInstance(hero) {
 
   if (!Array.isArray(hero.bagGear)) {
     hero.bagGear = [];
+  }
+
+  // HR-12: Fail-closed dungeon eligibility derived from canonical class metadata when omitted
+  // Preserves explicit false on non-adventuring entities/specialists.
+  if (typeof hero.canEnterDungeon !== 'boolean') {
+    hero.canEnterDungeon = isClassDungeonEligible(hero.classId);
   }
 
   return hero;

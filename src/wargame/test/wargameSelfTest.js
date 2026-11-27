@@ -14,7 +14,7 @@ import {
 import { createWargameSimHost } from '../engine/simHost.js';
 import { createMinHeapPriorityQueue } from '../engine/scheduler.js';
 import { getPrimaryCity, getSelectedOverworldUnit, computeCityPopulation, computeCityStorageSlotCapacity, buildSerializableWargameState, collectOverworldDiscoveries, DEFAULT_PERSISTENT_HERO_MAX_XP, normalizePersistentHeroInstance } from '../engine/state.js';
-import { createDungeonHeroForClass } from '../../core/entitySyncAdapter.js';
+import { createDungeonHeroForClass, bindCanonicalHeroToDungeonState } from '../../core/entitySyncAdapter.js';
 import {
   CANONICAL_PLAYER_ID,
   getCanonicalPlayerId,
@@ -22,9 +22,9 @@ import {
 } from '../../core/canonicalIdentity.js';
 import { APP_CONTEXTS, createAppContextController } from '../../core/appContext.js';
 import { createDefaultGameState, ensureDungeonFloorHydrated, recomputeHeroDerivedStats } from '../../engine/state.js';
-import { extractToGuild, handleHeroDefeat, useRecallScroll, traversePortal } from '../../engine/actions.js';
+import { extractToGuild, handleHeroDefeat, useRecallScroll, traversePortal, applyWargameEntryHandoff } from '../../engine/actions.js';
 import { useStairsAtPlayer, executeClassSkill, getSkillTargetingInfo } from '../../engine/combat.js';
-import { CLASSES } from '../../data/classes.js';
+import { CLASSES, isClassDungeonEligible, isHeroDungeonEligible } from '../../data/classes.js';
 import { createPortalInstance } from '../../engine/objects.js';
 import {
   HEX_DIR_NAMES,
@@ -50,9 +50,11 @@ import {
 import {
   HERO_RECRUITMENT_CATALOG,
   HERO_RECRUITMENT_ORDER,
+  HERO_RECRUITMENT_ELIGIBILITY_STATES,
   isClassRecruitable,
   getRecruitableHeroEntry,
-  getAllRecruitableHeroEntries
+  getAllRecruitableHeroEntries,
+  evaluateHeroRecruitmentEligibility
 } from '../data/heroRecruitment.js';
 import {
   interpolateHexSegment,
@@ -5172,7 +5174,8 @@ export function evaluateWargameSelfTests() {
         pickaxe: { uid: 'vet_pick', slot: 'pickaxe', name: 'Mithril Pick', curDur: 50, maxDur: 50 }
       },
       cosmetics: { cloak: 'crimson_cape', aura: null, banner_crest: null, weapon_glow: null },
-      bagGear: [{ uid: 'vet_bag_1', slot: 'helm', name: 'Spare Coif', def: 3 }]
+      bagGear: [{ uid: 'vet_bag_1', slot: 'helm', name: 'Spare Coif', def: 3 }],
+      canEnterDungeon: true
     };
     const vetSnapBefore47 = JSON.stringify(veteranBefore47);
     normalizePersistentHeroInstance(veteranBefore47);
@@ -5377,6 +5380,149 @@ export function evaluateWargameSelfTests() {
     detail: t48Pass
       ? 'Recruitment catalog separated into heroRecruitment.js with zero duplicated class definitions, canonical CLASSES resolution, preserved costs/timers/UI, HR-10 init & dungeon parity'
       : 'Failed checks: ' + failed48.join(', ')
+  });
+
+  // =========================================================================
+  // Test 49: HR-12 Recruitment Eligibility, Fail-Closed Dungeon Capability
+  //          Guards, No Silent Fighter Fallback & Legacy Property Cleanup
+  // =========================================================================
+  const prevSavedRaw49 = (typeof localStorage !== 'undefined') ? localStorage.getItem(WARGAME_STORAGE_KEY) : null;
+  let t49Checks = {};
+  try {
+    // 1. Fail-closed canonical eligibility & legacy guild_hall.recruits removal
+    const failClosedOk49 = Boolean(
+      isClassDungeonEligible('adventurer') === true &&
+      isClassDungeonEligible('fighter') === true &&
+      isClassDungeonEligible('cleric') === true &&
+      isClassDungeonEligible('nonexistent_class') === false &&
+      isClassDungeonEligible(null) === false &&
+      isHeroDungeonEligible(null) === false &&
+      isHeroDungeonEligible({}) === false &&
+      isHeroDungeonEligible({ classId: 'fighter', canEnterDungeon: false }) === false &&
+      isHeroDungeonEligible({ classId: 'fighter' }) === true &&
+      CITY_BUILDINGS_CATALOG.guild_hall.recruits === undefined
+    );
+
+    // 2. Invalid class handling — ZERO silent fallback to Fighter
+    const invalidCreate49 = createDungeonHeroForClass('invalid_class_xyz', null, CANONICAL_PLAYER_ID);
+    const nonAdvHero49 = { id: 'hero_spec_49', name: 'Steward', classId: 'fighter', canEnterDungeon: false };
+    const nonAdvCreate49 = createDungeonHeroForClass('fighter', nonAdvHero49, CANONICAL_PLAYER_ID);
+    const dngState49 = createDefaultGameState();
+    const sentinelHero49 = { id: 'sentinel_hero', classId: 'mage', name: 'Sentinel' };
+    dngState49.hero = sentinelHero49;
+    const badHandoffOk49 = applyWargameEntryHandoff({
+      hero: { id: 'bad_h', classId: 'bogus_class', name: 'Bogus' },
+      dungeon: { dungeonId: 'dng_starfall', profileId: 'starfall_vaults' }
+    }, dngState49) === false && dngState49.hero === sentinelHero49;
+    const noFighterFallbackOk49 = Boolean(
+      invalidCreate49 === null &&
+      nonAdvCreate49 === null &&
+      badHandoffOk49
+    );
+
+    // 3. Authoritative engine admission enforcement (Settler, non-adventuring specialist, invalid class vs valid hero)
+    const host49 = createWargameSimHost();
+    host49.dispatch({ type: COMMAND_TYPES.START_NEW_CAMPAIGN, payload: { houseName: 'House Guard', worldName: 'Guard Realm', seedCode: 'STAR-4901' } });
+    // Before founding city: settler exists on overworld
+    const settler49 = host49.state.world.overworld.units.find(function(u) { return u.unitType === 'settler'; });
+    const dngPoi49 = host49.state.world.overworld.pois.find(function(p) { return p.type === 'dungeon_entrance'; });
+    if (settler49 && dngPoi49) {
+      dngPoi49.discovered = true;
+      settler49.x = dngPoi49.x;
+      settler49.y = dngPoi49.y;
+    }
+    const settlerEnterRejected49 = settler49
+      ? !host49.dispatch({ type: COMMAND_TYPES.ENTER_DUNGEON, payload: { unitId: settler49.id, poiId: dngPoi49 ? dngPoi49.id : null, skipStorageWrite: true } }).ok
+      : false;
+    const settlerBindRejected49 = settler49
+      ? !bindCanonicalHeroToDungeonState(host49, dngState49, { partyUnitId: settler49.id, heroId: 'none', heroClassId: 'fighter', dungeon: { dungeonId: 'dng_starfall' } }).ok
+      : false;
+
+    // Found city, recruit valid fighter, also inject a non-adventuring specialist hero & invalid-class hero
+    host49.dispatch({ type: COMMAND_TYPES.FOUND_CITY, payload: { cityName: 'Guardkeep' } });
+    const city49 = getPrimaryCity(host49.state);
+    city49.stockpile.gold = 500; city49.stockpile.food = 500;
+
+    // 4. Declarative recruitment eligibility evaluator checks
+    const evalLocked49 = evaluateHeroRecruitmentEligibility(city49, host49.state.world, 'fighter');
+    const evalUnknown49 = evaluateHeroRecruitmentEligibility(city49, host49.state.world, 'not_a_class');
+    const evalNoCity49 = evaluateHeroRecruitmentEligibility(null, host49.state.world, 'fighter');
+    city49.buildings.fighters_guild = 1;
+    const evalReady49 = evaluateHeroRecruitmentEligibility(city49, host49.state.world, 'fighter');
+    const recruitEvalOk49 = Boolean(
+      !evalNoCity49.eligible && evalNoCity49.status === HERO_RECRUITMENT_ELIGIBILITY_STATES.NO_CITY &&
+      !evalUnknown49.eligible && evalUnknown49.status === HERO_RECRUITMENT_ELIGIBILITY_STATES.UNKNOWN_CLASS &&
+      !evalLocked49.eligible && evalLocked49.status === HERO_RECRUITMENT_ELIGIBILITY_STATES.LOCKED_BUILDING &&
+      evalReady49.eligible && evalReady49.status === HERO_RECRUITMENT_ELIGIBILITY_STATES.ELIGIBLE
+    );
+
+    host49.dispatch({ type: COMMAND_TYPES.RECRUIT_HERO, payload: { classId: 'fighter', heroName: 'Bram Guard' } });
+    host49.stepClock(80000);
+    const validHero49 = host49.state.world.heroes.find(function(h) { return h.classId === 'fighter'; });
+    const validUnit49 = host49.state.world.overworld.units.find(function(u) { return u.leaderHeroId === validHero49.id; });
+
+    // Non-adventuring specialist (canEnterDungeon: false) cannot bind or enter
+    const specHero49 = normalizePersistentHeroInstance({ id: 'hero_civic_49', name: 'Steward Orin', classId: 'fighter', canEnterDungeon: false, ownerPlayerId: CANONICAL_PLAYER_ID });
+    const unknownClassHero49 = normalizePersistentHeroInstance({ id: 'hero_unknown_49', name: 'Mystery', classId: 'ghost_class', ownerPlayerId: CANONICAL_PLAYER_ID });
+    host49.state.world.heroes.push(specHero49);
+    host49.state.world.heroes.push(unknownClassHero49);
+
+    const specBindRejected49 = !bindCanonicalHeroToDungeonState(host49, dngState49, { heroId: specHero49.id, dungeon: { dungeonId: 'dng_starfall' } }).ok;
+    const unknownBindRejected49 = !bindCanonicalHeroToDungeonState(host49, dngState49, { heroId: unknownClassHero49.id, dungeon: { dungeonId: 'dng_starfall' } }).ok;
+    const stateNotCorrupted49 = dngState49.hero === sentinelHero49;
+
+    // Valid hero CAN enter & bind cleanly
+    const validBindRes49 = bindCanonicalHeroToDungeonState(host49, dngState49, {
+      partyUnitId: validUnit49.id,
+      heroId: validHero49.id,
+      heroClassId: validHero49.classId,
+      dungeon: { poiId: dngPoi49.id, dungeonId: dngPoi49.dungeonId, profileId: dngPoi49.profileId, name: dngPoi49.name, coords: { x: dngPoi49.x, y: dngPoi49.y } }
+    });
+
+    // Save/load preserves explicit false and rederives true for valid hero
+    host49.save();
+    const reload49 = createWargameSimHost();
+    reload49.load();
+    const relValid49 = reload49.state.world.heroes.find(function(h) { return h.id === validHero49.id; });
+    const relSpec49 = reload49.state.world.heroes.find(function(h) { return h.id === 'hero_civic_49'; });
+    const relUnknown49 = reload49.state.world.heroes.find(function(h) { return h.id === 'hero_unknown_49'; });
+    const saveEligibilityOk49 = Boolean(
+      relValid49 && relValid49.canEnterDungeon === true &&
+      relSpec49 && relSpec49.canEnterDungeon === false &&
+      relUnknown49 && relUnknown49.canEnterDungeon === false
+    );
+
+    const admissionGuardsOk49 = Boolean(
+      settlerEnterRejected49 &&
+      settlerBindRejected49 &&
+      specBindRejected49 &&
+      unknownBindRejected49 &&
+      stateNotCorrupted49 &&
+      validBindRes49.ok &&
+      dngState49.hero && dngState49.hero.id === validHero49.id && dngState49.hero.classId === 'fighter'
+    );
+
+    t49Checks = {
+      failClosedOk: failClosedOk49,
+      noFighterFallbackOk: noFighterFallbackOk49,
+      recruitEvalOk: recruitEvalOk49,
+      admissionGuardsOk: admissionGuardsOk49,
+      saveEligibilityOk: saveEligibilityOk49
+    };
+  } finally {
+    if (typeof localStorage !== 'undefined') {
+      if (prevSavedRaw49 === null) localStorage.removeItem(WARGAME_STORAGE_KEY);
+      else localStorage.setItem(WARGAME_STORAGE_KEY, prevSavedRaw49);
+    }
+  }
+  const failed49 = Object.keys(t49Checks).filter(function(k) { return !t49Checks[k]; });
+  const t49Pass = failed49.length === 0 && Object.keys(t49Checks).length > 0;
+  results.push({
+    name: '49. HR-12: Recruitment Eligibility, Fail-Closed Dungeon Capability Guards & No Silent Fighter Fallback',
+    pass: t49Pass,
+    detail: t49Pass
+      ? 'Fail-closed dungeon eligibility enforced across engine admission & sync, silent Fighter fallback removed, declarative recruitment evaluator verified, and guild_hall.recruits removed'
+      : 'Failed checks: ' + failed49.join(', ')
   });
 
   return results;

@@ -6,6 +6,7 @@ export const CLASSES = {
     name: 'Fighter',
     title: 'Iron Vanguard',
     color: '#f87171',
+    canEnterDungeon: true,
     baseStats: { str: 15, dex: 10, int: 8, vit: 14 },
     hpBase: 120,
     mpBase: 35,
@@ -30,6 +31,7 @@ export const CLASSES = {
     name: 'Thief',
     title: 'Shadow Strider',
     color: '#c084fc',
+    canEnterDungeon: true,
     baseStats: { str: 9, dex: 16, int: 11, vit: 10 },
     hpBase: 90,
     mpBase: 45,
@@ -54,6 +56,7 @@ export const CLASSES = {
     name: 'Mage',
     title: 'Starweaver Adept',
     color: '#60a5fa',
+    canEnterDungeon: true,
     baseStats: { str: 7, dex: 10, int: 17, vit: 10 },
     hpBase: 82,
     mpBase: 80,
@@ -78,6 +81,7 @@ export const CLASSES = {
     name: 'Ranger',
     title: 'Deepwood Pathfinder',
     color: '#34d399',
+    canEnterDungeon: true,
     baseStats: { str: 12, dex: 15, int: 11, vit: 11 },
     hpBase: 95,
     mpBase: 45,
@@ -102,6 +106,7 @@ export const CLASSES = {
     name: 'Paladin',
     title: 'Dawn Warden',
     color: '#fbbf24',
+    canEnterDungeon: true,
     baseStats: { str: 14, dex: 9, int: 12, vit: 15 },
     hpBase: 125,
     mpBase: 50,
@@ -126,6 +131,7 @@ export const CLASSES = {
     name: 'Adventurer',
     title: 'Starfall Delver',
     color: '#38bdf8',
+    canEnterDungeon: true,
     baseStats: { str: 12, dex: 12, int: 11, vit: 13 },
     hpBase: 108,
     mpBase: 50,
@@ -150,6 +156,7 @@ export const CLASSES = {
     name: 'Cleric',
     title: 'Temple Devotee',
     color: '#fef08a',
+    canEnterDungeon: true,
     baseStats: { str: 10, dex: 9, int: 15, vit: 13 },
     hpBase: 100,
     mpBase: 65,
@@ -170,3 +177,17 @@ export const CLASSES = {
     skillDesc: 'Channels holy light against a visible foe within 3 tiles for 160% holy damage and restores 20% Max HP.'
   }
 };
+
+// Fail-closed canonical dungeon eligibility evaluators (HR-12).
+// Entities/classes without explicit canEnterDungeon === true are ineligible by default.
+export function isClassDungeonEligible(classId) {
+  if (!classId || typeof classId !== 'string') return false;
+  const cls = CLASSES[classId];
+  return Boolean(cls && cls.canEnterDungeon === true);
+}
+
+export function isHeroDungeonEligible(hero) {
+  if (!hero || typeof hero !== 'object') return false;
+  if (hero.canEnterDungeon === false) return false;
+  return isClassDungeonEligible(hero.classId);
+}
