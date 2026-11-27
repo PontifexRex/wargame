@@ -23,6 +23,7 @@ import {
   ensureCanonicalPlayerIdentity
 } from '../../core/canonicalIdentity.js';
 import { APP_CONTEXTS, createAppContextController } from '../../core/appContext.js';
+import { DEV_CONSOLE_TABS, parseConsoleCommandLine, createDevConsoleController } from '../../core/devConsole.js';
 import { createDefaultGameState, ensureDungeonFloorHydrated, recomputeHeroDerivedStats } from '../../engine/state.js';
 import { extractToGuild, handleHeroDefeat, useRecallScroll, traversePortal, applyWargameEntryHandoff, gainExperience } from '../../engine/actions.js';
 import { useStairsAtPlayer, executeClassSkill, getSkillTargetingInfo } from '../../engine/combat.js';
@@ -5912,6 +5913,264 @@ export function evaluateWargameSelfTests() {
     detail: t52Pass
       ? 'Universal +2/attr removed, class-relevant 1.5–1.6 pts/level fractional growth + fallback verified, single/multi-level notification payloads accurate, and zero double-growth on recompute'
       : 'Failed checks: ' + failed52.join(', ')
+  });
+
+  // =========================================================================
+  // Test 53: HR-15 Shared Developer Console Foundation, Context Validation,
+  //          Canonical Services & Regular Monster Spawn Wall/Validation Fix
+  // =========================================================================
+  const parsedQuoted53 = parseConsoleCommandLine('recruit cleric "Sister Vera"');
+  const parsedEmpty53 = parseConsoleCommandLine('   ');
+  const parseOk53 = Boolean(
+    parsedQuoted53.verb === 'recruit' &&
+    parsedQuoted53.args.length === 2 &&
+    parsedQuoted53.args[0] === 'cleric' &&
+    parsedQuoted53.args[1] === 'Sister Vera' &&
+    parsedEmpty53.verb === ''
+  );
+
+  const host53 = createWargameSimHost();
+  const dngState53 = createDefaultGameState();
+  host53.attachDungeonState(dngState53);
+  let activeCtx53 = 'strategy';
+  const con53 = createDevConsoleController({
+    simHost: host53,
+    dungeonState: dngState53,
+    getContext: function() { return activeCtx53; }
+  });
+
+  host53.dispatch({ type: COMMAND_TYPES.START_NEW_CAMPAIGN, payload: { houseName: 'House Dev', worldName: 'Console Realm', seedCode: 'STAR-5301' } });
+  host53.dispatch({ type: COMMAND_TYPES.FOUND_CITY, payload: { cityName: 'Consolekeep' } });
+  const city53 = getPrimaryCity(host53.state);
+  city53.stockpile.gold = 900; city53.stockpile.food = 900;
+  city53.buildings.temple_chapterhouse = 1;
+
+  // Help, unknown command, context guard, history & clear
+  const helpRes53 = con53.execute('help');
+  const helpSub53 = con53.execute('help spawn');
+  const unknownRes53 = con53.execute('not_a_real_command');
+  const ctxBlocked53 = con53.execute('heal'); // dungeon-only while in strategy
+  const histPrev53 = con53.getHistoryPrev();
+  const basicsOk53 = Boolean(
+    helpRes53.ok && helpRes53.text.indexOf('spawn') !== -1 &&
+    helpSub53.ok && helpSub53.text.indexOf('Usage:') !== -1 &&
+    !unknownRes53.ok &&
+    !ctxBlocked53.ok && ctxBlocked53.text.indexOf('dungeon') !== -1 &&
+    histPrev53 === 'heal'
+  );
+
+  // Strategy commands: recruit quoted name, inspect, Overworld spawn, retire safety guard
+  const recCmd53 = con53.execute('recruit cleric "Sister Vera"');
+  host53.stepClock(80000);
+  const vera53 = host53.state.world.heroes.find(function(h) { return h.name === 'Sister Vera'; });
+  const heroInspect53 = con53.execute('hero');
+  const owSpawn53 = con53.execute('spawn vault_crawler');
+  const retireNoConfirm53 = vera53 ? con53.execute('retire ' + vera53.id) : { ok: true };
+  const strategyOk53 = Boolean(
+    recCmd53.ok && vera53 && vera53.classId === 'cleric' &&
+    heroInspect53.ok && heroInspect53.text.indexOf('Sister Vera') !== -1 &&
+    owSpawn53.ok &&
+    !retireNoConfirm53.ok && retireNoConfirm53.text.indexOf('confirm') !== -1
+  );
+
+  // Dungeon commands + Regular Monster Spawn wall-avoidance & archetype validation regression!
+  activeCtx53 = 'dungeon';
+  dngState53.inGuild = false;
+  dngState53.dungeon.currentFloor = 1;
+  // Synthetic 7x7 floor where (hero.x + 1, hero.y) is a SOLID WALL (tile 0)!
+  const wallFloor53 = {
+    depth: 1,
+    width: 7,
+    height: 7,
+    tiles: Array.from({ length: 7 }, function() { return Array.from({ length: 7 }, function() { return 1; }); }),
+    explored: Array.from({ length: 7 }, function() { return Array.from({ length: 7 }, function() { return 0; }); }),
+    monsters: [],
+    chests: [],
+    traps: {},
+    shrines: {},
+    objects: [],
+    groundItems: []
+  };
+  wallFloor53.tiles[3][4] = 0; // Block (hero.x + 1, hero.y) with a solid wall!
+  dngState53.dungeon.floors[1] = wallFloor53;
+  dngState53.hero = createDungeonHeroForClass('cleric', vera53, CANONICAL_PLAYER_ID);
+  dngState53.hero.x = 3;
+  dngState53.hero.y = 3;
+  recomputeHeroDerivedStats(true, dngState53);
+
+  const badArch53 = con53.execute('spawn totally_fake_mob');
+  const wallCoord53 = con53.execute('spawn vault_crawler 4 3');
+  const regSpawn53 = con53.execute('spawn vault_crawler');
+  const spawnedMon53 = wallFloor53.monsters[0] || null;
+  const monsterSpawnFixOk53 = Boolean(
+    !badArch53.ok && badArch53.text.indexOf('Unknown monster archetype') !== -1 &&
+    !wallCoord53.ok &&
+    regSpawn53.ok &&
+    spawnedMon53 && spawnedMon53.id === 'vault_crawler' &&
+    !(spawnedMon53.x === 4 && spawnedMon53.y === 3) &&
+    wallFloor53.tiles[spawnedMon53.y][spawnedMon53.x] === 1
+  );
+
+  // Dungeon progression, skills, grant & clear commands
+  const xpCmd53 = con53.execute('xp 80');
+  const skillsCmd53 = con53.execute('skills');
+  const grantCmd53 = con53.execute('grant buy_wep_1');
+  const clearCmd53 = con53.execute('clear');
+  const dungeonCmdsOk53 = Boolean(
+    xpCmd53.ok && dngState53.hero.level === 2 &&
+    skillsCmd53.ok && skillsCmd53.text.indexOf('Sacred Ward') !== -1 &&
+    grantCmd53.ok && dngState53.hero.expeditionGear.length === 1 &&
+    clearCmd53.ok && con53.getOutput().length === 1
+  );
+
+  const t53Checks = {
+    parseOk: parseOk53,
+    basicsOk: basicsOk53,
+    strategyOk: strategyOk53,
+    monsterSpawnFixOk: monsterSpawnFixOk53,
+    dungeonCmdsOk: dungeonCmdsOk53
+  };
+  const failed53 = Object.keys(t53Checks).filter(function(k) { return !t53Checks[k]; });
+  const t53Pass = failed53.length === 0;
+  results.push({
+    name: '53. HR-15: Shared Developer Console Foundation, Context Guards & Regular Monster Spawn Fix',
+    pass: t53Pass,
+    detail: t53Pass
+      ? 'Quoted command parser, context guards, canonical recruit/retire/xp/spawn/grant commands, and wall-safe/validated regular monster spawning verified'
+      : 'Failed checks: ' + failed53.join(', ')
+  });
+
+  // =========================================================================
+  // Test 54: HR-15 Usability Correction — Control Panel Tabs, Inspector Snapshot, Direct Value Controls & Structured Help
+  // =========================================================================
+  const host54 = createWargameSimHost();
+  host54.dispatch({ type: COMMAND_TYPES.START_NEW_CAMPAIGN, payload: { houseName: 'House Panel', worldName: 'Panel Realm', seedCode: 'STAR-5400' } });
+  host54.dispatch({ type: COMMAND_TYPES.FOUND_CITY, payload: { cityName: 'Control Citadel' } });
+  const city54 = getPrimaryCity(host54.state);
+  city54.stockpile.gold = 900;
+  city54.stockpile.food = 900;
+  city54.buildings.temple_chapterhouse = 1;
+  host54.dispatch({ type: COMMAND_TYPES.RECRUIT_HERO, payload: { classId: 'cleric', heroName: 'Brother Toren' } });
+  host54.stepClock(80000);
+  const goldBefore54 = city54.stockpile.gold;
+
+  let activeCtx54 = 'strategy';
+  const dngState54 = createDefaultGameState();
+  const con54 = createDevConsoleController({
+    simHost: host54,
+    dungeonState: dngState54,
+    getContext: function() { return activeCtx54; }
+  });
+
+  // 1. Tab navigation & inspector snapshot in Strategy context
+  const tabIds54 = DEV_CONSOLE_TABS.map(function(t) { return t.id; });
+  const tabsOk54 = Boolean(
+    con54.getTab() === 'overview' &&
+    tabIds54.indexOf('heroes') !== -1 &&
+    tabIds54.indexOf('progression') !== -1 &&
+    tabIds54.indexOf('combat') !== -1 &&
+    tabIds54.indexOf('dungeon') !== -1 &&
+    tabIds54.indexOf('items') !== -1 &&
+    tabIds54.indexOf('world') !== -1 &&
+    tabIds54.indexOf('commands') !== -1 &&
+    tabIds54.indexOf('help') !== -1 &&
+    con54.setTab('heroes') === 'heroes' &&
+    con54.setTab('invalid_tab_xyz') === 'heroes'
+  );
+
+  const snap54 = con54.getInspectorSnapshot();
+  const snapshotOk54 = Boolean(
+    snap54.context === 'strategy' &&
+    snap54.activeHero && snap54.activeHero.name === 'Brother Toren' &&
+    snap54.recruitableClasses.length >= 5 &&
+    snap54.combat.regularArchetypes.length >= 3 &&
+    snap54.items.shopItems.length >= 3 &&
+    snap54.world && snap54.world.city && snap54.world.city.name === 'Control Citadel'
+  );
+
+  // 2. Direct value controls: attributes (including SPI), level, XP, stat points, city resources, bounds clamping
+  const prevAtk54 = snap54.activeHero ? snap54.activeHero.derived.atk : 0;
+  const attrAddRes54 = con54.adjustHeroAttribute('str', 4, null);
+  const spiSetRes54 = con54.adjustHeroAttribute('spi', 0, 3);
+  const badAttrRes54 = con54.adjustHeroAttribute('luck', 1, null);
+  const clampNegAttr54 = con54.adjustHeroAttribute('str', -999, null);
+  const lvlSetRes54 = con54.adjustHeroLevel(0, 4);
+  const resAddRes54 = con54.adjustCityResource('gold', 500, null);
+  const resClampRes54 = con54.adjustCityResource('wood', -99999, null);
+  const stratGrant54 = con54.grantShopItem('buy_wep_1');
+  const snapAfter54 = con54.getInspectorSnapshot();
+  const directControlsOk54 = Boolean(
+    attrAddRes54.ok &&
+    spiSetRes54.ok && snapAfter54.activeHero && snapAfter54.activeHero.attributes.spi.bonus === 3 &&
+    !badAttrRes54.ok &&
+    clampNegAttr54.ok && clampNegAttr54.bonus === 0 &&
+    lvlSetRes54.ok && snapAfter54.activeHero.level === 4 &&
+    snapAfter54.activeHero.derived.atk > prevAtk54 &&
+    resAddRes54.ok && city54.stockpile.gold === (goldBefore54 + 500) &&
+    resClampRes54.ok && city54.stockpile.wood === 0 &&
+    stratGrant54.ok && snapAfter54.activeHero.packItems.length >= 1
+  );
+
+  // 3. Dungeon direct vitals, God Mode toggle & object spawner
+  activeCtx54 = 'dungeon';
+  dngState54.inGuild = false;
+  dngState54.dungeon.currentFloor = 1;
+  const openFloor54 = {
+    depth: 1,
+    width: 7,
+    height: 7,
+    tiles: Array.from({ length: 7 }, function() { return Array.from({ length: 7 }, function() { return 1; }); }),
+    explored: Array.from({ length: 7 }, function() { return Array.from({ length: 7 }, function() { return 0; }); }),
+    monsters: [],
+    chests: [],
+    traps: {},
+    shrines: {},
+    objects: [],
+    groundItems: []
+  };
+  dngState54.dungeon.floors[1] = openFloor54;
+  dngState54.hero = createDungeonHeroForClass('cleric', host54.state.world.heroes[0], CANONICAL_PLAYER_ID);
+  dngState54.hero.x = 3;
+  dngState54.hero.y = 3;
+  recomputeHeroDerivedStats(true, dngState54);
+
+  const hpDrop54 = con54.adjustHeroVitals('hp', -20, null);
+  const hpClampMin54 = con54.adjustHeroVitals('hp', -9999, null);
+  const godOn54 = con54.toggleHeroGodMode();
+  const portalSpawn54 = con54.spawnObject('portal', 'waypoint_portal', null, null);
+  const dngControlsOk54 = Boolean(
+    hpDrop54.ok && hpDrop54.value === (dngState54.hero.maxHp - 20) &&
+    hpClampMin54.ok && hpClampMin54.value === 1 &&
+    godOn54.ok && dngState54.hero.godMode === true &&
+    portalSpawn54.ok && openFloor54.objects.length >= 1
+  );
+
+  // 4. Structured categorized Help catalog & live search filtering
+  const helpAll54 = con54.getHelpCatalog('');
+  const helpSpawn54 = con54.getHelpCatalog('spawn');
+  const helpNone54 = con54.getHelpCatalog('zzzz_no_such_topic');
+  const helpCatalogOk54 = Boolean(
+    helpAll54.categories.length >= 4 &&
+    helpAll54.totalCount >= 18 &&
+    helpSpawn54.matchedCount >= 1 && helpSpawn54.matchedCount < helpAll54.totalCount &&
+    helpNone54.matchedCount === 0 && helpNone54.categories.length === 0
+  );
+
+  const t54Checks = {
+    tabsOk: tabsOk54,
+    snapshotOk: snapshotOk54,
+    directControlsOk: directControlsOk54,
+    dngControlsOk: dngControlsOk54,
+    helpCatalogOk: helpCatalogOk54
+  };
+  const failed54 = Object.keys(t54Checks).filter(function(k) { return !t54Checks[k]; });
+  const t54Pass = failed54.length === 0;
+  results.push({
+    name: '54. HR-15 Usability Correction: Control Panel Tabs, Inspector Snapshot, Direct Value Controls & Structured Help',
+    pass: t54Pass,
+    detail: t54Pass
+      ? 'Tabbed control panel, live state snapshot, bounds-checked direct controls (attrs/vitals/level/resources/objects), and categorized filterable Help verified'
+      : 'Failed checks: ' + failed54.join(', ')
   });
 
   return results;

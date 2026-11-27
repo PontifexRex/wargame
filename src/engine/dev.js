@@ -127,8 +127,8 @@ export function setHeroLevel(targetLevel, state = gameState) {
   const h = state.hero;
   const newLvl = Math.max(1, Math.min(100, Math.round(Number(targetLevel) || 1)));
 
-  // Calculate cumulative maxXp curve
-  let newMaxXp = 40;
+  // Calculate cumulative maxXp curve (aligned with canonical Lv1 maxXp = 60)
+  let newMaxXp = 60;
   for (let lvl = 2; lvl <= newLvl; lvl++) {
     newMaxXp = Math.round(newMaxXp * 1.4);
   }
@@ -137,11 +137,11 @@ export function setHeroLevel(targetLevel, state = gameState) {
   h.xp = 0;
   h.maxXp = newMaxXp;
 
-  // Stat points: +2 per level above 1 minus points already spent in bonusStats
+  // Stat points: +2 per level above 1 minus points already spent in bonusStats (all 5 attributes including SPI)
   const totalEarnedStatPoints = (newLvl - 1) * 2;
-  const b = h.bonusStats || { str: 0, dex: 0, int: 0, vit: 0 };
-  const spentStats = (b.str || 0) + (b.dex || 0) + (b.int || 0) + (b.vit || 0);
-  h.statPoints = Math.max(0, totalEarnedStatPoints - spentStats);
+  const b = h.bonusStats || { str: 0, dex: 0, int: 0, vit: 0, spi: 0 };
+  const spentStats = (b.str || 0) + (b.dex || 0) + (b.int || 0) + (b.vit || 0) + (b.spi || 0);
+  h.statPoints = Math.max(0, Math.floor(totalEarnedStatPoints - spentStats));
 
   // Talent points: +1 per level above 1 minus talents already allocated
   const totalEarnedTalents = Math.max(0, newLvl - 1);
@@ -313,7 +313,7 @@ export function executeDevCommand(cmdStr, state = gameState) {
   return { ok: false, output: `Unknown command "${verb}". Type "help" for a list of commands.` };
 }
 
-export function spawnEntity(type, subId = null, x = null, y = null, state = gameState) {
+export function spawnEntity(type, subId = null, x = null, y = null, state = gameState, opts = null) {
   if (!state || !state.hero || state.inGuild) {
     return { ok: false, reason: 'not_in_dungeon' };
   }
@@ -370,13 +370,66 @@ export function spawnEntity(type, subId = null, x = null, y = null, state = game
   }
 
   if (tLower === 'monster' || tLower === 'mob') {
-    const archId = subId || 'vault_crawler';
-    const isBoss = BOSS_ARCHETYPES[archId];
+    const legacyMobAliases = { skeleton_grunt: 'bone_warden' };
+    const rawArchId = subId || 'vault_crawler';
+    const archId = legacyMobAliases[rawArchId] || rawArchId;
+    const isBoss = Boolean(BOSS_ARCHETYPES[archId]);
+    const isRegular = Boolean(MONSTER_ARCHETYPES[archId]);
+    if (!isBoss && !isRegular) {
+      return {
+        ok: false,
+        reason: 'Unknown monster archetype "' + archId + '". Valid: ' + Object.keys(MONSTER_ARCHETYPES).concat(Object.keys(BOSS_ARCHETYPES)).join(', ')
+      };
+    }
+
+    // HR-15: Validate walkable, unoccupied floor tile instead of blindly spawning at (hero.x + 1, hero.y) which may be a solid wall!
+    const fw = floor.width || (floor.tiles[0] ? floor.tiles[0].length : DEFAULT_MAP_W);
+    const fh = floor.height || floor.tiles.length || DEFAULT_MAP_H;
+    const isTileFreeForMonster = function(tx, ty) {
+      if (tx < 0 || tx >= fw || ty < 0 || ty >= fh) return false;
+      const t = floor.tiles && floor.tiles[ty] ? floor.tiles[ty][tx] : 0;
+      if (t !== TILE_FLOOR && t !== TILE_STAIRS_UP) return false;
+      if (state.hero.x === tx && state.hero.y === ty) return false;
+      const occupied = (floor.monsters || []).some(function(m) { return m && m.hp > 0 && m.x === tx && m.y === ty; });
+      return !occupied;
+    };
+
+    let mx = sx;
+    let my = sy;
+    const explicitCoords = (typeof x === 'number' && !isNaN(x)) && (typeof y === 'number' && !isNaN(y));
+    const strictCoords = Boolean(opts && opts.strictCoords);
+    if (explicitCoords && strictCoords) {
+      if (!isTileFreeForMonster(mx, my)) {
+        return { ok: false, reason: 'Target tile (' + mx + ', ' + my + ') is blocked, out of bounds, or occupied' };
+      }
+    } else if (!isTileFreeForMonster(mx, my)) {
+      let found = null;
+      const anchorX = explicitCoords ? mx : state.hero.x;
+      const anchorY = explicitCoords ? my : state.hero.y;
+      for (let rad = 1; rad <= 12 && !found; rad++) {
+        for (let dy = -rad; dy <= rad && !found; dy++) {
+          for (let dx = -rad; dx <= rad && !found; dx++) {
+            if (Math.abs(dx) !== rad && Math.abs(dy) !== rad) continue;
+            const cx = anchorX + dx;
+            const cy = anchorY + dy;
+            if (isTileFreeForMonster(cx, cy)) {
+              found = { x: cx, y: cy };
+            }
+          }
+        }
+      }
+      if (!found) {
+        return { ok: false, reason: 'No unoccupied walkable floor tile found near (' + anchorX + ', ' + anchorY + ')' };
+      }
+      mx = found.x;
+      my = found.y;
+    }
+
     let monster = null;
     if (isBoss) {
       const bDef = BOSS_ARCHETYPES[archId];
       monster = {
-        uid: `boss_dev_${Date.now()}`,
+        uid: 'boss_dev_' + Date.now(),
         id: bDef.id,
         bountyTag: 'boss',
         name: bDef.name,
@@ -384,8 +437,8 @@ export function spawnEntity(type, subId = null, x = null, y = null, state = game
         dropRarity: bDef.dropRarity || 'epic',
         isRanged: !!bDef.isRanged,
         range: bDef.range || 1,
-        x: sx,
-        y: sy,
+        x: mx,
+        y: my,
         hp: bDef.hp,
         maxHp: bDef.hp,
         atk: bDef.atk,
@@ -395,15 +448,18 @@ export function spawnEntity(type, subId = null, x = null, y = null, state = game
         statuses: []
       };
     } else {
-      monster = createMonsterEntityFromArchetype(archId, floor.depth || 1, sx, sy, false, Math.random, 999);
+      monster = createMonsterEntityFromArchetype(archId, floor.depth || 1, mx, my, false, Math.random, (floor.monsters ? floor.monsters.length : 0) + 999);
     }
     if (!floor.monsters) floor.monsters = [];
     floor.monsters.push(monster);
+    if (floor.explored && floor.explored[my]) {
+      floor.explored[my][mx] = 1;
+    }
     if (state === gameState) {
       emitEngineEvent(ENGINE_EVENTS.FOV_SYNC, {}, state);
-      emitEngineEvent(ENGINE_EVENTS.LOG, { msg: `[DEV] Spawned ${monster.name} at (${sx}, ${sy}).`, tone: 'gold' }, state);
+      emitEngineEvent(ENGINE_EVENTS.LOG, { msg: '[DEV] Spawned ' + monster.name + ' at (' + mx + ', ' + my + ').', tone: 'gold' }, state);
     }
-    return { ok: true, entity: monster, type: 'monster', x: sx, y: sy };
+    return { ok: true, entity: monster, type: 'monster', x: mx, y: my };
   }
 
   if (tLower === 'mechanism' || tLower === 'mech') {

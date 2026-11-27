@@ -31950,8 +31950,1940 @@ function runCorridor(dx, dy, state = gameState) {
   return { ok: true, stepsTaken: path.length, stopReason };
 }
 
+  // --- Module: src/engine/dev.js ---
+// Developer & Tester Console Engine Actions (Teleport, Level Scaling, Cheats & REPL)
+
+
+
+
+
+
+
+
+
+function gotoFloor(depth, dungeonId = null, state = gameState) {
+  if (!state || !state.hero) {
+    return { ok: false, reason: 'no_hero' };
+  }
+
+  // Switch active dungeon if specified
+  if (dungeonId && state.dungeons && state.dungeons[dungeonId]) {
+    state.activeDungeonId = dungeonId;
+    syncActiveDungeonAlias(state);
+  }
+
+  if (!state.dungeon) {
+    syncActiveDungeonAlias(state);
+  }
+  if (!state.dungeon) {
+    return { ok: false, reason: 'no_dungeon' };
+  }
+
+  const dng = state.dungeon;
+  const targetDepth = Math.max(1, Math.min(999, Math.round(Number(depth) || 1)));
+
+  // Generate floor if not already generated or stored
+  if (!dng.floors) dng.floors = {};
+  if (!dng.floors[targetDepth]) {
+    const seed = dng.numericSeed || hashSeedString(dng.seedCode || 'STAR-0001', 0);
+    dng.floors[targetDepth] = generateFloor(targetDepth, dng.config, seed);
+  }
+
+  const floor = ensureDungeonFloorHydrated(dng, targetDepth);
+  if (!floor) {
+    return { ok: false, reason: 'floor_generation_failed' };
+  }
+
+  dng.currentFloor = targetDepth;
+  dng.deepestFloor = Math.max(dng.deepestFloor || 1, targetDepth);
+  state.inGuild = false;
+
+  // Position hero on stairs up or safe floor tile
+  const fw = floor.width || (floor.tiles[0] ? floor.tiles[0].length : DEFAULT_MAP_W);
+  const fh = floor.height || floor.tiles.length || DEFAULT_MAP_H;
+  let placed = false;
+
+  if (floor.upPos && floor.upPos.x >= 0 && floor.upPos.y >= 0) {
+    const t = floor.tiles[floor.upPos.y][floor.upPos.x];
+    if (t === TILE_FLOOR || t === TILE_STAIRS_UP) {
+      state.hero.x = floor.upPos.x;
+      state.hero.y = floor.upPos.y;
+      placed = true;
+    }
+  }
+
+  if (!placed) {
+    for (let y = 1; y < fh - 1; y++) {
+      for (let x = 1; x < fw - 1; x++) {
+        if (floor.tiles[y][x] === TILE_FLOOR) {
+          state.hero.x = x;
+          state.hero.y = y;
+          placed = true;
+          break;
+        }
+      }
+      if (placed) break;
+    }
+  }
+
+  // Ensure hero starting tile is explored
+  if (floor.explored && floor.explored[state.hero.y]) {
+    floor.explored[state.hero.y][state.hero.x] = 1;
+  }
+
+  if (state === gameState) {
+    emitEngineEvent(ENGINE_EVENTS.FOV_SYNC, {}, state);
+    emitEngineEvent(ENGINE_EVENTS.UI_SYNC, {}, state);
+    emitEngineEvent(ENGINE_EVENTS.LOG, {
+      msg: `[DEV] Warped to ${dng.name} Floor ${targetDepth} at (${state.hero.x}, ${state.hero.y}).`,
+      tone: 'gold'
+    }, state);
+    saveGame();
+  }
+
+  return {
+    ok: true,
+    depth: targetDepth,
+    dungeonId: dng.id,
+    dungeonName: dng.name,
+    x: state.hero.x,
+    y: state.hero.y
+  };
+}
+
+function setHeroLevel(targetLevel, state = gameState) {
+  if (!state || !state.hero) {
+    return { ok: false, reason: 'no_hero' };
+  }
+
+  const h = state.hero;
+  const newLvl = Math.max(1, Math.min(100, Math.round(Number(targetLevel) || 1)));
+
+  // Calculate cumulative maxXp curve (aligned with canonical Lv1 maxXp = 60)
+  let newMaxXp = 60;
+  for (let lvl = 2; lvl <= newLvl; lvl++) {
+    newMaxXp = Math.round(newMaxXp * 1.4);
+  }
+
+  h.level = newLvl;
+  h.xp = 0;
+  h.maxXp = newMaxXp;
+
+  // Stat points: +2 per level above 1 minus points already spent in bonusStats (all 5 attributes including SPI)
+  const totalEarnedStatPoints = (newLvl - 1) * 2;
+  const b = h.bonusStats || { str: 0, dex: 0, int: 0, vit: 0, spi: 0 };
+  const spentStats = (b.str || 0) + (b.dex || 0) + (b.int || 0) + (b.vit || 0) + (b.spi || 0);
+  h.statPoints = Math.max(0, Math.floor(totalEarnedStatPoints - spentStats));
+
+  // Talent points: +1 per level above 1 minus talents already allocated
+  const totalEarnedTalents = Math.max(0, newLvl - 1);
+  let allocatedTalents = 0;
+  if (h.talentsAllocated) {
+    const keys = Object.keys(h.talentsAllocated);
+    for (let i = 0; i < keys.length; i++) {
+      allocatedTalents += (h.talentsAllocated[keys[i]] || 0);
+    }
+  }
+  h.talentPoints = Math.max(0, totalEarnedTalents - allocatedTalents);
+
+  recomputeHeroDerivedStats(true, state);
+  h.hp = h.maxHp;
+  h.mp = h.maxMp;
+
+  if (state === gameState) {
+    emitEngineEvent(ENGINE_EVENTS.UI_SYNC, {}, state);
+    emitEngineEvent(ENGINE_EVENTS.LOG, {
+      msg: `[DEV] Set hero to Level ${newLvl} (Max HP ${h.maxHp}, Max MP ${h.maxMp}, ${h.talentPoints} Talent Pts).`,
+      tone: 'gold'
+    }, state);
+    saveGame();
+  }
+
+  return {
+    ok: true,
+    level: newLvl,
+    maxHp: h.maxHp,
+    maxMp: h.maxMp,
+    talentPoints: h.talentPoints,
+    statPoints: h.statPoints
+  };
+}
+
+function fullHeal(state = gameState) {
+  if (!state || !state.hero) return { ok: false };
+  const h = state.hero;
+  h.hp = h.maxHp;
+  h.mp = h.maxMp;
+  h.statuses = (h.statuses || []).filter(s => Boolean(s.isBuff));
+  recomputeHeroDerivedStats(false, state);
+
+  if (state === gameState) {
+    emitEngineEvent(ENGINE_EVENTS.UI_SYNC, {}, state);
+    emitEngineEvent(ENGINE_EVENTS.LOG, {
+      msg: '[DEV] Restored full HP & MP and cleansed negative statuses.',
+      tone: 'good'
+    }, state);
+  }
+
+  return { ok: true, hp: h.hp, mp: h.mp };
+}
+
+function revealMap(state = gameState) {
+  if (!state || !state.dungeon) return { ok: false };
+  const floor = ensureDungeonFloorHydrated(state.dungeon, state.dungeon.currentFloor);
+  if (!floor) return { ok: false };
+
+  const fw = floor.width || (floor.tiles[0] ? floor.tiles[0].length : DEFAULT_MAP_W);
+  const fh = floor.height || floor.tiles.length || DEFAULT_MAP_H;
+
+  for (let y = 0; y < fh; y++) {
+    for (let x = 0; x < fw; x++) {
+      floor.explored[y][x] = 1;
+    }
+  }
+
+  if (state === gameState) {
+    emitEngineEvent(ENGINE_EVENTS.FOV_SYNC, {}, state);
+    emitEngineEvent(ENGINE_EVENTS.LOG, {
+      msg: `[DEV] Revealed entire chart for Floor ${floor.depth}.`,
+      tone: 'gold'
+    }, state);
+  }
+
+  return { ok: true, depth: floor.depth };
+}
+
+function toggleGodMode(state = gameState) {
+  if (!state || !state.hero) return { ok: false };
+  state.hero.godMode = !state.hero.godMode;
+
+  if (state === gameState) {
+    emitEngineEvent(ENGINE_EVENTS.UI_SYNC, {}, state);
+    emitEngineEvent(ENGINE_EVENTS.LOG, {
+      msg: `[DEV] God Mode ${state.hero.godMode ? 'ACTIVATED' : 'DEACTIVATED'}.`,
+      tone: state.hero.godMode ? 'gold' : 'info'
+    }, state);
+  }
+
+  return { ok: true, godMode: state.hero.godMode };
+}
+
+function executeDevCommand(cmdStr, state = gameState) {
+  if (!cmdStr || typeof cmdStr !== 'string') {
+    return { ok: false, output: 'Empty command.' };
+  }
+
+  const raw = cmdStr.trim();
+  const parts = raw.split(/\s+/);
+  const verb = parts[0].toLowerCase();
+  const arg1 = parts[1];
+  const arg2 = parts[2];
+
+  if (verb === 'goto' || verb === 'warp' || verb === 'floor') {
+    const depth = Number(arg1);
+    if (!depth || depth < 1) {
+      return { ok: false, output: 'Usage: goto <depth> [dungeonId]' };
+    }
+    const res = gotoFloor(depth, arg2 || null, state);
+    return {
+      ok: res.ok,
+      output: res.ok ? `Warped to ${res.dungeonName} Floor ${res.depth} at (${res.x}, ${res.y})` : `Failed to warp: ${res.reason}`
+    };
+  }
+
+  if (verb === 'level' || verb === 'lvl') {
+    const lvl = Number(arg1);
+    if (!lvl || lvl < 1) {
+      return { ok: false, output: 'Usage: level <1-100>' };
+    }
+    const res = setHeroLevel(lvl, state);
+    return {
+      ok: res.ok,
+      output: res.ok ? `Set Hero Level to ${res.level} (${res.talentPoints} Talent Pts, ${res.statPoints} Stat Pts)` : `Failed: ${res.reason}`
+    };
+  }
+
+  if (verb === 'heal') {
+    const res = fullHeal(state);
+    return { ok: res.ok, output: 'Restored full HP/MP & cleansed negative statuses.' };
+  }
+
+  if (verb === 'reveal' || verb === 'map') {
+    const res = revealMap(state);
+    return { ok: res.ok, output: 'Revealed full floor chart.' };
+  }
+
+  if (verb === 'god') {
+    const res = toggleGodMode(state);
+    return { ok: res.ok, output: `God Mode is now ${res.godMode ? 'ON' : 'OFF'}` };
+  }
+
+  if (verb === 'spawn') {
+    const type = arg1;
+    const subId = arg2;
+    const arg3 = parts[3];
+    const arg4 = parts[4];
+    const x = arg3 !== undefined ? Number(arg3) : null;
+    const y = arg4 !== undefined ? Number(arg4) : null;
+    if (!type) {
+      return { ok: false, output: 'Usage: spawn <door|portal|key|monster> [subId] [x] [y]' };
+    }
+    const res = spawnEntity(type, subId, x, y, state);
+    return {
+      ok: res.ok,
+      output: res.ok ? `Spawned ${res.type} (${res.entity.name || subId}) at (${res.x}, ${res.y})` : `Failed: ${res.reason}`
+    };
+  }
+
+  if (verb === 'help') {
+    return {
+      ok: true,
+      output: 'Commands: goto <depth> [dungeonId], level <lvl>, heal, reveal, god, spawn <door|portal|key|monster> [subId], help'
+    };
+  }
+
+  return { ok: false, output: `Unknown command "${verb}". Type "help" for a list of commands.` };
+}
+
+function spawnEntity(type, subId = null, x = null, y = null, state = gameState, opts = null) {
+  if (!state || !state.hero || state.inGuild) {
+    return { ok: false, reason: 'not_in_dungeon' };
+  }
+  const floor = ensureDungeonFloorHydrated(state.dungeon, state.dungeon.currentFloor);
+  if (!floor) return { ok: false, reason: 'no_floor' };
+
+  const sx = typeof x === 'number' && !isNaN(x) ? x : state.hero.x + 1;
+  const sy = typeof y === 'number' && !isNaN(y) ? y : state.hero.y;
+
+  const tLower = (type || '').toLowerCase();
+  const subLower = (subId || '').toLowerCase();
+
+  if (tLower === 'door') {
+    let defId = 'door_wood_hinged';
+    if (subLower === 'iron' || subLower === 'reinforced') defId = 'door_iron_reinforced';
+    else if (subLower === 'portcullis' || subLower === 'grate') defId = 'door_iron_portcullis';
+    else if (subLower === 'vault' || subLower === 'dwarven') defId = 'door_vault_ancient';
+    else if (subLower === 'secret' || subLower === 'stone') defId = 'door_secret_stone';
+
+    const door = createDoorInstance(defId, sx, sy);
+    addWorldObject(floor, door);
+    if (state === gameState) {
+      emitEngineEvent(ENGINE_EVENTS.FOV_SYNC, {}, state);
+      emitEngineEvent(ENGINE_EVENTS.LOG, { msg: `[DEV] Spawned ${door.name} at (${sx}, ${sy}).`, tone: 'gold' }, state);
+    }
+    return { ok: true, entity: door, type: 'door', x: sx, y: sy };
+  }
+
+  if (tLower === 'portal') {
+    let defId = 'portal_ancient_waypoint';
+    if (subLower === 'rift' || subLower === 'astral') defId = 'portal_astral_rift';
+    else if (subLower === 'boss' || subLower === 'extraction' || subLower === 'gateway') defId = 'portal_boss_extraction';
+
+    const portal = createPortalInstance(defId, sx, sy);
+    addWorldObject(floor, portal);
+    if (state === gameState) {
+      emitEngineEvent(ENGINE_EVENTS.FOV_SYNC, {}, state);
+      emitEngineEvent(ENGINE_EVENTS.LOG, { msg: `[DEV] Spawned ${portal.name} at (${sx}, ${sy}).`, tone: 'gold' }, state);
+    }
+    return { ok: true, entity: portal, type: 'portal', x: sx, y: sy };
+  }
+
+  if (tLower === 'key') {
+    let keyDefId = 'key_iron_common';
+    if (subLower === 'vault' || subLower === 'dwarven') keyDefId = 'key_vault_dwarven';
+    else if (subLower === 'celestial' || subLower === 'rune') keyDefId = 'key_rune_celestial';
+
+    const pickup = spawnGroundItem(floor, keyDefId, sx, sy);
+    if (state === gameState) {
+      emitEngineEvent(ENGINE_EVENTS.FOV_SYNC, {}, state);
+      emitEngineEvent(ENGINE_EVENTS.LOG, { msg: `[DEV] Spawned ${pickup.name} at (${sx}, ${sy}).`, tone: 'gold' }, state);
+    }
+    return { ok: true, entity: pickup, type: 'key', x: sx, y: sy };
+  }
+
+  if (tLower === 'monster' || tLower === 'mob') {
+    const legacyMobAliases = { skeleton_grunt: 'bone_warden' };
+    const rawArchId = subId || 'vault_crawler';
+    const archId = legacyMobAliases[rawArchId] || rawArchId;
+    const isBoss = Boolean(BOSS_ARCHETYPES[archId]);
+    const isRegular = Boolean(MONSTER_ARCHETYPES[archId]);
+    if (!isBoss && !isRegular) {
+      return {
+        ok: false,
+        reason: 'Unknown monster archetype "' + archId + '". Valid: ' + Object.keys(MONSTER_ARCHETYPES).concat(Object.keys(BOSS_ARCHETYPES)).join(', ')
+      };
+    }
+
+    // HR-15: Validate walkable, unoccupied floor tile instead of blindly spawning at (hero.x + 1, hero.y) which may be a solid wall!
+    const fw = floor.width || (floor.tiles[0] ? floor.tiles[0].length : DEFAULT_MAP_W);
+    const fh = floor.height || floor.tiles.length || DEFAULT_MAP_H;
+    const isTileFreeForMonster = function(tx, ty) {
+      if (tx < 0 || tx >= fw || ty < 0 || ty >= fh) return false;
+      const t = floor.tiles && floor.tiles[ty] ? floor.tiles[ty][tx] : 0;
+      if (t !== TILE_FLOOR && t !== TILE_STAIRS_UP) return false;
+      if (state.hero.x === tx && state.hero.y === ty) return false;
+      const occupied = (floor.monsters || []).some(function(m) { return m && m.hp > 0 && m.x === tx && m.y === ty; });
+      return !occupied;
+    };
+
+    let mx = sx;
+    let my = sy;
+    const explicitCoords = (typeof x === 'number' && !isNaN(x)) && (typeof y === 'number' && !isNaN(y));
+    const strictCoords = Boolean(opts && opts.strictCoords);
+    if (explicitCoords && strictCoords) {
+      if (!isTileFreeForMonster(mx, my)) {
+        return { ok: false, reason: 'Target tile (' + mx + ', ' + my + ') is blocked, out of bounds, or occupied' };
+      }
+    } else if (!isTileFreeForMonster(mx, my)) {
+      let found = null;
+      const anchorX = explicitCoords ? mx : state.hero.x;
+      const anchorY = explicitCoords ? my : state.hero.y;
+      for (let rad = 1; rad <= 12 && !found; rad++) {
+        for (let dy = -rad; dy <= rad && !found; dy++) {
+          for (let dx = -rad; dx <= rad && !found; dx++) {
+            if (Math.abs(dx) !== rad && Math.abs(dy) !== rad) continue;
+            const cx = anchorX + dx;
+            const cy = anchorY + dy;
+            if (isTileFreeForMonster(cx, cy)) {
+              found = { x: cx, y: cy };
+            }
+          }
+        }
+      }
+      if (!found) {
+        return { ok: false, reason: 'No unoccupied walkable floor tile found near (' + anchorX + ', ' + anchorY + ')' };
+      }
+      mx = found.x;
+      my = found.y;
+    }
+
+    let monster = null;
+    if (isBoss) {
+      const bDef = BOSS_ARCHETYPES[archId];
+      monster = {
+        uid: 'boss_dev_' + Date.now(),
+        id: bDef.id,
+        bountyTag: 'boss',
+        name: bDef.name,
+        isBoss: true,
+        dropRarity: bDef.dropRarity || 'epic',
+        isRanged: !!bDef.isRanged,
+        range: bDef.range || 1,
+        x: mx,
+        y: my,
+        hp: bDef.hp,
+        maxHp: bDef.hp,
+        atk: bDef.atk,
+        def: bDef.def,
+        xp: bDef.xp,
+        color: bDef.color,
+        statuses: []
+      };
+    } else {
+      monster = createMonsterEntityFromArchetype(archId, floor.depth || 1, mx, my, false, Math.random, (floor.monsters ? floor.monsters.length : 0) + 999);
+    }
+    if (!floor.monsters) floor.monsters = [];
+    floor.monsters.push(monster);
+    if (floor.explored && floor.explored[my]) {
+      floor.explored[my][mx] = 1;
+    }
+    if (state === gameState) {
+      emitEngineEvent(ENGINE_EVENTS.FOV_SYNC, {}, state);
+      emitEngineEvent(ENGINE_EVENTS.LOG, { msg: '[DEV] Spawned ' + monster.name + ' at (' + mx + ', ' + my + ').', tone: 'gold' }, state);
+    }
+    return { ok: true, entity: monster, type: 'monster', x: mx, y: my };
+  }
+
+  if (tLower === 'mechanism' || tLower === 'mech') {
+    const defId = (subLower === 'plate' || subLower === 'pressure_plate') ? 'mech_pressure_plate' : 'mech_wall_lever';
+    // Automatically link to nearest door/portcullis on the floor if one exists!
+    const nearestDoor = (floor.objects || []).find(function(o) {
+      return o && o.objectType === 'door' && Math.hypot(o.x - sx, o.y - sy) <= 8;
+    });
+    const mech = createMechanismInstance(defId, sx, sy, {
+      linkedTargetIds: nearestDoor ? [nearestDoor.instanceId] : []
+    });
+    addWorldObject(floor, mech);
+    if (state === gameState) {
+      emitEngineEvent(ENGINE_EVENTS.FOV_SYNC, {}, state);
+      emitEngineEvent(ENGINE_EVENTS.LOG, { msg: `[DEV] Spawned ${mech.name} at (${sx}, ${sy})${nearestDoor ? (' linked to ' + nearestDoor.name) : ''}.`, tone: 'gold' }, state);
+    }
+    return { ok: true, entity: mech, type: 'mechanism', x: sx, y: sy };
+  }
+
+  if (tLower === 'prop') {
+    let defId = 'prop_supply_crate';
+    if (subLower === 'wooden_barrel' || subLower === 'wood_barrel') defId = 'prop_wooden_barrel';
+    else if (subLower === 'barrel' || subLower === 'oil' || subLower === 'oil_barrel') defId = 'prop_oil_barrel';
+    else if (subLower === 'barricade' || subLower === 'wood_barricade') defId = 'prop_wood_barricade';
+    const prop = createPropInstance(defId, sx, sy);
+    addWorldObject(floor, prop);
+    if (state === gameState) {
+      emitEngineEvent(ENGINE_EVENTS.FOV_SYNC, {}, state);
+      emitEngineEvent(ENGINE_EVENTS.LOG, { msg: `[DEV] Spawned ${prop.name} at (${sx}, ${sy}).`, tone: 'gold' }, state);
+    }
+    return { ok: true, entity: prop, type: 'prop', x: sx, y: sy };
+  }
+
+  if (tLower === 'chest' || tLower === 'container') {
+    // Pick an unoccupied walkable tile adjacent to hero so two chests never stack on the same spot
+    const candidates = [
+      { x: sx, y: sy },
+      { x: state.hero.x - 1, y: state.hero.y },
+      { x: state.hero.x, y: state.hero.y + 1 },
+      { x: state.hero.x, y: state.hero.y - 1 }
+    ];
+    let placedChest = null;
+    let cx = sx;
+    let cy = sy;
+    for (let ci = 0; ci < candidates.length; ci++) {
+      const c = candidates[ci];
+      const t = floor.tiles && floor.tiles[c.y] ? floor.tiles[c.y][c.x] : 0;
+      if (t !== TILE_FLOOR) continue;
+      const chest = createContainerInstance('container_dungeon_chest', c.x, c.y);
+      const added = addWorldObject(floor, chest);
+      if (added) {
+        placedChest = added;
+        cx = c.x;
+        cy = c.y;
+        break;
+      }
+    }
+    if (!placedChest) {
+      return { ok: false, reason: 'No unoccupied adjacent floor tile for chest (chests are not stackable)' };
+    }
+    if (state === gameState) {
+      emitEngineEvent(ENGINE_EVENTS.FOV_SYNC, {}, state);
+      emitEngineEvent(ENGINE_EVENTS.LOG, { msg: `[DEV] Spawned ${placedChest.name} at (${cx}, ${cy}).`, tone: 'gold' }, state);
+    }
+    return { ok: true, entity: placedChest, type: 'chest', x: cx, y: cy };
+  }
+
+  if (tLower === 'hazard') {
+    let defId = 'hazard_slag_vent';
+    if (subLower === 'oil' || subLower === 'oil_slick') defId = 'hazard_oil_slick';
+    else if (subLower === 'spore' || subLower === 'spore_cloud') defId = 'hazard_spore_cloud';
+    const hz = createHazardInstance(defId, sx, sy);
+    addWorldObject(floor, hz);
+    if (state === gameState) {
+      emitEngineEvent(ENGINE_EVENTS.FOV_SYNC, {}, state);
+      emitEngineEvent(ENGINE_EVENTS.LOG, { msg: `[DEV] Spawned ${hz.name} at (${sx}, ${sy}).`, tone: 'gold' }, state);
+    }
+    return { ok: true, entity: hz, type: 'hazard', x: sx, y: sy };
+  }
+
+  return { ok: false, reason: `Unknown spawn type "${type}". Valid: door, portal, key, monster, mechanism, prop, hazard` };
+}
+
+  // --- Module: src/core/devConsole.js ---
+// Shared Developer Console Engine & Control Panel State (HR-15)
+// Works consistently across Wargame (Overworld/City) and Integrated Dungeon contexts.
+// No arbitrary JS execution or eval; all mutations route through canonical game services.
+
+
+
+
+
+
+
+
+
+
+
+
+
+const MAX_CONSOLE_OUTPUT_LINES = 80;
+const MAX_CONSOLE_HISTORY = 40;
+
+const DEV_CONSOLE_TABS = [
+  { id: 'overview', label: 'Overview', icon: '📊' },
+  { id: 'heroes', label: 'Heroes', icon: '🛡️' },
+  { id: 'progression', label: 'Progression', icon: '✨' },
+  { id: 'combat', label: 'Combat / Monsters', icon: '⚔️' },
+  { id: 'dungeon', label: 'Dungeon', icon: '🏰' },
+  { id: 'items', label: 'Items', icon: '🎒' },
+  { id: 'world', label: 'World', icon: '🌍' },
+  { id: 'commands', label: 'Commands', icon: '💻' },
+  { id: 'help', label: 'Help', icon: '❓' }
+];
+
+const HELP_CATEGORY_ORDER = [
+  'Inspection & Navigation',
+  'Heroes & Progression',
+  'Combat & Spawning',
+  'Dungeon Controls',
+  'Items & Resources',
+  'Console Utilities'
+];
+
+// Parses a command line into { verb, args, raw } supporting single & double quoted strings.
+function parseConsoleCommandLine(input) {
+  const raw = String(input || '').trim();
+  if (!raw) return { verb: '', args: [], raw: '' };
+
+  const tokens = [];
+  let cur = '';
+  let quoteChar = null;
+  for (let i = 0; i < raw.length; i++) {
+    const ch = raw[i];
+    if (quoteChar) {
+      if (ch === quoteChar) {
+        quoteChar = null;
+      } else {
+        cur += ch;
+      }
+    } else if (ch === '"' || ch === '\'') {
+      quoteChar = ch;
+    } else if (/\s/.test(ch)) {
+      if (cur.length > 0) {
+        tokens.push(cur);
+        cur = '';
+      }
+    } else {
+      cur += ch;
+    }
+  }
+  if (cur.length > 0) tokens.push(cur);
+  if (tokens.length === 0) return { verb: '', args: [], raw: raw };
+
+  return {
+    verb: tokens[0].toLowerCase(),
+    args: tokens.slice(1),
+    raw: raw
+  };
+}
+
+function formatHeroSummaryLines(hero, isDungeon) {
+  if (!hero) return ['No hero selected or active.'];
+  const derived = computeHeroDerivedStats(hero);
+  const attrs = derived ? derived.attributes : { str: 0, dex: 0, int: 0, vit: 0, spi: 0 };
+  const kn = normalizeHeroKnowledge(hero.knowledge);
+  const eq = hero.equipment || {};
+  const eqList = ['weapon', 'armor', 'helm', 'boots', 'accessory', 'pickaxe']
+    .map(function(sl) { return sl + ':' + (eq[sl] ? eq[sl].name : '—'); })
+    .join(', ');
+  const cls = (hero.classId && CLASSES[hero.classId]) ? CLASSES[hero.classId] : null;
+  const lines = [
+    'Hero: ' + (hero.name || 'Unnamed') + ' [' + (hero.id || 'no_id') + '] • Class: ' + (cls ? cls.name : (hero.classId || 'unknown')) + ' • Lv ' + (hero.level || 1) + ' (XP ' + (hero.xp || 0) + '/' + (hero.maxXp || 60) + ')',
+    'Attrs (display/internal): STR ' + formatAttributeDisplay(attrs.str) + '(' + attrs.str + ') DEX ' + formatAttributeDisplay(attrs.dex) + '(' + attrs.dex + ') INT ' + formatAttributeDisplay(attrs.int) + '(' + attrs.int + ') VIT ' + formatAttributeDisplay(attrs.vit) + '(' + attrs.vit + ') SPI ' + formatAttributeDisplay(attrs.spi) + '(' + attrs.spi + ')',
+    'Derived: HP ' + (isDungeon ? ((hero.hp || 0) + '/' + (hero.maxHp || (derived ? derived.maxHp : 0))) : (derived ? derived.maxHp : 0)) +
+      ' • MP ' + (isDungeon ? ((hero.mp || 0) + '/' + (hero.maxMp || (derived ? derived.maxMp : 0))) : (derived ? derived.maxMp : 0)) +
+      ' • ATK ' + (derived ? derived.atk : 0) + ' • MAG ' + (derived ? derived.magicPower : 0) + ' • DEF ' + (derived ? derived.def : 0) +
+      ' • CRIT ' + (derived ? derived.crit : 0) + '% • DODGE ' + (derived ? derived.dodge : 0) + '%',
+    'Points: StatPts=' + (hero.statPoints || 0) + ' TalentPts=' + (hero.talentPoints || 0) + ' • DungeonEligible=' + (hero.canEnterDungeon !== false),
+    'Knowledge: monster=' + kn.monster_knowledge + ' item=' + kn.object_item_knowledge + ' flora=' + kn.flora_knowledge + ' fauna=' + kn.fauna_knowledge,
+    'Equip: ' + eqList
+  ];
+  if (cls) {
+    lines.push('Skill: ' + cls.skillName + ' (' + cls.skillCost + ' MP, Rng ' + (cls.skillRange || 1) + ') — ' + cls.skillDesc);
+  }
+  return lines;
+}
+
+function createDevConsoleController(options) {
+  const opts = options || {};
+  const outputLog = [];
+  const commandHistory = [];
+  let historyCursor = -1;
+  let isOpen = false;
+  let activeTab = 'overview';
+  let selectedHeroId = null;
+  let helpFilter = '';
+  let lastFeedback = null;
+
+  function getContext() {
+    if (typeof opts.getContext === 'function') return opts.getContext();
+    return 'strategy';
+  }
+
+  function getSimHost() {
+    return opts.simHost || null;
+  }
+
+  function getDungeonState() {
+    return opts.dungeonState || null;
+  }
+
+  function pushOutput(text, tone) {
+    const lines = String(text || '').split('\n');
+    for (let i = 0; i < lines.length; i++) {
+      outputLog.push({ text: lines[i], tone: tone || 'info' });
+    }
+    while (outputLog.length > MAX_CONSOLE_OUTPUT_LINES) {
+      outputLog.shift();
+    }
+  }
+
+  function recordFeedback(res, label) {
+    const ok = Boolean(res && res.ok);
+    const text = (res && res.text) ? String(res.text) : (ok ? 'Done.' : 'Action failed.');
+    lastFeedback = { ok: ok, text: text };
+    if (label) {
+      pushOutput('[UI] ' + label + ' -> ' + text, ok ? 'ok' : 'err');
+    }
+    return res;
+  }
+
+  function resolveStrategyHero(simHost, heroIdArg) {
+    const heroes = (simHost && simHost.state && simHost.state.world && Array.isArray(simHost.state.world.heroes))
+      ? simHost.state.world.heroes
+      : [];
+    const targetId = heroIdArg || selectedHeroId;
+    if (targetId) {
+      const match = heroes.find(function(h) { return h && h.id === targetId; });
+      if (match) return match;
+    }
+    const selUnit = simHost ? getSelectedOverworldUnit(simHost.state) : null;
+    if (selUnit && selUnit.leaderHeroId) {
+      const h = heroes.find(function(it) { return it && it.id === selUnit.leaderHeroId; });
+      if (h) return h;
+    }
+    return heroes[0] || null;
+  }
+
+  function resolveActiveHero(heroIdArg) {
+    if (getContext() === 'dungeon') {
+      const dng = getDungeonState();
+      return (dng && dng.hero) ? dng.hero : null;
+    }
+    return resolveStrategyHero(getSimHost(), heroIdArg || null);
+  }
+
+  function notifyMutated() {
+    if (typeof opts.onStateMutated === 'function') {
+      opts.onStateMutated();
+    }
+  }
+
+  // Canonical direct-control helpers (shared by visual panel controls and commands)
+  function adjustHeroAttribute(attrKey, delta, explicitBonusValue) {
+    const key = String(attrKey || '').toLowerCase();
+    if (key !== 'str' && key !== 'dex' && key !== 'int' && key !== 'vit' && key !== 'spi') {
+      return recordFeedback({ ok: false, text: 'Invalid attribute "' + attrKey + '". Expected str, dex, int, vit, or spi.' }, 'Attr');
+    }
+    const ctx = getContext();
+    const hero = resolveActiveHero(null);
+    if (!hero) {
+      return recordFeedback({ ok: false, text: 'No active hero available.' }, 'Attr');
+    }
+    hero.bonusStats = normalizeHeroBonusStats(hero.bonusStats);
+    const prevBonus = hero.bonusStats[key] || 0;
+    let nextBonus;
+    if (explicitBonusValue !== undefined && explicitBonusValue !== null && explicitBonusValue !== '') {
+      const parsed = Number(explicitBonusValue);
+      if (!isFinite(parsed)) return recordFeedback({ ok: false, text: 'Invalid attribute bonus value.' }, 'Attr');
+      nextBonus = Math.max(0, Math.min(999, Math.round(parsed * 100) / 100));
+    } else {
+      const d = Number(delta);
+      if (!isFinite(d)) return recordFeedback({ ok: false, text: 'Invalid attribute delta.' }, 'Attr');
+      nextBonus = Math.max(0, Math.min(999, Math.round((prevBonus + d) * 100) / 100));
+    }
+    hero.bonusStats[key] = nextBonus;
+    if (ctx === 'dungeon') {
+      recomputeHeroDerivedStats(false, getDungeonState());
+    } else {
+      refreshHeroDerivedStats(hero);
+    }
+    notifyMutated();
+    const derived = computeHeroDerivedStats(hero);
+    const totalVal = derived && derived.attributes ? derived.attributes[key] : nextBonus;
+    return recordFeedback({
+      ok: true,
+      attrKey: key,
+      bonus: nextBonus,
+      total: totalVal,
+      display: formatAttributeDisplay(totalVal),
+      text: hero.name + ' ' + key.toUpperCase() + ' bonus ' + prevBonus + ' -> ' + nextBonus + ' (Total ' + formatAttributeDisplay(totalVal) + ' [' + totalVal + ']).'
+    }, 'Set ' + key.toUpperCase());
+  }
+
+  function adjustHeroVitals(kind, delta, explicitValue) {
+    const k = String(kind || '').toLowerCase();
+    if (k !== 'hp' && k !== 'mp') {
+      return recordFeedback({ ok: false, text: 'Invalid vital kind (expected hp or mp).' }, 'Vitals');
+    }
+    if (getContext() !== 'dungeon') {
+      return recordFeedback({ ok: false, text: 'Direct HP/MP adjustment is active in Dungeon context.' }, 'Vitals');
+    }
+    const dng = getDungeonState();
+    if (!dng || !dng.hero) return recordFeedback({ ok: false, text: 'No active dungeon hero.' }, 'Vitals');
+    const h = dng.hero;
+    const maxVal = k === 'hp' ? (h.maxHp || 1) : (h.maxMp || 0);
+    const minVal = k === 'hp' ? 1 : 0;
+    const prevVal = h[k] || 0;
+    let nextVal;
+    if (explicitValue !== undefined && explicitValue !== null && explicitValue !== '') {
+      const parsed = Math.round(Number(explicitValue));
+      if (!isFinite(parsed)) return recordFeedback({ ok: false, text: 'Invalid ' + k.toUpperCase() + ' value.' }, 'Vitals');
+      nextVal = Math.max(minVal, Math.min(maxVal, parsed));
+    } else {
+      const d = Math.round(Number(delta));
+      if (!isFinite(d)) return recordFeedback({ ok: false, text: 'Invalid ' + k.toUpperCase() + ' delta.' }, 'Vitals');
+      nextVal = Math.max(minVal, Math.min(maxVal, prevVal + d));
+    }
+    h[k] = nextVal;
+    notifyMutated();
+    return recordFeedback({
+      ok: true,
+      kind: k,
+      value: nextVal,
+      max: maxVal,
+      text: h.name + ' ' + k.toUpperCase() + ' ' + prevVal + ' -> ' + nextVal + '/' + maxVal + '.'
+    }, 'Adjust ' + k.toUpperCase());
+  }
+
+  function adjustHeroXp(delta, explicitValue) {
+    const ctx = getContext();
+    if (explicitValue !== undefined && explicitValue !== null && explicitValue !== '') {
+      const parsed = Math.round(Number(explicitValue));
+      if (!isFinite(parsed) || parsed < 0) {
+        return recordFeedback({ ok: false, text: 'XP value must be a non-negative number.' }, 'Set XP');
+      }
+      const h = resolveActiveHero(null);
+      if (!h) return recordFeedback({ ok: false, text: 'No active hero.' }, 'Set XP');
+      const prevXp = h.xp || 0;
+      const cap = Math.max(0, (h.maxXp || 60) - 1);
+      h.xp = Math.min(cap, parsed);
+      notifyMutated();
+      return recordFeedback({
+        ok: true,
+        xp: h.xp,
+        maxXp: h.maxXp || 60,
+        text: h.name + ' XP set ' + prevXp + ' -> ' + h.xp + '/' + (h.maxXp || 60) + '.'
+      }, 'Set XP');
+    }
+    const amt = Math.round(Number(delta));
+    if (!isFinite(amt) || amt <= 0) {
+      return recordFeedback({ ok: false, text: 'XP increment must be a positive number.' }, 'Add XP');
+    }
+    if (ctx === 'dungeon') {
+      const dng = getDungeonState();
+      if (!dng || !dng.hero) return recordFeedback({ ok: false, text: 'No active dungeon hero.' }, 'Add XP');
+      const prevLvl = dng.hero.level || 1;
+      const prevXp = dng.hero.xp || 0;
+      const res = gainExperience(amt, dng);
+      notifyMutated();
+      return recordFeedback({
+        ok: true,
+        leveledUp: Boolean(res && res.leveledUp),
+        levelsGained: (res && res.levelsGained) || 0,
+        text: 'Granted +' + amt + ' XP to ' + dng.hero.name + ' (Lv ' + prevLvl + ' XP ' + prevXp + ' -> Lv ' + dng.hero.level + ' XP ' + dng.hero.xp + '/' + dng.hero.maxXp + (res && res.leveledUp ? ', +' + res.levelsGained + ' Level!' : '') + ').'
+      }, 'Add XP');
+    }
+    const h = resolveStrategyHero(getSimHost(), null);
+    if (!h) return recordFeedback({ ok: false, text: 'No active strategy hero.' }, 'Add XP');
+    const prevXpS = h.xp || 0;
+    h.xp = prevXpS + amt;
+    notifyMutated();
+    return recordFeedback({
+      ok: true,
+      xp: h.xp,
+      text: 'Granted +' + amt + ' XP to ' + h.name + ' (' + prevXpS + ' -> ' + h.xp + '/' + (h.maxXp || 60) + ').'
+    }, 'Add XP');
+  }
+
+  function adjustHeroLevel(delta, explicitLevel) {
+    const hero = resolveActiveHero(null);
+    if (!hero) return recordFeedback({ ok: false, text: 'No active hero.' }, 'Set Level');
+    const curLvl = hero.level || 1;
+    const rawTarget = (explicitLevel !== undefined && explicitLevel !== null && explicitLevel !== '')
+      ? Number(explicitLevel)
+      : (curLvl + Number(delta || 0));
+    if (!isFinite(rawTarget)) return recordFeedback({ ok: false, text: 'Invalid target level.' }, 'Set Level');
+    const targetLvl = Math.max(1, Math.min(100, Math.round(rawTarget)));
+
+    if (getContext() === 'dungeon') {
+      const dng = getDungeonState();
+      const res = setHeroLevel(targetLvl, dng);
+      if (!res || !res.ok) return recordFeedback({ ok: false, text: 'Failed to set level: ' + (res && res.reason) }, 'Set Level');
+      notifyMutated();
+      return recordFeedback({
+        ok: true,
+        level: res.level,
+        maxHp: res.maxHp,
+        maxMp: res.maxMp,
+        text: hero.name + ' level ' + curLvl + ' -> ' + res.level + ' (MaxHP ' + res.maxHp + ', MaxMP ' + res.maxMp + ', StatPts ' + res.statPoints + ', TalentPts ' + res.talentPoints + ').'
+      }, 'Set Level');
+    }
+    hero.level = targetLvl;
+    let newMaxXp = 60;
+    for (let l = 2; l <= targetLvl; l++) newMaxXp = Math.round(newMaxXp * 1.4);
+    hero.maxXp = newMaxXp;
+    const totalEarned = (targetLvl - 1) * 2;
+    const b = normalizeHeroBonusStats(hero.bonusStats);
+    const spent = Math.floor((b.str || 0) + (b.dex || 0) + (b.int || 0) + (b.vit || 0) + (b.spi || 0));
+    hero.statPoints = Math.max(0, totalEarned - spent);
+    refreshHeroDerivedStats(hero);
+    notifyMutated();
+    return recordFeedback({
+      ok: true,
+      level: hero.level,
+      text: hero.name + ' level ' + curLvl + ' -> ' + hero.level + ' (MaxHP ' + hero.stats.maxHp + ', ATK ' + hero.stats.atk + ', DEF ' + hero.stats.def + ').'
+    }, 'Set Level');
+  }
+
+  function adjustHeroStatPoints(delta, explicitValue) {
+    const hero = resolveActiveHero(null);
+    if (!hero) return recordFeedback({ ok: false, text: 'No active hero.' }, 'Stat Points');
+    const prev = hero.statPoints || 0;
+    const rawNext = (explicitValue !== undefined && explicitValue !== null && explicitValue !== '')
+      ? Number(explicitValue)
+      : (prev + Number(delta || 0));
+    if (!isFinite(rawNext)) return recordFeedback({ ok: false, text: 'Invalid stat points value.' }, 'Stat Points');
+    hero.statPoints = Math.max(0, Math.min(500, Math.round(rawNext)));
+    notifyMutated();
+    return recordFeedback({
+      ok: true,
+      statPoints: hero.statPoints,
+      text: hero.name + ' Stat Points ' + prev + ' -> ' + hero.statPoints + '.'
+    }, 'Stat Points');
+  }
+
+  function toggleHeroGodMode() {
+    if (getContext() !== 'dungeon') {
+      return recordFeedback({ ok: false, text: 'God Mode toggle is available while inside a Dungeon.' }, 'God Mode');
+    }
+    const res = toggleGodMode(getDungeonState());
+    if (!res || !res.ok) return recordFeedback({ ok: false, text: 'Failed to toggle God Mode.' }, 'God Mode');
+    notifyMutated();
+    return recordFeedback({
+      ok: true,
+      godMode: res.godMode,
+      text: 'God Mode ' + (res.godMode ? 'ACTIVATED' : 'DEACTIVATED') + '.'
+    }, 'God Mode');
+  }
+
+  function spawnObject(entityType, subId, xArg, yArg) {
+    const ctx = getContext();
+    if (ctx !== 'dungeon') {
+      if (entityType === 'monster' || entityType === 'boss') {
+        return recordFeedback(commands.spawn.run([subId || 'vault_crawler', xArg, yArg]), 'Spawn');
+      }
+      return recordFeedback({ ok: false, text: 'Spawning dungeon objects (' + entityType + ') requires Dungeon context.' }, 'Spawn');
+    }
+    const dng = getDungeonState();
+    const hasExplicit = xArg !== null && xArg !== undefined && xArg !== '' && yArg !== null && yArg !== undefined && yArg !== '';
+    const nx = hasExplicit ? Number(xArg) : null;
+    const ny = hasExplicit ? Number(yArg) : null;
+    if (hasExplicit && (!isFinite(nx) || !isFinite(ny))) {
+      return recordFeedback({ ok: false, text: 'Invalid spawn coordinates.' }, 'Spawn');
+    }
+    const res = spawnEntity(entityType || 'monster', subId || 'vault_crawler', nx, ny, dng, hasExplicit ? { strictCoords: true } : null);
+    if (!res || !res.ok) {
+      return recordFeedback({ ok: false, text: 'Spawn failed: ' + ((res && res.reason) || 'unknown_error') }, 'Spawn');
+    }
+    notifyMutated();
+    const label = (res.entity && (res.entity.name || res.entity.id)) || (subId || entityType);
+    return recordFeedback({
+      ok: true,
+      entity: res.entity,
+      x: res.x,
+      y: res.y,
+      text: 'Spawned ' + label + ' at (' + res.x + ', ' + res.y + ').'
+    }, 'Spawn');
+  }
+
+  function triggerHeroSkill() {
+    if (getContext() !== 'dungeon') {
+      return recordFeedback({ ok: false, text: 'Class skills can be triggered while inside a Dungeon.' }, 'Trigger Skill');
+    }
+    if (typeof opts.onTriggerSkill !== 'function') {
+      return recordFeedback({ ok: false, text: 'Skill trigger handler unavailable.' }, 'Trigger Skill');
+    }
+    const info = getSkillTargetingInfo(getDungeonState());
+    if (!info || !info.canAfford) {
+      return recordFeedback({ ok: false, text: 'Insufficient MP to cast class skill.' }, 'Trigger Skill');
+    }
+    if (!info.valid) {
+      return recordFeedback({ ok: false, text: 'No valid skill target in range.' }, 'Trigger Skill');
+    }
+    opts.onTriggerSkill();
+    return recordFeedback({ ok: true, text: 'Triggered active class skill.' }, 'Trigger Skill');
+  }
+
+  function adjustCityResource(resourceKey, delta, explicitValue) {
+    const simHost = getSimHost();
+    const city = simHost && simHost.state ? getPrimaryCity(simHost.state) : null;
+    if (!city || !city.stockpile) {
+      return recordFeedback({ ok: false, text: 'No founded city available yet.' }, 'Resource');
+    }
+    const validKeys = ['gold', 'wood', 'stone', 'food', 'water', 'ore', 'ingots'];
+    const key = String(resourceKey || '').toLowerCase();
+    if (validKeys.indexOf(key) === -1) {
+      return recordFeedback({ ok: false, text: 'Unknown resource "' + resourceKey + '". Valid: ' + validKeys.join(', ') }, 'Resource');
+    }
+    const prev = Number(city.stockpile[key] || 0);
+    const rawNext = (explicitValue !== undefined && explicitValue !== null && explicitValue !== '')
+      ? Number(explicitValue)
+      : (prev + Number(delta || 0));
+    if (!isFinite(rawNext)) return recordFeedback({ ok: false, text: 'Invalid resource value.' }, 'Resource');
+    const nextVal = Math.max(0, Math.min(9999999, Math.round(rawNext)));
+    city.stockpile[key] = nextVal;
+    notifyMutated();
+    return recordFeedback({
+      ok: true,
+      resource: key,
+      value: nextVal,
+      text: city.name + ' ' + key.toUpperCase() + ': ' + prev + ' -> ' + nextVal + '.'
+    }, 'Resource');
+  }
+
+  function grantShopItem(shopItemId) {
+    const id = String(shopItemId || '');
+    if (!id) return recordFeedback({ ok: false, text: 'Select an item to grant.' }, 'Grant Item');
+    const tpl = SHOP_ITEMS.find(function(it) { return it.id === id; });
+    if (!tpl) {
+      return recordFeedback({ ok: false, text: 'Unknown item "' + id + '".' }, 'Grant Item');
+    }
+    if (getContext() === 'dungeon') {
+      return recordFeedback(commands.grant.run([id]), 'Grant Item');
+    }
+    // Strategy context: grant gear directly into selected hero's bag so testing works in Overworld/City too
+    const hero = resolveStrategyHero(getSimHost(), null);
+    if (!hero) return recordFeedback({ ok: false, text: 'No active strategy hero to receive item.' }, 'Grant Item');
+    if (tpl.type === 'consumable') {
+      if (!hero.consumables) hero.consumables = { potions: 0, recalls: 0 };
+      if (tpl.id === 'buy_heal') hero.consumables.potions = (hero.consumables.potions || 0) + 1;
+      else if (tpl.id === 'buy_recall') hero.consumables.recalls = (hero.consumables.recalls || 0) + 1;
+      notifyMutated();
+      return recordFeedback({ ok: true, text: 'Granted consumable "' + tpl.name + '" to ' + hero.name + '.' }, 'Grant Item');
+    }
+    const item = Object.assign({}, tpl, {
+      uid: nextItemUid('dev_grant'),
+      affixes: [],
+      sockets: [],
+      maxSockets: 1
+    });
+    if (item.slot === 'pickaxe') item.curDur = item.maxDur || 50;
+    if (!Array.isArray(hero.bag)) hero.bag = [];
+    hero.bag.push(item);
+    notifyMutated();
+    return recordFeedback({
+      ok: true,
+      item: item,
+      text: 'Granted "' + item.name + '" [' + item.uid + '] into ' + hero.name + '\'s bag.'
+    }, 'Grant Item');
+  }
+
+  const commands = {
+    help: {
+      category: 'Console Utilities',
+      usage: 'help [command]',
+      params: [{ name: 'command', required: false, desc: 'Optional command name for detailed usage.' }],
+      examples: ['help', 'help spawn'],
+      aliases: [],
+      contexts: ['any'],
+      desc: 'List available commands or show usage for a specific command.',
+      run: function(args) {
+        if (args[0]) {
+          const k = args[0].toLowerCase();
+          const c = commands[k];
+          if (!c) return { ok: false, text: 'Unknown command "' + k + '". Open the Help tab or type "help".' };
+          return { ok: true, text: k + ' [' + c.contexts.join('/') + '] — ' + c.desc + '\nUsage: ' + c.usage + (c.examples && c.examples.length ? ('\nExamples: ' + c.examples.join(' | ')) : '') };
+        }
+        const names = Object.keys(commands).sort();
+        const lines = ['Developer Commands (' + names.length + ') — Tip: open the Help tab for categorized search:'];
+        for (let i = 0; i < names.length; i++) {
+          const n = names[i];
+          const c = commands[n];
+          lines.push('  ' + c.usage + '  [' + c.contexts.join('/') + '] — ' + c.desc);
+        }
+        return { ok: true, text: lines.join('\n') };
+      }
+    },
+    clear: {
+      category: 'Console Utilities',
+      usage: 'clear',
+      params: [],
+      examples: ['clear'],
+      aliases: [],
+      contexts: ['any'],
+      desc: 'Clear command terminal output log.',
+      run: function() {
+        outputLog.length = 0;
+        return { ok: true, text: 'Console cleared.', silentEcho: true };
+      }
+    },
+    state: {
+      category: 'Inspection & Navigation',
+      usage: 'state',
+      params: [],
+      examples: ['state'],
+      aliases: [],
+      contexts: ['any'],
+      desc: 'Inspect active context, world/city summary, and dungeon floor status.',
+      run: function() {
+        const ctx = getContext();
+        const simHost = getSimHost();
+        const dng = getDungeonState();
+        const lines = ['Context: ' + ctx.toUpperCase()];
+        if (simHost && simHost.state && simHost.state.world) {
+          const w = simHost.state.world;
+          const city = getPrimaryCity(simHost.state);
+          const ow = w.overworld;
+          const aliveHostiles = (ow && Array.isArray(ow.hostiles)) ? ow.hostiles.filter(function(h) { return h && h.alive; }).length : 0;
+          lines.push('Campaign: ' + (w.worldName || w.id) + ' • Seed: ' + (w.seedCode || '—') + ' • SimTime: ' + Math.round(((w.clock && w.clock.simTimeMs) || 0) / 1000) + 's');
+          lines.push('City: ' + (city ? (city.name + ' (' + city.x + ',' + city.y + ') Gold:' + (city.stockpile.gold || 0) + ' Food:' + (city.stockpile.food || 0)) : 'None'));
+          lines.push('Heroes: ' + (w.heroes ? w.heroes.length : 0) + ' • Overworld Hostiles: ' + aliveHostiles);
+        }
+        if (dng && dng.dungeon) {
+          const fl = ensureDungeonFloorHydrated(dng.dungeon, dng.dungeon.currentFloor);
+          const monCount = (fl && Array.isArray(fl.monsters)) ? fl.monsters.filter(function(m) { return m && m.hp > 0; }).length : 0;
+          lines.push('Dungeon: ' + (dng.dungeon.name || dng.activeDungeonId) + ' • Floor ' + (dng.dungeon.currentFloor || 1) + ' • Turn ' + (dng.turn || 0) + ' • Monsters: ' + monCount);
+        }
+        return { ok: true, text: lines.join('\n') };
+      }
+    },
+    hero: {
+      category: 'Inspection & Navigation',
+      usage: 'hero [heroId]',
+      params: [{ name: 'heroId', required: false, desc: 'Optional hero ID in strategy mode.' }],
+      examples: ['hero', 'hero hero_1'],
+      aliases: [],
+      contexts: ['any'],
+      desc: 'Inspect active dungeon hero or selected/specified strategy hero.',
+      run: function(args) {
+        const ctx = getContext();
+        if (ctx === 'dungeon') {
+          const dng = getDungeonState();
+          if (!dng || !dng.hero) return { ok: false, text: 'No active dungeon hero.' };
+          return { ok: true, text: formatHeroSummaryLines(dng.hero, true).join('\n') };
+        }
+        const simHost = getSimHost();
+        const h = resolveStrategyHero(simHost, args[0] || null);
+        if (!h) return { ok: false, text: args[0] ? ('Hero not found: ' + args[0]) : 'No heroes in roster.' };
+        return { ok: true, text: formatHeroSummaryLines(h, false).join('\n') };
+      }
+    },
+    heroes: {
+      category: 'Inspection & Navigation',
+      usage: 'heroes',
+      params: [],
+      examples: ['heroes'],
+      aliases: [],
+      contexts: ['any'],
+      desc: 'List all active heroes in the campaign roster.',
+      run: function() {
+        const simHost = getSimHost();
+        const heroes = (simHost && simHost.state && simHost.state.world && Array.isArray(simHost.state.world.heroes))
+          ? simHost.state.world.heroes
+          : [];
+        if (heroes.length === 0) return { ok: true, text: 'No heroes recruited yet.' };
+        const lines = ['Active Heroes (' + heroes.length + '):'];
+        for (let i = 0; i < heroes.length; i++) {
+          const h = heroes[i];
+          lines.push('  ' + h.id + ' — ' + h.name + ' (' + h.classId + ' Lv ' + (h.level || 1) + ', XP ' + (h.xp || 0) + '/' + (h.maxXp || 60) + ')');
+        }
+        return { ok: true, text: lines.join('\n') };
+      }
+    },
+    skills: {
+      category: 'Inspection & Navigation',
+      usage: 'skills',
+      params: [],
+      examples: ['skills'],
+      aliases: [],
+      contexts: ['any'],
+      desc: 'Inspect active hero class passive, active skill, cost, range, and readiness.',
+      run: function() {
+        const ctx = getContext();
+        const dng = getDungeonState();
+        const simHost = getSimHost();
+        const h = ctx === 'dungeon' ? (dng && dng.hero) : resolveStrategyHero(simHost, null);
+        if (!h) return { ok: false, text: 'No active hero to inspect.' };
+        const cls = (h.classId && CLASSES[h.classId]) ? CLASSES[h.classId] : null;
+        if (!cls) return { ok: false, text: 'Unknown class: ' + h.classId };
+        const lines = [
+          'Class: ' + cls.name + ' (' + cls.title + ')',
+          'Passive: ' + cls.passiveName + ' — ' + cls.passiveDesc,
+          'Active Skill: ' + cls.skillName + ' (' + cls.skillCost + ' MP, Range ' + (cls.skillRange || 1) + ') — ' + cls.skillDesc
+        ];
+        if (ctx === 'dungeon' && dng) {
+          const info = getSkillTargetingInfo(dng);
+          lines.push('Targeting Status: ' + (info.valid ? 'READY (' + info.targets.length + ' target(s))' : (info.canAfford ? 'No valid target in range' : 'Insufficient MP')));
+        }
+        return { ok: true, text: lines.join('\n') };
+      }
+    },
+    archetypes: {
+      category: 'Combat & Spawning',
+      usage: 'archetypes',
+      params: [],
+      examples: ['archetypes'],
+      aliases: [],
+      contexts: ['any'],
+      desc: 'List valid dungeon monster and boss archetype IDs for spawn.',
+      run: function() {
+        const reg = Object.keys(MONSTER_ARCHETYPES).join(', ');
+        const bosses = Object.keys(BOSS_ARCHETYPES).join(', ');
+        return { ok: true, text: 'Regular Monsters: ' + reg + '\nBosses: ' + bosses };
+      }
+    },
+    monsters: {
+      category: 'Combat & Spawning',
+      usage: 'monsters',
+      params: [],
+      examples: ['monsters'],
+      aliases: [],
+      contexts: ['any'],
+      desc: 'List active monsters on current dungeon floor or wandering hostiles on Overworld.',
+      run: function() {
+        const ctx = getContext();
+        if (ctx === 'dungeon') {
+          const dng = getDungeonState();
+          const fl = dng && dng.dungeon ? ensureDungeonFloorHydrated(dng.dungeon, dng.dungeon.currentFloor) : null;
+          const mons = (fl && Array.isArray(fl.monsters)) ? fl.monsters.filter(function(m) { return m && m.hp > 0; }) : [];
+          if (mons.length === 0) return { ok: true, text: 'No living monsters on Floor ' + ((dng && dng.dungeon && dng.dungeon.currentFloor) || 1) + '.' };
+          const lines = ['Dungeon Floor ' + dng.dungeon.currentFloor + ' Monsters (' + mons.length + '):'];
+          for (let i = 0; i < Math.min(20, mons.length); i++) {
+            const m = mons[i];
+            lines.push('  ' + (m.uid || m.id) + ' — ' + m.name + ' (' + m.id + ') at (' + m.x + ',' + m.y + ') HP ' + m.hp + '/' + m.maxHp + ' ATK ' + m.atk + ' DEF ' + (m.def || 0));
+          }
+          if (mons.length > 20) lines.push('  ...and ' + (mons.length - 20) + ' more.');
+          return { ok: true, text: lines.join('\n') };
+        }
+        const simHost = getSimHost();
+        const ow = simHost && simHost.state && simHost.state.world ? simHost.state.world.overworld : null;
+        const hostiles = (ow && Array.isArray(ow.hostiles)) ? ow.hostiles.filter(function(h) { return h && h.alive; }) : [];
+        if (hostiles.length === 0) return { ok: true, text: 'No living Overworld wandering hostiles.' };
+        const lines = ['Overworld Wandering Hostiles (' + hostiles.length + '):'];
+        for (let i = 0; i < hostiles.length; i++) {
+          const h = hostiles[i];
+          lines.push('  ' + h.id + ' — ' + h.name + ' at (' + h.x + ',' + h.y + ') HP ' + h.hp + ' PWR ' + h.power);
+        }
+        return { ok: true, text: lines.join('\n') };
+      }
+    },
+    recruit: {
+      category: 'Heroes & Progression',
+      usage: 'recruit <classId> ["Hero Name"]',
+      params: [
+        { name: 'classId', required: true, desc: 'Adventuring class ID (fighter, thief, mage, ranger, paladin).' },
+        { name: 'Hero Name', required: false, desc: 'Optional custom name (quote if it has spaces).' }
+      ],
+      examples: ['recruit fighter', 'recruit mage "Lyra Star"'],
+      aliases: [],
+      contexts: ['strategy'],
+      desc: 'Queue hero recruitment through canonical RECRUIT_HERO command.',
+      run: function(args) {
+        const simHost = getSimHost();
+        if (!simHost) return { ok: false, text: 'SimHost unavailable.' };
+        const classId = args[0] ? args[0].toLowerCase() : '';
+        if (!classId) return { ok: false, text: 'Usage: recruit <classId> ["Hero Name"]' };
+        const res = simHost.dispatch({
+          type: COMMAND_TYPES.RECRUIT_HERO,
+          payload: { classId: classId, heroName: args[1] || null }
+        });
+        if (!res || !res.ok) return { ok: false, text: 'Recruit failed: ' + ((res && (res.reason || res.error)) || 'rejected') };
+        notifyMutated();
+        const q = res.data && res.data.queueItem ? res.data.queueItem : null;
+        return { ok: true, text: 'Queued recruitment for ' + (q ? (q.heroName + ' (' + q.className + ')') : classId) + '.' };
+      }
+    },
+    select: {
+      category: 'Heroes & Progression',
+      usage: 'select <heroId>',
+      params: [{ name: 'heroId', required: true, desc: 'ID of the hero whose Overworld party should be selected.' }],
+      examples: ['select hero_1'],
+      aliases: [],
+      contexts: ['strategy'],
+      desc: 'Select the Overworld party unit led by the given heroId.',
+      run: function(args) {
+        const simHost = getSimHost();
+        if (!simHost || !simHost.state || !simHost.state.world) return { ok: false, text: 'No active campaign.' };
+        const heroId = args[0];
+        if (!heroId) return { ok: false, text: 'Usage: select <heroId>' };
+        const ow = simHost.state.world.overworld;
+        const unit = (ow && Array.isArray(ow.units))
+          ? ow.units.find(function(u) { return u && u.alive && u.leaderHeroId === heroId; })
+          : null;
+        if (!unit) return { ok: false, text: 'No active Overworld party led by "' + heroId + '".' };
+        ow.selectedUnitId = unit.id;
+        selectedHeroId = heroId;
+        notifyMutated();
+        return { ok: true, text: 'Selected party ' + unit.id + ' (' + unit.name + ').' };
+      }
+    },
+    retire: {
+      category: 'Heroes & Progression',
+      usage: 'retire <heroId> confirm',
+      params: [
+        { name: 'heroId', required: true, desc: 'ID of the hero to retire.' },
+        { name: 'confirm', required: true, desc: 'Literal word "confirm" to approve destructive action.' }
+      ],
+      examples: ['retire hero_2 confirm'],
+      aliases: [],
+      contexts: ['strategy'],
+      desc: 'Permanently retire a hero via canonical DISMISS_HERO (requires "confirm").',
+      run: function(args) {
+        const simHost = getSimHost();
+        if (!simHost) return { ok: false, text: 'SimHost unavailable.' };
+        const heroId = args[0];
+        if (!heroId) return { ok: false, text: 'Usage: retire <heroId> confirm' };
+        if (args[1] !== 'confirm') {
+          return { ok: false, text: 'Destructive action: run "retire ' + heroId + ' confirm" to permanently retire this hero.' };
+        }
+        const res = simHost.dispatch({
+          type: COMMAND_TYPES.DISMISS_HERO,
+          payload: { heroId: heroId }
+        });
+        if (!res || !res.ok) return { ok: false, text: 'Retire failed: ' + ((res && (res.reason || res.error)) || 'rejected') };
+        if (selectedHeroId === heroId) selectedHeroId = null;
+        notifyMutated();
+        return { ok: true, text: 'Retired hero ' + heroId + ' (gear moved safely to City Vault).' };
+      }
+    },
+    xp: {
+      category: 'Heroes & Progression',
+      usage: 'xp <amount>',
+      params: [{ name: 'amount', required: true, desc: 'Positive XP amount to award.' }],
+      examples: ['xp 60', 'xp 250'],
+      aliases: [],
+      contexts: ['any'],
+      desc: 'Grant XP through canonical progression logic (triggers level-up & notifications in Dungeon).',
+      run: function(args) {
+        const amt = Number(args[0]);
+        if (!isFinite(amt) || amt <= 0) return { ok: false, text: 'Usage: xp <positive number>' };
+        return adjustHeroXp(amt, null);
+      }
+    },
+    level: {
+      category: 'Heroes & Progression',
+      usage: 'level <1-100>',
+      params: [{ name: '1-100', required: true, desc: 'Target hero level between 1 and 100.' }],
+      examples: ['level 5', 'level 12'],
+      aliases: [],
+      contexts: ['any'],
+      desc: 'Set hero level via canonical level setter and refresh derived stats.',
+      run: function(args) {
+        const targetLvl = Math.round(Number(args[0]));
+        if (!isFinite(targetLvl) || targetLvl < 1 || targetLvl > 100) {
+          return { ok: false, text: 'Usage: level <1-100>' };
+        }
+        return adjustHeroLevel(0, targetLvl);
+      }
+    },
+    heal: {
+      category: 'Dungeon Controls',
+      usage: 'heal',
+      params: [],
+      examples: ['heal'],
+      aliases: [],
+      contexts: ['dungeon'],
+      desc: 'Restore full HP/MP and cleanse negative statuses in Dungeon.',
+      run: function() {
+        const dng = getDungeonState();
+        const res = fullHeal(dng);
+        if (!res || !res.ok) return { ok: false, text: 'Heal failed (no active dungeon hero).' };
+        notifyMutated();
+        return { ok: true, text: 'Restored full HP (' + res.hp + ') & MP (' + res.mp + ').' };
+      }
+    },
+    god: {
+      category: 'Dungeon Controls',
+      usage: 'god',
+      params: [],
+      examples: ['god'],
+      aliases: [],
+      contexts: ['dungeon'],
+      desc: 'Toggle invulnerability (God Mode) for the active dungeon hero.',
+      run: function() {
+        return toggleHeroGodMode();
+      }
+    },
+    spawn: {
+      category: 'Combat & Spawning',
+      usage: 'spawn <archetypeId> [x] [y]',
+      params: [
+        { name: 'archetypeId', required: true, desc: 'Monster/boss archetype ID (see Combat tab dropdown or "archetypes").' },
+        { name: 'x', required: false, desc: 'Optional tile X coordinate.' },
+        { name: 'y', required: false, desc: 'Optional tile Y coordinate.' }
+      ],
+      examples: ['spawn vault_crawler', 'spawn bone_warden', 'spawn starfall_colossus'],
+      aliases: [],
+      contexts: ['any'],
+      desc: 'Spawn a regular/boss monster in Dungeon (canonical spawnEntity) or wandering hostile on Overworld.',
+      run: function(args) {
+        const ctx = getContext();
+        const archId = args[0] || 'vault_crawler';
+        const xArg = (args[1] !== undefined && args[1] !== null && args[1] !== '') ? Number(args[1]) : null;
+        const yArg = (args[2] !== undefined && args[2] !== null && args[2] !== '') ? Number(args[2]) : null;
+        if ((xArg !== null && isNaN(xArg)) || (yArg !== null && isNaN(yArg))) {
+          return { ok: false, text: 'Invalid coordinates. Usage: spawn <archetypeId> [x] [y]' };
+        }
+
+        if (ctx === 'dungeon') {
+          const dng = getDungeonState();
+          const hasExplicit = xArg !== null && yArg !== null;
+          const res = spawnEntity('monster', archId, xArg, yArg, dng, hasExplicit ? { strictCoords: true } : null);
+          if (!res || !res.ok) return { ok: false, text: 'Spawn failed: ' + ((res && res.reason) || 'unknown_error') };
+          notifyMutated();
+          return {
+            ok: true,
+            text: 'Spawned ' + res.entity.name + ' (' + res.entity.id + ') at (' + res.x + ', ' + res.y + ') — HP ' + res.entity.hp + ', ATK ' + res.entity.atk + ', DEF ' + (res.entity.def || 0) + '.'
+          };
+        }
+
+        // Strategy / Overworld: spawn a valid wandering hostile on a passable tile
+        const simHost = getSimHost();
+        const ow = simHost && simHost.state && simHost.state.world ? simHost.state.world.overworld : null;
+        if (!ow) return { ok: false, text: 'No Overworld map active.' };
+        const selUnit = getSelectedOverworldUnit(simHost.state);
+        const city = getPrimaryCity(simHost.state);
+        const anchorX = selUnit ? selUnit.x : (city ? city.x : ow.spawnX);
+        const anchorY = selUnit ? selUnit.y : (city ? city.y : ow.spawnY);
+        let hx = xArg !== null ? xArg : anchorX + 1;
+        let hy = yArg !== null ? yArg : anchorY;
+
+        if (!isOverworldTilePassable(ow, hx, hy) || (selUnit && selUnit.x === hx && selUnit.y === hy)) {
+          let found = null;
+          for (let rad = 1; rad <= 4 && !found; rad++) {
+            for (let dy = -rad; dy <= rad && !found; dy++) {
+              for (let dx = -rad; dx <= rad && !found; dx++) {
+                const cx = anchorX + dx;
+                const cy = anchorY + dy;
+                if (selUnit && selUnit.x === cx && selUnit.y === cy) continue;
+                if (isOverworldTilePassable(ow, cx, cy)) found = { x: cx, y: cy };
+              }
+            }
+          }
+          if (!found) return { ok: false, text: 'No passable Overworld tile found near (' + anchorX + ', ' + anchorY + ').' };
+          hx = found.x;
+          hy = found.y;
+        }
+        if (!Array.isArray(ow.hostiles)) ow.hostiles = [];
+        const arch = MONSTER_ARCHETYPES[archId] || null;
+        const hostile = {
+          id: 'hostile_dev_' + Date.now() + '_' + ow.hostiles.length,
+          name: arch ? ('Wandering ' + arch.name) : ('Wandering ' + archId),
+          x: hx,
+          y: hy,
+          hp: arch ? Math.round(55 * (arch.hpMult || 1)) : 55,
+          power: arch ? Math.round(16 * (arch.atkMult || 1)) : 16,
+          alive: true,
+          rewardGold: 22,
+          rewardOre: 4,
+          rewardXp: 25
+        };
+        ow.hostiles.push(hostile);
+        if (ow.explored && ow.explored[hy]) ow.explored[hy][hx] = 1;
+        notifyMutated();
+        return { ok: true, text: 'Spawned Overworld hostile "' + hostile.name + '" [' + hostile.id + '] at (' + hx + ', ' + hy + ') — HP ' + hostile.hp + ', PWR ' + hostile.power + '.' };
+      }
+    },
+    floor: {
+      category: 'Dungeon Controls',
+      usage: 'floor <depth>',
+      params: [{ name: 'depth', required: true, desc: 'Target floor depth (1-999).' }],
+      examples: ['floor 2', 'floor 5'],
+      aliases: [],
+      contexts: ['dungeon'],
+      desc: 'Warp to a specific floor depth inside the current dungeon.',
+      run: function(args) {
+        const depth = Math.round(Number(args[0]));
+        if (!isFinite(depth) || depth < 1 || depth > 999) return { ok: false, text: 'Usage: floor <1-999>' };
+        const dng = getDungeonState();
+        const res = gotoFloor(depth, null, dng);
+        if (!res || !res.ok) return { ok: false, text: 'Floor warp failed: ' + (res && res.reason) };
+        notifyMutated();
+        return { ok: true, text: 'Warped to ' + res.dungeonName + ' Floor ' + res.depth + ' at (' + res.x + ', ' + res.y + ').' };
+      }
+    },
+    reveal: {
+      category: 'Dungeon Controls',
+      usage: 'reveal',
+      params: [],
+      examples: ['reveal'],
+      aliases: [],
+      contexts: ['dungeon'],
+      desc: 'Reveal the entire current dungeon floor chart.',
+      run: function() {
+        const dng = getDungeonState();
+        const res = revealMap(dng);
+        if (!res || !res.ok) return { ok: false, text: 'Reveal failed (not in dungeon).' };
+        notifyMutated();
+        return { ok: true, text: 'Revealed full chart for Floor ' + res.depth + '.' };
+      }
+    },
+    dungeon: {
+      category: 'Dungeon Controls',
+      usage: 'dungeon <enter|exit> [poiId]',
+      params: [
+        { name: 'enter|exit', required: true, desc: 'Lifecycle transition direction.' },
+        { name: 'poiId', required: false, desc: 'Optional dungeon POI ID when entering.' }
+      ],
+      examples: ['dungeon enter', 'dungeon exit'],
+      aliases: [],
+      contexts: ['any'],
+      desc: 'Enter or exit dungeon through legitimate lifecycle services.',
+      run: function(args) {
+        const sub = args[0] ? args[0].toLowerCase() : '';
+        if (sub === 'enter') {
+          if (getContext() === 'dungeon') return { ok: false, text: 'Already inside a dungeon.' };
+          if (typeof opts.onEnterDungeon !== 'function') return { ok: false, text: 'Dungeon entry handler unavailable.' };
+          const res = opts.onEnterDungeon(args[1] || null);
+          return res && res.ok
+            ? { ok: true, text: 'Entered dungeon (' + (res.dungeonId || 'active') + ').' }
+            : { ok: false, text: 'Enter dungeon failed: ' + ((res && res.reason) || 'party must be at a discovered dungeon entrance') };
+        }
+        if (sub === 'exit') {
+          if (getContext() !== 'dungeon') return { ok: false, text: 'Not currently inside a dungeon.' };
+          if (typeof opts.onExitDungeon !== 'function') return { ok: false, text: 'Dungeon exit handler unavailable.' };
+          opts.onExitDungeon();
+          return { ok: true, text: 'Exited dungeon to Overworld.' };
+        }
+        return { ok: false, text: 'Usage: dungeon <enter|exit> [poiId]' };
+      }
+    },
+    grant: {
+      category: 'Items & Resources',
+      usage: 'grant <shopItemId>',
+      params: [{ name: 'shopItemId', required: true, desc: 'Item ID from SHOP_ITEMS (or use Items tab dropdown).' }],
+      examples: ['grant buy_wep_1', 'grant buy_heal', 'grant buy_recall'],
+      aliases: [],
+      contexts: ['dungeon'],
+      desc: 'Grant a canonical item from SHOP_ITEMS (e.g. buy_wep_1, buy_heal, buy_recall).',
+      run: function(args) {
+        const dng = getDungeonState();
+        if (!dng || !dng.hero) return { ok: false, text: 'No active dungeon hero.' };
+        const id = args[0];
+        if (!id) {
+          return { ok: false, text: 'Usage: grant <shopItemId>. Valid: ' + SHOP_ITEMS.map(function(it) { return it.id; }).join(', ') };
+        }
+        const tpl = SHOP_ITEMS.find(function(it) { return it.id === id; });
+        if (!tpl) {
+          return { ok: false, text: 'Unknown item "' + id + '". Valid: ' + SHOP_ITEMS.map(function(it) { return it.id; }).join(', ') };
+        }
+        if (tpl.type === 'consumable') {
+          if (!dng.hero.consumables) dng.hero.consumables = { potions: 0, recalls: 0 };
+          if (tpl.id === 'buy_heal') dng.hero.consumables.potions += 1;
+          else if (tpl.id === 'buy_recall') dng.hero.consumables.recalls += 1;
+          notifyMutated();
+          return { ok: true, text: 'Granted consumable: ' + tpl.name + '.' };
+        }
+        const item = Object.assign({}, tpl, {
+          uid: nextItemUid('dev_grant'),
+          affixes: [],
+          sockets: [],
+          maxSockets: 1
+        });
+        if (item.slot === 'pickaxe') {
+          item.curDur = item.maxDur || 50;
+        }
+        if (!Array.isArray(dng.hero.expeditionGear)) dng.hero.expeditionGear = [];
+        dng.hero.expeditionGear.push(item);
+        notifyMutated();
+        return { ok: true, text: 'Granted gear: ' + item.name + ' [' + item.uid + '] into expedition pack.' };
+      }
+    },
+    equip: {
+      category: 'Items & Resources',
+      usage: 'equip <itemUid>',
+      params: [{ name: 'itemUid', required: true, desc: 'UID of an item in expedition pack or hero bag.' }],
+      examples: ['equip dev_grant_1'],
+      aliases: [],
+      contexts: ['any'],
+      desc: 'Equip an item by UID through canonical equip APIs and refresh derived stats.',
+      run: function(args) {
+        const uid = args[0];
+        if (!uid) return { ok: false, text: 'Usage: equip <itemUid>' };
+        if (getContext() === 'dungeon') {
+          const dng = getDungeonState();
+          if (!dng || !dng.hero) return { ok: false, text: 'No active dungeon hero.' };
+          const res = equipItem(uid, dng);
+          recomputeHeroDerivedStats(false, dng);
+          notifyMutated();
+          return res && res.ok !== false
+            ? { ok: true, text: 'Equipped item ' + uid + ' (ATK ' + dng.hero.atk + ', DEF ' + dng.hero.def + ').' }
+            : { ok: false, text: 'Equip failed for UID "' + uid + '".' };
+        }
+        const simHost = getSimHost();
+        const h = resolveStrategyHero(simHost, null);
+        if (!h) return { ok: false, text: 'No active strategy hero.' };
+        const resS = simHost.dispatch({
+          type: COMMAND_TYPES.EQUIP_HERO_ITEM,
+          payload: { heroId: h.id, itemUid: uid }
+        });
+        if (!resS || !resS.ok) return { ok: false, text: 'Equip failed: ' + ((resS && (resS.reason || resS.error)) || 'rejected') };
+        notifyMutated();
+        return { ok: true, text: 'Equipped ' + uid + ' on ' + h.name + ' (ATK ' + h.stats.atk + ', DEF ' + h.stats.def + ').' };
+      }
+    },
+    resource: {
+      category: 'Items & Resources',
+      usage: 'resource <gold|wood|stone|food|water|ore|ingots> <delta>',
+      params: [
+        { name: 'resourceKey', required: true, desc: 'City stockpile resource key.' },
+        { name: 'delta', required: true, desc: 'Signed integer delta (clamped >= 0).' }
+      ],
+      examples: ['resource gold 500', 'resource wood 200'],
+      aliases: [],
+      contexts: ['any'],
+      desc: 'Adjust a primary city stockpile resource by a signed delta.',
+      run: function(args) {
+        if (!args[0] || args[1] === undefined) {
+          return { ok: false, text: 'Usage: resource <gold|wood|stone|food|water|ore|ingots> <delta>' };
+        }
+        return adjustCityResource(args[0], Number(args[1]), null);
+      }
+    }
+  };
+
+  function execute(commandLine) {
+    const parsed = parseConsoleCommandLine(commandLine);
+    if (!parsed.verb) {
+      return { ok: false, text: 'Empty command. Open the Help tab or type "help".' };
+    }
+    commandHistory.push(parsed.raw);
+    if (commandHistory.length > MAX_CONSOLE_HISTORY) commandHistory.shift();
+    historyCursor = commandHistory.length;
+
+    const cmd = commands[parsed.verb];
+    if (!cmd) {
+      pushOutput('> ' + parsed.raw, 'cmd');
+      const msg = 'Unknown command "' + parsed.verb + '". Open the Help tab or type "help".';
+      pushOutput(msg, 'err');
+      lastFeedback = { ok: false, text: msg };
+      return { ok: false, text: msg };
+    }
+
+    const ctx = getContext();
+    const ctxAllowed = cmd.contexts.indexOf('any') !== -1 || cmd.contexts.indexOf(ctx) !== -1;
+    if (!ctxAllowed) {
+      pushOutput('> ' + parsed.raw, 'cmd');
+      const msg = 'Command "' + parsed.verb + '" is only available in [' + cmd.contexts.join('/') + '] context (current: ' + ctx + ').';
+      pushOutput(msg, 'err');
+      lastFeedback = { ok: false, text: msg };
+      return { ok: false, text: msg };
+    }
+
+    let result;
+    try {
+      result = cmd.run(parsed.args);
+    } catch (err) {
+      result = { ok: false, text: 'Command error: ' + ((err && err.message) || String(err)) };
+    }
+
+    if (!result.silentEcho) {
+      pushOutput('> ' + parsed.raw, 'cmd');
+    }
+    pushOutput(result.text, result.ok ? 'ok' : 'err');
+    lastFeedback = { ok: Boolean(result.ok), text: result.text };
+    return result;
+  }
+
+  function getHelpCatalog(filterOverride) {
+    const q = String(filterOverride !== undefined ? filterOverride : helpFilter || '').trim().toLowerCase();
+    const byCat = {};
+    const names = Object.keys(commands).sort();
+    let totalCount = 0;
+    let matchedCount = 0;
+
+    for (let i = 0; i < names.length; i++) {
+      const name = names[i];
+      const c = commands[name];
+      totalCount += 1;
+      const haystack = (
+        name + ' ' +
+        (c.category || '') + ' ' +
+        (c.usage || '') + ' ' +
+        (c.desc || '') + ' ' +
+        (c.examples || []).join(' ') + ' ' +
+        (c.contexts || []).join(' ')
+      ).toLowerCase();
+      if (q && haystack.indexOf(q) === -1) continue;
+      matchedCount += 1;
+      const cat = c.category || 'Other';
+      if (!byCat[cat]) byCat[cat] = [];
+      byCat[cat].push({
+        name: name,
+        category: cat,
+        usage: c.usage,
+        desc: c.desc,
+        params: c.params || [],
+        examples: c.examples || [],
+        aliases: c.aliases || [],
+        contexts: c.contexts || ['any']
+      });
+    }
+
+    const categories = [];
+    for (let i = 0; i < HELP_CATEGORY_ORDER.length; i++) {
+      const catName = HELP_CATEGORY_ORDER[i];
+      if (byCat[catName] && byCat[catName].length > 0) {
+        categories.push({ name: catName, entries: byCat[catName] });
+      }
+    }
+    const extraCats = Object.keys(byCat);
+    for (let i = 0; i < extraCats.length; i++) {
+      if (HELP_CATEGORY_ORDER.indexOf(extraCats[i]) === -1) {
+        categories.push({ name: extraCats[i], entries: byCat[extraCats[i]] });
+      }
+    }
+
+    return {
+      query: q,
+      totalCount: totalCount,
+      matchedCount: matchedCount,
+      categories: categories
+    };
+  }
+
+  function getInspectorSnapshot() {
+    const ctx = getContext();
+    const simHost = getSimHost();
+    const dng = getDungeonState();
+    const w = (simHost && simHost.state && simHost.state.world) ? simHost.state.world : null;
+    const city = (simHost && simHost.state) ? getPrimaryCity(simHost.state) : null;
+    const ow = w ? w.overworld : null;
+    const selUnit = (simHost && simHost.state) ? getSelectedOverworldUnit(simHost.state) : null;
+    const viewLabel = ctx === 'dungeon'
+      ? 'DUNGEON'
+      : ((simHost && simHost.state && simHost.state.activeView === 'city') ? 'CITY' : 'OVERWORLD');
+
+    const worldHeroes = (w && Array.isArray(w.heroes)) ? w.heroes : [];
+    const activeHero = resolveActiveHero(null);
+
+    let heroSnap = null;
+    if (activeHero) {
+      const derived = computeHeroDerivedStats(activeHero);
+      const attrs = derived && derived.attributes ? derived.attributes : { str: 0, dex: 0, int: 0, vit: 0, spi: 0 };
+      const bonus = normalizeHeroBonusStats(activeHero.bonusStats);
+      const cls = (activeHero.classId && CLASSES[activeHero.classId]) ? CLASSES[activeHero.classId] : null;
+      const kn = normalizeHeroKnowledge(activeHero.knowledge);
+      const eq = activeHero.equipment || {};
+      const packItems = ctx === 'dungeon'
+        ? (Array.isArray(activeHero.expeditionGear) ? activeHero.expeditionGear : [])
+        : (Array.isArray(activeHero.bag) ? activeHero.bag : []);
+      let skillTargeting = null;
+      if (ctx === 'dungeon' && dng) {
+        skillTargeting = getSkillTargetingInfo(dng);
+      }
+      heroSnap = {
+        id: activeHero.id || 'dungeon_hero',
+        name: activeHero.name || 'Unnamed Hero',
+        classId: activeHero.classId || 'unknown',
+        className: cls ? cls.name : (activeHero.classId || 'Unknown'),
+        title: cls ? cls.title : '',
+        level: activeHero.level || 1,
+        xp: activeHero.xp || 0,
+        maxXp: activeHero.maxXp || 60,
+        hp: ctx === 'dungeon' ? (activeHero.hp || 0) : (derived ? derived.maxHp : 0),
+        maxHp: ctx === 'dungeon' ? (activeHero.maxHp || (derived ? derived.maxHp : 0)) : (derived ? derived.maxHp : 0),
+        mp: ctx === 'dungeon' ? (activeHero.mp || 0) : (derived ? derived.maxMp : 0),
+        maxMp: ctx === 'dungeon' ? (activeHero.maxMp || (derived ? derived.maxMp : 0)) : (derived ? derived.maxMp : 0),
+        statPoints: activeHero.statPoints || 0,
+        talentPoints: activeHero.talentPoints || 0,
+        godMode: Boolean(activeHero.godMode),
+        canEnterDungeon: activeHero.canEnterDungeon !== false,
+        attributes: {
+          str: { internal: attrs.str, display: formatAttributeDisplay(attrs.str), bonus: bonus.str || 0 },
+          dex: { internal: attrs.dex, display: formatAttributeDisplay(attrs.dex), bonus: bonus.dex || 0 },
+          int: { internal: attrs.int, display: formatAttributeDisplay(attrs.int), bonus: bonus.int || 0 },
+          vit: { internal: attrs.vit, display: formatAttributeDisplay(attrs.vit), bonus: bonus.vit || 0 },
+          spi: { internal: attrs.spi, display: formatAttributeDisplay(attrs.spi), bonus: bonus.spi || 0 }
+        },
+        derived: derived ? {
+          maxHp: derived.maxHp,
+          maxMp: derived.maxMp,
+          atk: derived.atk,
+          magicPower: derived.magicPower,
+          def: derived.def,
+          crit: derived.crit,
+          dodge: derived.dodge
+        } : { maxHp: 0, maxMp: 0, atk: 0, magicPower: 0, def: 0, crit: 0, dodge: 0 },
+        knowledge: kn,
+        skill: cls ? {
+          name: cls.skillName,
+          cost: cls.skillCost,
+          range: cls.skillRange || 1,
+          desc: cls.skillDesc,
+          passiveName: cls.passiveName,
+          passiveDesc: cls.passiveDesc,
+          targeting: skillTargeting
+        } : null,
+        equipment: ['weapon', 'armor', 'helm', 'boots', 'accessory', 'pickaxe'].map(function(slot) {
+          const it = eq[slot] || null;
+          return { slot: slot, name: it ? it.name : null, uid: it ? it.uid : null };
+        }),
+        packItems: packItems.map(function(it) {
+          return { uid: it.uid, name: it.name, slot: it.slot || 'gear', atk: it.atk || 0, def: it.def || 0 };
+        }),
+        consumables: activeHero.consumables || { potions: 0, recalls: 0 },
+        statuses: Array.isArray(activeHero.statuses) ? activeHero.statuses.map(function(s) { return s.name || s.id || 'status'; }) : []
+      };
+    }
+
+    const fl = (dng && dng.dungeon) ? ensureDungeonFloorHydrated(dng.dungeon, dng.dungeon.currentFloor) : null;
+    const livingMonsters = (fl && Array.isArray(fl.monsters))
+      ? fl.monsters.filter(function(m) { return m && m.hp > 0; }).map(function(m) {
+        return { uid: m.uid || m.id, id: m.id, name: m.name, x: m.x, y: m.y, hp: m.hp, maxHp: m.maxHp, atk: m.atk, def: m.def || 0, isBoss: Boolean(m.isBoss) };
+      })
+      : [];
+    const livingHostiles = (ow && Array.isArray(ow.hostiles))
+      ? ow.hostiles.filter(function(h) { return h && h.alive; }).map(function(h) {
+        return { id: h.id, name: h.name, x: h.x, y: h.y, hp: h.hp, power: h.power };
+      })
+      : [];
+
+    const recruitableClasses = Object.keys(CLASSES).filter(function(cid) {
+      return CLASSES[cid] && CLASSES[cid].canEnterDungeon !== false;
+    }).map(function(cid) {
+      return { id: cid, name: CLASSES[cid].name, title: CLASSES[cid].title };
+    });
+
+    const regularArchetypes = Object.keys(MONSTER_ARCHETYPES).map(function(id) {
+      return { id: id, name: MONSTER_ARCHETYPES[id].name, isBoss: false };
+    });
+    const bossArchetypes = Object.keys(BOSS_ARCHETYPES).map(function(id) {
+      return { id: id, name: BOSS_ARCHETYPES[id].name, isBoss: true };
+    });
+
+    const buildingCount = (city && Array.isArray(city.plots))
+      ? city.plots.filter(function(p) { return p && p.buildingId; }).length
+      : 0;
+
+    return {
+      context: ctx,
+      viewLabel: viewLabel,
+      activeTab: activeTab,
+      lastFeedback: lastFeedback,
+      world: w ? {
+        worldName: w.worldName || w.id || 'Campaign',
+        seedCode: w.seedCode || '—',
+        simTimeSec: Math.round(((w.clock && w.clock.simTimeMs) || 0) / 1000),
+        heroCount: worldHeroes.length,
+        hostileCount: livingHostiles.length,
+        selectedUnitName: selUnit ? selUnit.name : null,
+        city: city ? {
+          name: city.name,
+          x: city.x,
+          y: city.y,
+          buildingCount: buildingCount,
+          stockpile: Object.assign({ gold: 0, wood: 0, stone: 0, food: 0, water: 0, ore: 0, ingots: 0 }, city.stockpile || {})
+        } : null
+      } : null,
+      heroes: worldHeroes.map(function(h) {
+        return {
+          id: h.id,
+          name: h.name,
+          classId: h.classId,
+          className: (CLASSES[h.classId] && CLASSES[h.classId].name) || h.classId,
+          level: h.level || 1,
+          xp: h.xp || 0,
+          maxXp: h.maxXp || 60,
+          selected: Boolean(heroSnap && heroSnap.id === h.id)
+        };
+      }),
+      recruitableClasses: recruitableClasses,
+      activeHero: heroSnap,
+      combat: {
+        monsters: livingMonsters,
+        hostiles: livingHostiles,
+        regularArchetypes: regularArchetypes,
+        bossArchetypes: bossArchetypes
+      },
+      dungeon: (dng && dng.dungeon) ? {
+        active: ctx === 'dungeon',
+        name: dng.dungeon.name || dng.activeDungeonId || 'Dungeon',
+        depth: dng.dungeon.currentFloor || 1,
+        turn: dng.turn || 0,
+        monsterCount: livingMonsters.length,
+        objectCount: (fl && Array.isArray(fl.objects)) ? fl.objects.length : 0,
+        heroPos: (dng.hero) ? { x: dng.hero.x || 0, y: dng.hero.y || 0 } : null
+      } : {
+        active: false,
+        name: 'Not Entered',
+        depth: 1,
+        turn: 0,
+        monsterCount: 0,
+        objectCount: 0,
+        heroPos: null
+      },
+      items: {
+        shopItems: SHOP_ITEMS.map(function(it) {
+          return { id: it.id, name: it.name, slot: it.slot || it.type || 'item', cost: it.cost || 0 };
+        })
+      }
+    };
+  }
+
+  function setOpen(nextOpen) {
+    isOpen = Boolean(nextOpen);
+    return isOpen;
+  }
+
+  function toggle() {
+    isOpen = !isOpen;
+    return isOpen;
+  }
+
+  function setTab(tabId) {
+    const valid = DEV_CONSOLE_TABS.some(function(t) { return t.id === tabId; });
+    if (valid) activeTab = tabId;
+    return activeTab;
+  }
+
+  function setSelectedHeroId(heroId) {
+    selectedHeroId = heroId || null;
+    return selectedHeroId;
+  }
+
+  function setHelpFilter(text) {
+    helpFilter = String(text || '');
+    return helpFilter;
+  }
+
+  function getHistoryPrev() {
+    if (commandHistory.length === 0) return '';
+    historyCursor = Math.max(0, historyCursor - 1);
+    return commandHistory[historyCursor] || '';
+  }
+
+  function getHistoryNext() {
+    if (commandHistory.length === 0) return '';
+    historyCursor = Math.min(commandHistory.length, historyCursor + 1);
+    return historyCursor < commandHistory.length ? commandHistory[historyCursor] : '';
+  }
+
+  pushOutput('Aethelgard Developer Console ready. Use visual tabs above or type a command.', 'info');
+
+  return {
+    execute: execute,
+    toggle: toggle,
+    setOpen: setOpen,
+    isOpen: function() { return isOpen; },
+    getContext: getContext,
+    getTab: function() { return activeTab; },
+    setTab: setTab,
+    getSelectedHeroId: function() { return selectedHeroId; },
+    setSelectedHeroId: setSelectedHeroId,
+    getHelpFilter: function() { return helpFilter; },
+    setHelpFilter: setHelpFilter,
+    getLastFeedback: function() { return lastFeedback; },
+    getHelpCatalog: getHelpCatalog,
+    getInspectorSnapshot: getInspectorSnapshot,
+    adjustHeroAttribute: adjustHeroAttribute,
+    adjustHeroVitals: adjustHeroVitals,
+    adjustHeroXp: adjustHeroXp,
+    adjustHeroLevel: adjustHeroLevel,
+    adjustHeroStatPoints: adjustHeroStatPoints,
+    toggleHeroGodMode: toggleHeroGodMode,
+    spawnObject: spawnObject,
+    triggerHeroSkill: triggerHeroSkill,
+    adjustCityResource: adjustCityResource,
+    grantShopItem: grantShopItem,
+    getOutput: function() { return outputLog.slice(); },
+    getHistory: function() { return commandHistory.slice(); },
+    getHistoryPrev: getHistoryPrev,
+    getHistoryNext: getHistoryNext,
+    getCommandNames: function() { return Object.keys(commands).sort(); }
+  };
+}
+
   // --- Module: src/wargame/test/wargameSelfTest.js ---
 // Headless & In-Browser Verification Suite for the Standalone Macro Wargame & Real-Time Simulation Engine
+
 
 
 
@@ -37714,7 +39646,986 @@ function evaluateWargameSelfTests() {
       : 'Failed checks: ' + failed52.join(', ')
   });
 
+  // =========================================================================
+  // Test 53: HR-15 Shared Developer Console Foundation, Context Validation,
+  //          Canonical Services & Regular Monster Spawn Wall/Validation Fix
+  // =========================================================================
+  const parsedQuoted53 = parseConsoleCommandLine('recruit cleric "Sister Vera"');
+  const parsedEmpty53 = parseConsoleCommandLine('   ');
+  const parseOk53 = Boolean(
+    parsedQuoted53.verb === 'recruit' &&
+    parsedQuoted53.args.length === 2 &&
+    parsedQuoted53.args[0] === 'cleric' &&
+    parsedQuoted53.args[1] === 'Sister Vera' &&
+    parsedEmpty53.verb === ''
+  );
+
+  const host53 = createWargameSimHost();
+  const dngState53 = createDefaultGameState();
+  host53.attachDungeonState(dngState53);
+  let activeCtx53 = 'strategy';
+  const con53 = createDevConsoleController({
+    simHost: host53,
+    dungeonState: dngState53,
+    getContext: function() { return activeCtx53; }
+  });
+
+  host53.dispatch({ type: COMMAND_TYPES.START_NEW_CAMPAIGN, payload: { houseName: 'House Dev', worldName: 'Console Realm', seedCode: 'STAR-5301' } });
+  host53.dispatch({ type: COMMAND_TYPES.FOUND_CITY, payload: { cityName: 'Consolekeep' } });
+  const city53 = getPrimaryCity(host53.state);
+  city53.stockpile.gold = 900; city53.stockpile.food = 900;
+  city53.buildings.temple_chapterhouse = 1;
+
+  // Help, unknown command, context guard, history & clear
+  const helpRes53 = con53.execute('help');
+  const helpSub53 = con53.execute('help spawn');
+  const unknownRes53 = con53.execute('not_a_real_command');
+  const ctxBlocked53 = con53.execute('heal'); // dungeon-only while in strategy
+  const histPrev53 = con53.getHistoryPrev();
+  const basicsOk53 = Boolean(
+    helpRes53.ok && helpRes53.text.indexOf('spawn') !== -1 &&
+    helpSub53.ok && helpSub53.text.indexOf('Usage:') !== -1 &&
+    !unknownRes53.ok &&
+    !ctxBlocked53.ok && ctxBlocked53.text.indexOf('dungeon') !== -1 &&
+    histPrev53 === 'heal'
+  );
+
+  // Strategy commands: recruit quoted name, inspect, Overworld spawn, retire safety guard
+  const recCmd53 = con53.execute('recruit cleric "Sister Vera"');
+  host53.stepClock(80000);
+  const vera53 = host53.state.world.heroes.find(function(h) { return h.name === 'Sister Vera'; });
+  const heroInspect53 = con53.execute('hero');
+  const owSpawn53 = con53.execute('spawn vault_crawler');
+  const retireNoConfirm53 = vera53 ? con53.execute('retire ' + vera53.id) : { ok: true };
+  const strategyOk53 = Boolean(
+    recCmd53.ok && vera53 && vera53.classId === 'cleric' &&
+    heroInspect53.ok && heroInspect53.text.indexOf('Sister Vera') !== -1 &&
+    owSpawn53.ok &&
+    !retireNoConfirm53.ok && retireNoConfirm53.text.indexOf('confirm') !== -1
+  );
+
+  // Dungeon commands + Regular Monster Spawn wall-avoidance & archetype validation regression!
+  activeCtx53 = 'dungeon';
+  dngState53.inGuild = false;
+  dngState53.dungeon.currentFloor = 1;
+  // Synthetic 7x7 floor where (hero.x + 1, hero.y) is a SOLID WALL (tile 0)!
+  const wallFloor53 = {
+    depth: 1,
+    width: 7,
+    height: 7,
+    tiles: Array.from({ length: 7 }, function() { return Array.from({ length: 7 }, function() { return 1; }); }),
+    explored: Array.from({ length: 7 }, function() { return Array.from({ length: 7 }, function() { return 0; }); }),
+    monsters: [],
+    chests: [],
+    traps: {},
+    shrines: {},
+    objects: [],
+    groundItems: []
+  };
+  wallFloor53.tiles[3][4] = 0; // Block (hero.x + 1, hero.y) with a solid wall!
+  dngState53.dungeon.floors[1] = wallFloor53;
+  dngState53.hero = createDungeonHeroForClass('cleric', vera53, CANONICAL_PLAYER_ID);
+  dngState53.hero.x = 3;
+  dngState53.hero.y = 3;
+  recomputeHeroDerivedStats(true, dngState53);
+
+  const badArch53 = con53.execute('spawn totally_fake_mob');
+  const wallCoord53 = con53.execute('spawn vault_crawler 4 3');
+  const regSpawn53 = con53.execute('spawn vault_crawler');
+  const spawnedMon53 = wallFloor53.monsters[0] || null;
+  const monsterSpawnFixOk53 = Boolean(
+    !badArch53.ok && badArch53.text.indexOf('Unknown monster archetype') !== -1 &&
+    !wallCoord53.ok &&
+    regSpawn53.ok &&
+    spawnedMon53 && spawnedMon53.id === 'vault_crawler' &&
+    !(spawnedMon53.x === 4 && spawnedMon53.y === 3) &&
+    wallFloor53.tiles[spawnedMon53.y][spawnedMon53.x] === 1
+  );
+
+  // Dungeon progression, skills, grant & clear commands
+  const xpCmd53 = con53.execute('xp 80');
+  const skillsCmd53 = con53.execute('skills');
+  const grantCmd53 = con53.execute('grant buy_wep_1');
+  const clearCmd53 = con53.execute('clear');
+  const dungeonCmdsOk53 = Boolean(
+    xpCmd53.ok && dngState53.hero.level === 2 &&
+    skillsCmd53.ok && skillsCmd53.text.indexOf('Sacred Ward') !== -1 &&
+    grantCmd53.ok && dngState53.hero.expeditionGear.length === 1 &&
+    clearCmd53.ok && con53.getOutput().length === 1
+  );
+
+  const t53Checks = {
+    parseOk: parseOk53,
+    basicsOk: basicsOk53,
+    strategyOk: strategyOk53,
+    monsterSpawnFixOk: monsterSpawnFixOk53,
+    dungeonCmdsOk: dungeonCmdsOk53
+  };
+  const failed53 = Object.keys(t53Checks).filter(function(k) { return !t53Checks[k]; });
+  const t53Pass = failed53.length === 0;
+  results.push({
+    name: '53. HR-15: Shared Developer Console Foundation, Context Guards & Regular Monster Spawn Fix',
+    pass: t53Pass,
+    detail: t53Pass
+      ? 'Quoted command parser, context guards, canonical recruit/retire/xp/spawn/grant commands, and wall-safe/validated regular monster spawning verified'
+      : 'Failed checks: ' + failed53.join(', ')
+  });
+
+  // =========================================================================
+  // Test 54: HR-15 Usability Correction — Control Panel Tabs, Inspector Snapshot, Direct Value Controls & Structured Help
+  // =========================================================================
+  const host54 = createWargameSimHost();
+  host54.dispatch({ type: COMMAND_TYPES.START_NEW_CAMPAIGN, payload: { houseName: 'House Panel', worldName: 'Panel Realm', seedCode: 'STAR-5400' } });
+  host54.dispatch({ type: COMMAND_TYPES.FOUND_CITY, payload: { cityName: 'Control Citadel' } });
+  const city54 = getPrimaryCity(host54.state);
+  city54.stockpile.gold = 900;
+  city54.stockpile.food = 900;
+  city54.buildings.temple_chapterhouse = 1;
+  host54.dispatch({ type: COMMAND_TYPES.RECRUIT_HERO, payload: { classId: 'cleric', heroName: 'Brother Toren' } });
+  host54.stepClock(80000);
+  const goldBefore54 = city54.stockpile.gold;
+
+  let activeCtx54 = 'strategy';
+  const dngState54 = createDefaultGameState();
+  const con54 = createDevConsoleController({
+    simHost: host54,
+    dungeonState: dngState54,
+    getContext: function() { return activeCtx54; }
+  });
+
+  // 1. Tab navigation & inspector snapshot in Strategy context
+  const tabIds54 = DEV_CONSOLE_TABS.map(function(t) { return t.id; });
+  const tabsOk54 = Boolean(
+    con54.getTab() === 'overview' &&
+    tabIds54.indexOf('heroes') !== -1 &&
+    tabIds54.indexOf('progression') !== -1 &&
+    tabIds54.indexOf('combat') !== -1 &&
+    tabIds54.indexOf('dungeon') !== -1 &&
+    tabIds54.indexOf('items') !== -1 &&
+    tabIds54.indexOf('world') !== -1 &&
+    tabIds54.indexOf('commands') !== -1 &&
+    tabIds54.indexOf('help') !== -1 &&
+    con54.setTab('heroes') === 'heroes' &&
+    con54.setTab('invalid_tab_xyz') === 'heroes'
+  );
+
+  const snap54 = con54.getInspectorSnapshot();
+  const snapshotOk54 = Boolean(
+    snap54.context === 'strategy' &&
+    snap54.activeHero && snap54.activeHero.name === 'Brother Toren' &&
+    snap54.recruitableClasses.length >= 5 &&
+    snap54.combat.regularArchetypes.length >= 3 &&
+    snap54.items.shopItems.length >= 3 &&
+    snap54.world && snap54.world.city && snap54.world.city.name === 'Control Citadel'
+  );
+
+  // 2. Direct value controls: attributes (including SPI), level, XP, stat points, city resources, bounds clamping
+  const prevAtk54 = snap54.activeHero ? snap54.activeHero.derived.atk : 0;
+  const attrAddRes54 = con54.adjustHeroAttribute('str', 4, null);
+  const spiSetRes54 = con54.adjustHeroAttribute('spi', 0, 3);
+  const badAttrRes54 = con54.adjustHeroAttribute('luck', 1, null);
+  const clampNegAttr54 = con54.adjustHeroAttribute('str', -999, null);
+  const lvlSetRes54 = con54.adjustHeroLevel(0, 4);
+  const resAddRes54 = con54.adjustCityResource('gold', 500, null);
+  const resClampRes54 = con54.adjustCityResource('wood', -99999, null);
+  const stratGrant54 = con54.grantShopItem('buy_wep_1');
+  const snapAfter54 = con54.getInspectorSnapshot();
+  const directControlsOk54 = Boolean(
+    attrAddRes54.ok &&
+    spiSetRes54.ok && snapAfter54.activeHero && snapAfter54.activeHero.attributes.spi.bonus === 3 &&
+    !badAttrRes54.ok &&
+    clampNegAttr54.ok && clampNegAttr54.bonus === 0 &&
+    lvlSetRes54.ok && snapAfter54.activeHero.level === 4 &&
+    snapAfter54.activeHero.derived.atk > prevAtk54 &&
+    resAddRes54.ok && city54.stockpile.gold === (goldBefore54 + 500) &&
+    resClampRes54.ok && city54.stockpile.wood === 0 &&
+    stratGrant54.ok && snapAfter54.activeHero.packItems.length >= 1
+  );
+
+  // 3. Dungeon direct vitals, God Mode toggle & object spawner
+  activeCtx54 = 'dungeon';
+  dngState54.inGuild = false;
+  dngState54.dungeon.currentFloor = 1;
+  const openFloor54 = {
+    depth: 1,
+    width: 7,
+    height: 7,
+    tiles: Array.from({ length: 7 }, function() { return Array.from({ length: 7 }, function() { return 1; }); }),
+    explored: Array.from({ length: 7 }, function() { return Array.from({ length: 7 }, function() { return 0; }); }),
+    monsters: [],
+    chests: [],
+    traps: {},
+    shrines: {},
+    objects: [],
+    groundItems: []
+  };
+  dngState54.dungeon.floors[1] = openFloor54;
+  dngState54.hero = createDungeonHeroForClass('cleric', host54.state.world.heroes[0], CANONICAL_PLAYER_ID);
+  dngState54.hero.x = 3;
+  dngState54.hero.y = 3;
+  recomputeHeroDerivedStats(true, dngState54);
+
+  const hpDrop54 = con54.adjustHeroVitals('hp', -20, null);
+  const hpClampMin54 = con54.adjustHeroVitals('hp', -9999, null);
+  const godOn54 = con54.toggleHeroGodMode();
+  const portalSpawn54 = con54.spawnObject('portal', 'waypoint_portal', null, null);
+  const dngControlsOk54 = Boolean(
+    hpDrop54.ok && hpDrop54.value === (dngState54.hero.maxHp - 20) &&
+    hpClampMin54.ok && hpClampMin54.value === 1 &&
+    godOn54.ok && dngState54.hero.godMode === true &&
+    portalSpawn54.ok && openFloor54.objects.length >= 1
+  );
+
+  // 4. Structured categorized Help catalog & live search filtering
+  const helpAll54 = con54.getHelpCatalog('');
+  const helpSpawn54 = con54.getHelpCatalog('spawn');
+  const helpNone54 = con54.getHelpCatalog('zzzz_no_such_topic');
+  const helpCatalogOk54 = Boolean(
+    helpAll54.categories.length >= 4 &&
+    helpAll54.totalCount >= 18 &&
+    helpSpawn54.matchedCount >= 1 && helpSpawn54.matchedCount < helpAll54.totalCount &&
+    helpNone54.matchedCount === 0 && helpNone54.categories.length === 0
+  );
+
+  const t54Checks = {
+    tabsOk: tabsOk54,
+    snapshotOk: snapshotOk54,
+    directControlsOk: directControlsOk54,
+    dngControlsOk: dngControlsOk54,
+    helpCatalogOk: helpCatalogOk54
+  };
+  const failed54 = Object.keys(t54Checks).filter(function(k) { return !t54Checks[k]; });
+  const t54Pass = failed54.length === 0;
+  results.push({
+    name: '54. HR-15 Usability Correction: Control Panel Tabs, Inspector Snapshot, Direct Value Controls & Structured Help',
+    pass: t54Pass,
+    detail: t54Pass
+      ? 'Tabbed control panel, live state snapshot, bounds-checked direct controls (attrs/vitals/level/resources/objects), and categorized filterable Help verified'
+      : 'Failed checks: ' + failed54.join(', ')
+  });
+
   return results;
+}
+
+  // --- Module: src/wargame/ui/devConsolePanel.js ---
+// Visual Developer Control Panel & Structured Help UI (HR-15 Usability Correction)
+// Renders tabbed inspection, direct value controls, common activity presets,
+// secondary command terminal, and searchable categorized help inside #wgDevConsoleDrawer.
+
+
+let dcpRetireArmedHeroId = null;
+let dcpListenersWired = false;
+
+function dcpEscapeHtml(str) {
+  return String(str === undefined || str === null ? '' : str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function dcpRenderKvRow(label, value, toneClass) {
+  return (
+    '<div class="flex items-center justify-between gap-2 py-1 border-b border-[#1e293b]/70 last:border-b-0">' +
+      '<span class="text-[#94a3b8]">' + dcpEscapeHtml(label) + '</span>' +
+      '<span class="font-bold ' + (toneClass || 'text-[#e6edf3]') + '">' + dcpEscapeHtml(value) + '</span>' +
+    '</div>'
+  );
+}
+
+function dcpRenderOverviewTab(snap) {
+  const h = snap.activeHero;
+  const w = snap.world;
+  const d = snap.dungeon;
+  const isDng = snap.context === 'dungeon';
+
+  const heroCard = h
+    ? (
+      '<div class="p-3 rounded-lg bg-[#0b111e] border border-[#283347] space-y-1.5">' +
+        '<div class="flex items-center justify-between border-b border-[#283347] pb-1">' +
+          '<span class="text-[11px] font-bold uppercase tracking-wider text-[#fbbf24]">Active Hero</span>' +
+          '<span class="text-[10px] text-[#38bdf8]">' + dcpEscapeHtml(h.className + ' Lv ' + h.level) + '</span>' +
+        '</div>' +
+        dcpRenderKvRow('Name', h.name + ' [' + h.id + ']') +
+        dcpRenderKvRow('XP', h.xp + ' / ' + h.maxXp, 'text-[#a855f7]') +
+        dcpRenderKvRow('HP / MP', h.hp + '/' + h.maxHp + ' HP  •  ' + h.mp + '/' + h.maxMp + ' MP', 'text-[#34d399]') +
+        dcpRenderKvRow('Attributes', 'STR ' + h.attributes.str.display + ' • DEX ' + h.attributes.dex.display + ' • INT ' + h.attributes.int.display + ' • VIT ' + h.attributes.vit.display + ' • SPI ' + h.attributes.spi.display) +
+        dcpRenderKvRow('Derived', 'ATK ' + h.derived.atk + ' • MAG ' + h.derived.magicPower + ' • DEF ' + h.derived.def + ' • CRIT ' + h.derived.crit + '% • DODGE ' + h.derived.dodge + '%') +
+        dcpRenderKvRow('Points / Mode', 'StatPts ' + h.statPoints + ' • TalentPts ' + h.talentPoints + (h.godMode ? ' • GOD MODE' : ''), h.godMode ? 'text-[#fbbf24]' : 'text-[#cbd5e1]') +
+      '</div>'
+    )
+    : '<div class="p-3 rounded-lg bg-[#0b111e] border border-[#283347] text-[#94a3b8]">No active hero yet. Recruit a hero in the Heroes tab or start a campaign.</div>';
+
+  const worldCard =
+    '<div class="p-3 rounded-lg bg-[#0b111e] border border-[#283347] space-y-1.5">' +
+      '<div class="flex items-center justify-between border-b border-[#283347] pb-1">' +
+        '<span class="text-[11px] font-bold uppercase tracking-wider text-[#38bdf8]">World &amp; Dungeon Context</span>' +
+        '<span class="text-[10px] text-[#c084fc]">' + dcpEscapeHtml(snap.viewLabel) + '</span>' +
+      '</div>' +
+      dcpRenderKvRow('Campaign', w ? (w.worldName + ' (Seed ' + w.seedCode + ')') : 'Title / Inactive') +
+      dcpRenderKvRow('City', (w && w.city) ? (w.city.name + ' (' + w.city.x + ',' + w.city.y + ') • Gold ' + w.city.stockpile.gold) : 'Not Founded') +
+      dcpRenderKvRow('Roster / Hostiles', (w ? w.heroCount : 0) + ' Heroes • ' + (w ? w.hostileCount : 0) + ' Overworld Hostiles') +
+      dcpRenderKvRow('Dungeon', d.active ? (d.name + ' • Floor ' + d.depth + ' • Turn ' + d.turn) : 'Surface (Not in Dungeon)', d.active ? 'text-[#c084fc]' : 'text-[#94a3b8]') +
+      dcpRenderKvRow('Floor Entities', d.monsterCount + ' Monsters • ' + d.objectCount + ' Objects' + (d.heroPos ? (' • Hero (' + d.heroPos.x + ',' + d.heroPos.y + ')') : '')) +
+    '</div>';
+
+  const quickBar =
+    '<div class="p-3 rounded-lg bg-[#0b111e] border border-[#a855f7]/30 space-y-2">' +
+      '<div class="text-[11px] font-bold uppercase tracking-wider text-[#c084fc]">Quick Playtest Actions</div>' +
+      '<div class="flex flex-wrap gap-1.5">' +
+        '<button type="button" data-dev-act="xp-add" data-val="60" class="px-2.5 py-1 rounded bg-[#1a2232] hover:bg-[#283347] border border-[#a855f7]/40 text-[#c084fc] cursor-pointer">+60 XP</button>' +
+        '<button type="button" data-dev-act="level-delta" data-val="1" class="px-2.5 py-1 rounded bg-[#1a2232] hover:bg-[#283347] border border-[#fbbf24]/40 text-[#fbbf24] cursor-pointer">Level +1</button>' +
+        '<button type="button" data-dev-act="spawn-quick" data-val="vault_crawler" class="px-2.5 py-1 rounded bg-[#1a2232] hover:bg-[#283347] border border-[#f87171]/40 text-[#f87171] cursor-pointer">+ Spawn Crawler</button>' +
+        '<button type="button" data-dev-act="resource-delta" data-key="gold" data-val="500" class="px-2.5 py-1 rounded bg-[#1a2232] hover:bg-[#283347] border border-[#fbbf24]/40 text-[#fde68a] cursor-pointer">+500 Gold</button>' +
+        (isDng
+          ? (
+            '<button type="button" data-dev-act="heal" class="px-2.5 py-1 rounded bg-[#1a2232] hover:bg-[#283347] border border-[#34d399]/40 text-[#34d399] cursor-pointer">Full Heal</button>' +
+            '<button type="button" data-dev-act="reveal" class="px-2.5 py-1 rounded bg-[#1a2232] hover:bg-[#283347] border border-[#38bdf8]/40 text-[#38bdf8] cursor-pointer">Reveal Floor</button>' +
+            '<button type="button" data-dev-act="god-toggle" class="px-2.5 py-1 rounded bg-[#1a2232] hover:bg-[#283347] border border-[#fbbf24]/40 text-[#fbbf24] cursor-pointer">' + (h && h.godMode ? 'Disable God Mode' : 'Enable God Mode') + '</button>' +
+            '<button type="button" data-dev-act="dungeon-exit" class="px-2.5 py-1 rounded bg-[#1a2232] hover:bg-[#283347] border border-[#94a3b8]/40 text-[#e6edf3] cursor-pointer">Exit Dungeon</button>'
+          )
+          : '<button type="button" data-dev-act="dungeon-enter" class="px-2.5 py-1 rounded bg-[#1a2232] hover:bg-[#283347] border border-[#c084fc]/40 text-[#c084fc] cursor-pointer">Enter Dungeon</button>'
+        ) +
+      '</div>' +
+    '</div>';
+
+  return '<div class="space-y-3"><div class="grid grid-cols-1 md:grid-cols-2 gap-3">' + heroCard + worldCard + '</div>' + quickBar + '</div>';
+}
+
+function dcpRenderHeroesTab(snap) {
+  const h = snap.activeHero;
+  const isDng = snap.context === 'dungeon';
+
+  const heroOptions = snap.heroes.length > 0
+    ? snap.heroes.map(function(item) {
+      return '<option value="' + dcpEscapeHtml(item.id) + '"' + (item.selected ? ' selected' : '') + '>' + dcpEscapeHtml(item.name + ' (' + item.className + ' Lv ' + item.level + ')') + '</option>';
+    }).join('')
+    : '<option value="">No heroes in roster</option>';
+
+  const classOptions = snap.recruitableClasses.map(function(cls) {
+    return '<option value="' + dcpEscapeHtml(cls.id) + '">' + dcpEscapeHtml(cls.name + ' — ' + cls.title) + '</option>';
+  }).join('');
+
+  const selectorRow =
+    '<div class="p-3 rounded-lg bg-[#0b111e] border border-[#283347] grid grid-cols-1 md:grid-cols-2 gap-3">' +
+      '<div class="space-y-1.5">' +
+        '<div class="text-[11px] font-bold uppercase text-[#38bdf8]">Active Hero Selector</div>' +
+        '<div class="flex flex-wrap items-center gap-1.5">' +
+          '<select data-dev-field="heroSelect" class="flex-1 min-w-[160px] px-2 py-1 rounded bg-[#05080f] border border-[#334155] text-[#e6edf3]"' + (isDng ? ' disabled' : '') + '>' + heroOptions + '</select>' +
+          (!isDng && h ? '<button type="button" data-dev-act="select-party" class="px-2 py-1 rounded bg-[#1a2232] hover:bg-[#283347] border border-[#38bdf8]/40 text-[#38bdf8] cursor-pointer">Focus Party</button>' : '') +
+          (!isDng && h
+            ? (dcpRetireArmedHeroId === h.id
+              ? '<button type="button" data-dev-act="retire-confirm" data-hero-id="' + dcpEscapeHtml(h.id) + '" class="px-2 py-1 rounded bg-[#7f1d1d] hover:bg-[#991b1b] border border-[#f87171] text-white font-bold cursor-pointer">Confirm Retire?</button>'
+              : '<button type="button" data-dev-act="retire-arm" data-hero-id="' + dcpEscapeHtml(h.id) + '" class="px-2 py-1 rounded bg-[#1a2232] hover:bg-[#450a0a] border border-[#f87171]/40 text-[#f87171] cursor-pointer">Retire</button>')
+            : '') +
+        '</div>' +
+        (isDng ? '<div class="text-[10px] text-[#64748b]">Locked to current Dungeon delving hero.</div>' : '') +
+      '</div>' +
+      '<div class="space-y-1.5">' +
+        '<div class="text-[11px] font-bold uppercase text-[#34d399]">Recruit Adventuring Hero</div>' +
+        '<div class="flex flex-wrap items-center gap-1.5">' +
+          '<select data-dev-field="recruitClass" class="px-2 py-1 rounded bg-[#05080f] border border-[#334155] text-[#e6edf3]"' + (isDng ? ' disabled' : '') + '>' + classOptions + '</select>' +
+          '<input data-dev-field="recruitName" type="text" placeholder="Optional Name" class="w-28 px-2 py-1 rounded bg-[#05080f] border border-[#334155] text-[#e6edf3]"' + (isDng ? ' disabled' : '') + ' />' +
+          '<button type="button" data-dev-act="recruit-hero" class="px-2.5 py-1 rounded bg-[#34d399]/20 hover:bg-[#34d399]/30 border border-[#34d399]/50 text-[#34d399] font-bold cursor-pointer"' + (isDng ? ' disabled' : '') + '>+ Recruit</button>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+
+  if (!h) return '<div class="space-y-3">' + selectorRow + '<div class="p-3 rounded-lg bg-[#0b111e] border border-[#283347] text-[#94a3b8]">No hero selected.</div></div>';
+
+  const attrKeys = ['str', 'dex', 'int', 'vit', 'spi'];
+  const attrRows = attrKeys.map(function(k) {
+    const a = h.attributes[k];
+    return (
+      '<div class="flex flex-wrap items-center justify-between gap-2 py-1.5 border-b border-[#1e293b]/70 last:border-b-0">' +
+        '<div class="flex items-center gap-2 min-w-[160px]">' +
+          '<span class="w-9 font-bold text-[#fbbf24]">' + k.toUpperCase() + '</span>' +
+          '<span class="text-[#e6edf3] font-bold">' + a.display + '</span>' +
+          '<span class="text-[10px] text-[#64748b]">(int ' + a.internal + ' • bonus ' + a.bonus + ')</span>' +
+        '</div>' +
+        '<div class="flex items-center gap-1">' +
+          '<button type="button" data-dev-act="attr-delta" data-key="' + k + '" data-val="-1" class="px-2 py-0.5 rounded bg-[#1a2232] hover:bg-[#283347] border border-[#334155] text-[#f87171] cursor-pointer">-1</button>' +
+          '<button type="button" data-dev-act="attr-delta" data-key="' + k + '" data-val="1" class="px-2 py-0.5 rounded bg-[#1a2232] hover:bg-[#283347] border border-[#334155] text-[#34d399] cursor-pointer">+1</button>' +
+          '<button type="button" data-dev-act="attr-delta" data-key="' + k + '" data-val="5" class="px-2 py-0.5 rounded bg-[#1a2232] hover:bg-[#283347] border border-[#334155] text-[#34d399] cursor-pointer">+5</button>' +
+          '<input data-dev-field="attrSet_' + k + '" type="number" min="0" max="999" step="1" value="' + a.bonus + '" class="w-16 px-1.5 py-0.5 rounded bg-[#05080f] border border-[#334155] text-[#e6edf3] text-right" />' +
+          '<button type="button" data-dev-act="attr-set" data-key="' + k + '" class="px-2 py-0.5 rounded bg-[#2563eb]/30 hover:bg-[#2563eb]/50 border border-[#60a5fa]/40 text-[#93c5fd] cursor-pointer">Set Bonus</button>' +
+        '</div>' +
+      '</div>'
+    );
+  }).join('');
+
+  const vitalsBox = isDng
+    ? (
+      '<div class="p-3 rounded-lg bg-[#0b111e] border border-[#283347] space-y-2">' +
+        '<div class="text-[11px] font-bold uppercase text-[#34d399]">Direct Vitals (Dungeon)</div>' +
+        '<div class="flex flex-wrap items-center justify-between gap-2">' +
+          '<span>HP: <strong class="text-[#34d399]">' + h.hp + ' / ' + h.maxHp + '</strong></span>' +
+          '<div class="flex items-center gap-1">' +
+            '<button type="button" data-dev-act="vital-delta" data-key="hp" data-val="-25" class="px-2 py-0.5 rounded bg-[#1a2232] hover:bg-[#283347] text-[#f87171] cursor-pointer">-25</button>' +
+            '<button type="button" data-dev-act="vital-delta" data-key="hp" data-val="25" class="px-2 py-0.5 rounded bg-[#1a2232] hover:bg-[#283347] text-[#34d399] cursor-pointer">+25</button>' +
+            '<button type="button" data-dev-act="heal" class="px-2 py-0.5 rounded bg-[#34d399]/20 hover:bg-[#34d399]/30 text-[#34d399] font-bold cursor-pointer">Full Heal</button>' +
+          '</div>' +
+        '</div>' +
+        '<div class="flex flex-wrap items-center justify-between gap-2">' +
+          '<span>MP: <strong class="text-[#60a5fa]">' + h.mp + ' / ' + h.maxMp + '</strong></span>' +
+          '<div class="flex items-center gap-1">' +
+            '<button type="button" data-dev-act="vital-delta" data-key="mp" data-val="-10" class="px-2 py-0.5 rounded bg-[#1a2232] hover:bg-[#283347] text-[#f87171] cursor-pointer">-10</button>' +
+            '<button type="button" data-dev-act="vital-delta" data-key="mp" data-val="10" class="px-2 py-0.5 rounded bg-[#1a2232] hover:bg-[#283347] text-[#60a5fa] cursor-pointer">+10</button>' +
+          '</div>' +
+        '</div>' +
+      '</div>'
+    )
+    : '';
+
+  const knowledgeBox =
+    '<div class="p-3 rounded-lg bg-[#0b111e] border border-[#283347] flex flex-wrap items-center justify-between gap-2 text-[11px]">' +
+      '<span class="font-bold uppercase text-[#c084fc]">Knowledge Ranks</span>' +
+      '<span class="text-[#cbd5e1]">Monster ' + h.knowledge.monster_knowledge + ' • Item ' + h.knowledge.object_item_knowledge + ' • Flora ' + h.knowledge.flora_knowledge + ' • Fauna ' + h.knowledge.fauna_knowledge + '</span>' +
+    '</div>';
+
+  return (
+    '<div class="space-y-3">' +
+      selectorRow +
+      '<div class="p-3 rounded-lg bg-[#0b111e] border border-[#283347]">' +
+        '<div class="flex items-center justify-between border-b border-[#283347] pb-1.5 mb-1">' +
+          '<span class="text-[11px] font-bold uppercase text-[#fbbf24]">Foundational Attributes (Bonus Calibration)</span>' +
+          '<span class="text-[10px] text-[#94a3b8]">Display = floor(internal)</span>' +
+        '</div>' +
+        attrRows +
+      '</div>' +
+      vitalsBox +
+      knowledgeBox +
+    '</div>'
+  );
+}
+
+function dcpRenderProgressionTab(snap) {
+  const h = snap.activeHero;
+  if (!h) return '<div class="p-3 rounded-lg bg-[#0b111e] border border-[#283347] text-[#94a3b8]">No active hero to adjust progression.</div>';
+
+  return (
+    '<div class="space-y-3">' +
+      '<div class="p-3 rounded-lg bg-[#0b111e] border border-[#283347] space-y-2.5">' +
+        '<div class="flex items-center justify-between border-b border-[#283347] pb-1.5">' +
+          '<span class="text-[11px] font-bold uppercase text-[#fbbf24]">Level &amp; Experience Controls</span>' +
+          '<span class="text-[11px] text-[#38bdf8]">' + dcpEscapeHtml(h.name + ' • ' + h.className) + '</span>' +
+        '</div>' +
+        '<div class="flex flex-wrap items-center justify-between gap-2">' +
+          '<span>Level: <strong class="text-[#fbbf24]">' + h.level + '</strong> <span class="text-[#64748b]">(1–100)</span></span>' +
+          '<div class="flex items-center gap-1">' +
+            '<button type="button" data-dev-act="level-delta" data-val="-1" class="px-2 py-0.5 rounded bg-[#1a2232] hover:bg-[#283347] text-[#f87171] cursor-pointer">-1</button>' +
+            '<button type="button" data-dev-act="level-delta" data-val="1" class="px-2 py-0.5 rounded bg-[#1a2232] hover:bg-[#283347] text-[#34d399] cursor-pointer">+1</button>' +
+            '<button type="button" data-dev-act="level-delta" data-val="5" class="px-2 py-0.5 rounded bg-[#1a2232] hover:bg-[#283347] text-[#34d399] cursor-pointer">+5</button>' +
+            '<input data-dev-field="levelSet" type="number" min="1" max="100" value="' + h.level + '" class="w-16 px-1.5 py-0.5 rounded bg-[#05080f] border border-[#334155] text-[#e6edf3] text-right" />' +
+            '<button type="button" data-dev-act="level-set" class="px-2.5 py-0.5 rounded bg-[#fbbf24]/20 hover:bg-[#fbbf24]/30 border border-[#fbbf24]/50 text-[#fbbf24] font-bold cursor-pointer">Set Level</button>' +
+          '</div>' +
+        '</div>' +
+        '<div class="flex flex-wrap items-center justify-between gap-2">' +
+          '<span>XP: <strong class="text-[#c084fc]">' + h.xp + ' / ' + h.maxXp + '</strong></span>' +
+          '<div class="flex items-center gap-1">' +
+            '<button type="button" data-dev-act="xp-add" data-val="25" class="px-2 py-0.5 rounded bg-[#1a2232] hover:bg-[#283347] text-[#c084fc] cursor-pointer">+25</button>' +
+            '<button type="button" data-dev-act="xp-add" data-val="60" class="px-2 py-0.5 rounded bg-[#1a2232] hover:bg-[#283347] text-[#c084fc] cursor-pointer">+60</button>' +
+            '<button type="button" data-dev-act="xp-add" data-val="200" class="px-2 py-0.5 rounded bg-[#1a2232] hover:bg-[#283347] text-[#c084fc] cursor-pointer">+200</button>' +
+            '<input data-dev-field="xpSet" type="number" min="0" value="' + h.xp + '" class="w-20 px-1.5 py-0.5 rounded bg-[#05080f] border border-[#334155] text-[#e6edf3] text-right" />' +
+            '<button type="button" data-dev-act="xp-set" class="px-2.5 py-0.5 rounded bg-[#a855f7]/20 hover:bg-[#a855f7]/30 border border-[#a855f7]/50 text-[#c084fc] font-bold cursor-pointer">Set XP</button>' +
+          '</div>' +
+        '</div>' +
+        '<div class="flex flex-wrap items-center justify-between gap-2">' +
+          '<span>Stat Points: <strong class="text-[#34d399]">' + h.statPoints + '</strong> • Talent Points: <strong class="text-[#60a5fa]">' + h.talentPoints + '</strong></span>' +
+          '<div class="flex items-center gap-1">' +
+            '<button type="button" data-dev-act="statpts-delta" data-val="-1" class="px-2 py-0.5 rounded bg-[#1a2232] hover:bg-[#283347] text-[#f87171] cursor-pointer">-1</button>' +
+            '<button type="button" data-dev-act="statpts-delta" data-val="1" class="px-2 py-0.5 rounded bg-[#1a2232] hover:bg-[#283347] text-[#34d399] cursor-pointer">+1</button>' +
+            '<button type="button" data-dev-act="statpts-delta" data-val="5" class="px-2 py-0.5 rounded bg-[#1a2232] hover:bg-[#283347] text-[#34d399] cursor-pointer">+5</button>' +
+          '</div>' +
+        '</div>' +
+      '</div>' +
+      '<div class="p-3 rounded-lg bg-[#0b111e] border border-[#283347] grid grid-cols-2 sm:grid-cols-4 gap-2 text-center">' +
+        '<div class="p-2 rounded bg-[#070b12] border border-[#1e293b]"><div class="text-[10px] text-[#94a3b8]">MAX HP</div><div class="text-sm font-bold text-[#34d399]">' + h.derived.maxHp + '</div></div>' +
+        '<div class="p-2 rounded bg-[#070b12] border border-[#1e293b]"><div class="text-[10px] text-[#94a3b8]">MAX MP</div><div class="text-sm font-bold text-[#60a5fa]">' + h.derived.maxMp + '</div></div>' +
+        '<div class="p-2 rounded bg-[#070b12] border border-[#1e293b]"><div class="text-[10px] text-[#94a3b8]">ATK / MAG</div><div class="text-sm font-bold text-[#fbbf24]">' + h.derived.atk + ' / ' + h.derived.magicPower + '</div></div>' +
+        '<div class="p-2 rounded bg-[#070b12] border border-[#1e293b]"><div class="text-[10px] text-[#94a3b8]">DEF / CRIT / DODGE</div><div class="text-sm font-bold text-[#e6edf3]">' + h.derived.def + ' / ' + h.derived.crit + '% / ' + h.derived.dodge + '%</div></div>' +
+      '</div>' +
+    '</div>'
+  );
+}
+
+function dcpRenderCombatTab(snap) {
+  const isDng = snap.context === 'dungeon';
+  const h = snap.activeHero;
+  const regOpts = snap.combat.regularArchetypes.map(function(a) {
+    return '<option value="' + dcpEscapeHtml(a.id) + '">' + dcpEscapeHtml(a.name + ' (' + a.id + ')') + '</option>';
+  }).join('');
+  const bossOpts = snap.combat.bossArchetypes.map(function(a) {
+    return '<option value="' + dcpEscapeHtml(a.id) + '">' + dcpEscapeHtml('[BOSS] ' + a.name + ' (' + a.id + ')') + '</option>';
+  }).join('');
+
+  const spawnerBox =
+    '<div class="p-3 rounded-lg bg-[#0b111e] border border-[#283347] space-y-2">' +
+      '<div class="text-[11px] font-bold uppercase text-[#f87171]">' + (isDng ? 'Dungeon Monster &amp; Boss Spawner' : 'Overworld Hostile Spawner') + '</div>' +
+      '<div class="flex flex-wrap items-center gap-1.5">' +
+        '<select data-dev-field="spawnArch" class="flex-1 min-w-[180px] px-2 py-1 rounded bg-[#05080f] border border-[#334155] text-[#e6edf3]">' +
+          '<optgroup label="Regular Monsters">' + regOpts + '</optgroup>' +
+          (isDng ? '<optgroup label="Bosses">' + bossOpts + '</optgroup>' : '') +
+        '</select>' +
+        '<input data-dev-field="spawnX" type="number" placeholder="X (auto)" class="w-20 px-2 py-1 rounded bg-[#05080f] border border-[#334155] text-[#e6edf3]" />' +
+        '<input data-dev-field="spawnY" type="number" placeholder="Y (auto)" class="w-20 px-2 py-1 rounded bg-[#05080f] border border-[#334155] text-[#e6edf3]" />' +
+        '<button type="button" data-dev-act="spawn-selected" class="px-3 py-1 rounded bg-[#f87171]/20 hover:bg-[#f87171]/30 border border-[#f87171]/50 text-[#f87171] font-bold cursor-pointer">+ Spawn</button>' +
+      '</div>' +
+      '<div class="flex flex-wrap items-center gap-1.5 text-[10px]">' +
+        '<span class="text-[#94a3b8]">Quick Presets:</span>' +
+        '<button type="button" data-dev-act="spawn-quick" data-val="vault_crawler" class="px-2 py-0.5 rounded bg-[#1a2232] hover:bg-[#283347] text-[#fca5a5] cursor-pointer">+ Vault Crawler</button>' +
+        '<button type="button" data-dev-act="spawn-quick" data-val="starfall_archer" class="px-2 py-0.5 rounded bg-[#1a2232] hover:bg-[#283347] text-[#fca5a5] cursor-pointer">+ Starfall Archer</button>' +
+        '<button type="button" data-dev-act="spawn-quick" data-val="bone_warden" class="px-2 py-0.5 rounded bg-[#1a2232] hover:bg-[#283347] text-[#fca5a5] cursor-pointer">+ Bone Warden</button>' +
+        (isDng ? '<button type="button" data-dev-act="spawn-quick" data-val="starfall_colossus" class="px-2 py-0.5 rounded bg-[#450a0a] hover:bg-[#7f1d1d] border border-[#f87171]/50 text-[#fecaca] cursor-pointer">+ Colossus Boss</button>' : '') +
+      '</div>' +
+    '</div>';
+
+  const skillBox = (h && h.skill)
+    ? (
+      '<div class="p-3 rounded-lg bg-[#0b111e] border border-[#283347] flex flex-wrap items-center justify-between gap-2">' +
+        '<div class="space-y-0.5">' +
+          '<div class="text-[11px] font-bold text-[#60a5fa]">⚡ ' + dcpEscapeHtml(h.skill.name) + ' (' + h.skill.cost + ' MP • Rng ' + h.skill.range + ')</div>' +
+          '<div class="text-[10px] text-[#94a3b8]">' + dcpEscapeHtml(h.skill.desc) + '</div>' +
+          (isDng && h.skill.targeting
+            ? '<div class="text-[10px] ' + (h.skill.targeting.valid ? 'text-[#34d399]' : 'text-[#fbbf24]') + '">Targeting: ' + (h.skill.targeting.valid ? ('READY (' + h.skill.targeting.targets.length + ' target(s))') : (h.skill.targeting.canAfford ? 'No target in range' : 'Insufficient MP')) + '</div>'
+            : '') +
+        '</div>' +
+        (isDng
+          ? '<button type="button" data-dev-act="trigger-skill" class="px-3 py-1 rounded bg-[#60a5fa]/20 hover:bg-[#60a5fa]/30 border border-[#60a5fa]/50 text-[#60a5fa] font-bold cursor-pointer">⚡ Cast Skill</button>'
+          : '<span class="text-[10px] text-[#64748b]">Castable in Dungeon</span>') +
+      '</div>'
+    )
+    : '';
+
+  const entityList = isDng ? snap.combat.monsters : snap.combat.hostiles;
+  const listHtml = entityList.length === 0
+    ? '<div class="text-[#64748b] py-1">No active ' + (isDng ? 'monsters on this floor.' : 'wandering hostiles on the Overworld.') + '</div>'
+    : entityList.slice(0, 15).map(function(m) {
+      return (
+        '<div class="flex items-center justify-between gap-2 py-1 border-b border-[#1e293b]/60 last:border-b-0">' +
+          '<span class="' + (m.isBoss ? 'text-[#fbbf24] font-bold' : 'text-[#e6edf3]') + '">' + dcpEscapeHtml(m.name) + ' <span class="text-[#64748b]">(' + m.x + ',' + m.y + ')</span></span>' +
+          '<span class="text-[#94a3b8]">HP ' + m.hp + (m.maxHp ? ('/' + m.maxHp) : '') + (m.atk !== undefined ? (' • ATK ' + m.atk + ' • DEF ' + m.def) : (' • PWR ' + m.power)) + '</span>' +
+        '</div>'
+      );
+    }).join('');
+
+  return (
+    '<div class="space-y-3">' +
+      spawnerBox +
+      skillBox +
+      '<div class="p-3 rounded-lg bg-[#0b111e] border border-[#283347]">' +
+        '<div class="text-[11px] font-bold uppercase text-[#94a3b8] border-b border-[#283347] pb-1 mb-1">' +
+          (isDng ? ('Living Floor Monsters (' + entityList.length + ')') : ('Living Overworld Hostiles (' + entityList.length + ')')) +
+        '</div>' +
+        listHtml +
+      '</div>' +
+    '</div>'
+  );
+}
+
+function dcpRenderDungeonTab(snap) {
+  const isDng = snap.context === 'dungeon';
+  const d = snap.dungeon;
+  const h = snap.activeHero;
+
+  return (
+    '<div class="space-y-3">' +
+      '<div class="p-3 rounded-lg bg-[#0b111e] border border-[#283347] space-y-2.5">' +
+        '<div class="flex items-center justify-between border-b border-[#283347] pb-1.5">' +
+          '<span class="text-[11px] font-bold uppercase text-[#c084fc]">Dungeon Lifecycle &amp; Floor Controls</span>' +
+          '<span class="text-[10px] text-[#38bdf8]">' + dcpEscapeHtml(d.active ? (d.name + ' • Floor ' + d.depth) : 'Currently on Surface') + '</span>' +
+        '</div>' +
+        '<div class="flex flex-wrap items-center gap-2">' +
+          (!isDng
+            ? '<button type="button" data-dev-act="dungeon-enter" class="px-3 py-1.5 rounded bg-[#a855f7]/25 hover:bg-[#a855f7]/40 border border-[#c084fc]/60 text-[#e9d5ff] font-bold cursor-pointer">🏰 Enter Dungeon (Lifecycle)</button>'
+            : (
+              '<button type="button" data-dev-act="dungeon-exit" class="px-3 py-1.5 rounded bg-[#fbbf24]/20 hover:bg-[#fbbf24]/30 border border-[#fbbf24]/50 text-[#fbbf24] font-bold cursor-pointer">🗺 Exit to Overworld</button>' +
+              '<button type="button" data-dev-act="reveal" class="px-2.5 py-1.5 rounded bg-[#1a2232] hover:bg-[#283347] border border-[#38bdf8]/40 text-[#38bdf8] cursor-pointer">👁 Reveal Floor</button>' +
+              '<button type="button" data-dev-act="god-toggle" class="px-2.5 py-1.5 rounded bg-[#1a2232] hover:bg-[#283347] border border-[#fbbf24]/40 text-[#fbbf24] cursor-pointer">' + (h && h.godMode ? '🛡️ God Mode: ON' : '🛡️ God Mode: OFF') + '</button>'
+            )) +
+        '</div>' +
+        (isDng
+          ? (
+            '<div class="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-[#1e293b]">' +
+              '<span>Floor Warp (Debug): <strong class="text-[#60a5fa]">Floor ' + d.depth + '</strong></span>' +
+              '<div class="flex items-center gap-1">' +
+                '<button type="button" data-dev-act="floor-delta" data-val="-1" class="px-2 py-0.5 rounded bg-[#1a2232] hover:bg-[#283347] text-[#38bdf8] cursor-pointer">-1</button>' +
+                '<button type="button" data-dev-act="floor-delta" data-val="1" class="px-2 py-0.5 rounded bg-[#1a2232] hover:bg-[#283347] text-[#38bdf8] cursor-pointer">+1</button>' +
+                '<input data-dev-field="floorSet" type="number" min="1" max="999" value="' + d.depth + '" class="w-16 px-1.5 py-0.5 rounded bg-[#05080f] border border-[#334155] text-[#e6edf3] text-right" />' +
+                '<button type="button" data-dev-act="floor-set" class="px-2.5 py-0.5 rounded bg-[#38bdf8]/20 hover:bg-[#38bdf8]/30 border border-[#38bdf8]/50 text-[#38bdf8] font-bold cursor-pointer">Warp</button>' +
+              '</div>' +
+            '</div>'
+          )
+          : '<div class="text-[10px] text-[#94a3b8]">Enter a dungeon (party standing at a discovered dungeon entrance) to enable floor warp, map reveal, and object spawning.</div>') +
+      '</div>' +
+      (isDng
+        ? (
+          '<div class="p-3 rounded-lg bg-[#0b111e] border border-[#283347] space-y-2">' +
+            '<div class="text-[11px] font-bold uppercase text-[#34d399]">Quick Dungeon Object Spawner (Adjacent Tile)</div>' +
+            '<div class="flex flex-wrap gap-1.5">' +
+              '<button type="button" data-dev-act="spawn-obj" data-otype="portal" data-sub="waypoint_portal" class="px-2.5 py-1 rounded bg-[#1a2232] hover:bg-[#283347] border border-[#38bdf8]/40 text-[#38bdf8] cursor-pointer">+ Waypoint Portal</button>' +
+              '<button type="button" data-dev-act="spawn-obj" data-otype="portal" data-sub="return_rift" class="px-2.5 py-1 rounded bg-[#1a2232] hover:bg-[#283347] border border-[#c084fc]/40 text-[#c084fc] cursor-pointer">+ Return Rift</button>' +
+              '<button type="button" data-dev-act="spawn-obj" data-otype="door" data-sub="iron_door" class="px-2.5 py-1 rounded bg-[#1a2232] hover:bg-[#283347] border border-[#94a3b8]/40 text-[#e6edf3] cursor-pointer">+ Iron Door</button>' +
+              '<button type="button" data-dev-act="spawn-obj" data-otype="container" data-sub="chest" class="px-2.5 py-1 rounded bg-[#1a2232] hover:bg-[#283347] border border-[#fbbf24]/40 text-[#fbbf24] cursor-pointer">+ Treasure Chest</button>' +
+              '<button type="button" data-dev-act="spawn-obj" data-otype="key" data-sub="iron_key" class="px-2.5 py-1 rounded bg-[#1a2232] hover:bg-[#283347] border border-[#fde68a]/40 text-[#fde68a] cursor-pointer">+ Dungeon Key</button>' +
+              '<button type="button" data-dev-act="spawn-obj" data-otype="mechanism" data-sub="lever" class="px-2.5 py-1 rounded bg-[#1a2232] hover:bg-[#283347] border border-[#34d399]/40 text-[#34d399] cursor-pointer">+ Lever</button>' +
+            '</div>' +
+          '</div>'
+        )
+        : '') +
+    '</div>'
+  );
+}
+
+function dcpRenderItemsTab(snap) {
+  const h = snap.activeHero;
+  const shopOpts = snap.items.shopItems.map(function(it) {
+    return '<option value="' + dcpEscapeHtml(it.id) + '">' + dcpEscapeHtml(it.name + ' [' + it.slot + ']') + '</option>';
+  }).join('');
+
+  const grantBox =
+    '<div class="p-3 rounded-lg bg-[#0b111e] border border-[#283347] space-y-2">' +
+      '<div class="text-[11px] font-bold uppercase text-[#fbbf24]">Grant Canonical Item (No Raw ID Needed)</div>' +
+      '<div class="flex flex-wrap items-center gap-1.5">' +
+        '<select data-dev-field="grantItem" class="flex-1 min-w-[200px] px-2 py-1 rounded bg-[#05080f] border border-[#334155] text-[#e6edf3]">' + shopOpts + '</select>' +
+        '<button type="button" data-dev-act="grant-item" class="px-3 py-1 rounded bg-[#fbbf24]/20 hover:bg-[#fbbf24]/30 border border-[#fbbf24]/50 text-[#fbbf24] font-bold cursor-pointer">+ Grant Item</button>' +
+      '</div>' +
+    '</div>';
+
+  if (!h) return '<div class="space-y-3">' + grantBox + '<div class="p-3 rounded-lg bg-[#0b111e] border border-[#283347] text-[#94a3b8]">No active hero.</div></div>';
+
+  const eqRows = h.equipment.map(function(slot) {
+    return dcpRenderKvRow(slot.slot.toUpperCase(), slot.name || '— Empty —', slot.name ? 'text-[#e6edf3]' : 'text-[#64748b]');
+  }).join('');
+
+  const packRows = h.packItems.length === 0
+    ? '<div class="text-[#64748b] py-1">No unequipped gear in pack. Grant an item above to test equipping.</div>'
+    : h.packItems.map(function(it) {
+      return (
+        '<div class="flex items-center justify-between gap-2 py-1 border-b border-[#1e293b]/60 last:border-b-0">' +
+          '<span class="text-[#e6edf3]">' + dcpEscapeHtml(it.name) + ' <span class="text-[10px] text-[#64748b]">[' + dcpEscapeHtml(it.slot) + ']</span></span>' +
+          '<button type="button" data-dev-act="equip-item" data-uid="' + dcpEscapeHtml(it.uid) + '" class="px-2 py-0.5 rounded bg-[#34d399]/20 hover:bg-[#34d399]/30 border border-[#34d399]/40 text-[#34d399] font-bold cursor-pointer">Equip</button>' +
+        '</div>'
+      );
+    }).join('');
+
+  return (
+    '<div class="space-y-3">' +
+      grantBox +
+      '<div class="grid grid-cols-1 md:grid-cols-2 gap-3">' +
+        '<div class="p-3 rounded-lg bg-[#0b111e] border border-[#283347]">' +
+          '<div class="text-[11px] font-bold uppercase text-[#38bdf8] border-b border-[#283347] pb-1 mb-1">Equipped 6-Slot Loadout</div>' +
+          eqRows +
+          '<div class="mt-2 pt-1.5 border-t border-[#1e293b] text-[10px] text-[#94a3b8]">Consumables: 🧪 Tonics ' + (h.consumables.potions || 0) + ' • 📜 Recalls ' + (h.consumables.recalls || 0) + '</div>' +
+        '</div>' +
+        '<div class="p-3 rounded-lg bg-[#0b111e] border border-[#283347]">' +
+          '<div class="text-[11px] font-bold uppercase text-[#34d399] border-b border-[#283347] pb-1 mb-1">Pack / Bag Gear (' + h.packItems.length + ')</div>' +
+          packRows +
+        '</div>' +
+      '</div>' +
+    '</div>'
+  );
+}
+
+function dcpRenderWorldTab(snap) {
+  const w = snap.world;
+  if (!w || !w.city) {
+    return '<div class="p-3 rounded-lg bg-[#0b111e] border border-[#283347] text-[#94a3b8]">No founded city in the current campaign yet. Found a city to edit stockpiles and inspect world state.</div>';
+  }
+  const c = w.city;
+  const resKeys = ['gold', 'wood', 'stone', 'food', 'water', 'ore', 'ingots'];
+  const rows = resKeys.map(function(k) {
+    const val = c.stockpile[k] || 0;
+    return (
+      '<div class="flex flex-wrap items-center justify-between gap-2 py-1.5 border-b border-[#1e293b]/70 last:border-b-0">' +
+        '<div class="flex items-center gap-2 min-w-[130px]">' +
+          '<span class="w-16 font-bold uppercase text-[#fbbf24]">' + k + '</span>' +
+          '<span class="text-[#e6edf3] font-bold">' + val + '</span>' +
+        '</div>' +
+        '<div class="flex items-center gap-1">' +
+          '<button type="button" data-dev-act="resource-delta" data-key="' + k + '" data-val="-100" class="px-2 py-0.5 rounded bg-[#1a2232] hover:bg-[#283347] text-[#f87171] cursor-pointer">-100</button>' +
+          '<button type="button" data-dev-act="resource-delta" data-key="' + k + '" data-val="100" class="px-2 py-0.5 rounded bg-[#1a2232] hover:bg-[#283347] text-[#34d399] cursor-pointer">+100</button>' +
+          '<button type="button" data-dev-act="resource-delta" data-key="' + k + '" data-val="500" class="px-2 py-0.5 rounded bg-[#1a2232] hover:bg-[#283347] text-[#34d399] cursor-pointer">+500</button>' +
+          '<input data-dev-field="resSet_' + k + '" type="number" min="0" value="' + val + '" class="w-20 px-1.5 py-0.5 rounded bg-[#05080f] border border-[#334155] text-[#e6edf3] text-right" />' +
+          '<button type="button" data-dev-act="resource-set" data-key="' + k + '" class="px-2 py-0.5 rounded bg-[#2563eb]/30 hover:bg-[#2563eb]/50 border border-[#60a5fa]/40 text-[#93c5fd] cursor-pointer">Set</button>' +
+        '</div>' +
+      '</div>'
+    );
+  }).join('');
+
+  return (
+    '<div class="space-y-3">' +
+      '<div class="p-3 rounded-lg bg-[#0b111e] border border-[#283347]">' +
+        '<div class="flex items-center justify-between border-b border-[#283347] pb-1.5 mb-1">' +
+          '<span class="text-[11px] font-bold uppercase text-[#fbbf24]">' + dcpEscapeHtml(c.name) + ' Stockpiles</span>' +
+          '<span class="text-[10px] text-[#94a3b8]">(' + c.x + ', ' + c.y + ') • ' + c.buildingCount + ' Buildings • ' + w.hostileCount + ' Hostiles</span>' +
+        '</div>' +
+        rows +
+      '</div>' +
+    '</div>'
+  );
+}
+
+function dcpRenderHelpListHtml(catalog) {
+  if (!catalog.categories || catalog.categories.length === 0) {
+    return '<div class="p-3 rounded-lg bg-[#0b111e] border border-[#283347] text-[#94a3b8]">No help entries matched "' + dcpEscapeHtml(catalog.query) + '". Try clearing the filter.</div>';
+  }
+  return catalog.categories.map(function(cat) {
+    const items = cat.entries.map(function(entry) {
+      const exHtml = (entry.examples && entry.examples.length > 0)
+        ? '<div class="flex flex-wrap items-center gap-1 pt-1">' +
+            '<span class="text-[10px] text-[#64748b]">Examples:</span>' +
+            entry.examples.map(function(ex) {
+              return '<button type="button" data-dev-act="run-example" data-cmd="' + dcpEscapeHtml(ex) + '" class="px-1.5 py-0.5 rounded bg-[#1a2232] hover:bg-[#283347] border border-[#a855f7]/30 text-[10px] text-[#c084fc] cursor-pointer" title="Load in Commands tab">' + dcpEscapeHtml(ex) + '</button>';
+            }).join('') +
+          '</div>'
+        : '';
+      return (
+        '<div class="p-2.5 rounded bg-[#070b12] border border-[#1e293b] space-y-1">' +
+          '<div class="flex flex-wrap items-center justify-between gap-2">' +
+            '<code class="text-[#38bdf8] font-bold">' + dcpEscapeHtml(entry.usage) + '</code>' +
+            '<span class="px-1.5 py-0.5 rounded bg-[#1a2232] text-[10px] text-[#94a3b8] uppercase">' + dcpEscapeHtml(entry.contexts.join(' / ')) + '</span>' +
+          '</div>' +
+          '<div class="text-[#cbd5e1]">' + dcpEscapeHtml(entry.desc) + '</div>' +
+          exHtml +
+        '</div>'
+      );
+    }).join('');
+    return (
+      '<div class="space-y-1.5">' +
+        '<div class="text-[11px] font-bold uppercase tracking-wider text-[#fbbf24] pt-1">' + dcpEscapeHtml(cat.name) + ' (' + cat.entries.length + ')</div>' +
+        '<div class="grid grid-cols-1 md:grid-cols-2 gap-2">' + items + '</div>' +
+      '</div>'
+    );
+  }).join('');
+}
+
+function dcpRenderHelpTab(devConsole) {
+  const q = devConsole.getHelpFilter();
+  const catalog = devConsole.getHelpCatalog(q);
+  return (
+    '<div class="space-y-3">' +
+      '<div class="p-2.5 rounded-lg bg-[#0b111e] border border-[#283347] flex flex-wrap items-center justify-between gap-2">' +
+        '<div class="flex-1 min-w-[200px] flex items-center gap-2">' +
+          '<span class="text-[#94a3b8]">🔎</span>' +
+          '<input data-dev-help-filter="1" type="text" value="' + dcpEscapeHtml(q) + '" placeholder="Filter commands, categories, or examples (e.g. spawn, hero, floor)..." class="flex-1 px-2.5 py-1 rounded bg-[#05080f] border border-[#334155] focus:border-[#a855f7] focus:outline-none text-[#e6edf3]" />' +
+        '</div>' +
+        '<span data-dev-help-count="1" class="text-[10px] text-[#94a3b8]">Showing ' + catalog.matchedCount + ' / ' + catalog.totalCount + ' commands</span>' +
+      '</div>' +
+      '<div data-dev-help-list="1" class="space-y-2.5">' + dcpRenderHelpListHtml(catalog) + '</div>' +
+    '</div>'
+  );
+}
+
+function renderDevConsolePanel(devConsole) {
+  if (typeof document === 'undefined' || !devConsole) return;
+  const drawer = document.getElementById('wgDevConsoleDrawer');
+  if (!drawer) return;
+
+  if (!devConsole.isOpen()) {
+    drawer.classList.add('hidden');
+    dcpRetireArmedHeroId = null;
+    return;
+  }
+  drawer.classList.remove('hidden');
+
+  const snap = devConsole.getInspectorSnapshot();
+  const tabId = devConsole.getTab();
+
+  const badge = document.getElementById('wgDevConsoleContextBadge');
+  if (badge) {
+    badge.textContent = snap.viewLabel;
+  }
+
+  const tabsEl = document.getElementById('wgDevConsoleTabs');
+  if (tabsEl) {
+    tabsEl.innerHTML = DEV_CONSOLE_TABS.map(function(t) {
+      const active = t.id === tabId;
+      return (
+        '<button type="button" data-dev-tab="' + t.id + '" class="px-2.5 py-1 rounded-t text-[11px] font-mono whitespace-nowrap cursor-pointer border-b-2 ' +
+        (active
+          ? 'bg-[#0b111e] text-[#fbbf24] border-[#fbbf24] font-bold'
+          : 'bg-transparent text-[#94a3b8] hover:text-[#e6edf3] border-transparent') +
+        '">' + t.icon + ' ' + dcpEscapeHtml(t.label) + '</button>'
+      );
+    }).join('');
+  }
+
+  const bodyEl = document.getElementById('wgDevConsolePanelBody');
+  const termSec = document.getElementById('wgDevConsoleTerminalSection');
+
+  if (tabId === 'commands') {
+    if (bodyEl) bodyEl.classList.add('hidden');
+    if (termSec) termSec.classList.remove('hidden');
+    const outEl = document.getElementById('wgDevConsoleOutput');
+    if (outEl) {
+      const lines = devConsole.getOutput();
+      outEl.innerHTML = lines.map(function(entry) {
+        const col = entry.tone === 'err' ? 'text-[#f87171]' : (entry.tone === 'ok' ? 'text-[#34d399]' : (entry.tone === 'cmd' ? 'text-[#c084fc] font-bold' : 'text-[#94a3b8]'));
+        return '<div class="' + col + ' whitespace-pre-wrap break-words">' + dcpEscapeHtml(entry.text) + '</div>';
+      }).join('');
+      outEl.scrollTop = outEl.scrollHeight;
+    }
+  } else {
+    if (termSec) termSec.classList.add('hidden');
+    if (bodyEl) {
+      bodyEl.classList.remove('hidden');
+      if (tabId === 'overview') bodyEl.innerHTML = dcpRenderOverviewTab(snap);
+      else if (tabId === 'heroes') bodyEl.innerHTML = dcpRenderHeroesTab(snap);
+      else if (tabId === 'progression') bodyEl.innerHTML = dcpRenderProgressionTab(snap);
+      else if (tabId === 'combat') bodyEl.innerHTML = dcpRenderCombatTab(snap);
+      else if (tabId === 'dungeon') bodyEl.innerHTML = dcpRenderDungeonTab(snap);
+      else if (tabId === 'items') bodyEl.innerHTML = dcpRenderItemsTab(snap);
+      else if (tabId === 'world') bodyEl.innerHTML = dcpRenderWorldTab(snap);
+      else if (tabId === 'help') bodyEl.innerHTML = dcpRenderHelpTab(devConsole);
+    }
+  }
+
+  const fbEl = document.getElementById('wgDevConsoleFeedback');
+  if (fbEl) {
+    const fb = devConsole.getLastFeedback();
+    if (!fb) {
+      fbEl.innerHTML = '<span class="text-[#64748b]">Ready — use visual controls above or switch to Commands / Help.</span>';
+    } else {
+      fbEl.innerHTML = '<span class="' + (fb.ok ? 'text-[#34d399]' : 'text-[#f87171]') + '">' + (fb.ok ? '✓ ' : '✕ ') + dcpEscapeHtml(fb.text) + '</span>';
+    }
+  }
+}
+
+function attachDevConsolePanelListeners(devConsole, onRender) {
+  if (typeof document === 'undefined' || dcpListenersWired) return;
+  const drawer = document.getElementById('wgDevConsoleDrawer');
+  if (!drawer) return;
+  dcpListenersWired = true;
+
+  function fieldVal(name) {
+    const el = drawer.querySelector('[data-dev-field="' + name + '"]');
+    return el ? el.value : '';
+  }
+
+  drawer.addEventListener('change', function(e) {
+    const t = e.target;
+    if (!t || !t.getAttribute) return;
+    if (t.getAttribute('data-dev-field') === 'heroSelect') {
+      devConsole.setSelectedHeroId(t.value || null);
+      dcpRetireArmedHeroId = null;
+      if (typeof onRender === 'function') onRender();
+    }
+  });
+
+  drawer.addEventListener('input', function(e) {
+    const t = e.target;
+    if (!t || !t.getAttribute) return;
+    if (t.getAttribute('data-dev-help-filter') === '1') {
+      devConsole.setHelpFilter(t.value || '');
+      const catalog = devConsole.getHelpCatalog();
+      const listEl = drawer.querySelector('[data-dev-help-list="1"]');
+      const countEl = drawer.querySelector('[data-dev-help-count="1"]');
+      if (listEl) listEl.innerHTML = dcpRenderHelpListHtml(catalog);
+      if (countEl) countEl.textContent = 'Showing ' + catalog.matchedCount + ' / ' + catalog.totalCount + ' commands';
+    }
+  });
+
+  drawer.addEventListener('click', function(e) {
+    if (!e.target || !e.target.closest) return;
+
+    const tabBtn = e.target.closest('button[data-dev-tab]');
+    if (tabBtn) {
+      devConsole.setTab(tabBtn.getAttribute('data-dev-tab'));
+      dcpRetireArmedHeroId = null;
+      if (typeof onRender === 'function') onRender();
+      if (devConsole.getTab() === 'commands') {
+        const inp = document.getElementById('wgDevConsoleInput');
+        if (inp) inp.focus();
+      }
+      return;
+    }
+
+    const actBtn = e.target.closest('button[data-dev-act]');
+    if (!actBtn) return;
+    const act = actBtn.getAttribute('data-dev-act');
+
+    if (act === 'xp-add') {
+      devConsole.adjustHeroXp(Number(actBtn.getAttribute('data-val')), null);
+    } else if (act === 'xp-set') {
+      devConsole.adjustHeroXp(0, fieldVal('xpSet'));
+    } else if (act === 'level-delta') {
+      devConsole.adjustHeroLevel(Number(actBtn.getAttribute('data-val')), null);
+    } else if (act === 'level-set') {
+      devConsole.adjustHeroLevel(0, fieldVal('levelSet'));
+    } else if (act === 'statpts-delta') {
+      devConsole.adjustHeroStatPoints(Number(actBtn.getAttribute('data-val')), null);
+    } else if (act === 'attr-delta') {
+      devConsole.adjustHeroAttribute(actBtn.getAttribute('data-key'), Number(actBtn.getAttribute('data-val')), null);
+    } else if (act === 'attr-set') {
+      const k = actBtn.getAttribute('data-key');
+      devConsole.adjustHeroAttribute(k, 0, fieldVal('attrSet_' + k));
+    } else if (act === 'vital-delta') {
+      devConsole.adjustHeroVitals(actBtn.getAttribute('data-key'), Number(actBtn.getAttribute('data-val')), null);
+    } else if (act === 'heal') {
+      devConsole.execute('heal');
+    } else if (act === 'reveal') {
+      devConsole.execute('reveal');
+    } else if (act === 'god-toggle') {
+      devConsole.toggleHeroGodMode();
+    } else if (act === 'dungeon-enter') {
+      devConsole.execute('dungeon enter');
+    } else if (act === 'dungeon-exit') {
+      devConsole.execute('dungeon exit');
+    } else if (act === 'floor-delta') {
+      const snap = devConsole.getInspectorSnapshot();
+      const target = Math.max(1, (snap.dungeon.depth || 1) + Number(actBtn.getAttribute('data-val')));
+      devConsole.execute('floor ' + target);
+    } else if (act === 'floor-set') {
+      devConsole.execute('floor ' + fieldVal('floorSet'));
+    } else if (act === 'spawn-selected') {
+      const arch = fieldVal('spawnArch') || 'vault_crawler';
+      const sx = fieldVal('spawnX');
+      const sy = fieldVal('spawnY');
+      devConsole.spawnObject('monster', arch, sx, sy);
+    } else if (act === 'spawn-quick') {
+      devConsole.spawnObject('monster', actBtn.getAttribute('data-val') || 'vault_crawler', null, null);
+    } else if (act === 'spawn-obj') {
+      devConsole.spawnObject(actBtn.getAttribute('data-otype'), actBtn.getAttribute('data-sub'), null, null);
+    } else if (act === 'trigger-skill') {
+      devConsole.triggerHeroSkill();
+    } else if (act === 'recruit-hero') {
+      const clsId = fieldVal('recruitClass') || 'fighter';
+      const rName = String(fieldVal('recruitName') || '').trim();
+      devConsole.execute(rName ? ('recruit ' + clsId + ' "' + rName.replace(/"/g, '') + '"') : ('recruit ' + clsId));
+    } else if (act === 'select-party') {
+      const hid = fieldVal('heroSelect');
+      if (hid) devConsole.execute('select ' + hid);
+    } else if (act === 'retire-arm') {
+      dcpRetireArmedHeroId = actBtn.getAttribute('data-hero-id');
+    } else if (act === 'retire-confirm') {
+      const hid = actBtn.getAttribute('data-hero-id');
+      dcpRetireArmedHeroId = null;
+      if (hid) devConsole.execute('retire ' + hid + ' confirm');
+    } else if (act === 'grant-item') {
+      devConsole.grantShopItem(fieldVal('grantItem'));
+    } else if (act === 'equip-item') {
+      const uid = actBtn.getAttribute('data-uid');
+      if (uid) devConsole.execute('equip ' + uid);
+    } else if (act === 'resource-delta') {
+      devConsole.adjustCityResource(actBtn.getAttribute('data-key'), Number(actBtn.getAttribute('data-val')), null);
+    } else if (act === 'resource-set') {
+      const rk = actBtn.getAttribute('data-key');
+      devConsole.adjustCityResource(rk, 0, fieldVal('resSet_' + rk));
+    } else if (act === 'run-example') {
+      const cmd = actBtn.getAttribute('data-cmd') || '';
+      devConsole.setTab('commands');
+      if (typeof onRender === 'function') onRender();
+      const inp = document.getElementById('wgDevConsoleInput');
+      if (inp) {
+        inp.value = cmd;
+        inp.focus();
+      }
+      return;
+    }
+
+    if (typeof onRender === 'function') onRender();
+  });
 }
 
   // --- Module: src/ui/renderer.js ---
@@ -40086,6 +42997,8 @@ function renderDungeonCanvas() {
 
 
 
+
+
 const simHost = createWargameSimHost();
 simHost.attachDungeonState(gameState);
 
@@ -40529,8 +43442,92 @@ const appContext = createAppContextController({
       syncIntegratedDungeonHud();
       syncWargameUI(simHost);
     }
+    if (typeof renderDevConsoleDrawer === 'function') {
+      renderDevConsoleDrawer();
+    }
   }
 });
+
+const devConsole = createDevConsoleController({
+  simHost: simHost,
+  dungeonState: gameState,
+  getContext: function() {
+    return appContext.getActiveContext() === APP_CONTEXTS.DUNGEON ? 'dungeon' : 'strategy';
+  },
+  onEnterDungeon: function(poiId) {
+    return handleEnterDungeon(poiId);
+  },
+  onExitDungeon: function() {
+    handleDungeonSurfaceExit();
+  },
+  onTriggerSkill: function() {
+    handleDungeonSkill();
+  },
+  onStateMutated: function() {
+    if (appContext.getActiveContext() === APP_CONTEXTS.DUNGEON) {
+      updateFOV();
+      syncIntegratedDungeonHud();
+    } else if (simHost && simHost.state) {
+      simHost.state._dirty = true;
+      simHost.save();
+      syncWargameUI(simHost);
+    }
+    renderDevConsoleDrawer();
+  }
+});
+
+function renderDevConsoleDrawer() {
+  renderDevConsolePanel(devConsole);
+}
+
+function handleToggleDevConsole(forceOpen) {
+  if (typeof forceOpen === 'boolean') devConsole.setOpen(forceOpen);
+  else devConsole.toggle();
+  renderDevConsoleDrawer();
+  if (devConsole.isOpen() && devConsole.getTab() === 'commands' && typeof document !== 'undefined') {
+    const inp = document.getElementById('wgDevConsoleInput');
+    if (inp) inp.focus();
+  }
+  return devConsole.isOpen();
+}
+
+function handleSelectDevConsoleTab(tabId) {
+  const nextTab = devConsole.setTab(tabId);
+  renderDevConsoleDrawer();
+  if (devConsole.isOpen() && nextTab === 'commands' && typeof document !== 'undefined') {
+    const inp = document.getElementById('wgDevConsoleInput');
+    if (inp) inp.focus();
+  }
+  return nextTab;
+}
+
+function handleRunDevConsoleCommand(explicitCmd) {
+  let cmdText = explicitCmd;
+  let inp = null;
+  if (typeof document !== 'undefined') {
+    inp = document.getElementById('wgDevConsoleInput');
+    if (cmdText === undefined && inp) {
+      cmdText = inp.value;
+      inp.value = '';
+    }
+  }
+  const res = devConsole.execute(cmdText || '');
+  renderDevConsoleDrawer();
+  return res;
+}
+
+function handleClearDevConsole() {
+  const res = devConsole.execute('clear');
+  renderDevConsoleDrawer();
+  return res;
+}
+
+function handleDevConsoleHelp() {
+  devConsole.setOpen(true);
+  devConsole.setTab('help');
+  renderDevConsoleDrawer();
+  return devConsole.getHelpCatalog();
+}
 
 let lastFrameTimestamp = null;
 let autoSaveAccumulatorMs = 0;
@@ -41832,10 +44829,44 @@ function setupWargameListeners() {
     }
   });
 
+  // Wire visual Developer Control Panel delegated listeners (HR-15)
+  attachDevConsolePanelListeners(devConsole, renderDevConsoleDrawer);
+
   // Global Keyboard shortcuts (context-gated: Strategy vs. Dungeon)
   window.addEventListener('keydown', function(e) {
+    const isConsoleInput = Boolean(e.target && e.target.id === 'wgDevConsoleInput');
+    if (isConsoleInput) {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        handleRunDevConsoleCommand();
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        e.target.value = devConsole.getHistoryPrev();
+      } else if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        e.target.value = devConsole.getHistoryNext();
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        handleToggleDevConsole(false);
+      }
+      return;
+    }
     // Avoid capturing inputs when typing into input fields
     if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT')) {
+      if (e.key === 'Escape' && devConsole.isOpen()) {
+        e.preventDefault();
+        handleToggleDevConsole(false);
+      }
+      return;
+    }
+    if (e.key === '`' || e.key === '~') {
+      e.preventDefault();
+      handleToggleDevConsole();
+      return;
+    }
+    if (e.key === 'Escape' && devConsole.isOpen()) {
+      e.preventDefault();
+      handleToggleDevConsole(false);
       return;
     }
 
@@ -42082,6 +45113,12 @@ const WargameApp = {
   handleCancelHeroTraining: function(heroId, tid) { return handleCancelHeroTrainingAction(simHost, heroId, tid); },
   handleOpenDevPortal: function() { handleOpenDevPortal(simHost); },
   handleCloseDevPortal: function() { handleCloseDevPortal(simHost); },
+  handleToggleDevConsole: handleToggleDevConsole,
+  handleSelectDevConsoleTab: handleSelectDevConsoleTab,
+  handleRunDevConsoleCommand: handleRunDevConsoleCommand,
+  handleClearDevConsole: handleClearDevConsole,
+  handleDevConsoleHelp: handleDevConsoleHelp,
+  devConsole: devConsole,
   handleDevSetCurrency: function(cid, val) { return handleDevSetCurrencyAction(simHost, cid, val); },
   handleDevAddCurrency: function(cid, delta) { return handleDevAddCurrencyAction(simHost, cid, delta); },
   handleDevAddStockpile: function(rid, delta) { return handleDevAddStockpileAction(simHost, rid, delta); },

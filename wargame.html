@@ -162,6 +162,9 @@
         <button id="wgBtnDevPortal" onclick="window.WargameApp.handleOpenDevPortal()" title="Open Developer Portal (Currencies &amp; Configs)" class="h-9 px-2 rounded-lg bg-[#1a2232] hover:bg-[#38bdf8] hover:text-[#080b11] border border-[#38bdf8]/40 text-[#38bdf8] font-mono font-bold text-xs flex items-center gap-1 cursor-pointer transition">
           <span>🛠️</span><span class="hidden lg:inline">Dev</span>
         </button>
+        <button id="wgBtnDevConsole" onclick="window.WargameApp.handleToggleDevConsole()" title="Toggle Developer Console [`]" class="h-9 px-2 rounded-lg bg-[#1a2232] hover:bg-[#a855f7] hover:text-[#080b11] border border-[#a855f7]/50 text-[#c084fc] font-mono font-bold text-xs flex items-center gap-1 cursor-pointer transition">
+          <span>&gt;_</span><span class="hidden lg:inline">Console</span>
+        </button>
         <button id="wgBtnMobilePreview" onclick="window.WargameApp.handleToggleMobilePreview()" title="Toggle Mobile Phone Preview Mode (430px)" class="h-9 px-2.5 rounded-lg bg-[#1a2232] hover:bg-[#38bdf8] hover:text-[#080b11] border border-[#38bdf8]/50 text-[#38bdf8] font-mono font-bold text-xs flex items-center gap-1 cursor-pointer transition">
           <span>📱</span><span class="hidden sm:inline">Mobile</span>
         </button>
@@ -452,6 +455,33 @@
   <!-- ===================================================================== -->
   <!-- 3. INTEGRATED DUNGEON CONTEXT VIEW (IN-PROCESS, ZERO RELOAD)          -->
   <!-- ===================================================================== -->
+  <!-- Shared Developer Control Panel & Command Console (Overworld, City & Dungeon — HR-15) -->
+  <div id="wgDevConsoleDrawer" class="hidden fixed bottom-3 right-3 z-[80] w-[95vw] max-w-4xl max-h-[82vh] bg-[#070b12]/97 border border-[#a855f7]/60 rounded-xl shadow-2xl backdrop-blur-md flex flex-col overflow-hidden">
+    <div class="flex items-center justify-between px-3 py-2 bg-[#0d1424] border-b border-[#283347] text-xs font-mono shrink-0">
+      <div class="flex items-center gap-2 min-w-0">
+        <span class="font-bold text-[#c084fc] truncate">&gt;_ Developer Control Panel</span>
+        <span id="wgDevConsoleContextBadge" class="px-1.5 py-0.5 rounded bg-[#1a2232] border border-[#38bdf8]/40 text-[10px] text-[#38bdf8] uppercase">STRATEGY</span>
+        <span class="text-[10px] text-[#64748b] hidden sm:inline">Toggle: [`]</span>
+      </div>
+      <div class="flex items-center gap-1.5 shrink-0">
+        <button type="button" onclick="window.WargameApp.handleDevConsoleHelp()" class="px-2 py-0.5 rounded bg-[#1a2232] hover:bg-[#283347] text-[#38bdf8] text-[10px] cursor-pointer">❓ Help</button>
+        <button type="button" onclick="window.WargameApp.handleToggleDevConsole(false)" class="px-2 py-0.5 rounded bg-[#1a2232] hover:bg-[#450a0a] text-[#f87171] text-[10px] cursor-pointer">✕ Close</button>
+      </div>
+    </div>
+    <div id="wgDevConsoleTabs" class="flex items-center gap-1 px-2 pt-1.5 bg-[#090f1c] border-b border-[#283347] overflow-x-auto shrink-0"></div>
+    <div id="wgDevConsolePanelBody" class="p-3 overflow-y-auto flex-1 min-h-[260px] max-h-[58vh] font-mono text-xs text-[#e6edf3] bg-[#05080f]"></div>
+    <div id="wgDevConsoleTerminalSection" class="hidden flex flex-col flex-1 min-h-[260px] max-h-[58vh] bg-[#05080f]">
+      <div id="wgDevConsoleOutput" class="p-2.5 flex-1 overflow-y-auto font-mono text-[11px] leading-relaxed space-y-0.5"></div>
+      <div class="p-2 bg-[#0d1424] border-t border-[#283347] flex items-center gap-2 shrink-0">
+        <span class="text-[#c084fc] font-mono text-xs font-bold">&gt;</span>
+        <input id="wgDevConsoleInput" type="text" autocomplete="off" spellcheck="false" placeholder="Type command (e.g. state, hero, xp 80, spawn vault_crawler, help)..." class="flex-1 px-2.5 py-1.5 rounded bg-[#05080f] border border-[#334155] focus:border-[#a855f7] focus:outline-none text-xs font-mono text-[#e6edf3]" />
+        <button type="button" onclick="window.WargameApp.handleRunDevConsoleCommand()" class="px-3 py-1.5 rounded bg-[#a855f7] hover:bg-[#9333ea] text-[#080b11] font-mono font-bold text-xs cursor-pointer">Run</button>
+        <button type="button" onclick="window.WargameApp.handleClearDevConsole()" class="px-2.5 py-1.5 rounded bg-[#1a2232] hover:bg-[#283347] text-[#94a3b8] font-mono text-xs cursor-pointer">Clear</button>
+      </div>
+    </div>
+    <div id="wgDevConsoleFeedback" class="px-3 py-1.5 bg-[#0d1424] border-t border-[#283347] font-mono text-[11px] truncate shrink-0"></div>
+  </div>
+
   <!-- Prominent Non-Blocking Level-Up Notification Banner (HR-14.1) -->
   <div id="wgLevelUpNotification" class="hidden fixed top-16 left-1/2 -translate-x-1/2 z-[75] max-w-md w-[92vw]"></div>
 
@@ -464,6 +494,7 @@
         <span id="wgDungeonTurnText" class="text-[11px] font-mono text-[#8b949e]">Turn 0</span>
       </div>
       <div class="flex items-center gap-2">
+        <button id="wgBtnDungeonDevConsole" onclick="window.WargameApp.handleToggleDevConsole()" title="Toggle Developer Console [`]" class="px-2.5 py-1 rounded bg-[#1a2232] hover:bg-[#283347] border border-[#a855f7]/50 text-xs font-mono font-bold text-[#c084fc] cursor-pointer">&gt;_ Console [`]</button>
         <button id="wgBtnDungeonInventory" onclick="window.WargameApp.handleToggleDungeonInventory()" class="px-2.5 py-1 rounded bg-[#1a2232] hover:bg-[#283347] border border-[#38bdf8]/50 text-xs font-mono font-bold text-[#38bdf8] cursor-pointer">🎒 Inventory [I]</button>
         <button id="wgBtnDungeonExit" onclick="window.WargameApp.handleDungeonSurfaceExit()" class="px-2.5 py-1 rounded bg-[#fbbf24]/20 hover:bg-[#fbbf24]/30 border border-[#fbbf24]/50 text-xs font-mono font-bold text-[#fbbf24] cursor-pointer">🗺 Return to Overworld</button>
       </div>

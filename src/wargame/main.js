@@ -69,6 +69,8 @@ import {
 import { getSelectedOverworldUnit, getPrimaryCity } from './engine/state.js';
 import { evaluateWargameSelfTests } from './test/wargameSelfTest.js';
 import { APP_CONTEXTS, createAppContextController } from '../core/appContext.js';
+import { createDevConsoleController } from '../core/devConsole.js';
+import { renderDevConsolePanel, attachDevConsolePanelListeners } from './ui/devConsolePanel.js';
 import { TILE_SIZE, TILE_STAIRS_UP, TILE_STAIRS_DOWN, TILE_CHEST, TILE_SHRINE, TILE_TRAP_VISIBLE } from '../constants.js';
 import { CLASSES } from '../data/classes.js';
 import { formatAttributeDisplay, normalizeHeroBonusStats, getClassLevelGrowth } from '../core/heroStats.js';
@@ -551,8 +553,92 @@ export const appContext = createAppContextController({
       syncIntegratedDungeonHud();
       syncWargameUI(simHost);
     }
+    if (typeof renderDevConsoleDrawer === 'function') {
+      renderDevConsoleDrawer();
+    }
   }
 });
+
+const devConsole = createDevConsoleController({
+  simHost: simHost,
+  dungeonState: gameState,
+  getContext: function() {
+    return appContext.getActiveContext() === APP_CONTEXTS.DUNGEON ? 'dungeon' : 'strategy';
+  },
+  onEnterDungeon: function(poiId) {
+    return handleEnterDungeon(poiId);
+  },
+  onExitDungeon: function() {
+    handleDungeonSurfaceExit();
+  },
+  onTriggerSkill: function() {
+    handleDungeonSkill();
+  },
+  onStateMutated: function() {
+    if (appContext.getActiveContext() === APP_CONTEXTS.DUNGEON) {
+      updateFOV();
+      syncIntegratedDungeonHud();
+    } else if (simHost && simHost.state) {
+      simHost.state._dirty = true;
+      simHost.save();
+      syncWargameUI(simHost);
+    }
+    renderDevConsoleDrawer();
+  }
+});
+
+export function renderDevConsoleDrawer() {
+  renderDevConsolePanel(devConsole);
+}
+
+export function handleToggleDevConsole(forceOpen) {
+  if (typeof forceOpen === 'boolean') devConsole.setOpen(forceOpen);
+  else devConsole.toggle();
+  renderDevConsoleDrawer();
+  if (devConsole.isOpen() && devConsole.getTab() === 'commands' && typeof document !== 'undefined') {
+    const inp = document.getElementById('wgDevConsoleInput');
+    if (inp) inp.focus();
+  }
+  return devConsole.isOpen();
+}
+
+export function handleSelectDevConsoleTab(tabId) {
+  const nextTab = devConsole.setTab(tabId);
+  renderDevConsoleDrawer();
+  if (devConsole.isOpen() && nextTab === 'commands' && typeof document !== 'undefined') {
+    const inp = document.getElementById('wgDevConsoleInput');
+    if (inp) inp.focus();
+  }
+  return nextTab;
+}
+
+export function handleRunDevConsoleCommand(explicitCmd) {
+  let cmdText = explicitCmd;
+  let inp = null;
+  if (typeof document !== 'undefined') {
+    inp = document.getElementById('wgDevConsoleInput');
+    if (cmdText === undefined && inp) {
+      cmdText = inp.value;
+      inp.value = '';
+    }
+  }
+  const res = devConsole.execute(cmdText || '');
+  renderDevConsoleDrawer();
+  return res;
+}
+
+export function handleClearDevConsole() {
+  const res = devConsole.execute('clear');
+  renderDevConsoleDrawer();
+  return res;
+}
+
+export function handleDevConsoleHelp() {
+  devConsole.setOpen(true);
+  devConsole.setTab('help');
+  renderDevConsoleDrawer();
+  return devConsole.getHelpCatalog();
+}
 
 let lastFrameTimestamp = null;
 let autoSaveAccumulatorMs = 0;
@@ -1854,10 +1940,44 @@ function setupWargameListeners() {
     }
   });
 
+  // Wire visual Developer Control Panel delegated listeners (HR-15)
+  attachDevConsolePanelListeners(devConsole, renderDevConsoleDrawer);
+
   // Global Keyboard shortcuts (context-gated: Strategy vs. Dungeon)
   window.addEventListener('keydown', function(e) {
+    const isConsoleInput = Boolean(e.target && e.target.id === 'wgDevConsoleInput');
+    if (isConsoleInput) {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        handleRunDevConsoleCommand();
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        e.target.value = devConsole.getHistoryPrev();
+      } else if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        e.target.value = devConsole.getHistoryNext();
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        handleToggleDevConsole(false);
+      }
+      return;
+    }
     // Avoid capturing inputs when typing into input fields
     if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT')) {
+      if (e.key === 'Escape' && devConsole.isOpen()) {
+        e.preventDefault();
+        handleToggleDevConsole(false);
+      }
+      return;
+    }
+    if (e.key === '`' || e.key === '~') {
+      e.preventDefault();
+      handleToggleDevConsole();
+      return;
+    }
+    if (e.key === 'Escape' && devConsole.isOpen()) {
+      e.preventDefault();
+      handleToggleDevConsole(false);
       return;
     }
 
@@ -2104,6 +2224,12 @@ export const WargameApp = {
   handleCancelHeroTraining: function(heroId, tid) { return handleCancelHeroTrainingAction(simHost, heroId, tid); },
   handleOpenDevPortal: function() { handleOpenDevPortal(simHost); },
   handleCloseDevPortal: function() { handleCloseDevPortal(simHost); },
+  handleToggleDevConsole: handleToggleDevConsole,
+  handleSelectDevConsoleTab: handleSelectDevConsoleTab,
+  handleRunDevConsoleCommand: handleRunDevConsoleCommand,
+  handleClearDevConsole: handleClearDevConsole,
+  handleDevConsoleHelp: handleDevConsoleHelp,
+  devConsole: devConsole,
   handleDevSetCurrency: function(cid, val) { return handleDevSetCurrencyAction(simHost, cid, val); },
   handleDevAddCurrency: function(cid, delta) { return handleDevAddCurrencyAction(simHost, cid, delta); },
   handleDevAddStockpile: function(rid, delta) { return handleDevAddStockpileAction(simHost, rid, delta); },
