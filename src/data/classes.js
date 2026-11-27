@@ -1,4 +1,10 @@
-// Complete 5 Playable Classes Registry (Fighter, Thief, Mage, Ranger, Paladin)
+// Canonical Playable Classes Registry (5 Core + Adventurer + Cleric)
+// Five foundational attributes: STR, DEX, INT, VIT, SPI (HR-13)
+
+export const HERO_ATTRIBUTE_KEYS = ['str', 'dex', 'int', 'vit', 'spi'];
+export const DEFAULT_HERO_SPI = 10;
+// Provisional per-level automatic attribute growth fallback (~1.5 total/level across 5 attributes; HR-14.1)
+export const DEFAULT_LEVEL_GROWTH = { str: 0.3, dex: 0.3, int: 0.3, vit: 0.3, spi: 0.3 };
 
 export const CLASSES = {
   fighter: {
@@ -7,7 +13,8 @@ export const CLASSES = {
     title: 'Iron Vanguard',
     color: '#f87171',
     canEnterDungeon: true,
-    baseStats: { str: 15, dex: 10, int: 8, vit: 14 },
+    baseStats: { str: 15, dex: 10, int: 8, vit: 14, spi: 8 },
+    levelGrowth: { str: 0.6, dex: 0.25, int: 0.1, vit: 0.55, spi: 0.1 },
     hpBase: 120,
     mpBase: 35,
     vision: 5,
@@ -32,7 +39,8 @@ export const CLASSES = {
     title: 'Shadow Strider',
     color: '#c084fc',
     canEnterDungeon: true,
-    baseStats: { str: 9, dex: 16, int: 11, vit: 10 },
+    baseStats: { str: 9, dex: 16, int: 11, vit: 10, spi: 9 },
+    levelGrowth: { str: 0.2, dex: 0.65, int: 0.25, vit: 0.25, spi: 0.15 },
     hpBase: 90,
     mpBase: 45,
     vision: 6,
@@ -57,7 +65,8 @@ export const CLASSES = {
     title: 'Starweaver Adept',
     color: '#60a5fa',
     canEnterDungeon: true,
-    baseStats: { str: 7, dex: 10, int: 17, vit: 10 },
+    baseStats: { str: 7, dex: 10, int: 17, vit: 10, spi: 13 },
+    levelGrowth: { str: 0.1, dex: 0.2, int: 0.7, vit: 0.2, spi: 0.4 },
     hpBase: 82,
     mpBase: 80,
     vision: 6,
@@ -82,7 +91,8 @@ export const CLASSES = {
     title: 'Deepwood Pathfinder',
     color: '#34d399',
     canEnterDungeon: true,
-    baseStats: { str: 12, dex: 15, int: 11, vit: 11 },
+    baseStats: { str: 12, dex: 15, int: 11, vit: 11, spi: 10 },
+    levelGrowth: { str: 0.3, dex: 0.6, int: 0.2, vit: 0.3, spi: 0.2 },
     hpBase: 95,
     mpBase: 45,
     vision: 7,
@@ -107,7 +117,8 @@ export const CLASSES = {
     title: 'Dawn Warden',
     color: '#fbbf24',
     canEnterDungeon: true,
-    baseStats: { str: 14, dex: 9, int: 12, vit: 15 },
+    baseStats: { str: 14, dex: 9, int: 12, vit: 15, spi: 14 },
+    levelGrowth: { str: 0.45, dex: 0.15, int: 0.2, vit: 0.45, spi: 0.35 },
     hpBase: 125,
     mpBase: 50,
     vision: 5,
@@ -132,7 +143,8 @@ export const CLASSES = {
     title: 'Starfall Delver',
     color: '#38bdf8',
     canEnterDungeon: true,
-    baseStats: { str: 12, dex: 12, int: 11, vit: 13 },
+    baseStats: { str: 12, dex: 12, int: 11, vit: 13, spi: 10 },
+    levelGrowth: { str: 0.35, dex: 0.35, int: 0.25, vit: 0.35, spi: 0.2 },
     hpBase: 108,
     mpBase: 50,
     vision: 6,
@@ -157,7 +169,8 @@ export const CLASSES = {
     title: 'Temple Devotee',
     color: '#fef08a',
     canEnterDungeon: true,
-    baseStats: { str: 10, dex: 9, int: 15, vit: 13 },
+    baseStats: { str: 10, dex: 9, int: 15, vit: 13, spi: 16 },
+    levelGrowth: { str: 0.15, dex: 0.15, int: 0.45, vit: 0.3, spi: 0.55 },
     hpBase: 100,
     mpBase: 65,
     vision: 5,

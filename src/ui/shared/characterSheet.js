@@ -3,6 +3,7 @@
 
 import { RARITY } from '../../constants.js';
 import { CLASSES } from '../../data/classes.js';
+import { computeHeroDerivedStats, formatAttributeDisplay } from '../../core/heroStats.js';
 import { getItemTypeIcon } from '../../data/items.js';
 import { getHeroPortraitAssetId, getCachedImage } from './assetRegistry.js';
 
@@ -47,33 +48,22 @@ export function normalizeSharedHeroProfile(hero) {
   const classId = h.classId || 'fighter';
   const cls = CLASSES[classId] || CLASSES.fighter;
   const st = h.stats || {};
+  const derived = computeHeroDerivedStats(h);
 
-  const str = h.computedStr !== undefined ? h.computedStr : (st.str || (cls.baseStats && cls.baseStats.str) || 10);
-  const dex = h.computedDex !== undefined ? h.computedDex : (st.dex || (cls.baseStats && cls.baseStats.dex) || 10);
-  const intel = h.computedInt !== undefined ? h.computedInt : (st.int || (cls.baseStats && cls.baseStats.int) || 10);
-  const vit = h.computedVit !== undefined ? h.computedVit : (st.vit || (cls.baseStats && cls.baseStats.vit) || 10);
+  const str = formatAttributeDisplay(h.computedStr !== undefined ? h.computedStr : (derived ? derived.attributes.str : (st.str || (cls.baseStats && cls.baseStats.str) || 10)));
+  const dex = formatAttributeDisplay(h.computedDex !== undefined ? h.computedDex : (derived ? derived.attributes.dex : (st.dex || (cls.baseStats && cls.baseStats.dex) || 10)));
+  const intel = formatAttributeDisplay(h.computedInt !== undefined ? h.computedInt : (derived ? derived.attributes.int : (st.int || (cls.baseStats && cls.baseStats.int) || 10)));
+  const vit = formatAttributeDisplay(h.computedVit !== undefined ? h.computedVit : (derived ? derived.attributes.vit : (st.vit || (cls.baseStats && cls.baseStats.vit) || 10)));
+  const spi = formatAttributeDisplay(h.computedSpi !== undefined ? h.computedSpi : (derived ? derived.attributes.spi : (st.spi || (cls.baseStats && cls.baseStats.spi) || 10)));
 
   const eq = h.equipment || {};
-  let eqAtk = 0;
-  let eqDef = 0;
-  let eqHp = 0;
-  let eqMp = 0;
-  const eqKeys = Object.keys(eq);
-  for (let i = 0; i < eqKeys.length; i++) {
-    const it = eq[eqKeys[i]];
-    if (!it) continue;
-    eqAtk += (it.atk || 0);
-    eqDef += (it.def || 0);
-    eqHp  += (it.hp  || 0);
-    eqMp  += (it.mp  || 0);
-  }
-
-  const baseMaxHp = h.maxHp !== undefined ? h.maxHp : ((st.hp || 140) + eqHp);
-  const baseMaxMp = h.maxMp !== undefined ? h.maxMp : ((st.mp || 60) + eqMp);
-  const atk = h.atk !== undefined ? h.atk : ((st.atk || 22) + eqAtk);
-  const def = h.def !== undefined ? h.def : ((st.def || 10) + eqDef);
-  const crit = h.crit !== undefined ? h.crit : Math.min(60, 8 + Math.floor(dex * 0.6));
-  const dodge = h.dodge !== undefined ? h.dodge : Math.min(45, 5 + Math.floor(dex * 0.5));
+  const baseMaxHp = h.maxHp !== undefined ? h.maxHp : (derived ? derived.maxHp : (st.hp || 140));
+  const baseMaxMp = h.maxMp !== undefined ? h.maxMp : (derived ? derived.maxMp : (st.mp || 60));
+  const atk = h.atk !== undefined ? h.atk : (derived ? derived.atk : (st.atk || 22));
+  const magicPower = h.magicPower !== undefined ? h.magicPower : (derived ? derived.magicPower : (st.magicPower || 12));
+  const def = h.def !== undefined ? h.def : (derived ? derived.def : (st.def || 10));
+  const crit = h.crit !== undefined ? h.crit : (derived ? derived.crit : Math.min(60, 8 + Math.floor(dex * 0.6)));
+  const dodge = h.dodge !== undefined ? h.dodge : (derived ? derived.dodge : Math.min(45, 5 + Math.floor(dex * 0.5)));
 
   return {
     id: h.id || 'hero_active',
@@ -93,7 +83,9 @@ export function normalizeSharedHeroProfile(hero) {
       dex: dex,
       int: intel,
       vit: vit,
+      spi: spi,
       atk: atk,
+      magicPower: magicPower,
       def: def,
       crit: crit,
       dodge: dodge

@@ -194,8 +194,11 @@ export function createAppContextController(options) {
       applyRes = { ok: true, result: null };
     }
 
-    if (dungeonState && dungeonState.wargameSession) {
-      dungeonState.wargameSession.active = false;
+    if (dungeonState) {
+      dungeonState.inGuild = true;
+      if (dungeonState.wargameSession) {
+        dungeonState.wargameSession.active = false;
+      }
     }
 
     const finishedSession = activeSession;

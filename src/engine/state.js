@@ -19,6 +19,8 @@ import { hashSeedString } from './rng.js';
 import { packFloorForStorage, hydrateFloorFromStorage } from './compression.js';
 import { hydrateLegacyFloorObjects } from './objects.js';
 import { CANONICAL_PLAYER_ID } from '../core/canonicalIdentity.js';
+import { computeHeroDerivedStats, normalizeHeroBonusStats } from '../core/heroStats.js';
+import { normalizeHeroKnowledge } from '../core/knowledge.js';
 
 let itemSeq = 1000;
 
@@ -325,7 +327,8 @@ export function migrateSaveData(raw) {
       xp: data.hero.xp || 0,
       maxXp: data.hero.maxXp || data.hero.xpNext || 60,
       statPoints: data.hero.statPoints || 0,
-      bonusStats: data.hero.bonusStats || { str: 0, dex: 0, int: 0, vit: 0 },
+      bonusStats: normalizeHeroBonusStats(data.hero.bonusStats),
+      knowledge: normalizeHeroKnowledge(data.hero.knowledge),
       hp: data.hero.hp || cls.hpBase,
       maxHp: data.hero.maxHp || cls.hpBase,
       mp: data.hero.mp || cls.mpBase,
@@ -434,113 +437,27 @@ export function getPickaxeMaxDurability(state = gameState) {
 export function recomputeHeroDerivedStats(fullRestore = false, state = gameState) {
   const h = state.hero;
   if (!h) return;
-  const cls = (h.classId && CLASSES[h.classId]) ? CLASSES[h.classId] : null;
-  if (!cls) return;
-  const bonus = h.bonusStats || { str: 0, dex: 0, int: 0, vit: 0 };
+  const derived = computeHeroDerivedStats(h);
+  if (!derived) return;
 
-  let str = cls.baseStats.str + (h.level - 1) * 2 + (bonus.str || 0);
-  let dex = cls.baseStats.dex + (h.level - 1) * 2 + (bonus.dex || 0);
-  let int = cls.baseStats.int + (h.level - 1) * 2 + (bonus.int || 0);
-  let vit = cls.baseStats.vit + (h.level - 1) * 2 + (bonus.vit || 0);
+  h.computedStr = derived.attributes.str;
+  h.computedDex = derived.attributes.dex;
+  h.computedInt = derived.attributes.int;
+  h.computedVit = derived.attributes.vit;
+  h.computedSpi = derived.attributes.spi;
+  h.visionRadius = derived.visionRadius;
 
-  let flatAtk = 0, flatDef = 0, flatCrit = 0, flatDodge = 0, flatHp = 0, flatMp = 0, visionBonus = 0;
-  let flatThorns = 0, flatLeech = 0, flatWard = 0;
+  h.maxHp = derived.maxHp;
+  h.maxMp = derived.maxMp;
+  h.thorns = derived.thorns;
+  h.leech = derived.leech;
+  h.ward = derived.ward;
 
-  // Passive Class Bonuses
-  if (h.classId === 'fighter') flatHp += 10;
-  if (h.classId === 'thief')   flatCrit += 15;
-  if (h.classId === 'ranger')  flatDodge += 15;
-  if (h.classId === 'paladin') flatDef += 10;
-  if (h.classId === 'cleric')  flatDef += 5;
-
-  // Talent Bonuses
-  const t = h.talentsAllocated || {};
-  if (t.f_a1) flatHp += t.f_a1 * 12;
-  if (t.f_a2) flatAtk += t.f_a2 * 3;
-  if (t.t_b1) flatCrit += t.t_b1 * 5;
-  if (t.t_b3) flatDodge += t.t_b3 * 10;
-  if (t.m_c1) flatMp += t.m_c1 * 15;
-  if (t.r_d1) { flatDodge += t.r_d1 * 4; visionBonus += t.r_d1; }
-  if (t.p_e1) { flatDef += t.p_e1 * 4; flatHp += t.p_e1 * 8; }
-  if (t.p_e2) flatAtk += t.p_e2 * 4;
-
-  // Sum 6-Slot Equipment & Socketed Astral Gems
-  for (const slot of ['weapon', 'armor', 'helm', 'boots', 'accessory']) {
-    const it = h.equipment[slot];
-    if (!it) continue;
-    if (it.str) str += it.str;
-    if (it.dex) dex += it.dex;
-    if (it.int) int += it.int;
-    if (it.vit) vit += it.vit;
-    if (it.atk) flatAtk += it.atk;
-    if (it.def) flatDef += it.def;
-    if (it.crit) flatCrit += it.crit;
-    if (it.dodge) flatDodge += it.dodge;
-    if (it.maxHp) flatHp += it.maxHp;
-    if (it.maxMp) flatMp += it.maxMp;
-    if (it.visionBonus) visionBonus += it.visionBonus;
-    if (it.thorns) flatThorns += it.thorns;
-    if (it.leech) flatLeech += it.leech;
-    if (it.ward) flatWard += it.ward;
-
-    if (Array.isArray(it.sockets)) {
-      for (let sIdx = 0; sIdx < it.sockets.length; sIdx++) {
-        const gem = GEM_CATALOG[it.sockets[sIdx]];
-        if (!gem || !gem.bonuses) continue;
-        const gb = gem.bonuses;
-        if (gb.str) str += gb.str;
-        if (gb.dex) dex += gb.dex;
-        if (gb.int) int += gb.int;
-        if (gb.vit) vit += gb.vit;
-        if (gb.atk) flatAtk += gb.atk;
-        if (gb.def) flatDef += gb.def;
-        if (gb.crit) flatCrit += gb.crit;
-        if (gb.dodge) flatDodge += gb.dodge;
-        if (gb.maxHp) flatHp += gb.maxHp;
-        if (gb.maxMp) flatMp += gb.maxMp;
-        if (gb.visionBonus) visionBonus += gb.visionBonus;
-      }
-    }
-  }
-
-  // Active Astral Shrine Status Buffs
-  if (Array.isArray(h.statuses)) {
-    for (let i = 0; i < h.statuses.length; i++) {
-      const st = h.statuses[i];
-      if (st.id === 'shrine_starfire') {
-        flatAtk += 6;
-        flatCrit += 12;
-      } else if (st.id === 'shrine_aegis') {
-        flatDef += 6;
-        visionBonus += 1;
-      } else if (st.id === 'chilled') {
-        flatDodge -= 15;
-      }
-    }
-  }
-
-  h.computedStr = str;
-  h.computedDex = dex;
-  h.computedInt = int;
-  h.computedVit = vit;
-  h.visionRadius = (cls.vision || 5) + visionBonus;
-
-  h.maxHp = cls.hpBase + (vit * 4) + flatHp;
-  h.maxMp = cls.mpBase + (int * 3) + flatMp;
-  h.thorns = flatThorns;
-  h.leech = flatLeech;
-  h.ward = flatWard;
-
-  const primaryOffensive = h.classId === 'mage'
-    ? Math.round(int * 1.1 + str * 0.3)
-    : h.classId === 'ranger' || h.classId === 'thief'
-      ? Math.round(dex * 0.9 + str * 0.4)
-      : Math.round(str * 0.95 + dex * 0.35);
-
-  h.atk = primaryOffensive + flatAtk;
-  h.def = Math.round(vit * 0.45) + flatDef;
-  h.crit = Math.min(75, 5 + Math.round(dex * 0.45) + flatCrit);
-  h.dodge = Math.max(0, Math.min(60, 4 + Math.round(dex * 0.35) + flatDodge));
+  h.atk = derived.atk;
+  h.magicPower = derived.magicPower;
+  h.def = derived.def;
+  h.crit = derived.crit;
+  h.dodge = derived.dodge;
 
   if (fullRestore) {
     h.hp = h.maxHp;
@@ -666,6 +583,7 @@ export function packDungeonWorldSnapshot(state = gameState) {
   }
   return {
     version: 1,
+    campaignId: (state.wargameSession && state.wargameSession.campaignId) || null,
     activeDungeonId: serialized.activeDungeonId,
     turn: serialized.turn || 0,
     dungeons: serialized.dungeons,
@@ -750,6 +668,17 @@ export function hydrateDungeonWorldSnapshot(snapshot, targetState = gameState) {
   targetState.inGuild = true;
   if (targetState.wargameSession) {
     targetState.wargameSession.active = false;
+    if (!targetState.wargameSession.campaignId && snapshot.campaignId) {
+      targetState.wargameSession.campaignId = snapshot.campaignId;
+    }
+  } else if (snapshot.campaignId) {
+    // HR-14 Issue B: Preserve campaignId when surfacing/saving on Overworld so re-entering
+    // the same dungeon after save/reload restores explored floors instead of resetting!
+    targetState.wargameSession = {
+      active: false,
+      inProcess: true,
+      campaignId: snapshot.campaignId
+    };
   }
   return { ok: true, hasActiveSession: false, session: null };
 }

@@ -24,6 +24,8 @@ import { isInOverworldBounds, areHexesAdjacent } from './hexSpatial.js';
 import { createInitialTasksState } from './taskEngine.js';
 import { CITY_PLOT_SLOTS, CITY_BUILDINGS_CATALOG, normalizeBuildingId } from '../data/buildings.js';
 import { isClassDungeonEligible } from '../../data/classes.js';
+import { computeHeroDerivedStats, normalizeHeroBonusStats } from '../../core/heroStats.js';
+import { normalizeHeroKnowledge } from '../../core/knowledge.js';
 import {
   getTroopDefinition,
   normalizeLegacyTroopDefId,
@@ -354,9 +356,35 @@ export function validateWargameSavePayload(parsed) {
 
 export const DEFAULT_PERSISTENT_HERO_MAX_XP = 60;
 
-// Idempotent, non-destructive normalizer for canonical persistent hero-instance fields (HR-10).
-// Initializes only missing or invalid existing-schema fields; never alters class, stats, ownership,
-// or legitimate progression/equipment values.
+// Recomputes authoritative derived stats onto a persistent Wargame hero instance
+// using the shared src/core/heroStats.js calculator (HR-13).
+export function refreshHeroDerivedStats(hero) {
+  if (!hero || typeof hero !== 'object') return null;
+  const derived = computeHeroDerivedStats(hero);
+  if (!derived) return null;
+  hero.stats = {
+    str: derived.attributes.str,
+    dex: derived.attributes.dex,
+    int: derived.attributes.int,
+    vit: derived.attributes.vit,
+    spi: derived.attributes.spi,
+    hp: derived.maxHp,
+    maxHp: derived.maxHp,
+    mp: derived.maxMp,
+    maxMp: derived.maxMp,
+    atk: derived.atk,
+    magicPower: derived.magicPower,
+    def: derived.def,
+    crit: derived.crit,
+    dodge: derived.dodge,
+    visionRadius: derived.visionRadius
+  };
+  return derived;
+}
+
+// Idempotent, non-destructive normalizer for canonical persistent hero-instance fields (HR-10 / HR-12 / HR-13).
+// Initializes only missing or invalid existing-schema fields; never alters class, ownership,
+// or legitimate progression/equipment values. Preserves fractional internal attributes.
 export function normalizePersistentHeroInstance(hero) {
   if (!hero || typeof hero !== 'object') return hero;
 
@@ -370,17 +398,8 @@ export function normalizePersistentHeroInstance(hero) {
     hero.maxXp = DEFAULT_PERSISTENT_HERO_MAX_XP;
   }
 
-  if (!hero.bonusStats || typeof hero.bonusStats !== 'object' || Array.isArray(hero.bonusStats)) {
-    hero.bonusStats = { str: 0, dex: 0, int: 0, vit: 0 };
-  } else {
-    const statKeys = ['str', 'dex', 'int', 'vit'];
-    for (let si = 0; si < statKeys.length; si++) {
-      const sk = statKeys[si];
-      if (typeof hero.bonusStats[sk] !== 'number' || !isFinite(hero.bonusStats[sk])) {
-        hero.bonusStats[sk] = 0;
-      }
-    }
-  }
+  hero.bonusStats = normalizeHeroBonusStats(hero.bonusStats);
+  hero.knowledge = normalizeHeroKnowledge(hero.knowledge);
 
   if (typeof hero.statPoints !== 'number' || !isFinite(hero.statPoints) || hero.statPoints < 0) {
     hero.statPoints = 0;
@@ -424,6 +443,9 @@ export function normalizePersistentHeroInstance(hero) {
     hero.canEnterDungeon = isClassDungeonEligible(hero.classId);
   }
 
+  // HR-13: Refresh authoritative derived stats from shared calculator
+  refreshHeroDerivedStats(hero);
+
   return hero;
 }
 
@@ -453,14 +475,30 @@ export function reconcileLoadedWorldIntegrity(parsed) {
     w.activeCityId = cityIds[0];
   }
 
-  // 2. Reconcile hero IDs, persistent hero-instance fields, roster leader & party memberships (never delete valid entities)
+  // 2. Reconcile hero IDs, persistent hero-instance fields, monotonic nextHeroSeq, roster leader & party memberships
   const heroIdSet = {};
+  let maxHeroSeq = (typeof w.nextHeroSeq === 'number' && isFinite(w.nextHeroSeq)) ? w.nextHeroSeq : 0;
   for (let i = 0; i < w.heroes.length; i++) {
     if (w.heroes[i]) {
       normalizePersistentHeroInstance(w.heroes[i]);
-      if (w.heroes[i].id) heroIdSet[w.heroes[i].id] = true;
+      if (w.heroes[i].id) {
+        heroIdSet[w.heroes[i].id] = true;
+        const mH = String(w.heroes[i].id).match(/^hero_(\d+)_/);
+        if (mH) maxHeroSeq = Math.max(maxHeroSeq, Number(mH[1]) || 0);
+      }
     }
   }
+  if (ow && Array.isArray(ow.units)) {
+    // Prune any legacy dead dismissed hero_party units so they never shadow newly recruited parties
+    ow.units = ow.units.filter(function(u) {
+      if (!u) return false;
+      const mU = typeof u.id === 'string' && u.id.match(/^unit_party_(\d+)$/);
+      if (mU) maxHeroSeq = Math.max(maxHeroSeq, Number(mU[1]) || 0);
+      if (u.status === 'dismissed' && u.alive === false) return false;
+      return true;
+    });
+  }
+  w.nextHeroSeq = Math.max(maxHeroSeq, w.heroes.length);
   if (w.roster) {
     if (w.roster.overallLeaderHeroId && !heroIdSet[w.roster.overallLeaderHeroId]) {
       w.roster.overallLeaderHeroId = w.heroes.length > 0 ? w.heroes[0].id : null;

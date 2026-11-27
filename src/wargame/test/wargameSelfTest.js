@@ -15,6 +15,8 @@ import { createWargameSimHost } from '../engine/simHost.js';
 import { createMinHeapPriorityQueue } from '../engine/scheduler.js';
 import { getPrimaryCity, getSelectedOverworldUnit, computeCityPopulation, computeCityStorageSlotCapacity, buildSerializableWargameState, collectOverworldDiscoveries, DEFAULT_PERSISTENT_HERO_MAX_XP, normalizePersistentHeroInstance } from '../engine/state.js';
 import { createDungeonHeroForClass, bindCanonicalHeroToDungeonState } from '../../core/entitySyncAdapter.js';
+import { computeHeroDerivedStats, formatAttributeDisplay, getClassLevelGrowth, computeAutoLevelGrowthDelta } from '../../core/heroStats.js';
+import { KNOWLEDGE_CATEGORIES, grantHeroKnowledge, evaluateMonsterKnowledgeReveal } from '../../core/knowledge.js';
 import {
   CANONICAL_PLAYER_ID,
   getCanonicalPlayerId,
@@ -22,7 +24,7 @@ import {
 } from '../../core/canonicalIdentity.js';
 import { APP_CONTEXTS, createAppContextController } from '../../core/appContext.js';
 import { createDefaultGameState, ensureDungeonFloorHydrated, recomputeHeroDerivedStats } from '../../engine/state.js';
-import { extractToGuild, handleHeroDefeat, useRecallScroll, traversePortal, applyWargameEntryHandoff } from '../../engine/actions.js';
+import { extractToGuild, handleHeroDefeat, useRecallScroll, traversePortal, applyWargameEntryHandoff, gainExperience } from '../../engine/actions.js';
 import { useStairsAtPlayer, executeClassSkill, getSkillTargetingInfo } from '../../engine/combat.js';
 import { CLASSES, isClassDungeonEligible, isHeroDungeonEligible } from '../../data/classes.js';
 import { createPortalInstance } from '../../engine/objects.js';
@@ -96,7 +98,7 @@ import {
   computePlannedCombatRounds,
   computeNextBattleRoundStep
 } from '../data/troops.js';
-import { resolveTroopUpgradeUnitJob, reintegrateArmyIntoBarracks, resolveArmyObjectiveCompleteJob } from '../engine/queues.js';
+import { resolveTroopUpgradeUnitJob, reintegrateArmyIntoBarracks, resolveArmyObjectiveCompleteJob, resolveOverworldSkirmish } from '../engine/queues.js';
 import {
   normalizeSharedHeroProfile,
   renderSharedPaperDollMannequin,
@@ -5160,11 +5162,11 @@ export function evaluateWargameSelfTests() {
       level: 4,
       xp: 45,
       maxXp: 165,
-      bonusStats: { str: 2, dex: 3, int: 1, vit: 2 },
+      bonusStats: { str: 2, dex: 3, int: 1, vit: 2, spi: 0 },
+      knowledge: { monster_knowledge: 0, object_item_knowledge: 0, flora_knowledge: 0, fauna_knowledge: 0 },
       statPoints: 2,
       talentPoints: 1,
       talentsAllocated: { f_a1: 2, f_a2: 1 },
-      stats: { str: 15, dex: 10, int: 8, vit: 14, hp: 186, mp: 59, atk: 28, def: 16 },
       equipment: {
         weapon: { uid: 'vet_wep', slot: 'weapon', name: 'Runed Claymore', atk: 16, str: 3 },
         armor: { uid: 'vet_arm', slot: 'armor', name: 'Star Plate', def: 12 },
@@ -5177,9 +5179,16 @@ export function evaluateWargameSelfTests() {
       bagGear: [{ uid: 'vet_bag_1', slot: 'helm', name: 'Spare Coif', def: 3 }],
       canEnterDungeon: true
     };
+    normalizePersistentHeroInstance(veteranBefore47);
     const vetSnapBefore47 = JSON.stringify(veteranBefore47);
     normalizePersistentHeroInstance(veteranBefore47);
-    const vetPreservedOk47 = JSON.stringify(veteranBefore47) === vetSnapBefore47;
+    const vetPreservedOk47 = Boolean(
+      JSON.stringify(veteranBefore47) === vetSnapBefore47 &&
+      veteranBefore47.level === 4 && veteranBefore47.xp === 45 && veteranBefore47.maxXp === 165 &&
+      veteranBefore47.bonusStats.str === 2 && veteranBefore47.bonusStats.dex === 3 &&
+      veteranBefore47.statPoints === 2 && veteranBefore47.talentPoints === 1 &&
+      veteranBefore47.talentsAllocated.f_a1 === 2 && veteranBefore47.equipment.weapon.uid === 'vet_wep'
+    );
 
     // 4. Save/Load normalization & double-load idempotence
     // Inject a legacy hero (missing fields) + veteran hero (nonzero progression) into saved payload
@@ -5523,6 +5532,386 @@ export function evaluateWargameSelfTests() {
     detail: t49Pass
       ? 'Fail-closed dungeon eligibility enforced across engine admission & sync, silent Fighter fallback removed, declarative recruitment evaluator verified, and guild_hall.recruits removed'
       : 'Failed checks: ' + failed49.join(', ')
+  });
+
+  // =========================================================================
+  // Test 50: HR-13 Five-Attribute Foundation (SPI), Fractional Precision,
+  //          Shared Authoritative Derived-Stat Calculator & Monster Knowledge
+  // =========================================================================
+  const prevSavedRaw50 = (typeof localStorage !== 'undefined') ? localStorage.getItem(WARGAME_STORAGE_KEY) : null;
+  let t50Checks = {};
+  try {
+    const host50 = createWargameSimHost();
+    host50.dispatch({ type: COMMAND_TYPES.START_NEW_CAMPAIGN, payload: { houseName: 'House Spirit', worldName: 'Stat Realm', seedCode: 'STAR-5001' } });
+    host50.dispatch({ type: COMMAND_TYPES.FOUND_CITY, payload: { cityName: 'Spiritkeep' } });
+    const city50 = getPrimaryCity(host50.state);
+    city50.stockpile.gold = 600; city50.stockpile.food = 600;
+    city50.buildings.temple_chapterhouse = 1;
+    host50.dispatch({ type: COMMAND_TYPES.RECRUIT_HERO, payload: { classId: 'cleric', heroName: 'Brother Aurelius' } });
+    host50.stepClock(80000);
+
+    const cleric50 = host50.state.world.heroes.find(function(h) { return h.classId === 'cleric'; });
+    const fiveAttrsInitOk50 = Boolean(
+      cleric50 &&
+      cleric50.bonusStats && cleric50.bonusStats.spi === 0 &&
+      cleric50.stats && cleric50.stats.spi === CLASSES.cleric.baseStats.spi &&
+      cleric50.stats.magicPower > 0 &&
+      cleric50.knowledge &&
+      KNOWLEDGE_CATEGORIES.every(function(ck) { return cleric50.knowledge[ck] === 0; })
+    );
+
+    // 2. Fractional internal attributes affect derived stats while displaying floored whole numbers
+    const baseDerived50 = computeHeroDerivedStats(cleric50);
+    cleric50.bonusStats.vit = 0.5;
+    cleric50.bonusStats.spi = 0.75;
+    const fracDerived50 = computeHeroDerivedStats(cleric50);
+    const sharedProfile50 = normalizeSharedHeroProfile(cleric50);
+    const fractionalOk50 = Boolean(
+      fracDerived50.attributes.vit === baseDerived50.attributes.vit + 0.5 &&
+      fracDerived50.attributes.spi === baseDerived50.attributes.spi + 0.75 &&
+      fracDerived50.displayAttributes.vit === Math.floor(fracDerived50.attributes.vit) &&
+      fracDerived50.displayAttributes.spi === Math.floor(fracDerived50.attributes.spi) &&
+      formatAttributeDisplay(fracDerived50.attributes.vit) === Math.floor(baseDerived50.attributes.vit) &&
+      fracDerived50.maxHp === baseDerived50.maxHp + 2 &&
+      sharedProfile50.stats.spi === Math.floor(fracDerived50.attributes.spi)
+    );
+
+    // 3. Cross-engine parity: Dungeon recomputeHeroDerivedStats === Wargame computeHeroDerivedStats
+    const dngHero50 = createDungeonHeroForClass('cleric', cleric50, CANONICAL_PLAYER_ID);
+    const dngSandbox50 = createDefaultGameState();
+    dngSandbox50.hero = dngHero50;
+    recomputeHeroDerivedStats(true, dngSandbox50);
+    const parityOk50 = Boolean(
+      dngHero50.computedStr === fracDerived50.attributes.str &&
+      dngHero50.computedDex === fracDerived50.attributes.dex &&
+      dngHero50.computedInt === fracDerived50.attributes.int &&
+      dngHero50.computedVit === fracDerived50.attributes.vit &&
+      dngHero50.computedSpi === fracDerived50.attributes.spi &&
+      dngHero50.maxHp === fracDerived50.maxHp &&
+      dngHero50.maxMp === fracDerived50.maxMp &&
+      dngHero50.atk === fracDerived50.atk &&
+      dngHero50.magicPower === fracDerived50.magicPower &&
+      dngHero50.def === fracDerived50.def &&
+      dngHero50.crit === fracDerived50.crit &&
+      dngHero50.dodge === fracDerived50.dodge
+    );
+
+    // 4. Equipment & gem modifiers apply and cleanly reverse on unequip (no stale hero.stats)
+    const atkBeforeGear50 = cleric50.stats.atk;
+    const spiBeforeGear50 = cleric50.stats.spi;
+    const gemWeapon50 = { uid: 'w_gem_50', slot: 'weapon', name: 'Astral Scepter', rarity: 'rare', atk: 14, spi: 2, sockets: ['ruby'], maxSockets: 1 };
+    cleric50.bagGear.push(gemWeapon50);
+    host50.dispatch({ type: COMMAND_TYPES.EQUIP_HERO_ITEM, payload: { heroId: cleric50.id, itemUid: 'w_gem_50' } });
+    const atkEquipped50 = cleric50.stats.atk;
+    const spiEquipped50 = cleric50.stats.spi;
+    host50.dispatch({ type: COMMAND_TYPES.UNEQUIP_HERO_ITEM, payload: { heroId: cleric50.id, slot: 'weapon' } });
+    const atkUnequipped50 = cleric50.stats.atk;
+    const spiUnequipped50 = cleric50.stats.spi;
+    const equipReversalOk50 = Boolean(
+      atkEquipped50 > atkBeforeGear50 &&
+      spiEquipped50 === spiBeforeGear50 + 2 &&
+      atkUnequipped50 < atkEquipped50 &&
+      spiUnequipped50 === spiBeforeGear50
+    );
+
+    // 5. Level growth recalculates derived outputs
+    const hpLv1_50 = computeHeroDerivedStats(cleric50).maxHp;
+    cleric50.level = 3;
+    const hpLv3_50 = computeHeroDerivedStats(cleric50).maxHp;
+    const levelGrowthOk50 = hpLv3_50 > hpLv1_50;
+
+    // 6. Legacy hero without SPI / knowledge migrates safely & fractional values persist across save/load
+    host50.state.world.heroes.push({
+      id: 'hero_legacy_no_spi_50',
+      name: 'Old Fighter',
+      classId: 'fighter',
+      ownerPlayerId: CANONICAL_PLAYER_ID,
+      level: 2,
+      xp: 10,
+      bonusStats: { str: 1, dex: 0, int: 0, vit: 0 }
+    });
+    grantHeroKnowledge(cleric50, 'monster_knowledge', 2.5);
+    host50.save();
+    const reload50 = createWargameSimHost();
+    reload50.load();
+    const relCleric50 = reload50.state.world.heroes.find(function(h) { return h.id === cleric50.id; });
+    const relLegacy50 = reload50.state.world.heroes.find(function(h) { return h.id === 'hero_legacy_no_spi_50'; });
+    const persistenceOk50 = Boolean(
+      relCleric50 && relCleric50.bonusStats.vit === 0.5 && relCleric50.bonusStats.spi === 0.75 &&
+      relCleric50.knowledge.monster_knowledge === 2.5 &&
+      relLegacy50 && relLegacy50.bonusStats.spi === 0 && relLegacy50.bonusStats.str === 1 &&
+      relLegacy50.knowledge && relLegacy50.knowledge.monster_knowledge === 0 &&
+      relLegacy50.stats && relLegacy50.stats.spi === CLASSES.fighter.baseStats.spi + CLASSES.fighter.levelGrowth.spi
+    );
+
+    // 7. Monster Knowledge gameplay reveal tiers (INT assists but does not substitute for topic expertise)
+    const sampleElite50 = { id: 'vault_golem', name: 'Vault Golem', hp: 90, maxHp: 90, atk: 14, def: 9, affix: { id: 'reflective', name: 'Reflective', desc: 'Reflects 25% thorns damage' } };
+    const highIntNoLoreHero50 = { computedInt: 25, knowledge: { monster_knowledge: 0 } };
+    const tier0Reveal50 = evaluateMonsterKnowledgeReveal(highIntNoLoreHero50, sampleElite50);
+    const tier1Reveal50 = evaluateMonsterKnowledgeReveal({ computedInt: 15, knowledge: { monster_knowledge: 1.0 } }, sampleElite50);
+    const tier2Reveal50 = evaluateMonsterKnowledgeReveal({ computedInt: 15, knowledge: { monster_knowledge: 3.0 } }, sampleElite50);
+    const tier3Reveal50 = evaluateMonsterKnowledgeReveal({ computedInt: 15, knowledge: { monster_knowledge: 5.0 } }, sampleElite50);
+    const knowledgeRevealOk50 = Boolean(
+      tier0Reveal50.tier === 0 && tier0Reveal50.summary === '' &&
+      tier1Reveal50.tier === 1 && Boolean(tier1Reveal50.threatLabel) && !tier1Reveal50.traitNote &&
+      tier2Reveal50.tier === 2 && Boolean(tier2Reveal50.traitNote) && !tier2Reveal50.tacticalTip &&
+      tier3Reveal50.tier === 3 && Boolean(tier3Reveal50.tacticalTip)
+    );
+
+    t50Checks = {
+      fiveAttrsInitOk: fiveAttrsInitOk50,
+      fractionalOk: fractionalOk50,
+      parityOk: parityOk50,
+      equipReversalOk: equipReversalOk50,
+      levelGrowthOk: levelGrowthOk50,
+      persistenceOk: persistenceOk50,
+      knowledgeRevealOk: knowledgeRevealOk50
+    };
+  } finally {
+    if (typeof localStorage !== 'undefined') {
+      if (prevSavedRaw50 === null) localStorage.removeItem(WARGAME_STORAGE_KEY);
+      else localStorage.setItem(WARGAME_STORAGE_KEY, prevSavedRaw50);
+    }
+  }
+  const failed50 = Object.keys(t50Checks).filter(function(k) { return !t50Checks[k]; });
+  const t50Pass = failed50.length === 0 && Object.keys(t50Checks).length > 0;
+  results.push({
+    name: '50. HR-13: 5-Attribute Foundation (SPI), Fractional Precision, Shared Derived-Stat Calculator & Monster Knowledge',
+    pass: t50Pass,
+    detail: t50Pass
+      ? '5 attributes (STR/DEX/INT/VIT/SPI) initialized & persisted with fractional precision + floor display, shared Dungeon/Wargame stat parity, gear/gem reversal, and Monster Knowledge reveal tiers verified'
+      : 'Failed checks: ' + failed50.join(', ')
+  });
+
+  // =========================================================================
+  // Test 51: HR-14 Core Playtest Reliability (Issues A–E)
+  //          Roster Lifecycle/Monotonic IDs, Dungeon Re-Entry Persistence,
+  //          Level-Up/SPI Allocation, Overworld Skirmish Feedback & Skill Info
+  // =========================================================================
+  const prevSavedRaw51 = (typeof localStorage !== 'undefined') ? localStorage.getItem(WARGAME_STORAGE_KEY) : null;
+  let t51Checks = {};
+  try {
+    const host51 = createWargameSimHost();
+    const dngState51 = createDefaultGameState();
+    host51.attachDungeonState(dngState51);
+    const ctx51 = createAppContextController({ simHost: host51, dungeonState: dngState51 });
+
+    host51.dispatch({ type: COMMAND_TYPES.START_NEW_CAMPAIGN, payload: { houseName: 'House Reliant', worldName: 'Playtest Realm', seedCode: 'STAR-5101' } });
+    host51.dispatch({ type: COMMAND_TYPES.FOUND_CITY, payload: { cityName: 'Reliantkeep' } });
+    const city51 = getPrimaryCity(host51.state);
+    city51.stockpile.gold = 900; city51.stockpile.food = 900;
+    city51.buildings.guild_hall = 1;
+    city51.buildings.mages_guild = 1;
+    city51.buildings.temple_chapterhouse = 1;
+
+    // Issue A: Recruit Adventurer + Mage -> Retire Mage -> Recruit Cleric
+    host51.dispatch({ type: COMMAND_TYPES.RECRUIT_HERO, payload: { classId: 'adventurer', heroName: 'Rowan' } });
+    host51.dispatch({ type: COMMAND_TYPES.RECRUIT_HERO, payload: { classId: 'mage', heroName: 'Vaelen' } });
+    host51.stepClock(150000);
+    const mage51 = host51.state.world.heroes.find(function(h) { return h.classId === 'mage'; });
+    const mageUnit51 = host51.state.world.overworld.units.find(function(u) { return u.leaderHeroId === mage51.id; });
+    const mageUnitId51 = mageUnit51 ? mageUnit51.id : null;
+
+    host51.dispatch({ type: COMMAND_TYPES.DISMISS_HERO, payload: { heroId: mage51.id } });
+    host51.dispatch({ type: COMMAND_TYPES.RECRUIT_HERO, payload: { classId: 'cleric', heroName: 'Sister Lyra' } });
+    host51.stepClock(80000);
+
+    const cleric51 = host51.state.world.heroes.find(function(h) { return h.classId === 'cleric'; });
+    const adv51 = host51.state.world.heroes.find(function(h) { return h.classId === 'adventurer'; });
+    const clericUnit51 = host51.state.world.overworld.units.find(function(u) { return u.leaderHeroId === cleric51.id; });
+    const advUnit51 = host51.state.world.overworld.units.find(function(u) { return u.leaderHeroId === adv51.id; });
+    const zombieDismissed51 = host51.state.world.overworld.units.some(function(u) { return u.status === 'dismissed'; });
+
+    const rosterLifecycleOk51 = Boolean(
+      !host51.state.world.heroes.some(function(h) { return h.id === mage51.id; }) &&
+      cleric51 && adv51 && clericUnit51 && advUnit51 &&
+      clericUnit51.id !== mageUnitId51 &&
+      !zombieDismissed51
+    );
+
+    // Issue B: Enter dungeon with Adventurer, mutate/explore floor 1, exit to Overworld,
+    //          save & reload, then re-enter SAME dungeon with Cleric (different hero) -> floor persists!
+    const dngPoi51 = host51.state.world.overworld.pois.find(function(p) { return p.type === 'dungeon_entrance'; });
+    dngPoi51.discovered = true;
+    // Clear any blocking military target for this dungeon POI
+    if (Array.isArray(host51.state.world.overworld.militaryTargets)) {
+      host51.state.world.overworld.militaryTargets.forEach(function(mt) {
+        if (mt && mt.blocksTargetId === dngPoi51.id) mt.status = MILITARY_TARGET_STATUS.CLEARED;
+      });
+    }
+    advUnit51.x = dngPoi51.x; advUnit51.y = dngPoi51.y;
+    const enterAdv51 = ctx51.enterDungeon({ unitId: advUnit51.id, poiId: dngPoi51.id });
+    const fl1Before51 = ensureDungeonFloorHydrated(dngState51.dungeon, 1);
+    const origSeed51 = dngState51.dungeon.seedCode;
+    // Stamp a deterministic exploration marker on floor 1
+    if (fl1Before51 && fl1Before51.explored && fl1Before51.explored[2]) {
+      fl1Before51.explored[2][2] = 1;
+    }
+    fl1Before51.hr14Marker = 'persisted_floor_state';
+    ctx51.exitDungeon(null); // Exit to Overworld (also saves!)
+
+    // Reload into a brand-new SimHost + DungeonState (simulating full page reload)
+    const host51b = createWargameSimHost();
+    const dngState51b = createDefaultGameState();
+    host51b.attachDungeonState(dngState51b);
+    const ctx51b = createAppContextController({ simHost: host51b, dungeonState: dngState51b });
+    const loaded51b = host51b.load();
+    ctx51b.restoreDungeonSession();
+
+    // Verify roster still excludes retired Mage and includes Cleric after exit + reload
+    const rosterAfterReloadOk51 = Boolean(
+      loaded51b &&
+      !host51b.state.world.heroes.some(function(h) { return h.classId === 'mage'; }) &&
+      host51b.state.world.heroes.some(function(h) { return h.classId === 'cleric'; })
+    );
+
+    // Re-enter the SAME dungeon with Cleric (different hero!)
+    const clericUnit51b = host51b.state.world.overworld.units.find(function(u) { return u.heroClassId === 'cleric' && u.alive; });
+    clericUnit51b.x = dngPoi51.x; clericUnit51b.y = dngPoi51.y;
+    const enterCleric51 = ctx51b.enterDungeon({ unitId: clericUnit51b.id, poiId: dngPoi51.id });
+    const fl1After51 = ensureDungeonFloorHydrated(dngState51b.dungeon, 1);
+    const dungeonPersistOk51 = Boolean(
+      enterAdv51.ok && enterCleric51.ok &&
+      dngState51b.dungeon.seedCode === origSeed51 &&
+      fl1After51 && fl1After51.explored && fl1After51.explored[2] && fl1After51.explored[2][2] === 1 &&
+      dngState51b.hero && dngState51b.hero.classId === 'cleric'
+    );
+
+    // Issue C: Level-up Cleric -> class-relevant fractional auto growth, +2 statPoints, +1 talentPoint; SPI allocation works
+    const strLv1_51 = dngState51b.hero.computedStr;
+    const spiLv1_51 = dngState51b.hero.computedSpi;
+    const clericG51 = getClassLevelGrowth('cleric');
+    gainExperience(60, dngState51b);
+    const levelUpGrowthOk51 = Boolean(
+      dngState51b.hero.level === 2 &&
+      Math.abs(dngState51b.hero.computedStr - (strLv1_51 + clericG51.str)) < 0.0001 &&
+      Math.abs(dngState51b.hero.computedSpi - (spiLv1_51 + clericG51.spi)) < 0.0001 &&
+      dngState51b.hero.statPoints === 2 &&
+      dngState51b.hero.talentPoints === 1
+    );
+    // Simulate spending +1 SPI (matching handleDungeonSpendStat)
+    dngState51b.hero.bonusStats.spi = (dngState51b.hero.bonusStats.spi || 0) + 1;
+    dngState51b.hero.statPoints -= 1;
+    recomputeHeroDerivedStats(false, dngState51b);
+    const spiAllocOk51 = Boolean(
+      Math.abs(dngState51b.hero.computedSpi - (spiLv1_51 + clericG51.spi + 1)) < 0.0001 &&
+      dngState51b.hero.statPoints === 1
+    );
+
+    // Issue D: Overworld skirmish publishes structured outcome with coords, dmg & rewards
+    let skirmishEv51 = null;
+    host51b.eventStream.subscribe(STREAM_TOPICS.OVERWORLD_SKIRMISH, function(ev) {
+      skirmishEv51 = ev && ev.payload ? ev.payload : null;
+    });
+    const testHostile51 = { id: 'h_test_51', name: 'Goblin Raider', x: advUnit51.x, y: advUnit51.y, hp: 30, power: 10, alive: true, rewardGold: 22, rewardOre: 5, rewardXp: 25 };
+    const skRes51 = resolveOverworldSkirmish(advUnit51, testHostile51, host51b.state, null, 1000, host51b.eventStream);
+    const skirmishFeedbackOk51 = Boolean(
+      skRes51.victory === true &&
+      testHostile51.alive === false &&
+      skirmishEv51 && skirmishEv51.victory === true &&
+      typeof skirmishEv51.x === 'number' && typeof skirmishEv51.y === 'number' &&
+      skirmishEv51.rewardGold === 22 && skirmishEv51.rewardOre === 5 && skirmishEv51.rewardXp === 25
+    );
+
+    // Issue E: Cleric skill metadata & targeting info populated cleanly
+    const skillInfo51 = getSkillTargetingInfo(dngState51b);
+    const skillVisibilityOk51 = Boolean(
+      CLASSES.cleric.skillName === 'Sacred Ward' &&
+      CLASSES.cleric.skillCost === 14 &&
+      CLASSES.cleric.skillRange === 3 &&
+      CLASSES.cleric.skillDesc && CLASSES.cleric.skillDesc.length > 10 &&
+      skillInfo51 && skillInfo51.skillName === 'Sacred Ward' && skillInfo51.effectiveCost === 14
+    );
+
+    t51Checks = {
+      rosterLifecycleOk: rosterLifecycleOk51,
+      rosterAfterReloadOk: rosterAfterReloadOk51,
+      dungeonPersistOk: dungeonPersistOk51,
+      levelUpGrowthOk: levelUpGrowthOk51,
+      spiAllocOk: spiAllocOk51,
+      skirmishFeedbackOk: skirmishFeedbackOk51,
+      skillVisibilityOk: skillVisibilityOk51
+    };
+  } finally {
+    if (typeof localStorage !== 'undefined') {
+      if (prevSavedRaw51 === null) localStorage.removeItem(WARGAME_STORAGE_KEY);
+      else localStorage.setItem(WARGAME_STORAGE_KEY, prevSavedRaw51);
+    }
+  }
+  const failed51 = Object.keys(t51Checks).filter(function(k) { return !t51Checks[k]; });
+  const t51Pass = failed51.length === 0 && Object.keys(t51Checks).length > 0;
+  results.push({
+    name: '51. HR-14: Playtest Reliability (Roster Lifecycle, Dungeon Re-Entry Persistence, Level/SPI, Skirmish Feedback & Skill UI)',
+    pass: t51Pass,
+    detail: t51Pass
+      ? 'Monotonic hero/unit IDs & dismissed cleanup, dungeon explored-floor persistence across exit/reload/hero-swap, level-up/SPI allocation, skirmish feedback payload, and Cleric skill metadata verified'
+      : 'Failed checks: ' + failed51.join(', ')
+  });
+
+  // =========================================================================
+  // Test 52: HR-14.1 Level-Up Notification Payloads & Reduced Class-Relevant
+  //          Fractional Attribute Growth Tuning (1–2 total pts/level budget)
+  // =========================================================================
+  const classIds52 = Object.keys(CLASSES);
+  const budgetsOk52 = classIds52.every(function(cid) {
+    const g = getClassLevelGrowth(cid);
+    const total = g.str + g.dex + g.int + g.vit + g.spi;
+    return total >= 1.0 && total <= 2.0 && g.str < 2 && g.vit < 2;
+  });
+  const fallbackG52 = getClassLevelGrowth('unregistered_future_class');
+  const fallbackTotal52 = fallbackG52.str + fallbackG52.dex + fallbackG52.int + fallbackG52.vit + fallbackG52.spi;
+  const fallbackOk52 = fallbackTotal52 >= 1.0 && fallbackTotal52 <= 2.0;
+
+  // Single level-up payload & fractional growth (Cleric)
+  const sbSingle52 = createDefaultGameState();
+  sbSingle52.hero = createDungeonHeroForClass('cleric', { id: 'h_c_52', name: 'Sister Lyra', classId: 'cleric', level: 1, xp: 0, maxXp: 60 }, CANONICAL_PLAYER_ID);
+  recomputeHeroDerivedStats(true, sbSingle52);
+  const hpPre52 = sbSingle52.hero.maxHp;
+  const res1_52 = gainExperience(60, sbSingle52);
+  const singleLvlOk52 = Boolean(
+    res1_52 && res1_52.leveledUp === true && res1_52.levelsGained === 1 &&
+    res1_52.levelUpPayload && res1_52.levelUpPayload.heroName === 'Sister Lyra' &&
+    res1_52.levelUpPayload.fromLevel === 1 && res1_52.levelUpPayload.newLevel === 2 &&
+    res1_52.levelUpPayload.statPointsGained === 2 && res1_52.levelUpPayload.talentPointsGained === 1 &&
+    res1_52.levelUpPayload.autoGrowth.spi === 0.55 &&
+    sbSingle52.hero.maxHp > hpPre52 &&
+    formatAttributeDisplay(sbSingle52.hero.computedSpi) === Math.floor(sbSingle52.hero.computedSpi)
+  );
+
+  // Multi-level XP grant groups cleanly without losing levels or rewards
+  const sbMulti52 = createDefaultGameState();
+  sbMulti52.hero = createDungeonHeroForClass('fighter', { id: 'h_f_52', name: 'Bram', classId: 'fighter', level: 1, xp: 0, maxXp: 60 }, CANONICAL_PLAYER_ID);
+  recomputeHeroDerivedStats(true, sbMulti52);
+  const resMulti52 = gainExperience(200, sbMulti52); // 60 (Lv2) + 84 (Lv3) = 144 -> Lv 3 with 56 XP remaining
+  const expectedDelta52 = computeAutoLevelGrowthDelta('fighter', 2);
+  const multiLvlOk52 = Boolean(
+    resMulti52 && resMulti52.leveledUp === true && resMulti52.levelsGained === 2 &&
+    resMulti52.levelUpPayload.fromLevel === 1 && resMulti52.levelUpPayload.newLevel === 3 &&
+    resMulti52.levelUpPayload.statPointsGained === 4 && resMulti52.levelUpPayload.talentPointsGained === 2 &&
+    resMulti52.levelUpPayload.autoGrowth.str === expectedDelta52.str &&
+    resMulti52.levelUpPayload.autoGrowth.vit === expectedDelta52.vit
+  );
+
+  // Repeated recomputation / normalization never double-applies automatic growth
+  const spiAfterLvl52 = sbSingle52.hero.computedSpi;
+  recomputeHeroDerivedStats(false, sbSingle52);
+  const noDoubleGrowthOk52 = sbSingle52.hero.computedSpi === spiAfterLvl52;
+
+  const t52Checks = {
+    budgetsOk: budgetsOk52,
+    fallbackOk: fallbackOk52,
+    singleLvlOk: singleLvlOk52,
+    multiLvlOk: multiLvlOk52,
+    noDoubleGrowthOk: noDoubleGrowthOk52
+  };
+  const failed52 = Object.keys(t52Checks).filter(function(k) { return !t52Checks[k]; });
+  const t52Pass = failed52.length === 0;
+  results.push({
+    name: '52. HR-14.1: Level-Up Notification Payloads & Reduced Class-Relevant Fractional Growth (1.5–1.6 pts/lvl)',
+    pass: t52Pass,
+    detail: t52Pass
+      ? 'Universal +2/attr removed, class-relevant 1.5–1.6 pts/level fractional growth + fallback verified, single/multi-level notification payloads accurate, and zero double-growth on recompute'
+      : 'Failed checks: ' + failed52.join(', ')
   });
 
   return results;

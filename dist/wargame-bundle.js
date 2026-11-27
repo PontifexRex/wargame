@@ -4104,7 +4104,13 @@ function getFormattedTasksList(state) {
 }
 
   // --- Module: src/data/classes.js ---
-// Complete 5 Playable Classes Registry (Fighter, Thief, Mage, Ranger, Paladin)
+// Canonical Playable Classes Registry (5 Core + Adventurer + Cleric)
+// Five foundational attributes: STR, DEX, INT, VIT, SPI (HR-13)
+
+const HERO_ATTRIBUTE_KEYS = ['str', 'dex', 'int', 'vit', 'spi'];
+const DEFAULT_HERO_SPI = 10;
+// Provisional per-level automatic attribute growth fallback (~1.5 total/level across 5 attributes; HR-14.1)
+const DEFAULT_LEVEL_GROWTH = { str: 0.3, dex: 0.3, int: 0.3, vit: 0.3, spi: 0.3 };
 
 const CLASSES = {
   fighter: {
@@ -4113,7 +4119,8 @@ const CLASSES = {
     title: 'Iron Vanguard',
     color: '#f87171',
     canEnterDungeon: true,
-    baseStats: { str: 15, dex: 10, int: 8, vit: 14 },
+    baseStats: { str: 15, dex: 10, int: 8, vit: 14, spi: 8 },
+    levelGrowth: { str: 0.6, dex: 0.25, int: 0.1, vit: 0.55, spi: 0.1 },
     hpBase: 120,
     mpBase: 35,
     vision: 5,
@@ -4138,7 +4145,8 @@ const CLASSES = {
     title: 'Shadow Strider',
     color: '#c084fc',
     canEnterDungeon: true,
-    baseStats: { str: 9, dex: 16, int: 11, vit: 10 },
+    baseStats: { str: 9, dex: 16, int: 11, vit: 10, spi: 9 },
+    levelGrowth: { str: 0.2, dex: 0.65, int: 0.25, vit: 0.25, spi: 0.15 },
     hpBase: 90,
     mpBase: 45,
     vision: 6,
@@ -4163,7 +4171,8 @@ const CLASSES = {
     title: 'Starweaver Adept',
     color: '#60a5fa',
     canEnterDungeon: true,
-    baseStats: { str: 7, dex: 10, int: 17, vit: 10 },
+    baseStats: { str: 7, dex: 10, int: 17, vit: 10, spi: 13 },
+    levelGrowth: { str: 0.1, dex: 0.2, int: 0.7, vit: 0.2, spi: 0.4 },
     hpBase: 82,
     mpBase: 80,
     vision: 6,
@@ -4188,7 +4197,8 @@ const CLASSES = {
     title: 'Deepwood Pathfinder',
     color: '#34d399',
     canEnterDungeon: true,
-    baseStats: { str: 12, dex: 15, int: 11, vit: 11 },
+    baseStats: { str: 12, dex: 15, int: 11, vit: 11, spi: 10 },
+    levelGrowth: { str: 0.3, dex: 0.6, int: 0.2, vit: 0.3, spi: 0.2 },
     hpBase: 95,
     mpBase: 45,
     vision: 7,
@@ -4213,7 +4223,8 @@ const CLASSES = {
     title: 'Dawn Warden',
     color: '#fbbf24',
     canEnterDungeon: true,
-    baseStats: { str: 14, dex: 9, int: 12, vit: 15 },
+    baseStats: { str: 14, dex: 9, int: 12, vit: 15, spi: 14 },
+    levelGrowth: { str: 0.45, dex: 0.15, int: 0.2, vit: 0.45, spi: 0.35 },
     hpBase: 125,
     mpBase: 50,
     vision: 5,
@@ -4238,7 +4249,8 @@ const CLASSES = {
     title: 'Starfall Delver',
     color: '#38bdf8',
     canEnterDungeon: true,
-    baseStats: { str: 12, dex: 12, int: 11, vit: 13 },
+    baseStats: { str: 12, dex: 12, int: 11, vit: 13, spi: 10 },
+    levelGrowth: { str: 0.35, dex: 0.35, int: 0.25, vit: 0.35, spi: 0.2 },
     hpBase: 108,
     mpBase: 50,
     vision: 6,
@@ -4263,7 +4275,8 @@ const CLASSES = {
     title: 'Temple Devotee',
     color: '#fef08a',
     canEnterDungeon: true,
-    baseStats: { str: 10, dex: 9, int: 15, vit: 13 },
+    baseStats: { str: 10, dex: 9, int: 15, vit: 13, spi: 16 },
+    levelGrowth: { str: 0.15, dex: 0.15, int: 0.45, vit: 0.3, spi: 0.55 },
     hpBase: 100,
     mpBase: 65,
     vision: 5,
@@ -4296,6 +4309,479 @@ function isHeroDungeonEligible(hero) {
   if (!hero || typeof hero !== 'object') return false;
   if (hero.canEnterDungeon === false) return false;
   return isClassDungeonEligible(hero.classId);
+}
+
+  // --- Module: src/data/gems.js ---
+// Astral Gem Catalog,Subterranean Shrine Variants, and Runic Trap Specifications
+
+const GEM_IDS = ['ruby', 'emerald', 'sapphire', 'topaz', 'void_diamond'];
+
+const GEM_CATALOG = {
+  ruby: {
+    id: 'ruby',
+    name: 'Ruby of Might',
+    shortName: 'Ruby',
+    color: '#ef4444',
+    baseValue: 65,
+    bonuses: { atk: 4, str: 2 },
+    desc: '+4 ATK, +2 STR'
+  },
+  emerald: {
+    id: 'emerald',
+    name: 'Emerald of the Wind',
+    shortName: 'Emerald',
+    color: '#10b981',
+    baseValue: 65,
+    bonuses: { crit: 5, dodge: 4, dex: 2 },
+    desc: '+5% Crit, +4% Dodge, +2 DEX'
+  },
+  sapphire: {
+    id: 'sapphire',
+    name: 'Sapphire of Will',
+    shortName: 'Sapphire',
+    color: '#3b82f6',
+    baseValue: 65,
+    bonuses: { maxMp: 18, int: 3 },
+    desc: '+18 Max MP, +3 INT'
+  },
+  topaz: {
+    id: 'topaz',
+    name: 'Topaz of Dawn',
+    shortName: 'Topaz',
+    color: '#f59e0b',
+    baseValue: 65,
+    bonuses: { maxHp: 24, def: 3, vit: 2 },
+    desc: '+24 Max HP, +3 DEF, +2 VIT'
+  },
+  void_diamond: {
+    id: 'void_diamond',
+    name: 'Void Diamond',
+    shortName: 'Void Diamond',
+    color: '#e879f9',
+    baseValue: 140,
+    bonuses: { atk: 5, def: 4, crit: 4, visionBonus: 1 },
+    desc: '+5 ATK, +4 DEF, +4% Crit, +1 Vision'
+  }
+};
+
+const GEM_DISPLAY = [
+  { id: 'ruby',         name: 'Ruby',         color: '#ef4444' },
+  { id: 'emerald',      name: 'Emerald',      color: '#10b981' },
+  { id: 'sapphire',     name: 'Sapphire',     color: '#3b82f6' },
+  { id: 'topaz',        name: 'Topaz',        color: '#f59e0b' },
+  { id: 'void_diamond', name: 'Void Diamond', color: '#e879f9' }
+];
+
+const SHRINE_CATALOG = {
+  sanctuary: {
+    id: 'sanctuary',
+    name: 'Shrine of Celestial Renewal',
+    color: '#34d399',
+    desc: 'Restores 50% Max HP & Max MP and purges negative afflictions.'
+  },
+  starfire: {
+    id: 'starfire',
+    name: 'Shrine of Starfire',
+    color: '#fbbf24',
+    statusId: 'shrine_starfire',
+    statusName: 'Starfire Blessing',
+    duration: 25,
+    bonuses: { atk: 6, crit: 12 },
+    desc: 'Grants +6 ATK and +12% Crit for 25 turns.'
+  },
+  aegis: {
+    id: 'aegis',
+    name: 'Shrine of the Astral Aegis',
+    color: '#60a5fa',
+    statusId: 'shrine_aegis',
+    statusName: 'Astral Aegis',
+    duration: 25,
+    bonuses: { def: 6, visionBonus: 1 },
+    desc: 'Grants +6 DEF and +1 Vision Radius for 25 turns.'
+  }
+};
+
+const TRAP_CATALOG = {
+  spike: {
+    id: 'spike',
+    name: 'Runic Spike Trap',
+    color: '#f87171',
+    baseDmg: 12,
+    depthScale: 4,
+    statusId: 'bleed',
+    statusDuration: 3,
+    desc: 'Piercing floor spikes that deal physical damage and inflict Bleed.'
+  },
+  flame: {
+    id: 'flame',
+    name: 'Runic Flame Vent',
+    color: '#fb923c',
+    baseDmg: 10,
+    depthScale: 4,
+    statusId: 'burn',
+    statusDuration: 3,
+    desc: 'Searing rune-fire glyph that deals fire damage and inflicts Burn.'
+  }
+};
+
+  // --- Module: src/core/heroStats.js ---
+// Shared Authoritative Hero Derived-Stat Calculator (HR-13)
+// Used by BOTH the Turn-Based Dungeon Engine and Macro Wargame Engine.
+// Preserves fractional internal attribute values during calculation;
+// presentation layers display whole numbers via formatAttributeDisplay (Math.floor).
+
+
+
+function roundFrac(val) {
+  return Math.round(val * 10000) / 10000;
+}
+
+function getClassLevelGrowth(classId) {
+  const cls = (classId && CLASSES[classId]) ? CLASSES[classId] : null;
+  const src = (cls && cls.levelGrowth && typeof cls.levelGrowth === 'object') ? cls.levelGrowth : DEFAULT_LEVEL_GROWTH;
+  return {
+    str: typeof src.str === 'number' && isFinite(src.str) ? src.str : DEFAULT_LEVEL_GROWTH.str,
+    dex: typeof src.dex === 'number' && isFinite(src.dex) ? src.dex : DEFAULT_LEVEL_GROWTH.dex,
+    int: typeof src.int === 'number' && isFinite(src.int) ? src.int : DEFAULT_LEVEL_GROWTH.int,
+    vit: typeof src.vit === 'number' && isFinite(src.vit) ? src.vit : DEFAULT_LEVEL_GROWTH.vit,
+    spi: typeof src.spi === 'number' && isFinite(src.spi) ? src.spi : DEFAULT_LEVEL_GROWTH.spi
+  };
+}
+
+function computeAutoLevelGrowthDelta(classId, levelsGained) {
+  const lvls = Math.max(0, Number(levelsGained) || 0);
+  const g = getClassLevelGrowth(classId);
+  return {
+    str: roundFrac(g.str * lvls),
+    dex: roundFrac(g.dex * lvls),
+    int: roundFrac(g.int * lvls),
+    vit: roundFrac(g.vit * lvls),
+    spi: roundFrac(g.spi * lvls)
+  };
+}
+
+function formatAttributeDisplay(value) {
+  const num = Number(value);
+  if (!isFinite(num)) return 0;
+  return Math.floor(num);
+}
+
+function createDefaultBonusStats() {
+  return { str: 0, dex: 0, int: 0, vit: 0, spi: 0 };
+}
+
+function normalizeHeroBonusStats(rawBonus) {
+  const out = createDefaultBonusStats();
+  if (!rawBonus || typeof rawBonus !== 'object' || Array.isArray(rawBonus)) {
+    return out;
+  }
+  for (let i = 0; i < HERO_ATTRIBUTE_KEYS.length; i++) {
+    const k = HERO_ATTRIBUTE_KEYS[i];
+    const v = rawBonus[k];
+    if (typeof v === 'number' && isFinite(v)) {
+      out[k] = v; // Preserve fractional values!
+    }
+  }
+  return out;
+}
+
+// Pure, authoritative derived-stat calculation from canonical class baselines, level,
+// fractional bonusStats, 6-slot equipment + socketed Astral Gems, talents, active statuses,
+// and optional externalModifiers (e.g. future Track F training / civic modifiers).
+// Returns null if hero or classId is invalid (no silent Fighter substitution).
+function computeHeroDerivedStats(hero, externalModifiers) {
+  if (!hero || typeof hero !== 'object') return null;
+  const classId = hero.classId;
+  const cls = (classId && CLASSES[classId]) ? CLASSES[classId] : null;
+  if (!cls) return null;
+
+  const level = (typeof hero.level === 'number' && isFinite(hero.level) && hero.level >= 1) ? hero.level : 1;
+  const bonus = normalizeHeroBonusStats(hero.bonusStats);
+  const clsBase = cls.baseStats || { str: 10, dex: 10, int: 10, vit: 10, spi: DEFAULT_HERO_SPI };
+  const ext = (externalModifiers && typeof externalModifiers === 'object') ? externalModifiers : {};
+
+  const growth = getClassLevelGrowth(classId);
+  const autoLvls = level - 1;
+
+  // Fractional internal attribute totals (never floored prior to derived calculations; HR-14.1)
+  let str = roundFrac((typeof clsBase.str === 'number' ? clsBase.str : 10) + (autoLvls * growth.str) + bonus.str + (ext.str || 0));
+  let dex = roundFrac((typeof clsBase.dex === 'number' ? clsBase.dex : 10) + (autoLvls * growth.dex) + bonus.dex + (ext.dex || 0));
+  let intel = roundFrac((typeof clsBase.int === 'number' ? clsBase.int : 10) + (autoLvls * growth.int) + bonus.int + (ext.int || 0));
+  let vit = roundFrac((typeof clsBase.vit === 'number' ? clsBase.vit : 10) + (autoLvls * growth.vit) + bonus.vit + (ext.vit || 0));
+  let spi = roundFrac((typeof clsBase.spi === 'number' ? clsBase.spi : DEFAULT_HERO_SPI) + (autoLvls * growth.spi) + bonus.spi + (ext.spi || 0));
+
+  let flatAtk = ext.atk || 0;
+  let flatDef = ext.def || 0;
+  let flatCrit = ext.crit || 0;
+  let flatDodge = ext.dodge || 0;
+  let flatHp = ext.maxHp || 0;
+  let flatMp = ext.maxMp || 0;
+  let flatMagic = ext.magicPower || 0;
+  let visionBonus = ext.visionBonus || 0;
+  let flatThorns = ext.thorns || 0;
+  let flatLeech = ext.leech || 0;
+  let flatWard = ext.ward || 0;
+
+  // Passive Class Bonuses
+  if (classId === 'fighter') flatHp += 10;
+  if (classId === 'thief')   flatCrit += 15;
+  if (classId === 'ranger')  flatDodge += 15;
+  if (classId === 'paladin') flatDef += 10;
+  if (classId === 'cleric')  flatDef += 5;
+
+  // Talent Bonuses
+  const t = (hero.talentsAllocated && typeof hero.talentsAllocated === 'object') ? hero.talentsAllocated : {};
+  if (t.f_a1) flatHp += t.f_a1 * 12;
+  if (t.f_a2) flatAtk += t.f_a2 * 3;
+  if (t.t_b1) flatCrit += t.t_b1 * 5;
+  if (t.t_b3) flatDodge += t.t_b3 * 10;
+  if (t.m_c1) flatMp += t.m_c1 * 15;
+  if (t.r_d1) { flatDodge += t.r_d1 * 4; visionBonus += t.r_d1; }
+  if (t.p_e1) { flatDef += t.p_e1 * 4; flatHp += t.p_e1 * 8; }
+  if (t.p_e2) flatAtk += t.p_e2 * 4;
+
+  // Sum 6-Slot Equipment & Socketed Astral Gems
+  const eq = (hero.equipment && typeof hero.equipment === 'object') ? hero.equipment : {};
+  const equipSlots = ['weapon', 'armor', 'helm', 'boots', 'accessory'];
+  for (let si = 0; si < equipSlots.length; si++) {
+    const it = eq[equipSlots[si]];
+    if (!it) continue;
+    if (it.str) str += it.str;
+    if (it.dex) dex += it.dex;
+    if (it.int) intel += it.int;
+    if (it.vit) vit += it.vit;
+    if (it.spi) spi += it.spi;
+    if (it.atk) flatAtk += it.atk;
+    if (it.def) flatDef += it.def;
+    if (it.crit) flatCrit += it.crit;
+    if (it.dodge) flatDodge += it.dodge;
+    if (it.maxHp) flatHp += it.maxHp;
+    if (it.maxMp) flatMp += it.maxMp;
+    if (it.magicPower) flatMagic += it.magicPower;
+    if (it.visionBonus) visionBonus += it.visionBonus;
+    if (it.thorns) flatThorns += it.thorns;
+    if (it.leech) flatLeech += it.leech;
+    if (it.ward) flatWard += it.ward;
+
+    if (Array.isArray(it.sockets)) {
+      for (let gIdx = 0; gIdx < it.sockets.length; gIdx++) {
+        const gem = GEM_CATALOG[it.sockets[gIdx]];
+        if (!gem || !gem.bonuses) continue;
+        const gb = gem.bonuses;
+        if (gb.str) str += gb.str;
+        if (gb.dex) dex += gb.dex;
+        if (gb.int) intel += gb.int;
+        if (gb.vit) vit += gb.vit;
+        if (gb.spi) spi += gb.spi;
+        if (gb.atk) flatAtk += gb.atk;
+        if (gb.def) flatDef += gb.def;
+        if (gb.crit) flatCrit += gb.crit;
+        if (gb.dodge) flatDodge += gb.dodge;
+        if (gb.maxHp) flatHp += gb.maxHp;
+        if (gb.maxMp) flatMp += gb.maxMp;
+        if (gb.magicPower) flatMagic += gb.magicPower;
+        if (gb.visionBonus) visionBonus += gb.visionBonus;
+      }
+    }
+  }
+
+  // Active Status & Shrine Buffs
+  if (Array.isArray(hero.statuses)) {
+    for (let i = 0; i < hero.statuses.length; i++) {
+      const st = hero.statuses[i];
+      if (!st) continue;
+      if (st.id === 'shrine_starfire') {
+        flatAtk += 6;
+        flatCrit += 12;
+      } else if (st.id === 'shrine_aegis') {
+        flatDef += 6;
+        visionBonus += 1;
+      } else if (st.id === 'chilled') {
+        flatDodge -= 15;
+      }
+    }
+  }
+
+  // Provisional SPI contributions (justified for divine/spiritual & arcane classes;
+  // fractional attributes are preserved until final rounding)
+  const spiMpBonus = classId === 'cleric'
+    ? (spi * 1.5)
+    : classId === 'paladin'
+      ? (spi * 1.0)
+      : classId === 'mage'
+        ? (spi * 0.5)
+        : 0;
+
+  const maxHp = Math.round((cls.hpBase || 100) + (vit * 4) + flatHp);
+  const maxMp = Math.round((cls.mpBase || 40) + (intel * 3) + spiMpBonus + flatMp);
+
+  const primaryOffensive = classId === 'mage'
+    ? (intel * 1.1 + str * 0.3)
+    : (classId === 'ranger' || classId === 'thief')
+      ? (dex * 0.9 + str * 0.4)
+      : classId === 'cleric'
+        ? (str * 0.65 + spi * 0.55)
+        : (str * 0.95 + dex * 0.35);
+
+  const magicBase = (classId === 'cleric' || classId === 'paladin')
+    ? (spi * 1.35 + intel * 0.65)
+    : (intel * 1.2 + spi * 0.35);
+
+  const atk = Math.round(primaryOffensive + flatAtk);
+  const magicPower = Math.round(magicBase + flatMagic);
+  const def = Math.round(vit * 0.45) + flatDef;
+  const crit = Math.min(75, Math.round(5 + (dex * 0.45) + flatCrit));
+  const dodge = Math.max(0, Math.min(60, Math.round(4 + (dex * 0.35) + flatDodge)));
+  const visionRadius = (cls.vision || 5) + visionBonus;
+
+  return {
+    attributes: {
+      str: str,
+      dex: dex,
+      int: intel,
+      vit: vit,
+      spi: spi
+    },
+    displayAttributes: {
+      str: formatAttributeDisplay(str),
+      dex: formatAttributeDisplay(dex),
+      int: formatAttributeDisplay(intel),
+      vit: formatAttributeDisplay(vit),
+      spi: formatAttributeDisplay(spi)
+    },
+    maxHp: maxHp,
+    maxMp: maxMp,
+    atk: atk,
+    magicPower: magicPower,
+    def: def,
+    crit: crit,
+    dodge: dodge,
+    visionRadius: visionRadius,
+    thorns: flatThorns,
+    leech: flatLeech,
+    ward: flatWard
+  };
+}
+
+  // --- Module: src/core/knowledge.js ---
+// Categorized Hero Knowledge Foundation & Monster Knowledge Reveal (HR-13)
+// Knowledge is a developable capability family, NOT a sixth foundational attribute.
+// INT supports reasoning/checks without substituting for topic expertise.
+
+const KNOWLEDGE_CATEGORIES = [
+  'monster_knowledge',
+  'object_item_knowledge',
+  'flora_knowledge',
+  'fauna_knowledge'
+];
+
+function createDefaultHeroKnowledge() {
+  return {
+    monster_knowledge: 0,
+    object_item_knowledge: 0,
+    flora_knowledge: 0,
+    fauna_knowledge: 0
+  };
+}
+
+// Idempotent, non-destructive normalizer preserving fractional/numeric ranks
+function normalizeHeroKnowledge(rawKnowledge) {
+  const out = createDefaultHeroKnowledge();
+  if (!rawKnowledge || typeof rawKnowledge !== 'object' || Array.isArray(rawKnowledge)) {
+    return out;
+  }
+  const existingKeys = Object.keys(rawKnowledge);
+  for (let i = 0; i < existingKeys.length; i++) {
+    const k = existingKeys[i];
+    const v = rawKnowledge[k];
+    if (typeof v === 'number' && isFinite(v) && v >= 0) {
+      out[k] = v;
+    }
+  }
+  return out;
+}
+
+function grantHeroKnowledge(hero, categoryKey, delta) {
+  if (!hero || typeof hero !== 'object' || !categoryKey) return 0;
+  const amount = Number(delta);
+  if (!isFinite(amount) || amount <= 0) return 0;
+  hero.knowledge = normalizeHeroKnowledge(hero.knowledge);
+  const prev = typeof hero.knowledge[categoryKey] === 'number' ? hero.knowledge[categoryKey] : 0;
+  hero.knowledge[categoryKey] = Math.round((prev + amount) * 1000) / 1000;
+  return hero.knowledge[categoryKey];
+}
+
+// Practical Monster Knowledge gameplay use: enemy inspection / reveal tiers.
+// Combines topic rank (monster_knowledge) with modest INT reasoning support
+// (INT assists checks, capped so raw INT alone does not replace Monster Knowledge).
+function evaluateMonsterKnowledgeReveal(hero, monster) {
+  if (!monster || typeof monster !== 'object') {
+    return { tier: 0, effectiveScore: 0, summary: '' };
+  }
+  const knowledge = normalizeHeroKnowledge(hero && hero.knowledge);
+  const topicRank = knowledge.monster_knowledge || 0;
+  const heroInt = (hero && typeof hero.computedInt === 'number')
+    ? hero.computedInt
+    : ((hero && hero.stats && typeof hero.stats.int === 'number') ? hero.stats.int : 10);
+
+  // INT provides modest reasoning support (up to +2), while topic expertise drives deeper tiers
+  const intSupport = Math.min(2, Math.floor(Math.max(0, heroInt - 8) / 5));
+  const effectiveScore = topicRank + intSupport;
+
+  // Tier 0: baseline observation (score < 2)
+  // Tier 1 (score >= 2): reveals archetype / threat classification
+  // Tier 2 (score >= 4): reveals trait / on-hit / elite affix insight
+  // Tier 3 (score >= 6): reveals tactical counter / weakness note
+  let tier = 0;
+  if (effectiveScore >= 6 && topicRank >= 4) tier = 3;
+  else if (effectiveScore >= 4 && topicRank >= 2) tier = 2;
+  else if (effectiveScore >= 2 && topicRank >= 0.5) tier = 1;
+
+  const isBoss = Boolean(monster.isBoss || (typeof monster.id === 'string' && monster.id.indexOf('boss_') === 0));
+  const isElite = Boolean(monster.affix && monster.affix.name);
+  const threatLabel = isBoss ? 'Boss Guardian' : (isElite ? ('Elite (' + monster.affix.name + ')') : (monster.ranged ? 'Ranged Skirmisher' : 'Melee Hostile'));
+
+  let traitNote = null;
+  if (tier >= 2) {
+    if (monster.affix && monster.affix.desc) {
+      traitNote = monster.affix.name + ': ' + monster.affix.desc;
+    } else if (monster.onHitStatus) {
+      traitNote = 'Inflicts ' + monster.onHitStatus + ' on hit';
+    } else if (monster.ranged) {
+      traitNote = 'Attacks from range (85% ATK)';
+    } else {
+      traitNote = 'Standard melee attacker (DEF ' + (monster.def || 0) + ')';
+    }
+  }
+
+  let tacticalTip = null;
+  if (tier >= 3) {
+    if (monster.affix && monster.affix.id === 'reflective') {
+      tacticalTip = 'Weakness: burst or heal through 25% thorns reflection.';
+    } else if ((monster.def || 0) >= 8) {
+      tacticalTip = 'Weakness: armored — high-DEF target favors magic, crits, or DEF pierce.';
+    } else if (monster.ranged) {
+      tacticalTip = 'Weakness: close distance or break line-of-sight behind walls.';
+    } else {
+      tacticalTip = 'Tactical: watch HP threshold (' + (monster.hp || 0) + '/' + (monster.maxHp || 0) + ') and stun/control windows.';
+    }
+  }
+
+  const parts = [];
+  if (tier >= 1) parts.push('Lore T' + tier + ': ' + threatLabel);
+  if (traitNote) parts.push(traitNote);
+  if (tacticalTip) parts.push(tacticalTip);
+
+  return {
+    tier: tier,
+    topicRank: topicRank,
+    intSupport: intSupport,
+    effectiveScore: effectiveScore,
+    threatLabel: tier >= 1 ? threatLabel : null,
+    traitNote: traitNote,
+    tacticalTip: tacticalTip,
+    summary: parts.join(' • ')
+  };
 }
 
   // --- Module: src/progression/currencyService.js ---
@@ -4970,119 +5456,6 @@ const RARITY = {
   rare:     { id: 'rare',     name: 'Rare',              color: '#60a5fa', mult: 2.0, affixes: 2 },
   epic:     { id: 'epic',     name: 'Epic',              color: '#c084fc', mult: 3.2, affixes: 3 },
   relic:    { id: 'relic',    name: 'Star-Forged Relic', color: '#fbbf24', mult: 5.5, affixes: 4 }
-};
-
-  // --- Module: src/data/gems.js ---
-// Astral Gem Catalog,Subterranean Shrine Variants, and Runic Trap Specifications
-
-const GEM_IDS = ['ruby', 'emerald', 'sapphire', 'topaz', 'void_diamond'];
-
-const GEM_CATALOG = {
-  ruby: {
-    id: 'ruby',
-    name: 'Ruby of Might',
-    shortName: 'Ruby',
-    color: '#ef4444',
-    baseValue: 65,
-    bonuses: { atk: 4, str: 2 },
-    desc: '+4 ATK, +2 STR'
-  },
-  emerald: {
-    id: 'emerald',
-    name: 'Emerald of the Wind',
-    shortName: 'Emerald',
-    color: '#10b981',
-    baseValue: 65,
-    bonuses: { crit: 5, dodge: 4, dex: 2 },
-    desc: '+5% Crit, +4% Dodge, +2 DEX'
-  },
-  sapphire: {
-    id: 'sapphire',
-    name: 'Sapphire of Will',
-    shortName: 'Sapphire',
-    color: '#3b82f6',
-    baseValue: 65,
-    bonuses: { maxMp: 18, int: 3 },
-    desc: '+18 Max MP, +3 INT'
-  },
-  topaz: {
-    id: 'topaz',
-    name: 'Topaz of Dawn',
-    shortName: 'Topaz',
-    color: '#f59e0b',
-    baseValue: 65,
-    bonuses: { maxHp: 24, def: 3, vit: 2 },
-    desc: '+24 Max HP, +3 DEF, +2 VIT'
-  },
-  void_diamond: {
-    id: 'void_diamond',
-    name: 'Void Diamond',
-    shortName: 'Void Diamond',
-    color: '#e879f9',
-    baseValue: 140,
-    bonuses: { atk: 5, def: 4, crit: 4, visionBonus: 1 },
-    desc: '+5 ATK, +4 DEF, +4% Crit, +1 Vision'
-  }
-};
-
-const GEM_DISPLAY = [
-  { id: 'ruby',         name: 'Ruby',         color: '#ef4444' },
-  { id: 'emerald',      name: 'Emerald',      color: '#10b981' },
-  { id: 'sapphire',     name: 'Sapphire',     color: '#3b82f6' },
-  { id: 'topaz',        name: 'Topaz',        color: '#f59e0b' },
-  { id: 'void_diamond', name: 'Void Diamond', color: '#e879f9' }
-];
-
-const SHRINE_CATALOG = {
-  sanctuary: {
-    id: 'sanctuary',
-    name: 'Shrine of Celestial Renewal',
-    color: '#34d399',
-    desc: 'Restores 50% Max HP & Max MP and purges negative afflictions.'
-  },
-  starfire: {
-    id: 'starfire',
-    name: 'Shrine of Starfire',
-    color: '#fbbf24',
-    statusId: 'shrine_starfire',
-    statusName: 'Starfire Blessing',
-    duration: 25,
-    bonuses: { atk: 6, crit: 12 },
-    desc: 'Grants +6 ATK and +12% Crit for 25 turns.'
-  },
-  aegis: {
-    id: 'aegis',
-    name: 'Shrine of the Astral Aegis',
-    color: '#60a5fa',
-    statusId: 'shrine_aegis',
-    statusName: 'Astral Aegis',
-    duration: 25,
-    bonuses: { def: 6, visionBonus: 1 },
-    desc: 'Grants +6 DEF and +1 Vision Radius for 25 turns.'
-  }
-};
-
-const TRAP_CATALOG = {
-  spike: {
-    id: 'spike',
-    name: 'Runic Spike Trap',
-    color: '#f87171',
-    baseDmg: 12,
-    depthScale: 4,
-    statusId: 'bleed',
-    statusDuration: 3,
-    desc: 'Piercing floor spikes that deal physical damage and inflict Bleed.'
-  },
-  flame: {
-    id: 'flame',
-    name: 'Runic Flame Vent',
-    color: '#fb923c',
-    baseDmg: 10,
-    depthScale: 4,
-    statusId: 'burn',
-    statusDuration: 3,
-    desc: 'Searing rune-fire glyph that deals fire damage and inflicts Burn.'
-  }
 };
 
   // --- Module: src/data/bounties.js ---
@@ -8114,6 +8487,8 @@ function resolveHazardStepEffects(actor, x, y, floor) {
 
 
 
+
+
 let itemSeq = 1000;
 
 function nextItemUid(prefix = 'gear') {
@@ -8419,7 +8794,8 @@ function migrateSaveData(raw) {
       xp: data.hero.xp || 0,
       maxXp: data.hero.maxXp || data.hero.xpNext || 60,
       statPoints: data.hero.statPoints || 0,
-      bonusStats: data.hero.bonusStats || { str: 0, dex: 0, int: 0, vit: 0 },
+      bonusStats: normalizeHeroBonusStats(data.hero.bonusStats),
+      knowledge: normalizeHeroKnowledge(data.hero.knowledge),
       hp: data.hero.hp || cls.hpBase,
       maxHp: data.hero.maxHp || cls.hpBase,
       mp: data.hero.mp || cls.mpBase,
@@ -8528,113 +8904,27 @@ function getPickaxeMaxDurability(state = gameState) {
 function recomputeHeroDerivedStats(fullRestore = false, state = gameState) {
   const h = state.hero;
   if (!h) return;
-  const cls = (h.classId && CLASSES[h.classId]) ? CLASSES[h.classId] : null;
-  if (!cls) return;
-  const bonus = h.bonusStats || { str: 0, dex: 0, int: 0, vit: 0 };
+  const derived = computeHeroDerivedStats(h);
+  if (!derived) return;
 
-  let str = cls.baseStats.str + (h.level - 1) * 2 + (bonus.str || 0);
-  let dex = cls.baseStats.dex + (h.level - 1) * 2 + (bonus.dex || 0);
-  let int = cls.baseStats.int + (h.level - 1) * 2 + (bonus.int || 0);
-  let vit = cls.baseStats.vit + (h.level - 1) * 2 + (bonus.vit || 0);
+  h.computedStr = derived.attributes.str;
+  h.computedDex = derived.attributes.dex;
+  h.computedInt = derived.attributes.int;
+  h.computedVit = derived.attributes.vit;
+  h.computedSpi = derived.attributes.spi;
+  h.visionRadius = derived.visionRadius;
 
-  let flatAtk = 0, flatDef = 0, flatCrit = 0, flatDodge = 0, flatHp = 0, flatMp = 0, visionBonus = 0;
-  let flatThorns = 0, flatLeech = 0, flatWard = 0;
+  h.maxHp = derived.maxHp;
+  h.maxMp = derived.maxMp;
+  h.thorns = derived.thorns;
+  h.leech = derived.leech;
+  h.ward = derived.ward;
 
-  // Passive Class Bonuses
-  if (h.classId === 'fighter') flatHp += 10;
-  if (h.classId === 'thief')   flatCrit += 15;
-  if (h.classId === 'ranger')  flatDodge += 15;
-  if (h.classId === 'paladin') flatDef += 10;
-  if (h.classId === 'cleric')  flatDef += 5;
-
-  // Talent Bonuses
-  const t = h.talentsAllocated || {};
-  if (t.f_a1) flatHp += t.f_a1 * 12;
-  if (t.f_a2) flatAtk += t.f_a2 * 3;
-  if (t.t_b1) flatCrit += t.t_b1 * 5;
-  if (t.t_b3) flatDodge += t.t_b3 * 10;
-  if (t.m_c1) flatMp += t.m_c1 * 15;
-  if (t.r_d1) { flatDodge += t.r_d1 * 4; visionBonus += t.r_d1; }
-  if (t.p_e1) { flatDef += t.p_e1 * 4; flatHp += t.p_e1 * 8; }
-  if (t.p_e2) flatAtk += t.p_e2 * 4;
-
-  // Sum 6-Slot Equipment & Socketed Astral Gems
-  for (const slot of ['weapon', 'armor', 'helm', 'boots', 'accessory']) {
-    const it = h.equipment[slot];
-    if (!it) continue;
-    if (it.str) str += it.str;
-    if (it.dex) dex += it.dex;
-    if (it.int) int += it.int;
-    if (it.vit) vit += it.vit;
-    if (it.atk) flatAtk += it.atk;
-    if (it.def) flatDef += it.def;
-    if (it.crit) flatCrit += it.crit;
-    if (it.dodge) flatDodge += it.dodge;
-    if (it.maxHp) flatHp += it.maxHp;
-    if (it.maxMp) flatMp += it.maxMp;
-    if (it.visionBonus) visionBonus += it.visionBonus;
-    if (it.thorns) flatThorns += it.thorns;
-    if (it.leech) flatLeech += it.leech;
-    if (it.ward) flatWard += it.ward;
-
-    if (Array.isArray(it.sockets)) {
-      for (let sIdx = 0; sIdx < it.sockets.length; sIdx++) {
-        const gem = GEM_CATALOG[it.sockets[sIdx]];
-        if (!gem || !gem.bonuses) continue;
-        const gb = gem.bonuses;
-        if (gb.str) str += gb.str;
-        if (gb.dex) dex += gb.dex;
-        if (gb.int) int += gb.int;
-        if (gb.vit) vit += gb.vit;
-        if (gb.atk) flatAtk += gb.atk;
-        if (gb.def) flatDef += gb.def;
-        if (gb.crit) flatCrit += gb.crit;
-        if (gb.dodge) flatDodge += gb.dodge;
-        if (gb.maxHp) flatHp += gb.maxHp;
-        if (gb.maxMp) flatMp += gb.maxMp;
-        if (gb.visionBonus) visionBonus += gb.visionBonus;
-      }
-    }
-  }
-
-  // Active Astral Shrine Status Buffs
-  if (Array.isArray(h.statuses)) {
-    for (let i = 0; i < h.statuses.length; i++) {
-      const st = h.statuses[i];
-      if (st.id === 'shrine_starfire') {
-        flatAtk += 6;
-        flatCrit += 12;
-      } else if (st.id === 'shrine_aegis') {
-        flatDef += 6;
-        visionBonus += 1;
-      } else if (st.id === 'chilled') {
-        flatDodge -= 15;
-      }
-    }
-  }
-
-  h.computedStr = str;
-  h.computedDex = dex;
-  h.computedInt = int;
-  h.computedVit = vit;
-  h.visionRadius = (cls.vision || 5) + visionBonus;
-
-  h.maxHp = cls.hpBase + (vit * 4) + flatHp;
-  h.maxMp = cls.mpBase + (int * 3) + flatMp;
-  h.thorns = flatThorns;
-  h.leech = flatLeech;
-  h.ward = flatWard;
-
-  const primaryOffensive = h.classId === 'mage'
-    ? Math.round(int * 1.1 + str * 0.3)
-    : h.classId === 'ranger' || h.classId === 'thief'
-      ? Math.round(dex * 0.9 + str * 0.4)
-      : Math.round(str * 0.95 + dex * 0.35);
-
-  h.atk = primaryOffensive + flatAtk;
-  h.def = Math.round(vit * 0.45) + flatDef;
-  h.crit = Math.min(75, 5 + Math.round(dex * 0.45) + flatCrit);
-  h.dodge = Math.max(0, Math.min(60, 4 + Math.round(dex * 0.35) + flatDodge));
+  h.atk = derived.atk;
+  h.magicPower = derived.magicPower;
+  h.def = derived.def;
+  h.crit = derived.crit;
+  h.dodge = derived.dodge;
 
   if (fullRestore) {
     h.hp = h.maxHp;
@@ -8760,6 +9050,7 @@ function packDungeonWorldSnapshot(state = gameState) {
   }
   return {
     version: 1,
+    campaignId: (state.wargameSession && state.wargameSession.campaignId) || null,
     activeDungeonId: serialized.activeDungeonId,
     turn: serialized.turn || 0,
     dungeons: serialized.dungeons,
@@ -8844,12 +9135,25 @@ function hydrateDungeonWorldSnapshot(snapshot, targetState = gameState) {
   targetState.inGuild = true;
   if (targetState.wargameSession) {
     targetState.wargameSession.active = false;
+    if (!targetState.wargameSession.campaignId && snapshot.campaignId) {
+      targetState.wargameSession.campaignId = snapshot.campaignId;
+    }
+  } else if (snapshot.campaignId) {
+    // HR-14 Issue B: Preserve campaignId when surfacing/saving on Overworld so re-entering
+    // the same dungeon after save/reload restores explored floors instead of resetting!
+    targetState.wargameSession = {
+      active: false,
+      inProcess: true,
+      campaignId: snapshot.campaignId
+    };
   }
   return { ok: true, hasActiveSession: false, session: null };
 }
 
   // --- Module: src/wargame/engine/state.js ---
 // Wargame Authoritative State Store, Universe -> World -> Cities -> Units Hierarchy & Save Serialization
+
+
 
 
 
@@ -9178,9 +9482,35 @@ function validateWargameSavePayload(parsed) {
 
 const DEFAULT_PERSISTENT_HERO_MAX_XP = 60;
 
-// Idempotent, non-destructive normalizer for canonical persistent hero-instance fields (HR-10).
-// Initializes only missing or invalid existing-schema fields; never alters class, stats, ownership,
-// or legitimate progression/equipment values.
+// Recomputes authoritative derived stats onto a persistent Wargame hero instance
+// using the shared src/core/heroStats.js calculator (HR-13).
+function refreshHeroDerivedStats(hero) {
+  if (!hero || typeof hero !== 'object') return null;
+  const derived = computeHeroDerivedStats(hero);
+  if (!derived) return null;
+  hero.stats = {
+    str: derived.attributes.str,
+    dex: derived.attributes.dex,
+    int: derived.attributes.int,
+    vit: derived.attributes.vit,
+    spi: derived.attributes.spi,
+    hp: derived.maxHp,
+    maxHp: derived.maxHp,
+    mp: derived.maxMp,
+    maxMp: derived.maxMp,
+    atk: derived.atk,
+    magicPower: derived.magicPower,
+    def: derived.def,
+    crit: derived.crit,
+    dodge: derived.dodge,
+    visionRadius: derived.visionRadius
+  };
+  return derived;
+}
+
+// Idempotent, non-destructive normalizer for canonical persistent hero-instance fields (HR-10 / HR-12 / HR-13).
+// Initializes only missing or invalid existing-schema fields; never alters class, ownership,
+// or legitimate progression/equipment values. Preserves fractional internal attributes.
 function normalizePersistentHeroInstance(hero) {
   if (!hero || typeof hero !== 'object') return hero;
 
@@ -9194,17 +9524,8 @@ function normalizePersistentHeroInstance(hero) {
     hero.maxXp = DEFAULT_PERSISTENT_HERO_MAX_XP;
   }
 
-  if (!hero.bonusStats || typeof hero.bonusStats !== 'object' || Array.isArray(hero.bonusStats)) {
-    hero.bonusStats = { str: 0, dex: 0, int: 0, vit: 0 };
-  } else {
-    const statKeys = ['str', 'dex', 'int', 'vit'];
-    for (let si = 0; si < statKeys.length; si++) {
-      const sk = statKeys[si];
-      if (typeof hero.bonusStats[sk] !== 'number' || !isFinite(hero.bonusStats[sk])) {
-        hero.bonusStats[sk] = 0;
-      }
-    }
-  }
+  hero.bonusStats = normalizeHeroBonusStats(hero.bonusStats);
+  hero.knowledge = normalizeHeroKnowledge(hero.knowledge);
 
   if (typeof hero.statPoints !== 'number' || !isFinite(hero.statPoints) || hero.statPoints < 0) {
     hero.statPoints = 0;
@@ -9248,6 +9569,9 @@ function normalizePersistentHeroInstance(hero) {
     hero.canEnterDungeon = isClassDungeonEligible(hero.classId);
   }
 
+  // HR-13: Refresh authoritative derived stats from shared calculator
+  refreshHeroDerivedStats(hero);
+
   return hero;
 }
 
@@ -9277,14 +9601,30 @@ function reconcileLoadedWorldIntegrity(parsed) {
     w.activeCityId = cityIds[0];
   }
 
-  // 2. Reconcile hero IDs, persistent hero-instance fields, roster leader & party memberships (never delete valid entities)
+  // 2. Reconcile hero IDs, persistent hero-instance fields, monotonic nextHeroSeq, roster leader & party memberships
   const heroIdSet = {};
+  let maxHeroSeq = (typeof w.nextHeroSeq === 'number' && isFinite(w.nextHeroSeq)) ? w.nextHeroSeq : 0;
   for (let i = 0; i < w.heroes.length; i++) {
     if (w.heroes[i]) {
       normalizePersistentHeroInstance(w.heroes[i]);
-      if (w.heroes[i].id) heroIdSet[w.heroes[i].id] = true;
+      if (w.heroes[i].id) {
+        heroIdSet[w.heroes[i].id] = true;
+        const mH = String(w.heroes[i].id).match(/^hero_(\d+)_/);
+        if (mH) maxHeroSeq = Math.max(maxHeroSeq, Number(mH[1]) || 0);
+      }
     }
   }
+  if (ow && Array.isArray(ow.units)) {
+    // Prune any legacy dead dismissed hero_party units so they never shadow newly recruited parties
+    ow.units = ow.units.filter(function(u) {
+      if (!u) return false;
+      const mU = typeof u.id === 'string' && u.id.match(/^unit_party_(\d+)$/);
+      if (mU) maxHeroSeq = Math.max(maxHeroSeq, Number(mU[1]) || 0);
+      if (u.status === 'dismissed' && u.alive === false) return false;
+      return true;
+    });
+  }
+  w.nextHeroSeq = Math.max(maxHeroSeq, w.heroes.length);
   if (w.roster) {
     if (w.roster.overallLeaderHeroId && !heroIdSet[w.roster.overallLeaderHeroId]) {
       w.roster.overallLeaderHeroId = w.heroes.length > 0 ? w.heroes[0].id : null;
@@ -10090,6 +10430,7 @@ function collectOverworldDiscoveries(world) {
 
 
 
+
 const HERO_RECRUITMENT_ELIGIBILITY_STATES = {
   ELIGIBLE: 'eligible',
   NO_CITY: 'no_city',
@@ -10111,9 +10452,8 @@ const HERO_RECRUITMENT_ORDER = [
 ];
 
 // Recruitment-specific metadata keyed by canonical classId.
-// Note: overworldCombatPreview retains the existing prototype Overworld skirmish/card
-// hp/mp/atk/def snapshot temporarily until a shared derived-stat calculator is introduced
-// after stat-system design is finalized. It is NOT an independent class definition.
+// Derived baseline stats (HP/MP/ATK/DEF) are computed dynamically from CLASSES + starterGear
+// via src/core/heroStats.js — zero static stat snapshots are duplicated here (HR-13).
 const HERO_RECRUITMENT_CATALOG = {
   adventurer: {
     classId: 'adventurer',
@@ -10121,8 +10461,7 @@ const HERO_RECRUITMENT_CATALOG = {
     costGold: 35,
     costFood: 20,
     durationMs: BASE_HERO_RECRUIT_DURATION_MS,
-    specialty: 'Versatile dungeon delver trained at the Adventurers Guild: Torch Flare stun, extra vision, and reinforced mining.',
-    overworldCombatPreview: { hp: 160, mp: 68, atk: 24, def: 14 }
+    specialty: 'Versatile dungeon delver trained at the Adventurers Guild: Torch Flare stun, extra vision, and reinforced mining.'
   },
   fighter: {
     classId: 'fighter',
@@ -10130,8 +10469,7 @@ const HERO_RECRUITMENT_CATALOG = {
     costGold: 50,
     costFood: 30,
     durationMs: BASE_HERO_RECRUIT_DURATION_MS,
-    specialty: 'Frontline bastion defence, Whirlwind Cleave, and door breaching.',
-    overworldCombatPreview: { hp: 186, mp: 59, atk: 28, def: 16 }
+    specialty: 'Frontline bastion defence, Whirlwind Cleave, and door breaching.'
   },
   ranger: {
     classId: 'ranger',
@@ -10139,8 +10477,7 @@ const HERO_RECRUITMENT_CATALOG = {
     costGold: 50,
     costFood: 30,
     durationMs: BASE_HERO_RECRUIT_DURATION_MS,
-    specialty: '+2 Overworld Vision, trap disarming, and Starfall Volley.',
-    overworldCombatPreview: { hp: 145, mp: 68, atk: 26, def: 12 }
+    specialty: '+2 Overworld Vision, trap disarming, and Starfall Volley.'
   },
   mage: {
     classId: 'mage',
@@ -10148,8 +10485,7 @@ const HERO_RECRUITMENT_CATALOG = {
     costGold: 60,
     costFood: 30,
     durationMs: BASE_HERO_RECRUIT_DURATION_MS,
-    specialty: 'High-area Starfall Nova and arcane rune-seal dispelling.',
-    overworldCombatPreview: { hp: 122, mp: 131, atk: 31, def: 10 }
+    specialty: 'High-area Starfall Nova and arcane rune-seal dispelling.'
   },
   thief: {
     classId: 'thief',
@@ -10157,8 +10493,7 @@ const HERO_RECRUITMENT_CATALOG = {
     costGold: 50,
     costFood: 30,
     durationMs: BASE_HERO_RECRUIT_DURATION_MS,
-    specialty: 'Master lockpicking, secret door discovery, and Shadowstep Strike.',
-    overworldCombatPreview: { hp: 130, mp: 78, atk: 27, def: 11 }
+    specialty: 'Master lockpicking, secret door discovery, and Shadowstep Strike.'
   },
   cleric: {
     classId: 'cleric',
@@ -10166,8 +10501,7 @@ const HERO_RECRUITMENT_CATALOG = {
     costGold: 55,
     costFood: 30,
     durationMs: BASE_HERO_RECRUIT_DURATION_MS,
-    specialty: 'Entry-level Temple Chapterhouse healer, blessing wards, and undead turning.',
-    overworldCombatPreview: { hp: 162, mp: 105, atk: 22, def: 15 }
+    specialty: 'Entry-level Temple Chapterhouse healer, blessing wards, and undead turning.'
   },
   paladin: {
     classId: 'paladin',
@@ -10175,8 +10509,7 @@ const HERO_RECRUITMENT_CATALOG = {
     costGold: 65,
     costFood: 35,
     durationMs: BASE_HERO_RECRUIT_DURATION_MS,
-    specialty: 'Temple Chapterhouse Tier-2 Champion: Aura of Radiance, Holy Smite, and Divine Intervention.',
-    overworldCombatPreview: { hp: 195, mp: 86, atk: 27, def: 20 }
+    specialty: 'Temple Chapterhouse Tier-2 Champion: Aura of Radiance, Holy Smite, and Divine Intervention.'
   }
 };
 
@@ -10184,16 +10517,23 @@ function isClassRecruitable(classId) {
   return Boolean(classId && HERO_RECRUITMENT_CATALOG[classId] && CLASSES[classId]);
 }
 
-// Composes a recruitment descriptor by resolving canonical class identity & base attributes
-// from CLASSES and merging recruitment-only metadata from HERO_RECRUITMENT_CATALOG.
+// Composes a recruitment descriptor by resolving canonical class identity, base attributes,
+// and derived baseline stats from CLASSES + shared heroStats calculator (HR-11 / HR-13).
 function getRecruitableHeroEntry(classId) {
   if (!classId) return null;
   const rec = HERO_RECRUITMENT_CATALOG[classId];
   const cls = CLASSES[classId];
   if (!rec || !cls) return null;
 
-  const canonicalAttrs = cls.baseStats || { str: 10, dex: 10, int: 10, vit: 10 };
-  const preview = rec.overworldCombatPreview || { hp: cls.hpBase || 100, mp: cls.mpBase || 40, atk: 12, def: 8 };
+  const canonicalAttrs = cls.baseStats || { str: 10, dex: 10, int: 10, vit: 10, spi: DEFAULT_HERO_SPI };
+  const derived = computeHeroDerivedStats({
+    classId: cls.id,
+    level: 1,
+    bonusStats: createDefaultBonusStats(),
+    equipment: cls.starterGear || {},
+    talentsAllocated: {},
+    statuses: []
+  });
 
   return {
     classId: cls.id,
@@ -10209,17 +10549,20 @@ function getRecruitableHeroEntry(classId) {
       str: canonicalAttrs.str,
       dex: canonicalAttrs.dex,
       int: canonicalAttrs.int,
-      vit: canonicalAttrs.vit
+      vit: canonicalAttrs.vit,
+      spi: typeof canonicalAttrs.spi === 'number' ? canonicalAttrs.spi : DEFAULT_HERO_SPI
     },
     baseStats: {
       str: canonicalAttrs.str,
       dex: canonicalAttrs.dex,
       int: canonicalAttrs.int,
       vit: canonicalAttrs.vit,
-      hp: preview.hp,
-      mp: preview.mp,
-      atk: preview.atk,
-      def: preview.def
+      spi: typeof canonicalAttrs.spi === 'number' ? canonicalAttrs.spi : DEFAULT_HERO_SPI,
+      hp: derived ? derived.maxHp : (cls.hpBase || 100),
+      mp: derived ? derived.maxMp : (cls.mpBase || 40),
+      atk: derived ? derived.atk : 12,
+      magicPower: derived ? derived.magicPower : 12,
+      def: derived ? derived.def : 8
     }
   };
 }
@@ -12343,6 +12686,8 @@ function resolveUnlockState(target, effects, options) {
 
 
 
+
+
 function scheduleNextMarchStep(unit, state, scheduler) {
   if (!unit || !unit.marchPlan || !Array.isArray(unit.marchPlan.remainingPath) || unit.marchPlan.remainingPath.length === 0) {
     return null;
@@ -12460,8 +12805,10 @@ function resolveOverworldSkirmish(unit, hostile, state, scheduler, simTimeMs, ev
     ? world.heroes.find(function(h) { return h.id === unit.leaderHeroId; })
     : null;
 
-  const heroAtk = (hero && hero.stats && hero.stats.atk) ? hero.stats.atk : 26;
-  const heroDef = (hero && hero.stats && hero.stats.def) ? hero.stats.def : 12;
+  // HR-13: Always read authoritative derived stats from shared heroStats calculator (never stale snapshots)
+  const derived = hero ? computeHeroDerivedStats(hero) : null;
+  const heroAtk = derived ? derived.atk : ((hero && hero.stats && hero.stats.atk) ? hero.stats.atk : 26);
+  const heroDef = derived ? derived.def : ((hero && hero.stats && hero.stats.def) ? hero.stats.def : 12);
   const heroLvl = (hero && hero.level) ? hero.level : 1;
   const effectiveAtk = heroAtk + (heroLvl - 1) * 4;
 
@@ -12491,7 +12838,11 @@ function resolveOverworldSkirmish(unit, hostile, state, scheduler, simTimeMs, ev
         unitName: unit.shortName,
         hostileId: hostile.id,
         hostileName: hostile.name,
+        x: unit.x,
+        y: unit.y,
         damageTaken: totalDmg,
+        remainingHp: unit.hp,
+        maxHp: unit.maxHp,
         rewardGold: hostile.rewardGold || 20,
         rewardOre: hostile.rewardOre || 4,
         rewardXp: hostile.rewardXp || 25
@@ -12521,6 +12872,11 @@ function resolveOverworldSkirmish(unit, hostile, state, scheduler, simTimeMs, ev
       unitName: unit.shortName,
       hostileId: hostile.id,
       hostileName: hostile.name,
+      x: hostile.x,
+      y: hostile.y,
+      damageTaken: totalDmg,
+      remainingHp: unit.hp,
+      maxHp: unit.maxHp,
       retreatedToCity: city ? city.name : 'Bastion'
     }, simTimeMs);
   }
@@ -12972,7 +13328,24 @@ function resolveRecruitHeroJob(job, state, scheduler, eventStream) {
   const classDef = getRecruitableHeroEntry(p.classId);
   if (!classDef) return;
 
-  const heroIndex = (world.heroes || []).length + 1;
+  // HR-14 Issue A: Use a monotonic hero sequence counter so newly recruited heroes
+  // and party units NEVER reuse IDs of retired/dismissed heroes.
+  let maxExistingSeq = (world.heroes || []).length;
+  if (Array.isArray(world.heroes)) {
+    for (let hi = 0; hi < world.heroes.length; hi++) {
+      const mH = world.heroes[hi] && typeof world.heroes[hi].id === 'string' && world.heroes[hi].id.match(/^hero_(\d+)_/);
+      if (mH) maxExistingSeq = Math.max(maxExistingSeq, Number(mH[1]) || 0);
+    }
+  }
+  if (ow && Array.isArray(ow.units)) {
+    for (let ui = 0; ui < ow.units.length; ui++) {
+      const mU = ow.units[ui] && typeof ow.units[ui].id === 'string' && ow.units[ui].id.match(/^unit_party_(\d+)$/);
+      if (mU) maxExistingSeq = Math.max(maxExistingSeq, Number(mU[1]) || 0);
+    }
+  }
+  const prevSeq = (typeof world.nextHeroSeq === 'number' && isFinite(world.nextHeroSeq)) ? world.nextHeroSeq : 0;
+  const heroIndex = Math.max(prevSeq, maxExistingSeq) + 1;
+  world.nextHeroSeq = heroIndex;
   const heroName = String(p.heroName || (classDef.name + ' #' + heroIndex)).trim();
 
   // HR-02: Reuse canonical class-specific starterGear definitions from src/data/classes.js
@@ -13024,7 +13397,8 @@ function resolveRecruitHeroJob(job, state, scheduler, eventStream) {
     level: 1,
     xp: 0,
     maxXp: DEFAULT_PERSISTENT_HERO_MAX_XP,
-    bonusStats: { str: 0, dex: 0, int: 0, vit: 0 },
+    bonusStats: createDefaultBonusStats(),
+    knowledge: createDefaultHeroKnowledge(),
     statPoints: 0,
     talentPoints: 0,
     talentsAllocated: {},
@@ -14313,6 +14687,8 @@ function consumeBridgeHandoff(expectedDirection) {
   // --- Module: src/wargame/engine/commandBus.js ---
 // Authoritative Command Bus & Simulation Host Engine
 // All player actions are dispatched as serializable Command Envelopes, validated, and applied to the World state.
+
+
 
 
 
@@ -15939,6 +16315,7 @@ function dispatchWargameCommand(commandEnvelope, state, scheduler, eventStream) 
       hero.bagGear.push(prev);
     }
     hero.equipment[slot] = item;
+    refreshHeroDerivedStats(hero);
     return accept({ heroId: hero.id, slot: slot, equipped: item, swappedOut: prev || null });
   }
 
@@ -15953,6 +16330,7 @@ function dispatchWargameCommand(commandEnvelope, state, scheduler, eventStream) 
     const removed = hero.equipment[slot];
     hero.equipment[slot] = null;
     hero.bagGear.push(removed);
+    refreshHeroDerivedStats(hero);
     return accept({ heroId: hero.id, slot: slot, unequipped: removed });
   }
 
@@ -15984,6 +16362,7 @@ function dispatchWargameCommand(commandEnvelope, state, scheduler, eventStream) 
         equippedCount++;
       }
     }
+    refreshHeroDerivedStats(hero);
     return accept({ heroId: hero.id, equippedCount: equippedCount });
   }
 
@@ -16017,16 +16396,27 @@ function dispatchWargameCommand(commandEnvelope, state, scheduler, eventStream) 
 
     world.heroes.splice(heroIdx, 1);
 
-    // Remove or clean up Overworld unit led by this dismissed hero
+    // Remove Overworld unit led by this dismissed hero and reassign selection safely (HR-14 Issue A)
     if (ow && Array.isArray(ow.units)) {
+      let dismissedSelected = false;
+      const keptUnits = [];
       for (let u = 0; u < ow.units.length; u++) {
-        if (ow.units[u].leaderHeroId === hero.id) {
-          if (ow.units[u].marchPlan && ow.units[u].marchPlan.activeJobId && scheduler) {
-            scheduler.cancelJob(ow.units[u].marchPlan.activeJobId);
+        const unit = ow.units[u];
+        if (unit && unit.leaderHeroId === hero.id) {
+          if (unit.marchPlan && unit.marchPlan.activeJobId && scheduler) {
+            scheduler.cancelJob(unit.marchPlan.activeJobId);
           }
-          ow.units[u].alive = false;
-          ow.units[u].status = 'dismissed';
+          if (ow.selectedUnitId === unit.id) {
+            dismissedSelected = true;
+          }
+          continue;
         }
+        keptUnits.push(unit);
+      }
+      ow.units = keptUnits;
+      if (dismissedSelected) {
+        const nextAlive = ow.units.find(function(u) { return u && u.alive; });
+        ow.selectedUnitId = nextAlive ? nextAlive.id : null;
       }
     }
 
@@ -16799,7 +17189,10 @@ function dispatchWargameCommand(commandEnvelope, state, scheduler, eventStream) 
         hero.maxXp = payload.heroMaxXp;
       }
       if (payload.heroBonusStats && typeof payload.heroBonusStats === 'object') {
-        hero.bonusStats = Object.assign({ str: 0, dex: 0, int: 0, vit: 0 }, payload.heroBonusStats);
+        hero.bonusStats = normalizeHeroBonusStats(payload.heroBonusStats);
+      }
+      if (payload.heroKnowledge && typeof payload.heroKnowledge === 'object') {
+        hero.knowledge = normalizeHeroKnowledge(payload.heroKnowledge);
       }
       if (typeof payload.heroStatPoints === 'number' && payload.heroStatPoints >= 0) {
         hero.statPoints = payload.heroStatPoints;
@@ -16813,6 +17206,7 @@ function dispatchWargameCommand(commandEnvelope, state, scheduler, eventStream) 
       if (payload.heroEquipment && typeof payload.heroEquipment === 'object') {
         hero.equipment = Object.assign({}, hero.equipment || {}, payload.heroEquipment);
       }
+      refreshHeroDerivedStats(hero);
     }
 
     const poiId = payload.dungeonPoiId || unit.activeDungeonPoiId;
@@ -21452,6 +21846,7 @@ function getItemTypeIcon(itemOrSlot) {
 
 
 
+
 const SHARED_PAPER_DOLL_SLOTS = [
   // Row 1: Head & Neck
   { id: 'accessory', label: 'Trinket',  left: '10px',  top: '10px',  width: '84px', height: '64px', active: true },
@@ -21493,33 +21888,22 @@ function normalizeSharedHeroProfile(hero) {
   const classId = h.classId || 'fighter';
   const cls = CLASSES[classId] || CLASSES.fighter;
   const st = h.stats || {};
+  const derived = computeHeroDerivedStats(h);
 
-  const str = h.computedStr !== undefined ? h.computedStr : (st.str || (cls.baseStats && cls.baseStats.str) || 10);
-  const dex = h.computedDex !== undefined ? h.computedDex : (st.dex || (cls.baseStats && cls.baseStats.dex) || 10);
-  const intel = h.computedInt !== undefined ? h.computedInt : (st.int || (cls.baseStats && cls.baseStats.int) || 10);
-  const vit = h.computedVit !== undefined ? h.computedVit : (st.vit || (cls.baseStats && cls.baseStats.vit) || 10);
+  const str = formatAttributeDisplay(h.computedStr !== undefined ? h.computedStr : (derived ? derived.attributes.str : (st.str || (cls.baseStats && cls.baseStats.str) || 10)));
+  const dex = formatAttributeDisplay(h.computedDex !== undefined ? h.computedDex : (derived ? derived.attributes.dex : (st.dex || (cls.baseStats && cls.baseStats.dex) || 10)));
+  const intel = formatAttributeDisplay(h.computedInt !== undefined ? h.computedInt : (derived ? derived.attributes.int : (st.int || (cls.baseStats && cls.baseStats.int) || 10)));
+  const vit = formatAttributeDisplay(h.computedVit !== undefined ? h.computedVit : (derived ? derived.attributes.vit : (st.vit || (cls.baseStats && cls.baseStats.vit) || 10)));
+  const spi = formatAttributeDisplay(h.computedSpi !== undefined ? h.computedSpi : (derived ? derived.attributes.spi : (st.spi || (cls.baseStats && cls.baseStats.spi) || 10)));
 
   const eq = h.equipment || {};
-  let eqAtk = 0;
-  let eqDef = 0;
-  let eqHp = 0;
-  let eqMp = 0;
-  const eqKeys = Object.keys(eq);
-  for (let i = 0; i < eqKeys.length; i++) {
-    const it = eq[eqKeys[i]];
-    if (!it) continue;
-    eqAtk += (it.atk || 0);
-    eqDef += (it.def || 0);
-    eqHp  += (it.hp  || 0);
-    eqMp  += (it.mp  || 0);
-  }
-
-  const baseMaxHp = h.maxHp !== undefined ? h.maxHp : ((st.hp || 140) + eqHp);
-  const baseMaxMp = h.maxMp !== undefined ? h.maxMp : ((st.mp || 60) + eqMp);
-  const atk = h.atk !== undefined ? h.atk : ((st.atk || 22) + eqAtk);
-  const def = h.def !== undefined ? h.def : ((st.def || 10) + eqDef);
-  const crit = h.crit !== undefined ? h.crit : Math.min(60, 8 + Math.floor(dex * 0.6));
-  const dodge = h.dodge !== undefined ? h.dodge : Math.min(45, 5 + Math.floor(dex * 0.5));
+  const baseMaxHp = h.maxHp !== undefined ? h.maxHp : (derived ? derived.maxHp : (st.hp || 140));
+  const baseMaxMp = h.maxMp !== undefined ? h.maxMp : (derived ? derived.maxMp : (st.mp || 60));
+  const atk = h.atk !== undefined ? h.atk : (derived ? derived.atk : (st.atk || 22));
+  const magicPower = h.magicPower !== undefined ? h.magicPower : (derived ? derived.magicPower : (st.magicPower || 12));
+  const def = h.def !== undefined ? h.def : (derived ? derived.def : (st.def || 10));
+  const crit = h.crit !== undefined ? h.crit : (derived ? derived.crit : Math.min(60, 8 + Math.floor(dex * 0.6)));
+  const dodge = h.dodge !== undefined ? h.dodge : (derived ? derived.dodge : Math.min(45, 5 + Math.floor(dex * 0.5)));
 
   return {
     id: h.id || 'hero_active',
@@ -21539,7 +21923,9 @@ function normalizeSharedHeroProfile(hero) {
       dex: dex,
       int: intel,
       vit: vit,
+      spi: spi,
       atk: atk,
+      magicPower: magicPower,
       def: def,
       crit: crit,
       dodge: dodge
@@ -25316,6 +25702,7 @@ function renderBattleFeedbackOverlays(simHost) {
         <div class="px-6 py-3 rounded-xl border-2 shadow-2xl text-center backdrop-blur-md ${isWin ? 'bg-[#064e3b]/95 border-[#34d399] text-[#ecfdf5]' : 'bg-[#450a0a]/95 border-[#ef4444] text-[#fef2f2]'}">
           <div class="text-lg md:text-xl font-display font-extrabold tracking-widest uppercase ${isWin ? 'text-[#fbbf24]' : 'text-[#fca5a5]'}">${isWin ? '⚔️ VICTORY ⚔️' : '💀 DEFEAT 💀'}</div>
           <div class="text-xs font-mono mt-0.5">${banner.armyName || 'Field Army'} vs ${banner.targetName || 'Hostile Force'}</div>
+          ${banner.summary ? `<div class="text-[11px] font-mono mt-1 text-[#fde68a]">${banner.summary}</div>` : ''}
         </div>
       `;
       setHtmlIfChanged(bannerEl, bannerHtml);
@@ -26815,6 +27202,7 @@ function clearEngineEventListeners(eventName = null) {
 
 
 
+
 const actionCallbacks = {
   log: (msg, tone) => emitEngineEvent(ENGINE_EVENTS.LOG, { msg, tone }, gameState),
   updateUI: () => emitEngineEvent(ENGINE_EVENTS.UI_SYNC, {}, gameState),
@@ -26824,7 +27212,8 @@ const actionCallbacks = {
   onTurnEnd: () => emitEngineEvent(ENGINE_EVENTS.TURN_END, {}, gameState),
   combatAnim: (x, y, type, color) => {},
   heroLunge: (dx, dy) => {},
-  onDungeonReturn: null
+  onDungeonReturn: null,
+  onLevelUp: null
 };
 
 const registeredBridgeHandlers = {};
@@ -26866,6 +27255,9 @@ function registerActionCallbacks(cbs) {
   if (cbs.onDungeonReturn === null || typeof cbs.onDungeonReturn === 'function') {
     actionCallbacks.onDungeonReturn = cbs.onDungeonReturn;
   }
+  if (cbs.onLevelUp === null || typeof cbs.onLevelUp === 'function') {
+    actionCallbacks.onLevelUp = cbs.onLevelUp;
+  }
 }
 
 function getActionCallbacks() {
@@ -26900,21 +27292,61 @@ function addExpeditionTradeItem(id, name, val, qty = 1, type = 'Ore', state = ga
 
 function gainExperience(amount, state = gameState) {
   const h = state.hero;
-  if (!h) return;
+  if (!h) return { leveledUp: false, levelsGained: 0, levelUpPayload: null };
+  const fromLevel = h.level || 1;
+  let levelsGained = 0;
+  let statPointsGained = 0;
+  let talentPointsGained = 0;
+
   h.xp += amount;
   while (h.xp >= h.maxXp) {
     h.xp -= h.maxXp;
     h.level += 1;
+    levelsGained += 1;
     h.maxXp = Math.round(h.maxXp * 1.4);
     h.statPoints = (h.statPoints || 0) + 2;
     h.talentPoints = (h.talentPoints || 0) + 1;
-    recomputeHeroDerivedStats(true, state);
-    if (state === gameState) {
-      playSound('lvl');
-      actionCallbacks.floatingText(h.x, h.y, `LEVEL UP! Lv ${h.level}`, '#fbbf24');
-      actionCallbacks.log(`LEVEL UP! Reached Level ${h.level} (+2 Stat Points, +1 Talent Point).`, 'good');
+    statPointsGained += 2;
+    talentPointsGained += 1;
+  }
+
+  if (levelsGained <= 0) {
+    return { leveledUp: false, levelsGained: 0, levelUpPayload: null };
+  }
+
+  recomputeHeroDerivedStats(true, state);
+  const autoGrowth = computeAutoLevelGrowthDelta(h.classId, levelsGained);
+  const levelUpPayload = {
+    heroId: h.id || null,
+    heroName: h.name || 'Hero',
+    classId: h.classId || null,
+    fromLevel: fromLevel,
+    newLevel: h.level,
+    levelsGained: levelsGained,
+    autoGrowth: autoGrowth,
+    statPointsGained: statPointsGained,
+    statPointsAvailable: h.statPoints || 0,
+    talentPointsGained: talentPointsGained,
+    talentPointsAvailable: h.talentPoints || 0
+  };
+
+  if (state === gameState) {
+    playSound('lvl');
+    const growthParts = ['str', 'dex', 'int', 'vit', 'spi']
+      .filter(function(k) { return (autoGrowth[k] || 0) > 0; })
+      .map(function(k) { return '+' + autoGrowth[k] + ' ' + k.toUpperCase(); });
+    actionCallbacks.floatingText(h.x, h.y, 'LEVEL UP! Lv ' + h.level, '#fbbf24');
+    actionCallbacks.log(
+      'LEVEL UP! ' + (h.name || 'Hero') + ' reached Level ' + h.level +
+      ' (Auto: ' + growthParts.join(', ') + ' • +' + statPointsGained + ' Stat Pts, +' + talentPointsGained + ' Talent Pt).',
+      'good'
+    );
+    if (typeof actionCallbacks.onLevelUp === 'function') {
+      actionCallbacks.onLevelUp(levelUpPayload);
     }
   }
+
+  return { leveledUp: true, levelsGained: levelsGained, levelUpPayload: levelUpPayload };
 }
 
 // ============================================================================
@@ -27678,7 +28110,8 @@ function extractToGuild(method = 'Floor 1 Ascending Stairs (<)', state = gameSta
       heroLevel: h.level || 1,
       heroXp: h.xp || 0,
       heroMaxXp: h.maxXp || 60,
-      heroBonusStats: h.bonusStats ? Object.assign({}, h.bonusStats) : { str: 0, dex: 0, int: 0, vit: 0 },
+      heroBonusStats: h.bonusStats ? Object.assign({ str: 0, dex: 0, int: 0, vit: 0, spi: 0 }, h.bonusStats) : { str: 0, dex: 0, int: 0, vit: 0, spi: 0 },
+      heroKnowledge: h.knowledge ? Object.assign({}, h.knowledge) : null,
       heroStatPoints: h.statPoints || 0,
       heroTalentPoints: h.talentPoints || 0,
       heroTalentsAllocated: h.talentsAllocated ? Object.assign({}, h.talentsAllocated) : {},
@@ -27789,7 +28222,8 @@ function handleHeroDefeat(killerName = 'Abyssal Guardian', state = gameState) {
       heroLevel: h.level || 1,
       heroXp: h.xp || 0,
       heroMaxXp: h.maxXp || 60,
-      heroBonusStats: h.bonusStats ? Object.assign({}, h.bonusStats) : { str: 0, dex: 0, int: 0, vit: 0 },
+      heroBonusStats: h.bonusStats ? Object.assign({ str: 0, dex: 0, int: 0, vit: 0, spi: 0 }, h.bonusStats) : { str: 0, dex: 0, int: 0, vit: 0, spi: 0 },
+      heroKnowledge: h.knowledge ? Object.assign({}, h.knowledge) : null,
       heroStatPoints: h.statPoints || 0,
       heroTalentPoints: h.talentPoints || 0,
       heroTalentsAllocated: h.talentsAllocated ? Object.assign({}, h.talentsAllocated) : {},
@@ -27858,6 +28292,7 @@ function applyWargameEntryHandoff(handoff, state = gameState) {
       targetInst.waypoints = {};
       targetInst.currentFloor = 1;
     }
+    state.inGuild = true;
     selectActiveDungeon(targetDungeonId, state);
   } else if (CURATED_DUNGEON_PROFILES[targetProfileId]) {
     const freshSeed = handoff.seedCode ? (String(handoff.seedCode) + '-' + targetProfileId.slice(0, 4).toUpperCase()) : null;
@@ -27868,6 +28303,7 @@ function applyWargameEntryHandoff(handoff, state = gameState) {
       worldCoords: dng.coords || { x: 0, y: 0 }
     });
     state.dungeons[targetDungeonId] = inst;
+    state.inGuild = true;
     selectActiveDungeon(targetDungeonId, state);
   } else {
     syncActiveDungeonAlias(state);
@@ -28734,6 +29170,8 @@ function usePocketPortal(state = gameState, autoStepThrough = true) {
 
 
 
+
+
 const CANONICAL_EQ_SLOTS = ['weapon', 'armor', 'helm', 'boots', 'accessory', 'pickaxe'];
 
 function createDungeonHeroForClass(classId, canonicalHero, ownerPlayerId) {
@@ -28781,8 +29219,15 @@ function createDungeonHeroForClass(classId, canonicalHero, ownerPlayerId) {
     maxHp: cls.hpBase || 100,
     mp: cls.mpBase || 40,
     maxMp: cls.mpBase || 40,
-    baseStats: { str: base.str, dex: base.dex, int: base.int, vit: base.vit },
-    bonusStats: (canonicalHero && canonicalHero.bonusStats) ? Object.assign({ str: 0, dex: 0, int: 0, vit: 0 }, canonicalHero.bonusStats) : { str: 0, dex: 0, int: 0, vit: 0 },
+    baseStats: {
+      str: base.str,
+      dex: base.dex,
+      int: base.int,
+      vit: base.vit,
+      spi: typeof base.spi === 'number' ? base.spi : DEFAULT_HERO_SPI
+    },
+    bonusStats: normalizeHeroBonusStats(canonicalHero && canonicalHero.bonusStats),
+    knowledge: normalizeHeroKnowledge(canonicalHero && canonicalHero.knowledge),
     statPoints: (canonicalHero && typeof canonicalHero.statPoints === 'number') ? canonicalHero.statPoints : 0,
     talentPoints: (canonicalHero && typeof canonicalHero.talentPoints === 'number') ? canonicalHero.talentPoints : 0,
     talentsAllocated: (canonicalHero && canonicalHero.talentsAllocated) ? Object.assign({}, canonicalHero.talentsAllocated) : {},
@@ -28855,7 +29300,10 @@ function bindCanonicalHeroToDungeonState(simHost, dungeonState, entryInfo) {
       dungeonState.hero.maxXp = canonicalHero.maxXp;
     }
     if (canonicalHero.bonusStats && typeof canonicalHero.bonusStats === 'object') {
-      dungeonState.hero.bonusStats = Object.assign({ str: 0, dex: 0, int: 0, vit: 0 }, canonicalHero.bonusStats);
+      dungeonState.hero.bonusStats = normalizeHeroBonusStats(canonicalHero.bonusStats);
+    }
+    if (canonicalHero.knowledge && typeof canonicalHero.knowledge === 'object') {
+      dungeonState.hero.knowledge = normalizeHeroKnowledge(canonicalHero.knowledge);
     }
     if (typeof canonicalHero.statPoints === 'number') {
       dungeonState.hero.statPoints = canonicalHero.statPoints;
@@ -29141,8 +29589,11 @@ function createAppContextController(options) {
       applyRes = { ok: true, result: null };
     }
 
-    if (dungeonState && dungeonState.wargameSession) {
-      dungeonState.wargameSession.active = false;
+    if (dungeonState) {
+      dungeonState.inGuild = true;
+      if (dungeonState.wargameSession) {
+        dungeonState.wargameSession.active = false;
+      }
     }
 
     const finishedSession = activeSession;
@@ -30084,6 +30535,9 @@ function killMonster(monster, state = gameState) {
   if (codex.killsByArchetype) codex.killsByArchetype[monster.id] = count;
 
   const h = state.hero;
+  if (h) {
+    grantHeroKnowledge(h, 'monster_knowledge', (monster.isBoss || monster.isElite) ? 0.5 : 0.25);
+  }
   // Thief Shadow Dance MP restore on kill
   if (h.classId === 'thief' && ((h.talentsAllocated && h.talentsAllocated.t_b3) || 0) > 0) {
     h.mp = Math.min(h.maxMp, h.mp + 6);
@@ -30931,7 +31385,7 @@ function executeClassSkill(state = gameState) {
 
     h.mp -= effectiveCost;
     const masteryMult = getCodexMasteryMultiplier(target.id, state);
-    const spellBase = Math.max(h.atk, Math.round((h.computedInt || h.int || 12) * 1.6));
+    const spellBase = Math.max(h.atk, h.magicPower || Math.round((h.computedInt || h.int || 12) * 1.6));
     const dmg = Math.max(5, Math.round(spellBase * 1.6 * masteryMult) - Math.floor(target.def * 0.4));
     const healAmt = Math.max(6, Math.round(h.maxHp * 0.20));
     target.hp -= dmg;
@@ -31498,6 +31952,8 @@ function runCorridor(dx, dy, state = gameState) {
 
   // --- Module: src/wargame/test/wargameSelfTest.js ---
 // Headless & In-Browser Verification Suite for the Standalone Macro Wargame & Real-Time Simulation Engine
+
+
 
 
 
@@ -36506,11 +36962,11 @@ function evaluateWargameSelfTests() {
       level: 4,
       xp: 45,
       maxXp: 165,
-      bonusStats: { str: 2, dex: 3, int: 1, vit: 2 },
+      bonusStats: { str: 2, dex: 3, int: 1, vit: 2, spi: 0 },
+      knowledge: { monster_knowledge: 0, object_item_knowledge: 0, flora_knowledge: 0, fauna_knowledge: 0 },
       statPoints: 2,
       talentPoints: 1,
       talentsAllocated: { f_a1: 2, f_a2: 1 },
-      stats: { str: 15, dex: 10, int: 8, vit: 14, hp: 186, mp: 59, atk: 28, def: 16 },
       equipment: {
         weapon: { uid: 'vet_wep', slot: 'weapon', name: 'Runed Claymore', atk: 16, str: 3 },
         armor: { uid: 'vet_arm', slot: 'armor', name: 'Star Plate', def: 12 },
@@ -36523,9 +36979,16 @@ function evaluateWargameSelfTests() {
       bagGear: [{ uid: 'vet_bag_1', slot: 'helm', name: 'Spare Coif', def: 3 }],
       canEnterDungeon: true
     };
+    normalizePersistentHeroInstance(veteranBefore47);
     const vetSnapBefore47 = JSON.stringify(veteranBefore47);
     normalizePersistentHeroInstance(veteranBefore47);
-    const vetPreservedOk47 = JSON.stringify(veteranBefore47) === vetSnapBefore47;
+    const vetPreservedOk47 = Boolean(
+      JSON.stringify(veteranBefore47) === vetSnapBefore47 &&
+      veteranBefore47.level === 4 && veteranBefore47.xp === 45 && veteranBefore47.maxXp === 165 &&
+      veteranBefore47.bonusStats.str === 2 && veteranBefore47.bonusStats.dex === 3 &&
+      veteranBefore47.statPoints === 2 && veteranBefore47.talentPoints === 1 &&
+      veteranBefore47.talentsAllocated.f_a1 === 2 && veteranBefore47.equipment.weapon.uid === 'vet_wep'
+    );
 
     // 4. Save/Load normalization & double-load idempotence
     // Inject a legacy hero (missing fields) + veteran hero (nonzero progression) into saved payload
@@ -36869,6 +37332,386 @@ function evaluateWargameSelfTests() {
     detail: t49Pass
       ? 'Fail-closed dungeon eligibility enforced across engine admission & sync, silent Fighter fallback removed, declarative recruitment evaluator verified, and guild_hall.recruits removed'
       : 'Failed checks: ' + failed49.join(', ')
+  });
+
+  // =========================================================================
+  // Test 50: HR-13 Five-Attribute Foundation (SPI), Fractional Precision,
+  //          Shared Authoritative Derived-Stat Calculator & Monster Knowledge
+  // =========================================================================
+  const prevSavedRaw50 = (typeof localStorage !== 'undefined') ? localStorage.getItem(WARGAME_STORAGE_KEY) : null;
+  let t50Checks = {};
+  try {
+    const host50 = createWargameSimHost();
+    host50.dispatch({ type: COMMAND_TYPES.START_NEW_CAMPAIGN, payload: { houseName: 'House Spirit', worldName: 'Stat Realm', seedCode: 'STAR-5001' } });
+    host50.dispatch({ type: COMMAND_TYPES.FOUND_CITY, payload: { cityName: 'Spiritkeep' } });
+    const city50 = getPrimaryCity(host50.state);
+    city50.stockpile.gold = 600; city50.stockpile.food = 600;
+    city50.buildings.temple_chapterhouse = 1;
+    host50.dispatch({ type: COMMAND_TYPES.RECRUIT_HERO, payload: { classId: 'cleric', heroName: 'Brother Aurelius' } });
+    host50.stepClock(80000);
+
+    const cleric50 = host50.state.world.heroes.find(function(h) { return h.classId === 'cleric'; });
+    const fiveAttrsInitOk50 = Boolean(
+      cleric50 &&
+      cleric50.bonusStats && cleric50.bonusStats.spi === 0 &&
+      cleric50.stats && cleric50.stats.spi === CLASSES.cleric.baseStats.spi &&
+      cleric50.stats.magicPower > 0 &&
+      cleric50.knowledge &&
+      KNOWLEDGE_CATEGORIES.every(function(ck) { return cleric50.knowledge[ck] === 0; })
+    );
+
+    // 2. Fractional internal attributes affect derived stats while displaying floored whole numbers
+    const baseDerived50 = computeHeroDerivedStats(cleric50);
+    cleric50.bonusStats.vit = 0.5;
+    cleric50.bonusStats.spi = 0.75;
+    const fracDerived50 = computeHeroDerivedStats(cleric50);
+    const sharedProfile50 = normalizeSharedHeroProfile(cleric50);
+    const fractionalOk50 = Boolean(
+      fracDerived50.attributes.vit === baseDerived50.attributes.vit + 0.5 &&
+      fracDerived50.attributes.spi === baseDerived50.attributes.spi + 0.75 &&
+      fracDerived50.displayAttributes.vit === Math.floor(fracDerived50.attributes.vit) &&
+      fracDerived50.displayAttributes.spi === Math.floor(fracDerived50.attributes.spi) &&
+      formatAttributeDisplay(fracDerived50.attributes.vit) === Math.floor(baseDerived50.attributes.vit) &&
+      fracDerived50.maxHp === baseDerived50.maxHp + 2 &&
+      sharedProfile50.stats.spi === Math.floor(fracDerived50.attributes.spi)
+    );
+
+    // 3. Cross-engine parity: Dungeon recomputeHeroDerivedStats === Wargame computeHeroDerivedStats
+    const dngHero50 = createDungeonHeroForClass('cleric', cleric50, CANONICAL_PLAYER_ID);
+    const dngSandbox50 = createDefaultGameState();
+    dngSandbox50.hero = dngHero50;
+    recomputeHeroDerivedStats(true, dngSandbox50);
+    const parityOk50 = Boolean(
+      dngHero50.computedStr === fracDerived50.attributes.str &&
+      dngHero50.computedDex === fracDerived50.attributes.dex &&
+      dngHero50.computedInt === fracDerived50.attributes.int &&
+      dngHero50.computedVit === fracDerived50.attributes.vit &&
+      dngHero50.computedSpi === fracDerived50.attributes.spi &&
+      dngHero50.maxHp === fracDerived50.maxHp &&
+      dngHero50.maxMp === fracDerived50.maxMp &&
+      dngHero50.atk === fracDerived50.atk &&
+      dngHero50.magicPower === fracDerived50.magicPower &&
+      dngHero50.def === fracDerived50.def &&
+      dngHero50.crit === fracDerived50.crit &&
+      dngHero50.dodge === fracDerived50.dodge
+    );
+
+    // 4. Equipment & gem modifiers apply and cleanly reverse on unequip (no stale hero.stats)
+    const atkBeforeGear50 = cleric50.stats.atk;
+    const spiBeforeGear50 = cleric50.stats.spi;
+    const gemWeapon50 = { uid: 'w_gem_50', slot: 'weapon', name: 'Astral Scepter', rarity: 'rare', atk: 14, spi: 2, sockets: ['ruby'], maxSockets: 1 };
+    cleric50.bagGear.push(gemWeapon50);
+    host50.dispatch({ type: COMMAND_TYPES.EQUIP_HERO_ITEM, payload: { heroId: cleric50.id, itemUid: 'w_gem_50' } });
+    const atkEquipped50 = cleric50.stats.atk;
+    const spiEquipped50 = cleric50.stats.spi;
+    host50.dispatch({ type: COMMAND_TYPES.UNEQUIP_HERO_ITEM, payload: { heroId: cleric50.id, slot: 'weapon' } });
+    const atkUnequipped50 = cleric50.stats.atk;
+    const spiUnequipped50 = cleric50.stats.spi;
+    const equipReversalOk50 = Boolean(
+      atkEquipped50 > atkBeforeGear50 &&
+      spiEquipped50 === spiBeforeGear50 + 2 &&
+      atkUnequipped50 < atkEquipped50 &&
+      spiUnequipped50 === spiBeforeGear50
+    );
+
+    // 5. Level growth recalculates derived outputs
+    const hpLv1_50 = computeHeroDerivedStats(cleric50).maxHp;
+    cleric50.level = 3;
+    const hpLv3_50 = computeHeroDerivedStats(cleric50).maxHp;
+    const levelGrowthOk50 = hpLv3_50 > hpLv1_50;
+
+    // 6. Legacy hero without SPI / knowledge migrates safely & fractional values persist across save/load
+    host50.state.world.heroes.push({
+      id: 'hero_legacy_no_spi_50',
+      name: 'Old Fighter',
+      classId: 'fighter',
+      ownerPlayerId: CANONICAL_PLAYER_ID,
+      level: 2,
+      xp: 10,
+      bonusStats: { str: 1, dex: 0, int: 0, vit: 0 }
+    });
+    grantHeroKnowledge(cleric50, 'monster_knowledge', 2.5);
+    host50.save();
+    const reload50 = createWargameSimHost();
+    reload50.load();
+    const relCleric50 = reload50.state.world.heroes.find(function(h) { return h.id === cleric50.id; });
+    const relLegacy50 = reload50.state.world.heroes.find(function(h) { return h.id === 'hero_legacy_no_spi_50'; });
+    const persistenceOk50 = Boolean(
+      relCleric50 && relCleric50.bonusStats.vit === 0.5 && relCleric50.bonusStats.spi === 0.75 &&
+      relCleric50.knowledge.monster_knowledge === 2.5 &&
+      relLegacy50 && relLegacy50.bonusStats.spi === 0 && relLegacy50.bonusStats.str === 1 &&
+      relLegacy50.knowledge && relLegacy50.knowledge.monster_knowledge === 0 &&
+      relLegacy50.stats && relLegacy50.stats.spi === CLASSES.fighter.baseStats.spi + CLASSES.fighter.levelGrowth.spi
+    );
+
+    // 7. Monster Knowledge gameplay reveal tiers (INT assists but does not substitute for topic expertise)
+    const sampleElite50 = { id: 'vault_golem', name: 'Vault Golem', hp: 90, maxHp: 90, atk: 14, def: 9, affix: { id: 'reflective', name: 'Reflective', desc: 'Reflects 25% thorns damage' } };
+    const highIntNoLoreHero50 = { computedInt: 25, knowledge: { monster_knowledge: 0 } };
+    const tier0Reveal50 = evaluateMonsterKnowledgeReveal(highIntNoLoreHero50, sampleElite50);
+    const tier1Reveal50 = evaluateMonsterKnowledgeReveal({ computedInt: 15, knowledge: { monster_knowledge: 1.0 } }, sampleElite50);
+    const tier2Reveal50 = evaluateMonsterKnowledgeReveal({ computedInt: 15, knowledge: { monster_knowledge: 3.0 } }, sampleElite50);
+    const tier3Reveal50 = evaluateMonsterKnowledgeReveal({ computedInt: 15, knowledge: { monster_knowledge: 5.0 } }, sampleElite50);
+    const knowledgeRevealOk50 = Boolean(
+      tier0Reveal50.tier === 0 && tier0Reveal50.summary === '' &&
+      tier1Reveal50.tier === 1 && Boolean(tier1Reveal50.threatLabel) && !tier1Reveal50.traitNote &&
+      tier2Reveal50.tier === 2 && Boolean(tier2Reveal50.traitNote) && !tier2Reveal50.tacticalTip &&
+      tier3Reveal50.tier === 3 && Boolean(tier3Reveal50.tacticalTip)
+    );
+
+    t50Checks = {
+      fiveAttrsInitOk: fiveAttrsInitOk50,
+      fractionalOk: fractionalOk50,
+      parityOk: parityOk50,
+      equipReversalOk: equipReversalOk50,
+      levelGrowthOk: levelGrowthOk50,
+      persistenceOk: persistenceOk50,
+      knowledgeRevealOk: knowledgeRevealOk50
+    };
+  } finally {
+    if (typeof localStorage !== 'undefined') {
+      if (prevSavedRaw50 === null) localStorage.removeItem(WARGAME_STORAGE_KEY);
+      else localStorage.setItem(WARGAME_STORAGE_KEY, prevSavedRaw50);
+    }
+  }
+  const failed50 = Object.keys(t50Checks).filter(function(k) { return !t50Checks[k]; });
+  const t50Pass = failed50.length === 0 && Object.keys(t50Checks).length > 0;
+  results.push({
+    name: '50. HR-13: 5-Attribute Foundation (SPI), Fractional Precision, Shared Derived-Stat Calculator & Monster Knowledge',
+    pass: t50Pass,
+    detail: t50Pass
+      ? '5 attributes (STR/DEX/INT/VIT/SPI) initialized & persisted with fractional precision + floor display, shared Dungeon/Wargame stat parity, gear/gem reversal, and Monster Knowledge reveal tiers verified'
+      : 'Failed checks: ' + failed50.join(', ')
+  });
+
+  // =========================================================================
+  // Test 51: HR-14 Core Playtest Reliability (Issues A–E)
+  //          Roster Lifecycle/Monotonic IDs, Dungeon Re-Entry Persistence,
+  //          Level-Up/SPI Allocation, Overworld Skirmish Feedback & Skill Info
+  // =========================================================================
+  const prevSavedRaw51 = (typeof localStorage !== 'undefined') ? localStorage.getItem(WARGAME_STORAGE_KEY) : null;
+  let t51Checks = {};
+  try {
+    const host51 = createWargameSimHost();
+    const dngState51 = createDefaultGameState();
+    host51.attachDungeonState(dngState51);
+    const ctx51 = createAppContextController({ simHost: host51, dungeonState: dngState51 });
+
+    host51.dispatch({ type: COMMAND_TYPES.START_NEW_CAMPAIGN, payload: { houseName: 'House Reliant', worldName: 'Playtest Realm', seedCode: 'STAR-5101' } });
+    host51.dispatch({ type: COMMAND_TYPES.FOUND_CITY, payload: { cityName: 'Reliantkeep' } });
+    const city51 = getPrimaryCity(host51.state);
+    city51.stockpile.gold = 900; city51.stockpile.food = 900;
+    city51.buildings.guild_hall = 1;
+    city51.buildings.mages_guild = 1;
+    city51.buildings.temple_chapterhouse = 1;
+
+    // Issue A: Recruit Adventurer + Mage -> Retire Mage -> Recruit Cleric
+    host51.dispatch({ type: COMMAND_TYPES.RECRUIT_HERO, payload: { classId: 'adventurer', heroName: 'Rowan' } });
+    host51.dispatch({ type: COMMAND_TYPES.RECRUIT_HERO, payload: { classId: 'mage', heroName: 'Vaelen' } });
+    host51.stepClock(150000);
+    const mage51 = host51.state.world.heroes.find(function(h) { return h.classId === 'mage'; });
+    const mageUnit51 = host51.state.world.overworld.units.find(function(u) { return u.leaderHeroId === mage51.id; });
+    const mageUnitId51 = mageUnit51 ? mageUnit51.id : null;
+
+    host51.dispatch({ type: COMMAND_TYPES.DISMISS_HERO, payload: { heroId: mage51.id } });
+    host51.dispatch({ type: COMMAND_TYPES.RECRUIT_HERO, payload: { classId: 'cleric', heroName: 'Sister Lyra' } });
+    host51.stepClock(80000);
+
+    const cleric51 = host51.state.world.heroes.find(function(h) { return h.classId === 'cleric'; });
+    const adv51 = host51.state.world.heroes.find(function(h) { return h.classId === 'adventurer'; });
+    const clericUnit51 = host51.state.world.overworld.units.find(function(u) { return u.leaderHeroId === cleric51.id; });
+    const advUnit51 = host51.state.world.overworld.units.find(function(u) { return u.leaderHeroId === adv51.id; });
+    const zombieDismissed51 = host51.state.world.overworld.units.some(function(u) { return u.status === 'dismissed'; });
+
+    const rosterLifecycleOk51 = Boolean(
+      !host51.state.world.heroes.some(function(h) { return h.id === mage51.id; }) &&
+      cleric51 && adv51 && clericUnit51 && advUnit51 &&
+      clericUnit51.id !== mageUnitId51 &&
+      !zombieDismissed51
+    );
+
+    // Issue B: Enter dungeon with Adventurer, mutate/explore floor 1, exit to Overworld,
+    //          save & reload, then re-enter SAME dungeon with Cleric (different hero) -> floor persists!
+    const dngPoi51 = host51.state.world.overworld.pois.find(function(p) { return p.type === 'dungeon_entrance'; });
+    dngPoi51.discovered = true;
+    // Clear any blocking military target for this dungeon POI
+    if (Array.isArray(host51.state.world.overworld.militaryTargets)) {
+      host51.state.world.overworld.militaryTargets.forEach(function(mt) {
+        if (mt && mt.blocksTargetId === dngPoi51.id) mt.status = MILITARY_TARGET_STATUS.CLEARED;
+      });
+    }
+    advUnit51.x = dngPoi51.x; advUnit51.y = dngPoi51.y;
+    const enterAdv51 = ctx51.enterDungeon({ unitId: advUnit51.id, poiId: dngPoi51.id });
+    const fl1Before51 = ensureDungeonFloorHydrated(dngState51.dungeon, 1);
+    const origSeed51 = dngState51.dungeon.seedCode;
+    // Stamp a deterministic exploration marker on floor 1
+    if (fl1Before51 && fl1Before51.explored && fl1Before51.explored[2]) {
+      fl1Before51.explored[2][2] = 1;
+    }
+    fl1Before51.hr14Marker = 'persisted_floor_state';
+    ctx51.exitDungeon(null); // Exit to Overworld (also saves!)
+
+    // Reload into a brand-new SimHost + DungeonState (simulating full page reload)
+    const host51b = createWargameSimHost();
+    const dngState51b = createDefaultGameState();
+    host51b.attachDungeonState(dngState51b);
+    const ctx51b = createAppContextController({ simHost: host51b, dungeonState: dngState51b });
+    const loaded51b = host51b.load();
+    ctx51b.restoreDungeonSession();
+
+    // Verify roster still excludes retired Mage and includes Cleric after exit + reload
+    const rosterAfterReloadOk51 = Boolean(
+      loaded51b &&
+      !host51b.state.world.heroes.some(function(h) { return h.classId === 'mage'; }) &&
+      host51b.state.world.heroes.some(function(h) { return h.classId === 'cleric'; })
+    );
+
+    // Re-enter the SAME dungeon with Cleric (different hero!)
+    const clericUnit51b = host51b.state.world.overworld.units.find(function(u) { return u.heroClassId === 'cleric' && u.alive; });
+    clericUnit51b.x = dngPoi51.x; clericUnit51b.y = dngPoi51.y;
+    const enterCleric51 = ctx51b.enterDungeon({ unitId: clericUnit51b.id, poiId: dngPoi51.id });
+    const fl1After51 = ensureDungeonFloorHydrated(dngState51b.dungeon, 1);
+    const dungeonPersistOk51 = Boolean(
+      enterAdv51.ok && enterCleric51.ok &&
+      dngState51b.dungeon.seedCode === origSeed51 &&
+      fl1After51 && fl1After51.explored && fl1After51.explored[2] && fl1After51.explored[2][2] === 1 &&
+      dngState51b.hero && dngState51b.hero.classId === 'cleric'
+    );
+
+    // Issue C: Level-up Cleric -> class-relevant fractional auto growth, +2 statPoints, +1 talentPoint; SPI allocation works
+    const strLv1_51 = dngState51b.hero.computedStr;
+    const spiLv1_51 = dngState51b.hero.computedSpi;
+    const clericG51 = getClassLevelGrowth('cleric');
+    gainExperience(60, dngState51b);
+    const levelUpGrowthOk51 = Boolean(
+      dngState51b.hero.level === 2 &&
+      Math.abs(dngState51b.hero.computedStr - (strLv1_51 + clericG51.str)) < 0.0001 &&
+      Math.abs(dngState51b.hero.computedSpi - (spiLv1_51 + clericG51.spi)) < 0.0001 &&
+      dngState51b.hero.statPoints === 2 &&
+      dngState51b.hero.talentPoints === 1
+    );
+    // Simulate spending +1 SPI (matching handleDungeonSpendStat)
+    dngState51b.hero.bonusStats.spi = (dngState51b.hero.bonusStats.spi || 0) + 1;
+    dngState51b.hero.statPoints -= 1;
+    recomputeHeroDerivedStats(false, dngState51b);
+    const spiAllocOk51 = Boolean(
+      Math.abs(dngState51b.hero.computedSpi - (spiLv1_51 + clericG51.spi + 1)) < 0.0001 &&
+      dngState51b.hero.statPoints === 1
+    );
+
+    // Issue D: Overworld skirmish publishes structured outcome with coords, dmg & rewards
+    let skirmishEv51 = null;
+    host51b.eventStream.subscribe(STREAM_TOPICS.OVERWORLD_SKIRMISH, function(ev) {
+      skirmishEv51 = ev && ev.payload ? ev.payload : null;
+    });
+    const testHostile51 = { id: 'h_test_51', name: 'Goblin Raider', x: advUnit51.x, y: advUnit51.y, hp: 30, power: 10, alive: true, rewardGold: 22, rewardOre: 5, rewardXp: 25 };
+    const skRes51 = resolveOverworldSkirmish(advUnit51, testHostile51, host51b.state, null, 1000, host51b.eventStream);
+    const skirmishFeedbackOk51 = Boolean(
+      skRes51.victory === true &&
+      testHostile51.alive === false &&
+      skirmishEv51 && skirmishEv51.victory === true &&
+      typeof skirmishEv51.x === 'number' && typeof skirmishEv51.y === 'number' &&
+      skirmishEv51.rewardGold === 22 && skirmishEv51.rewardOre === 5 && skirmishEv51.rewardXp === 25
+    );
+
+    // Issue E: Cleric skill metadata & targeting info populated cleanly
+    const skillInfo51 = getSkillTargetingInfo(dngState51b);
+    const skillVisibilityOk51 = Boolean(
+      CLASSES.cleric.skillName === 'Sacred Ward' &&
+      CLASSES.cleric.skillCost === 14 &&
+      CLASSES.cleric.skillRange === 3 &&
+      CLASSES.cleric.skillDesc && CLASSES.cleric.skillDesc.length > 10 &&
+      skillInfo51 && skillInfo51.skillName === 'Sacred Ward' && skillInfo51.effectiveCost === 14
+    );
+
+    t51Checks = {
+      rosterLifecycleOk: rosterLifecycleOk51,
+      rosterAfterReloadOk: rosterAfterReloadOk51,
+      dungeonPersistOk: dungeonPersistOk51,
+      levelUpGrowthOk: levelUpGrowthOk51,
+      spiAllocOk: spiAllocOk51,
+      skirmishFeedbackOk: skirmishFeedbackOk51,
+      skillVisibilityOk: skillVisibilityOk51
+    };
+  } finally {
+    if (typeof localStorage !== 'undefined') {
+      if (prevSavedRaw51 === null) localStorage.removeItem(WARGAME_STORAGE_KEY);
+      else localStorage.setItem(WARGAME_STORAGE_KEY, prevSavedRaw51);
+    }
+  }
+  const failed51 = Object.keys(t51Checks).filter(function(k) { return !t51Checks[k]; });
+  const t51Pass = failed51.length === 0 && Object.keys(t51Checks).length > 0;
+  results.push({
+    name: '51. HR-14: Playtest Reliability (Roster Lifecycle, Dungeon Re-Entry Persistence, Level/SPI, Skirmish Feedback & Skill UI)',
+    pass: t51Pass,
+    detail: t51Pass
+      ? 'Monotonic hero/unit IDs & dismissed cleanup, dungeon explored-floor persistence across exit/reload/hero-swap, level-up/SPI allocation, skirmish feedback payload, and Cleric skill metadata verified'
+      : 'Failed checks: ' + failed51.join(', ')
+  });
+
+  // =========================================================================
+  // Test 52: HR-14.1 Level-Up Notification Payloads & Reduced Class-Relevant
+  //          Fractional Attribute Growth Tuning (1–2 total pts/level budget)
+  // =========================================================================
+  const classIds52 = Object.keys(CLASSES);
+  const budgetsOk52 = classIds52.every(function(cid) {
+    const g = getClassLevelGrowth(cid);
+    const total = g.str + g.dex + g.int + g.vit + g.spi;
+    return total >= 1.0 && total <= 2.0 && g.str < 2 && g.vit < 2;
+  });
+  const fallbackG52 = getClassLevelGrowth('unregistered_future_class');
+  const fallbackTotal52 = fallbackG52.str + fallbackG52.dex + fallbackG52.int + fallbackG52.vit + fallbackG52.spi;
+  const fallbackOk52 = fallbackTotal52 >= 1.0 && fallbackTotal52 <= 2.0;
+
+  // Single level-up payload & fractional growth (Cleric)
+  const sbSingle52 = createDefaultGameState();
+  sbSingle52.hero = createDungeonHeroForClass('cleric', { id: 'h_c_52', name: 'Sister Lyra', classId: 'cleric', level: 1, xp: 0, maxXp: 60 }, CANONICAL_PLAYER_ID);
+  recomputeHeroDerivedStats(true, sbSingle52);
+  const hpPre52 = sbSingle52.hero.maxHp;
+  const res1_52 = gainExperience(60, sbSingle52);
+  const singleLvlOk52 = Boolean(
+    res1_52 && res1_52.leveledUp === true && res1_52.levelsGained === 1 &&
+    res1_52.levelUpPayload && res1_52.levelUpPayload.heroName === 'Sister Lyra' &&
+    res1_52.levelUpPayload.fromLevel === 1 && res1_52.levelUpPayload.newLevel === 2 &&
+    res1_52.levelUpPayload.statPointsGained === 2 && res1_52.levelUpPayload.talentPointsGained === 1 &&
+    res1_52.levelUpPayload.autoGrowth.spi === 0.55 &&
+    sbSingle52.hero.maxHp > hpPre52 &&
+    formatAttributeDisplay(sbSingle52.hero.computedSpi) === Math.floor(sbSingle52.hero.computedSpi)
+  );
+
+  // Multi-level XP grant groups cleanly without losing levels or rewards
+  const sbMulti52 = createDefaultGameState();
+  sbMulti52.hero = createDungeonHeroForClass('fighter', { id: 'h_f_52', name: 'Bram', classId: 'fighter', level: 1, xp: 0, maxXp: 60 }, CANONICAL_PLAYER_ID);
+  recomputeHeroDerivedStats(true, sbMulti52);
+  const resMulti52 = gainExperience(200, sbMulti52); // 60 (Lv2) + 84 (Lv3) = 144 -> Lv 3 with 56 XP remaining
+  const expectedDelta52 = computeAutoLevelGrowthDelta('fighter', 2);
+  const multiLvlOk52 = Boolean(
+    resMulti52 && resMulti52.leveledUp === true && resMulti52.levelsGained === 2 &&
+    resMulti52.levelUpPayload.fromLevel === 1 && resMulti52.levelUpPayload.newLevel === 3 &&
+    resMulti52.levelUpPayload.statPointsGained === 4 && resMulti52.levelUpPayload.talentPointsGained === 2 &&
+    resMulti52.levelUpPayload.autoGrowth.str === expectedDelta52.str &&
+    resMulti52.levelUpPayload.autoGrowth.vit === expectedDelta52.vit
+  );
+
+  // Repeated recomputation / normalization never double-applies automatic growth
+  const spiAfterLvl52 = sbSingle52.hero.computedSpi;
+  recomputeHeroDerivedStats(false, sbSingle52);
+  const noDoubleGrowthOk52 = sbSingle52.hero.computedSpi === spiAfterLvl52;
+
+  const t52Checks = {
+    budgetsOk: budgetsOk52,
+    fallbackOk: fallbackOk52,
+    singleLvlOk: singleLvlOk52,
+    multiLvlOk: multiLvlOk52,
+    noDoubleGrowthOk: noDoubleGrowthOk52
+  };
+  const failed52 = Object.keys(t52Checks).filter(function(k) { return !t52Checks[k]; });
+  const t52Pass = failed52.length === 0;
+  results.push({
+    name: '52. HR-14.1: Level-Up Notification Payloads & Reduced Class-Relevant Fractional Growth (1.5–1.6 pts/lvl)',
+    pass: t52Pass,
+    detail: t52Pass
+      ? 'Universal +2/attr removed, class-relevant 1.5–1.6 pts/level fractional growth + fallback verified, single/multi-level notification payloads accurate, and zero double-growth on recompute'
+      : 'Failed checks: ' + failed52.join(', ')
   });
 
   return results;
@@ -39241,13 +40084,99 @@ function renderDungeonCanvas() {
 
 
 
+
+
 const simHost = createWargameSimHost();
 simHost.attachDungeonState(gameState);
 
 const dungeonChronicleEntries = [];
+const levelUpNotificationQueue = [];
+let levelUpAutoDismissTimer = null;
 let dungeonCanvasWired = false;
 let dungeonInventoryOpen = false;
 let wargameBootstrapped = false;
+
+function getLevelUpNotificationQueue() {
+  return levelUpNotificationQueue.slice();
+}
+
+function renderLevelUpNotification() {
+  if (typeof document === 'undefined') return;
+  const el = document.getElementById('wgLevelUpNotification');
+  if (!el) return;
+  if (levelUpNotificationQueue.length === 0) {
+    el.classList.add('hidden');
+    el.innerHTML = '';
+    return;
+  }
+  const ev = levelUpNotificationQueue[0];
+  const cls = (ev.classId && CLASSES[ev.classId]) ? CLASSES[ev.classId] : null;
+  const classLabel = cls ? cls.name : (ev.classId || 'Hero');
+  const ag = ev.autoGrowth || {};
+  const growthParts = ['str', 'dex', 'int', 'vit', 'spi']
+    .filter(function(k) { return (ag[k] || 0) > 0; })
+    .map(function(k) { return '+' + ag[k] + ' ' + k.toUpperCase(); });
+  const levelSpan = (ev.levelsGained && ev.levelsGained > 1 && ev.fromLevel)
+    ? ('Lv ' + ev.fromLevel + ' → Lv ' + ev.newLevel)
+    : ('Level ' + ev.newLevel);
+  const moreBadge = levelUpNotificationQueue.length > 1
+    ? '<span class="px-1.5 py-0.5 rounded bg-[#fbbf24]/20 border border-[#fbbf24]/50 text-[10px] font-mono text-[#fde68a]">+' + (levelUpNotificationQueue.length - 1) + ' more</span>'
+    : '';
+  el.innerHTML =
+    '<div class="p-3.5 rounded-xl bg-[#111722]/95 border-2 border-[#fbbf24] shadow-2xl backdrop-blur-md space-y-1.5 text-xs">' +
+      '<div class="flex items-center justify-between gap-2">' +
+        '<div class="flex items-center gap-2">' +
+          '<span class="text-sm font-display font-extrabold tracking-wider uppercase text-[#fbbf24]">✨ LEVEL UP!</span>' +
+          moreBadge +
+        '</div>' +
+        '<button onclick="window.WargameApp.handleDismissLevelUpNotification()" class="px-2 py-0.5 rounded bg-[#1a2232] hover:bg-[#283347] text-[10px] font-mono text-[#cbd5e1] cursor-pointer">✕ Dismiss</button>' +
+      '</div>' +
+      '<div class="font-bold text-sm text-[#f8fafc]">' + (ev.heroName || 'Hero') + ' <span class="text-xs font-mono text-[#94a3b8]">(' + classLabel + ')</span> • <span class="text-[#34d399]">' + levelSpan + '</span></div>' +
+      (growthParts.length > 0 ? ('<div class="text-[11px] font-mono text-[#cbd5e1]"><span class="text-[#94a3b8]">Auto Growth:</span> ' + growthParts.join(' • ') + '</div>') : '') +
+      '<div class="flex flex-wrap items-center gap-2 text-[11px] font-mono pt-0.5">' +
+        (ev.statPointsGained > 0 ? ('<span class="px-1.5 py-0.5 rounded bg-[#fbbf24]/15 border border-[#fbbf24]/40 text-[#fbbf24] font-bold">+' + ev.statPointsGained + ' Stat Pts (' + (ev.statPointsAvailable || ev.statPointsGained) + ' avail)</span>') : '') +
+        (ev.talentPointsGained > 0 ? ('<span class="px-1.5 py-0.5 rounded bg-[#60a5fa]/15 border border-[#60a5fa]/40 text-[#60a5fa] font-bold">+' + ev.talentPointsGained + ' Talent Pt</span>') : '') +
+      '</div>' +
+    '</div>';
+  el.classList.remove('hidden');
+}
+
+function scheduleLevelUpAutoDismiss() {
+  if (levelUpAutoDismissTimer) {
+    clearTimeout(levelUpAutoDismissTimer);
+    levelUpAutoDismissTimer = null;
+  }
+  if (levelUpNotificationQueue.length > 0 && typeof setTimeout === 'function') {
+    levelUpAutoDismissTimer = setTimeout(function() {
+      dismissLevelUpNotification();
+    }, 6500);
+  }
+}
+
+function enqueueLevelUpNotification(payload) {
+  if (!payload || typeof payload !== 'object') return false;
+  levelUpNotificationQueue.push(payload);
+  renderLevelUpNotification();
+  if (levelUpNotificationQueue.length === 1) {
+    scheduleLevelUpAutoDismiss();
+  }
+  return true;
+}
+
+function dismissLevelUpNotification() {
+  if (levelUpAutoDismissTimer) {
+    clearTimeout(levelUpAutoDismissTimer);
+    levelUpAutoDismissTimer = null;
+  }
+  if (levelUpNotificationQueue.length > 0) {
+    levelUpNotificationQueue.shift();
+  }
+  renderLevelUpNotification();
+  if (levelUpNotificationQueue.length > 0) {
+    scheduleLevelUpAutoDismiss();
+  }
+  return levelUpNotificationQueue.length;
+}
 
 function appendUnifiedDungeonLog(msg, tone) {
   dungeonChronicleEntries.unshift({ msg: String(msg || ''), tone: tone || 'info' });
@@ -39271,7 +40200,9 @@ function updateIntegratedDungeonHoverScanner(gx, gy) {
   }
   const mon = (floor.monsters || []).find(function(m) { return m.hp > 0 && m.x === gx && m.y === gy; });
   if (mon) {
-    el.innerHTML = '<span class="text-[#f87171] font-bold">' + mon.name + '</span> • HP ' + mon.hp + '/' + mon.maxHp + ' • ATK ' + mon.atk + ' • DEF ' + (mon.def || 0) + ' — Move adjacent to attack!';
+    const lore = evaluateMonsterKnowledgeReveal(gameState.hero, mon);
+    const loreSuffix = lore && lore.summary ? (' <span class="text-[#c084fc]">[' + lore.summary + ']</span>') : '';
+    el.innerHTML = '<span class="text-[#f87171] font-bold">' + mon.name + '</span> • HP ' + mon.hp + '/' + mon.maxHp + ' • ATK ' + mon.atk + ' • DEF ' + (mon.def || 0) + loreSuffix + ' — Move adjacent to attack!';
     return;
   }
   const tile = floor.tiles[gy][gx];
@@ -39365,20 +40296,41 @@ function syncIntegratedDungeonHud() {
     const spBanner = sp > 0
       ? '<div class="flex items-center justify-between px-2 py-1 rounded bg-[#fbbf24]/15 border border-[#fbbf24]/50 text-[#fbbf24] font-bold mb-1"><span>✨ Stat Points Available</span><span>' + sp + '</span></div>'
       : '';
+    const classGrowth = getClassLevelGrowth(h.classId);
     const statRows = [
-      { key: 'str', label: 'STR', val: h.computedStr || 0, color: '#f87171' },
-      { key: 'dex', label: 'DEX', val: h.computedDex || 0, color: '#34d399' },
-      { key: 'int', label: 'INT', val: h.computedInt || 0, color: '#60a5fa' },
-      { key: 'vit', label: 'VIT', val: h.computedVit || 0, color: '#fbbf24' }
+      { key: 'str', label: 'STR', raw: h.computedStr || 0, val: formatAttributeDisplay(h.computedStr || 0), color: '#f87171' },
+      { key: 'dex', label: 'DEX', raw: h.computedDex || 0, val: formatAttributeDisplay(h.computedDex || 0), color: '#34d399' },
+      { key: 'int', label: 'INT', raw: h.computedInt || 0, val: formatAttributeDisplay(h.computedInt || 0), color: '#60a5fa' },
+      { key: 'vit', label: 'VIT', raw: h.computedVit || 0, val: formatAttributeDisplay(h.computedVit || 0), color: '#fbbf24' },
+      { key: 'spi', label: 'SPI', raw: h.computedSpi || 0, val: formatAttributeDisplay(h.computedSpi || 0), color: '#c084fc' }
     ].map(function(s) {
       const plusBtn = sp > 0
         ? '<button onclick="window.WargameApp.handleDungeonSpendStat(\'' + s.key + '\')" class="px-2 py-0.5 rounded bg-[#fbbf24] hover:bg-[#f59e0b] text-[#080b11] font-bold text-[10px] cursor-pointer">+1</button>'
         : '';
-      return '<div class="flex items-center justify-between px-1.5 py-0.5 rounded bg-[#080b11]"><span><span class="text-[#8b949e]">' + s.label + '</span> <strong style="color:' + s.color + '">' + s.val + '</strong></span>' + plusBtn + '</div>';
+      const gRate = classGrowth[s.key] || 0;
+      const tip = s.label + ' — Internal: ' + (Math.round(s.raw * 100) / 100) + ' • Displayed: ' + s.val + ' (+' + gRate + '/lvl auto + bonuses)';
+      return '<div title="' + tip + '" class="flex items-center justify-between px-1.5 py-0.5 rounded bg-[#080b11]"><span><span class="text-[#8b949e]">' + s.label + '</span> <strong style="color:' + s.color + '">' + s.val + '</strong></span>' + plusBtn + '</div>';
     }).join('');
     attrsEl.innerHTML = spBanner + '<div class="grid grid-cols-2 gap-1">' + statRows + '</div>';
   }
 
+  // HR-14 Issue E: Populate top-bar Skill button & Skill Card with canonical name, MP cost, range, description & readiness
+  const skillInfo = getSkillTargetingInfo(gameState);
+  const skillName = (skillInfo && skillInfo.skillName) || cls.skillName || 'Class Skill';
+  const skillCost = (skillInfo && typeof skillInfo.effectiveCost === 'number') ? skillInfo.effectiveCost : (cls.skillCost || 0);
+  const skillRange = cls.skillRange || 1;
+  const skillDesc = cls.skillDesc || 'Active class ability.';
+  const skillReady = Boolean(skillInfo && skillInfo.valid);
+  const skillStatusText = skillReady
+    ? 'Ready'
+    : (skillInfo && !skillInfo.canAfford ? 'Low MP' : 'No target in range');
+
+  const skillBtn = document.getElementById('wgBtnDungeonSkill');
+  if (skillBtn) {
+    skillBtn.textContent = '⚡ ' + skillName + ' (' + skillCost + ' MP) [Q]';
+    skillBtn.title = skillName + ' (' + skillCost + ' MP, Range ' + skillRange + '): ' + skillDesc + ' [' + skillStatusText + ']';
+    skillBtn.classList.toggle('opacity-60', !skillReady);
+  }
   const tonicBtn = document.getElementById('wgBtnDungeonTonic');
   if (tonicBtn) tonicBtn.textContent = '🧪 Tonic (' + ((h.consumables && h.consumables.potions) || 0) + ') [H]';
   const recallBtn = document.getElementById('wgBtnDungeonRecall');
@@ -39418,10 +40370,12 @@ function syncIntegratedDungeonHud() {
 
   const skillEl = document.getElementById('wgDungeonSkillCard');
   if (skillEl) {
+    const statusBadgeColor = skillReady ? 'text-[#34d399]' : 'text-[#94a3b8]';
     skillEl.innerHTML =
-      '<div class="flex items-center justify-between"><strong class="text-[#60a5fa]">' + (cls.skillName || 'Class Skill') + '</strong><span class="text-[11px] text-[#fbbf24]">' + (cls.skillCost || 10) + ' MP</span></div>' +
-      '<div class="text-[11px] text-[#94a3b8]">' + (cls.skillDesc || '') + '</div>' +
-      '<button onclick="window.WargameApp.handleDungeonSkill()" class="w-full py-1.5 rounded bg-[#1a2232] hover:bg-[#283347] border border-[#60a5fa]/40 text-xs font-mono font-bold text-[#60a5fa] cursor-pointer">⚡ Cast ' + (cls.skillName || 'Skill') + ' [Q]</button>';
+      '<div class="flex items-center justify-between"><strong class="text-[#60a5fa]">' + skillName + '</strong><span class="text-[11px] text-[#fbbf24]">' + skillCost + ' MP • Rng ' + skillRange + '</span></div>' +
+      '<div class="text-[11px] text-[#94a3b8]">' + skillDesc + '</div>' +
+      '<div class="text-[10px] font-mono ' + statusBadgeColor + '">Status: ' + skillStatusText + '</div>' +
+      '<button onclick="window.WargameApp.handleDungeonSkill()" class="w-full py-1.5 rounded bg-[#1a2232] hover:bg-[#283347] border border-[#60a5fa]/40 text-xs font-mono font-bold text-[#60a5fa] cursor-pointer">⚡ Cast ' + skillName + ' [Q]</button>';
   }
 
   const logEl = document.getElementById('wgDungeonLog');
@@ -39497,6 +40451,9 @@ function wireIntegratedDungeonCallbacksOnce() {
     heroLunge: triggerHeroLunge,
     onDungeonReturn: function(returnPayload) {
       appContext.exitDungeon(returnPayload);
+    },
+    onLevelUp: function(levelUpPayload) {
+      enqueueLevelUpNotification(levelUpPayload);
     }
   });
 
@@ -40303,6 +41260,9 @@ function handleDismissHero(heroId) {
   if (simHost.state && simHost.state._openHeroSheetId === heroId) {
     delete simHost.state._openHeroSheetId;
   }
+  if (simHost.state) {
+    simHost.state._confirmRetireHero = false;
+  }
   simHost.state._dirty = true;
   simHost.save();
   syncWargameUI(simHost);
@@ -40603,8 +41563,8 @@ function handleDungeonSpendStat(statKey) {
   if (appContext.getActiveContext() !== APP_CONTEXTS.DUNGEON || !gameState || !gameState.hero) return false;
   const h = gameState.hero;
   if ((h.statPoints || 0) <= 0) return false;
-  if (statKey !== 'str' && statKey !== 'dex' && statKey !== 'int' && statKey !== 'vit') return false;
-  if (!h.bonusStats) h.bonusStats = { str: 0, dex: 0, int: 0, vit: 0 };
+  if (statKey !== 'str' && statKey !== 'dex' && statKey !== 'int' && statKey !== 'vit' && statKey !== 'spi') return false;
+  h.bonusStats = normalizeHeroBonusStats(h.bonusStats);
   h.bonusStats[statKey] = (h.bonusStats[statKey] || 0) + 1;
   h.statPoints -= 1;
   recomputeHeroDerivedStats(false, gameState);
@@ -41092,6 +42052,7 @@ const WargameApp = {
   handleDungeonWait: handleDungeonWait,
   handleDungeonUseStairs: handleDungeonUseStairs,
   handleDungeonSpendStat: handleDungeonSpendStat,
+  handleDismissLevelUpNotification: dismissLevelUpNotification,
   handleToggleDungeonInventory: handleToggleDungeonInventory,
   handleDungeonEquipItem: handleDungeonEquipItem,
   handleDungeonUnequipItem: handleDungeonUnequipItem,
@@ -41159,6 +42120,33 @@ function bootstrapWargame() {
         expiresAtRealMs: Date.now() + (BATTLE_OUTCOME_BANNER_DURATION_MS || 2000)
       };
       simHost.state._battleResultsPopup = null;
+      simHost.state._dirty = true;
+    }
+  });
+
+  simHost.eventStream.subscribe(STREAM_TOPICS.OVERWORLD_SKIRMISH, function(ev) {
+    if (ev && ev.payload) {
+      const sk = ev.payload;
+      if (typeof sk.x === 'number' && typeof sk.y === 'number') {
+        spawnOverworldCasualtyFloaters({
+          x: sk.x,
+          y: sk.y,
+          attackerLosses: sk.damageTaken || 0,
+          defenderLosses: sk.victory ? 1 : 0
+        });
+      }
+      simHost.state._battleOutcomeBanner = {
+        battleId: 'skirmish_' + (sk.hostileId || Date.now()),
+        isSkirmish: true,
+        victory: Boolean(sk.victory),
+        armyName: sk.unitName || 'Hero Party',
+        targetName: sk.hostileName || 'Wandering Hostile',
+        summary: sk.victory
+          ? ('Skirmish Victory! Took ' + (sk.damageTaken || 0) + ' dmg • +' + (sk.rewardGold || 0) + 'g, +' + (sk.rewardOre || 0) + ' Ore, +' + (sk.rewardXp || 0) + ' XP')
+          : ('Retreated to ' + (sk.retreatedToCity || 'Bastion') + ' after taking ' + (sk.damageTaken || 0) + ' dmg'),
+        report: null,
+        expiresAtRealMs: Date.now() + (BATTLE_OUTCOME_BANNER_DURATION_MS || 2000) + 1500
+      };
       simHost.state._dirty = true;
     }
   });

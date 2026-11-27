@@ -17,6 +17,7 @@ import {
   RARITY
 } from '../constants.js';
 import { CLASSES } from '../data/classes.js';
+import { grantHeroKnowledge } from '../core/knowledge.js';
 import { ORE_CATALOG } from '../data/ores.js';
 import { RESEARCH_PROJECTS } from '../data/research.js';
 import {
@@ -458,6 +459,9 @@ export function killMonster(monster, state = gameState) {
   if (codex.killsByArchetype) codex.killsByArchetype[monster.id] = count;
 
   const h = state.hero;
+  if (h) {
+    grantHeroKnowledge(h, 'monster_knowledge', (monster.isBoss || monster.isElite) ? 0.5 : 0.25);
+  }
   // Thief Shadow Dance MP restore on kill
   if (h.classId === 'thief' && ((h.talentsAllocated && h.talentsAllocated.t_b3) || 0) > 0) {
     h.mp = Math.min(h.maxMp, h.mp + 6);
@@ -1305,7 +1309,7 @@ export function executeClassSkill(state = gameState) {
 
     h.mp -= effectiveCost;
     const masteryMult = getCodexMasteryMultiplier(target.id, state);
-    const spellBase = Math.max(h.atk, Math.round((h.computedInt || h.int || 12) * 1.6));
+    const spellBase = Math.max(h.atk, h.magicPower || Math.round((h.computedInt || h.int || 12) * 1.6));
     const dmg = Math.max(5, Math.round(spellBase * 1.6 * masteryMult) - Math.floor(target.def * 0.4));
     const healAmt = Math.max(6, Math.round(h.maxHp * 0.20));
     target.hp -= dmg;

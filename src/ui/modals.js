@@ -958,10 +958,10 @@ export function renderInventoryModal() {
 
   // Stats
   const statIds = [
-    ['inventoryStatStr', h.computedStr],
-    ['inventoryStatDex', h.computedDex],
-    ['inventoryStatInt', h.computedInt],
-    ['inventoryStatVit', h.computedVit],
+    ['inventoryStatStr', Math.floor(h.computedStr || 0)],
+    ['inventoryStatDex', Math.floor(h.computedDex || 0)],
+    ['inventoryStatInt', Math.floor(h.computedInt || 0)],
+    ['inventoryStatVit', Math.floor(h.computedVit || 0)],
     ['inventoryStatAtk', h.atk],
     ['inventoryStatDef', h.def],
     ['inventoryStatCrit', `${h.crit}%`],

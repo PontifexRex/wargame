@@ -65,7 +65,13 @@ const RARITY = {
 };
 
   // --- Module: src/data/classes.js ---
-// Complete 5 Playable Classes Registry (Fighter, Thief, Mage, Ranger, Paladin)
+// Canonical Playable Classes Registry (5 Core + Adventurer + Cleric)
+// Five foundational attributes: STR, DEX, INT, VIT, SPI (HR-13)
+
+const HERO_ATTRIBUTE_KEYS = ['str', 'dex', 'int', 'vit', 'spi'];
+const DEFAULT_HERO_SPI = 10;
+// Provisional per-level automatic attribute growth fallback (~1.5 total/level across 5 attributes; HR-14.1)
+const DEFAULT_LEVEL_GROWTH = { str: 0.3, dex: 0.3, int: 0.3, vit: 0.3, spi: 0.3 };
 
 const CLASSES = {
   fighter: {
@@ -74,7 +80,8 @@ const CLASSES = {
     title: 'Iron Vanguard',
     color: '#f87171',
     canEnterDungeon: true,
-    baseStats: { str: 15, dex: 10, int: 8, vit: 14 },
+    baseStats: { str: 15, dex: 10, int: 8, vit: 14, spi: 8 },
+    levelGrowth: { str: 0.6, dex: 0.25, int: 0.1, vit: 0.55, spi: 0.1 },
     hpBase: 120,
     mpBase: 35,
     vision: 5,
@@ -99,7 +106,8 @@ const CLASSES = {
     title: 'Shadow Strider',
     color: '#c084fc',
     canEnterDungeon: true,
-    baseStats: { str: 9, dex: 16, int: 11, vit: 10 },
+    baseStats: { str: 9, dex: 16, int: 11, vit: 10, spi: 9 },
+    levelGrowth: { str: 0.2, dex: 0.65, int: 0.25, vit: 0.25, spi: 0.15 },
     hpBase: 90,
     mpBase: 45,
     vision: 6,
@@ -124,7 +132,8 @@ const CLASSES = {
     title: 'Starweaver Adept',
     color: '#60a5fa',
     canEnterDungeon: true,
-    baseStats: { str: 7, dex: 10, int: 17, vit: 10 },
+    baseStats: { str: 7, dex: 10, int: 17, vit: 10, spi: 13 },
+    levelGrowth: { str: 0.1, dex: 0.2, int: 0.7, vit: 0.2, spi: 0.4 },
     hpBase: 82,
     mpBase: 80,
     vision: 6,
@@ -149,7 +158,8 @@ const CLASSES = {
     title: 'Deepwood Pathfinder',
     color: '#34d399',
     canEnterDungeon: true,
-    baseStats: { str: 12, dex: 15, int: 11, vit: 11 },
+    baseStats: { str: 12, dex: 15, int: 11, vit: 11, spi: 10 },
+    levelGrowth: { str: 0.3, dex: 0.6, int: 0.2, vit: 0.3, spi: 0.2 },
     hpBase: 95,
     mpBase: 45,
     vision: 7,
@@ -174,7 +184,8 @@ const CLASSES = {
     title: 'Dawn Warden',
     color: '#fbbf24',
     canEnterDungeon: true,
-    baseStats: { str: 14, dex: 9, int: 12, vit: 15 },
+    baseStats: { str: 14, dex: 9, int: 12, vit: 15, spi: 14 },
+    levelGrowth: { str: 0.45, dex: 0.15, int: 0.2, vit: 0.45, spi: 0.35 },
     hpBase: 125,
     mpBase: 50,
     vision: 5,
@@ -199,7 +210,8 @@ const CLASSES = {
     title: 'Starfall Delver',
     color: '#38bdf8',
     canEnterDungeon: true,
-    baseStats: { str: 12, dex: 12, int: 11, vit: 13 },
+    baseStats: { str: 12, dex: 12, int: 11, vit: 13, spi: 10 },
+    levelGrowth: { str: 0.35, dex: 0.35, int: 0.25, vit: 0.35, spi: 0.2 },
     hpBase: 108,
     mpBase: 50,
     vision: 6,
@@ -224,7 +236,8 @@ const CLASSES = {
     title: 'Temple Devotee',
     color: '#fef08a',
     canEnterDungeon: true,
-    baseStats: { str: 10, dex: 9, int: 15, vit: 13 },
+    baseStats: { str: 10, dex: 9, int: 15, vit: 13, spi: 16 },
+    levelGrowth: { str: 0.15, dex: 0.15, int: 0.45, vit: 0.3, spi: 0.55 },
     hpBase: 100,
     mpBase: 65,
     vision: 5,
@@ -3508,8 +3521,370 @@ function ensureCanonicalPlayerIdentity(world) {
   return canonicalId;
 }
 
+  // --- Module: src/core/heroStats.js ---
+// Shared Authoritative Hero Derived-Stat Calculator (HR-13)
+// Used by BOTH the Turn-Based Dungeon Engine and Macro Wargame Engine.
+// Preserves fractional internal attribute values during calculation;
+// presentation layers display whole numbers via formatAttributeDisplay (Math.floor).
+
+
+
+function roundFrac(val) {
+  return Math.round(val * 10000) / 10000;
+}
+
+function getClassLevelGrowth(classId) {
+  const cls = (classId && CLASSES[classId]) ? CLASSES[classId] : null;
+  const src = (cls && cls.levelGrowth && typeof cls.levelGrowth === 'object') ? cls.levelGrowth : DEFAULT_LEVEL_GROWTH;
+  return {
+    str: typeof src.str === 'number' && isFinite(src.str) ? src.str : DEFAULT_LEVEL_GROWTH.str,
+    dex: typeof src.dex === 'number' && isFinite(src.dex) ? src.dex : DEFAULT_LEVEL_GROWTH.dex,
+    int: typeof src.int === 'number' && isFinite(src.int) ? src.int : DEFAULT_LEVEL_GROWTH.int,
+    vit: typeof src.vit === 'number' && isFinite(src.vit) ? src.vit : DEFAULT_LEVEL_GROWTH.vit,
+    spi: typeof src.spi === 'number' && isFinite(src.spi) ? src.spi : DEFAULT_LEVEL_GROWTH.spi
+  };
+}
+
+function computeAutoLevelGrowthDelta(classId, levelsGained) {
+  const lvls = Math.max(0, Number(levelsGained) || 0);
+  const g = getClassLevelGrowth(classId);
+  return {
+    str: roundFrac(g.str * lvls),
+    dex: roundFrac(g.dex * lvls),
+    int: roundFrac(g.int * lvls),
+    vit: roundFrac(g.vit * lvls),
+    spi: roundFrac(g.spi * lvls)
+  };
+}
+
+function formatAttributeDisplay(value) {
+  const num = Number(value);
+  if (!isFinite(num)) return 0;
+  return Math.floor(num);
+}
+
+function createDefaultBonusStats() {
+  return { str: 0, dex: 0, int: 0, vit: 0, spi: 0 };
+}
+
+function normalizeHeroBonusStats(rawBonus) {
+  const out = createDefaultBonusStats();
+  if (!rawBonus || typeof rawBonus !== 'object' || Array.isArray(rawBonus)) {
+    return out;
+  }
+  for (let i = 0; i < HERO_ATTRIBUTE_KEYS.length; i++) {
+    const k = HERO_ATTRIBUTE_KEYS[i];
+    const v = rawBonus[k];
+    if (typeof v === 'number' && isFinite(v)) {
+      out[k] = v; // Preserve fractional values!
+    }
+  }
+  return out;
+}
+
+// Pure, authoritative derived-stat calculation from canonical class baselines, level,
+// fractional bonusStats, 6-slot equipment + socketed Astral Gems, talents, active statuses,
+// and optional externalModifiers (e.g. future Track F training / civic modifiers).
+// Returns null if hero or classId is invalid (no silent Fighter substitution).
+function computeHeroDerivedStats(hero, externalModifiers) {
+  if (!hero || typeof hero !== 'object') return null;
+  const classId = hero.classId;
+  const cls = (classId && CLASSES[classId]) ? CLASSES[classId] : null;
+  if (!cls) return null;
+
+  const level = (typeof hero.level === 'number' && isFinite(hero.level) && hero.level >= 1) ? hero.level : 1;
+  const bonus = normalizeHeroBonusStats(hero.bonusStats);
+  const clsBase = cls.baseStats || { str: 10, dex: 10, int: 10, vit: 10, spi: DEFAULT_HERO_SPI };
+  const ext = (externalModifiers && typeof externalModifiers === 'object') ? externalModifiers : {};
+
+  const growth = getClassLevelGrowth(classId);
+  const autoLvls = level - 1;
+
+  // Fractional internal attribute totals (never floored prior to derived calculations; HR-14.1)
+  let str = roundFrac((typeof clsBase.str === 'number' ? clsBase.str : 10) + (autoLvls * growth.str) + bonus.str + (ext.str || 0));
+  let dex = roundFrac((typeof clsBase.dex === 'number' ? clsBase.dex : 10) + (autoLvls * growth.dex) + bonus.dex + (ext.dex || 0));
+  let intel = roundFrac((typeof clsBase.int === 'number' ? clsBase.int : 10) + (autoLvls * growth.int) + bonus.int + (ext.int || 0));
+  let vit = roundFrac((typeof clsBase.vit === 'number' ? clsBase.vit : 10) + (autoLvls * growth.vit) + bonus.vit + (ext.vit || 0));
+  let spi = roundFrac((typeof clsBase.spi === 'number' ? clsBase.spi : DEFAULT_HERO_SPI) + (autoLvls * growth.spi) + bonus.spi + (ext.spi || 0));
+
+  let flatAtk = ext.atk || 0;
+  let flatDef = ext.def || 0;
+  let flatCrit = ext.crit || 0;
+  let flatDodge = ext.dodge || 0;
+  let flatHp = ext.maxHp || 0;
+  let flatMp = ext.maxMp || 0;
+  let flatMagic = ext.magicPower || 0;
+  let visionBonus = ext.visionBonus || 0;
+  let flatThorns = ext.thorns || 0;
+  let flatLeech = ext.leech || 0;
+  let flatWard = ext.ward || 0;
+
+  // Passive Class Bonuses
+  if (classId === 'fighter') flatHp += 10;
+  if (classId === 'thief')   flatCrit += 15;
+  if (classId === 'ranger')  flatDodge += 15;
+  if (classId === 'paladin') flatDef += 10;
+  if (classId === 'cleric')  flatDef += 5;
+
+  // Talent Bonuses
+  const t = (hero.talentsAllocated && typeof hero.talentsAllocated === 'object') ? hero.talentsAllocated : {};
+  if (t.f_a1) flatHp += t.f_a1 * 12;
+  if (t.f_a2) flatAtk += t.f_a2 * 3;
+  if (t.t_b1) flatCrit += t.t_b1 * 5;
+  if (t.t_b3) flatDodge += t.t_b3 * 10;
+  if (t.m_c1) flatMp += t.m_c1 * 15;
+  if (t.r_d1) { flatDodge += t.r_d1 * 4; visionBonus += t.r_d1; }
+  if (t.p_e1) { flatDef += t.p_e1 * 4; flatHp += t.p_e1 * 8; }
+  if (t.p_e2) flatAtk += t.p_e2 * 4;
+
+  // Sum 6-Slot Equipment & Socketed Astral Gems
+  const eq = (hero.equipment && typeof hero.equipment === 'object') ? hero.equipment : {};
+  const equipSlots = ['weapon', 'armor', 'helm', 'boots', 'accessory'];
+  for (let si = 0; si < equipSlots.length; si++) {
+    const it = eq[equipSlots[si]];
+    if (!it) continue;
+    if (it.str) str += it.str;
+    if (it.dex) dex += it.dex;
+    if (it.int) intel += it.int;
+    if (it.vit) vit += it.vit;
+    if (it.spi) spi += it.spi;
+    if (it.atk) flatAtk += it.atk;
+    if (it.def) flatDef += it.def;
+    if (it.crit) flatCrit += it.crit;
+    if (it.dodge) flatDodge += it.dodge;
+    if (it.maxHp) flatHp += it.maxHp;
+    if (it.maxMp) flatMp += it.maxMp;
+    if (it.magicPower) flatMagic += it.magicPower;
+    if (it.visionBonus) visionBonus += it.visionBonus;
+    if (it.thorns) flatThorns += it.thorns;
+    if (it.leech) flatLeech += it.leech;
+    if (it.ward) flatWard += it.ward;
+
+    if (Array.isArray(it.sockets)) {
+      for (let gIdx = 0; gIdx < it.sockets.length; gIdx++) {
+        const gem = GEM_CATALOG[it.sockets[gIdx]];
+        if (!gem || !gem.bonuses) continue;
+        const gb = gem.bonuses;
+        if (gb.str) str += gb.str;
+        if (gb.dex) dex += gb.dex;
+        if (gb.int) intel += gb.int;
+        if (gb.vit) vit += gb.vit;
+        if (gb.spi) spi += gb.spi;
+        if (gb.atk) flatAtk += gb.atk;
+        if (gb.def) flatDef += gb.def;
+        if (gb.crit) flatCrit += gb.crit;
+        if (gb.dodge) flatDodge += gb.dodge;
+        if (gb.maxHp) flatHp += gb.maxHp;
+        if (gb.maxMp) flatMp += gb.maxMp;
+        if (gb.magicPower) flatMagic += gb.magicPower;
+        if (gb.visionBonus) visionBonus += gb.visionBonus;
+      }
+    }
+  }
+
+  // Active Status & Shrine Buffs
+  if (Array.isArray(hero.statuses)) {
+    for (let i = 0; i < hero.statuses.length; i++) {
+      const st = hero.statuses[i];
+      if (!st) continue;
+      if (st.id === 'shrine_starfire') {
+        flatAtk += 6;
+        flatCrit += 12;
+      } else if (st.id === 'shrine_aegis') {
+        flatDef += 6;
+        visionBonus += 1;
+      } else if (st.id === 'chilled') {
+        flatDodge -= 15;
+      }
+    }
+  }
+
+  // Provisional SPI contributions (justified for divine/spiritual & arcane classes;
+  // fractional attributes are preserved until final rounding)
+  const spiMpBonus = classId === 'cleric'
+    ? (spi * 1.5)
+    : classId === 'paladin'
+      ? (spi * 1.0)
+      : classId === 'mage'
+        ? (spi * 0.5)
+        : 0;
+
+  const maxHp = Math.round((cls.hpBase || 100) + (vit * 4) + flatHp);
+  const maxMp = Math.round((cls.mpBase || 40) + (intel * 3) + spiMpBonus + flatMp);
+
+  const primaryOffensive = classId === 'mage'
+    ? (intel * 1.1 + str * 0.3)
+    : (classId === 'ranger' || classId === 'thief')
+      ? (dex * 0.9 + str * 0.4)
+      : classId === 'cleric'
+        ? (str * 0.65 + spi * 0.55)
+        : (str * 0.95 + dex * 0.35);
+
+  const magicBase = (classId === 'cleric' || classId === 'paladin')
+    ? (spi * 1.35 + intel * 0.65)
+    : (intel * 1.2 + spi * 0.35);
+
+  const atk = Math.round(primaryOffensive + flatAtk);
+  const magicPower = Math.round(magicBase + flatMagic);
+  const def = Math.round(vit * 0.45) + flatDef;
+  const crit = Math.min(75, Math.round(5 + (dex * 0.45) + flatCrit));
+  const dodge = Math.max(0, Math.min(60, Math.round(4 + (dex * 0.35) + flatDodge)));
+  const visionRadius = (cls.vision || 5) + visionBonus;
+
+  return {
+    attributes: {
+      str: str,
+      dex: dex,
+      int: intel,
+      vit: vit,
+      spi: spi
+    },
+    displayAttributes: {
+      str: formatAttributeDisplay(str),
+      dex: formatAttributeDisplay(dex),
+      int: formatAttributeDisplay(intel),
+      vit: formatAttributeDisplay(vit),
+      spi: formatAttributeDisplay(spi)
+    },
+    maxHp: maxHp,
+    maxMp: maxMp,
+    atk: atk,
+    magicPower: magicPower,
+    def: def,
+    crit: crit,
+    dodge: dodge,
+    visionRadius: visionRadius,
+    thorns: flatThorns,
+    leech: flatLeech,
+    ward: flatWard
+  };
+}
+
+  // --- Module: src/core/knowledge.js ---
+// Categorized Hero Knowledge Foundation & Monster Knowledge Reveal (HR-13)
+// Knowledge is a developable capability family, NOT a sixth foundational attribute.
+// INT supports reasoning/checks without substituting for topic expertise.
+
+const KNOWLEDGE_CATEGORIES = [
+  'monster_knowledge',
+  'object_item_knowledge',
+  'flora_knowledge',
+  'fauna_knowledge'
+];
+
+function createDefaultHeroKnowledge() {
+  return {
+    monster_knowledge: 0,
+    object_item_knowledge: 0,
+    flora_knowledge: 0,
+    fauna_knowledge: 0
+  };
+}
+
+// Idempotent, non-destructive normalizer preserving fractional/numeric ranks
+function normalizeHeroKnowledge(rawKnowledge) {
+  const out = createDefaultHeroKnowledge();
+  if (!rawKnowledge || typeof rawKnowledge !== 'object' || Array.isArray(rawKnowledge)) {
+    return out;
+  }
+  const existingKeys = Object.keys(rawKnowledge);
+  for (let i = 0; i < existingKeys.length; i++) {
+    const k = existingKeys[i];
+    const v = rawKnowledge[k];
+    if (typeof v === 'number' && isFinite(v) && v >= 0) {
+      out[k] = v;
+    }
+  }
+  return out;
+}
+
+function grantHeroKnowledge(hero, categoryKey, delta) {
+  if (!hero || typeof hero !== 'object' || !categoryKey) return 0;
+  const amount = Number(delta);
+  if (!isFinite(amount) || amount <= 0) return 0;
+  hero.knowledge = normalizeHeroKnowledge(hero.knowledge);
+  const prev = typeof hero.knowledge[categoryKey] === 'number' ? hero.knowledge[categoryKey] : 0;
+  hero.knowledge[categoryKey] = Math.round((prev + amount) * 1000) / 1000;
+  return hero.knowledge[categoryKey];
+}
+
+// Practical Monster Knowledge gameplay use: enemy inspection / reveal tiers.
+// Combines topic rank (monster_knowledge) with modest INT reasoning support
+// (INT assists checks, capped so raw INT alone does not replace Monster Knowledge).
+function evaluateMonsterKnowledgeReveal(hero, monster) {
+  if (!monster || typeof monster !== 'object') {
+    return { tier: 0, effectiveScore: 0, summary: '' };
+  }
+  const knowledge = normalizeHeroKnowledge(hero && hero.knowledge);
+  const topicRank = knowledge.monster_knowledge || 0;
+  const heroInt = (hero && typeof hero.computedInt === 'number')
+    ? hero.computedInt
+    : ((hero && hero.stats && typeof hero.stats.int === 'number') ? hero.stats.int : 10);
+
+  // INT provides modest reasoning support (up to +2), while topic expertise drives deeper tiers
+  const intSupport = Math.min(2, Math.floor(Math.max(0, heroInt - 8) / 5));
+  const effectiveScore = topicRank + intSupport;
+
+  // Tier 0: baseline observation (score < 2)
+  // Tier 1 (score >= 2): reveals archetype / threat classification
+  // Tier 2 (score >= 4): reveals trait / on-hit / elite affix insight
+  // Tier 3 (score >= 6): reveals tactical counter / weakness note
+  let tier = 0;
+  if (effectiveScore >= 6 && topicRank >= 4) tier = 3;
+  else if (effectiveScore >= 4 && topicRank >= 2) tier = 2;
+  else if (effectiveScore >= 2 && topicRank >= 0.5) tier = 1;
+
+  const isBoss = Boolean(monster.isBoss || (typeof monster.id === 'string' && monster.id.indexOf('boss_') === 0));
+  const isElite = Boolean(monster.affix && monster.affix.name);
+  const threatLabel = isBoss ? 'Boss Guardian' : (isElite ? ('Elite (' + monster.affix.name + ')') : (monster.ranged ? 'Ranged Skirmisher' : 'Melee Hostile'));
+
+  let traitNote = null;
+  if (tier >= 2) {
+    if (monster.affix && monster.affix.desc) {
+      traitNote = monster.affix.name + ': ' + monster.affix.desc;
+    } else if (monster.onHitStatus) {
+      traitNote = 'Inflicts ' + monster.onHitStatus + ' on hit';
+    } else if (monster.ranged) {
+      traitNote = 'Attacks from range (85% ATK)';
+    } else {
+      traitNote = 'Standard melee attacker (DEF ' + (monster.def || 0) + ')';
+    }
+  }
+
+  let tacticalTip = null;
+  if (tier >= 3) {
+    if (monster.affix && monster.affix.id === 'reflective') {
+      tacticalTip = 'Weakness: burst or heal through 25% thorns reflection.';
+    } else if ((monster.def || 0) >= 8) {
+      tacticalTip = 'Weakness: armored — high-DEF target favors magic, crits, or DEF pierce.';
+    } else if (monster.ranged) {
+      tacticalTip = 'Weakness: close distance or break line-of-sight behind walls.';
+    } else {
+      tacticalTip = 'Tactical: watch HP threshold (' + (monster.hp || 0) + '/' + (monster.maxHp || 0) + ') and stun/control windows.';
+    }
+  }
+
+  const parts = [];
+  if (tier >= 1) parts.push('Lore T' + tier + ': ' + threatLabel);
+  if (traitNote) parts.push(traitNote);
+  if (tacticalTip) parts.push(tacticalTip);
+
+  return {
+    tier: tier,
+    topicRank: topicRank,
+    intSupport: intSupport,
+    effectiveScore: effectiveScore,
+    threatLabel: tier >= 1 ? threatLabel : null,
+    traitNote: traitNote,
+    tacticalTip: tacticalTip,
+    summary: parts.join(' • ')
+  };
+}
+
   // --- Module: src/engine/state.js ---
 // Game State Schema (Multi-Dungeon Atlas v5/v6), Save Migration, RLE Persistence & Derived Hero Stats
+
+
 
 
 
@@ -3825,7 +4200,8 @@ function migrateSaveData(raw) {
       xp: data.hero.xp || 0,
       maxXp: data.hero.maxXp || data.hero.xpNext || 60,
       statPoints: data.hero.statPoints || 0,
-      bonusStats: data.hero.bonusStats || { str: 0, dex: 0, int: 0, vit: 0 },
+      bonusStats: normalizeHeroBonusStats(data.hero.bonusStats),
+      knowledge: normalizeHeroKnowledge(data.hero.knowledge),
       hp: data.hero.hp || cls.hpBase,
       maxHp: data.hero.maxHp || cls.hpBase,
       mp: data.hero.mp || cls.mpBase,
@@ -3934,113 +4310,27 @@ function getPickaxeMaxDurability(state = gameState) {
 function recomputeHeroDerivedStats(fullRestore = false, state = gameState) {
   const h = state.hero;
   if (!h) return;
-  const cls = (h.classId && CLASSES[h.classId]) ? CLASSES[h.classId] : null;
-  if (!cls) return;
-  const bonus = h.bonusStats || { str: 0, dex: 0, int: 0, vit: 0 };
+  const derived = computeHeroDerivedStats(h);
+  if (!derived) return;
 
-  let str = cls.baseStats.str + (h.level - 1) * 2 + (bonus.str || 0);
-  let dex = cls.baseStats.dex + (h.level - 1) * 2 + (bonus.dex || 0);
-  let int = cls.baseStats.int + (h.level - 1) * 2 + (bonus.int || 0);
-  let vit = cls.baseStats.vit + (h.level - 1) * 2 + (bonus.vit || 0);
+  h.computedStr = derived.attributes.str;
+  h.computedDex = derived.attributes.dex;
+  h.computedInt = derived.attributes.int;
+  h.computedVit = derived.attributes.vit;
+  h.computedSpi = derived.attributes.spi;
+  h.visionRadius = derived.visionRadius;
 
-  let flatAtk = 0, flatDef = 0, flatCrit = 0, flatDodge = 0, flatHp = 0, flatMp = 0, visionBonus = 0;
-  let flatThorns = 0, flatLeech = 0, flatWard = 0;
+  h.maxHp = derived.maxHp;
+  h.maxMp = derived.maxMp;
+  h.thorns = derived.thorns;
+  h.leech = derived.leech;
+  h.ward = derived.ward;
 
-  // Passive Class Bonuses
-  if (h.classId === 'fighter') flatHp += 10;
-  if (h.classId === 'thief')   flatCrit += 15;
-  if (h.classId === 'ranger')  flatDodge += 15;
-  if (h.classId === 'paladin') flatDef += 10;
-  if (h.classId === 'cleric')  flatDef += 5;
-
-  // Talent Bonuses
-  const t = h.talentsAllocated || {};
-  if (t.f_a1) flatHp += t.f_a1 * 12;
-  if (t.f_a2) flatAtk += t.f_a2 * 3;
-  if (t.t_b1) flatCrit += t.t_b1 * 5;
-  if (t.t_b3) flatDodge += t.t_b3 * 10;
-  if (t.m_c1) flatMp += t.m_c1 * 15;
-  if (t.r_d1) { flatDodge += t.r_d1 * 4; visionBonus += t.r_d1; }
-  if (t.p_e1) { flatDef += t.p_e1 * 4; flatHp += t.p_e1 * 8; }
-  if (t.p_e2) flatAtk += t.p_e2 * 4;
-
-  // Sum 6-Slot Equipment & Socketed Astral Gems
-  for (const slot of ['weapon', 'armor', 'helm', 'boots', 'accessory']) {
-    const it = h.equipment[slot];
-    if (!it) continue;
-    if (it.str) str += it.str;
-    if (it.dex) dex += it.dex;
-    if (it.int) int += it.int;
-    if (it.vit) vit += it.vit;
-    if (it.atk) flatAtk += it.atk;
-    if (it.def) flatDef += it.def;
-    if (it.crit) flatCrit += it.crit;
-    if (it.dodge) flatDodge += it.dodge;
-    if (it.maxHp) flatHp += it.maxHp;
-    if (it.maxMp) flatMp += it.maxMp;
-    if (it.visionBonus) visionBonus += it.visionBonus;
-    if (it.thorns) flatThorns += it.thorns;
-    if (it.leech) flatLeech += it.leech;
-    if (it.ward) flatWard += it.ward;
-
-    if (Array.isArray(it.sockets)) {
-      for (let sIdx = 0; sIdx < it.sockets.length; sIdx++) {
-        const gem = GEM_CATALOG[it.sockets[sIdx]];
-        if (!gem || !gem.bonuses) continue;
-        const gb = gem.bonuses;
-        if (gb.str) str += gb.str;
-        if (gb.dex) dex += gb.dex;
-        if (gb.int) int += gb.int;
-        if (gb.vit) vit += gb.vit;
-        if (gb.atk) flatAtk += gb.atk;
-        if (gb.def) flatDef += gb.def;
-        if (gb.crit) flatCrit += gb.crit;
-        if (gb.dodge) flatDodge += gb.dodge;
-        if (gb.maxHp) flatHp += gb.maxHp;
-        if (gb.maxMp) flatMp += gb.maxMp;
-        if (gb.visionBonus) visionBonus += gb.visionBonus;
-      }
-    }
-  }
-
-  // Active Astral Shrine Status Buffs
-  if (Array.isArray(h.statuses)) {
-    for (let i = 0; i < h.statuses.length; i++) {
-      const st = h.statuses[i];
-      if (st.id === 'shrine_starfire') {
-        flatAtk += 6;
-        flatCrit += 12;
-      } else if (st.id === 'shrine_aegis') {
-        flatDef += 6;
-        visionBonus += 1;
-      } else if (st.id === 'chilled') {
-        flatDodge -= 15;
-      }
-    }
-  }
-
-  h.computedStr = str;
-  h.computedDex = dex;
-  h.computedInt = int;
-  h.computedVit = vit;
-  h.visionRadius = (cls.vision || 5) + visionBonus;
-
-  h.maxHp = cls.hpBase + (vit * 4) + flatHp;
-  h.maxMp = cls.mpBase + (int * 3) + flatMp;
-  h.thorns = flatThorns;
-  h.leech = flatLeech;
-  h.ward = flatWard;
-
-  const primaryOffensive = h.classId === 'mage'
-    ? Math.round(int * 1.1 + str * 0.3)
-    : h.classId === 'ranger' || h.classId === 'thief'
-      ? Math.round(dex * 0.9 + str * 0.4)
-      : Math.round(str * 0.95 + dex * 0.35);
-
-  h.atk = primaryOffensive + flatAtk;
-  h.def = Math.round(vit * 0.45) + flatDef;
-  h.crit = Math.min(75, 5 + Math.round(dex * 0.45) + flatCrit);
-  h.dodge = Math.max(0, Math.min(60, 4 + Math.round(dex * 0.35) + flatDodge));
+  h.atk = derived.atk;
+  h.magicPower = derived.magicPower;
+  h.def = derived.def;
+  h.crit = derived.crit;
+  h.dodge = derived.dodge;
 
   if (fullRestore) {
     h.hp = h.maxHp;
@@ -4166,6 +4456,7 @@ function packDungeonWorldSnapshot(state = gameState) {
   }
   return {
     version: 1,
+    campaignId: (state.wargameSession && state.wargameSession.campaignId) || null,
     activeDungeonId: serialized.activeDungeonId,
     turn: serialized.turn || 0,
     dungeons: serialized.dungeons,
@@ -4250,6 +4541,17 @@ function hydrateDungeonWorldSnapshot(snapshot, targetState = gameState) {
   targetState.inGuild = true;
   if (targetState.wargameSession) {
     targetState.wargameSession.active = false;
+    if (!targetState.wargameSession.campaignId && snapshot.campaignId) {
+      targetState.wargameSession.campaignId = snapshot.campaignId;
+    }
+  } else if (snapshot.campaignId) {
+    // HR-14 Issue B: Preserve campaignId when surfacing/saving on Overworld so re-entering
+    // the same dungeon after save/reload restores explored floors instead of resetting!
+    targetState.wargameSession = {
+      active: false,
+      inProcess: true,
+      campaignId: snapshot.campaignId
+    };
   }
   return { ok: true, hasActiveSession: false, session: null };
 }
@@ -5929,6 +6231,7 @@ function generateFloor(depth, dungeonConfig = null, dungeonSeed = null) {
 
 
 
+
 const actionCallbacks = {
   log: (msg, tone) => emitEngineEvent(ENGINE_EVENTS.LOG, { msg, tone }, gameState),
   updateUI: () => emitEngineEvent(ENGINE_EVENTS.UI_SYNC, {}, gameState),
@@ -5938,7 +6241,8 @@ const actionCallbacks = {
   onTurnEnd: () => emitEngineEvent(ENGINE_EVENTS.TURN_END, {}, gameState),
   combatAnim: (x, y, type, color) => {},
   heroLunge: (dx, dy) => {},
-  onDungeonReturn: null
+  onDungeonReturn: null,
+  onLevelUp: null
 };
 
 const registeredBridgeHandlers = {};
@@ -5980,6 +6284,9 @@ function registerActionCallbacks(cbs) {
   if (cbs.onDungeonReturn === null || typeof cbs.onDungeonReturn === 'function') {
     actionCallbacks.onDungeonReturn = cbs.onDungeonReturn;
   }
+  if (cbs.onLevelUp === null || typeof cbs.onLevelUp === 'function') {
+    actionCallbacks.onLevelUp = cbs.onLevelUp;
+  }
 }
 
 function getActionCallbacks() {
@@ -6014,21 +6321,61 @@ function addExpeditionTradeItem(id, name, val, qty = 1, type = 'Ore', state = ga
 
 function gainExperience(amount, state = gameState) {
   const h = state.hero;
-  if (!h) return;
+  if (!h) return { leveledUp: false, levelsGained: 0, levelUpPayload: null };
+  const fromLevel = h.level || 1;
+  let levelsGained = 0;
+  let statPointsGained = 0;
+  let talentPointsGained = 0;
+
   h.xp += amount;
   while (h.xp >= h.maxXp) {
     h.xp -= h.maxXp;
     h.level += 1;
+    levelsGained += 1;
     h.maxXp = Math.round(h.maxXp * 1.4);
     h.statPoints = (h.statPoints || 0) + 2;
     h.talentPoints = (h.talentPoints || 0) + 1;
-    recomputeHeroDerivedStats(true, state);
-    if (state === gameState) {
-      playSound('lvl');
-      actionCallbacks.floatingText(h.x, h.y, `LEVEL UP! Lv ${h.level}`, '#fbbf24');
-      actionCallbacks.log(`LEVEL UP! Reached Level ${h.level} (+2 Stat Points, +1 Talent Point).`, 'good');
+    statPointsGained += 2;
+    talentPointsGained += 1;
+  }
+
+  if (levelsGained <= 0) {
+    return { leveledUp: false, levelsGained: 0, levelUpPayload: null };
+  }
+
+  recomputeHeroDerivedStats(true, state);
+  const autoGrowth = computeAutoLevelGrowthDelta(h.classId, levelsGained);
+  const levelUpPayload = {
+    heroId: h.id || null,
+    heroName: h.name || 'Hero',
+    classId: h.classId || null,
+    fromLevel: fromLevel,
+    newLevel: h.level,
+    levelsGained: levelsGained,
+    autoGrowth: autoGrowth,
+    statPointsGained: statPointsGained,
+    statPointsAvailable: h.statPoints || 0,
+    talentPointsGained: talentPointsGained,
+    talentPointsAvailable: h.talentPoints || 0
+  };
+
+  if (state === gameState) {
+    playSound('lvl');
+    const growthParts = ['str', 'dex', 'int', 'vit', 'spi']
+      .filter(function(k) { return (autoGrowth[k] || 0) > 0; })
+      .map(function(k) { return '+' + autoGrowth[k] + ' ' + k.toUpperCase(); });
+    actionCallbacks.floatingText(h.x, h.y, 'LEVEL UP! Lv ' + h.level, '#fbbf24');
+    actionCallbacks.log(
+      'LEVEL UP! ' + (h.name || 'Hero') + ' reached Level ' + h.level +
+      ' (Auto: ' + growthParts.join(', ') + ' • +' + statPointsGained + ' Stat Pts, +' + talentPointsGained + ' Talent Pt).',
+      'good'
+    );
+    if (typeof actionCallbacks.onLevelUp === 'function') {
+      actionCallbacks.onLevelUp(levelUpPayload);
     }
   }
+
+  return { leveledUp: true, levelsGained: levelsGained, levelUpPayload: levelUpPayload };
 }
 
 // ============================================================================
@@ -6792,7 +7139,8 @@ function extractToGuild(method = 'Floor 1 Ascending Stairs (<)', state = gameSta
       heroLevel: h.level || 1,
       heroXp: h.xp || 0,
       heroMaxXp: h.maxXp || 60,
-      heroBonusStats: h.bonusStats ? Object.assign({}, h.bonusStats) : { str: 0, dex: 0, int: 0, vit: 0 },
+      heroBonusStats: h.bonusStats ? Object.assign({ str: 0, dex: 0, int: 0, vit: 0, spi: 0 }, h.bonusStats) : { str: 0, dex: 0, int: 0, vit: 0, spi: 0 },
+      heroKnowledge: h.knowledge ? Object.assign({}, h.knowledge) : null,
       heroStatPoints: h.statPoints || 0,
       heroTalentPoints: h.talentPoints || 0,
       heroTalentsAllocated: h.talentsAllocated ? Object.assign({}, h.talentsAllocated) : {},
@@ -6903,7 +7251,8 @@ function handleHeroDefeat(killerName = 'Abyssal Guardian', state = gameState) {
       heroLevel: h.level || 1,
       heroXp: h.xp || 0,
       heroMaxXp: h.maxXp || 60,
-      heroBonusStats: h.bonusStats ? Object.assign({}, h.bonusStats) : { str: 0, dex: 0, int: 0, vit: 0 },
+      heroBonusStats: h.bonusStats ? Object.assign({ str: 0, dex: 0, int: 0, vit: 0, spi: 0 }, h.bonusStats) : { str: 0, dex: 0, int: 0, vit: 0, spi: 0 },
+      heroKnowledge: h.knowledge ? Object.assign({}, h.knowledge) : null,
       heroStatPoints: h.statPoints || 0,
       heroTalentPoints: h.talentPoints || 0,
       heroTalentsAllocated: h.talentsAllocated ? Object.assign({}, h.talentsAllocated) : {},
@@ -6972,6 +7321,7 @@ function applyWargameEntryHandoff(handoff, state = gameState) {
       targetInst.waypoints = {};
       targetInst.currentFloor = 1;
     }
+    state.inGuild = true;
     selectActiveDungeon(targetDungeonId, state);
   } else if (CURATED_DUNGEON_PROFILES[targetProfileId]) {
     const freshSeed = handoff.seedCode ? (String(handoff.seedCode) + '-' + targetProfileId.slice(0, 4).toUpperCase()) : null;
@@ -6982,6 +7332,7 @@ function applyWargameEntryHandoff(handoff, state = gameState) {
       worldCoords: dng.coords || { x: 0, y: 0 }
     });
     state.dungeons[targetDungeonId] = inst;
+    state.inGuild = true;
     selectActiveDungeon(targetDungeonId, state);
   } else {
     syncActiveDungeonAlias(state);
@@ -8632,6 +8983,9 @@ function killMonster(monster, state = gameState) {
   if (codex.killsByArchetype) codex.killsByArchetype[monster.id] = count;
 
   const h = state.hero;
+  if (h) {
+    grantHeroKnowledge(h, 'monster_knowledge', (monster.isBoss || monster.isElite) ? 0.5 : 0.25);
+  }
   // Thief Shadow Dance MP restore on kill
   if (h.classId === 'thief' && ((h.talentsAllocated && h.talentsAllocated.t_b3) || 0) > 0) {
     h.mp = Math.min(h.maxMp, h.mp + 6);
@@ -9479,7 +9833,7 @@ function executeClassSkill(state = gameState) {
 
     h.mp -= effectiveCost;
     const masteryMult = getCodexMasteryMultiplier(target.id, state);
-    const spellBase = Math.max(h.atk, Math.round((h.computedInt || h.int || 12) * 1.6));
+    const spellBase = Math.max(h.atk, h.magicPower || Math.round((h.computedInt || h.int || 12) * 1.6));
     const dmg = Math.max(5, Math.round(spellBase * 1.6 * masteryMult) - Math.floor(target.def * 0.4));
     const healAmt = Math.max(6, Math.round(h.maxHp * 0.20));
     target.hp -= dmg;
@@ -10525,6 +10879,7 @@ function getAssetRegistryStats() {
 
 
 
+
 const SHARED_PAPER_DOLL_SLOTS = [
   // Row 1: Head & Neck
   { id: 'accessory', label: 'Trinket',  left: '10px',  top: '10px',  width: '84px', height: '64px', active: true },
@@ -10566,33 +10921,22 @@ function normalizeSharedHeroProfile(hero) {
   const classId = h.classId || 'fighter';
   const cls = CLASSES[classId] || CLASSES.fighter;
   const st = h.stats || {};
+  const derived = computeHeroDerivedStats(h);
 
-  const str = h.computedStr !== undefined ? h.computedStr : (st.str || (cls.baseStats && cls.baseStats.str) || 10);
-  const dex = h.computedDex !== undefined ? h.computedDex : (st.dex || (cls.baseStats && cls.baseStats.dex) || 10);
-  const intel = h.computedInt !== undefined ? h.computedInt : (st.int || (cls.baseStats && cls.baseStats.int) || 10);
-  const vit = h.computedVit !== undefined ? h.computedVit : (st.vit || (cls.baseStats && cls.baseStats.vit) || 10);
+  const str = formatAttributeDisplay(h.computedStr !== undefined ? h.computedStr : (derived ? derived.attributes.str : (st.str || (cls.baseStats && cls.baseStats.str) || 10)));
+  const dex = formatAttributeDisplay(h.computedDex !== undefined ? h.computedDex : (derived ? derived.attributes.dex : (st.dex || (cls.baseStats && cls.baseStats.dex) || 10)));
+  const intel = formatAttributeDisplay(h.computedInt !== undefined ? h.computedInt : (derived ? derived.attributes.int : (st.int || (cls.baseStats && cls.baseStats.int) || 10)));
+  const vit = formatAttributeDisplay(h.computedVit !== undefined ? h.computedVit : (derived ? derived.attributes.vit : (st.vit || (cls.baseStats && cls.baseStats.vit) || 10)));
+  const spi = formatAttributeDisplay(h.computedSpi !== undefined ? h.computedSpi : (derived ? derived.attributes.spi : (st.spi || (cls.baseStats && cls.baseStats.spi) || 10)));
 
   const eq = h.equipment || {};
-  let eqAtk = 0;
-  let eqDef = 0;
-  let eqHp = 0;
-  let eqMp = 0;
-  const eqKeys = Object.keys(eq);
-  for (let i = 0; i < eqKeys.length; i++) {
-    const it = eq[eqKeys[i]];
-    if (!it) continue;
-    eqAtk += (it.atk || 0);
-    eqDef += (it.def || 0);
-    eqHp  += (it.hp  || 0);
-    eqMp  += (it.mp  || 0);
-  }
-
-  const baseMaxHp = h.maxHp !== undefined ? h.maxHp : ((st.hp || 140) + eqHp);
-  const baseMaxMp = h.maxMp !== undefined ? h.maxMp : ((st.mp || 60) + eqMp);
-  const atk = h.atk !== undefined ? h.atk : ((st.atk || 22) + eqAtk);
-  const def = h.def !== undefined ? h.def : ((st.def || 10) + eqDef);
-  const crit = h.crit !== undefined ? h.crit : Math.min(60, 8 + Math.floor(dex * 0.6));
-  const dodge = h.dodge !== undefined ? h.dodge : Math.min(45, 5 + Math.floor(dex * 0.5));
+  const baseMaxHp = h.maxHp !== undefined ? h.maxHp : (derived ? derived.maxHp : (st.hp || 140));
+  const baseMaxMp = h.maxMp !== undefined ? h.maxMp : (derived ? derived.maxMp : (st.mp || 60));
+  const atk = h.atk !== undefined ? h.atk : (derived ? derived.atk : (st.atk || 22));
+  const magicPower = h.magicPower !== undefined ? h.magicPower : (derived ? derived.magicPower : (st.magicPower || 12));
+  const def = h.def !== undefined ? h.def : (derived ? derived.def : (st.def || 10));
+  const crit = h.crit !== undefined ? h.crit : (derived ? derived.crit : Math.min(60, 8 + Math.floor(dex * 0.6)));
+  const dodge = h.dodge !== undefined ? h.dodge : (derived ? derived.dodge : Math.min(45, 5 + Math.floor(dex * 0.5)));
 
   return {
     id: h.id || 'hero_active',
@@ -10612,7 +10956,9 @@ function normalizeSharedHeroProfile(hero) {
       dex: dex,
       int: intel,
       vit: vit,
+      spi: spi,
       atk: atk,
+      magicPower: magicPower,
       def: def,
       crit: crit,
       dodge: dodge
@@ -14014,10 +14360,10 @@ function updateAllUI() {
   }
 
   // Stats
-  document.getElementById('uiStatStr').textContent = h.computedStr;
-  document.getElementById('uiStatDex').textContent = h.computedDex;
-  document.getElementById('uiStatInt').textContent = h.computedInt;
-  document.getElementById('uiStatVit').textContent = h.computedVit;
+  document.getElementById('uiStatStr').textContent = Math.floor(h.computedStr || 0);
+  document.getElementById('uiStatDex').textContent = Math.floor(h.computedDex || 0);
+  document.getElementById('uiStatInt').textContent = Math.floor(h.computedInt || 0);
+  document.getElementById('uiStatVit').textContent = Math.floor(h.computedVit || 0);
   document.getElementById('uiStatAtk').textContent = h.atk;
   document.getElementById('uiStatDef').textContent = h.def;
   document.getElementById('uiStatCrit').textContent = `${h.crit}%`;
@@ -15204,10 +15550,10 @@ function renderInventoryModal() {
 
   // Stats
   const statIds = [
-    ['inventoryStatStr', h.computedStr],
-    ['inventoryStatDex', h.computedDex],
-    ['inventoryStatInt', h.computedInt],
-    ['inventoryStatVit', h.computedVit],
+    ['inventoryStatStr', Math.floor(h.computedStr || 0)],
+    ['inventoryStatDex', Math.floor(h.computedDex || 0)],
+    ['inventoryStatInt', Math.floor(h.computedInt || 0)],
+    ['inventoryStatVit', Math.floor(h.computedVit || 0)],
     ['inventoryStatAtk', h.atk],
     ['inventoryStatDef', h.def],
     ['inventoryStatCrit', `${h.crit}%`],

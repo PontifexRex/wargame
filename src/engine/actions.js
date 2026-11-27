@@ -1,4 +1,4 @@
-// Interactive Mining, Multi-Dungeon Atlas Management, Astral Gems & Lapidary, Guild Bounties, Shrines, Traps & Extraction
+﻿// Interactive Mining, Multi-Dungeon Atlas Management, Astral Gems & Lapidary, Guild Bounties, Shrines, Traps & Extraction
 
 import {
   DEFAULT_MAP_W,
@@ -20,6 +20,7 @@ import {
 } from '../constants.js';
 import { ORE_CATALOG, MINERAL_IDS } from '../data/ores.js';
 import { isClassDungeonEligible, isHeroDungeonEligible } from '../data/classes.js';
+import { computeAutoLevelGrowthDelta } from '../core/heroStats.js';
 import { GEM_IDS, GEM_CATALOG, SHRINE_CATALOG, TRAP_CATALOG } from '../data/gems.js';
 import { buildProceduralBountySet } from '../data/bounties.js';
 import { SHOP_ITEMS, computeItemPowerScore, isItemUpgrade } from '../data/items.js';
@@ -62,7 +63,8 @@ const actionCallbacks = {
   onTurnEnd: () => emitEngineEvent(ENGINE_EVENTS.TURN_END, {}, gameState),
   combatAnim: (x, y, type, color) => {},
   heroLunge: (dx, dy) => {},
-  onDungeonReturn: null
+  onDungeonReturn: null,
+  onLevelUp: null
 };
 
 const registeredBridgeHandlers = {};
@@ -104,6 +106,9 @@ export function registerActionCallbacks(cbs) {
   if (cbs.onDungeonReturn === null || typeof cbs.onDungeonReturn === 'function') {
     actionCallbacks.onDungeonReturn = cbs.onDungeonReturn;
   }
+  if (cbs.onLevelUp === null || typeof cbs.onLevelUp === 'function') {
+    actionCallbacks.onLevelUp = cbs.onLevelUp;
+  }
 }
 
 export function getActionCallbacks() {
@@ -138,21 +143,61 @@ export function addExpeditionTradeItem(id, name, val, qty = 1, type = 'Ore', sta
 
 export function gainExperience(amount, state = gameState) {
   const h = state.hero;
-  if (!h) return;
+  if (!h) return { leveledUp: false, levelsGained: 0, levelUpPayload: null };
+  const fromLevel = h.level || 1;
+  let levelsGained = 0;
+  let statPointsGained = 0;
+  let talentPointsGained = 0;
+
   h.xp += amount;
   while (h.xp >= h.maxXp) {
     h.xp -= h.maxXp;
     h.level += 1;
+    levelsGained += 1;
     h.maxXp = Math.round(h.maxXp * 1.4);
     h.statPoints = (h.statPoints || 0) + 2;
     h.talentPoints = (h.talentPoints || 0) + 1;
-    recomputeHeroDerivedStats(true, state);
-    if (state === gameState) {
-      playSound('lvl');
-      actionCallbacks.floatingText(h.x, h.y, `LEVEL UP! Lv ${h.level}`, '#fbbf24');
-      actionCallbacks.log(`LEVEL UP! Reached Level ${h.level} (+2 Stat Points, +1 Talent Point).`, 'good');
+    statPointsGained += 2;
+    talentPointsGained += 1;
+  }
+
+  if (levelsGained <= 0) {
+    return { leveledUp: false, levelsGained: 0, levelUpPayload: null };
+  }
+
+  recomputeHeroDerivedStats(true, state);
+  const autoGrowth = computeAutoLevelGrowthDelta(h.classId, levelsGained);
+  const levelUpPayload = {
+    heroId: h.id || null,
+    heroName: h.name || 'Hero',
+    classId: h.classId || null,
+    fromLevel: fromLevel,
+    newLevel: h.level,
+    levelsGained: levelsGained,
+    autoGrowth: autoGrowth,
+    statPointsGained: statPointsGained,
+    statPointsAvailable: h.statPoints || 0,
+    talentPointsGained: talentPointsGained,
+    talentPointsAvailable: h.talentPoints || 0
+  };
+
+  if (state === gameState) {
+    playSound('lvl');
+    const growthParts = ['str', 'dex', 'int', 'vit', 'spi']
+      .filter(function(k) { return (autoGrowth[k] || 0) > 0; })
+      .map(function(k) { return '+' + autoGrowth[k] + ' ' + k.toUpperCase(); });
+    actionCallbacks.floatingText(h.x, h.y, 'LEVEL UP! Lv ' + h.level, '#fbbf24');
+    actionCallbacks.log(
+      'LEVEL UP! ' + (h.name || 'Hero') + ' reached Level ' + h.level +
+      ' (Auto: ' + growthParts.join(', ') + ' • +' + statPointsGained + ' Stat Pts, +' + talentPointsGained + ' Talent Pt).',
+      'good'
+    );
+    if (typeof actionCallbacks.onLevelUp === 'function') {
+      actionCallbacks.onLevelUp(levelUpPayload);
     }
   }
+
+  return { leveledUp: true, levelsGained: levelsGained, levelUpPayload: levelUpPayload };
 }
 
 // ============================================================================
@@ -916,7 +961,8 @@ export function extractToGuild(method = 'Floor 1 Ascending Stairs (<)', state = 
       heroLevel: h.level || 1,
       heroXp: h.xp || 0,
       heroMaxXp: h.maxXp || 60,
-      heroBonusStats: h.bonusStats ? Object.assign({}, h.bonusStats) : { str: 0, dex: 0, int: 0, vit: 0 },
+      heroBonusStats: h.bonusStats ? Object.assign({ str: 0, dex: 0, int: 0, vit: 0, spi: 0 }, h.bonusStats) : { str: 0, dex: 0, int: 0, vit: 0, spi: 0 },
+      heroKnowledge: h.knowledge ? Object.assign({}, h.knowledge) : null,
       heroStatPoints: h.statPoints || 0,
       heroTalentPoints: h.talentPoints || 0,
       heroTalentsAllocated: h.talentsAllocated ? Object.assign({}, h.talentsAllocated) : {},
@@ -1027,7 +1073,8 @@ export function handleHeroDefeat(killerName = 'Abyssal Guardian', state = gameSt
       heroLevel: h.level || 1,
       heroXp: h.xp || 0,
       heroMaxXp: h.maxXp || 60,
-      heroBonusStats: h.bonusStats ? Object.assign({}, h.bonusStats) : { str: 0, dex: 0, int: 0, vit: 0 },
+      heroBonusStats: h.bonusStats ? Object.assign({ str: 0, dex: 0, int: 0, vit: 0, spi: 0 }, h.bonusStats) : { str: 0, dex: 0, int: 0, vit: 0, spi: 0 },
+      heroKnowledge: h.knowledge ? Object.assign({}, h.knowledge) : null,
       heroStatPoints: h.statPoints || 0,
       heroTalentPoints: h.talentPoints || 0,
       heroTalentsAllocated: h.talentsAllocated ? Object.assign({}, h.talentsAllocated) : {},
@@ -1096,6 +1143,7 @@ export function applyWargameEntryHandoff(handoff, state = gameState) {
       targetInst.waypoints = {};
       targetInst.currentFloor = 1;
     }
+    state.inGuild = true;
     selectActiveDungeon(targetDungeonId, state);
   } else if (CURATED_DUNGEON_PROFILES[targetProfileId]) {
     const freshSeed = handoff.seedCode ? (String(handoff.seedCode) + '-' + targetProfileId.slice(0, 4).toUpperCase()) : null;
@@ -1106,6 +1154,7 @@ export function applyWargameEntryHandoff(handoff, state = gameState) {
       worldCoords: dng.coords || { x: 0, y: 0 }
     });
     state.dungeons[targetDungeonId] = inst;
+    state.inGuild = true;
     selectActiveDungeon(targetDungeonId, state);
   } else {
     syncActiveDungeonAlias(state);

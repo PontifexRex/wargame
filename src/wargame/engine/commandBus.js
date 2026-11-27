@@ -110,8 +110,11 @@ import {
   createDefaultCityPlots,
   createInventoryContainer,
   getPrimaryCity,
-  getSelectedOverworldUnit
+  getSelectedOverworldUnit,
+  refreshHeroDerivedStats
 } from './state.js';
+import { normalizeHeroBonusStats } from '../../core/heroStats.js';
+import { normalizeHeroKnowledge } from '../../core/knowledge.js';
 
 export function dispatchWargameCommand(commandEnvelope, state, scheduler, eventStream) {
   if (!commandEnvelope || !commandEnvelope.type) {
@@ -1721,6 +1724,7 @@ export function dispatchWargameCommand(commandEnvelope, state, scheduler, eventS
       hero.bagGear.push(prev);
     }
     hero.equipment[slot] = item;
+    refreshHeroDerivedStats(hero);
     return accept({ heroId: hero.id, slot: slot, equipped: item, swappedOut: prev || null });
   }
 
@@ -1735,6 +1739,7 @@ export function dispatchWargameCommand(commandEnvelope, state, scheduler, eventS
     const removed = hero.equipment[slot];
     hero.equipment[slot] = null;
     hero.bagGear.push(removed);
+    refreshHeroDerivedStats(hero);
     return accept({ heroId: hero.id, slot: slot, unequipped: removed });
   }
 
@@ -1766,6 +1771,7 @@ export function dispatchWargameCommand(commandEnvelope, state, scheduler, eventS
         equippedCount++;
       }
     }
+    refreshHeroDerivedStats(hero);
     return accept({ heroId: hero.id, equippedCount: equippedCount });
   }
 
@@ -1799,16 +1805,27 @@ export function dispatchWargameCommand(commandEnvelope, state, scheduler, eventS
 
     world.heroes.splice(heroIdx, 1);
 
-    // Remove or clean up Overworld unit led by this dismissed hero
+    // Remove Overworld unit led by this dismissed hero and reassign selection safely (HR-14 Issue A)
     if (ow && Array.isArray(ow.units)) {
+      let dismissedSelected = false;
+      const keptUnits = [];
       for (let u = 0; u < ow.units.length; u++) {
-        if (ow.units[u].leaderHeroId === hero.id) {
-          if (ow.units[u].marchPlan && ow.units[u].marchPlan.activeJobId && scheduler) {
-            scheduler.cancelJob(ow.units[u].marchPlan.activeJobId);
+        const unit = ow.units[u];
+        if (unit && unit.leaderHeroId === hero.id) {
+          if (unit.marchPlan && unit.marchPlan.activeJobId && scheduler) {
+            scheduler.cancelJob(unit.marchPlan.activeJobId);
           }
-          ow.units[u].alive = false;
-          ow.units[u].status = 'dismissed';
+          if (ow.selectedUnitId === unit.id) {
+            dismissedSelected = true;
+          }
+          continue;
         }
+        keptUnits.push(unit);
+      }
+      ow.units = keptUnits;
+      if (dismissedSelected) {
+        const nextAlive = ow.units.find(function(u) { return u && u.alive; });
+        ow.selectedUnitId = nextAlive ? nextAlive.id : null;
       }
     }
 
@@ -2581,7 +2598,10 @@ export function dispatchWargameCommand(commandEnvelope, state, scheduler, eventS
         hero.maxXp = payload.heroMaxXp;
       }
       if (payload.heroBonusStats && typeof payload.heroBonusStats === 'object') {
-        hero.bonusStats = Object.assign({ str: 0, dex: 0, int: 0, vit: 0 }, payload.heroBonusStats);
+        hero.bonusStats = normalizeHeroBonusStats(payload.heroBonusStats);
+      }
+      if (payload.heroKnowledge && typeof payload.heroKnowledge === 'object') {
+        hero.knowledge = normalizeHeroKnowledge(payload.heroKnowledge);
       }
       if (typeof payload.heroStatPoints === 'number' && payload.heroStatPoints >= 0) {
         hero.statPoints = payload.heroStatPoints;
@@ -2595,6 +2615,7 @@ export function dispatchWargameCommand(commandEnvelope, state, scheduler, eventS
       if (payload.heroEquipment && typeof payload.heroEquipment === 'object') {
         hero.equipment = Object.assign({}, hero.equipment || {}, payload.heroEquipment);
       }
+      refreshHeroDerivedStats(hero);
     }
 
     const poiId = payload.dungeonPoiId || unit.activeDungeonPoiId;

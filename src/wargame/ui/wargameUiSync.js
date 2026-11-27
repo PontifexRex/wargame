@@ -2872,6 +2872,7 @@ export function renderBattleFeedbackOverlays(simHost) {
         <div class="px-6 py-3 rounded-xl border-2 shadow-2xl text-center backdrop-blur-md ${isWin ? 'bg-[#064e3b]/95 border-[#34d399] text-[#ecfdf5]' : 'bg-[#450a0a]/95 border-[#ef4444] text-[#fef2f2]'}">
           <div class="text-lg md:text-xl font-display font-extrabold tracking-widest uppercase ${isWin ? 'text-[#fbbf24]' : 'text-[#fca5a5]'}">${isWin ? '⚔️ VICTORY ⚔️' : '💀 DEFEAT 💀'}</div>
           <div class="text-xs font-mono mt-0.5">${banner.armyName || 'Field Army'} vs ${banner.targetName || 'Hostile Force'}</div>
+          ${banner.summary ? `<div class="text-[11px] font-mono mt-1 text-[#fde68a]">${banner.summary}</div>` : ''}
         </div>
       `;
       setHtmlIfChanged(bannerEl, bannerHtml);

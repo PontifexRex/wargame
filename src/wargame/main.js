@@ -71,6 +71,8 @@ import { evaluateWargameSelfTests } from './test/wargameSelfTest.js';
 import { APP_CONTEXTS, createAppContextController } from '../core/appContext.js';
 import { TILE_SIZE, TILE_STAIRS_UP, TILE_STAIRS_DOWN, TILE_CHEST, TILE_SHRINE, TILE_TRAP_VISIBLE } from '../constants.js';
 import { CLASSES } from '../data/classes.js';
+import { formatAttributeDisplay, normalizeHeroBonusStats, getClassLevelGrowth } from '../core/heroStats.js';
+import { evaluateMonsterKnowledgeReveal } from '../core/knowledge.js';
 import { ORE_CATALOG } from '../data/ores.js';
 import { gameState, ensureDungeonFloorHydrated, recomputeHeroDerivedStats } from '../engine/state.js';
 import {
@@ -86,6 +88,7 @@ import {
 import {
   handlePlayerAction,
   executeClassSkill,
+  getSkillTargetingInfo,
   useStairsAtPlayer,
   waitTurn,
   startAutoWalkTo,
@@ -109,9 +112,93 @@ export const simHost = createWargameSimHost();
 simHost.attachDungeonState(gameState);
 
 const dungeonChronicleEntries = [];
+const levelUpNotificationQueue = [];
+let levelUpAutoDismissTimer = null;
 let dungeonCanvasWired = false;
 let dungeonInventoryOpen = false;
 let wargameBootstrapped = false;
+
+export function getLevelUpNotificationQueue() {
+  return levelUpNotificationQueue.slice();
+}
+
+export function renderLevelUpNotification() {
+  if (typeof document === 'undefined') return;
+  const el = document.getElementById('wgLevelUpNotification');
+  if (!el) return;
+  if (levelUpNotificationQueue.length === 0) {
+    el.classList.add('hidden');
+    el.innerHTML = '';
+    return;
+  }
+  const ev = levelUpNotificationQueue[0];
+  const cls = (ev.classId && CLASSES[ev.classId]) ? CLASSES[ev.classId] : null;
+  const classLabel = cls ? cls.name : (ev.classId || 'Hero');
+  const ag = ev.autoGrowth || {};
+  const growthParts = ['str', 'dex', 'int', 'vit', 'spi']
+    .filter(function(k) { return (ag[k] || 0) > 0; })
+    .map(function(k) { return '+' + ag[k] + ' ' + k.toUpperCase(); });
+  const levelSpan = (ev.levelsGained && ev.levelsGained > 1 && ev.fromLevel)
+    ? ('Lv ' + ev.fromLevel + ' → Lv ' + ev.newLevel)
+    : ('Level ' + ev.newLevel);
+  const moreBadge = levelUpNotificationQueue.length > 1
+    ? '<span class="px-1.5 py-0.5 rounded bg-[#fbbf24]/20 border border-[#fbbf24]/50 text-[10px] font-mono text-[#fde68a]">+' + (levelUpNotificationQueue.length - 1) + ' more</span>'
+    : '';
+  el.innerHTML =
+    '<div class="p-3.5 rounded-xl bg-[#111722]/95 border-2 border-[#fbbf24] shadow-2xl backdrop-blur-md space-y-1.5 text-xs">' +
+      '<div class="flex items-center justify-between gap-2">' +
+        '<div class="flex items-center gap-2">' +
+          '<span class="text-sm font-display font-extrabold tracking-wider uppercase text-[#fbbf24]">✨ LEVEL UP!</span>' +
+          moreBadge +
+        '</div>' +
+        '<button onclick="window.WargameApp.handleDismissLevelUpNotification()" class="px-2 py-0.5 rounded bg-[#1a2232] hover:bg-[#283347] text-[10px] font-mono text-[#cbd5e1] cursor-pointer">✕ Dismiss</button>' +
+      '</div>' +
+      '<div class="font-bold text-sm text-[#f8fafc]">' + (ev.heroName || 'Hero') + ' <span class="text-xs font-mono text-[#94a3b8]">(' + classLabel + ')</span> • <span class="text-[#34d399]">' + levelSpan + '</span></div>' +
+      (growthParts.length > 0 ? ('<div class="text-[11px] font-mono text-[#cbd5e1]"><span class="text-[#94a3b8]">Auto Growth:</span> ' + growthParts.join(' • ') + '</div>') : '') +
+      '<div class="flex flex-wrap items-center gap-2 text-[11px] font-mono pt-0.5">' +
+        (ev.statPointsGained > 0 ? ('<span class="px-1.5 py-0.5 rounded bg-[#fbbf24]/15 border border-[#fbbf24]/40 text-[#fbbf24] font-bold">+' + ev.statPointsGained + ' Stat Pts (' + (ev.statPointsAvailable || ev.statPointsGained) + ' avail)</span>') : '') +
+        (ev.talentPointsGained > 0 ? ('<span class="px-1.5 py-0.5 rounded bg-[#60a5fa]/15 border border-[#60a5fa]/40 text-[#60a5fa] font-bold">+' + ev.talentPointsGained + ' Talent Pt</span>') : '') +
+      '</div>' +
+    '</div>';
+  el.classList.remove('hidden');
+}
+
+function scheduleLevelUpAutoDismiss() {
+  if (levelUpAutoDismissTimer) {
+    clearTimeout(levelUpAutoDismissTimer);
+    levelUpAutoDismissTimer = null;
+  }
+  if (levelUpNotificationQueue.length > 0 && typeof setTimeout === 'function') {
+    levelUpAutoDismissTimer = setTimeout(function() {
+      dismissLevelUpNotification();
+    }, 6500);
+  }
+}
+
+export function enqueueLevelUpNotification(payload) {
+  if (!payload || typeof payload !== 'object') return false;
+  levelUpNotificationQueue.push(payload);
+  renderLevelUpNotification();
+  if (levelUpNotificationQueue.length === 1) {
+    scheduleLevelUpAutoDismiss();
+  }
+  return true;
+}
+
+export function dismissLevelUpNotification() {
+  if (levelUpAutoDismissTimer) {
+    clearTimeout(levelUpAutoDismissTimer);
+    levelUpAutoDismissTimer = null;
+  }
+  if (levelUpNotificationQueue.length > 0) {
+    levelUpNotificationQueue.shift();
+  }
+  renderLevelUpNotification();
+  if (levelUpNotificationQueue.length > 0) {
+    scheduleLevelUpAutoDismiss();
+  }
+  return levelUpNotificationQueue.length;
+}
 
 function appendUnifiedDungeonLog(msg, tone) {
   dungeonChronicleEntries.unshift({ msg: String(msg || ''), tone: tone || 'info' });
@@ -135,7 +222,9 @@ function updateIntegratedDungeonHoverScanner(gx, gy) {
   }
   const mon = (floor.monsters || []).find(function(m) { return m.hp > 0 && m.x === gx && m.y === gy; });
   if (mon) {
-    el.innerHTML = '<span class="text-[#f87171] font-bold">' + mon.name + '</span> • HP ' + mon.hp + '/' + mon.maxHp + ' • ATK ' + mon.atk + ' • DEF ' + (mon.def || 0) + ' — Move adjacent to attack!';
+    const lore = evaluateMonsterKnowledgeReveal(gameState.hero, mon);
+    const loreSuffix = lore && lore.summary ? (' <span class="text-[#c084fc]">[' + lore.summary + ']</span>') : '';
+    el.innerHTML = '<span class="text-[#f87171] font-bold">' + mon.name + '</span> • HP ' + mon.hp + '/' + mon.maxHp + ' • ATK ' + mon.atk + ' • DEF ' + (mon.def || 0) + loreSuffix + ' — Move adjacent to attack!';
     return;
   }
   const tile = floor.tiles[gy][gx];
@@ -229,20 +318,41 @@ function syncIntegratedDungeonHud() {
     const spBanner = sp > 0
       ? '<div class="flex items-center justify-between px-2 py-1 rounded bg-[#fbbf24]/15 border border-[#fbbf24]/50 text-[#fbbf24] font-bold mb-1"><span>✨ Stat Points Available</span><span>' + sp + '</span></div>'
       : '';
+    const classGrowth = getClassLevelGrowth(h.classId);
     const statRows = [
-      { key: 'str', label: 'STR', val: h.computedStr || 0, color: '#f87171' },
-      { key: 'dex', label: 'DEX', val: h.computedDex || 0, color: '#34d399' },
-      { key: 'int', label: 'INT', val: h.computedInt || 0, color: '#60a5fa' },
-      { key: 'vit', label: 'VIT', val: h.computedVit || 0, color: '#fbbf24' }
+      { key: 'str', label: 'STR', raw: h.computedStr || 0, val: formatAttributeDisplay(h.computedStr || 0), color: '#f87171' },
+      { key: 'dex', label: 'DEX', raw: h.computedDex || 0, val: formatAttributeDisplay(h.computedDex || 0), color: '#34d399' },
+      { key: 'int', label: 'INT', raw: h.computedInt || 0, val: formatAttributeDisplay(h.computedInt || 0), color: '#60a5fa' },
+      { key: 'vit', label: 'VIT', raw: h.computedVit || 0, val: formatAttributeDisplay(h.computedVit || 0), color: '#fbbf24' },
+      { key: 'spi', label: 'SPI', raw: h.computedSpi || 0, val: formatAttributeDisplay(h.computedSpi || 0), color: '#c084fc' }
     ].map(function(s) {
       const plusBtn = sp > 0
         ? '<button onclick="window.WargameApp.handleDungeonSpendStat(\'' + s.key + '\')" class="px-2 py-0.5 rounded bg-[#fbbf24] hover:bg-[#f59e0b] text-[#080b11] font-bold text-[10px] cursor-pointer">+1</button>'
         : '';
-      return '<div class="flex items-center justify-between px-1.5 py-0.5 rounded bg-[#080b11]"><span><span class="text-[#8b949e]">' + s.label + '</span> <strong style="color:' + s.color + '">' + s.val + '</strong></span>' + plusBtn + '</div>';
+      const gRate = classGrowth[s.key] || 0;
+      const tip = s.label + ' — Internal: ' + (Math.round(s.raw * 100) / 100) + ' • Displayed: ' + s.val + ' (+' + gRate + '/lvl auto + bonuses)';
+      return '<div title="' + tip + '" class="flex items-center justify-between px-1.5 py-0.5 rounded bg-[#080b11]"><span><span class="text-[#8b949e]">' + s.label + '</span> <strong style="color:' + s.color + '">' + s.val + '</strong></span>' + plusBtn + '</div>';
     }).join('');
     attrsEl.innerHTML = spBanner + '<div class="grid grid-cols-2 gap-1">' + statRows + '</div>';
   }
 
+  // HR-14 Issue E: Populate top-bar Skill button & Skill Card with canonical name, MP cost, range, description & readiness
+  const skillInfo = getSkillTargetingInfo(gameState);
+  const skillName = (skillInfo && skillInfo.skillName) || cls.skillName || 'Class Skill';
+  const skillCost = (skillInfo && typeof skillInfo.effectiveCost === 'number') ? skillInfo.effectiveCost : (cls.skillCost || 0);
+  const skillRange = cls.skillRange || 1;
+  const skillDesc = cls.skillDesc || 'Active class ability.';
+  const skillReady = Boolean(skillInfo && skillInfo.valid);
+  const skillStatusText = skillReady
+    ? 'Ready'
+    : (skillInfo && !skillInfo.canAfford ? 'Low MP' : 'No target in range');
+
+  const skillBtn = document.getElementById('wgBtnDungeonSkill');
+  if (skillBtn) {
+    skillBtn.textContent = '⚡ ' + skillName + ' (' + skillCost + ' MP) [Q]';
+    skillBtn.title = skillName + ' (' + skillCost + ' MP, Range ' + skillRange + '): ' + skillDesc + ' [' + skillStatusText + ']';
+    skillBtn.classList.toggle('opacity-60', !skillReady);
+  }
   const tonicBtn = document.getElementById('wgBtnDungeonTonic');
   if (tonicBtn) tonicBtn.textContent = '🧪 Tonic (' + ((h.consumables && h.consumables.potions) || 0) + ') [H]';
   const recallBtn = document.getElementById('wgBtnDungeonRecall');
@@ -282,10 +392,12 @@ function syncIntegratedDungeonHud() {
 
   const skillEl = document.getElementById('wgDungeonSkillCard');
   if (skillEl) {
+    const statusBadgeColor = skillReady ? 'text-[#34d399]' : 'text-[#94a3b8]';
     skillEl.innerHTML =
-      '<div class="flex items-center justify-between"><strong class="text-[#60a5fa]">' + (cls.skillName || 'Class Skill') + '</strong><span class="text-[11px] text-[#fbbf24]">' + (cls.skillCost || 10) + ' MP</span></div>' +
-      '<div class="text-[11px] text-[#94a3b8]">' + (cls.skillDesc || '') + '</div>' +
-      '<button onclick="window.WargameApp.handleDungeonSkill()" class="w-full py-1.5 rounded bg-[#1a2232] hover:bg-[#283347] border border-[#60a5fa]/40 text-xs font-mono font-bold text-[#60a5fa] cursor-pointer">⚡ Cast ' + (cls.skillName || 'Skill') + ' [Q]</button>';
+      '<div class="flex items-center justify-between"><strong class="text-[#60a5fa]">' + skillName + '</strong><span class="text-[11px] text-[#fbbf24]">' + skillCost + ' MP • Rng ' + skillRange + '</span></div>' +
+      '<div class="text-[11px] text-[#94a3b8]">' + skillDesc + '</div>' +
+      '<div class="text-[10px] font-mono ' + statusBadgeColor + '">Status: ' + skillStatusText + '</div>' +
+      '<button onclick="window.WargameApp.handleDungeonSkill()" class="w-full py-1.5 rounded bg-[#1a2232] hover:bg-[#283347] border border-[#60a5fa]/40 text-xs font-mono font-bold text-[#60a5fa] cursor-pointer">⚡ Cast ' + skillName + ' [Q]</button>';
   }
 
   const logEl = document.getElementById('wgDungeonLog');
@@ -361,6 +473,9 @@ function wireIntegratedDungeonCallbacksOnce() {
     heroLunge: triggerHeroLunge,
     onDungeonReturn: function(returnPayload) {
       appContext.exitDungeon(returnPayload);
+    },
+    onLevelUp: function(levelUpPayload) {
+      enqueueLevelUpNotification(levelUpPayload);
     }
   });
 
@@ -1167,6 +1282,9 @@ export function handleDismissHero(heroId) {
   if (simHost.state && simHost.state._openHeroSheetId === heroId) {
     delete simHost.state._openHeroSheetId;
   }
+  if (simHost.state) {
+    simHost.state._confirmRetireHero = false;
+  }
   simHost.state._dirty = true;
   simHost.save();
   syncWargameUI(simHost);
@@ -1467,8 +1585,8 @@ export function handleDungeonSpendStat(statKey) {
   if (appContext.getActiveContext() !== APP_CONTEXTS.DUNGEON || !gameState || !gameState.hero) return false;
   const h = gameState.hero;
   if ((h.statPoints || 0) <= 0) return false;
-  if (statKey !== 'str' && statKey !== 'dex' && statKey !== 'int' && statKey !== 'vit') return false;
-  if (!h.bonusStats) h.bonusStats = { str: 0, dex: 0, int: 0, vit: 0 };
+  if (statKey !== 'str' && statKey !== 'dex' && statKey !== 'int' && statKey !== 'vit' && statKey !== 'spi') return false;
+  h.bonusStats = normalizeHeroBonusStats(h.bonusStats);
   h.bonusStats[statKey] = (h.bonusStats[statKey] || 0) + 1;
   h.statPoints -= 1;
   recomputeHeroDerivedStats(false, gameState);
@@ -1956,6 +2074,7 @@ export const WargameApp = {
   handleDungeonWait: handleDungeonWait,
   handleDungeonUseStairs: handleDungeonUseStairs,
   handleDungeonSpendStat: handleDungeonSpendStat,
+  handleDismissLevelUpNotification: dismissLevelUpNotification,
   handleToggleDungeonInventory: handleToggleDungeonInventory,
   handleDungeonEquipItem: handleDungeonEquipItem,
   handleDungeonUnequipItem: handleDungeonUnequipItem,
@@ -2023,6 +2142,33 @@ export function bootstrapWargame() {
         expiresAtRealMs: Date.now() + (BATTLE_OUTCOME_BANNER_DURATION_MS || 2000)
       };
       simHost.state._battleResultsPopup = null;
+      simHost.state._dirty = true;
+    }
+  });
+
+  simHost.eventStream.subscribe(STREAM_TOPICS.OVERWORLD_SKIRMISH, function(ev) {
+    if (ev && ev.payload) {
+      const sk = ev.payload;
+      if (typeof sk.x === 'number' && typeof sk.y === 'number') {
+        spawnOverworldCasualtyFloaters({
+          x: sk.x,
+          y: sk.y,
+          attackerLosses: sk.damageTaken || 0,
+          defenderLosses: sk.victory ? 1 : 0
+        });
+      }
+      simHost.state._battleOutcomeBanner = {
+        battleId: 'skirmish_' + (sk.hostileId || Date.now()),
+        isSkirmish: true,
+        victory: Boolean(sk.victory),
+        armyName: sk.unitName || 'Hero Party',
+        targetName: sk.hostileName || 'Wandering Hostile',
+        summary: sk.victory
+          ? ('Skirmish Victory! Took ' + (sk.damageTaken || 0) + ' dmg • +' + (sk.rewardGold || 0) + 'g, +' + (sk.rewardOre || 0) + ' Ore, +' + (sk.rewardXp || 0) + ' XP')
+          : ('Retreated to ' + (sk.retreatedToCity || 'Bastion') + ' after taking ' + (sk.damageTaken || 0) + ' dmg'),
+        report: null,
+        expiresAtRealMs: Date.now() + (BATTLE_OUTCOME_BANNER_DURATION_MS || 2000) + 1500
+      };
       simHost.state._dirty = true;
     }
   });

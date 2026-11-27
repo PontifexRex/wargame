@@ -706,10 +706,10 @@ export function updateAllUI() {
   }
 
   // Stats
-  document.getElementById('uiStatStr').textContent = h.computedStr;
-  document.getElementById('uiStatDex').textContent = h.computedDex;
-  document.getElementById('uiStatInt').textContent = h.computedInt;
-  document.getElementById('uiStatVit').textContent = h.computedVit;
+  document.getElementById('uiStatStr').textContent = Math.floor(h.computedStr || 0);
+  document.getElementById('uiStatDex').textContent = Math.floor(h.computedDex || 0);
+  document.getElementById('uiStatInt').textContent = Math.floor(h.computedInt || 0);
+  document.getElementById('uiStatVit').textContent = Math.floor(h.computedVit || 0);
   document.getElementById('uiStatAtk').textContent = h.atk;
   document.getElementById('uiStatDef').textContent = h.def;
   document.getElementById('uiStatCrit').textContent = `${h.crit}%`;

@@ -28,6 +28,8 @@ import {
 import { UNIT_ARCHETYPES } from '../data/terrain.js';
 import { getRecruitableHeroEntry } from '../data/heroRecruitment.js';
 import { CLASSES, isHeroDungeonEligible } from '../../data/classes.js';
+import { computeHeroDerivedStats, createDefaultBonusStats } from '../../core/heroStats.js';
+import { createDefaultHeroKnowledge } from '../../core/knowledge.js';
 import { revealOverworldVision, findOverworldPath } from './pathfinding.js';
 import { evaluateTaskDAG } from './taskEngine.js';
 import {
@@ -156,8 +158,10 @@ export function resolveOverworldSkirmish(unit, hostile, state, scheduler, simTim
     ? world.heroes.find(function(h) { return h.id === unit.leaderHeroId; })
     : null;
 
-  const heroAtk = (hero && hero.stats && hero.stats.atk) ? hero.stats.atk : 26;
-  const heroDef = (hero && hero.stats && hero.stats.def) ? hero.stats.def : 12;
+  // HR-13: Always read authoritative derived stats from shared heroStats calculator (never stale snapshots)
+  const derived = hero ? computeHeroDerivedStats(hero) : null;
+  const heroAtk = derived ? derived.atk : ((hero && hero.stats && hero.stats.atk) ? hero.stats.atk : 26);
+  const heroDef = derived ? derived.def : ((hero && hero.stats && hero.stats.def) ? hero.stats.def : 12);
   const heroLvl = (hero && hero.level) ? hero.level : 1;
   const effectiveAtk = heroAtk + (heroLvl - 1) * 4;
 
@@ -187,7 +191,11 @@ export function resolveOverworldSkirmish(unit, hostile, state, scheduler, simTim
         unitName: unit.shortName,
         hostileId: hostile.id,
         hostileName: hostile.name,
+        x: unit.x,
+        y: unit.y,
         damageTaken: totalDmg,
+        remainingHp: unit.hp,
+        maxHp: unit.maxHp,
         rewardGold: hostile.rewardGold || 20,
         rewardOre: hostile.rewardOre || 4,
         rewardXp: hostile.rewardXp || 25
@@ -217,6 +225,11 @@ export function resolveOverworldSkirmish(unit, hostile, state, scheduler, simTim
       unitName: unit.shortName,
       hostileId: hostile.id,
       hostileName: hostile.name,
+      x: hostile.x,
+      y: hostile.y,
+      damageTaken: totalDmg,
+      remainingHp: unit.hp,
+      maxHp: unit.maxHp,
       retreatedToCity: city ? city.name : 'Bastion'
     }, simTimeMs);
   }
@@ -668,7 +681,24 @@ export function resolveRecruitHeroJob(job, state, scheduler, eventStream) {
   const classDef = getRecruitableHeroEntry(p.classId);
   if (!classDef) return;
 
-  const heroIndex = (world.heroes || []).length + 1;
+  // HR-14 Issue A: Use a monotonic hero sequence counter so newly recruited heroes
+  // and party units NEVER reuse IDs of retired/dismissed heroes.
+  let maxExistingSeq = (world.heroes || []).length;
+  if (Array.isArray(world.heroes)) {
+    for (let hi = 0; hi < world.heroes.length; hi++) {
+      const mH = world.heroes[hi] && typeof world.heroes[hi].id === 'string' && world.heroes[hi].id.match(/^hero_(\d+)_/);
+      if (mH) maxExistingSeq = Math.max(maxExistingSeq, Number(mH[1]) || 0);
+    }
+  }
+  if (ow && Array.isArray(ow.units)) {
+    for (let ui = 0; ui < ow.units.length; ui++) {
+      const mU = ow.units[ui] && typeof ow.units[ui].id === 'string' && ow.units[ui].id.match(/^unit_party_(\d+)$/);
+      if (mU) maxExistingSeq = Math.max(maxExistingSeq, Number(mU[1]) || 0);
+    }
+  }
+  const prevSeq = (typeof world.nextHeroSeq === 'number' && isFinite(world.nextHeroSeq)) ? world.nextHeroSeq : 0;
+  const heroIndex = Math.max(prevSeq, maxExistingSeq) + 1;
+  world.nextHeroSeq = heroIndex;
   const heroName = String(p.heroName || (classDef.name + ' #' + heroIndex)).trim();
 
   // HR-02: Reuse canonical class-specific starterGear definitions from src/data/classes.js
@@ -720,7 +750,8 @@ export function resolveRecruitHeroJob(job, state, scheduler, eventStream) {
     level: 1,
     xp: 0,
     maxXp: DEFAULT_PERSISTENT_HERO_MAX_XP,
-    bonusStats: { str: 0, dex: 0, int: 0, vit: 0 },
+    bonusStats: createDefaultBonusStats(),
+    knowledge: createDefaultHeroKnowledge(),
     statPoints: 0,
     talentPoints: 0,
     talentsAllocated: {},

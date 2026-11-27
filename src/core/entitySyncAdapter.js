@@ -6,9 +6,12 @@
 
 import {
   CLASSES,
+  DEFAULT_HERO_SPI,
   isClassDungeonEligible,
   isHeroDungeonEligible
 } from '../data/classes.js';
+import { normalizeHeroBonusStats } from './heroStats.js';
+import { normalizeHeroKnowledge } from './knowledge.js';
 import {
   normalizeEquipmentSockets,
   recomputeHeroDerivedStats
@@ -69,8 +72,15 @@ export function createDungeonHeroForClass(classId, canonicalHero, ownerPlayerId)
     maxHp: cls.hpBase || 100,
     mp: cls.mpBase || 40,
     maxMp: cls.mpBase || 40,
-    baseStats: { str: base.str, dex: base.dex, int: base.int, vit: base.vit },
-    bonusStats: (canonicalHero && canonicalHero.bonusStats) ? Object.assign({ str: 0, dex: 0, int: 0, vit: 0 }, canonicalHero.bonusStats) : { str: 0, dex: 0, int: 0, vit: 0 },
+    baseStats: {
+      str: base.str,
+      dex: base.dex,
+      int: base.int,
+      vit: base.vit,
+      spi: typeof base.spi === 'number' ? base.spi : DEFAULT_HERO_SPI
+    },
+    bonusStats: normalizeHeroBonusStats(canonicalHero && canonicalHero.bonusStats),
+    knowledge: normalizeHeroKnowledge(canonicalHero && canonicalHero.knowledge),
     statPoints: (canonicalHero && typeof canonicalHero.statPoints === 'number') ? canonicalHero.statPoints : 0,
     talentPoints: (canonicalHero && typeof canonicalHero.talentPoints === 'number') ? canonicalHero.talentPoints : 0,
     talentsAllocated: (canonicalHero && canonicalHero.talentsAllocated) ? Object.assign({}, canonicalHero.talentsAllocated) : {},
@@ -143,7 +153,10 @@ export function bindCanonicalHeroToDungeonState(simHost, dungeonState, entryInfo
       dungeonState.hero.maxXp = canonicalHero.maxXp;
     }
     if (canonicalHero.bonusStats && typeof canonicalHero.bonusStats === 'object') {
-      dungeonState.hero.bonusStats = Object.assign({ str: 0, dex: 0, int: 0, vit: 0 }, canonicalHero.bonusStats);
+      dungeonState.hero.bonusStats = normalizeHeroBonusStats(canonicalHero.bonusStats);
+    }
+    if (canonicalHero.knowledge && typeof canonicalHero.knowledge === 'object') {
+      dungeonState.hero.knowledge = normalizeHeroKnowledge(canonicalHero.knowledge);
     }
     if (typeof canonicalHero.statPoints === 'number') {
       dungeonState.hero.statPoints = canonicalHero.statPoints;
