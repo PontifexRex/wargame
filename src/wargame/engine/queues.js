@@ -48,7 +48,12 @@ export function scheduleNextMarchStep(unit, state, scheduler) {
 
   const simTimeMs = state.world.clock.simTimeMs;
   const nextStep = unit.marchPlan.remainingPath[0];
-  const stepDur = Math.max(250, nextStep.stepDurationMs || 3000);
+  let stepDur = Math.max(250, nextStep.stepDurationMs || 3000);
+  // Scout Forced Pace individual unit travel efficiency bonus (no group/army-wide boost)
+  if (unit.unitType !== 'army' && typeof unit.forcedPaceUntilSimTimeMs === 'number' && unit.forcedPaceUntilSimTimeMs > simTimeMs) {
+    const bonus = typeof unit.forcedPaceSpeedBonus === 'number' ? unit.forcedPaceSpeedBonus : 0.25;
+    stepDur = Math.max(250, Math.round(stepDur * (1 - bonus)));
+  }
 
   const job = scheduler.scheduleJob({
     jobId: 'march_' + unit.id + '_' + simTimeMs + '_' + Math.floor(Math.random() * 10000),

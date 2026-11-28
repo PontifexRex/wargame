@@ -8,6 +8,7 @@ import {
   getAbilityDefinition,
   getDefaultAbilityIdsForClass
 } from '../data/abilities.js';
+import { isRangedWeaponItem } from '../data/items.js';
 
 export function normalizeActorAbilityState(actor) {
   if (!actor || typeof actor !== 'object') return null;
@@ -48,6 +49,9 @@ export function normalizeActorAbilityState(actor) {
 
   if (!actor.abilityCooldowns || typeof actor.abilityCooldowns !== 'object') {
     actor.abilityCooldowns = {};
+  }
+  if (!actor.abilityCooldownUntilSimMs || typeof actor.abilityCooldownUntilSimMs !== 'object') {
+    actor.abilityCooldownUntilSimMs = {};
   }
   if (typeof actor.absorbShield !== 'number' || isNaN(actor.absorbShield) || actor.absorbShield < 0) {
     actor.absorbShield = 0;
@@ -156,6 +160,9 @@ export function setAbilityCooldown(actor, abilityId, turns) {
   if (!actor.abilityCooldowns || typeof actor.abilityCooldowns !== 'object') {
     actor.abilityCooldowns = {};
   }
+  if (!actor.abilityCooldownUntilSimMs || typeof actor.abilityCooldownUntilSimMs !== 'object') {
+    actor.abilityCooldownUntilSimMs = {};
+  }
   if (turns > 0) {
     actor.abilityCooldowns[abilityId] = Math.ceil(turns);
   } else {
@@ -180,7 +187,29 @@ export function tickActorAbilityCooldowns(actor) {
 export function resetActorAbilityCooldowns(actor) {
   if (!actor) return;
   actor.abilityCooldowns = {};
+  actor.abilityCooldownUntilSimMs = {};
   actor.skillCooldown = 0;
+}
+
+export function getStrategicAbilityCooldownRemainingMs(actor, abilityId, nowSimTimeMs) {
+  if (!actor || !actor.abilityCooldownUntilSimMs || !abilityId) return 0;
+  const due = actor.abilityCooldownUntilSimMs[abilityId];
+  if (typeof due !== 'number' || !isFinite(due)) return 0;
+  const now = typeof nowSimTimeMs === 'number' ? nowSimTimeMs : 0;
+  return Math.max(0, due - now);
+}
+
+export function setStrategicAbilityCooldownMs(actor, abilityId, nowSimTimeMs, durationMs) {
+  if (!actor || !abilityId) return;
+  if (!actor.abilityCooldownUntilSimMs || typeof actor.abilityCooldownUntilSimMs !== 'object') {
+    actor.abilityCooldownUntilSimMs = {};
+  }
+  const dur = Math.max(0, Number(durationMs) || 0);
+  if (dur > 0) {
+    actor.abilityCooldownUntilSimMs[abilityId] = (Number(nowSimTimeMs) || 0) + dur;
+  } else {
+    delete actor.abilityCooldownUntilSimMs[abilityId];
+  }
 }
 
 export function isAbilitySilenced(actor, abilityDef) {
@@ -226,6 +255,12 @@ export function validateAbilityActivation(actor, abilityDef, ctx) {
   if (!hasAbilityAccess(actor, abilityDef.id) && !(ctx && ctx.bypassAccessCheck)) {
     return { ok: false, reason: 'not_granted' };
   }
+  if (abilityDef.requiresRangedWeapon) {
+    const wep = actor.equipment ? actor.equipment.weapon : null;
+    if (!isRangedWeaponItem(wep)) {
+      return { ok: false, reason: 'requires_ranged_weapon' };
+    }
+  }
   if (actor.pendingCast && !(ctx && ctx.allowWhileCasting)) {
     return { ok: false, reason: 'already_casting' };
   }
@@ -268,14 +303,15 @@ export function computeAbilityDamage(actor, effectDef, target, extraMult) {
 
   const atk = (actor && typeof actor.atk === 'number') ? actor.atk : 10;
   const magicPower = getActorMagicPower(actor);
-  const effInt = (actor && actor.effectiveStats && actor.effectiveStats.int) || 10;
-  const effSpi = (actor && actor.effectiveStats && actor.effectiveStats.spi) || 8;
 
+  // Explicit single-path scaling with zero attribute double-counting:
+  // magicPower in heroStats.js already incorporates INT-primary/SPI-secondary (arcane)
+  // or SPI-primary/INT-secondary (divine) plus magical equipment bonuses.
   let raw = 0;
   if (scaling === 'arcane') {
-    raw = Math.round((magicPower * 1.15 + effInt * 0.35) * mult + bonusFlat);
+    raw = Math.round(magicPower * 1.25 * mult + bonusFlat);
   } else if (scaling === 'divine') {
-    raw = Math.round((magicPower * 1.05 + effSpi * 0.45) * mult + bonusFlat);
+    raw = Math.round(magicPower * 1.20 * mult + bonusFlat);
   } else if (scaling === 'hybrid_divine') {
     const mRatio = (effectDef && typeof effectDef.magicRatio === 'number') ? effectDef.magicRatio : 0.75;
     raw = Math.round((atk * 0.85 + magicPower * mRatio) * mult + bonusFlat);
@@ -283,9 +319,37 @@ export function computeAbilityDamage(actor, effectDef, target, extraMult) {
     raw = Math.round(atk * mult + bonusFlat);
   }
 
+  // Trait-specific bonus (e.g. Sacred Flame +35% vs Undead/Corrupted)
+  let traitBonusApplied = false;
+  if (
+    target &&
+    Array.isArray(target.traits) &&
+    effectDef &&
+    Array.isArray(effectDef.bonusVsTraits) &&
+    effectDef.bonusVsTraits.length > 0
+  ) {
+    const matched = effectDef.bonusVsTraits.some(function(tr) {
+      return target.traits.indexOf(tr) !== -1;
+    });
+    if (matched) {
+      raw = Math.round(raw * (effectDef.bonusTraitMult || 1.35));
+      traitBonusApplied = true;
+    }
+  }
+
+  // Optional focused crit bonus (e.g. Scout Aimed Shot)
+  let isCrit = false;
+  if (effectDef && typeof effectDef.bonusCritChance === 'number' && effectDef.bonusCritChance > 0) {
+    const critRoll = ((actor && actor.crit) || 5) + effectDef.bonusCritChance;
+    if (Math.random() * 100 < critRoll) {
+      raw = Math.round(raw * 1.5);
+      isCrit = true;
+    }
+  }
+
   raw = Math.round(raw * mod);
 
-  // Explicit physical vs. magical defense mitigation
+  // Explicit physical vs. magical defense mitigation (guarding applied exactly once to physical)
   let mitigated = raw;
   let guarded = false;
   if (target) {
@@ -298,10 +362,8 @@ export function computeAbilityDamage(actor, effectDef, target, extraMult) {
       }
       mitigated = Math.max(1, raw - Math.floor(effDef * 0.5));
     } else {
-      // Magical defense uses explicit magicDef/ward if defined, else 25% of physical DEF (distinct from full armor & physical Guarding)
-      const mDef = (typeof target.magicDef === 'number')
-        ? target.magicDef
-        : Math.floor((target.def || 0) * 0.25);
+      // Explicit baseline magical defense (independent of physical armor and Guarding)
+      const mDef = (typeof target.magicDef === 'number') ? target.magicDef : 2;
       mitigated = Math.max(1, raw - mDef);
     }
   }
@@ -310,7 +372,9 @@ export function computeAbilityDamage(actor, effectDef, target, extraMult) {
     damage: Math.max(1, mitigated),
     raw: raw,
     damageType: damageType,
-    guarded: guarded
+    guarded: guarded,
+    traitBonusApplied: traitBonusApplied,
+    isCrit: isCrit
   };
 }
 
@@ -319,9 +383,11 @@ export function computeAbilityHealAmount(actor, effectDef) {
   const base = effectDef.baseAmount || 0;
   const magicMult = effectDef.magicMult || 0;
   const maxHpPct = effectDef.maxHpPct || 0;
+  const vitMult = effectDef.vitMult || 0;
   const mp = getActorMagicPower(actor);
+  const effVit = (actor.computedVit || (actor.baseStats && actor.baseStats.vit) || 10);
   const pctHeal = Math.round((actor.maxHp || 100) * maxHpPct);
-  return Math.max(1, Math.round(base + mp * magicMult + pctHeal));
+  return Math.max(1, Math.round(base + mp * magicMult + effVit * vitMult + pctHeal));
 }
 
 export function computeAbilityShieldAmount(actor, effectDef) {

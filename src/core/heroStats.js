@@ -177,6 +177,21 @@ export function computeHeroDerivedStats(hero, externalModifiers) {
         flatDodge -= 10;
       } else if (st.id === 'ward_buff') {
         flatWard += 4;
+      } else if (st.id === 'sanctuary_ward') {
+        flatWard += 4;
+        flatDef += 3;
+      } else if (st.id === 'battle_cry') {
+        flatAtk += 4;
+        flatCrit += 10;
+      } else if (st.id === 'blessed') {
+        flatAtk += 3;
+        flatMagic += 3;
+        flatDef += 3;
+        flatWard += 3;
+      } else if (st.id === 'disengaged') {
+        flatDodge += 25;
+      } else if (st.id === 'disrupted') {
+        flatAtk -= 4;
       } else if (st.id === 'guarding') {
         heroGuarding = true;
       }

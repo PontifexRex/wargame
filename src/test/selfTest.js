@@ -957,10 +957,11 @@ export function evaluateSelfTests() {
   const heroIsChilled = (sandbox22.hero.statuses || []).some(s => s.id === 'chilled');
   const dodgeReduced = sandbox22.hero.dodge < preChillDodge;
 
-  // Verify Chilled penalty on active skills (+2 MP required)
-  sandbox22.hero.mp = 10; // Whirlwind Cleave base cost is 10, but chilled penalty makes it 12!
+  // Verify Chilled penalty on mana-using active skills (+2 MP required: Arcane Missile 6 -> 8 MP)
+  grantAbilityAccess(sandbox22.hero, 'arcane_missile', 'temporary');
+  sandbox22.hero.mp = 6; // Base cost is 6, but chilled penalty makes it 8!
   fl22.monsters = [reflM];
-  const skillResChilled = executeClassSkill(sandbox22);
+  const skillResChilled = executeAbility('arcane_missile', { targetX: reflM.x, targetY: reflM.y }, sandbox22);
   const chilledBlockedSkill = !skillResChilled.ok && skillResChilled.reason === 'no_mp';
 
   // C. Volatile Elite: On-death detonation damages hero & adjacent monsters
@@ -2264,8 +2265,10 @@ export function evaluateSelfTests() {
   }
   const shieldAbsorbOk36 = Boolean(wardRes36.ok && shieldBeforeHit36 > 0 && sb36.hero.absorbShield < shieldBeforeHit36 && sb36.hero.hp === hpBeforeHit36);
 
-  // F. Teleport (Blink) & Detection (Detect Magic)
+  // F. Teleport (Blink) & Detection (Detect Magic — magical modality!)
   fl36.tiles[13][10] = TILE_TRAP_HIDDEN;
+  if (!fl36.traps) fl36.traps = {};
+  fl36.traps['10,13'] = { type: 'rune', magicalSignature: true };
   const detectRes36 = executeAbility('detect_magic', null, sb36);
   const detectOk36 = Boolean(detectRes36.ok && detectRes36.revealedCount >= 1 && fl36.tiles[13][10] === TILE_TRAP_VISIBLE);
   const blinkRes36 = executeAbility('blink', { targetX: 12, targetY: 11 }, sb36);
@@ -2315,7 +2318,8 @@ export function evaluateSelfTests() {
     opRes36.ok && opRes36.knockbackCollided && wardenGuarded.statuses.some(function(s) { return s.id === 'stun'; })
   );
 
-  // Reactive Second Wind hook when low HP
+  // Reactive Second Wind hook when low HP (explicitly granted reactive passive)
+  grantAbilityAccess(sb36.hero, 'second_wind_reactive', 'temporary');
   sb36.hero.hp = Math.max(1, Math.floor(sb36.hero.maxHp * 0.2));
   const preReactHp = sb36.hero.hp;
   const reactRes36 = triggerReactiveAbilities(sb36.hero, 'on_hero_low_hp', sb36);
@@ -2354,6 +2358,193 @@ export function evaluateSelfTests() {
     detail: t36Pass
       ? 'Multi-source grants, magicPower scaling, Fireball windup/interrupt, Silence/Cleanse, Absorb Shield, Blink, Detect Magic, Sanctuary, Guarding, Knockback & save persistence verified'
       : 'Failed checks: ' + failed36.join(', ')
+  });
+
+  // 37. MG-01B: Full 32-Entry Class Catalogs, Detection Modalities, Ranged Gating, Snare, Disarm & Lockpick
+  const sb37 = createDefaultGameState();
+  const makeClearFloor37 = function(st) {
+    const fl = ensureDungeonFloorHydrated(st.dungeon, 1);
+    for (let y = 5; y <= 15; y++) {
+      for (let x = 5; x <= 17; x++) {
+        if (fl.tiles[y] && fl.tiles[y][x] !== undefined) fl.tiles[y][x] = TILE_FLOOR;
+      }
+    }
+    fl.monsters = [];
+    fl.objects = [];
+    fl.traps = {};
+    fl.shrines = {};
+    fl.playerTraps = [];
+    fl.persistentAreas = [];
+    fl.foragedCoords = {};
+    fl.wardedTiles = {};
+    return fl;
+  };
+
+  // A. Bruiser (fighter): 6 cooldown-based martial skills (Power Strike, Cleave, Overpower, Brace mitigation, Charge, Battle Cry)
+  selectAdventurerClass('fighter', sb37);
+  sb37.inGuild = false;
+  const fl37b = makeClearFloor37(sb37);
+  sb37.hero.x = 8;
+  sb37.hero.y = 10;
+  const chgFoe37 = { id: 'vault_crawler', name: 'Charge Target', x: 11, y: 10, hp: 120, maxHp: 120, atk: 12, def: 4, magicDef: 2, statuses: [] };
+  fl37b.monsters = [chgFoe37];
+  const chgRes37 = executeAbility('charge', { targetX: 11, targetY: 10 }, sb37);
+  const cryRes37 = executeAbility('battle_cry', null, sb37);
+  const braceRes37 = executeAbility('brace', null, sb37);
+  const cleaveRes37 = executeAbility('cleave', null, sb37);
+  const bruiserOk37 = Boolean(
+    chgRes37.ok && sb37.hero.x === 10 && sb37.hero.y === 10 && chgFoe37.statuses.some(function(s) { return s.id === 'stun'; }) &&
+    cryRes37.ok && sb37.hero.statuses.some(function(s) { return s.id === 'battle_cry'; }) &&
+    braceRes37.ok && sb37.hero.statuses.some(function(s) { return s.id === 'physical_mitigation'; }) && (sb37.hero.absorbShield || 0) === 0 &&
+    cleaveRes37.ok && cleaveRes37.hits === 1
+  );
+
+  // B. Detection Modality Separation: Physical (Careful Search) vs Magical (Detect Magic) vs Spiritual (Divine Sight)
+  selectAdventurerClass('mage', sb37);
+  sb37.inGuild = false;
+  const fl37d = makeClearFloor37(sb37);
+  sb37.hero.x = 10;
+  sb37.hero.y = 10;
+  sb37.hero.mp = 60;
+  // Place 1 mundane physical trap, 1 magical rune trap, 1 cursed spiritual shrine, 1 undead creature, and 1 warded blink tile
+  fl37d.tiles[10][12] = TILE_TRAP_HIDDEN;
+  fl37d.traps['12,10'] = { type: 'spike' }; // Mundane physical
+  fl37d.tiles[10][13] = TILE_TRAP_HIDDEN;
+  fl37d.traps['13,10'] = { type: 'rune', magicalSignature: true }; // Magical
+  fl37d.tiles[12][10] = TILE_SHRINE;
+  fl37d.shrines['10,12'] = { type: 'cursed', cursed: true, spiritualSignature: true }; // Spiritual
+  fl37d.wardedTiles['11,10'] = true;
+  const blinkBlocked37 = executeAbility('blink', { targetX: 11, targetY: 10 }, sb37);
+  const dmRes37 = executeAbility('detect_magic', null, sb37);
+  const detectMagicModalityOk37 = Boolean(
+    !blinkBlocked37.ok &&
+    dmRes37.ok &&
+    fl37d.tiles[10][13] === TILE_TRAP_VISIBLE && // Revealed magical rune trap
+    fl37d.tiles[10][12] === TILE_TRAP_HIDDEN     // Did NOT reveal mundane physical spike trap!
+  );
+
+  // C. Acolyte (cleric): Sacred Flame (+35% vs Undead/Corrupted), Blessing, Sanctuary entry/exit, Divine Sight
+  selectAdventurerClass('cleric', sb37);
+  sb37.inGuild = false;
+  const fl37a = makeClearFloor37(sb37);
+  sb37.hero.x = 10;
+  sb37.hero.y = 10;
+  sb37.hero.mp = 80;
+  const livingBeast37 = { id: 'vault_crawler', name: 'Crawler', x: 11, y: 10, hp: 200, maxHp: 200, def: 4, magicDef: 2, traits: [], statuses: [] };
+  const undeadFoe37 = { id: 'bone_warden', name: 'Warden', x: 12, y: 10, hp: 200, maxHp: 200, def: 4, magicDef: 2, traits: ['undead'], spiritualSignature: true, statuses: [] };
+  fl37a.monsters = [livingBeast37, undeadFoe37];
+  const sfBeast37 = executeAbility('sacred_flame', { targetX: 11, targetY: 10 }, sb37);
+  const sfUndead37 = executeAbility('sacred_flame', { targetX: 12, targetY: 10 }, sb37);
+  const bless37 = executeAbility('blessing', null, sb37);
+  const ds37 = executeAbility('divine_sight', null, sb37);
+  const sanc37 = executeAbility('sanctuary', { targetX: 10, targetY: 10 }, sb37);
+  processTurn(sb37); // Inside Sanctuary -> gains sanctuary_ward
+  const insideSancWard37 = sb37.hero.statuses.some(function(s) { return s.id === 'sanctuary_ward'; });
+  sb37.hero.x = 15; // Step outside Sanctuary
+  processTurn(sb37); // Outside Sanctuary -> sanctuary_ward removed!
+  const exitedSancWard37 = !sb37.hero.statuses.some(function(s) { return s.id === 'sanctuary_ward'; });
+  const acolyteOk37 = Boolean(
+    sfBeast37.ok && sfUndead37.ok && sfUndead37.dmg > sfBeast37.dmg &&
+    bless37.ok && sb37.hero.statuses.some(function(s) { return s.id === 'blessed'; }) &&
+    ds37.ok && ds37.detectedItems.some(function(it) { return it.kind === 'spiritual_presence'; }) &&
+    sanc37.ok && insideSancWard37 && exitedSancWard37
+  );
+
+  // D. Scout: Aimed Shot (ranged weapon gate), Tracking clues, Camouflage aggro reduction, Snare lifecycle, Forage anti-exploit
+  selectAdventurerClass('scout', sb37);
+  sb37.inGuild = false;
+  const fl37s = makeClearFloor37(sb37);
+  sb37.hero.x = 8;
+  sb37.hero.y = 10;
+  const scoutFoe37 = { id: 'vault_crawler', name: 'Crawler', family: 'beasts', role: 'bruiser', x: 11, y: 10, hp: 150, maxHp: 150, atk: 8, def: 2, magicDef: 2, statuses: [] };
+  fl37s.monsters = [scoutFoe37];
+  const aimedBow37 = executeAbility('aimed_shot', { targetX: 11, targetY: 10 }, sb37);
+  resetActorAbilityCooldowns(sb37.hero);
+  const savedBow37 = sb37.hero.equipment.weapon;
+  sb37.hero.equipment.weapon = { uid: 'melee_sw', name: 'Iron Sword', slot: 'weapon', atk: 8 };
+  const aimedMeleeReject37 = executeAbility('aimed_shot', { targetX: 11, targetY: 10 }, sb37);
+  sb37.hero.equipment.weapon = savedBow37;
+  const track37 = executeAbility('tracking', null, sb37);
+  const cam37 = executeAbility('camouflage', null, sb37);
+  const snareSet37 = executeAbility('snare', { targetX: 10, targetY: 10 }, sb37);
+  // Remove camouflage so crawler walks onto snare at (10,10)
+  sb37.hero.statuses = [];
+  processTurn(sb37);
+  const snareTriggered37 = Boolean(
+    snareSet37.ok &&
+    fl37s.playerTraps.length === 0 &&
+    scoutFoe37.statuses.some(function(s) { return s.id === 'rooted'; })
+  );
+  const forage1_37 = executeAbility('forage', null, sb37);
+  resetActorAbilityCooldowns(sb37.hero);
+  const forageRepeatReject37 = executeAbility('forage', null, sb37);
+  const scoutTacticalOk37 = Boolean(
+    aimedBow37.ok && !aimedMeleeReject37.ok && aimedMeleeReject37.reason === 'requires_ranged_weapon' &&
+    track37.ok && track37.trackingClues.length === 1 && track37.trackingClues[0].bearing === 'E' &&
+    cam37.ok && snareTriggered37 &&
+    forage1_37.ok && !forageRepeatReject37.ok && forageRepeatReject37.reason === 'already_foraged'
+  );
+
+  // E. Adventurer: Second Wind, Careful Search, Disengage, Dirty Fighting, Appraise, Disarm Trap, Lockpicking (ordinary vs protected seal)
+  selectAdventurerClass('adventurer', sb37);
+  sb37.inGuild = false;
+  const fl37v = makeClearFloor37(sb37);
+  sb37.hero.x = 10;
+  sb37.hero.y = 10;
+  sb37.hero.hp = Math.max(10, sb37.hero.maxHp - 30);
+  const hpPreSw37 = sb37.hero.hp;
+  const sw37 = executeAbility('second_wind', null, sb37);
+  fl37v.tiles[10][11] = TILE_TRAP_HIDDEN;
+  fl37v.traps['11,10'] = { type: 'spike' };
+  const cs37 = executeAbility('careful_search', null, sb37);
+  const trapVisibleAfterSearch37 = fl37v.tiles[10][11] === TILE_TRAP_VISIBLE;
+  const disarm37 = executeAbility('disarm_trap', { targetX: 11, targetY: 10 }, sb37);
+  const ordDoor37 = { instanceId: 'door_ord', name: 'Locked Oak Door', objectType: 'door', x: 9, y: 10, runtimeState: { security: 'locked', mechanical: 'closed' }, components: { lock: { securityLevel: 1 } } };
+  const sealDoor37 = { instanceId: 'door_seal', name: 'Arcane Vault Gate', objectType: 'door', x: 10, y: 9, magicalSignature: true, runtimeState: { security: 'locked', mechanical: 'closed' }, customData: { lockType: 'arcane_seal' } };
+  fl37v.objects = [ordDoor37, sealDoor37];
+  const lpOrd37 = executeAbility('lockpicking', { targetX: 9, targetY: 10 }, sb37);
+  resetActorAbilityCooldowns(sb37.hero);
+  const lpSealReject37 = executeAbility('lockpicking', { targetX: 10, targetY: 9 }, sb37);
+  const dfFoe37 = { id: 'vault_crawler', name: 'Brawler', x: 10, y: 11, hp: 100, maxHp: 100, def: 2, statuses: [] };
+  fl37v.monsters = [dfFoe37];
+  const df37 = executeAbility('dirty_fighting', { targetX: 10, targetY: 11 }, sb37);
+  const diseng37 = executeAbility('disengage', { targetX: 12, targetY: 10 }, sb37);
+  const app1_37 = executeAbility('appraise', { targetItemUid: sb37.hero.equipment.weapon.uid }, sb37);
+  resetActorAbilityCooldowns(sb37.hero);
+  const appRepeat37 = executeAbility('appraise', { targetItemUid: sb37.hero.equipment.weapon.uid }, sb37);
+  const adventurerOk37 = Boolean(
+    sw37.ok && sb37.hero.hp > hpPreSw37 &&
+    cs37.ok && fl37v.tiles[10][11] === TILE_TRAP_VISIBLE &&
+    disarm37.ok && fl37v.tiles[10][11] === TILE_TRAP_DISARMED &&
+    lpOrd37.ok && ordDoor37.runtimeState.security === 'unlocked' &&
+    !lpSealReject37.ok && lpSealReject37.reason === 'protected_seal' && sealDoor37.runtimeState.security === 'locked' &&
+    df37.ok && dfFoe37.statuses.some(function(s) { return s.id === 'disrupted'; }) &&
+    diseng37.ok && sb37.hero.x === 12 && sb37.hero.y === 10 &&
+    app1_37.ok && sb37.hero.equipment.weapon.appraised === true && !appRepeat37.ok
+  );
+
+  const t37Checks = {
+    bruiserOk: bruiserOk37,
+    detectMagicModalityOk: detectMagicModalityOk37,
+    acolyteOk: acolyteOk37,
+    scoutTacticalOk: scoutTacticalOk37,
+    advSwOk: Boolean(sw37.ok && sb37.hero.hp > hpPreSw37),
+    advSearchOk: Boolean(cs37.ok && trapVisibleAfterSearch37),
+    advDisarmOk: Boolean(disarm37.ok && fl37v.tiles[10][11] === TILE_TRAP_DISARMED),
+    advLockOrdOk: Boolean(lpOrd37.ok && ordDoor37.runtimeState.security === 'unlocked'),
+    advLockSealOk: Boolean(!lpSealReject37.ok && lpSealReject37.reason === 'protected_seal' && sealDoor37.runtimeState.security === 'locked'),
+    advDirtyOk: Boolean(df37.ok && dfFoe37.statuses.some(function(s) { return s.id === 'disrupted'; })),
+    advDisengOk: Boolean(diseng37.ok && sb37.hero.x === 12 && sb37.hero.y === 10),
+    advAppraiseOk: Boolean(app1_37.ok && sb37.hero.equipment.weapon.appraised === true && !appRepeat37.ok)
+  };
+  const failed37 = Object.keys(t37Checks).filter(function(k) { return !t37Checks[k]; });
+  const t37Pass = failed37.length === 0;
+  results.push({
+    name: '37. MG-01B: 32-Entry Class Catalogs, Detection Modalities, Ranged Gate, Snare, Disarm & Lockpick',
+    pass: t37Pass,
+    detail: t37Pass
+      ? 'All 5 entry-tier tactical catalogs (Bruiser, Mage, Acolyte, Scout, Adventurer), 3 detection modalities & seal/ranged/forage guards verified'
+      : 'Failed checks: ' + failed37.join(', ')
   });
 
   return results;

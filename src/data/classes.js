@@ -97,7 +97,7 @@ export const CLASSES = {
     mpBase: 45,
     vision: 7,
     starterGear: {
-      weapon:    { uid: 'w_start_r', name: 'Recurve Shortbow', slot: 'weapon', rarity: 'common', atk: 6, dex: 2, value: 20, affixes: [] },
+      weapon:    { uid: 'w_start_r', name: 'Recurve Shortbow', slot: 'weapon', rarity: 'common', atk: 6, dex: 2, weaponClass: 'ranged', isRanged: true, range: 5, value: 20, affixes: [] },
       armor:     { uid: 'a_start_r', name: 'Scout Gambeson', slot: 'armor', rarity: 'common', def: 4, dodge: 4, value: 20, affixes: [] },
       helm:      { uid: 'h_start_r', name: 'Falconer Cap', slot: 'helm', rarity: 'common', def: 1, visionBonus: 1, value: 12, affixes: [] },
       boots:     { uid: 'b_start_r', name: 'Trailrunner Boots', slot: 'boots', rarity: 'common', def: 1, dodge: 5, value: 12, affixes: [] },
@@ -188,8 +188,43 @@ export const CLASSES = {
     skillCost: 14,
     skillRange: 3,
     skillDesc: 'Channels holy light against a visible foe within 3 tiles for 160% holy damage and restores 20% Max HP.'
+  },
+  scout: {
+    id: 'scout',
+    name: 'Scout',
+    title: 'Frontier Pathfinder',
+    color: '#10b981',
+    canEnterDungeon: true,
+    baseStats: { str: 10, dex: 15, int: 14, vit: 11, spi: 10 },
+    levelGrowth: { str: 0.2, dex: 0.55, int: 0.4, vit: 0.25, spi: 0.2 },
+    hpBase: 94,
+    mpBase: 40,
+    vision: 7,
+    starterGear: {
+      weapon:    { uid: 'w_start_s', name: 'Hunting Shortbow', slot: 'weapon', rarity: 'common', atk: 6, dex: 2, weaponClass: 'ranged', isRanged: true, range: 5, value: 20, affixes: [] },
+      armor:     { uid: 'a_start_s', name: 'Outrider Jerkin', slot: 'armor', rarity: 'common', def: 4, dodge: 5, value: 20, affixes: [] },
+      helm:      { uid: 'h_start_s', name: 'Pathfinder Hood', slot: 'helm', rarity: 'common', def: 1, visionBonus: 1, value: 12, affixes: [] },
+      boots:     { uid: 'b_start_s', name: 'Strider Boots', slot: 'boots', rarity: 'common', def: 1, dodge: 4, value: 12, affixes: [] },
+      accessory: { uid: 'acc_start_s', name: 'Trail Compass', slot: 'accessory', rarity: 'common', crit: 4, value: 15, affixes: [] },
+      pickaxe:   { uid: 'pick_start_s', name: 'Iron Pickaxe', slot: 'pickaxe', rarity: 'common', curDur: 26, maxDur: 26, value: 25, affixes: [] }
+    },
+    passiveName: 'Wilderness Keenness',
+    passiveDesc: '7-tile vision, ranged marksmanship, wilderness tracking, and frontier survival expertise.',
+    skillName: 'Aimed Shot',
+    skillCost: 0,
+    skillRange: 6,
+    skillDesc: 'Focused ranged shot requiring a ranged weapon (0 MP, 2t CD).'
   }
 };
+
+// Explicit MG-01B catalog-to-runtime class binding table (no silent class renames or deletions)
+export const CLASS_CATALOG_BINDINGS = Object.freeze({
+  bruiser:    { runtimeClassId: 'fighter',    displayRole: 'Bruiser (Fighter)',  guild: 'Fighters Guild',   tier: 'entry', bindingType: 'prototype_compatibility_binding' },
+  mage:       { runtimeClassId: 'mage',       displayRole: 'Mage',               guild: 'Mages Guild',      tier: 'entry', bindingType: 'direct' },
+  acolyte:    { runtimeClassId: 'cleric',     displayRole: 'Acolyte (Cleric)',   guild: 'Temple',           tier: 'entry', bindingType: 'prototype_compatibility_binding' },
+  scout:      { runtimeClassId: 'scout',      displayRole: 'Scout',              guild: 'Rangers Lodge',    tier: 'entry', bindingType: 'direct_dev_recruit_until_lodge' },
+  adventurer: { runtimeClassId: 'adventurer', displayRole: 'Adventurer',         guild: 'Adventurers Guild', tier: 'entry', bindingType: 'direct' }
+});
 
 // Fail-closed canonical dungeon eligibility evaluators (HR-12).
 // Entities/classes without explicit canEnterDungeon === true are ineligible by default.

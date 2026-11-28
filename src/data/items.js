@@ -60,6 +60,20 @@ export const ITEM_BASE_ARCHETYPES = {
       magicPerDepth: 1.6,
       spiBase: 2,
       desc: 'Consecrated mace balancing physical strikes with SPI and Magic Power.'
+    },
+    {
+      id: 'wep_shortbow',
+      slot: 'weapon',
+      name: 'Hunting Shortbow',
+      profile: 'ranged',
+      weaponClass: 'ranged',
+      isRanged: true,
+      range: 5,
+      atkMult: 0.92,
+      critBase: 4,
+      critPerDepth: 0.7,
+      dexBase: 2,
+      desc: 'Ranged bow enabling Scout Aimed Shot and precision skirmishing.'
     }
   ],
   armor: [
@@ -234,6 +248,14 @@ export const BASE_GEAR_NAMES = {
   boots:     ['Greaves of Striding', 'Silent Sabatons', 'Starlight Treads', 'Dwarven Marchers', 'Windrunner Boots'],
   accessory: ['Vespera Signet', 'Astral Lens Charm', 'Pendant of Dawn', 'Bloodstone Ring', 'Star-Core Amulet']
 };
+
+export function isRangedWeaponItem(item) {
+  if (!item || typeof item !== 'object') return false;
+  if (item.isRanged === true || item.weaponClass === 'ranged') return true;
+  if (item.archetypeId === 'wep_shortbow') return true;
+  const nm = String(item.name || '').toLowerCase();
+  return nm.indexOf('bow') !== -1 || nm.indexOf('crossbow') !== -1 || nm.indexOf('sling') !== -1;
+}
 
 export const SHOP_ITEMS = [
   { id: 'buy_heal',   name: 'Healing Tonic',             type: 'consumable', cost: 18,  reqQM: 0, desc: 'Restores 45% Max HP & cures Bleed/Poison.' },

@@ -97,6 +97,9 @@ export function generateProceduralEquipment(depth = 1, forcedRarity = null, forc
     if (arch.intBase) item.int = (item.int || 0) + arch.intBase;
     if (arch.vitBase) item.vit = (item.vit || 0) + arch.vitBase;
     if (arch.spiBase) item.spi = (item.spi || 0) + arch.spiBase;
+    if (arch.weaponClass) item.weaponClass = arch.weaponClass;
+    if (arch.isRanged) item.isRanged = true;
+    if (typeof arch.range === 'number') item.range = arch.range;
   }
 
   // Roll Affixes based on rarity
@@ -345,6 +348,11 @@ export function createMonsterEntityFromArchetype(archId, effDepth, mx, my, isEli
     maxHp: finalHp,
     atk: Math.max(3, Math.round(atkBase)),
     def: Math.max(0, Math.round(defBase)),
+    magicDef: Math.max(1, Math.round((typeof arch.magicDefBase === 'number' ? arch.magicDefBase : 2) + scaledDepth * 0.4)),
+    family: arch.family || 'beasts',
+    traits: Array.isArray(arch.traits) ? arch.traits.slice() : [],
+    magicalSignature: Boolean(arch.magicalSignature || arch.role === 'caster'),
+    spiritualSignature: Boolean(arch.spiritualSignature),
     xp: Math.max(8, Math.round(xpBase)),
     color: isElite ? '#fbbf24' : arch.color,
     statuses: []
@@ -378,6 +386,10 @@ export function createBossEntityFromArchetype(bossId, depth, bx, by, uidOverride
     maxHp: finalHp,
     atk: Math.round(bDef.atk * (d > 20 ? (1 + (d - 20) * 0.05) : 1.0)),
     def: Math.round(bDef.def * (d > 20 ? (1 + (d - 20) * 0.04) : 1.0)),
+    magicDef: Math.max(3, Math.round((typeof bDef.magicDefBase === 'number' ? bDef.magicDefBase : 5) + (d > 20 ? (d - 20) * 0.3 : 0))),
+    traits: Array.isArray(bDef.traits) ? bDef.traits.slice() : [],
+    magicalSignature: Boolean(bDef.magicalSignature),
+    spiritualSignature: Boolean(bDef.spiritualSignature),
     xp: Math.round(bDef.xp * bossScale),
     color: bDef.color,
     statuses: []
@@ -685,6 +697,9 @@ export function generateFloor(depth, dungeonConfig = null, dungeonSeed = null) {
     vaults,
     monsters: [],
     objects: [],
+    playerTraps: [],
+    persistentAreas: [],
+    foragedCoords: {},
     oresMined: 0
   };
 

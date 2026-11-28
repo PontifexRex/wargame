@@ -743,6 +743,68 @@ export function createDevConsoleController(options) {
           type: COMMAND_TYPES.RECRUIT_HERO,
           payload: { classId: classId, heroName: args[1] || null }
         });
+        if ((!res || !res.ok) && classId === 'scout' && CLASSES.scout && simHost.state && simHost.state.world) {
+          // Safe Dev Console recruitment path for Scout while Rangers Lodge building is deferred (MG-01B §3)
+          const w = simHost.state.world;
+          const city = getPrimaryCity(simHost.state);
+          const heroId = 'hero_scout_' + Date.now() + '_' + ((w.heroes && w.heroes.length) || 0);
+          const sCls = CLASSES.scout;
+          const startEq = {};
+          const eqKeys = ['weapon', 'armor', 'helm', 'boots', 'accessory', 'pickaxe'];
+          for (let i = 0; i < eqKeys.length; i++) {
+            const k = eqKeys[i];
+            startEq[k] = sCls.starterGear[k] ? normalizeEquipmentItem(JSON.parse(JSON.stringify(sCls.starterGear[k]))) : null;
+          }
+          const newHero = {
+            id: heroId,
+            ownerPlayerId: (w.player && w.player.id) || 'player_1',
+            classId: 'scout',
+            name: args[1] || 'Frontier Scout',
+            level: 1,
+            xp: 0,
+            maxXp: 60,
+            statPoints: 0,
+            talentPoints: 0,
+            talentsAllocated: {},
+            bonusStats: normalizeHeroBonusStats(null),
+            knowledge: normalizeHeroKnowledge(null),
+            equipment: startEq,
+            bagGear: [],
+            canEnterDungeon: true,
+            statuses: []
+          };
+          normalizeActorAbilityState(newHero);
+          refreshHeroDerivedStats(newHero);
+          if (!Array.isArray(w.heroes)) w.heroes = [];
+          w.heroes.push(newHero);
+          if (w.overworld && Array.isArray(w.overworld.units)) {
+            const sx = city ? city.x : Math.floor((w.overworld.width || 40) / 2);
+            const sy = city ? city.y : Math.floor((w.overworld.height || 30) / 2);
+            const unitId = 'unit_scout_' + Date.now() + '_' + w.overworld.units.length;
+            w.overworld.units.push({
+              id: unitId,
+              unitType: 'hero_party',
+              leaderHeroId: heroId,
+              heroId: heroId,
+              heroClassId: 'scout',
+              name: newHero.name + ' (Scout)',
+              shortName: newHero.name,
+              x: sx,
+              y: sy,
+              hp: newHero.stats ? newHero.stats.maxHp : 94,
+              maxHp: newHero.stats ? newHero.stats.maxHp : 94,
+              vision: 7,
+              visionRadius: 7,
+              alive: true,
+              canEnterDungeon: true,
+              status: 'idle'
+            });
+            w.overworld.selectedUnitId = unitId;
+          }
+          selectedHeroId = heroId;
+          notifyMutated();
+          return { ok: true, text: 'Recruited Scout "' + newHero.name + '" via Dev Console (normal recruitment awaits Rangers Lodge).' };
+        }
         if (!res || !res.ok) return { ok: false, text: 'Recruit failed: ' + ((res && (res.reason || res.error)) || 'rejected') };
         notifyMutated();
         const q = res.data && res.data.queueItem ? res.data.queueItem : null;

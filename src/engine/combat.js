@@ -750,7 +750,14 @@ export function monsterAttackHero(m, isRanged, state = gameState) {
   }
 
   let raw = isRanged ? Math.round(m.atk * 0.85) : m.atk;
+  if ((m.statuses || []).some(function(s) { return s && s.id === 'disrupted'; })) {
+    raw = Math.max(1, Math.round(raw * 0.75));
+  }
   if (h.classId === 'fighter') raw = Math.round(raw * 0.85);
+  // Bruiser Brace physical mitigation (-25% physical damage, distinct from Arcane Ward absorption shield)
+  if ((h.statuses || []).some(function(s) { return s && s.id === 'physical_mitigation'; })) {
+    raw = Math.max(1, Math.round(raw * 0.75));
+  }
 
   // Hero Astral Ward Affix (flat damage reduction)
   if ((h.ward || 0) > 0) {
@@ -1099,7 +1106,8 @@ export function processTurn(state = gameState) {
     }
   }
 
-  // Tick Persistent Ground Areas (e.g. Sanctuary)
+  // Tick Persistent Ground Areas (e.g. Sanctuary — explicit entry, inside, exit & expiry handling)
+  let heroInsideSanctuary = false;
   if (Array.isArray(floor.persistentAreas) && floor.persistentAreas.length > 0) {
     for (let aIdx = floor.persistentAreas.length - 1; aIdx >= 0; aIdx--) {
       const area = floor.persistentAreas[aIdx];
@@ -1109,6 +1117,7 @@ export function processTurn(state = gameState) {
       }
       const inside = Array.isArray(area.tiles) && area.tiles.some(function(t) { return t.x === h.x && t.y === h.y; });
       if (inside && area.affectsHero) {
+        heroInsideSanctuary = true;
         const healAmt = Math.max(2, area.healPerTurn || 6);
         h.hp = Math.min(h.maxHp, h.hp + healAmt);
         if (area.grantStatus) {
@@ -1122,6 +1131,29 @@ export function processTurn(state = gameState) {
       area.turnsLeft = (typeof area.turnsLeft === 'number' ? area.turnsLeft : 1) - 1;
       if (area.turnsLeft <= 0) {
         floor.persistentAreas.splice(aIdx, 1);
+      }
+    }
+  }
+  // Remove Sanctuary Ward when hero exits all Sanctuary zones or when zones expire
+  if (!heroInsideSanctuary && Array.isArray(h.statuses)) {
+    const swIdx = h.statuses.findIndex(function(s) { return s && s.id === 'sanctuary_ward'; });
+    if (swIdx !== -1) {
+      h.statuses.splice(swIdx, 1);
+      recomputeHeroDerivedStats(false, state);
+    }
+  }
+
+  // Tick Hero-Owned Floor Snares (expiry cleanup)
+  if (Array.isArray(floor.playerTraps) && floor.playerTraps.length > 0) {
+    for (let ptIdx = floor.playerTraps.length - 1; ptIdx >= 0; ptIdx--) {
+      const snare = floor.playerTraps[ptIdx];
+      if (!snare) {
+        floor.playerTraps.splice(ptIdx, 1);
+        continue;
+      }
+      snare.turnsLeft = (typeof snare.turnsLeft === 'number' ? snare.turnsLeft : 1) - 1;
+      if (snare.turnsLeft <= 0) {
+        floor.playerTraps.splice(ptIdx, 1);
       }
     }
   }
@@ -1231,15 +1263,19 @@ export function processTurn(state = gameState) {
     if (Math.abs(m.x - h.x) > 8 || Math.abs(m.y - h.y) > 8) continue;
 
     const dist = Math.hypot(m.x - h.x, m.y - h.y);
-    if (dist <= 7.0) {
+    const heroCamouflaged = (h.statuses || []).some(function(s) { return s && s.id === 'camouflaged'; });
+    const aggroRadius = heroCamouflaged ? 2.0 : 7.0;
+    if (dist <= aggroRadius) {
       // 1. Signature Ability Check (defensive or telegraphed)
       if (tryExecuteMonsterAbility(m, floor, h, dist, fw, fh, state)) {
         continue;
       }
 
-      // 2. Adjacent Engagement (Skirmisher retreat if configured & space exists, else melee)
+      const isRooted = (m.statuses || []).some(function(s) { return s && s.id === 'rooted'; });
+
+      // 2. Adjacent Engagement (Skirmisher retreat if configured & space exists & not rooted, else melee)
       if (dist <= 1.5) {
-        if (trySkirmisherRetreat(m, floor, h, fw, fh, state)) {
+        if (!isRooted && trySkirmisherRetreat(m, floor, h, fw, fh, state)) {
           continue;
         }
         monsterAttackHero(m, false, state);
@@ -1248,7 +1284,7 @@ export function processTurn(state = gameState) {
         // 3. Ranged Attack
         monsterAttackHero(m, true, state);
         if (state.inGuild) return;
-      } else if (hasLineOfSight(floor, m.x, m.y, h.x, h.y) || dist <= 4.2) {
+      } else if (!isRooted && (hasLineOfSight(floor, m.x, m.y, h.x, h.y) || dist <= 4.2)) {
         // 4. Baseline Pursuit (Slowed monsters skip movement on odd turns)
         const isSlowed = (m.statuses || []).some(function(s) { return s && s.id === 'slow'; });
         if (isSlowed && (state.turn % 2 === 1)) {
@@ -1271,8 +1307,28 @@ export function processTurn(state = gameState) {
           if (isMonsterWalkableTile(floor, tx, ty, h, fw, fh)) {
             m.x = tx;
             m.y = ty;
+            // Trigger Hero-Owned Scout Snare if monster steps onto it
+            if (Array.isArray(floor.playerTraps) && floor.playerTraps.length > 0) {
+              const sIdx = floor.playerTraps.findIndex(function(pt) { return pt && pt.x === tx && pt.y === ty; });
+              if (sIdx !== -1) {
+                const sn = floor.playerTraps[sIdx];
+                floor.playerTraps.splice(sIdx, 1);
+                const snDmg = sn.triggerDamage || 8;
+                m.hp -= snDmg;
+                applyStatusEffect(m, 'rooted', sn.rootDuration || 3, { sourceId: sn.ownerId, sourceAbilityId: 'snare' });
+                applyStatusEffect(m, 'slow', sn.rootDuration || 3, { sourceId: sn.ownerId, sourceAbilityId: 'snare' });
+                if (state === gameState) {
+                  ui.floatingText(m.x, m.y, `-${snDmg} SNARED!`, '#84cc16');
+                  ui.log(`${m.name} stepped into your Snare for ${snDmg} damage and is Rooted!`, 'gold');
+                }
+                if (m.hp <= 0 && !m._dead) {
+                  killMonster(m, state);
+                  break;
+                }
+              }
+            }
             resolveHazardStepEffects(m, tx, ty, floor);
-            if (m.hp <= 0) {
+            if (m.hp <= 0 && !m._dead) {
               killMonster(m, state);
             }
             break;
@@ -1436,17 +1492,18 @@ export function getHeroAbilityBarState(state = gameState) {
   if (!state || !state.hero) return [];
   const h = state.hero;
   normalizeActorAbilityState(h);
-  const activeIds = getGrantedAbilityIds(h, { activation: 'active' });
+  const activeIds = getGrantedAbilityIds(h, { activation: 'active', context: 'tactical_dungeon' });
   const list = [];
   for (let i = 0; i < activeIds.length; i++) {
     const id = activeIds[i];
     const def = getAbilityDefinition(id);
     if (!def) continue;
+    const val = validateAbilityActivation(h, def, { context: 'tactical_dungeon' });
     const costInfo = getEffectiveAbilityCost(h, def);
     const cdRem = getAbilityCooldownRemaining(h, id);
     const silenced = isAbilitySilenced(h, def);
     const canAfford = (h.mp || 0) >= costInfo.mp;
-    const ready = !silenced && cdRem <= 0 && canAfford && !h.pendingCast;
+    const ready = Boolean(val.ok);
     const mode = (def.targeting && def.targeting.mode) || 'self';
     const requiresManualTarget = (mode === 'manual_enemy' || mode === 'manual_location' || mode === 'directional');
     list.push({
@@ -1463,6 +1520,7 @@ export function getHeroAbilityBarState(state = gameState) {
       cooldown: costInfo.cooldown,
       cooldownRemaining: cdRem,
       silenced: silenced,
+      unavailableReason: val.ok ? null : val.reason,
       canAfford: canAfford,
       ready: ready,
       isSelected: h.activeAbilityId === id,
@@ -1582,23 +1640,95 @@ export function getAbilityTargetingInfo(abilityId, state = gameState, targetOver
       chosen = candidates[0] || null;
     }
     if (chosen) {
-      targets = [chosen];
-      targetTiles = [{ x: chosen.x, y: chosen.y }];
-      validTarget = true;
+      if (tgt.requireChargePath) {
+        const dChg = Math.hypot(chosen.x - h.x, chosen.y - h.y);
+        const minR = typeof tgt.minRange === 'number' ? tgt.minRange : 1.8;
+        if (dChg >= minR && dChg <= reachRadius) {
+          // Trace straight step-by-step path to find clear landing tile adjacent to target
+          const steps = Math.max(Math.abs(chosen.x - h.x), Math.abs(chosen.y - h.y));
+          let pathClear = steps >= 2;
+          let landing = null;
+          for (let s = 1; s < steps; s++) {
+            const px = Math.round(h.x + ((chosen.x - h.x) * s) / steps);
+            const py = Math.round(h.y + ((chosen.y - h.y) * s) / steps);
+            const occ = livingMonsters.some(function(om) { return om !== chosen && om.x === px && om.y === py; });
+            if (!isTileWalkableForAbility(floor, px, py, fw, fh) || occ) {
+              pathClear = false;
+              break;
+            }
+            landing = { x: px, y: py };
+          }
+          if (pathClear && landing && Math.hypot(chosen.x - landing.x, chosen.y - landing.y) <= 1.5) {
+            targets = [chosen];
+            destTile = landing;
+            targetTiles = [{ x: chosen.x, y: chosen.y }];
+            validTarget = true;
+          }
+        }
+      } else {
+        targets = [chosen];
+        targetTiles = [{ x: chosen.x, y: chosen.y }];
+        validTarget = true;
+      }
     }
   } else if (tgt.mode === 'manual_location') {
-    const cx = (targetOverride && typeof targetOverride.targetX === 'number') ? targetOverride.targetX : h.x;
-    const cy = (targetOverride && typeof targetOverride.targetY === 'number') ? targetOverride.targetY : h.y;
+    let cx = (targetOverride && typeof targetOverride.targetX === 'number') ? targetOverride.targetX : h.x;
+    let cy = (targetOverride && typeof targetOverride.targetY === 'number') ? targetOverride.targetY : h.y;
+    // Auto-locate adjacent discovered trap or locked object when no manual coord override provided
+    if ((!targetOverride || typeof targetOverride.targetX !== 'number') && tgt.requireDiscoveredTrap) {
+      let foundT = null;
+      for (let dy = -1; dy <= 1 && !foundT; dy++) {
+        for (let dx = -1; dx <= 1 && !foundT; dx++) {
+          const tx = h.x + dx;
+          const ty = h.y + dy;
+          if (tx >= 0 && tx < fw && ty >= 0 && ty < fh) {
+            const isVisTrap = floor.tiles[ty] && floor.tiles[ty][tx] === TILE_TRAP_VISIBLE;
+            const isDisarmHaz = Array.isArray(floor.objects) && floor.objects.some(function(o) {
+              return o && o.x === tx && o.y === ty && o.objectType === 'hazard' && o.disarmable !== false && (!o.runtimeState || o.runtimeState.mechanical !== 'disarmed');
+            });
+            if (isVisTrap || isDisarmHaz) foundT = { x: tx, y: ty };
+          }
+        }
+      }
+      if (foundT) { cx = foundT.x; cy = foundT.y; }
+    } else if ((!targetOverride || typeof targetOverride.targetX !== 'number') && tgt.requireLockedObject) {
+      const adjLocked = Array.isArray(floor.objects)
+        ? floor.objects.find(function(o) {
+          return o && Math.hypot(o.x - h.x, o.y - h.y) <= 1.5 && o.runtimeState && o.runtimeState.security === 'locked';
+        })
+        : null;
+      if (adjLocked) { cx = adjLocked.x; cy = adjLocked.y; }
+    }
     const d = Math.hypot(cx - h.x, cy - h.y);
     const inRange = d <= reachRadius + 0.05;
     const losOk = !tgt.requireLos || hasLineOfSight(floor, h.x, h.y, cx, cy);
+    const wardBlocked = Boolean(
+      tgt.respectTeleportWard &&
+      floor.wardedTiles &&
+      floor.wardedTiles[`${cx},${cy}`]
+    );
     const walkableOk = !tgt.requireWalkable || (
+      !wardBlocked &&
       isTileWalkableForAbility(floor, cx, cy, fw, fh) &&
       !(cx === h.x && cy === h.y) &&
       !livingMonsters.some(function(m) { return m.x === cx && m.y === cy; })
     );
-    if (inRange && losOk && walkableOk && isTileThreatenableForAbility(floor, cx, cy, fw, fh)) {
-      targetTiles = buildPatternTiles(floor, h.x, h.y, cx, cy, tgt, fw, fh);
+    const trapOk = !tgt.requireDiscoveredTrap || (
+      (floor.tiles[cy] && floor.tiles[cy][cx] === TILE_TRAP_VISIBLE) ||
+      (Array.isArray(floor.objects) && floor.objects.some(function(o) {
+        return o && o.x === cx && o.y === cy && o.objectType === 'hazard' && o.disarmable !== false && (!o.runtimeState || o.runtimeState.mechanical !== 'disarmed');
+      }))
+    );
+    let lockedObj = null;
+    if (tgt.requireLockedObject && Array.isArray(floor.objects)) {
+      lockedObj = floor.objects.find(function(o) {
+        return o && o.x === cx && o.y === cy && o.runtimeState && o.runtimeState.security === 'locked';
+      }) || null;
+    }
+    const lockOk = !tgt.requireLockedObject || Boolean(lockedObj);
+    const tileTargetable = tgt.requireLockedObject ? lockOk : isTileThreatenableForAbility(floor, cx, cy, fw, fh);
+    if (inRange && losOk && walkableOk && trapOk && lockOk && tileTargetable) {
+      targetTiles = tgt.requireLockedObject ? [{ x: cx, y: cy }] : buildPatternTiles(floor, h.x, h.y, cx, cy, tgt, fw, fh);
       if (tgt.requireWalkable) {
         destTile = { x: cx, y: cy };
       }
@@ -1713,6 +1843,21 @@ function resolveCommittedAbilityEffects(abilityDef, commitCtx, floor, state) {
       summary.movedTo = { x: h.x, y: h.y };
       if (state === gameState && typeof ui.combatAnim === 'function') {
         ui.combatAnim(h.x, h.y, 'teleport', '#a855f7');
+      }
+    } else if (eff.type === 'charge_move' && commitCtx.destTile) {
+      h.x = commitCtx.destTile.x;
+      h.y = commitCtx.destTile.y;
+      summary.movedTo = { x: h.x, y: h.y };
+      if (state === gameState) {
+        ui.floatingText(h.x, h.y, 'CHARGE!', '#f97316');
+      }
+    } else if (eff.type === 'disengage_move' && commitCtx.destTile) {
+      h.x = commitCtx.destTile.x;
+      h.y = commitCtx.destTile.y;
+      summary.movedTo = { x: h.x, y: h.y };
+      if (state === gameState) {
+        ui.floatingText(h.x, h.y, 'DISENGAGE!', '#38bdf8');
+        ui.log(`You safely disengage to (${h.x}, ${h.y})!`, 'good');
       }
     } else if (eff.type === 'teleport' && commitCtx.destTile) {
       h.x = commitCtx.destTile.x;
@@ -1850,31 +1995,268 @@ function resolveCommittedAbilityEffects(abilityDef, commitCtx, floor, state) {
       }
     } else if (eff.type === 'detect') {
       const rad = eff.radius || 6;
+      const modality = eff.modality || 'physical';
       let revealed = 0;
-      if (eff.revealTraps && floor.tiles) {
-        for (let ty = Math.max(0, h.y - rad); ty <= Math.min(fh - 1, h.y + rad); ty++) {
-          for (let tx = Math.max(0, h.x - rad); tx <= Math.min(fw - 1, h.x + rad); tx++) {
-            if (Math.hypot(tx - h.x, ty - h.y) <= rad && floor.tiles[ty][tx] === TILE_TRAP_HIDDEN) {
-              floor.tiles[ty][tx] = TILE_TRAP_VISIBLE;
-              revealed += 1;
+      const detectedItems = [];
+
+      if (modality === 'physical') {
+        // Careful Search: physically concealed mechanical traps, secret doors & hidden caches
+        if (floor.tiles) {
+          for (let ty = Math.max(0, h.y - rad); ty <= Math.min(fh - 1, h.y + rad); ty++) {
+            for (let tx = Math.max(0, h.x - rad); tx <= Math.min(fw - 1, h.x + rad); tx++) {
+              if (Math.hypot(tx - h.x, ty - h.y) <= rad && floor.tiles[ty][tx] === TILE_TRAP_HIDDEN) {
+                const tMeta = floor.traps && floor.traps[`${tx},${ty}`];
+                const isMagicOnly = Boolean(tMeta && (tMeta.type === 'rune' || tMeta.magicalSignature || tMeta.spiritualSignature));
+                if (!isMagicOnly) {
+                  floor.tiles[ty][tx] = TILE_TRAP_VISIBLE;
+                  revealed += 1;
+                  detectedItems.push({ kind: 'physical_trap', x: tx, y: ty });
+                }
+              }
             }
           }
         }
-      }
-      if (eff.revealSecretDoors && Array.isArray(floor.objects)) {
-        for (let oIdx = 0; oIdx < floor.objects.length; oIdx++) {
-          const obj = floor.objects[oIdx];
-          if (!obj || Math.hypot(obj.x - h.x, obj.y - h.y) > rad) continue;
-          if (obj.runtimeState && obj.runtimeState.discovered === false) {
-            obj.runtimeState.discovered = true;
+        if (Array.isArray(floor.objects)) {
+          for (let oIdx = 0; oIdx < floor.objects.length; oIdx++) {
+            const obj = floor.objects[oIdx];
+            if (!obj || Math.hypot(obj.x - h.x, obj.y - h.y) > rad) continue;
+            const isHidden = Boolean(obj.runtimeState && (obj.runtimeState.discovered === false || obj.runtimeState.discovery === 'hidden'));
+            const isNonPhysical = Boolean(obj.magicalSignature || obj.spiritualSignature || (obj.customData && (obj.customData.magicalSignature || obj.customData.spiritualSignature)));
+            if (isHidden && !isNonPhysical) {
+              obj.runtimeState.discovered = true;
+              obj.runtimeState.discovery = 'revealed';
+              revealed += 1;
+              detectedItems.push({ kind: 'physical_secret', name: obj.name, x: obj.x, y: obj.y });
+            }
+          }
+        }
+      } else if (modality === 'magical') {
+        // Detect Magic: ONLY magical signatures (arcane rune traps, enchanted shrines/portals, arcane seals, magical foes)
+        if (floor.tiles) {
+          for (let ty = Math.max(0, h.y - rad); ty <= Math.min(fh - 1, h.y + rad); ty++) {
+            for (let tx = Math.max(0, h.x - rad); tx <= Math.min(fw - 1, h.x + rad); tx++) {
+              if (Math.hypot(tx - h.x, ty - h.y) > rad) continue;
+              if (floor.tiles[ty][tx] === TILE_TRAP_HIDDEN) {
+                const tMeta = floor.traps && floor.traps[`${tx},${ty}`];
+                if (tMeta && (tMeta.type === 'rune' || tMeta.magicalSignature)) {
+                  floor.tiles[ty][tx] = TILE_TRAP_VISIBLE;
+                  revealed += 1;
+                  detectedItems.push({ kind: 'magical_trap', x: tx, y: ty });
+                }
+              } else if (floor.tiles[ty][tx] === TILE_SHRINE) {
+                const sMeta = floor.shrines && floor.shrines[`${tx},${ty}`];
+                if (!sMeta || !sMeta.cursed) {
+                  revealed += 1;
+                  detectedItems.push({ kind: 'magical_shrine', x: tx, y: ty });
+                }
+              }
+            }
+          }
+        }
+        if (Array.isArray(floor.objects)) {
+          for (let oIdx = 0; oIdx < floor.objects.length; oIdx++) {
+            const obj = floor.objects[oIdx];
+            if (!obj || Math.hypot(obj.x - h.x, obj.y - h.y) > rad) continue;
+            const hasMagSig = Boolean(
+              obj.objectType === 'portal' ||
+              obj.magicalSignature ||
+              (obj.customData && (obj.customData.magicalSignature || obj.customData.lockType === 'arcane_seal'))
+            );
+            if (hasMagSig) {
+              if (obj.runtimeState && obj.runtimeState.discovered === false) {
+                obj.runtimeState.discovered = true;
+                obj.runtimeState.discovery = 'revealed';
+              }
+              revealed += 1;
+              detectedItems.push({ kind: 'magical_object', name: obj.name, x: obj.x, y: obj.y });
+            }
+          }
+        }
+        for (let mIdx = 0; mIdx < livingMonsters.length; mIdx++) {
+          const m = livingMonsters[mIdx];
+          if (Math.hypot(m.x - h.x, m.y - h.y) <= rad && (m.magicalSignature || (Array.isArray(m.traits) && m.traits.indexOf('magical') !== -1))) {
             revealed += 1;
+            detectedItems.push({ kind: 'magical_creature', name: m.name, x: m.x, y: m.y });
+          }
+        }
+      } else if (modality === 'spiritual') {
+        // Divine Sight: ONLY spiritual/divine signatures (undead, corrupted foes, cursed/desecrated shrines, spiritual seals)
+        if (floor.tiles) {
+          for (let ty = Math.max(0, h.y - rad); ty <= Math.min(fh - 1, h.y + rad); ty++) {
+            for (let tx = Math.max(0, h.x - rad); tx <= Math.min(fw - 1, h.x + rad); tx++) {
+              if (Math.hypot(tx - h.x, ty - h.y) > rad) continue;
+              const sMeta = floor.shrines && floor.shrines[`${tx},${ty}`];
+              if (floor.tiles[ty][tx] === TILE_SHRINE && sMeta && (sMeta.cursed || sMeta.spiritualSignature)) {
+                revealed += 1;
+                detectedItems.push({ kind: 'spiritual_shrine', x: tx, y: ty });
+              }
+              const tMeta = floor.traps && floor.traps[`${tx},${ty}`];
+              if (floor.tiles[ty][tx] === TILE_TRAP_HIDDEN && tMeta && tMeta.spiritualSignature) {
+                floor.tiles[ty][tx] = TILE_TRAP_VISIBLE;
+                revealed += 1;
+                detectedItems.push({ kind: 'spiritual_trap', x: tx, y: ty });
+              }
+            }
+          }
+        }
+        if (Array.isArray(floor.objects)) {
+          for (let oIdx = 0; oIdx < floor.objects.length; oIdx++) {
+            const obj = floor.objects[oIdx];
+            if (!obj || Math.hypot(obj.x - h.x, obj.y - h.y) > rad) continue;
+            const hasSpirSig = Boolean(obj.spiritualSignature || (obj.customData && obj.customData.spiritualSignature));
+            if (hasSpirSig) {
+              if (obj.runtimeState && obj.runtimeState.discovered === false) {
+                obj.runtimeState.discovered = true;
+                obj.runtimeState.discovery = 'revealed';
+              }
+              revealed += 1;
+              detectedItems.push({ kind: 'spiritual_object', name: obj.name, x: obj.x, y: obj.y });
+            }
+          }
+        }
+        for (let mIdx = 0; mIdx < livingMonsters.length; mIdx++) {
+          const m = livingMonsters[mIdx];
+          const isSpir = Boolean(
+            m.spiritualSignature ||
+            (Array.isArray(m.traits) && (m.traits.indexOf('undead') !== -1 || m.traits.indexOf('corrupted') !== -1))
+          );
+          if (Math.hypot(m.x - h.x, m.y - h.y) <= rad && isSpir) {
+            revealed += 1;
+            detectedItems.push({ kind: 'spiritual_presence', name: m.name, x: m.x, y: m.y });
           }
         }
       }
+
       summary.revealedCount += revealed;
+      summary.detectedItems = detectedItems;
       if (state === gameState) {
-        ui.floatingText(h.x, h.y, revealed > 0 ? `REVEALED (${revealed})` : 'SENSE CLEAR', '#34d399');
-        ui.log(revealed > 0 ? `Detect Magic revealed ${revealed} concealed trap(s) or secret(s)!` : 'Detect Magic senses no hidden traps or secrets nearby.', 'info');
+        const modLabel = modality === 'magical' ? 'ARCANE' : (modality === 'spiritual' ? 'DIVINE' : 'SEARCH');
+        ui.floatingText(h.x, h.y, revealed > 0 ? `${modLabel}: ${revealed}` : `${modLabel}: CLEAR`, (abilityDef.vfx && abilityDef.vfx.color) || '#34d399');
+        ui.log(
+          revealed > 0
+            ? `${abilityDef.name} detected ${revealed} ${modality} signature(s)/clue(s) within ${rad} tiles!`
+            : `${abilityDef.name} senses no ${modality} signatures within ${rad} tiles.`,
+          'info'
+        );
+      }
+    } else if (eff.type === 'track_clues') {
+      const rad = eff.radius || 8;
+      const clues = [];
+      for (let mIdx = 0; mIdx < livingMonsters.length; mIdx++) {
+        const m = livingMonsters[mIdx];
+        const distM = Math.hypot(m.x - h.x, m.y - h.y);
+        if (distM > rad) continue;
+        const dx = m.x - h.x;
+        const dy = m.y - h.y;
+        const ns = dy < -1 ? 'N' : (dy > 1 ? 'S' : '');
+        const ew = dx > 1 ? 'E' : (dx < -1 ? 'W' : '');
+        const dir = (ns + ew) || 'NEAR';
+        clues.push({ bearing: dir, family: m.family || 'creature', role: m.role || 'unknown', distBand: distM <= 3 ? 'close' : 'distant' });
+      }
+      summary.trackingClues = clues;
+      if (state === gameState) {
+        ui.floatingText(h.x, h.y, clues.length > 0 ? `TRACKS (${clues.length})` : 'NO TRACKS', '#10b981');
+        if (clues.length > 0) {
+          const sample = clues.slice(0, 3).map(function(c) { return c.family + ' (' + c.bearing + ', ' + c.distBand + ')'; }).join(', ');
+          ui.log(`Tracking reveals ${clues.length} trail(s): ${sample}.`, 'info');
+        } else {
+          ui.log('Tracking finds no fresh creature tracks within 8 tiles.', 'info');
+        }
+      }
+    } else if (eff.type === 'camouflage') {
+      applyStatusEffect(h, 'camouflaged', eff.duration || 3, { sourceId: h.id || 'hero', sourceAbilityId: abilityDef.id });
+      if (state === gameState) {
+        ui.floatingText(h.x, h.y, 'CAMOUFLAGED', '#10b981');
+        ui.log('You blend into the terrain (enemy detection radius reduced to 2 tiles for 3 turns).', 'good');
+      }
+    } else if (eff.type === 'place_snare' && commitCtx.destTile) {
+      if (!Array.isArray(floor.playerTraps)) floor.playerTraps = [];
+      const maxActive = eff.maxActive || 2;
+      const owned = floor.playerTraps.filter(function(pt) { return pt && pt.ownerId === (h.id || 'hero'); });
+      if (owned.length >= maxActive) {
+        const oldestIdx = floor.playerTraps.findIndex(function(pt) { return pt && pt.ownerId === (h.id || 'hero'); });
+        if (oldestIdx !== -1) floor.playerTraps.splice(oldestIdx, 1);
+      }
+      const newSnare = {
+        id: 'snare_' + (state.turn || 0) + '_' + floor.playerTraps.length,
+        ownerId: h.id || 'hero',
+        x: commitCtx.destTile.x,
+        y: commitCtx.destTile.y,
+        turnsLeft: eff.duration || 8,
+        rootDuration: eff.rootDuration || 3,
+        triggerDamage: eff.triggerDamage || 8
+      };
+      floor.playerTraps.push(newSnare);
+      summary.placedSnare = newSnare;
+      if (state === gameState) {
+        ui.floatingText(newSnare.x, newSnare.y, 'SNARE SET', '#84cc16');
+        ui.log(`Set a concealed Snare at (${newSnare.x}, ${newSnare.y}) for ${newSnare.turnsLeft} turns.`, 'good');
+      }
+    } else if (eff.type === 'forage') {
+      if (!floor.foragedCoords || typeof floor.foragedCoords !== 'object') floor.foragedCoords = {};
+      const fKey = `${Math.floor(h.x / 4)},${Math.floor(h.y / 4)}`;
+      floor.foragedCoords[fKey] = true;
+      addExpeditionTradeItem('wild_herbs', 'Foraged Cavern Herbs', 14, 1, 'Herbs', state);
+      if (h.consumables) h.consumables.potions = (h.consumables.potions || 0) + 1;
+      summary.foraged = { item: 'Foraged Cavern Herbs', potionsGained: 1 };
+      if (state === gameState) {
+        ui.floatingText(h.x, h.y, '+1 TONIC & HERBS', '#4ade80');
+        ui.log('Forage uncovered medicinal herbs (+1 Healing Tonic, +1 Cavern Herbs)!', 'good');
+      }
+    } else if (eff.type === 'appraise_item') {
+      const targetItem = commitCtx.appraiseTarget || null;
+      if (targetItem) {
+        targetItem.appraised = true;
+        const affList = Array.isArray(targetItem.affixes) ? targetItem.affixes.map(function(a) { return a.label || a.stat; }).join(', ') : '';
+        const props = [];
+        if (targetItem.rarity) props.push(String(targetItem.rarity).toUpperCase());
+        if (targetItem.value) props.push('Est. ' + targetItem.value + 'g');
+        if (targetItem.magicPower) props.push('Arcane/Divine +' + targetItem.magicPower);
+        if (targetItem.isRanged || targetItem.weaponClass === 'ranged') props.push('Ranged');
+        if (targetItem.maxSockets > 0) props.push(targetItem.maxSockets + ' Socket(s)');
+        if (affList) props.push('Affixes: ' + affList);
+        targetItem.appraisalNotes = props.join(' • ');
+        summary.appraisedItem = targetItem;
+        if (state === gameState) {
+          ui.floatingText(h.x, h.y, 'APPRAISED!', '#fbbf24');
+          ui.log(`Appraised ${targetItem.name}: ${targetItem.appraisalNotes}`, 'gold');
+        }
+      }
+    } else if (eff.type === 'disarm_trap') {
+      const tx = commitCtx.targetX;
+      const ty = commitCtx.targetY;
+      let disarmed = false;
+      if (floor.tiles && floor.tiles[ty] && floor.tiles[ty][tx] === TILE_TRAP_VISIBLE) {
+        floor.tiles[ty][tx] = TILE_TRAP_DISARMED;
+        disarmed = true;
+      } else if (Array.isArray(floor.objects)) {
+        const haz = floor.objects.find(function(o) {
+          return o && o.x === tx && o.y === ty && o.objectType === 'hazard' && o.disarmable !== false;
+        });
+        if (haz) {
+          if (!haz.runtimeState) haz.runtimeState = {};
+          haz.runtimeState.mechanical = 'disarmed';
+          disarmed = true;
+        }
+      }
+      if (disarmed) {
+        summary.disarmedTrap = { x: tx, y: ty };
+        gainExperience(12, state);
+        if (state === gameState) {
+          ui.floatingText(tx, ty, 'DISARMED (+12 XP)', '#34d399');
+          ui.log(`Safely disarmed trap at (${tx}, ${ty}) (+12 XP).`, 'good');
+        }
+      }
+    } else if (eff.type === 'lockpick') {
+      const obj = commitCtx.lockpickTarget || null;
+      if (obj && obj.runtimeState) {
+        obj.runtimeState.security = 'unlocked';
+        summary.unlockedObject = obj;
+        gainExperience(10, state);
+        if (state === gameState) {
+          ui.floatingText(obj.x, obj.y, 'UNLOCKED (+10 XP)', '#fbbf24');
+          ui.log(`Picked the lock on ${obj.name} without consuming a key (+10 XP)!`, 'good');
+        }
       }
     } else if (eff.type === 'persistent_area') {
       if (!Array.isArray(floor.persistentAreas)) floor.persistentAreas = [];
@@ -1997,6 +2379,9 @@ export function executeAbility(abilityId, targetOpts = null, state = gameState) 
         ui.log(`You are Silenced and cannot cast ${def.name}!`, 'bad');
       } else if (val.reason === 'already_casting') {
         ui.floatingText(h.x, h.y, 'CASTING...', '#fbbf24');
+      } else if (val.reason === 'requires_ranged_weapon') {
+        ui.floatingText(h.x, h.y, 'NEED BOW!', '#fbbf24');
+        ui.log(`${def.name} requires an equipped ranged weapon.`, 'bad');
       }
     }
     return { ok: false, reason: val.reason, cooldownRemaining: val.cooldownRemaining || 0 };
@@ -2013,6 +2398,91 @@ export function executeAbility(abilityId, targetOpts = null, state = gameState) 
     return { ok: false, reason: noTargetReason };
   }
 
+  const targetX = (targetOpts && typeof targetOpts.targetX === 'number')
+    ? targetOpts.targetX
+    : (info.destTile ? info.destTile.x : (info.targetTiles && info.targetTiles[0] ? info.targetTiles[0].x : (info.targets[0] ? info.targets[0].x : h.x)));
+  const targetY = (targetOpts && typeof targetOpts.targetY === 'number')
+    ? targetOpts.targetY
+    : (info.destTile ? info.destTile.y : (info.targetTiles && info.targetTiles[0] ? info.targetTiles[0].y : (info.targets[0] ? info.targets[0].y : h.y)));
+
+  // 2b. Situational pre-commit validations (zero resource/turn cost on rejection)
+  let appraiseTarget = null;
+  let lockpickTarget = null;
+  if (def.id === 'camouflage') {
+    const adjEnemy = (floor.monsters || []).some(function(m) {
+      return m && !m._dead && m.hp > 0 && Math.hypot(m.x - h.x, m.y - h.y) <= 1.5;
+    });
+    if (adjEnemy) {
+      if (state === gameState) {
+        ui.floatingText(h.x, h.y, 'TOO CLOSE!', '#fbbf24');
+        ui.log('Cannot enter Camouflage while adjacent to an enemy.', 'bad');
+      }
+      return { ok: false, reason: 'enemy_adjacent' };
+    }
+  } else if (def.id === 'forage') {
+    const fKey = `${Math.floor(h.x / 4)},${Math.floor(h.y / 4)}`;
+    if (floor.foragedCoords && floor.foragedCoords[fKey]) {
+      if (state === gameState) {
+        ui.floatingText(h.x, h.y, 'ALREADY FORAGED', '#94a3b8');
+        ui.log('This area has already been foraged.', 'bad');
+      }
+      return { ok: false, reason: 'already_foraged' };
+    }
+  } else if (def.id === 'appraise') {
+    const eqSlots = ['weapon', 'armor', 'helm', 'boots', 'accessory', 'pickaxe'];
+    const candidates = [];
+    if (Array.isArray(h.expeditionGear)) {
+      for (let i = 0; i < h.expeditionGear.length; i++) candidates.push(h.expeditionGear[i]);
+    }
+    if (h.equipment) {
+      for (let i = 0; i < eqSlots.length; i++) {
+        if (h.equipment[eqSlots[i]]) candidates.push(h.equipment[eqSlots[i]]);
+      }
+    }
+    if (targetOpts && targetOpts.targetItemUid) {
+      appraiseTarget = candidates.find(function(it) { return it && it.uid === targetOpts.targetItemUid && !it.appraised; }) || null;
+    } else {
+      appraiseTarget = candidates.find(function(it) { return it && !it.appraised; }) || null;
+    }
+    if (!appraiseTarget) {
+      if (state === gameState) {
+        ui.floatingText(h.x, h.y, 'NOTHING TO APPRAISE', '#94a3b8');
+        ui.log('No unappraised items found in your pack or equipment.', 'info');
+      }
+      return { ok: false, reason: 'nothing_to_appraise' };
+    }
+  } else if (def.id === 'lockpicking') {
+    lockpickTarget = Array.isArray(floor.objects)
+      ? floor.objects.find(function(o) { return o && o.x === targetX && o.y === targetY && o.runtimeState && o.runtimeState.security === 'locked'; })
+      : null;
+    if (!lockpickTarget) {
+      return { ok: false, reason: 'no_locked_target' };
+    }
+    const lockComp = (lockpickTarget.components && lockpickTarget.components.lock) || {};
+    const customLockType = (lockpickTarget.customData && lockpickTarget.customData.lockType) || lockComp.lockType || 'mechanical';
+    const secLevel = typeof lockComp.securityLevel === 'number' ? lockComp.securityLevel : 1;
+    const isProtectedSeal = (
+      customLockType === 'arcane_seal' ||
+      customLockType === 'boss_seal' ||
+      lockpickTarget.magicalSignature === true ||
+      lockpickTarget.spiritualSignature === true ||
+      secLevel > 2
+    );
+    if (isProtectedSeal) {
+      if (state === gameState) {
+        ui.floatingText(lockpickTarget.x, lockpickTarget.y, 'PROTECTED SEAL!', '#c084fc');
+        ui.log(`${lockpickTarget.name} is protected by a special seal and cannot be lockpicked!`, 'bad');
+      }
+      return { ok: false, reason: 'protected_seal' };
+    }
+  }
+
+  // Break Camouflage if executing an offensive damage ability
+  if (def.damageType && def.damageType !== 'none' && Array.isArray(h.statuses)) {
+    const camIdx = h.statuses.findIndex(function(s) { return s && s.id === 'camouflaged'; });
+    if (camIdx !== -1) h.statuses.splice(camIdx, 1);
+  }
+
   // 3. Commit resources (MP + cooldown)
   if (val.effectiveCost > 0) {
     h.mp -= val.effectiveCost;
@@ -2020,13 +2490,6 @@ export function executeAbility(abilityId, targetOpts = null, state = gameState) 
   if (val.cooldown > 0) {
     setAbilityCooldown(h, def.id, val.cooldown);
   }
-
-  const targetX = (targetOpts && typeof targetOpts.targetX === 'number')
-    ? targetOpts.targetX
-    : (info.destTile ? info.destTile.x : (info.targets[0] ? info.targets[0].x : h.x));
-  const targetY = (targetOpts && typeof targetOpts.targetY === 'number')
-    ? targetOpts.targetY
-    : (info.destTile ? info.destTile.y : (info.targets[0] ? info.targets[0].y : h.y));
 
   // 4. Delayed cast windup OR immediate resolution
   if (def.timing === 'delayed' && (def.windupTurns || 1) > 0) {
@@ -2056,7 +2519,9 @@ export function executeAbility(abilityId, targetOpts = null, state = gameState) 
     targetY: targetY,
     tiles: info.targetTiles,
     explicitTargets: info.targets,
-    destTile: info.destTile
+    destTile: info.destTile,
+    appraiseTarget: appraiseTarget,
+    lockpickTarget: lockpickTarget
   }, floor, state);
 
   if (state === gameState) {
@@ -2074,6 +2539,13 @@ export function executeAbility(abilityId, targetOpts = null, state = gameState) 
     shieldAmt: summary.shieldAmt,
     cleansedCount: summary.cleansedCount,
     revealedCount: summary.revealedCount,
+    detectedItems: summary.detectedItems || [],
+    trackingClues: summary.trackingClues || [],
+    placedSnare: summary.placedSnare || null,
+    foraged: summary.foraged || null,
+    appraisedItem: summary.appraisedItem || null,
+    disarmedTrap: summary.disarmedTrap || null,
+    unlockedObject: summary.unlockedObject || null,
     destTile: info.destTile,
     movedTo: summary.movedTo,
     knockbackCollided: summary.knockbackCollided

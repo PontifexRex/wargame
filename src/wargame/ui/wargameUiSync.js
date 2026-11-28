@@ -61,6 +61,7 @@ import {
   collectOverworldDiscoveries
 } from '../engine/state.js';
 import { getFormattedTasksList } from '../engine/taskEngine.js';
+import { getOverworldAbilitiesForUnit } from '../engine/strategicAbilities.js';
 import { renderProgressionModals } from './progressionUi.js';
 import { renderDevPortalModal } from './devPortal.js';
 import {
@@ -1732,6 +1733,18 @@ export function renderLeftCommandSidebar(simHost) {
           ${cargoHtml}
           ${marchHtml}
           ${armyDetailHtml}
+          ${(function() {
+            const owAbilities = getOverworldAbilitiesForUnit(state, selUnit);
+            if (!owAbilities || owAbilities.length === 0) return '';
+            const fbHtml = state._lastStrategicFeedback
+              ? '<div class="text-[10px] font-mono text-[#34d399] bg-[#080b11] px-2 py-1 rounded border border-[#34d399]/30">' + state._lastStrategicFeedback + '</div>'
+              : '';
+            const btns = owAbilities.map(function(ab) {
+              const label = ab.ready ? (ab.icon + ' ' + ab.name) : (ab.icon + ' ' + ab.name + ' (' + ab.cooldownRemainingSec + 's)');
+              return '<button title="' + ab.desc + '" onclick="window.WargameApp.handleStrategicAbility(\'' + ab.id + '\')" ' + (!ab.ready ? 'disabled' : '') + ' class="px-2 py-1 rounded text-[10px] font-mono border ' + (ab.ready ? 'bg-[#1a2232] hover:bg-[#283347] border-[#10b981]/50 text-[#34d399] cursor-pointer' : 'bg-[#0f141e] border-[#283347] text-[#64748b] cursor-not-allowed') + '">' + label + '</button>';
+            }).join('');
+            return '<div class="space-y-1.5 pt-1 border-t border-[#283347]/70"><div class="text-[10px] font-mono uppercase text-[#10b981]">Field Skills</div><div class="flex flex-wrap gap-1">' + btns + '</div>' + fbHtml + '</div>';
+          })()}
           ${nearbyDng ? `
             <button data-action="enter-dungeon" data-poi-id="${nearbyDng.id}" onclick="window.WargameApp.handleEnterDungeon('${nearbyDng.id}')" class="w-full py-2 rounded-lg font-bold text-xs uppercase tracking-wider shadow bg-[#f87171] hover:bg-[#ef4444] text-[#080b11] cursor-pointer">
               ⚔️ Enter ${nearbyDng.name}

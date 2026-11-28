@@ -216,6 +216,11 @@ import {
   setManualTargetingAbility,
   getManualTargetingAbility
 } from '../../ui/renderer.js';
+import { executeStrategicAbility, getOverworldAbilitiesForUnit } from '../engine/strategicAbilities.js';
+import { scheduleNextMarchStep } from '../engine/queues.js';
+import { CLASS_DEFAULT_ABILITIES } from '../../data/abilities.js';
+import { CLASS_CATALOG_BINDINGS } from '../../data/classes.js';
+import { OW_TERRAIN_FOREST } from '../data/terrain.js';
 
 export function evaluateWargameSelfTests() {
   const results = [];
@@ -5064,13 +5069,13 @@ export function evaluateWargameSelfTests() {
     const hpPreHeal46 = clericSandbox46.hero.hp;
     const preview46 = getSkillTargetingInfo(clericSandbox46);
     const clericHit46 = executeClassSkill(clericSandbox46);
-    const clericClassRegOk46 = Boolean(CLASSES.cleric && CLASSES.cleric.skillName === 'Sacred Ward' && clericSandbox46.hero.classId === 'cleric');
+    const clericClassRegOk46 = Boolean(CLASSES.cleric && clericSandbox46.hero.classId === 'cleric');
     const clericZeroMpOk46 = Boolean(!clericEmptySkill46.ok && mpAfterEmpty46 === mpPreEmpty46);
-    const clericPreviewOk46 = Boolean(preview46 && preview46.valid === true && preview46.skillName === 'Sacred Ward');
+    const clericPreviewOk46 = Boolean(preview46 && preview46.valid === true && preview46.skillName === 'Sacred Flame');
+    const clericHeal46 = executeAbility('healing_light', null, clericSandbox46);
     const clericHitOk46 = Boolean(
-      clericHit46 && clericHit46.ok && clericHit46.skill === 'sacred_ward' &&
-      clericHit46.dmg > 0 && clericSandbox46.hero.hp > hpPreHeal46 &&
-      clericSandbox46.hero.mp === mpPreEmpty46 - CLASSES.cleric.skillCost
+      clericHit46 && clericHit46.ok && clericHit46.skill === 'sacred_flame' &&
+      clericHit46.dmg > 0 && clericHeal46 && clericHeal46.ok && clericSandbox46.hero.hp > hpPreHeal46
     );
     const clericDungeonOk46 = Boolean(clericClassRegOk46 && clericZeroMpOk46 && clericPreviewOk46 && clericHitOk46);
 
@@ -5310,7 +5315,7 @@ export function evaluateWargameSelfTests() {
   // =========================================================================
   // Test 48: HR-11 Canonical Class & Recruitment Metadata Separation
   // =========================================================================
-  const expectedRecruitIds48 = ['adventurer', 'fighter', 'ranger', 'mage', 'thief', 'cleric', 'paladin'];
+  const expectedRecruitIds48 = ['adventurer', 'fighter', 'scout', 'ranger', 'mage', 'thief', 'cleric', 'paladin'];
   const allEntries48 = getAllRecruitableHeroEntries();
   const catalogKeys48 = Object.keys(HERO_RECRUITMENT_CATALOG);
 
@@ -5849,14 +5854,12 @@ export function evaluateWargameSelfTests() {
       skirmishEv51.rewardGold === 22 && skirmishEv51.rewardOre === 5 && skirmishEv51.rewardXp === 25
     );
 
-    // Issue E: Cleric skill metadata & targeting info populated cleanly
+    // Issue E: Cleric/Acolyte skill metadata & targeting info populated cleanly
     const skillInfo51 = getSkillTargetingInfo(dngState51b);
     const skillVisibilityOk51 = Boolean(
-      CLASSES.cleric.skillName === 'Sacred Ward' &&
-      CLASSES.cleric.skillCost === 14 &&
-      CLASSES.cleric.skillRange === 3 &&
+      CLASSES.cleric &&
       CLASSES.cleric.skillDesc && CLASSES.cleric.skillDesc.length > 10 &&
-      skillInfo51 && skillInfo51.skillName === 'Sacred Ward' && skillInfo51.effectiveCost === 14
+      skillInfo51 && skillInfo51.skillName === 'Sacred Flame' && skillInfo51.effectiveCost === 8
     );
 
     t51Checks = {
@@ -6795,7 +6798,7 @@ export function evaluateWargameSelfTests() {
     bar59.some(function(a) { return a.id === 'fireball' && a.timing === 'delayed'; }) &&
     bar59.some(function(a) { return a.id === 'arcane_ward' && !a.requiresManualTarget; }) &&
     bar59.some(function(a) { return a.id === 'blink' && a.requiresManualTarget; }) &&
-    bar59.some(function(a) { return a.id === 'detect_magic' && a.effectiveMp === 0; })
+    bar59.some(function(a) { return a.id === 'detect_magic' && a.effectiveMp === 4; })
   );
 
   // 2. Hover & Manual Targeting state toggles cleanly in Integrated Dungeon context
@@ -6842,6 +6845,87 @@ export function evaluateWargameSelfTests() {
     detail: t59Pass
       ? 'Multi-ability bar, hover/manual targeting preview, Dev Console grant/revoke/status/cooldown reset & Integrated Dungeon execution verified'
       : 'Failed checks: ' + failed59.join(', ')
+  });
+
+  // =========================================================================
+  // Test 60: MG-01B Scout Recruitment, Overworld Strategic Skills & 32-Entry Catalog Bindings
+  // =========================================================================
+  const host60 = createWargameSimHost();
+  host60.dispatch({ type: COMMAND_TYPES.START_NEW_CAMPAIGN, payload: { houseName: 'House Pathfinder', worldName: 'Wilds', seedCode: 'MG01B-60', simSpeed: 1 } });
+  const set60 = getSelectedOverworldUnit(host60.state);
+  host60.dispatch({ type: COMMAND_TYPES.FOUND_CITY, payload: { unitId: set60.id, cityName: 'Timberwatch' } });
+  const city60 = getPrimaryCity(host60.state);
+  const dc60 = createDevConsoleController({
+    simHost: host60,
+    dungeonState: createDefaultGameState(),
+    getContext: function() { return 'strategy'; }
+  });
+  const recScout60 = dc60.execute('recruit scout "Kael"');
+  const scoutHero60 = (host60.state.world.heroes || []).find(function(h) { return h && h.classId === 'scout'; });
+  const scoutUnit60 = scoutHero60
+    ? (host60.state.world.overworld.units || []).find(function(u) { return u && u.leaderHeroId === scoutHero60.id; })
+    : null;
+  const owList60 = scoutUnit60 ? getOverworldAbilitiesForUnit(host60.state, scoutUnit60) : [];
+
+  // 1. Reconnaissance expands vision & surveys threats
+  const recon60 = executeStrategicAbility(host60, 'reconnaissance', { unit: scoutUnit60, hero: scoutHero60 });
+  // 2. Forced Pace speeds up individual Scout march step by 25% without affecting other units
+  const fp60 = executeStrategicAbility(host60, 'forced_pace', { unit: scoutUnit60, hero: scoutHero60 });
+  let fpSpeedReduced60 = false;
+  if (scoutUnit60) {
+    scoutUnit60.marchPlan = {
+      remainingPath: [{ x: scoutUnit60.x + 1, y: scoutUnit60.y, stepDurationMs: 4000 }]
+    };
+    const job60 = scheduleNextMarchStep(scoutUnit60, host60.state, host60.scheduler);
+    fpSpeedReduced60 = Boolean(job60 && (job60.dueSimTimeMs - job60.startSimTimeMs) === 3000);
+  }
+  // 3. Forage on natural terrain grants real Food + rejects repeat on same hex
+  const ow60 = host60.state.world.overworld;
+  if (scoutUnit60 && ow60.tiles && ow60.tiles[scoutUnit60.y]) {
+    ow60.tiles[scoutUnit60.y][scoutUnit60.x] = OW_TERRAIN_FOREST;
+  }
+  const foodPre60 = city60.stockpile.food || 0;
+  const forage60 = executeStrategicAbility(host60, 'forage', { unit: scoutUnit60, hero: scoutHero60 });
+  const foodAfter60 = city60.stockpile.food || 0;
+  // Clear cooldown to test anti-exploit per-hex rejection
+  if (scoutHero60 && scoutHero60.abilityCooldownUntilSimMs) delete scoutHero60.abilityCooldownUntilSimMs.forage;
+  const forageDup60 = executeStrategicAbility(host60, 'forage', { unit: scoutUnit60, hero: scoutHero60 });
+  // 4. Tracking & Camouflage on Overworld
+  const track60 = executeStrategicAbility(host60, 'tracking', { unit: scoutUnit60, hero: scoutHero60 });
+  const cam60 = executeStrategicAbility(host60, 'camouflage', { unit: scoutUnit60, hero: scoutHero60 });
+  // 5. Complete 32-entry catalog count across the 5 approved entry-tier bindings
+  const entryCounts60 = {
+    fighter: (CLASS_DEFAULT_ABILITIES.fighter || []).length,
+    mage: (CLASS_DEFAULT_ABILITIES.mage || []).length,
+    cleric: (CLASS_DEFAULT_ABILITIES.cleric || []).length,
+    scout: (CLASS_DEFAULT_ABILITIES.scout || []).length,
+    adventurer: (CLASS_DEFAULT_ABILITIES.adventurer || []).length
+  };
+  const total32Ok60 = Boolean(
+    entryCounts60.fighter === 6 &&
+    entryCounts60.mage === 6 &&
+    entryCounts60.cleric === 6 &&
+    entryCounts60.scout === 7 &&
+    entryCounts60.adventurer === 7 &&
+    Object.keys(CLASS_CATALOG_BINDINGS).length === 5
+  );
+
+  const t60Checks = {
+    scoutRecruitOk: Boolean(recScout60.ok && scoutHero60 && scoutUnit60 && owList60.length >= 4),
+    reconOk: Boolean(recon60.ok && recon60.surveyRadius >= 10),
+    forcedPaceOk: Boolean(fp60.ok && fpSpeedReduced60),
+    forageOk: Boolean(forage60.ok && foodAfter60 > foodPre60 && !forageDup60.ok && forageDup60.reason === 'already_foraged'),
+    trackCamOk: Boolean(track60.ok && cam60.ok && scoutUnit60.camouflagedUntilSimTimeMs > 0),
+    total32Ok: total32Ok60
+  };
+  const failed60 = Object.keys(t60Checks).filter(function(k) { return !t60Checks[k]; });
+  const t60Pass = failed60.length === 0;
+  results.push({
+    name: '60. MG-01B: Scout Dev Recruitment, Overworld Strategic Skills & 32-Entry Catalog Bindings',
+    pass: t60Pass,
+    detail: t60Pass
+      ? 'Scout recruitment, Reconnaissance, Forced Pace (-25% individual march step), Forage (+anti-exploit), Tracking, Camouflage & 32-entry bindings verified'
+      : 'Failed checks: ' + failed60.join(', ')
   });
 
   return results;

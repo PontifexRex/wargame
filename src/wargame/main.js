@@ -56,6 +56,7 @@ import {
 } from './ui/devPortal.js';
 import { attachCityIsoControls, renderCityIsoCanvas } from './ui/cityIsoCanvas.js';
 import { findOverworldPath, isOverworldTilePassable } from './engine/pathfinding.js';
+import { executeStrategicAbility } from './engine/strategicAbilities.js';
 import { CITY_BUILDINGS_CATALOG } from './data/buildings.js';
 import {
   getTroopDefinition,
@@ -1852,6 +1853,14 @@ export function handleCancelDungeonTargeting() {
   syncIntegratedDungeonHud();
 }
 
+export function handleStrategicAbility(abilityId) {
+  if (!simHost || !simHost.state || !simHost.state.world) return { ok: false };
+  const res = executeStrategicAbility(simHost, abilityId);
+  simHost.save();
+  syncWargameUI(simHost);
+  return res;
+}
+
 export function handleDungeonAbilityClick(abilityId) {
   if (appContext.getActiveContext() !== APP_CONTEXTS.DUNGEON || !gameState || !gameState.hero) return;
   selectHeroActiveAbility(abilityId, gameState);
@@ -2374,6 +2383,7 @@ export const WargameApp = {
   handleDungeonAbilityClick: handleDungeonAbilityClick,
   handleDungeonAbilityHover: handleDungeonAbilityHover,
   handleCancelDungeonTargeting: handleCancelDungeonTargeting,
+  handleStrategicAbility: handleStrategicAbility,
   handleDungeonTonic: handleDungeonTonic,
   handleDungeonRecall: handleDungeonRecall,
   handleDungeonSurfaceExit: handleDungeonSurfaceExit,

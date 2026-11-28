@@ -2284,6 +2284,29 @@ export function renderDungeonCanvas() {
     }
   }
 
+  // Draw Hero-Owned Floor Snares (Scout Snare)
+  if (Array.isArray(floor.playerTraps) && floor.playerTraps.length > 0) {
+    for (let sIdx = 0; sIdx < floor.playerTraps.length; sIdx++) {
+      const sn = floor.playerTraps[sIdx];
+      if (!sn) continue;
+      const svx = sn.x - camX;
+      const svy = sn.y - camY;
+      if (svx >= 0 && svx < VIEWPORT_WIDTH && svy >= 0 && svy < VIEWPORT_HEIGHT) {
+        const spx = svx * TILE_SIZE + 16;
+        const spy = svy * TILE_SIZE + 16;
+        ctx.strokeStyle = '#84cc16';
+        ctx.lineWidth = 1.6;
+        ctx.beginPath();
+        ctx.moveTo(spx, spy - 8);
+        ctx.lineTo(spx + 8, spy);
+        ctx.lineTo(spx, spy + 8);
+        ctx.lineTo(spx - 8, spy);
+        ctx.closePath();
+        ctx.stroke();
+      }
+    }
+  }
+
   // Draw Hero Pending Delayed Cast Target Zone (e.g. Fireball windup)
   const heroPending = gameState.hero && gameState.hero.pendingCast;
   if (heroPending && Array.isArray(heroPending.tiles)) {
@@ -2318,6 +2341,16 @@ export function renderDungeonCanvas() {
     ctx.beginPath();
     ctx.arc(heroDrawX + 16, heroDrawY + 16, 15, 0, Math.PI * 2);
     ctx.stroke();
+  }
+  // Hero Camouflage Stealth Ring
+  if (gameState.hero && Array.isArray(gameState.hero.statuses) && gameState.hero.statuses.some(function(s) { return s && s.id === 'camouflaged'; })) {
+    ctx.strokeStyle = 'rgba(16, 185, 129, 0.75)';
+    ctx.lineWidth = 1.5;
+    if (typeof ctx.setLineDash === 'function') ctx.setLineDash([2, 4]);
+    ctx.beginPath();
+    ctx.arc(heroDrawX + 16, heroDrawY + 16, 14, 0, Math.PI * 2);
+    ctx.stroke();
+    if (typeof ctx.setLineDash === 'function') ctx.setLineDash([]);
   }
   // Hero Casting Channel Ring
   if (heroPending) {
@@ -2461,6 +2494,14 @@ export function renderDungeonCanvas() {
         ctx.moveTo(cpx - radius * 0.7, cpy - radius * 0.7); ctx.lineTo(cpx + radius * 0.7, cpy + radius * 0.7);
         ctx.moveTo(cpx + radius * 0.7, cpy - radius * 0.7); ctx.lineTo(cpx - radius * 0.7, cpy + radius * 0.7);
         ctx.stroke();
+      } else if (anim.type === 'detect_pulse') {
+        ctx.strokeStyle = anim.color || '#38bdf8';
+        ctx.lineWidth = Math.max(1, 2.2 - prog * 1.5);
+        if (typeof ctx.setLineDash === 'function') ctx.setLineDash([4, 4]);
+        ctx.beginPath();
+        ctx.arc(cpx, cpy, 6 + prog * 34, 0, Math.PI * 2);
+        ctx.stroke();
+        if (typeof ctx.setLineDash === 'function') ctx.setLineDash([]);
       } else if (anim.type === 'spell' || anim.type === 'wave') {
         ctx.strokeStyle = anim.color || '#60a5fa';
         ctx.lineWidth = Math.max(1, 3 - prog * 2);

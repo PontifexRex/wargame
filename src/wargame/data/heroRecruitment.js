@@ -26,6 +26,7 @@ export const HERO_RECRUITMENT_ELIGIBILITY_STATES = {
 export const HERO_RECRUITMENT_ORDER = [
   'adventurer',
   'fighter',
+  'scout',
   'ranger',
   'mage',
   'thief',
@@ -92,6 +93,14 @@ export const HERO_RECRUITMENT_CATALOG = {
     costFood: 35,
     durationMs: BASE_HERO_RECRUIT_DURATION_MS,
     specialty: 'Temple Chapterhouse Tier-2 Champion: Aura of Radiance, Holy Smite, and Divine Intervention.'
+  },
+  scout: {
+    classId: 'scout',
+    icon: '🌲',
+    costGold: 45,
+    costFood: 25,
+    durationMs: BASE_HERO_RECRUIT_DURATION_MS,
+    specialty: 'Frontier reconnaissance & wilderness specialist: Aimed Shot, Tracking, Camouflage, Snare, Forage, Reconnaissance, and Forced Pace (normal recruitment pending Rangers Lodge).'
   }
 };
 
