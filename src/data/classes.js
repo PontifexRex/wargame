@@ -1,4 +1,4 @@
-// Canonical Playable Classes Registry (5 Core + Adventurer + Cleric)
+// Canonical Playable Classes Registry (5 Entry-Tier + Preserved Legacy Prototype Classes)
 // Five foundational attributes: STR, DEX, INT, VIT, SPI (HR-13)
 
 export const HERO_ATTRIBUTE_KEYS = ['str', 'dex', 'int', 'vit', 'spi'];
@@ -6,10 +6,25 @@ export const DEFAULT_HERO_SPI = 10;
 // Provisional per-level automatic attribute growth fallback (~1.5 total/level across 5 attributes; HR-14.1)
 export const DEFAULT_LEVEL_GROWTH = { str: 0.3, dex: 0.3, int: 0.3, vit: 0.3, spi: 0.3 };
 
+// Narrow legacy class ID normalization map (MG-01C): fighter -> bruiser, cleric -> acolyte
+export const LEGACY_CLASS_ID_MAP = Object.freeze({
+  fighter: 'bruiser',
+  cleric: 'acolyte'
+});
+
+export function normalizeHeroClassId(classId) {
+  if (!classId || typeof classId !== 'string') return classId;
+  const key = classId.toLowerCase();
+  if (Object.prototype.hasOwnProperty.call(LEGACY_CLASS_ID_MAP, key)) {
+    return LEGACY_CLASS_ID_MAP[key];
+  }
+  return key;
+}
+
 export const CLASSES = {
-  fighter: {
-    id: 'fighter',
-    name: 'Fighter',
+  bruiser: {
+    id: 'bruiser',
+    name: 'Bruiser',
     title: 'Iron Vanguard',
     color: '#f87171',
     canEnterDungeon: true,
@@ -28,10 +43,10 @@ export const CLASSES = {
     },
     passiveName: 'Unstoppable Stride',
     passiveDesc: '+10 Max HP & reduces incoming physical damage by 15%.',
-    skillName: 'Whirlwind Cleave',
-    skillCost: 10,
+    skillName: 'Power Strike',
+    skillCost: 0,
     skillRange: 1,
-    skillDesc: 'Cleaves all adjacent foes for 150% weapon damage and stuns them for 1 turn.'
+    skillDesc: 'Enhanced single-target physical strike (0 MP, 2t CD).'
   },
   thief: {
     id: 'thief',
@@ -163,9 +178,9 @@ export const CLASSES = {
     skillRange: 1,
     skillDesc: 'Blasts an adjacent foe with searing torchlight for 180% damage and stuns them for 1 turn.'
   },
-  cleric: {
-    id: 'cleric',
-    name: 'Cleric',
+  acolyte: {
+    id: 'acolyte',
+    name: 'Acolyte',
     title: 'Temple Devotee',
     color: '#fef08a',
     canEnterDungeon: true,
@@ -184,10 +199,10 @@ export const CLASSES = {
     },
     passiveName: 'Sanctuary Ward',
     passiveDesc: '+5 Armor & restores +1 MP every 2 turns.',
-    skillName: 'Sacred Ward',
-    skillCost: 14,
-    skillRange: 3,
-    skillDesc: 'Channels holy light against a visible foe within 3 tiles for 160% holy damage and restores 20% Max HP.'
+    skillName: 'Sacred Flame',
+    skillCost: 8,
+    skillRange: 4,
+    skillDesc: 'Calls down radiant divine fire on a visible enemy within 4 tiles (+35% vs Undead/Corrupted).'
   },
   scout: {
     id: 'scout',
@@ -217,20 +232,21 @@ export const CLASSES = {
   }
 };
 
-// Explicit MG-01B catalog-to-runtime class binding table (no silent class renames or deletions)
+// Canonical MG-01C entry-tier class-to-guild bindings
 export const CLASS_CATALOG_BINDINGS = Object.freeze({
-  bruiser:    { runtimeClassId: 'fighter',    displayRole: 'Bruiser (Fighter)',  guild: 'Fighters Guild',   tier: 'entry', bindingType: 'prototype_compatibility_binding' },
-  mage:       { runtimeClassId: 'mage',       displayRole: 'Mage',               guild: 'Mages Guild',      tier: 'entry', bindingType: 'direct' },
-  acolyte:    { runtimeClassId: 'cleric',     displayRole: 'Acolyte (Cleric)',   guild: 'Temple',           tier: 'entry', bindingType: 'prototype_compatibility_binding' },
-  scout:      { runtimeClassId: 'scout',      displayRole: 'Scout',              guild: 'Rangers Lodge',    tier: 'entry', bindingType: 'direct_dev_recruit_until_lodge' },
-  adventurer: { runtimeClassId: 'adventurer', displayRole: 'Adventurer',         guild: 'Adventurers Guild', tier: 'entry', bindingType: 'direct' }
+  bruiser:    { runtimeClassId: 'bruiser',    displayRole: 'Bruiser',    guild: 'Fighters Guild',      buildingId: 'fighters_guild',      tier: 'entry', bindingType: 'direct' },
+  mage:       { runtimeClassId: 'mage',       displayRole: 'Mage',       guild: 'Mages Guild',         buildingId: 'mages_guild',         tier: 'entry', bindingType: 'direct' },
+  acolyte:    { runtimeClassId: 'acolyte',    displayRole: 'Acolyte',    guild: 'Temple Chapterhouse', buildingId: 'temple_chapterhouse', tier: 'entry', bindingType: 'direct' },
+  scout:      { runtimeClassId: 'scout',      displayRole: 'Scout',      guild: 'Rangers Lodge',       buildingId: 'rangers_lodge',       tier: 'entry', bindingType: 'direct' },
+  adventurer: { runtimeClassId: 'adventurer', displayRole: 'Adventurer', guild: 'Adventurers Guild',   buildingId: 'guild_hall',          tier: 'entry', bindingType: 'direct' }
 });
 
-// Fail-closed canonical dungeon eligibility evaluators (HR-12).
+// Fail-closed canonical dungeon eligibility evaluators (HR-12 / MG-01C).
 // Entities/classes without explicit canEnterDungeon === true are ineligible by default.
 export function isClassDungeonEligible(classId) {
   if (!classId || typeof classId !== 'string') return false;
-  const cls = CLASSES[classId];
+  const canonicalId = normalizeHeroClassId(classId);
+  const cls = CLASSES[canonicalId];
   return Boolean(cls && cls.canEnterDungeon === true);
 }
 

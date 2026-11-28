@@ -7,6 +7,7 @@
 import {
   CLASSES,
   DEFAULT_HERO_SPI,
+  normalizeHeroClassId,
   isClassDungeonEligible,
   isHeroDungeonEligible
 } from '../data/classes.js';
@@ -35,10 +36,11 @@ export function createDungeonHeroForClass(classId, canonicalHero, ownerPlayerId)
       return null;
     }
   }
-  if (!isClassDungeonEligible(classId)) {
+  const normClassId = normalizeHeroClassId(classId);
+  if (!isClassDungeonEligible(normClassId)) {
     return null;
   }
-  const cls = CLASSES[classId];
+  const cls = CLASSES[normClassId];
   const startEq = cls.starterGear || {};
   const base = cls.baseStats || { str: 10, dex: 10, int: 10, vit: 10 };
   const eq = {
@@ -95,6 +97,9 @@ export function createDungeonHeroForClass(classId, canonicalHero, ownerPlayerId)
     skillCooldown: 0,
     abilityGrants: (canonicalHero && canonicalHero.abilityGrants) ? JSON.parse(JSON.stringify(canonicalHero.abilityGrants)) : null,
     abilityCooldowns: (canonicalHero && canonicalHero.abilityCooldowns) ? Object.assign({}, canonicalHero.abilityCooldowns) : {},
+    quickSlots: (canonicalHero && canonicalHero.quickSlots) ? JSON.parse(JSON.stringify(canonicalHero.quickSlots)) : null,
+    _quickSlotsCustomized: Boolean(canonicalHero && canonicalHero._quickSlotsCustomized),
+    _quickSlotsInitialized: (canonicalHero && canonicalHero._quickSlotsInitialized) ? Object.assign({}, canonicalHero._quickSlotsInitialized) : null,
     activeAbilityId: (canonicalHero && canonicalHero.activeAbilityId) || null,
     absorbShield: (canonicalHero && typeof canonicalHero.absorbShield === 'number') ? Math.max(0, canonicalHero.absorbShield) : 0,
     pendingCast: null,
@@ -177,6 +182,11 @@ export function bindCanonicalHeroToDungeonState(simHost, dungeonState, entryInfo
     }
     if (canonicalHero.abilityGrants && typeof canonicalHero.abilityGrants === 'object') {
       dungeonState.hero.abilityGrants = JSON.parse(JSON.stringify(canonicalHero.abilityGrants));
+    }
+    if (canonicalHero.quickSlots && typeof canonicalHero.quickSlots === 'object') {
+      dungeonState.hero.quickSlots = JSON.parse(JSON.stringify(canonicalHero.quickSlots));
+      dungeonState.hero._quickSlotsCustomized = Boolean(canonicalHero._quickSlotsCustomized);
+      dungeonState.hero._quickSlotsInitialized = canonicalHero._quickSlotsInitialized ? Object.assign({}, canonicalHero._quickSlotsInitialized) : null;
     }
     normalizeActorAbilityState(dungeonState.hero);
   }

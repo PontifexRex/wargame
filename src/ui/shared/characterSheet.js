@@ -45,7 +45,7 @@ function drawSharedSafeEllipse(ctx, cx, cy, rx, ry) {
 
 export function normalizeSharedHeroProfile(hero) {
   const h = hero || {};
-  const classId = h.classId || 'fighter';
+  const classId = h.classId || 'bruiser';
   const cls = CLASSES[classId] || CLASSES.fighter;
   const st = h.stats || {};
   const derived = computeHeroDerivedStats(h);
@@ -107,7 +107,7 @@ export function renderSharedPaperDollMannequin(canvas, hero) {
   const h = canvas.height;
   ctx.clearRect(0, 0, w, h);
 
-  const classId = hero ? hero.classId : 'fighter';
+  const classId = hero ? hero.classId : 'bruiser';
   const cls = CLASSES[classId] || CLASSES.fighter;
   const cosmeticAura = hero && hero.cosmetics && hero.cosmetics.aura ? hero.cosmetics.aura.color : null;
   const themeColor = cosmeticAura || cls.color || '#fbbf24';
@@ -189,7 +189,7 @@ export function renderSharedPaperDollMannequin(canvas, hero) {
   ctx.fill();
 
   // Class-specific silhouette cape & back ornaments
-  if (classId === 'fighter') {
+  if (classId === 'bruiser') {
     ctx.fillStyle = 'rgba(185, 28, 28, 0.45)';
     ctx.beginPath();
     ctx.moveTo(cx - 36, 100);
@@ -289,7 +289,7 @@ export function renderSharedPaperDollMannequin(canvas, hero) {
   ctx.stroke();
 
   // Class head crest / visor
-  if (classId === 'fighter') {
+  if (classId === 'bruiser') {
     ctx.fillStyle = '#fbbf24';
     ctx.fillRect(cx - 12, 70, 24, 4);
   } else if (classId === 'mage') {

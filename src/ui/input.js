@@ -22,6 +22,7 @@ import {
   executeClassSkill,
   executeAbility,
   getHeroAbilityBarState,
+  getHeroQuickAccessBar,
   selectHeroActiveAbility,
   useStairsAtPlayer,
   waitTurn,
@@ -53,6 +54,11 @@ import {
   closeDevConsole,
   isDevConsoleOpen
 } from './devConsole.js';
+import {
+  toggleStandaloneSpellbook,
+  isStandaloneSpellbookOpen,
+  handleStandaloneQuickSlot
+} from './domSync.js';
 
 export function updateScannerOnHover(gx, gy) {
   if (typeof document === 'undefined') return;
@@ -185,6 +191,10 @@ export function setupInputs(isActiveFn) {
         setSkillHover(false);
         return;
       }
+      if (isStandaloneSpellbookOpen()) {
+        toggleStandaloneSpellbook(false);
+        return;
+      }
       if (isDevConsoleOpen()) {
         closeDevConsole();
         return;
@@ -282,27 +292,11 @@ export function setupInputs(isActiveFn) {
       waitTurn();
     } else if (e.code === 'KeyQ') {
       e.preventDefault();
-      const skillRes = executeClassSkill();
-      if (skillRes && !skillRes.ok) {
-        setSkillHover(true);
-        setTimeout(function() { setSkillHover(false); }, 1200);
-      }
-    } else if (e.key >= '1' && e.key <= '7') {
+      toggleStandaloneSpellbook();
+    } else if (e.key >= '1' && e.key <= '4') {
+      e.preventDefault();
       const slotIdx = parseInt(e.key, 10) - 1;
-      const bar = getHeroAbilityBarState(gameState);
-      if (bar[slotIdx]) {
-        e.preventDefault();
-        const ab = bar[slotIdx];
-        selectHeroActiveAbility(ab.id, gameState);
-        if (ab.requiresManualTarget) {
-          setManualTargetingAbility(ab.id);
-          setSkillHover(true, ab.id);
-        } else {
-          setManualTargetingAbility(null);
-          setSkillHover(false);
-          executeAbility(ab.id, null, gameState);
-        }
-      }
+      handleStandaloneQuickSlot(slotIdx);
     } else if (e.code === 'KeyH') {
       e.preventDefault();
       useHealingTonic();

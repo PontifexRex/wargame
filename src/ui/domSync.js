@@ -24,7 +24,121 @@ import {
   getCodexMasteryMultiplier
 } from '../engine/state.js';
 import { ensureGuildBounties } from '../engine/actions.js';
-import { drawHeroSprite, renderMinimapCanvas } from './renderer.js';
+import {
+  getHeroQuickAccessBar,
+  getHeroAbilityBarState,
+  executeAbility
+} from '../engine/combat.js';
+import {
+  assignQuickSlot,
+  clearQuickSlot,
+  swapQuickSlots
+} from '../core/abilityEngine.js';
+import { renderHeroSpellbookHtml } from './shared/spellbook.js';
+import {
+  drawHeroSprite,
+  renderMinimapCanvas,
+  setSkillHover,
+  setManualTargetingAbility,
+  getManualTargetingAbility
+} from './renderer.js';
+
+let standaloneSpellbookOpen = false;
+let standaloneSpellbookCtxFilter = 'all';
+let standaloneSpellbookKindFilter = 'all';
+
+export function isStandaloneSpellbookOpen() {
+  return standaloneSpellbookOpen;
+}
+
+export function toggleStandaloneSpellbook(forceOpen) {
+  standaloneSpellbookOpen = typeof forceOpen === 'boolean' ? forceOpen : !standaloneSpellbookOpen;
+  updateAllUI();
+  return standaloneSpellbookOpen;
+}
+
+export function handleStandaloneSpellbookFilter(ctxFilter, kindFilter) {
+  standaloneSpellbookCtxFilter = ctxFilter || 'all';
+  standaloneSpellbookKindFilter = kindFilter || 'all';
+  updateAllUI();
+}
+
+export function handleStandaloneAssignQuickSlot(contextId, slotIndex, abilityId) {
+  if (!gameState || !gameState.hero) return { ok: false, reason: 'no_hero' };
+  const res = assignQuickSlot(gameState.hero, contextId || 'tactical_dungeon', slotIndex, abilityId);
+  if (res.ok) updateAllUI();
+  return res;
+}
+
+export function handleStandaloneClearQuickSlot(contextId, slotIndex) {
+  if (!gameState || !gameState.hero) return { ok: false, reason: 'no_hero' };
+  const res = clearQuickSlot(gameState.hero, contextId || 'tactical_dungeon', slotIndex);
+  if (res.ok) updateAllUI();
+  return res;
+}
+
+export function handleStandaloneSwapQuickSlots(contextId, idxA, idxB) {
+  if (!gameState || !gameState.hero) return { ok: false, reason: 'no_hero' };
+  const res = swapQuickSlots(gameState.hero, contextId || 'tactical_dungeon', idxA, idxB);
+  if (res.ok) updateAllUI();
+  return res;
+}
+
+export function handleStandaloneAbilityCast(abilityId) {
+  if (!gameState || !gameState.hero || gameState.inGuild) return { ok: false, reason: 'wrong_context' };
+  const bar = getHeroAbilityBarState(gameState);
+  const entry = bar.find(function(a) { return a.id === abilityId; });
+  if (!entry || !entry.ready) {
+    const why = entry ? (entry.silenced ? 'Silenced' : (entry.cooldownRemaining > 0 ? ('Cooldown ' + entry.cooldownRemaining + 't') : (entry.unavailableReason === 'requires_ranged_weapon' ? 'Requires Ranged Weapon' : 'Insufficient MP'))) : 'No access';
+    logChronicle((entry ? entry.name : 'Ability') + ' cannot be used (' + why + ').', 'bad');
+    updateAllUI();
+    return { ok: false, reason: (entry && entry.unavailableReason) || 'unavailable' };
+  }
+  if (entry.requiresManualTarget) {
+    if (getManualTargetingAbility() === abilityId) {
+      setManualTargetingAbility(null);
+      setSkillHover(false);
+    } else {
+      setManualTargetingAbility(abilityId);
+      setSkillHover(true, abilityId);
+    }
+    updateAllUI();
+    return { ok: true, targeting: getManualTargetingAbility() };
+  }
+  setManualTargetingAbility(null);
+  setSkillHover(false);
+  const res = executeAbility(abilityId, null, gameState);
+  updateAllUI();
+  return res;
+}
+
+export function handleStandaloneSpellbookCast(abilityId) {
+  standaloneSpellbookOpen = false;
+  return handleStandaloneAbilityCast(abilityId);
+}
+
+export function handleStandaloneQuickSlot(slotIndex) {
+  if (!gameState || !gameState.hero || gameState.inGuild) return { ok: false, reason: 'wrong_context' };
+  const qSlots = getHeroQuickAccessBar(gameState);
+  const slot = qSlots[slotIndex];
+  if (!slot || slot.empty || !slot.id) {
+    logChronicle('Quick Slot [' + (slotIndex + 1) + '] is empty. Press [Q] to open Spellbook and assign.', 'info');
+    updateAllUI();
+    return { ok: false, reason: 'empty_slot' };
+  }
+  if (!slot.granted) {
+    logChronicle(slot.name + ' is currently unavailable (no access).', 'bad');
+    updateAllUI();
+    return { ok: false, reason: 'not_granted' };
+  }
+  if (!slot.availableInContext || !slot.ready) {
+    const why = !slot.availableInContext ? 'Wrong context' : (slot.silenced ? 'Silenced' : (slot.cooldownRemaining > 0 ? ('Cooldown ' + slot.cooldownRemaining + 't') : (slot.unavailableReason === 'requires_ranged_weapon' ? 'Requires Ranged Weapon' : 'Insufficient MP')));
+    logChronicle(slot.name + ' cannot be used (' + why + ').', 'bad');
+    updateAllUI();
+    return { ok: false, reason: slot.unavailableReason || 'unavailable' };
+  }
+  return handleStandaloneAbilityCast(slot.id);
+}
 
 export function formatSocketPipsHtml(item) {
   if (!item || !item.maxSockets || item.maxSockets <= 0) return '';
@@ -623,8 +737,8 @@ export function renderDungeonHud() {
   document.getElementById('uiHostilesCount').textContent = floor ? floor.monsters.length : 0;
   document.getElementById('uiVisionRadiusText').textContent = h.visionRadius || 5;
 
-  document.getElementById('btnSkillLabel').textContent = cls.skillName;
-  document.getElementById('btnSkillMpCost').textContent = `${cls.skillCost} MP`;
+  document.getElementById('btnSkillLabel').textContent = standaloneSpellbookOpen ? 'Close Book' : 'Spellbook';
+  document.getElementById('btnSkillMpCost').textContent = standaloneSpellbookOpen ? 'Press Q' : 'Slots 1-4';
   document.getElementById('btnPotionCount').textContent = h.consumables.potions;
   document.getElementById('btnRecallCount').textContent = h.consumables.recalls;
 
@@ -753,9 +867,27 @@ export function updateAllUI() {
   // Class Kit
   document.getElementById('uiPassiveBadge').textContent = cls.passiveName;
   document.getElementById('uiPassiveDesc').textContent = cls.passiveDesc;
-  document.getElementById('uiSkillTitle').textContent = `${cls.skillName} [Q]`;
-  document.getElementById('uiSkillMpBadge').textContent = `${cls.skillCost} MP`;
-  document.getElementById('uiSkillDesc').textContent = cls.skillDesc;
+  document.getElementById('uiSkillTitle').textContent = standaloneSpellbookOpen ? 'Spellbook & Skills [Q]' : 'Quick Slots [1-4]';
+  document.getElementById('uiSkillMpBadge').innerHTML = '<button type="button" onclick="window.Aethelgard.toggleStandaloneSpellbook()" class="cursor-pointer font-bold">' + (standaloneSpellbookOpen ? '✕ Close [Q]' : '📖 Book [Q]') + '</button>';
+  if (standaloneSpellbookOpen) {
+    document.getElementById('uiSkillDesc').innerHTML = renderHeroSpellbookHtml(h, {
+      context: 'tactical_dungeon',
+      contextFilter: standaloneSpellbookCtxFilter,
+      kindFilter: standaloneSpellbookKindFilter,
+      allowCast: !gameState.inGuild,
+      actionPrefix: 'window.Aethelgard'
+    });
+  } else {
+    const qSlots = getHeroQuickAccessBar(gameState);
+    document.getElementById('uiSkillDesc').innerHTML = '<div class="space-y-1 mt-1">' + qSlots.map(function(ab) {
+      if (ab.empty) {
+        return '<button type="button" onclick="window.Aethelgard.toggleStandaloneSpellbook(true)" class="w-full px-1.5 py-1 rounded border border-dashed border-[#283347] bg-[#080b11] text-left text-[10px] font-mono text-[#64748b] cursor-pointer">[' + ab.hotkey + '] Empty Slot</button>';
+      }
+      const costText = ab.effectiveMp > 0 ? (ab.effectiveMp + ' MP') : (ab.cooldown > 0 ? (ab.cooldown + 't CD') : 'Free');
+      const stateText = !ab.granted ? 'NO ACCESS' : (!ab.availableInContext ? 'WRONG CTX' : (ab.silenced ? 'SILENCED' : (ab.cooldownRemaining > 0 ? ('CD ' + ab.cooldownRemaining + 't') : (ab.unavailableReason === 'requires_ranged_weapon' ? 'NEED BOW' : (ab.canAfford ? 'READY' : 'LOW MP')))));
+      return '<button type="button" onclick="window.Aethelgard.handleStandaloneQuickSlot(' + ab.slotIndex + ')" class="w-full px-1.5 py-1 rounded border text-left text-[10px] font-mono flex items-center justify-between gap-1 ' + (ab.ready ? 'border-[#60a5fa]/40 bg-[#111722] hover:bg-[#1a2232] text-[#e6edf3] cursor-pointer' : 'border-[#283347] bg-[#0a0e16] text-[#64748b] opacity-65 cursor-not-allowed') + '"><span class="truncate">[' + ab.hotkey + '] ' + ab.icon + ' ' + ab.name + '</span><span class="shrink-0 text-[9px] text-[#fbbf24]">' + costText + ' • ' + stateText + '</span></button>';
+    }).join('') + '</div>';
+  }
 
   // Right Sidebar Economy & Pack
   document.getElementById('uiVaultGoldBadge').textContent = `${gameState.guildVault.gold}g`;

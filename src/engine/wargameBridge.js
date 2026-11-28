@@ -24,7 +24,7 @@ export function createDungeonEntryEnvelope(data) {
     hero: src.hero ? {
       id: src.hero.id || null,
       name: src.hero.name || 'Vanguard Hero',
-      classId: src.hero.classId || 'fighter',
+      classId: src.hero.classId || 'bruiser',
       level: typeof src.hero.level === 'number' ? src.hero.level : 1,
       xp: typeof src.hero.xp === 'number' ? src.hero.xp : 0,
       equipment: src.hero.equipment ? JSON.parse(JSON.stringify(src.hero.equipment)) : null,

@@ -1,4 +1,4 @@
-﻿// =============================================================================
+// =============================================================================
 // SHARED SEMANTIC ASSET REGISTRY (Stage E.5 â€” Golden Slice / ADR-0013)
 // Resolves all Tier 1-3 visual assets strictly by semantic ID via assets/manifest.json,
 // with graceful procedural fallback and zero-CORS file:// support.
@@ -431,7 +431,9 @@ export function getFacilityInteriorAssetId(buildingId) {
 
 export function getHeroPortraitAssetId(classId) {
   if (!classId) return null;
-  return 'char_portrait_' + String(classId).toLowerCase() + '_default_idle';
+  const key = String(classId).toLowerCase();
+  const assetKey = key === 'bruiser' ? 'fighter' : (key === 'acolyte' ? 'cleric' : (key === 'scout' ? 'ranger' : key));
+  return 'char_portrait_' + assetKey + '_default_idle';
 }
 
 export function getCachedImage(assetId, onLoad) {

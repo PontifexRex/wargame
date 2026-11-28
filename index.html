@@ -81,7 +81,7 @@
             <canvas id="heroPortraitCanvas" width="42" height="42" class="rounded-lg bg-[#080b11] border border-[#283347]"></canvas>
             <div>
               <div class="flex items-center gap-1.5">
-                <h2 id="uiHeroName" class="font-display font-bold text-sm text-[#e6edf3]">Fighter</h2>
+                <h2 id="uiHeroName" class="font-display font-bold text-sm text-[#e6edf3]">Bruiser</h2>
                 <span id="uiHeroTitleBadge" class="text-[10px] font-mono-num uppercase px-1.5 py-0.5 rounded bg-[#1a2232] text-[#fbbf24] border border-[#283347]">Iron Vanguard</span>
               </div>
               <div class="text-xs text-[#8b949e] font-mono-num mt-0.5">
@@ -205,7 +205,7 @@
         <p id="uiPassiveDesc" class="text-[11px] text-[#8b949e] leading-relaxed"></p>
         <div class="p-2 rounded bg-[#080b11] border border-[#283347]">
           <div class="flex items-center justify-between">
-            <span id="uiSkillTitle" class="text-xs font-bold text-[#60a5fa]">Active Skill (Q)</span>
+            <span id="uiSkillTitle" class="text-xs font-bold text-[#60a5fa]">Quick Slots [1-4]</span>
             <span id="uiSkillMpBadge" class="text-[10px] font-mono-num px-1.5 py-0.5 rounded bg-[#60a5fa]/15 text-[#60a5fa]">10 MP</span>
           </div>
           <p id="uiSkillDesc" class="text-[11px] text-[#8b949e] mt-1"></p>
@@ -452,7 +452,7 @@
         <div id="guildTab_talents" class="hidden space-y-3.5">
           <div class="p-3 rounded-lg bg-[#080b11] border border-[#283347] flex flex-wrap items-center justify-between gap-2">
             <div>
-              <h3 class="text-sm font-bold text-[#e6edf3]">Class Mastery Codex: <span id="uiTalentClassTitle" class="text-[#fbbf24]">Fighter</span></h3>
+              <h3 class="text-sm font-bold text-[#e6edf3]">Class Mastery Codex: <span id="uiTalentClassTitle" class="text-[#fbbf24]">Bruiser</span></h3>
               <p class="text-xs text-[#8b949e]">Each character level grants +1 Talent Point. Specialize your adventurer for deeper descents.</p>
             </div>
             <div class="flex items-center gap-2">
@@ -606,7 +606,7 @@
         <div class="grid grid-cols-1 md:grid-cols-12 gap-2.5 items-center">
           <div class="md:col-span-8 grid grid-cols-5 gap-1.5">
             <!-- Skill (Q) -->
-            <button id="btnTacticalSkill" onmouseenter="window.Aethelgard.setSkillHover(true)" onmouseleave="window.Aethelgard.setSkillHover(false)" onclick="window.Aethelgard.executeClassSkill()" class="p-2 rounded-lg bg-[#2563eb]/20 hover:bg-[#2563eb]/30 border border-[#60a5fa]/50 text-left flex flex-col justify-between btn-tactical">
+            <button id="btnTacticalSkill" onclick="window.Aethelgard.toggleStandaloneSpellbook()" class="p-2 rounded-lg bg-[#2563eb]/20 hover:bg-[#2563eb]/30 border border-[#60a5fa]/50 text-left flex flex-col justify-between btn-tactical">
               <div class="flex items-center justify-between w-full">
                 <span id="btnSkillLabel" class="text-[11px] font-bold text-[#60a5fa] truncate">Skill</span>
                 <span class="text-[10px] font-mono-num px-1 rounded bg-[#080b11] text-[#60a5fa]">Q</span>
@@ -779,10 +779,10 @@
         <div class="p-3.5 rounded-lg bg-[#080b11] border border-[#283347] hover:border-[#f87171] flex flex-col justify-between gap-3">
           <div>
             <div class="flex items-center gap-3 mb-2">
-              <canvas id="classCardCanvas_fighter" width="48" height="48" class="rounded bg-[#04060a] border border-[#283347] flex-shrink-0 shadow-inner"></canvas>
+              <canvas id="classCardCanvas_bruiser" width="48" height="48" class="rounded bg-[#04060a] border border-[#283347] flex-shrink-0 shadow-inner"></canvas>
               <div class="flex-1 min-w-0">
                 <div class="flex items-center justify-between">
-                  <span class="font-display font-bold text-base text-[#f87171]">Fighter</span>
+                  <span class="font-display font-bold text-base text-[#f87171]">Bruiser</span>
                   <span class="text-[10px] font-mono-num px-2 py-0.5 rounded bg-[#1a2232] text-[#e6edf3]">HP 120 | MP 35</span>
                 </div>
                 <div class="text-[11px] text-[#fbbf24] font-medium">Iron Vanguard</div>
@@ -793,8 +793,8 @@
             <div class="text-xs text-[#60a5fa] font-semibold mt-1.5">Skill [Q]: Whirlwind Cleave (10 MP)</div>
             <p class="text-[11px] text-[#8b949e]">Cleaves all adjacent foes for 150% weapon damage and stuns them for 1 turn.</p>
           </div>
-          <button onclick="window.Aethelgard.selectAdventurerClass('fighter')" class="w-full py-2 rounded bg-[#fbbf24] hover:bg-[#f59e0b] text-[#080b11] font-bold text-xs uppercase tracking-wider btn-tactical">
-            Begin as Fighter
+          <button onclick="window.Aethelgard.selectAdventurerClass('bruiser')" class="w-full py-2 rounded bg-[#fbbf24] hover:bg-[#f59e0b] text-[#080b11] font-bold text-xs uppercase tracking-wider btn-tactical">
+            Begin as Bruiser
           </button>
         </div>
 
@@ -1174,7 +1174,7 @@
               <canvas id="inventoryHeroPortraitCanvas" width="48" height="48" class="rounded-lg bg-[#111722] border border-[#283347] shadow-inner"></canvas>
               <div>
                 <div class="flex items-center gap-1.5">
-                  <h4 id="inventoryHeroName" class="font-display font-bold text-sm text-[#e6edf3]">Fighter</h4>
+                  <h4 id="inventoryHeroName" class="font-display font-bold text-sm text-[#e6edf3]">Bruiser</h4>
                   <span id="inventoryHeroTitleBadge" class="text-[10px] font-mono-num px-1.5 py-0.5 rounded bg-[#1a2232] text-[#fbbf24] border border-[#283347]">Iron Vanguard</span>
                 </div>
                 <div class="text-xs text-[#8b949e] font-mono-num mt-0.5">

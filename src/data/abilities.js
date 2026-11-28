@@ -1305,9 +1305,9 @@ export const ABILITY_IDS = Object.freeze(Object.keys(ABILITIES));
 
 // Complete 32-entry approved entry-tier default bindings + preserved legacy classes
 export const CLASS_DEFAULT_ABILITIES = Object.freeze({
-  fighter:    Object.freeze(['power_strike', 'cleave', 'overpower', 'brace', 'charge', 'battle_cry']),
+  bruiser:    Object.freeze(['power_strike', 'cleave', 'overpower', 'brace', 'charge', 'battle_cry']),
   mage:       Object.freeze(['arcane_missile', 'fireball', 'frost_nova', 'arcane_ward', 'blink', 'detect_magic']),
-  cleric:     Object.freeze(['sacred_flame', 'healing_light', 'blessing', 'purification', 'sanctuary', 'divine_sight']),
+  acolyte:    Object.freeze(['sacred_flame', 'healing_light', 'blessing', 'purification', 'sanctuary', 'divine_sight']),
   scout:      Object.freeze(['aimed_shot', 'tracking', 'camouflage', 'snare', 'forage', 'reconnaissance', 'forced_pace']),
   adventurer: Object.freeze(['second_wind', 'careful_search', 'disengage', 'dirty_fighting', 'appraise', 'disarm_trap', 'lockpicking']),
   // Legacy prototype classes preserved until deliberate roster progression pass
@@ -1322,6 +1322,7 @@ export function getAbilityDefinition(abilityId) {
 }
 
 export function getDefaultAbilityIdsForClass(classId) {
-  const list = CLASS_DEFAULT_ABILITIES[classId];
+  const key = classId === 'fighter' ? 'bruiser' : (classId === 'cleric' ? 'acolyte' : classId);
+  const list = CLASS_DEFAULT_ABILITIES[key];
   return Array.isArray(list) ? list.slice() : [];
 }

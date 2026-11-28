@@ -65,7 +65,7 @@ const RARITY = {
 };
 
   // --- Module: src/data/classes.js ---
-// Canonical Playable Classes Registry (5 Core + Adventurer + Cleric)
+// Canonical Playable Classes Registry (5 Entry-Tier + Preserved Legacy Prototype Classes)
 // Five foundational attributes: STR, DEX, INT, VIT, SPI (HR-13)
 
 const HERO_ATTRIBUTE_KEYS = ['str', 'dex', 'int', 'vit', 'spi'];
@@ -73,10 +73,25 @@ const DEFAULT_HERO_SPI = 10;
 // Provisional per-level automatic attribute growth fallback (~1.5 total/level across 5 attributes; HR-14.1)
 const DEFAULT_LEVEL_GROWTH = { str: 0.3, dex: 0.3, int: 0.3, vit: 0.3, spi: 0.3 };
 
+// Narrow legacy class ID normalization map (MG-01C): fighter -> bruiser, cleric -> acolyte
+const LEGACY_CLASS_ID_MAP = Object.freeze({
+  fighter: 'bruiser',
+  cleric: 'acolyte'
+});
+
+function normalizeHeroClassId(classId) {
+  if (!classId || typeof classId !== 'string') return classId;
+  const key = classId.toLowerCase();
+  if (Object.prototype.hasOwnProperty.call(LEGACY_CLASS_ID_MAP, key)) {
+    return LEGACY_CLASS_ID_MAP[key];
+  }
+  return key;
+}
+
 const CLASSES = {
-  fighter: {
-    id: 'fighter',
-    name: 'Fighter',
+  bruiser: {
+    id: 'bruiser',
+    name: 'Bruiser',
     title: 'Iron Vanguard',
     color: '#f87171',
     canEnterDungeon: true,
@@ -95,10 +110,10 @@ const CLASSES = {
     },
     passiveName: 'Unstoppable Stride',
     passiveDesc: '+10 Max HP & reduces incoming physical damage by 15%.',
-    skillName: 'Whirlwind Cleave',
-    skillCost: 10,
+    skillName: 'Power Strike',
+    skillCost: 0,
     skillRange: 1,
-    skillDesc: 'Cleaves all adjacent foes for 150% weapon damage and stuns them for 1 turn.'
+    skillDesc: 'Enhanced single-target physical strike (0 MP, 2t CD).'
   },
   thief: {
     id: 'thief',
@@ -230,9 +245,9 @@ const CLASSES = {
     skillRange: 1,
     skillDesc: 'Blasts an adjacent foe with searing torchlight for 180% damage and stuns them for 1 turn.'
   },
-  cleric: {
-    id: 'cleric',
-    name: 'Cleric',
+  acolyte: {
+    id: 'acolyte',
+    name: 'Acolyte',
     title: 'Temple Devotee',
     color: '#fef08a',
     canEnterDungeon: true,
@@ -251,10 +266,10 @@ const CLASSES = {
     },
     passiveName: 'Sanctuary Ward',
     passiveDesc: '+5 Armor & restores +1 MP every 2 turns.',
-    skillName: 'Sacred Ward',
-    skillCost: 14,
-    skillRange: 3,
-    skillDesc: 'Channels holy light against a visible foe within 3 tiles for 160% holy damage and restores 20% Max HP.'
+    skillName: 'Sacred Flame',
+    skillCost: 8,
+    skillRange: 4,
+    skillDesc: 'Calls down radiant divine fire on a visible enemy within 4 tiles (+35% vs Undead/Corrupted).'
   },
   scout: {
     id: 'scout',
@@ -284,20 +299,21 @@ const CLASSES = {
   }
 };
 
-// Explicit MG-01B catalog-to-runtime class binding table (no silent class renames or deletions)
+// Canonical MG-01C entry-tier class-to-guild bindings
 const CLASS_CATALOG_BINDINGS = Object.freeze({
-  bruiser:    { runtimeClassId: 'fighter',    displayRole: 'Bruiser (Fighter)',  guild: 'Fighters Guild',   tier: 'entry', bindingType: 'prototype_compatibility_binding' },
-  mage:       { runtimeClassId: 'mage',       displayRole: 'Mage',               guild: 'Mages Guild',      tier: 'entry', bindingType: 'direct' },
-  acolyte:    { runtimeClassId: 'cleric',     displayRole: 'Acolyte (Cleric)',   guild: 'Temple',           tier: 'entry', bindingType: 'prototype_compatibility_binding' },
-  scout:      { runtimeClassId: 'scout',      displayRole: 'Scout',              guild: 'Rangers Lodge',    tier: 'entry', bindingType: 'direct_dev_recruit_until_lodge' },
-  adventurer: { runtimeClassId: 'adventurer', displayRole: 'Adventurer',         guild: 'Adventurers Guild', tier: 'entry', bindingType: 'direct' }
+  bruiser:    { runtimeClassId: 'bruiser',    displayRole: 'Bruiser',    guild: 'Fighters Guild',      buildingId: 'fighters_guild',      tier: 'entry', bindingType: 'direct' },
+  mage:       { runtimeClassId: 'mage',       displayRole: 'Mage',       guild: 'Mages Guild',         buildingId: 'mages_guild',         tier: 'entry', bindingType: 'direct' },
+  acolyte:    { runtimeClassId: 'acolyte',    displayRole: 'Acolyte',    guild: 'Temple Chapterhouse', buildingId: 'temple_chapterhouse', tier: 'entry', bindingType: 'direct' },
+  scout:      { runtimeClassId: 'scout',      displayRole: 'Scout',      guild: 'Rangers Lodge',       buildingId: 'rangers_lodge',       tier: 'entry', bindingType: 'direct' },
+  adventurer: { runtimeClassId: 'adventurer', displayRole: 'Adventurer', guild: 'Adventurers Guild',   buildingId: 'guild_hall',          tier: 'entry', bindingType: 'direct' }
 });
 
-// Fail-closed canonical dungeon eligibility evaluators (HR-12).
+// Fail-closed canonical dungeon eligibility evaluators (HR-12 / MG-01C).
 // Entities/classes without explicit canEnterDungeon === true are ineligible by default.
 function isClassDungeonEligible(classId) {
   if (!classId || typeof classId !== 'string') return false;
-  const cls = CLASSES[classId];
+  const canonicalId = normalizeHeroClassId(classId);
+  const cls = CLASSES[canonicalId];
   return Boolean(cls && cls.canEnterDungeon === true);
 }
 
@@ -892,12 +908,13 @@ function computeItemPowerScore(item) {
 
 // Lightweight, explicit, provisional class preference weights grounded in heroStats.js & combat.js scaling.
 const CLASS_ITEM_PREFERENCE_WEIGHTS = {
-  fighter:    { atk: 2.6, def: 2.2, magicPower: 0.2, maxHp: 0.35, maxMp: 0.10, crit: 1.3, dodge: 1.0, str: 2.2, dex: 1.0, int: 0.2, vit: 2.0, spi: 0.2, thorns: 1.8, leech: 2.4, ward: 2.0, visionBonus: 1.5 },
+  bruiser:    { atk: 2.6, def: 2.2, magicPower: 0.2, maxHp: 0.35, maxMp: 0.10, crit: 1.3, dodge: 1.0, str: 2.2, dex: 1.0, int: 0.2, vit: 2.0, spi: 0.2, thorns: 1.8, leech: 2.4, ward: 2.0, visionBonus: 1.5 },
   thief:      { atk: 2.3, def: 1.4, magicPower: 0.2, maxHp: 0.20, maxMp: 0.15, crit: 2.5, dodge: 2.2, str: 1.1, dex: 2.4, int: 0.3, vit: 1.0, spi: 0.2, thorns: 0.8, leech: 2.2, ward: 1.4, visionBonus: 2.0 },
   ranger:     { atk: 2.3, def: 1.5, magicPower: 0.2, maxHp: 0.20, maxMp: 0.15, crit: 2.3, dodge: 2.4, str: 1.1, dex: 2.4, int: 0.3, vit: 1.0, spi: 0.2, thorns: 0.8, leech: 1.8, ward: 1.5, visionBonus: 3.0 },
+  scout:      { atk: 2.2, def: 1.4, magicPower: 0.4, maxHp: 0.22, maxMp: 0.18, crit: 2.2, dodge: 2.3, str: 1.0, dex: 2.4, int: 1.4, vit: 1.1, spi: 0.5, thorns: 0.7, leech: 1.5, ward: 1.4, visionBonus: 3.0 },
   mage:       { atk: 0.6, def: 1.3, magicPower: 2.8, maxHp: 0.20, maxMp: 0.40, crit: 1.4, dodge: 1.3, str: 0.3, dex: 0.8, int: 2.6, vit: 1.0, spi: 1.2, thorns: 0.6, leech: 0.8, ward: 2.4, visionBonus: 2.0 },
   paladin:    { atk: 2.2, def: 2.3, magicPower: 1.2, maxHp: 0.32, maxMp: 0.22, crit: 1.1, dodge: 0.9, str: 1.8, dex: 0.8, int: 0.8, vit: 2.0, spi: 1.8, thorns: 1.8, leech: 1.8, ward: 2.2, visionBonus: 1.5 },
-  cleric:     { atk: 1.1, def: 1.8, magicPower: 2.6, maxHp: 0.28, maxMp: 0.35, crit: 0.9, dodge: 1.0, str: 0.8, dex: 0.6, int: 1.6, vit: 1.5, spi: 2.6, thorns: 0.8, leech: 1.0, ward: 2.4, visionBonus: 1.5 },
+  acolyte:    { atk: 1.1, def: 1.8, magicPower: 2.6, maxHp: 0.28, maxMp: 0.35, crit: 0.9, dodge: 1.0, str: 0.8, dex: 0.6, int: 1.6, vit: 1.5, spi: 2.6, thorns: 0.8, leech: 1.0, ward: 2.4, visionBonus: 1.5 },
   adventurer: { atk: 2.0, def: 2.0, magicPower: 1.4, maxHp: 0.25, maxMp: 0.25, crit: 1.5, dodge: 1.5, str: 1.4, dex: 1.4, int: 1.2, vit: 1.4, spi: 1.2, thorns: 1.5, leech: 1.8, ward: 2.0, visionBonus: 2.5 }
 };
 
@@ -906,7 +923,8 @@ function computeClassItemPreferenceScore(item, classId) {
   if (item.slot === 'pickaxe') {
     return computeItemPowerScore(item);
   }
-  const w = (classId && CLASS_ITEM_PREFERENCE_WEIGHTS[classId]) ? CLASS_ITEM_PREFERENCE_WEIGHTS[classId] : null;
+  const normId = classId === 'fighter' ? 'bruiser' : (classId === 'cleric' ? 'acolyte' : classId);
+  const w = (normId && CLASS_ITEM_PREFERENCE_WEIGHTS[normId]) ? CLASS_ITEM_PREFERENCE_WEIGHTS[normId] : null;
   if (!w) return computeItemPowerScore(item);
   const b = getEffectiveItemBonuses(item);
   const openSockets = Math.max(0, (item.maxSockets || 0) - (Array.isArray(item.sockets) ? item.sockets.length : 0));
@@ -4134,7 +4152,8 @@ function roundFrac(val) {
 }
 
 function getClassLevelGrowth(classId) {
-  const cls = (classId && CLASSES[classId]) ? CLASSES[classId] : null;
+  const normId = normalizeHeroClassId(classId);
+  const cls = (normId && CLASSES[normId]) ? CLASSES[normId] : null;
   const src = (cls && cls.levelGrowth && typeof cls.levelGrowth === 'object') ? cls.levelGrowth : DEFAULT_LEVEL_GROWTH;
   return {
     str: typeof src.str === 'number' && isFinite(src.str) ? src.str : DEFAULT_LEVEL_GROWTH.str,
@@ -4188,7 +4207,7 @@ function normalizeHeroBonusStats(rawBonus) {
 // Returns null if hero or classId is invalid (no silent Fighter substitution).
 function computeHeroDerivedStats(hero, externalModifiers) {
   if (!hero || typeof hero !== 'object') return null;
-  const classId = hero.classId;
+  const classId = normalizeHeroClassId(hero.classId);
   const cls = (classId && CLASSES[classId]) ? CLASSES[classId] : null;
   if (!cls) return null;
 
@@ -4220,11 +4239,11 @@ function computeHeroDerivedStats(hero, externalModifiers) {
   let flatWard = ext.ward || 0;
 
   // Passive Class Bonuses
-  if (classId === 'fighter') flatHp += 10;
+  if (classId === 'bruiser') flatHp += 10;
   if (classId === 'thief')   flatCrit += 15;
   if (classId === 'ranger')  flatDodge += 15;
   if (classId === 'paladin') flatDef += 10;
-  if (classId === 'cleric')  flatDef += 5;
+  if (classId === 'acolyte') flatDef += 5;
 
   // Talent Bonuses
   const t = (hero.talentsAllocated && typeof hero.talentsAllocated === 'object') ? hero.talentsAllocated : {};
@@ -4323,7 +4342,7 @@ function computeHeroDerivedStats(hero, externalModifiers) {
 
   // Provisional SPI contributions (justified for divine/spiritual & arcane classes;
   // fractional attributes are preserved until final rounding)
-  const spiMpBonus = classId === 'cleric'
+  const spiMpBonus = classId === 'acolyte'
     ? (spi * 1.5)
     : classId === 'paladin'
       ? (spi * 1.0)
@@ -4336,13 +4355,13 @@ function computeHeroDerivedStats(hero, externalModifiers) {
 
   const primaryOffensive = classId === 'mage'
     ? (intel * 1.1 + str * 0.3)
-    : (classId === 'ranger' || classId === 'thief')
+    : (classId === 'ranger' || classId === 'thief' || classId === 'scout')
       ? (dex * 0.9 + str * 0.4)
-      : classId === 'cleric'
+      : classId === 'acolyte'
         ? (str * 0.65 + spi * 0.55)
         : (str * 0.95 + dex * 0.35);
 
-  const magicBase = (classId === 'cleric' || classId === 'paladin')
+  const magicBase = (classId === 'acolyte' || classId === 'paladin')
     ? (spi * 1.35 + intel * 0.65)
     : (intel * 1.2 + spi * 0.35);
 
@@ -6255,9 +6274,9 @@ const ABILITY_IDS = Object.freeze(Object.keys(ABILITIES));
 
 // Complete 32-entry approved entry-tier default bindings + preserved legacy classes
 const CLASS_DEFAULT_ABILITIES = Object.freeze({
-  fighter:    Object.freeze(['power_strike', 'cleave', 'overpower', 'brace', 'charge', 'battle_cry']),
+  bruiser:    Object.freeze(['power_strike', 'cleave', 'overpower', 'brace', 'charge', 'battle_cry']),
   mage:       Object.freeze(['arcane_missile', 'fireball', 'frost_nova', 'arcane_ward', 'blink', 'detect_magic']),
-  cleric:     Object.freeze(['sacred_flame', 'healing_light', 'blessing', 'purification', 'sanctuary', 'divine_sight']),
+  acolyte:    Object.freeze(['sacred_flame', 'healing_light', 'blessing', 'purification', 'sanctuary', 'divine_sight']),
   scout:      Object.freeze(['aimed_shot', 'tracking', 'camouflage', 'snare', 'forage', 'reconnaissance', 'forced_pace']),
   adventurer: Object.freeze(['second_wind', 'careful_search', 'disengage', 'dirty_fighting', 'appraise', 'disarm_trap', 'lockpicking']),
   // Legacy prototype classes preserved until deliberate roster progression pass
@@ -6272,7 +6291,8 @@ function getAbilityDefinition(abilityId) {
 }
 
 function getDefaultAbilityIdsForClass(classId) {
-  const list = CLASS_DEFAULT_ABILITIES[classId];
+  const key = classId === 'fighter' ? 'bruiser' : (classId === 'cleric' ? 'acolyte' : classId);
+  const list = CLASS_DEFAULT_ABILITIES[key];
   return Array.isArray(list) ? list.slice() : [];
 }
 
@@ -6282,6 +6302,28 @@ function getDefaultAbilityIdsForClass(classId) {
 // damage/shield/healing scaling, and damage absorption independent of Dungeon/Strategy UI.
 
 
+
+const QUICK_SLOT_COUNT = 4;
+const QUICK_SLOT_CONTEXTS = ['tactical_dungeon', 'overworld'];
+
+function normalizeQuickSlotArray(rawArr, defaultIds, allowDefaultSeed) {
+  const out = [];
+  if (Array.isArray(rawArr)) {
+    for (let i = 0; i < QUICK_SLOT_COUNT; i++) {
+      const id = rawArr[i];
+      out.push((typeof id === 'string' && ABILITIES[id]) ? id : null);
+    }
+    return out;
+  }
+  if (!allowDefaultSeed) {
+    for (let i = 0; i < QUICK_SLOT_COUNT; i++) out.push(null);
+    return out;
+  }
+  for (let i = 0; i < QUICK_SLOT_COUNT; i++) {
+    out.push(defaultIds[i] || null);
+  }
+  return out;
+}
 
 function normalizeActorAbilityState(actor) {
   if (!actor || typeof actor !== 'object') return null;
@@ -6341,7 +6383,120 @@ function normalizeActorAbilityState(actor) {
     actor.activeAbilityId = activeIds.length > 0 ? activeIds[0] : null;
   }
 
+  // Initialize (one-time per context) or strictly preserve per-context configurable quick-access slots.
+  // After initial setup, player assignments/order (including intentionally cleared null slots and
+  // temporarily unavailable/ungranted abilities) are never auto-repopulated, reordered, or replaced.
+  if (!actor.quickSlots || typeof actor.quickSlots !== 'object') {
+    actor.quickSlots = {};
+  }
+  if (!actor._quickSlotsInitialized || typeof actor._quickSlotsInitialized !== 'object') {
+    actor._quickSlotsInitialized = {};
+  }
+  for (let cIdx = 0; cIdx < QUICK_SLOT_CONTEXTS.length; cIdx++) {
+    const ctxKey = QUICK_SLOT_CONTEXTS[cIdx];
+    const existing = actor.quickSlots[ctxKey];
+    const alreadyInit = Boolean(actor._quickSlotsInitialized[ctxKey] || actor._quickSlotsCustomized || Array.isArray(existing));
+    if (!alreadyInit) {
+      const ctxDefaults = getGrantedAbilityIds(actor, { activation: 'active', context: ctxKey });
+      actor.quickSlots[ctxKey] = normalizeQuickSlotArray(null, ctxDefaults, true);
+      actor._quickSlotsInitialized[ctxKey] = true;
+    } else {
+      actor.quickSlots[ctxKey] = normalizeQuickSlotArray(Array.isArray(existing) ? existing : [], null, false);
+      actor._quickSlotsInitialized[ctxKey] = true;
+    }
+  }
+
   return actor;
+}
+
+function getHeroQuickSlots(actor, contextId) {
+  if (!actor) return [];
+  normalizeActorAbilityState(actor);
+  const ctxKey = QUICK_SLOT_CONTEXTS.indexOf(contextId) !== -1 ? contextId : 'tactical_dungeon';
+  const arr = actor.quickSlots[ctxKey] || [];
+  const out = [];
+  for (let i = 0; i < QUICK_SLOT_COUNT; i++) {
+    const id = arr[i] || null;
+    const def = id ? getAbilityDefinition(id) : null;
+    const granted = Boolean(id && hasAbilityAccess(actor, id));
+    const ctxOk = Boolean(def && Array.isArray(def.contexts) && def.contexts.indexOf(ctxKey) !== -1);
+    out.push({
+      slotIndex: i,
+      hotkey: String(i + 1),
+      abilityId: id,
+      granted: granted,
+      availableInContext: ctxOk
+    });
+  }
+  return out;
+}
+
+function assignQuickSlot(actor, contextId, slotIndex, abilityId) {
+  if (!actor) return { ok: false, reason: 'invalid_actor' };
+  normalizeActorAbilityState(actor);
+  const ctxKey = QUICK_SLOT_CONTEXTS.indexOf(contextId) !== -1 ? contextId : 'tactical_dungeon';
+  const idx = Math.floor(Number(slotIndex));
+  if (isNaN(idx) || idx < 0 || idx >= QUICK_SLOT_COUNT) return { ok: false, reason: 'invalid_slot' };
+  const def = getAbilityDefinition(abilityId);
+  if (!def || def.activation !== 'active') return { ok: false, reason: 'invalid_ability' };
+  if (!hasAbilityAccess(actor, abilityId)) return { ok: false, reason: 'not_granted' };
+  if (!Array.isArray(def.contexts) || def.contexts.indexOf(ctxKey) === -1) {
+    return { ok: false, reason: 'invalid_context' };
+  }
+  const slots = actor.quickSlots[ctxKey];
+  const prevIdx = slots.indexOf(abilityId);
+  let swappedWith = -1;
+  if (prevIdx !== -1 && prevIdx !== idx) {
+    // Prevent duplicates by swapping existing slot position
+    const displaced = slots[idx] || null;
+    slots[idx] = abilityId;
+    slots[prevIdx] = displaced;
+    swappedWith = prevIdx;
+  } else {
+    slots[idx] = abilityId;
+  }
+  actor._quickSlotsCustomized = true;
+  if (!actor._quickSlotsInitialized || typeof actor._quickSlotsInitialized !== 'object') {
+    actor._quickSlotsInitialized = {};
+  }
+  actor._quickSlotsInitialized[ctxKey] = true;
+  return { ok: true, slotIndex: idx, abilityId: abilityId, swappedWith: swappedWith, slots: slots.slice() };
+}
+
+function clearQuickSlot(actor, contextId, slotIndex) {
+  if (!actor) return { ok: false, reason: 'invalid_actor' };
+  normalizeActorAbilityState(actor);
+  const ctxKey = QUICK_SLOT_CONTEXTS.indexOf(contextId) !== -1 ? contextId : 'tactical_dungeon';
+  const idx = Math.floor(Number(slotIndex));
+  if (isNaN(idx) || idx < 0 || idx >= QUICK_SLOT_COUNT) return { ok: false, reason: 'invalid_slot' };
+  actor.quickSlots[ctxKey][idx] = null;
+  actor._quickSlotsCustomized = true;
+  if (!actor._quickSlotsInitialized || typeof actor._quickSlotsInitialized !== 'object') {
+    actor._quickSlotsInitialized = {};
+  }
+  actor._quickSlotsInitialized[ctxKey] = true;
+  return { ok: true, slotIndex: idx, slots: actor.quickSlots[ctxKey].slice() };
+}
+
+function swapQuickSlots(actor, contextId, idxA, idxB) {
+  if (!actor) return { ok: false, reason: 'invalid_actor' };
+  normalizeActorAbilityState(actor);
+  const ctxKey = QUICK_SLOT_CONTEXTS.indexOf(contextId) !== -1 ? contextId : 'tactical_dungeon';
+  const a = Math.floor(Number(idxA));
+  const b = Math.floor(Number(idxB));
+  if (isNaN(a) || isNaN(b) || a < 0 || a >= QUICK_SLOT_COUNT || b < 0 || b >= QUICK_SLOT_COUNT) {
+    return { ok: false, reason: 'invalid_slot' };
+  }
+  const slots = actor.quickSlots[ctxKey];
+  const tmp = slots[a];
+  slots[a] = slots[b];
+  slots[b] = tmp;
+  actor._quickSlotsCustomized = true;
+  if (!actor._quickSlotsInitialized || typeof actor._quickSlotsInitialized !== 'object') {
+    actor._quickSlotsInitialized = {};
+  }
+  actor._quickSlotsInitialized[ctxKey] = true;
+  return { ok: true, slots: slots.slice() };
 }
 
 function getGrantedAbilityIds(actor, opts) {
@@ -6986,9 +7141,10 @@ function migrateSaveData(raw) {
     );
   }
 
-  // Migrate Hero
+  // Migrate Hero (normalizes legacy fighter -> bruiser, cleric -> acolyte)
   if (data.hero) {
-    const clsId = CLASSES[data.hero.classId] ? data.hero.classId : 'fighter';
+    const normClsId = normalizeHeroClassId(data.hero.classId);
+    const clsId = CLASSES[normClsId] ? normClsId : 'bruiser';
     const cls = CLASSES[clsId];
     const eqSource = data.hero.equipment || data.hero.equipped || {};
     migrated.hero = {
@@ -7034,6 +7190,9 @@ function migrateSaveData(raw) {
       usedDivineIntervention: !!data.hero.usedDivineIntervention,
       abilityGrants: data.hero.abilityGrants ? JSON.parse(JSON.stringify(data.hero.abilityGrants)) : null,
       abilityCooldowns: data.hero.abilityCooldowns ? Object.assign({}, data.hero.abilityCooldowns) : {},
+      quickSlots: data.hero.quickSlots ? JSON.parse(JSON.stringify(data.hero.quickSlots)) : null,
+      _quickSlotsCustomized: Boolean(data.hero._quickSlotsCustomized),
+      _quickSlotsInitialized: data.hero._quickSlotsInitialized ? Object.assign({}, data.hero._quickSlotsInitialized) : null,
       activeAbilityId: data.hero.activeAbilityId || null,
       absorbShield: typeof data.hero.absorbShield === 'number' ? Math.max(0, data.hero.absorbShield) : 0,
       pendingCast: data.hero.pendingCast ? JSON.parse(JSON.stringify(data.hero.pendingCast)) : null,
@@ -7543,7 +7702,7 @@ function createDungeonEntryEnvelope(data) {
     hero: src.hero ? {
       id: src.hero.id || null,
       name: src.hero.name || 'Vanguard Hero',
-      classId: src.hero.classId || 'fighter',
+      classId: src.hero.classId || 'bruiser',
       level: typeof src.hero.level === 'number' ? src.hero.level : 1,
       xp: typeof src.hero.xp === 'number' ? src.hero.xp : 0,
       equipment: src.hero.equipment ? JSON.parse(JSON.stringify(src.hero.equipment)) : null,
@@ -11059,7 +11218,7 @@ function executeInteraction(request, state = gameState) {
     return createInteractionResult(false, request.actionId, 'target_not_found', false, [], 'Target not found');
   }
 
-  const actor = (state && state.hero) || { name: 'Player', classId: 'fighter' };
+  const actor = (state && state.hero) || { name: 'Player', classId: 'bruiser' };
 
   // Spatial range validation (Chebyshev distance <= 1.5 for manual interactions, 0 for step-over triggers)
   const maxRange = request.maxRange !== undefined ? request.maxRange : 1.5;
@@ -11801,7 +11960,7 @@ function monsterAttackHero(m, isRanged, state = gameState) {
   if ((m.statuses || []).some(function(s) { return s && s.id === 'disrupted'; })) {
     raw = Math.max(1, Math.round(raw * 0.75));
   }
-  if (h.classId === 'fighter') raw = Math.round(raw * 0.85);
+  if (h.classId === 'bruiser') raw = Math.round(raw * 0.85);
   // Bruiser Brace physical mitigation (-25% physical damage, distinct from Arcane Ward absorption shield)
   if ((h.statuses || []).some(function(s) { return s && s.id === 'physical_mitigation'; })) {
     raw = Math.max(1, Math.round(raw * 0.75));
@@ -11866,7 +12025,7 @@ function monsterAttackHero(m, isRanged, state = gameState) {
   }
 
   // Fighter Titan Resurgence Counter-Attack
-  if (!isRanged && h.classId === 'fighter' && ((h.talentsAllocated && h.talentsAllocated.f_a3) || 0) > 0 && Math.random() < 0.35) {
+  if (!isRanged && h.classId === 'bruiser' && ((h.talentsAllocated && h.talentsAllocated.f_a3) || 0) > 0 && Math.random() < 0.35) {
     const counterDmg = Math.max(2, Math.round(h.atk * 0.5));
     m.hp -= counterDmg;
     if (state === gameState) {
@@ -11977,7 +12136,7 @@ function resolveTelegraphedAbility(m, floor, state) {
 
   const mult = (ability && ability.damageMult) ? ability.damageMult : 1.5;
   let raw = Math.round((m.atk || 8) * mult);
-  if (h.classId === 'fighter') raw = Math.round(raw * 0.85);
+  if (h.classId === 'bruiser') raw = Math.round(raw * 0.85);
   if ((h.ward || 0) > 0) raw = Math.max(1, raw - h.ward);
   const dmg = Math.max(2, raw - Math.floor((h.def || 0) * 0.6));
   h.hp -= dmg;
@@ -12106,7 +12265,7 @@ function processTurn(state = gameState) {
   if (h.classId === 'paladin' && state.turn % 3 === 0) {
     h.hp = Math.min(h.maxHp, h.hp + 1);
   }
-  if (h.classId === 'cleric' && state.turn % 2 === 0) {
+  if (h.classId === 'acolyte' && state.turn % 2 === 0) {
     h.mp = Math.min(h.maxMp, h.mp + 1);
   }
 
@@ -12534,6 +12693,81 @@ function cancelPendingAbilityCast(state = gameState) {
     ui.updateUI();
   }
   return { ok: true, cancelled: cancelled };
+}
+
+function getHeroQuickAccessBar(state = gameState) {
+  if (!state || !state.hero) return [];
+  const h = state.hero;
+  normalizeActorAbilityState(h);
+  const slots = getHeroQuickSlots(h, 'tactical_dungeon');
+  const out = [];
+  for (let i = 0; i < slots.length; i++) {
+    const sl = slots[i];
+    if (!sl.abilityId) {
+      out.push({
+        slotIndex: sl.slotIndex,
+        hotkey: sl.hotkey,
+        empty: true,
+        id: null,
+        name: 'Empty Slot',
+        ready: false
+      });
+      continue;
+    }
+    const def = getAbilityDefinition(sl.abilityId);
+    if (!def) continue;
+    const val = sl.granted ? validateAbilityActivation(h, def, { context: 'tactical_dungeon' }) : { ok: false, reason: 'not_granted' };
+    const costInfo = getEffectiveAbilityCost(h, def);
+    const cdRem = getAbilityCooldownRemaining(h, def.id);
+    const silenced = isAbilitySilenced(h, def);
+    const mode = (def.targeting && def.targeting.mode) || 'self';
+    out.push({
+      slotIndex: sl.slotIndex,
+      hotkey: sl.hotkey,
+      empty: false,
+      id: def.id,
+      name: def.name,
+      icon: def.icon || '✦',
+      kind: def.kind,
+      domain: def.domain,
+      timing: def.timing,
+      desc: def.desc,
+      effectiveMp: costInfo.mp,
+      baseMp: costInfo.baseMp,
+      chilledPenalty: costInfo.chilledPenalty,
+      cooldown: costInfo.cooldown,
+      cooldownRemaining: cdRem,
+      silenced: silenced,
+      granted: sl.granted,
+      availableInContext: sl.availableInContext,
+      unavailableReason: !sl.granted ? 'not_granted' : (!sl.availableInContext ? 'invalid_context' : (val.ok ? null : val.reason)),
+      canAfford: (h.mp || 0) >= costInfo.mp,
+      ready: Boolean(val.ok && sl.granted && sl.availableInContext),
+      requiresManualTarget: (mode === 'manual_enemy' || mode === 'manual_location' || mode === 'directional'),
+      mode: mode
+    });
+  }
+  return out;
+}
+
+function executeQuickSlotAbility(slotIndex, targetPayload, state = gameState) {
+  const idx = Math.floor(Number(slotIndex));
+  if (isNaN(idx) || idx < 0) return { ok: false, reason: 'invalid_slot' };
+  const bar = getHeroQuickAccessBar(state);
+  const slot = bar[idx];
+  if (!slot || slot.empty || !slot.id) {
+    return { ok: false, reason: 'empty_slot' };
+  }
+  if (!slot.granted) {
+    return { ok: false, reason: 'not_granted' };
+  }
+  if (!slot.availableInContext) {
+    return { ok: false, reason: 'invalid_context' };
+  }
+  if (!slot.ready) {
+    return { ok: false, reason: slot.unavailableReason || 'unavailable' };
+  }
+  return executeAbility(slot.id, targetPayload || null, state);
 }
 
 function getHeroAbilityBarState(state = gameState) {
@@ -14583,7 +14817,9 @@ function getFacilityInteriorAssetId(buildingId) {
 
 function getHeroPortraitAssetId(classId) {
   if (!classId) return null;
-  return 'char_portrait_' + String(classId).toLowerCase() + '_default_idle';
+  const key = String(classId).toLowerCase();
+  const assetKey = key === 'bruiser' ? 'fighter' : (key === 'acolyte' ? 'cleric' : (key === 'scout' ? 'ranger' : key));
+  return 'char_portrait_' + assetKey + '_default_idle';
 }
 
 function getCachedImage(assetId, onLoad) {
@@ -14669,7 +14905,7 @@ function drawSharedSafeEllipse(ctx, cx, cy, rx, ry) {
 
 function normalizeSharedHeroProfile(hero) {
   const h = hero || {};
-  const classId = h.classId || 'fighter';
+  const classId = h.classId || 'bruiser';
   const cls = CLASSES[classId] || CLASSES.fighter;
   const st = h.stats || {};
   const derived = computeHeroDerivedStats(h);
@@ -14731,7 +14967,7 @@ function renderSharedPaperDollMannequin(canvas, hero) {
   const h = canvas.height;
   ctx.clearRect(0, 0, w, h);
 
-  const classId = hero ? hero.classId : 'fighter';
+  const classId = hero ? hero.classId : 'bruiser';
   const cls = CLASSES[classId] || CLASSES.fighter;
   const cosmeticAura = hero && hero.cosmetics && hero.cosmetics.aura ? hero.cosmetics.aura.color : null;
   const themeColor = cosmeticAura || cls.color || '#fbbf24';
@@ -14813,7 +15049,7 @@ function renderSharedPaperDollMannequin(canvas, hero) {
   ctx.fill();
 
   // Class-specific silhouette cape & back ornaments
-  if (classId === 'fighter') {
+  if (classId === 'bruiser') {
     ctx.fillStyle = 'rgba(185, 28, 28, 0.45)';
     ctx.beginPath();
     ctx.moveTo(cx - 36, 100);
@@ -14913,7 +15149,7 @@ function renderSharedPaperDollMannequin(canvas, hero) {
   ctx.stroke();
 
   // Class head crest / visor
-  if (classId === 'fighter') {
+  if (classId === 'bruiser') {
     ctx.fillStyle = '#fbbf24';
     ctx.fillRect(cx - 12, 70, 24, 4);
   } else if (classId === 'mage') {
@@ -15205,7 +15441,7 @@ function drawHeroSprite(ctx, px, py, classId, size = TILE_SIZE) {
   drawSafeEllipse(ctx, 16, 29, 9, 3);
   ctx.fill();
 
-  if (classId === 'fighter') {
+  if (classId === 'bruiser') {
     // 1. FIGHTER: Ironclad Vanguard with Crimson Cape, Horned Helm, Heater Shield & Broadsword
     // Flowing crimson cape behind
     ctx.fillStyle = '#7f1d1d';
@@ -15720,7 +15956,7 @@ function __legacyPaperDollUnused(canvas, hero) {
   const h = canvas.height;
   ctx.clearRect(0, 0, w, h);
 
-  const classId = hero ? hero.classId : 'fighter';
+  const classId = hero ? hero.classId : 'bruiser';
   const cls = CLASSES[classId] || CLASSES.fighter;
   const themeColor = cls.color || '#fbbf24';
 
@@ -15768,7 +16004,7 @@ function __legacyPaperDollUnused(canvas, hero) {
   ctx.fill();
 
   // Class-specific silhouette cape & back ornaments
-  if (classId === 'fighter') {
+  if (classId === 'bruiser') {
     ctx.fillStyle = 'rgba(185, 28, 28, 0.45)';
     ctx.beginPath();
     ctx.moveTo(cx - 36, 100);
@@ -15830,7 +16066,7 @@ function __legacyPaperDollUnused(canvas, hero) {
   ctx.stroke();
 
   // Class Headwear Silhouettes
-  if (classId === 'fighter') {
+  if (classId === 'bruiser') {
     ctx.fillStyle = '#cbd5e1';
     ctx.beginPath();
     ctx.moveTo(cx - 15, 62);
@@ -17617,7 +17853,7 @@ function renderDungeonCanvas() {
 // Class Talent Trees
 
 const TALENT_TREES = {
-  fighter: [
+  bruiser: [
     { id: 'f_a1', name: 'Juggernaut Plating',   desc: '+12 Max HP per rank.', max: 3 },
     { id: 'f_a2', name: 'Heavy Cleaver',        desc: '+3 Physical ATK per rank.', max: 3 },
     { id: 'f_a3', name: 'Titan Resurgence',     desc: 'Counter-attack adjacent attackers for 50% ATK (35% chance).', max: 1 }
@@ -17644,6 +17880,295 @@ const TALENT_TREES = {
   ]
 };
 
+  // --- Module: src/ui/shared/spellbook.js ---
+// Shared Spellbook & Skill Browser Data & HTML Renderer (MG-01C)
+// Reusable across Wargame Hero Sheet, Integrated Dungeon, and Standalone Roguelike.
+// Derives all costs, cooldowns, requirements, and numeric estimates from authoritative services.
+
+
+
+function sbEscapeHtml(str) {
+  return String(str === undefined || str === null ? '' : str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function formatKindLabel(kind) {
+  if (kind === 'spell') return 'Spell';
+  if (kind === 'prayer') return 'Prayer';
+  if (kind === 'technique') return 'Technique';
+  if (kind === 'power') return 'Power';
+  return 'Skill';
+}
+
+function formatTargetingLabel(tgt) {
+  if (!tgt) return 'Self';
+  if (tgt.mode === 'self') return 'Self';
+  const rng = typeof tgt.range === 'number' && tgt.range > 0 ? ('Rng ' + Math.round(tgt.range)) : 'Adj';
+  if (tgt.mode === 'manual_enemy') return 'Target Enemy (' + rng + ')';
+  if (tgt.mode === 'auto_enemy') return 'Auto Enemy (' + rng + ')';
+  if (tgt.mode === 'auto_area') return 'Area (' + rng + ')';
+  if (tgt.mode === 'manual_location') {
+    const rad = tgt.radius > 0 ? (' • ' + (tgt.radius * 2 + 1) + 'x' + (tgt.radius * 2 + 1)) : '';
+    return 'Target Tile (' + rng + rad + ')';
+  }
+  if (tgt.mode === 'directional') return 'Line (' + rng + ')';
+  return rng;
+}
+
+function formatUnavailableReason(reason, cdRem, cdSec) {
+  if (!reason) return 'Ready';
+  if (reason === 'no_mp') return 'Insufficient MP';
+  if (reason === 'on_cooldown') return cdSec > 0 ? ('Cooldown (' + cdSec + 's)') : ('Cooldown (' + cdRem + 't)');
+  if (reason === 'silenced') return 'Silenced';
+  if (reason === 'requires_ranged_weapon') return 'Requires Ranged Weapon';
+  if (reason === 'already_casting') return 'Channeling Another Cast';
+  if (reason === 'invalid_context') return 'Not Usable in This Context';
+  if (reason === 'not_active_ability') return 'Reactive / Passive';
+  return String(reason).replace(/_/g, ' ');
+}
+
+function buildAuthoritativeEffectEstimate(actor, def) {
+  if (!actor || !def || !Array.isArray(def.effects)) return '';
+  const parts = [];
+  for (let i = 0; i < def.effects.length; i++) {
+    const eff = def.effects[i];
+    if (!eff) continue;
+    if (eff.type === 'damage') {
+      const est = computeAbilityDamage(actor, eff, null, 1.0);
+      parts.push('~' + est.raw + ' ' + est.damageType + ' dmg');
+    } else if (eff.type === 'heal') {
+      const hAmt = computeAbilityHealAmount(actor, eff);
+      parts.push('~' + hAmt + ' HP heal');
+    } else if (eff.type === 'shield') {
+      const sAmt = computeAbilityShieldAmount(actor, eff);
+      parts.push('~' + sAmt + ' Shield');
+    }
+  }
+  return parts.join(' • ');
+}
+
+function buildHeroSpellbookEntries(hero, opts) {
+  if (!hero) return [];
+  normalizeActorAbilityState(hero);
+  const currentContext = (opts && opts.context) ? opts.context : 'tactical_dungeon';
+  const nowSimTimeMs = (opts && typeof opts.nowSimTimeMs === 'number') ? opts.nowSimTimeMs : 0;
+  const quickSlots = getHeroQuickSlots(hero, currentContext);
+  const slotMap = {};
+  for (let s = 0; s < quickSlots.length; s++) {
+    if (quickSlots[s] && quickSlots[s].abilityId) {
+      slotMap[quickSlots[s].abilityId] = quickSlots[s].slotIndex;
+    }
+  }
+
+  const allIds = getGrantedAbilityIds(hero);
+  const entries = [];
+  for (let i = 0; i < allIds.length; i++) {
+    const id = allIds[i];
+    const def = getAbilityDefinition(id);
+    if (!def) continue;
+
+    const sources = getGrantedAbilitySources(hero, id);
+    const contexts = Array.isArray(def.contexts) ? def.contexts.slice() : ['tactical_dungeon'];
+    const inCurrentContext = contexts.indexOf(currentContext) !== -1;
+    const costInfo = getEffectiveAbilityCost(hero, def);
+    const cdTurn = getAbilityCooldownRemaining(hero, id);
+    const cdMs = getStrategicAbilityCooldownRemainingMs(hero, id, nowSimTimeMs);
+    const cdSec = Math.ceil(cdMs / 1000);
+
+    let usableNow = false;
+    let reason = null;
+    if (def.activation !== 'active') {
+      usableNow = false;
+      reason = 'not_active_ability';
+    } else if (!inCurrentContext) {
+      usableNow = false;
+      reason = 'invalid_context';
+    } else if (currentContext === 'overworld') {
+      usableNow = cdMs <= 0;
+      reason = usableNow ? null : 'on_cooldown';
+    } else {
+      const val = validateAbilityActivation(hero, def, { context: currentContext });
+      usableNow = Boolean(val.ok);
+      reason = val.ok ? null : val.reason;
+    }
+
+    entries.push({
+      id: id,
+      name: def.name,
+      icon: def.icon || '✦',
+      kind: def.kind,
+      kindLabel: formatKindLabel(def.kind),
+      domain: def.domain,
+      activation: def.activation,
+      timing: def.timing,
+      windupTurns: def.windupTurns || 0,
+      sources: sources,
+      contexts: contexts,
+      inCurrentContext: inCurrentContext,
+      effectiveMp: costInfo.mp,
+      baseMp: costInfo.baseMp,
+      chilledPenalty: costInfo.chilledPenalty,
+      cooldownTurns: costInfo.cooldown,
+      cooldownRemainingTurns: cdTurn,
+      strategicCooldownSec: def.strategicCooldownMs ? Math.ceil(def.strategicCooldownMs / 1000) : 0,
+      cooldownRemainingSec: cdSec,
+      targetingLabel: formatTargetingLabel(def.targeting),
+      requiresRangedWeapon: Boolean(def.requiresRangedWeapon),
+      estimateText: buildAuthoritativeEffectEstimate(hero, def),
+      desc: def.desc || '',
+      usableNow: usableNow,
+      unavailableReason: reason,
+      statusLabel: formatUnavailableReason(reason, cdTurn, cdSec),
+      assignedSlotIndex: slotMap[id] !== undefined ? slotMap[id] : -1
+    });
+  }
+  // Stable deterministic ordering independent of quick-slot assignments, casting, or cooldowns
+  entries.sort(function(a, b) {
+    const na = String(a.name || '').toLowerCase();
+    const nb = String(b.name || '').toLowerCase();
+    if (na < nb) return -1;
+    if (na > nb) return 1;
+    return String(a.id || '').localeCompare(String(b.id || ''));
+  });
+  return entries;
+}
+
+function renderHeroSpellbookHtml(hero, opts) {
+  if (!hero) {
+    return '<div class="text-xs text-[#64748b] p-2">No hero selected.</div>';
+  }
+  const currentContext = (opts && opts.context) ? opts.context : 'tactical_dungeon';
+  const contextFilter = (opts && opts.contextFilter) ? opts.contextFilter : 'all';
+  const kindFilter = (opts && opts.kindFilter) ? opts.kindFilter : 'all';
+  const actionPrefix = (opts && opts.actionPrefix) ? opts.actionPrefix : 'window.WargameApp';
+  const allowCast = Boolean(opts && opts.allowCast);
+
+  const entries = buildHeroSpellbookEntries(hero, opts);
+  const quickSlots = getHeroQuickSlots(hero, currentContext);
+
+  const filtered = entries.filter(function(e) {
+    if (contextFilter !== 'all' && e.contexts.indexOf(contextFilter) === -1) return false;
+    if (kindFilter !== 'all' && e.kind !== kindFilter) return false;
+    return true;
+  });
+
+  // 1. Configurable Quick-Access Slot Strip
+  const slotCards = quickSlots.map(function(sl) {
+    const def = sl.abilityId ? getAbilityDefinition(sl.abilityId) : null;
+    const isMissing = Boolean(sl.abilityId && (!sl.granted || !sl.availableInContext));
+    const missingLabel = !sl.granted ? 'No Access' : (!sl.availableInContext ? 'Wrong Context' : '');
+    return (
+      '<div class="p-1.5 rounded bg-[#080b11] border ' + (isMissing ? 'border-[#f87171]/60 opacity-75' : 'border-[#283347]') + ' flex flex-col justify-between gap-1 text-[10px] font-mono">' +
+        '<div class="flex items-center justify-between gap-1">' +
+          '<span class="text-[#fbbf24] font-bold">[' + sl.hotkey + '] Slot ' + (sl.slotIndex + 1) + '</span>' +
+          (sl.abilityId
+            ? '<div class="flex items-center gap-0.5">' +
+                (sl.slotIndex > 0 ? '<button type="button" onclick="' + actionPrefix + '.handleSwapQuickSlots(\'' + currentContext + '\',' + sl.slotIndex + ',' + (sl.slotIndex - 1) + ')" class="px-1 rounded bg-[#1a2232] hover:bg-[#283347] text-[#94a3b8] cursor-pointer" title="Move Left">◀</button>' : '') +
+                (sl.slotIndex < QUICK_SLOT_COUNT - 1 ? '<button type="button" onclick="' + actionPrefix + '.handleSwapQuickSlots(\'' + currentContext + '\',' + sl.slotIndex + ',' + (sl.slotIndex + 1) + ')" class="px-1 rounded bg-[#1a2232] hover:bg-[#283347] text-[#94a3b8] cursor-pointer" title="Move Right">▶</button>' : '') +
+                '<button type="button" onclick="' + actionPrefix + '.handleClearQuickSlot(\'' + currentContext + '\',' + sl.slotIndex + ')" class="px-1 rounded bg-[#450a0a] hover:bg-[#7f1d1d] text-[#fca5a5] cursor-pointer" title="Clear Slot">✕</button>' +
+              '</div>'
+            : '') +
+        '</div>' +
+        '<div class="truncate ' + (def ? (isMissing ? 'text-[#94a3b8] line-through' : 'text-[#e6edf3] font-bold') : 'text-[#64748b] italic') + '">' +
+          (def ? (def.icon + ' ' + sbEscapeHtml(def.name)) : 'Empty Slot') +
+        '</div>' +
+        (isMissing ? '<div class="text-[9px] text-[#f87171]">' + missingLabel + '</div>' : '') +
+      '</div>'
+    );
+  }).join('');
+
+  // 2. Context & Kind Filter Controls
+  const ctxBtns = [
+    { id: 'all', label: 'All Contexts' },
+    { id: 'tactical_dungeon', label: 'Tactical' },
+    { id: 'overworld', label: 'Overworld' }
+  ].map(function(b) {
+    const active = contextFilter === b.id;
+    return '<button type="button" onclick="' + actionPrefix + '.handleSpellbookFilter(\'' + b.id + '\',\'' + kindFilter + '\')" class="px-2 py-0.5 rounded text-[10px] font-mono border cursor-pointer ' +
+      (active ? 'bg-[#60a5fa]/20 border-[#60a5fa] text-[#93c5fd] font-bold' : 'bg-[#0b111e] border-[#283347] text-[#94a3b8] hover:text-[#e6edf3]') + '">' + b.label + '</button>';
+  }).join('');
+
+  const kindBtns = [
+    { id: 'all', label: 'All Kinds' },
+    { id: 'spell', label: 'Spells' },
+    { id: 'prayer', label: 'Prayers' },
+    { id: 'technique', label: 'Techniques' },
+    { id: 'skill', label: 'Skills' }
+  ].map(function(b) {
+    const active = kindFilter === b.id;
+    return '<button type="button" onclick="' + actionPrefix + '.handleSpellbookFilter(\'' + contextFilter + '\',\'' + b.id + '\')" class="px-2 py-0.5 rounded text-[10px] font-mono border cursor-pointer ' +
+      (active ? 'bg-[#a855f7]/20 border-[#a855f7] text-[#d8b4fe] font-bold' : 'bg-[#0b111e] border-[#283347] text-[#94a3b8] hover:text-[#e6edf3]') + '">' + b.label + '</button>';
+  }).join('');
+
+  // 3. Full Known Entries List
+  const rowsHtml = filtered.length === 0
+    ? '<div class="text-[11px] text-[#64748b] py-2">No known spells, prayers, or skills match the selected filter.</div>'
+    : filtered.map(function(e) {
+      const costText = e.effectiveMp > 0
+        ? (e.effectiveMp + ' MP' + (e.chilledPenalty > 0 ? ' (Chilled +2)' : ''))
+        : (e.cooldownTurns > 0 ? (e.cooldownTurns + 't CD') : (e.strategicCooldownSec > 0 ? (e.strategicCooldownSec + 's CD') : 'Free'));
+      const ctxTags = e.contexts.map(function(c) {
+        return '<span class="px-1 py-0.5 rounded bg-[#0f172a] border border-[#334155] text-[9px] text-[#94a3b8]">' + (c === 'overworld' ? 'Overworld' : 'Tactical') + '</span>';
+      }).join(' ');
+      const srcTags = e.sources.map(function(s) {
+        return '<span class="px-1 py-0.5 rounded bg-[#1e293b] text-[9px] text-[#cbd5e1] uppercase">' + sbEscapeHtml(s) + '</span>';
+      }).join(' ');
+      const assignBtns = (e.activation === 'active' && e.inCurrentContext)
+        ? [0, 1, 2, 3].map(function(si) {
+          const isHere = e.assignedSlotIndex === si;
+          return '<button type="button" onclick="' + actionPrefix + '.handleAssignQuickSlot(\'' + currentContext + '\',' + si + ',\'' + e.id + '\')" class="px-1.5 py-0.5 rounded text-[9px] font-mono border cursor-pointer ' +
+            (isHere ? 'bg-[#fbbf24]/20 border-[#fbbf24] text-[#fbbf24] font-bold' : 'bg-[#1a2232] hover:bg-[#283347] border-[#334155] text-[#cbd5e1]') + '">' +
+            (isHere ? ('★S' + (si + 1)) : ('S' + (si + 1))) + '</button>';
+        }).join('')
+        : '';
+      const castBtn = (allowCast && e.activation === 'active' && e.inCurrentContext)
+        ? '<button type="button" onclick="' + actionPrefix + '.handleSpellbookCast(\'' + e.id + '\',\'' + currentContext + '\')" ' + (!e.usableNow ? 'disabled' : '') + ' class="px-2 py-0.5 rounded text-[10px] font-mono font-bold border ' +
+          (e.usableNow ? 'bg-[#34d399]/20 hover:bg-[#34d399]/30 border-[#34d399]/60 text-[#34d399] cursor-pointer' : 'bg-[#0f141e] border-[#283347] text-[#64748b] cursor-not-allowed') + '">Use</button>'
+        : '';
+
+      return (
+        '<div class="p-2 rounded bg-[#080b11] border ' + (e.usableNow ? 'border-[#283347]' : 'border-[#1e293b] opacity-85') + ' space-y-1">' +
+          '<div class="flex flex-wrap items-center justify-between gap-1">' +
+            '<div class="flex items-center gap-1.5">' +
+              '<span class="text-sm">' + e.icon + '</span>' +
+              '<strong class="text-xs text-[#e6edf3]">' + sbEscapeHtml(e.name) + '</strong>' +
+              '<span class="text-[9px] font-mono uppercase px-1 py-0.5 rounded bg-[#1a2232] text-[#60a5fa]">' + sbEscapeHtml(e.kindLabel) + '</span>' +
+              srcTags +
+            '</div>' +
+            '<div class="flex items-center gap-1.5 text-[10px] font-mono">' +
+              '<span class="text-[#fbbf24]">' + sbEscapeHtml(costText) + '</span>' +
+              '<span class="' + (e.usableNow ? 'text-[#34d399]' : 'text-[#f87171]') + '">' + sbEscapeHtml(e.statusLabel) + '</span>' +
+            '</div>' +
+          '</div>' +
+          '<div class="text-[11px] text-[#94a3b8]">' + sbEscapeHtml(e.desc) + '</div>' +
+          '<div class="flex flex-wrap items-center justify-between gap-1 text-[10px] font-mono text-[#cbd5e1]">' +
+            '<div class="flex flex-wrap items-center gap-1.5">' +
+              '<span>' + sbEscapeHtml(e.targetingLabel) + '</span>' +
+              (e.estimateText ? ('<span class="text-[#34d399]">• ' + sbEscapeHtml(e.estimateText) + '</span>') : '') +
+              (e.requiresRangedWeapon ? '<span class="text-[#fb923c]">• Needs Ranged Weapon</span>' : '') +
+              ctxTags +
+            '</div>' +
+            '<div class="flex items-center gap-1">' + assignBtns + castBtn + '</div>' +
+          '</div>' +
+        '</div>'
+      );
+    }).join('');
+
+  return (
+    '<div class="space-y-2.5">' +
+      '<div class="space-y-1">' +
+        '<div class="text-[10px] font-mono uppercase tracking-wider text-[#fbbf24]">Quick-Access Slots (' + (currentContext === 'overworld' ? 'Overworld' : 'Tactical') + ')</div>' +
+        '<div class="grid grid-cols-2 sm:grid-cols-4 gap-1.5">' + slotCards + '</div>' +
+      '</div>' +
+      '<div class="flex flex-wrap items-center gap-1 pt-1 border-t border-[#283347]/70">' + ctxBtns + ' <span class="text-[#334155]">|</span> ' + kindBtns + '</div>' +
+      '<div class="space-y-1.5 max-h-[260px] overflow-y-auto pr-0.5">' + rowsHtml + '</div>' +
+    '</div>'
+  );
+}
+
   // --- Module: src/ui/domSync.js ---
 // DOM Synchronization, Guild Hub Views (including Notice Board & Lapidary), Dungeon HUD & Chronicle Log
 
@@ -17658,6 +18183,106 @@ const TALENT_TREES = {
 
 
 
+
+
+
+
+let standaloneSpellbookOpen = false;
+let standaloneSpellbookCtxFilter = 'all';
+let standaloneSpellbookKindFilter = 'all';
+
+function isStandaloneSpellbookOpen() {
+  return standaloneSpellbookOpen;
+}
+
+function toggleStandaloneSpellbook(forceOpen) {
+  standaloneSpellbookOpen = typeof forceOpen === 'boolean' ? forceOpen : !standaloneSpellbookOpen;
+  updateAllUI();
+  return standaloneSpellbookOpen;
+}
+
+function handleStandaloneSpellbookFilter(ctxFilter, kindFilter) {
+  standaloneSpellbookCtxFilter = ctxFilter || 'all';
+  standaloneSpellbookKindFilter = kindFilter || 'all';
+  updateAllUI();
+}
+
+function handleStandaloneAssignQuickSlot(contextId, slotIndex, abilityId) {
+  if (!gameState || !gameState.hero) return { ok: false, reason: 'no_hero' };
+  const res = assignQuickSlot(gameState.hero, contextId || 'tactical_dungeon', slotIndex, abilityId);
+  if (res.ok) updateAllUI();
+  return res;
+}
+
+function handleStandaloneClearQuickSlot(contextId, slotIndex) {
+  if (!gameState || !gameState.hero) return { ok: false, reason: 'no_hero' };
+  const res = clearQuickSlot(gameState.hero, contextId || 'tactical_dungeon', slotIndex);
+  if (res.ok) updateAllUI();
+  return res;
+}
+
+function handleStandaloneSwapQuickSlots(contextId, idxA, idxB) {
+  if (!gameState || !gameState.hero) return { ok: false, reason: 'no_hero' };
+  const res = swapQuickSlots(gameState.hero, contextId || 'tactical_dungeon', idxA, idxB);
+  if (res.ok) updateAllUI();
+  return res;
+}
+
+function handleStandaloneAbilityCast(abilityId) {
+  if (!gameState || !gameState.hero || gameState.inGuild) return { ok: false, reason: 'wrong_context' };
+  const bar = getHeroAbilityBarState(gameState);
+  const entry = bar.find(function(a) { return a.id === abilityId; });
+  if (!entry || !entry.ready) {
+    const why = entry ? (entry.silenced ? 'Silenced' : (entry.cooldownRemaining > 0 ? ('Cooldown ' + entry.cooldownRemaining + 't') : (entry.unavailableReason === 'requires_ranged_weapon' ? 'Requires Ranged Weapon' : 'Insufficient MP'))) : 'No access';
+    logChronicle((entry ? entry.name : 'Ability') + ' cannot be used (' + why + ').', 'bad');
+    updateAllUI();
+    return { ok: false, reason: (entry && entry.unavailableReason) || 'unavailable' };
+  }
+  if (entry.requiresManualTarget) {
+    if (getManualTargetingAbility() === abilityId) {
+      setManualTargetingAbility(null);
+      setSkillHover(false);
+    } else {
+      setManualTargetingAbility(abilityId);
+      setSkillHover(true, abilityId);
+    }
+    updateAllUI();
+    return { ok: true, targeting: getManualTargetingAbility() };
+  }
+  setManualTargetingAbility(null);
+  setSkillHover(false);
+  const res = executeAbility(abilityId, null, gameState);
+  updateAllUI();
+  return res;
+}
+
+function handleStandaloneSpellbookCast(abilityId) {
+  standaloneSpellbookOpen = false;
+  return handleStandaloneAbilityCast(abilityId);
+}
+
+function handleStandaloneQuickSlot(slotIndex) {
+  if (!gameState || !gameState.hero || gameState.inGuild) return { ok: false, reason: 'wrong_context' };
+  const qSlots = getHeroQuickAccessBar(gameState);
+  const slot = qSlots[slotIndex];
+  if (!slot || slot.empty || !slot.id) {
+    logChronicle('Quick Slot [' + (slotIndex + 1) + '] is empty. Press [Q] to open Spellbook and assign.', 'info');
+    updateAllUI();
+    return { ok: false, reason: 'empty_slot' };
+  }
+  if (!slot.granted) {
+    logChronicle(slot.name + ' is currently unavailable (no access).', 'bad');
+    updateAllUI();
+    return { ok: false, reason: 'not_granted' };
+  }
+  if (!slot.availableInContext || !slot.ready) {
+    const why = !slot.availableInContext ? 'Wrong context' : (slot.silenced ? 'Silenced' : (slot.cooldownRemaining > 0 ? ('Cooldown ' + slot.cooldownRemaining + 't') : (slot.unavailableReason === 'requires_ranged_weapon' ? 'Requires Ranged Weapon' : 'Insufficient MP')));
+    logChronicle(slot.name + ' cannot be used (' + why + ').', 'bad');
+    updateAllUI();
+    return { ok: false, reason: slot.unavailableReason || 'unavailable' };
+  }
+  return handleStandaloneAbilityCast(slot.id);
+}
 
 function formatSocketPipsHtml(item) {
   if (!item || !item.maxSockets || item.maxSockets <= 0) return '';
@@ -18256,8 +18881,8 @@ function renderDungeonHud() {
   document.getElementById('uiHostilesCount').textContent = floor ? floor.monsters.length : 0;
   document.getElementById('uiVisionRadiusText').textContent = h.visionRadius || 5;
 
-  document.getElementById('btnSkillLabel').textContent = cls.skillName;
-  document.getElementById('btnSkillMpCost').textContent = `${cls.skillCost} MP`;
+  document.getElementById('btnSkillLabel').textContent = standaloneSpellbookOpen ? 'Close Book' : 'Spellbook';
+  document.getElementById('btnSkillMpCost').textContent = standaloneSpellbookOpen ? 'Press Q' : 'Slots 1-4';
   document.getElementById('btnPotionCount').textContent = h.consumables.potions;
   document.getElementById('btnRecallCount').textContent = h.consumables.recalls;
 
@@ -18386,9 +19011,27 @@ function updateAllUI() {
   // Class Kit
   document.getElementById('uiPassiveBadge').textContent = cls.passiveName;
   document.getElementById('uiPassiveDesc').textContent = cls.passiveDesc;
-  document.getElementById('uiSkillTitle').textContent = `${cls.skillName} [Q]`;
-  document.getElementById('uiSkillMpBadge').textContent = `${cls.skillCost} MP`;
-  document.getElementById('uiSkillDesc').textContent = cls.skillDesc;
+  document.getElementById('uiSkillTitle').textContent = standaloneSpellbookOpen ? 'Spellbook & Skills [Q]' : 'Quick Slots [1-4]';
+  document.getElementById('uiSkillMpBadge').innerHTML = '<button type="button" onclick="window.Aethelgard.toggleStandaloneSpellbook()" class="cursor-pointer font-bold">' + (standaloneSpellbookOpen ? '✕ Close [Q]' : '📖 Book [Q]') + '</button>';
+  if (standaloneSpellbookOpen) {
+    document.getElementById('uiSkillDesc').innerHTML = renderHeroSpellbookHtml(h, {
+      context: 'tactical_dungeon',
+      contextFilter: standaloneSpellbookCtxFilter,
+      kindFilter: standaloneSpellbookKindFilter,
+      allowCast: !gameState.inGuild,
+      actionPrefix: 'window.Aethelgard'
+    });
+  } else {
+    const qSlots = getHeroQuickAccessBar(gameState);
+    document.getElementById('uiSkillDesc').innerHTML = '<div class="space-y-1 mt-1">' + qSlots.map(function(ab) {
+      if (ab.empty) {
+        return '<button type="button" onclick="window.Aethelgard.toggleStandaloneSpellbook(true)" class="w-full px-1.5 py-1 rounded border border-dashed border-[#283347] bg-[#080b11] text-left text-[10px] font-mono text-[#64748b] cursor-pointer">[' + ab.hotkey + '] Empty Slot</button>';
+      }
+      const costText = ab.effectiveMp > 0 ? (ab.effectiveMp + ' MP') : (ab.cooldown > 0 ? (ab.cooldown + 't CD') : 'Free');
+      const stateText = !ab.granted ? 'NO ACCESS' : (!ab.availableInContext ? 'WRONG CTX' : (ab.silenced ? 'SILENCED' : (ab.cooldownRemaining > 0 ? ('CD ' + ab.cooldownRemaining + 't') : (ab.unavailableReason === 'requires_ranged_weapon' ? 'NEED BOW' : (ab.canAfford ? 'READY' : 'LOW MP')))));
+      return '<button type="button" onclick="window.Aethelgard.handleStandaloneQuickSlot(' + ab.slotIndex + ')" class="w-full px-1.5 py-1 rounded border text-left text-[10px] font-mono flex items-center justify-between gap-1 ' + (ab.ready ? 'border-[#60a5fa]/40 bg-[#111722] hover:bg-[#1a2232] text-[#e6edf3] cursor-pointer' : 'border-[#283347] bg-[#0a0e16] text-[#64748b] opacity-65 cursor-not-allowed') + '"><span class="truncate">[' + ab.hotkey + '] ' + ab.icon + ' ' + ab.name + '</span><span class="shrink-0 text-[9px] text-[#fbbf24]">' + costText + ' • ' + stateText + '</span></button>';
+    }).join('') + '</div>';
+  }
 
   // Right Sidebar Economy & Pack
   document.getElementById('uiVaultGoldBadge').textContent = `${gameState.guildVault.gold}g`;
@@ -19288,7 +19931,7 @@ function unsocketFromInspect(targetRef, socketIdx, isEquippedSlot) {
 function openClassSelectModal(allowCancel = false) {
   if (typeof document === 'undefined') return;
   document.getElementById('btnCloseClassModal').classList.toggle('hidden', !allowCancel);
-  const classList = ['fighter', 'thief', 'mage', 'ranger', 'paladin'].map(function(id) { return CLASSES[id]; }).filter(Boolean);
+  const classList = ['bruiser', 'thief', 'mage', 'ranger', 'paladin'].map(function(id) { return CLASSES[id]; }).filter(Boolean);
   for (let i = 0; i < classList.length; i++) {
     const c = classList[i];
     const cardCanvas = document.getElementById('classCardCanvas_' + c.id);
@@ -19310,7 +19953,8 @@ function closeClassSelectModal() {
 
 function selectAdventurerClass(classId, targetState = gameState) {
   syncActiveDungeonAlias(targetState);
-  const cls = CLASSES[classId] || CLASSES.fighter;
+  const normId = normalizeHeroClassId(classId);
+  const cls = CLASSES[normId] || CLASSES.bruiser;
   const eqCopy = JSON.parse(JSON.stringify(cls.starterGear));
   Object.keys(eqCopy).forEach(k => {
     normalizeEquipmentSockets(eqCopy[k]);
@@ -20731,6 +21375,7 @@ function handleDevTerminalKeyDown(e) {
 
 
 
+
 function updateScannerOnHover(gx, gy) {
   if (typeof document === 'undefined') return;
   const floor = ensureDungeonFloorHydrated(gameState.dungeon, gameState.dungeon.currentFloor);
@@ -20862,6 +21507,10 @@ function setupInputs(isActiveFn) {
         setSkillHover(false);
         return;
       }
+      if (isStandaloneSpellbookOpen()) {
+        toggleStandaloneSpellbook(false);
+        return;
+      }
       if (isDevConsoleOpen()) {
         closeDevConsole();
         return;
@@ -20959,27 +21608,11 @@ function setupInputs(isActiveFn) {
       waitTurn();
     } else if (e.code === 'KeyQ') {
       e.preventDefault();
-      const skillRes = executeClassSkill();
-      if (skillRes && !skillRes.ok) {
-        setSkillHover(true);
-        setTimeout(function() { setSkillHover(false); }, 1200);
-      }
-    } else if (e.key >= '1' && e.key <= '7') {
+      toggleStandaloneSpellbook();
+    } else if (e.key >= '1' && e.key <= '4') {
+      e.preventDefault();
       const slotIdx = parseInt(e.key, 10) - 1;
-      const bar = getHeroAbilityBarState(gameState);
-      if (bar[slotIdx]) {
-        e.preventDefault();
-        const ab = bar[slotIdx];
-        selectHeroActiveAbility(ab.id, gameState);
-        if (ab.requiresManualTarget) {
-          setManualTargetingAbility(ab.id);
-          setSkillHover(true, ab.id);
-        } else {
-          setManualTargetingAbility(null);
-          setSkillHover(false);
-          executeAbility(ab.id, null, gameState);
-        }
-      }
+      handleStandaloneQuickSlot(slotIdx);
     } else if (e.code === 'KeyH') {
       e.preventDefault();
       useHealingTonic();
@@ -21775,6 +22408,8 @@ function createMapViewport(options) {
 
 
 
+
+
 function evaluateSelfTests() {
   const results = [];
 
@@ -21810,7 +22445,7 @@ function evaluateSelfTests() {
   });
 
   // 2. All 5 Classes Registered with Complete Declarations
-  const reqClasses = ['fighter', 'thief', 'mage', 'ranger', 'paladin'];
+  const reqClasses = ['bruiser', 'thief', 'mage', 'ranger', 'paladin'];
   const t2Pass = reqClasses.every(
     k => CLASSES[k] && CLASSES[k].skillName && CLASSES[k].passiveName && CLASSES[k].starterGear.pickaxe
   );
@@ -22852,7 +23487,7 @@ function evaluateSelfTests() {
   // 25. 5-Class Handcrafted Vector Sprites, 2.5D Ashlar Wall Masonry & Drop-Shadow Mechanics
   let spritesRenderedAllClasses = true;
   const classOpsCounts = {};
-  const allClasses = ['fighter', 'thief', 'mage', 'ranger', 'paladin'];
+  const allClasses = ['bruiser', 'thief', 'mage', 'ranger', 'paladin'];
 
   for (let ci = 0; ci < allClasses.length; ci++) {
     const cId = allClasses[ci];
@@ -23293,7 +23928,7 @@ function evaluateSelfTests() {
   addWorldObject(f28, bashedDoor);
   sandbox28.hero.x = 16;
   sandbox28.hero.y = 15; // Stand adjacent to bashed door
-  sandbox28.hero.classId = 'fighter';
+  sandbox28.hero.classId = 'bruiser';
   sandbox28.hero.atk = 40;
   const bashReq = createInteractionRequest(sandbox28.hero, bashedDoor.instanceId, 'bash');
   executeInteraction(bashReq, sandbox28);
@@ -24161,6 +24796,195 @@ function evaluateSelfTests() {
       : 'Failed checks: ' + failed37.join(', ')
   });
 
+  // =========================================================================
+  // Test 38: MG-01C Canonical Bruiser/Acolyte Rename, Legacy Save Migration,
+  //          Spellbook Direct Non-Slotted Cast & Configurable Quick-Access Slots
+  // =========================================================================
+  const sb38 = createDefaultGameState();
+  selectAdventurerClass('bruiser', sb38);
+  sb38.inGuild = false;
+  const fl38 = ensureDungeonFloorHydrated(sb38.dungeon, 1);
+  sb38.hero.x = 10;
+  sb38.hero.y = 10;
+  for (let y38 = 8; y38 <= 12; y38++) {
+    for (let x38 = 8; x38 <= 12; x38++) {
+      if (fl38.tiles[y38] && fl38.tiles[y38][x38] !== undefined) fl38.tiles[y38][x38] = TILE_FLOOR;
+    }
+  }
+  fl38.monsters = [];
+
+  // 1. Canonical Bruiser/Acolyte definitions, Talent Tree, Item Preference & Portraits
+  const axe38 = generateProceduralEquipment(4, 'common', 'weapon', 0, 'wep_cleaver');
+  const staff38 = generateProceduralEquipment(4, 'common', 'weapon', 0, 'wep_staff');
+  const bow38 = generateProceduralEquipment(4, 'common', 'weapon', 0, 'wep_bow');
+  const canonicalDataOk38 = Boolean(
+    CLASSES.bruiser && CLASSES.bruiser.name === 'Bruiser' &&
+    CLASSES.acolyte && CLASSES.acolyte.name === 'Acolyte' &&
+    !CLASSES.fighter && !CLASSES.cleric &&
+    TALENT_TREES.bruiser && !TALENT_TREES.fighter &&
+    normalizeHeroClassId('fighter') === 'bruiser' &&
+    normalizeHeroClassId('cleric') === 'acolyte' &&
+    computeClassItemPreferenceScore(axe38, 'bruiser') > computeClassItemPreferenceScore(staff38, 'bruiser') &&
+    computeClassItemPreferenceScore(staff38, 'acolyte') > computeClassItemPreferenceScore(axe38, 'acolyte') &&
+    computeClassItemPreferenceScore(bow38, 'scout') >= 0 &&
+    getProductionImageSrc(getHeroPortraitAssetId('bruiser')) &&
+    getHeroPortraitAssetId('acolyte') === 'char_portrait_cleric_default_idle' &&
+    getProductionImageSrc(getHeroPortraitAssetId('scout'))
+  );
+
+  // 2. Legacy save migration ('fighter' -> 'bruiser', 'cleric' -> 'acolyte') + quickSlots persistence
+  const migFighter38 = migrateSaveData({
+    version: 'v0.1.0-inc1',
+    hero: { classId: 'fighter', level: 2 }
+  });
+  const migCleric38 = migrateSaveData({
+    version: 'v0.5.0-inc5',
+    hero: {
+      classId: 'cleric',
+      level: 3,
+      quickSlots: { tactical_dungeon: ['healing_light', 'sacred_flame', null, 'sanctuary'], overworld: [null, null, null, null] },
+      _quickSlotsCustomized: true
+    }
+  });
+  const legacyMigrateOk38 = Boolean(
+    migFighter38 && migFighter38.hero && migFighter38.hero.classId === 'bruiser' &&
+    migCleric38 && migCleric38.hero && migCleric38.hero.classId === 'acolyte' &&
+    migCleric38.hero._quickSlotsCustomized === true &&
+    migCleric38.hero.quickSlots &&
+    migCleric38.hero.quickSlots.tactical_dungeon[0] === 'healing_light' &&
+    migCleric38.hero.quickSlots.tactical_dungeon[2] === null
+  );
+
+  // 3. Configurable Quick-Access Slots match getHeroQuickAccessBar 1:1
+  const qAssign38 = assignQuickSlot(sb38.hero, 'tactical_dungeon', 3, 'battle_cry');
+  const qSwapDup38 = assignQuickSlot(sb38.hero, 'tactical_dungeon', 0, 'battle_cry');
+  const qClear38 = clearQuickSlot(sb38.hero, 'tactical_dungeon', 1);
+  const qSwap02_38 = swapQuickSlots(sb38.hero, 'tactical_dungeon', 0, 2);
+  const bar38 = getHeroQuickAccessBar(sb38);
+  const quickBarParityOk38 = Boolean(
+    qAssign38.ok &&
+    qSwapDup38.ok && qSwapDup38.swappedWith === 3 &&
+    qClear38.ok &&
+    qSwap02_38.ok &&
+    bar38.length === QUICK_SLOT_COUNT &&
+    bar38[0].hotkey === '1' &&
+    bar38[1].empty === true &&
+    bar38[2].id === 'battle_cry' &&
+    bar38[2].hotkey === '3'
+  );
+
+  // 4. Direct Spellbook activation of a NON-SLOTTED usable ability (clear 'brace' from bar, then cast it directly)
+  const sbEntries38 = buildHeroSpellbookEntries(sb38.hero, { context: 'tactical_dungeon' });
+  const braceSlotIdx38 = getHeroQuickSlots(sb38.hero, 'tactical_dungeon').findIndex(function(s) { return s.abilityId === 'brace'; });
+  if (braceSlotIdx38 !== -1) clearQuickSlot(sb38.hero, 'tactical_dungeon', braceSlotIdx38);
+  const sbEntriesAfterClear38 = buildHeroSpellbookEntries(sb38.hero, { context: 'tactical_dungeon' });
+  const braceEntry38 = sbEntriesAfterClear38.find(function(e) { return e.id === 'brace'; });
+  const braceCast38 = executeAbility('brace', null, sb38);
+  const sbHtml38 = renderHeroSpellbookHtml(sb38.hero, { context: 'tactical_dungeon', showQuickSlots: true, allowCast: true });
+  const nonSlottedCastOk38 = Boolean(
+    sbEntries38.length === 6 &&
+    braceEntry38 && braceEntry38.assignedSlotIndex === -1 && braceEntry38.usableNow === true &&
+    braceCast38.ok && getAbilityCooldownRemaining(sb38.hero, 'brace') > 0 &&
+    sbHtml38.indexOf('Battle Cry') !== -1 && sbHtml38.indexOf('Brace') !== -1
+  );
+
+  const t38Checks = {
+    canonicalDataOk: canonicalDataOk38,
+    legacyMigrateOk: legacyMigrateOk38,
+    quickBarParityOk: quickBarParityOk38,
+    nonSlottedCastOk: nonSlottedCastOk38
+  };
+  const failed38 = Object.keys(t38Checks).filter(function(k) { return !t38Checks[k]; });
+  const t38Pass = failed38.length === 0;
+  results.push({
+    name: '38. MG-01C: Canonical Bruiser/Acolyte Rename, Legacy Save Migration, Quick-Access Bar Parity & Non-Slotted Spellbook Cast',
+    pass: t38Pass,
+    detail: t38Pass
+      ? 'Canonical bruiser/acolyte classes, legacy save migration, 4-slot Quick-Access bar parity, and direct non-slotted Spellbook activation verified'
+      : 'Failed checks: ' + failed38.join(', ')
+  });
+
+  // =========================================================================
+  // Test 39: MG-01C Playtest Corrections — Hotlist Ownership, [1]-[4] Labels,
+  //          Cleared Slots, Revoked/Restored Access & Independent Spellbook Order
+  // =========================================================================
+  const sb39 = createDefaultGameState();
+  selectAdventurerClass('mage', sb39);
+  sb39.inGuild = false;
+  const fl39 = ensureDungeonFloorHydrated(sb39.dungeon, 1);
+  sb39.hero.x = 10;
+  sb39.hero.y = 10;
+  sb39.hero.mp = 80;
+  for (let y39 = 8; y39 <= 12; y39++) {
+    for (let x39 = 8; x39 <= 12; x39++) {
+      if (fl39.tiles[y39] && fl39.tiles[y39][x39] !== undefined) fl39.tiles[y39][x39] = TILE_FLOOR;
+    }
+  }
+  fl39.monsters = [];
+
+  // 1. Hotkeys are strictly 1-4 (no Q marker on individual slots or spellbook cards)
+  const barInit39 = getHeroQuickAccessBar(sb39);
+  const sbHtml39 = renderHeroSpellbookHtml(sb39.hero, { context: 'tactical_dungeon', allowCast: true });
+  const hotkeys14Ok39 = Boolean(
+    barInit39.length === 4 &&
+    barInit39[0].hotkey === '1' &&
+    barInit39[1].hotkey === '2' &&
+    barInit39[2].hotkey === '3' &&
+    barInit39[3].hotkey === '4' &&
+    sbHtml39.indexOf('[Q] Slot') === -1 &&
+    sbHtml39.indexOf('[1] Slot 1') !== -1
+  );
+
+  // 2. Clear ALL 4 slots -> stays empty across normalization, save migration, and direct spellbook cast
+  clearQuickSlot(sb39.hero, 'tactical_dungeon', 0);
+  clearQuickSlot(sb39.hero, 'tactical_dungeon', 1);
+  clearQuickSlot(sb39.hero, 'tactical_dungeon', 2);
+  clearQuickSlot(sb39.hero, 'tactical_dungeon', 3);
+  const mpPreEmpty39 = sb39.hero.mp;
+  const emptyCast39 = executeQuickSlotAbility(0, null, sb39);
+  const directCast39 = executeAbility('arcane_ward', null, sb39);
+  const migEmpty39 = migrateSaveData(JSON.parse(JSON.stringify(sb39)));
+  const barAfterMig39 = getHeroQuickAccessBar(migEmpty39);
+  const clearedPersistOk39 = Boolean(
+    !emptyCast39.ok && emptyCast39.reason === 'empty_slot' &&
+    directCast39.ok &&
+    sb39.hero.mp < mpPreEmpty39 &&
+    barAfterMig39.length === 4 &&
+    barAfterMig39.every(function(sl) { return sl.empty === true; })
+  );
+
+  // 3. Assign learned ability, revoke access -> stays in slot greyed out & rejects without spending MP -> restore access -> usable again
+  grantAbilityAccess(sb39.hero, 'purification', 'temporary');
+  assignQuickSlot(sb39.hero, 'tactical_dungeon', 2, 'purification');
+  const orderBefore39 = buildHeroSpellbookEntries(sb39.hero, { context: 'tactical_dungeon' }).map(function(e) { return e.id; }).join(',');
+  revokeAbilityAccess(sb39.hero, 'purification', 'temporary');
+  const barRevoked39 = getHeroQuickAccessBar(sb39);
+  const mpPreRev39 = sb39.hero.mp;
+  const castRevoked39 = executeQuickSlotAbility(2, null, sb39);
+  const mpAfterRev39 = sb39.hero.mp;
+  grantAbilityAccess(sb39.hero, 'purification', 'temporary');
+  const barRestored39 = getHeroQuickAccessBar(sb39);
+  const castRestored39 = executeQuickSlotAbility(2, null, sb39);
+  const orderAfter39 = buildHeroSpellbookEntries(sb39.hero, { context: 'tactical_dungeon' }).map(function(e) { return e.id; }).join(',');
+  const t39Checks = {
+    hotkeys14Ok: hotkeys14Ok39,
+    clearedPersistOk: clearedPersistOk39,
+    revokedStaysInSlot: Boolean(barRevoked39[2].id === 'purification' && barRevoked39[2].granted === false && barRevoked39[2].ready === false),
+    revokedRejectsNoMp: Boolean(!castRevoked39.ok && castRevoked39.reason === 'not_granted' && mpAfterRev39 === mpPreRev39),
+    restoredUsable: Boolean(barRestored39[2].id === 'purification' && barRestored39[2].granted === true && barRestored39[2].ready === true),
+    restoredCastOk: Boolean(castRestored39 && castRestored39.ok),
+    spellbookOrderStable: orderBefore39 === orderAfter39
+  };
+  const failed39 = Object.keys(t39Checks).filter(function(k) { return !t39Checks[k]; });
+  const t39Pass = failed39.length === 0;
+  results.push({
+    name: '39. MG-01C Playtest Corrections: Hotlist Ownership, [1]-[4] Labels, Cleared Slots & Revoke/Restore Access',
+    pass: t39Pass,
+    detail: t39Pass
+      ? 'Strict [1]-[4] hotlist labels, persistent empty slots, revoked/restored access preservation, zero wasted MP, and stable Spellbook ordering verified'
+      : 'Failed checks: ' + failed39.join(', ')
+  });
+
   return results;
 }
 
@@ -24209,7 +25033,7 @@ function closeDiagnosticsModal() {
 }
 
 function runChaosFuzzer(seedCount = 25) {
-  const classes = ['fighter', 'thief', 'mage', 'ranger', 'paladin'];
+  const classes = ['bruiser', 'thief', 'mage', 'ranger', 'paladin', 'acolyte', 'scout'];
   const sizePresets = [
     { w: 48,  h: 36,  name: 'compact' },
     { w: 80,  h: 60,  name: 'standard' },
@@ -24514,7 +25338,14 @@ const AethelgardAPI = {
   handleDevActivatePocketPortalClick,
   SPAWN_SUB_OPTIONS,
   handleDevTerminalSubmit,
-  handleDevTerminalKeyDown
+  handleDevTerminalKeyDown,
+  toggleStandaloneSpellbook,
+  handleSpellbookFilter: handleStandaloneSpellbookFilter,
+  handleAssignQuickSlot: handleStandaloneAssignQuickSlot,
+  handleClearQuickSlot: handleStandaloneClearQuickSlot,
+  handleSwapQuickSlots: handleStandaloneSwapQuickSlots,
+  handleSpellbookCast: handleStandaloneSpellbookCast,
+  handleStandaloneQuickSlot
 };
 
 function bootstrapApp() {
@@ -24524,7 +25355,7 @@ function bootstrapApp() {
   if (handoff) {
     const isNewCamp = !gameState.wargameSession || gameState.wargameSession.campaignId !== (handoff.campaignId || 'world_prime');
     if (!loaded || !gameState.hero || isNewCamp) {
-      selectAdventurerClass((handoff.hero && handoff.hero.classId) || 'fighter');
+      selectAdventurerClass((handoff.hero && handoff.hero.classId) || 'bruiser');
     }
     applyWargameEntryHandoff(handoff, gameState);
     updateFOV();
@@ -24532,7 +25363,7 @@ function bootstrapApp() {
     updateAllUI();
   } else
   if (!loaded || !gameState.hero) {
-    selectAdventurerClass('fighter');
+    selectAdventurerClass('bruiser');
     openClassSelectModal(false);
   } else {
     updateFOV();

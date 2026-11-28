@@ -2,7 +2,7 @@
 // Works consistently across Wargame (Overworld/City) and Integrated Dungeon contexts.
 // No arbitrary JS execution or eval; all mutations route through canonical game services.
 
-import { CLASSES } from '../data/classes.js';
+import { CLASSES, normalizeHeroClassId } from '../data/classes.js';
 import { MONSTER_ARCHETYPES, BOSS_ARCHETYPES } from '../data/monsters.js';
 import { SHOP_ITEMS, normalizeEquipmentItem } from '../data/items.js';
 import { ABILITIES, ABILITY_IDS, getAbilityDefinition } from '../data/abilities.js';
@@ -727,28 +727,29 @@ export function createDevConsoleController(options) {
       category: 'Heroes & Progression',
       usage: 'recruit <classId> ["Hero Name"]',
       params: [
-        { name: 'classId', required: true, desc: 'Adventuring class ID (fighter, thief, mage, ranger, paladin).' },
+        { name: 'classId', required: true, desc: 'Adventuring class ID (bruiser, mage, acolyte, scout, adventurer, thief, ranger, paladin).' },
         { name: 'Hero Name', required: false, desc: 'Optional custom name (quote if it has spaces).' }
       ],
-      examples: ['recruit fighter', 'recruit mage "Lyra Star"'],
+      examples: ['recruit bruiser', 'recruit scout "Kael"', 'recruit acolyte "Mara"'],
       aliases: [],
       contexts: ['strategy'],
-      desc: 'Queue hero recruitment through canonical RECRUIT_HERO command.',
+      desc: 'Recruit a hero via canonical RECRUIT_HERO (or dev instant recruit for entry classes if guild prerequisites are not yet built).',
       run: function(args) {
         const simHost = getSimHost();
         if (!simHost) return { ok: false, text: 'SimHost unavailable.' };
-        const classId = args[0] ? args[0].toLowerCase() : '';
-        if (!classId) return { ok: false, text: 'Usage: recruit <classId> ["Hero Name"]' };
+        const rawCls = args[0] ? args[0].toLowerCase() : '';
+        if (!rawCls) return { ok: false, text: 'Usage: recruit <classId> ["Hero Name"]' };
+        const classId = normalizeHeroClassId(rawCls);
         const res = simHost.dispatch({
           type: COMMAND_TYPES.RECRUIT_HERO,
           payload: { classId: classId, heroName: args[1] || null }
         });
-        if ((!res || !res.ok) && classId === 'scout' && CLASSES.scout && simHost.state && simHost.state.world) {
-          // Safe Dev Console recruitment path for Scout while Rangers Lodge building is deferred (MG-01B §3)
+        if ((!res || !res.ok) && CLASSES[classId] && ['bruiser', 'mage', 'acolyte', 'scout', 'adventurer'].indexOf(classId) !== -1 && simHost.state && simHost.state.world) {
+          // Safe Dev Console instant recruitment shortcut for entry-tier playtesting without altering city buildings
           const w = simHost.state.world;
           const city = getPrimaryCity(simHost.state);
-          const heroId = 'hero_scout_' + Date.now() + '_' + ((w.heroes && w.heroes.length) || 0);
-          const sCls = CLASSES.scout;
+          const heroId = 'hero_' + classId + '_' + Date.now() + '_' + ((w.heroes && w.heroes.length) || 0);
+          const sCls = CLASSES[classId];
           const startEq = {};
           const eqKeys = ['weapon', 'armor', 'helm', 'boots', 'accessory', 'pickaxe'];
           for (let i = 0; i < eqKeys.length; i++) {
@@ -758,8 +759,8 @@ export function createDevConsoleController(options) {
           const newHero = {
             id: heroId,
             ownerPlayerId: (w.player && w.player.id) || 'player_1',
-            classId: 'scout',
-            name: args[1] || 'Frontier Scout',
+            classId: classId,
+            name: args[1] || sCls.name,
             level: 1,
             xp: 0,
             maxXp: 60,
@@ -780,21 +781,21 @@ export function createDevConsoleController(options) {
           if (w.overworld && Array.isArray(w.overworld.units)) {
             const sx = city ? city.x : Math.floor((w.overworld.width || 40) / 2);
             const sy = city ? city.y : Math.floor((w.overworld.height || 30) / 2);
-            const unitId = 'unit_scout_' + Date.now() + '_' + w.overworld.units.length;
+            const unitId = 'unit_' + classId + '_' + Date.now() + '_' + w.overworld.units.length;
             w.overworld.units.push({
               id: unitId,
               unitType: 'hero_party',
               leaderHeroId: heroId,
               heroId: heroId,
-              heroClassId: 'scout',
-              name: newHero.name + ' (Scout)',
+              heroClassId: classId,
+              name: newHero.name + ' (' + sCls.name + ')',
               shortName: newHero.name,
               x: sx,
               y: sy,
-              hp: newHero.stats ? newHero.stats.maxHp : 94,
-              maxHp: newHero.stats ? newHero.stats.maxHp : 94,
-              vision: 7,
-              visionRadius: 7,
+              hp: newHero.stats ? newHero.stats.maxHp : (sCls.hpBase || 100),
+              maxHp: newHero.stats ? newHero.stats.maxHp : (sCls.hpBase || 100),
+              vision: sCls.vision || 5,
+              visionRadius: sCls.vision || 5,
               alive: true,
               canEnterDungeon: true,
               status: 'idle'
@@ -803,7 +804,7 @@ export function createDevConsoleController(options) {
           }
           selectedHeroId = heroId;
           notifyMutated();
-          return { ok: true, text: 'Recruited Scout "' + newHero.name + '" via Dev Console (normal recruitment awaits Rangers Lodge).' };
+          return { ok: true, text: 'Recruited ' + sCls.name + ' "' + newHero.name + '" via Dev Console shortcut.' };
         }
         if (!res || !res.ok) return { ok: false, text: 'Recruit failed: ' + ((res && (res.reason || res.error)) || 'rejected') };
         notifyMutated();

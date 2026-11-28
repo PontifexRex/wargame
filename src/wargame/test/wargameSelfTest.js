@@ -30,7 +30,7 @@ import { normalizeEquipmentItem, getEffectiveItemBonuses, computeItemPowerScore,
 import { extractToGuild, handleHeroDefeat, useRecallScroll, traversePortal, applyWargameEntryHandoff, gainExperience, applyStatusEffect } from '../../engine/actions.js';
 import { useStairsAtPlayer, executeClassSkill, getSkillTargetingInfo, processTurn, killMonster, attackMonster, clearFloorTelegraphs } from '../../engine/combat.js';
 import { spawnEntity } from '../../engine/dev.js';
-import { CLASSES, isClassDungeonEligible, isHeroDungeonEligible } from '../../data/classes.js';
+import { CLASSES, normalizeHeroClassId, isClassDungeonEligible, isHeroDungeonEligible } from '../../data/classes.js';
 import { createPortalInstance, createHazardInstance } from '../../engine/objects.js';
 import {
   HEX_DIR_NAMES,
@@ -71,7 +71,7 @@ import {
   clearOverworldCasualtyFloaters,
   COMBAT_FLOATER_DURATION_MS
 } from '../ui/overworldView.js';
-import { CITY_BUILDINGS_CATALOG, computeBuildingDurationMs, isBuildingPrerequisiteMet, getBuildingPrerequisiteMissingReason, computeMaxPartySize, getCityRecruitableClasses, getCityAcademyBenefitEffects, getBlacksmithForgeRecipePreview, getBlacksmithTemperPreview, isHeroPresentAtCity } from '../data/buildings.js';
+import { CITY_BUILDINGS_CATALOG, BUILDING_MENU_CATEGORIES, getBuildingMaxPerCity, evaluateCityBuildingLimit, getBuildingsGroupedByMenuCategory, computeBuildingDurationMs, isBuildingPrerequisiteMet, getBuildingPrerequisiteMissingReason, computeMaxPartySize, getCityRecruitableClasses, getCityAcademyBenefitEffects, getBlacksmithForgeRecipePreview, getBlacksmithTemperPreview, isHeroPresentAtCity } from '../data/buildings.js';
 import { normalizeSharedHeroProfile, buildSharedHeroStatsHtml } from '../../ui/shared/characterSheet.js';
 import {
   TROOP_CATALOG,
@@ -208,8 +208,17 @@ import {
   grantAbilityAccess,
   revokeAbilityAccess,
   hasAbilityAccess,
-  getAbilityCooldownRemaining
+  getAbilityCooldownRemaining,
+  getHeroQuickSlots,
+  assignQuickSlot,
+  clearQuickSlot,
+  swapQuickSlots,
+  QUICK_SLOT_COUNT
 } from '../../core/abilityEngine.js';
+import {
+  buildHeroSpellbookEntries,
+  renderHeroSpellbookHtml
+} from '../../ui/shared/spellbook.js';
 import {
   setSkillHover,
   getSkillHover,
@@ -219,7 +228,14 @@ import {
 import { executeStrategicAbility, getOverworldAbilitiesForUnit } from '../engine/strategicAbilities.js';
 import { scheduleNextMarchStep } from '../engine/queues.js';
 import { CLASS_DEFAULT_ABILITIES } from '../../data/abilities.js';
-import { CLASS_CATALOG_BINDINGS } from '../../data/classes.js';
+import { CLASS_CATALOG_BINDINGS, normalizeHeroClassId } from '../../data/classes.js';
+import {
+  getHeroQuickSlots,
+  assignQuickSlot,
+  clearQuickSlot,
+  swapQuickSlots
+} from '../../core/abilityEngine.js';
+import { buildHeroSpellbookEntries, renderHeroSpellbookHtml } from '../../ui/shared/spellbook.js';
 import { OW_TERRAIN_FOREST } from '../data/terrain.js';
 
 export function evaluateWargameSelfTests() {
@@ -1103,7 +1119,7 @@ export function evaluateWargameSelfTests() {
   const templeAndGarrisonVerified = Boolean(
     preGarrisonMax === 1 &&
     postGarrisonMax === 2 &&
-    templeLv1Classes.indexOf('cleric') !== -1 &&
+    templeLv1Classes.indexOf('acolyte') !== -1 &&
     templeLv1Classes.indexOf('paladin') === -1 &&
     templeLv2Classes.indexOf('paladin') !== -1
   );
@@ -5035,14 +5051,14 @@ export function evaluateWargameSelfTests() {
     };
     clericSandbox46.dungeon.floors[1] = cFloor46;
     clericSandbox46.hero = {
-      classId: 'cleric',
+      classId: 'acolyte',
       name: 'Sister Lyra',
       level: 1,
       xp: 0,
       maxXp: 60,
       x: 4,
       y: 4,
-      equipment: Object.assign({}, CLASSES.cleric ? CLASSES.cleric.starterGear : {}),
+      equipment: Object.assign({}, CLASSES.acolyte ? CLASSES.acolyte.starterGear : {}),
       bonusStats: { str: 0, dex: 0, int: 0, vit: 0 },
       talentsAllocated: {},
       statuses: []
@@ -5069,7 +5085,7 @@ export function evaluateWargameSelfTests() {
     const hpPreHeal46 = clericSandbox46.hero.hp;
     const preview46 = getSkillTargetingInfo(clericSandbox46);
     const clericHit46 = executeClassSkill(clericSandbox46);
-    const clericClassRegOk46 = Boolean(CLASSES.cleric && clericSandbox46.hero.classId === 'cleric');
+    const clericClassRegOk46 = Boolean(CLASSES.acolyte && clericSandbox46.hero.classId === 'acolyte');
     const clericZeroMpOk46 = Boolean(!clericEmptySkill46.ok && mpAfterEmpty46 === mpPreEmpty46);
     const clericPreviewOk46 = Boolean(preview46 && preview46.valid === true && preview46.skillName === 'Sacred Flame');
     const clericHeal46 = executeAbility('healing_light', null, clericSandbox46);
@@ -5092,7 +5108,7 @@ export function evaluateWargameSelfTests() {
     hostGear46.dispatch({ type: COMMAND_TYPES.RECRUIT_HERO, payload: { classId: 'mage', heroName: 'Vaelen' } });
     hostGear46.dispatch({ type: COMMAND_TYPES.RECRUIT_HERO, payload: { classId: 'ranger', heroName: 'Kael' } });
     hostGear46.stepClock(200000);
-    const hCleric46 = hostGear46.state.world.heroes.find(function(h) { return h.classId === 'cleric'; });
+    const hCleric46 = hostGear46.state.world.heroes.find(function(h) { return h.classId === 'acolyte'; });
     const hMage46 = hostGear46.state.world.heroes.find(function(h) { return h.classId === 'mage'; });
     const hRanger46 = hostGear46.state.world.heroes.find(function(h) { return h.classId === 'ranger'; });
     const starterGearOk46 = Boolean(
@@ -5149,8 +5165,8 @@ export function evaluateWargameSelfTests() {
     host47.dispatch({ type: COMMAND_TYPES.RECRUIT_HERO, payload: { classId: 'cleric', heroName: 'Sister Sera' } });
     host47.stepClock(150000);
 
-    const newFighter47 = host47.state.world.heroes.find(function(h) { return h.classId === 'fighter'; });
-    const newCleric47 = host47.state.world.heroes.find(function(h) { return h.classId === 'cleric'; });
+    const newFighter47 = host47.state.world.heroes.find(function(h) { return h.classId === 'bruiser'; });
+    const newCleric47 = host47.state.world.heroes.find(function(h) { return h.classId === 'acolyte'; });
     const newHeroInitOk47 = Boolean(
       newFighter47 && newCleric47 &&
       newFighter47.level === 1 && newFighter47.xp === 0 && newFighter47.maxXp === DEFAULT_PERSISTENT_HERO_MAX_XP &&
@@ -5276,7 +5292,7 @@ export function evaluateWargameSelfTests() {
     recomputeHeroDerivedStats(true, dngSandbox47);
     const dungeonCompatOk47 = Boolean(
       dngVet47.id === 'hero_vet_47' &&
-      dngVet47.classId === 'fighter' &&
+      dngVet47.classId === 'bruiser' &&
       dngVet47.level === 4 &&
       dngVet47.xp === 45 &&
       dngVet47.maxXp === 165 &&
@@ -5315,7 +5331,7 @@ export function evaluateWargameSelfTests() {
   // =========================================================================
   // Test 48: HR-11 Canonical Class & Recruitment Metadata Separation
   // =========================================================================
-  const expectedRecruitIds48 = ['adventurer', 'fighter', 'scout', 'ranger', 'mage', 'thief', 'cleric', 'paladin'];
+  const expectedRecruitIds48 = ['adventurer', 'bruiser', 'scout', 'ranger', 'mage', 'thief', 'acolyte', 'paladin'];
   const allEntries48 = getAllRecruitableHeroEntries();
   const catalogKeys48 = Object.keys(HERO_RECRUITMENT_CATALOG);
 
@@ -5391,8 +5407,8 @@ export function evaluateWargameSelfTests() {
   const fgtRecruitHtml48 = buildUnifiedBuildingStageHtml(host48, 'fighters_guild', city48);
   const uiRenderOk48 = Boolean(
     fgtRecruitHtml48 &&
-    fgtRecruitHtml48.indexOf(CLASSES.fighter.name) !== -1 &&
-    fgtRecruitHtml48.indexOf(CLASSES.fighter.title) !== -1 &&
+    fgtRecruitHtml48.indexOf(CLASSES.bruiser.name) !== -1 &&
+    fgtRecruitHtml48.indexOf(CLASSES.bruiser.title) !== -1 &&
     fgtRecruitHtml48.indexOf('50g') !== -1 &&
     fgtRecruitHtml48.indexOf('30 Food') !== -1
   );
@@ -5508,7 +5524,7 @@ export function evaluateWargameSelfTests() {
 
     host49.dispatch({ type: COMMAND_TYPES.RECRUIT_HERO, payload: { classId: 'fighter', heroName: 'Bram Guard' } });
     host49.stepClock(80000);
-    const validHero49 = host49.state.world.heroes.find(function(h) { return h.classId === 'fighter'; });
+    const validHero49 = host49.state.world.heroes.find(function(h) { return h.classId === 'bruiser'; });
     const validUnit49 = host49.state.world.overworld.units.find(function(u) { return u.leaderHeroId === validHero49.id; });
 
     // Non-adventuring specialist (canEnterDungeon: false) cannot bind or enter
@@ -5549,7 +5565,7 @@ export function evaluateWargameSelfTests() {
       unknownBindRejected49 &&
       stateNotCorrupted49 &&
       validBindRes49.ok &&
-      dngState49.hero && dngState49.hero.id === validHero49.id && dngState49.hero.classId === 'fighter'
+      dngState49.hero && dngState49.hero.id === validHero49.id && dngState49.hero.classId === 'bruiser'
     );
 
     t49Checks = {
@@ -5588,14 +5604,14 @@ export function evaluateWargameSelfTests() {
     const city50 = getPrimaryCity(host50.state);
     city50.stockpile.gold = 600; city50.stockpile.food = 600;
     city50.buildings.temple_chapterhouse = 1;
-    host50.dispatch({ type: COMMAND_TYPES.RECRUIT_HERO, payload: { classId: 'cleric', heroName: 'Brother Aurelius' } });
+    host50.dispatch({ type: COMMAND_TYPES.RECRUIT_HERO, payload: { classId: 'acolyte', heroName: 'Brother Aurelius' } });
     host50.stepClock(80000);
 
-    const cleric50 = host50.state.world.heroes.find(function(h) { return h.classId === 'cleric'; });
+    const cleric50 = host50.state.world.heroes.find(function(h) { return h.classId === 'acolyte'; });
     const fiveAttrsInitOk50 = Boolean(
       cleric50 &&
       cleric50.bonusStats && cleric50.bonusStats.spi === 0 &&
-      cleric50.stats && cleric50.stats.spi === CLASSES.cleric.baseStats.spi &&
+      cleric50.stats && cleric50.stats.spi === CLASSES.acolyte.baseStats.spi &&
       cleric50.stats.magicPower > 0 &&
       cleric50.knowledge &&
       KNOWLEDGE_CATEGORIES.every(function(ck) { return cleric50.knowledge[ck] === 0; })
@@ -5682,7 +5698,7 @@ export function evaluateWargameSelfTests() {
       relCleric50.knowledge.monster_knowledge === 2.5 &&
       relLegacy50 && relLegacy50.bonusStats.spi === 0 && relLegacy50.bonusStats.str === 1 &&
       relLegacy50.knowledge && relLegacy50.knowledge.monster_knowledge === 0 &&
-      relLegacy50.stats && relLegacy50.stats.spi === CLASSES.fighter.baseStats.spi + CLASSES.fighter.levelGrowth.spi
+      relLegacy50.stats && relLegacy50.stats.spi === CLASSES.bruiser.baseStats.spi + CLASSES.bruiser.levelGrowth.spi
     );
 
     // 7. Monster Knowledge gameplay reveal tiers (INT assists but does not substitute for topic expertise)
@@ -5757,7 +5773,7 @@ export function evaluateWargameSelfTests() {
     host51.dispatch({ type: COMMAND_TYPES.RECRUIT_HERO, payload: { classId: 'cleric', heroName: 'Sister Lyra' } });
     host51.stepClock(80000);
 
-    const cleric51 = host51.state.world.heroes.find(function(h) { return h.classId === 'cleric'; });
+    const cleric51 = host51.state.world.heroes.find(function(h) { return h.classId === 'acolyte'; });
     const adv51 = host51.state.world.heroes.find(function(h) { return h.classId === 'adventurer'; });
     const clericUnit51 = host51.state.world.overworld.units.find(function(u) { return u.leaderHeroId === cleric51.id; });
     const advUnit51 = host51.state.world.overworld.units.find(function(u) { return u.leaderHeroId === adv51.id; });
@@ -5803,11 +5819,11 @@ export function evaluateWargameSelfTests() {
     const rosterAfterReloadOk51 = Boolean(
       loaded51b &&
       !host51b.state.world.heroes.some(function(h) { return h.classId === 'mage'; }) &&
-      host51b.state.world.heroes.some(function(h) { return h.classId === 'cleric'; })
+      host51b.state.world.heroes.some(function(h) { return h.classId === 'acolyte'; })
     );
 
     // Re-enter the SAME dungeon with Cleric (different hero!)
-    const clericUnit51b = host51b.state.world.overworld.units.find(function(u) { return u.heroClassId === 'cleric' && u.alive; });
+    const clericUnit51b = host51b.state.world.overworld.units.find(function(u) { return u.heroClassId === 'acolyte' && u.alive; });
     clericUnit51b.x = dngPoi51.x; clericUnit51b.y = dngPoi51.y;
     const enterCleric51 = ctx51b.enterDungeon({ unitId: clericUnit51b.id, poiId: dngPoi51.id });
     const fl1After51 = ensureDungeonFloorHydrated(dngState51b.dungeon, 1);
@@ -5815,7 +5831,7 @@ export function evaluateWargameSelfTests() {
       enterAdv51.ok && enterCleric51.ok &&
       dngState51b.dungeon.seedCode === origSeed51 &&
       fl1After51 && fl1After51.explored && fl1After51.explored[2] && fl1After51.explored[2][2] === 1 &&
-      dngState51b.hero && dngState51b.hero.classId === 'cleric'
+      dngState51b.hero && dngState51b.hero.classId === 'acolyte'
     );
 
     // Issue C: Level-up Cleric -> class-relevant fractional auto growth, +2 statPoints, +1 talentPoint; SPI allocation works
@@ -5857,8 +5873,8 @@ export function evaluateWargameSelfTests() {
     // Issue E: Cleric/Acolyte skill metadata & targeting info populated cleanly
     const skillInfo51 = getSkillTargetingInfo(dngState51b);
     const skillVisibilityOk51 = Boolean(
-      CLASSES.cleric &&
-      CLASSES.cleric.skillDesc && CLASSES.cleric.skillDesc.length > 10 &&
+      CLASSES.acolyte &&
+      CLASSES.acolyte.skillDesc && CLASSES.acolyte.skillDesc.length > 10 &&
       skillInfo51 && skillInfo51.skillName === 'Sacred Flame' && skillInfo51.effectiveCost === 8
     );
 
@@ -6005,7 +6021,7 @@ export function evaluateWargameSelfTests() {
   const owSpawn53 = con53.execute('spawn vault_crawler');
   const retireNoConfirm53 = vera53 ? con53.execute('retire ' + vera53.id) : { ok: true };
   const strategyOk53 = Boolean(
-    recCmd53.ok && vera53 && vera53.classId === 'cleric' &&
+    recCmd53.ok && vera53 && vera53.classId === 'acolyte' &&
     heroInspect53.ok && heroInspect53.text.indexOf('Sister Vera') !== -1 &&
     owSpawn53.ok &&
     !retireNoConfirm53.ok && retireNoConfirm53.text.indexOf('confirm') !== -1
@@ -6056,7 +6072,7 @@ export function evaluateWargameSelfTests() {
   const clearCmd53 = con53.execute('clear');
   const dungeonCmdsOk53 = Boolean(
     xpCmd53.ok && dngState53.hero.level === 2 &&
-    skillsCmd53.ok && skillsCmd53.text.indexOf('Sacred Ward') !== -1 &&
+    skillsCmd53.ok && skillsCmd53.text.indexOf('Sacred Flame') !== -1 &&
     grantCmd53.ok && dngState53.hero.expeditionGear.length === 1 &&
     clearCmd53.ok && con53.getOutput().length === 1
   );
@@ -6895,16 +6911,16 @@ export function evaluateWargameSelfTests() {
   const cam60 = executeStrategicAbility(host60, 'camouflage', { unit: scoutUnit60, hero: scoutHero60 });
   // 5. Complete 32-entry catalog count across the 5 approved entry-tier bindings
   const entryCounts60 = {
-    fighter: (CLASS_DEFAULT_ABILITIES.fighter || []).length,
+    bruiser: (CLASS_DEFAULT_ABILITIES.bruiser || []).length,
     mage: (CLASS_DEFAULT_ABILITIES.mage || []).length,
-    cleric: (CLASS_DEFAULT_ABILITIES.cleric || []).length,
+    acolyte: (CLASS_DEFAULT_ABILITIES.acolyte || []).length,
     scout: (CLASS_DEFAULT_ABILITIES.scout || []).length,
     adventurer: (CLASS_DEFAULT_ABILITIES.adventurer || []).length
   };
   const total32Ok60 = Boolean(
-    entryCounts60.fighter === 6 &&
+    entryCounts60.bruiser === 6 &&
     entryCounts60.mage === 6 &&
-    entryCounts60.cleric === 6 &&
+    entryCounts60.acolyte === 6 &&
     entryCounts60.scout === 7 &&
     entryCounts60.adventurer === 7 &&
     Object.keys(CLASS_CATALOG_BINDINGS).length === 5
@@ -6926,6 +6942,334 @@ export function evaluateWargameSelfTests() {
     detail: t60Pass
       ? 'Scout recruitment, Reconnaissance, Forced Pace (-25% individual march step), Forage (+anti-exploit), Tracking, Camouflage & 32-entry bindings verified'
       : 'Failed checks: ' + failed60.join(', ')
+  });
+
+  // =========================================================================
+  // Test 61: MG-01C Player Experience & Integration
+  //          Canonical Bruiser/Acolyte Rename, Normal City Recruitment Paths,
+  //          Spellbook & Skill Browser, Configurable Quick-Access Slots & Persistence
+  // =========================================================================
+  const prevSavedRaw61 = (typeof localStorage !== 'undefined') ? localStorage.getItem(WARGAME_STORAGE_KEY) : null;
+  let t61Checks = {};
+  try {
+    // 1. Canonical class IDs & legacy normalization
+    const legacyHeroObj61 = {
+      id: 'hero_legacy_61',
+      name: 'Old Veteran',
+      classId: 'fighter',
+      ownerPlayerId: CANONICAL_PLAYER_ID,
+      level: 1,
+      xp: 0
+    };
+    normalizePersistentHeroInstance(legacyHeroObj61);
+    const legacyClericObj61 = {
+      id: 'hero_legacy_cleric_61',
+      name: 'Old Priest',
+      classId: 'cleric',
+      ownerPlayerId: CANONICAL_PLAYER_ID,
+      level: 1,
+      xp: 0
+    };
+    normalizePersistentHeroInstance(legacyClericObj61);
+    const canonicalIdsOk61 = Boolean(
+      CLASSES.bruiser && CLASSES.bruiser.name === 'Bruiser' &&
+      CLASSES.acolyte && CLASSES.acolyte.name === 'Acolyte' &&
+      !CLASSES.fighter && !CLASSES.cleric &&
+      CLASSES.thief && CLASSES.ranger && CLASSES.paladin &&
+      normalizeHeroClassId('fighter') === 'bruiser' &&
+      normalizeHeroClassId('cleric') === 'acolyte' &&
+      legacyHeroObj61.classId === 'bruiser' &&
+      legacyClericObj61.classId === 'acolyte'
+    );
+
+    // 2. Normal city recruitment alignment across all 5 entry guilds + Rangers Lodge & untouched troop camps
+    const host61 = createWargameSimHost();
+    host61.dispatch({ type: COMMAND_TYPES.START_NEW_CAMPAIGN, payload: { houseName: 'House Integration', worldName: 'Spellbook Realm', seedCode: 'STAR-6101' } });
+    host61.dispatch({ type: COMMAND_TYPES.FOUND_CITY, payload: { cityName: 'Lodgekeep' } });
+    const city61 = getPrimaryCity(host61.state);
+    city61.stockpile.gold = 2000;
+    city61.stockpile.food = 2000;
+    city61.buildings.guild_hall = 1;
+    city61.buildings.fighters_guild = 1;
+    city61.buildings.mages_guild = 1;
+    city61.buildings.temple_chapterhouse = 1;
+    city61.buildings.rangers_lodge = 1;
+    city61.buildings.fighter_camp = 1;
+    city61.buildings.archer_camp = 1;
+
+    const availClasses61 = getCityRecruitableClasses(city61);
+    const recruitAlignOk61 = Boolean(
+      availClasses61.indexOf('bruiser') !== -1 &&
+      availClasses61.indexOf('mage') !== -1 &&
+      availClasses61.indexOf('acolyte') !== -1 &&
+      availClasses61.indexOf('scout') !== -1 &&
+      availClasses61.indexOf('adventurer') !== -1 &&
+      availClasses61.indexOf('ranger') !== -1 &&
+      availClasses61.indexOf('fighter') === -1 &&
+      availClasses61.indexOf('cleric') === -1 &&
+      CITY_BUILDINGS_CATALOG.fighter_camp &&
+      CITY_BUILDINGS_CATALOG.archer_camp &&
+      CITY_BUILDINGS_CATALOG.rangers_lodge
+    );
+
+    // Normal recruitment of Scout via Rangers Lodge and legacy 'fighter' -> Bruiser
+    const recScout61 = host61.dispatch({ type: COMMAND_TYPES.RECRUIT_HERO, payload: { classId: 'scout', heroName: 'Lira Trailblazer' } });
+    const recLegacyFighter61 = host61.dispatch({ type: COMMAND_TYPES.RECRUIT_HERO, payload: { classId: 'fighter', heroName: 'Garrick Stone' } });
+    const recAcolyte61 = host61.dispatch({ type: COMMAND_TYPES.RECRUIT_HERO, payload: { classId: 'acolyte', heroName: 'Brother Tamsin' } });
+    host61.stepClock(220000);
+    const scout61 = host61.state.world.heroes.find(function(h) { return h.name === 'Lira Trailblazer'; });
+    const bruiser61 = host61.state.world.heroes.find(function(h) { return h.name === 'Garrick Stone'; });
+    const acolyte61 = host61.state.world.heroes.find(function(h) { return h.name === 'Brother Tamsin'; });
+    const normalRecruitOk61 = Boolean(
+      recScout61.ok && scout61 && scout61.classId === 'scout' &&
+      recLegacyFighter61.ok && bruiser61 && bruiser61.classId === 'bruiser' &&
+      recAcolyte61.ok && acolyte61 && acolyte61.classId === 'acolyte'
+    );
+
+    // 3. Spellbook & Skill Browser: shows ALL known abilities (including non-slotted & unavailable)
+    grantAbilityAccess(acolyte61, 'fireball', 'learned');
+    const sbDungeonEntries61 = buildHeroSpellbookEntries(acolyte61, { context: 'tactical_dungeon' });
+    const sbFireball61 = sbDungeonEntries61.find(function(e) { return e.id === 'fireball'; });
+    const sbSanctuary61 = sbDungeonEntries61.find(function(e) { return e.id === 'sanctuary'; });
+    const sbHtml61 = renderHeroSpellbookHtml(acolyte61, { context: 'tactical_dungeon', showQuickSlots: true, allowCast: true });
+    // Scout has both tactical_dungeon and overworld entries — verify non-current context entries are NOT hidden
+    const scoutSbEntries61 = buildHeroSpellbookEntries(scout61, { context: 'tactical_dungeon' });
+    const scoutReconEntry61 = scoutSbEntries61.find(function(e) { return e.id === 'reconnaissance'; });
+    const spellbookOk61 = Boolean(
+      sbDungeonEntries61.length === 7 &&
+      sbFireball61 && sbFireball61.sources.indexOf('learned') !== -1 &&
+      sbSanctuary61 && sbSanctuary61.sources.indexOf('class') !== -1 &&
+      sbHtml61.indexOf('Fireball') !== -1 && sbHtml61.indexOf('Sacred Flame') !== -1 &&
+      scoutReconEntry61 && scoutReconEntry61.inCurrentContext === false && scoutReconEntry61.usableNow === false && scoutReconEntry61.unavailableReason === 'invalid_context'
+    );
+
+    // 4. Configurable Quick-Access Slots (assign, duplicate-swap, clear, swap, context separation, save/load & dungeon sync)
+    const dngSlotsBefore61 = getHeroQuickSlots(acolyte61, 'tactical_dungeon');
+    const assignNew61 = assignQuickSlot(acolyte61, 'tactical_dungeon', 3, 'fireball');
+    const dupSwap61 = assignQuickSlot(acolyte61, 'tactical_dungeon', 0, 'fireball');
+    const afterDup61 = getHeroQuickSlots(acolyte61, 'tactical_dungeon');
+    const clearSlot2_61 = clearQuickSlot(acolyte61, 'tactical_dungeon', 2);
+    const swap01_61 = swapQuickSlots(acolyte61, 'tactical_dungeon', 0, 1);
+    const afterOps61 = getHeroQuickSlots(acolyte61, 'tactical_dungeon');
+    // Overworld slots for Scout remain independent from dungeon slots
+    const scoutOwAssign61 = assignQuickSlot(scout61, 'overworld', 0, 'forage');
+    const scoutDngSlots61 = getHeroQuickSlots(scout61, 'tactical_dungeon');
+    const scoutOwSlots61 = getHeroQuickSlots(scout61, 'overworld');
+
+    const quickSlotOpsOk61 = Boolean(
+      dngSlotsBefore61.length === QUICK_SLOT_COUNT &&
+      assignNew61.ok &&
+      dupSwap61.ok && dupSwap61.swappedWith === 3 &&
+      afterDup61[0].abilityId === 'fireball' &&
+      clearSlot2_61.ok &&
+      swap01_61.ok &&
+      afterOps61[1].abilityId === 'fireball' &&
+      afterOps61[2].abilityId === null &&
+      scoutOwAssign61.ok &&
+      scoutOwSlots61[0].abilityId === 'forage' &&
+      scoutDngSlots61[0].abilityId !== 'forage'
+    );
+
+    // Persist quick slots across save/load AND bindCanonicalHeroToDungeonState
+    host61.save();
+    const reload61 = createWargameSimHost();
+    reload61.load();
+    const relAcolyte61 = acolyte61 ? reload61.state.world.heroes.find(function(h) { return h.id === acolyte61.id; }) : null;
+    const relSlots61 = relAcolyte61 ? getHeroQuickSlots(relAcolyte61, 'tactical_dungeon') : [];
+    const dngState61 = createDefaultGameState();
+    const bindRes61 = relAcolyte61
+      ? bindCanonicalHeroToDungeonState(reload61, dngState61, { heroId: relAcolyte61.id, dungeonId: 'starfall_vaults' })
+      : { ok: false };
+    const boundSlots61 = bindRes61.ok ? getHeroQuickSlots(dngState61.hero, 'tactical_dungeon') : [];
+    const quickSlotPersistOk61 = Boolean(
+      relSlots61.length === QUICK_SLOT_COUNT &&
+      relSlots61[1].abilityId === 'fireball' &&
+      relSlots61[2].abilityId === null &&
+      bindRes61.ok &&
+      boundSlots61[1].abilityId === 'fireball' &&
+      boundSlots61[2].abilityId === null
+    );
+
+    t61Checks = {
+      canonicalIdsOk: canonicalIdsOk61,
+      recruitAlignOk: recruitAlignOk61,
+      normalRecruitOk: normalRecruitOk61,
+      spellbookOk: spellbookOk61,
+      quickSlotOpsOk: quickSlotOpsOk61,
+      quickSlotPersistOk: quickSlotPersistOk61
+    };
+  } finally {
+    if (typeof localStorage !== 'undefined') {
+      if (prevSavedRaw61 === null) localStorage.removeItem(WARGAME_STORAGE_KEY);
+      else localStorage.setItem(WARGAME_STORAGE_KEY, prevSavedRaw61);
+    }
+  }
+  const failed61 = Object.keys(t61Checks).filter(function(k) { return !t61Checks[k]; });
+  const t61Pass = failed61.length === 0 && Object.keys(t61Checks).length > 0;
+  results.push({
+    name: '61. MG-01C: Canonical Bruiser/Acolyte Rename, Normal City Recruitment, Spellbook Browser & Configurable Quick-Access Slots',
+    pass: t61Pass,
+    detail: t61Pass
+      ? 'Canonical bruiser/acolyte IDs + legacy migration, all 5 entry guild recruitment paths (incl. Rangers Lodge), Spellbook browser, and 4-slot configurable Quick-Access persistence verified'
+      : 'Failed checks: ' + failed61.join(', ')
+  });
+
+  // =========================================================================
+  // Test 62: MG-01C Playtest Corrections
+  //          Hotlist Ownership ([1]-[4], Cleared Slots, Revoke/Restore),
+  //          Categorized Building Menu & Per-City Guild Uniqueness Lifecycle
+  // =========================================================================
+  const prevSavedRaw62 = (typeof localStorage !== 'undefined') ? localStorage.getItem(WARGAME_STORAGE_KEY) : null;
+  let t62Checks = {};
+  try {
+    const host62 = createWargameSimHost();
+    host62.dispatch({ type: COMMAND_TYPES.START_NEW_CAMPAIGN, payload: { houseName: 'House Limits', worldName: 'Guild Realm', seedCode: 'STAR-6201' } });
+    host62.dispatch({ type: COMMAND_TYPES.FOUND_CITY, payload: { cityName: 'Uniquehold' } });
+    const city62 = getPrimaryCity(host62.state);
+    city62.stockpile.wood = 2000;
+    city62.stockpile.stone = 2000;
+    city62.stockpile.gold = 2000;
+    city62.stockpile.food = 2000;
+    city62.stockpile.water = 2000;
+    city62.buildings.meeting_hall = 2;
+    city62.buildings.quarry = 1;
+    city62.buildings.lumber_camp = 1;
+    city62.buildings.barracks = 1;
+    city62.population.current = 30;
+    city62.population.max = 40;
+
+    // 1. Categorized Building Menu covers all constructible catalog entries with valid metadata
+    const groups62 = getBuildingsGroupedByMenuCategory(city62);
+    const groupedIds62 = [];
+    for (let gi = 0; gi < groups62.length; gi++) {
+      for (let bi = 0; bi < groups62[gi].buildingIds.length; bi++) {
+        groupedIds62.push(groups62[gi].buildingIds[bi]);
+      }
+    }
+    const expectedConstructibleCount62 = Object.keys(CITY_BUILDINGS_CATALOG).filter(function(k) { return k !== 'meeting_hall'; }).length;
+    const categoriesOk62 = Boolean(
+      BUILDING_MENU_CATEGORIES.length >= 7 &&
+      groups62.length >= 7 &&
+      groupedIds62.length === expectedConstructibleCount62
+    );
+
+    // 2. Per-city limit metadata ONLY on approved unique hero/temple guilds (not huts or troop camps)
+    const limitMetaOk62 = Boolean(
+      getBuildingMaxPerCity('fighters_guild') === 1 &&
+      getBuildingMaxPerCity('mages_guild') === 1 &&
+      getBuildingMaxPerCity('rangers_lodge') === 1 &&
+      getBuildingMaxPerCity('guild_hall') === 1 &&
+      getBuildingMaxPerCity('temple_chapterhouse') === 1 &&
+      getBuildingMaxPerCity('hut') === null &&
+      getBuildingMaxPerCity('garden') === null &&
+      getBuildingMaxPerCity('fighter_camp') === null &&
+      getBuildingMaxPerCity('archer_camp') === null
+    );
+
+    // 3. Authoritative QUEUE_BUILDING lifecycle: first build -> reject queued dup -> complete -> reject built dup -> upgrade OK -> demolish -> rebuild OK
+    const emptyPlots62 = city62.plots.filter(function(p) { return !p.buildingId; }).map(function(p) { return p.plotIndex; });
+    const pA62 = emptyPlots62[0];
+    const pB62 = emptyPlots62[1];
+    const pC62 = emptyPlots62[2];
+
+    const firstFg62 = host62.dispatch({ type: COMMAND_TYPES.QUEUE_BUILDING, payload: { plotIndex: pA62, buildingId: 'fighters_guild' } });
+    const limWhileQueued62 = evaluateCityBuildingLimit(city62, 'fighters_guild');
+    const dupQueuedFg62 = host62.dispatch({ type: COMMAND_TYPES.QUEUE_BUILDING, payload: { plotIndex: pB62, buildingId: 'fighters_guild' } });
+    host62.stepClock(15000); // Finish Lv 1 Fighters Guild
+    const limAfterBuilt62 = evaluateCityBuildingLimit(city62, 'fighters_guild');
+    const dupBuiltFg62 = host62.dispatch({ type: COMMAND_TYPES.QUEUE_BUILDING, payload: { plotIndex: pB62, buildingId: 'fighters_guild' } });
+    // Upgrading the existing Fighters Guild on pA62 (Lv 1 -> Lv 2) must remain allowed!
+    const upgradeFg62 = host62.dispatch({ type: COMMAND_TYPES.QUEUE_BUILDING, payload: { plotIndex: pA62, buildingId: 'fighters_guild' } });
+    host62.stepClock(25000); // Finish Lv 2 Fighters Guild
+    // Demolishing releases the allocation so a rebuild succeeds
+    const demolishFg62 = host62.dispatch({ type: COMMAND_TYPES.DEMOLISH_BUILDING, payload: { plotIndex: pA62 } });
+    host62.stepClock(30000); // Finish demolition
+    const limAfterDemolish62 = evaluateCityBuildingLimit(city62, 'fighters_guild');
+    const rebuildFg62 = host62.dispatch({ type: COMMAND_TYPES.QUEUE_BUILDING, payload: { plotIndex: pC62, buildingId: 'fighters_guild' } });
+    host62.stepClock(15000);
+
+    const guildLifecycleOk62 = Boolean(
+      firstFg62.ok &&
+      limWhileQueued62.atLimit === true && limWhileQueued62.queuedNewCount === 1 &&
+      !dupQueuedFg62.ok &&
+      limAfterBuilt62.atLimit === true && limAfterBuilt62.builtCount === 1 &&
+      !dupBuiltFg62.ok &&
+      upgradeFg62.ok &&
+      demolishFg62.ok &&
+      limAfterDemolish62.atLimit === false && limAfterDemolish62.builtCount === 0 &&
+      rebuildFg62.ok
+    );
+
+    // 4. Repeatable buildings (Hut) & troop camps (Fighter Camp) remain unaffected; pre-existing duplicates are reported non-destructively
+    const pD62 = emptyPlots62[3];
+    const pE62 = emptyPlots62[4];
+    const pF62 = emptyPlots62[5];
+    const hut1_62 = host62.dispatch({ type: COMMAND_TYPES.QUEUE_BUILDING, payload: { plotIndex: pD62, buildingId: 'hut' } });
+    const hut2_62 = host62.dispatch({ type: COMMAND_TYPES.QUEUE_BUILDING, payload: { plotIndex: pE62, buildingId: 'hut' } });
+    const fc1_62 = host62.dispatch({ type: COMMAND_TYPES.QUEUE_BUILDING, payload: { plotIndex: pF62, buildingId: 'fighter_camp' } });
+    host62.stepClock(30000);
+    // Simulate pre-existing duplicate Mages Guilds in a playtest profile
+    const pG62 = emptyPlots62[6];
+    const pH62 = emptyPlots62[7];
+    city62.plots[pG62].buildingId = 'mages_guild'; city62.plots[pG62].level = 1;
+    city62.plots[pH62].buildingId = 'mages_guild'; city62.plots[pH62].level = 1;
+    const dupDetect62 = evaluateCityBuildingLimit(city62, 'mages_guild');
+    const repeatableAndDupOk62 = Boolean(
+      hut1_62.ok && hut2_62.ok && fc1_62.ok &&
+      dupDetect62.builtCount === 2 &&
+      dupDetect62.duplicateDetected === true &&
+      dupDetect62.atLimit === true &&
+      city62.plots[pG62].buildingId === 'mages_guild' &&
+      city62.plots[pH62].buildingId === 'mages_guild'
+    );
+
+    // 5. Hotlist ownership in Wargame: [1]-[4] labels, all-cleared slots persist across save/load & dungeon bind
+    host62.dispatch({ type: COMMAND_TYPES.RECRUIT_HERO, payload: { classId: 'bruiser', heroName: 'Torin Shield' } });
+    host62.stepClock(70000);
+    const torin62 = host62.state.world.heroes.find(function(h) { return h.name === 'Torin Shield'; });
+    const initSlots62 = torin62 ? getHeroQuickSlots(torin62, 'tactical_dungeon') : [];
+    if (torin62) {
+      clearQuickSlot(torin62, 'tactical_dungeon', 0);
+      clearQuickSlot(torin62, 'tactical_dungeon', 1);
+      clearQuickSlot(torin62, 'tactical_dungeon', 2);
+      clearQuickSlot(torin62, 'tactical_dungeon', 3);
+    }
+    host62.save();
+    const reload62 = createWargameSimHost();
+    reload62.load();
+    const relTorin62 = torin62 ? reload62.state.world.heroes.find(function(h) { return h.id === torin62.id; }) : null;
+    const relSlots62 = relTorin62 ? getHeroQuickSlots(relTorin62, 'tactical_dungeon') : [];
+    const dng62 = createDefaultGameState();
+    const bind62 = relTorin62 ? bindCanonicalHeroToDungeonState(reload62, dng62, { heroId: relTorin62.id, dungeonId: 'starfall_vaults' }) : { ok: false };
+    const boundSlots62 = bind62.ok ? getHeroQuickSlots(dng62.hero, 'tactical_dungeon') : [];
+    const hotlistOwnershipOk62 = Boolean(
+      initSlots62.length === 4 &&
+      initSlots62[0].hotkey === '1' && initSlots62[3].hotkey === '4' &&
+      relSlots62.length === 4 && relSlots62.every(function(s) { return s.abilityId === null; }) &&
+      bind62.ok && boundSlots62.length === 4 && boundSlots62.every(function(s) { return s.abilityId === null; })
+    );
+
+    t62Checks = {
+      categoriesOk: categoriesOk62,
+      limitMetaOk: limitMetaOk62,
+      guildLifecycleOk: guildLifecycleOk62,
+      repeatableAndDupOk: repeatableAndDupOk62,
+      hotlistOwnershipOk: hotlistOwnershipOk62
+    };
+  } finally {
+    if (typeof localStorage !== 'undefined') {
+      if (prevSavedRaw62 === null) localStorage.removeItem(WARGAME_STORAGE_KEY);
+      else localStorage.setItem(WARGAME_STORAGE_KEY, prevSavedRaw62);
+    }
+  }
+  const failed62 = Object.keys(t62Checks).filter(function(k) { return !t62Checks[k]; });
+  const t62Pass = failed62.length === 0 && Object.keys(t62Checks).length > 0;
+  results.push({
+    name: '62. MG-01C Playtest Corrections: Hotlist Ownership ([1]-[4]), Categorized Building Menu & Per-City Guild Uniqueness',
+    pass: t62Pass,
+    detail: t62Pass
+      ? 'Strict [1]-[4] hotlist ownership + persistent cleared slots, data-driven building categories, and authoritative 1/city guild limit (queued/built/upgrade/demolish/rebuild) verified'
+      : 'Failed checks: ' + failed62.join(', ')
   });
 
   return results;

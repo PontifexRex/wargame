@@ -93,7 +93,7 @@ export function createAppContextController(options) {
     const poiId = resData.poiId || p.poiId || null;
     const dungeonId = resData.dungeonId || 'dng_starfall';
     const heroId = (env && env.hero && env.hero.id) || null;
-    const heroClassId = (env && env.hero && env.hero.classId) || 'fighter';
+    const heroClassId = (env && env.hero && env.hero.classId) || 'bruiser';
 
     nextSessionSeq += 1;
     const sessionId = 'dng_sess_' + nextSessionSeq;

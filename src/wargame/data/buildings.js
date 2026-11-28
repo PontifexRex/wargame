@@ -20,6 +20,47 @@ export function normalizeBuildingId(buildingId) {
   return buildingId;
 }
 
+export const BUILDING_MENU_CATEGORIES = Object.freeze([
+  { id: 'administration',        label: 'Administration & Housing',  icon: '🏛️' },
+  { id: 'resource_gathering',    label: 'Resource Gathering',        icon: '⛏️' },
+  { id: 'processing_production', label: 'Processing & Production',   icon: '🔥' },
+  { id: 'crafting',              label: 'Crafting',                  icon: '🔨' },
+  { id: 'commerce_logistics',    label: 'Commerce & Logistics',      icon: '📦' },
+  { id: 'hero_guilds',           label: 'Hero Recruitment & Guilds', icon: '⚔️' },
+  { id: 'religion',              label: 'Religion',                  icon: '⛪' },
+  { id: 'military',              label: 'Military & Defense',        icon: '🛡️' },
+  { id: 'research_learning',     label: 'Research & Learning',       icon: '🎓' }
+]);
+
+const BUILDING_MENU_CATEGORY_MAP = Object.freeze({
+  meeting_hall:        'administration',
+  hut:                 'administration',
+  well:                'administration',
+  garden:              'resource_gathering',
+  lumber_camp:         'resource_gathering',
+  quarry:              'resource_gathering',
+  mine:                'resource_gathering',
+  smeltery:            'processing_production',
+  apothecary:          'processing_production',
+  windmill:            'processing_production',
+  blacksmith:          'crafting',
+  lapidary:            'crafting',
+  silo:                'commerce_logistics',
+  warehouse:           'commerce_logistics',
+  market_post:         'commerce_logistics',
+  guild_hall:          'hero_guilds',
+  fighters_guild:      'hero_guilds',
+  mages_guild:         'hero_guilds',
+  rangers_lodge:       'hero_guilds',
+  thieves_guild:       'hero_guilds',
+  temple_chapterhouse: 'religion',
+  barracks:            'military',
+  fighter_camp:        'military',
+  archer_camp:         'military',
+  garrison:            'military',
+  arcane_academy:      'research_learning'
+});
+
 export const CITY_BUILDINGS_CATALOG = {
   // ---------------------------------------------------------------------------
   // 1. CIVIC STRUCTURES
@@ -322,6 +363,7 @@ export const CITY_BUILDINGS_CATALOG = {
     name: 'Adventurers Guild',
     icon: '⚔️',
     category: 'military',
+    maxPerCity: 1,
     color: '#60a5fa',
     maxLevel: 3,
     baseBuildTimeMs: 6000,
@@ -360,6 +402,7 @@ export const CITY_BUILDINGS_CATALOG = {
     name: 'Temple Chapterhouse',
     icon: '⛪',
     category: 'arcane',
+    maxPerCity: 1,
     color: '#fef08a',
     maxLevel: 5,
     baseBuildTimeMs: 6500,
@@ -369,7 +412,7 @@ export const CITY_BUILDINGS_CATALOG = {
     facilities: {
       recruitment: {
         classes: [
-          { classId: 'cleric',  minLevel: 1 },
+          { classId: 'acolyte', minLevel: 1 },
           { classId: 'paladin', minLevel: 2 }
         ]
       },
@@ -378,13 +421,14 @@ export const CITY_BUILDINGS_CATALOG = {
       research:   { domain: 'temple' },
       shop:       { catalogId: 'shop_temple_exclusive' }
     },
-    desc: 'Sacred sanctuary recruiting Clerics (Lv 1) and Paladins (Lv 2+), with holy quests, training, research, and exclusive temple relics.'
+    desc: 'Sacred sanctuary recruiting Acolytes (Lv 1) and Paladins (Lv 2+), with holy quests, training, research, and exclusive temple relics.'
   },
   fighters_guild: {
     id: 'fighters_guild',
     name: 'Fighters Guild',
     icon: '🛡️',
     category: 'military',
+    maxPerCity: 1,
     color: '#f87171',
     maxLevel: 5,
     baseBuildTimeMs: 5500,
@@ -392,13 +436,13 @@ export const CITY_BUILDINGS_CATALOG = {
     requires: { meeting_hall: 1, quarry: 1 },
     interiorAssetId: 'city_interior_fighters_guild_default_static',
     facilities: {
-      recruitment: { classes: [{ classId: 'fighter', minLevel: 1 }] },
+      recruitment: { classes: [{ classId: 'bruiser', minLevel: 1 }] },
       questBoard: { domain: 'fighters' },
       training:   { domain: 'fighters' },
       research:   { domain: 'fighters' },
       shop:       { catalogId: 'shop_fighters_exclusive' }
     },
-    desc: 'Martial brotherhood recruiting Fighters, offering martial quests, training, research, and exclusive arms.'
+    desc: 'Martial brotherhood recruiting Bruisers, offering martial quests, training, research, and exclusive arms.'
   },
   thieves_guild: {
     id: 'thieves_guild',
@@ -425,6 +469,7 @@ export const CITY_BUILDINGS_CATALOG = {
     name: 'Mages Guild',
     icon: '✨',
     category: 'arcane',
+    maxPerCity: 1,
     color: '#60a5fa',
     maxLevel: 5,
     baseBuildTimeMs: 6500,
@@ -445,6 +490,7 @@ export const CITY_BUILDINGS_CATALOG = {
     name: 'Rangers Lodge',
     icon: '🏹',
     category: 'military',
+    maxPerCity: 1,
     color: '#34d399',
     maxLevel: 5,
     baseBuildTimeMs: 5500,
@@ -452,7 +498,12 @@ export const CITY_BUILDINGS_CATALOG = {
     requires: { meeting_hall: 1, lumber_camp: 1 },
     interiorAssetId: 'city_interior_rangers_lodge_default_static',
     facilities: {
-      recruitment: { classes: [{ classId: 'ranger', minLevel: 1 }] },
+      recruitment: {
+        classes: [
+          { classId: 'scout',  minLevel: 1 },
+          { classId: 'ranger', minLevel: 1 }
+        ]
+      },
       questBoard: { domain: 'rangers' },
       training:   { domain: 'rangers' },
       research:   { domain: 'rangers' },
@@ -461,6 +512,121 @@ export const CITY_BUILDINGS_CATALOG = {
     desc: 'Frontier pathfinder lodge recruiting Rangers, offering scouting quests, archery training, research, and bows.'
   }
 };
+
+// Populate data-driven menuCategory metadata onto every catalog entry
+(function attachBuildingMenuCategories() {
+  const keys = Object.keys(CITY_BUILDINGS_CATALOG);
+  for (let i = 0; i < keys.length; i++) {
+    const id = keys[i];
+    if (!CITY_BUILDINGS_CATALOG[id].menuCategory) {
+      CITY_BUILDINGS_CATALOG[id].menuCategory = BUILDING_MENU_CATEGORY_MAP[id] || 'administration';
+    }
+  }
+})();
+
+export function getBuildingMaxPerCity(buildingId) {
+  const def = CITY_BUILDINGS_CATALOG[buildingId];
+  if (!def || typeof def.maxPerCity !== 'number' || !isFinite(def.maxPerCity) || def.maxPerCity <= 0) {
+    return null;
+  }
+  return Math.floor(def.maxPerCity);
+}
+
+export function evaluateCityBuildingLimit(city, buildingId) {
+  const maxPerCity = getBuildingMaxPerCity(buildingId);
+  const def = CITY_BUILDINGS_CATALOG[buildingId];
+  if (!maxPerCity) {
+    return {
+      limited: false,
+      maxPerCity: null,
+      builtCount: 0,
+      queuedNewCount: 0,
+      totalCount: 0,
+      atLimit: false,
+      duplicateDetected: false,
+      reason: null
+    };
+  }
+  let builtCount = 0;
+  let queuedNewCount = 0;
+  if (city) {
+    if (Array.isArray(city.plots) && city.plots.length > 0) {
+      for (let i = 0; i < city.plots.length; i++) {
+        const p = city.plots[i];
+        if (p && p.buildingId === buildingId && (p.level || 0) > 0) {
+          builtCount++;
+        }
+      }
+    }
+    // Fallback for legacy/synthetic city snapshots where city.buildings was seeded directly without plot entries
+    if (builtCount === 0 && city.buildings && (city.buildings[buildingId] || 0) > 0) {
+      builtCount = 1;
+    }
+    if (Array.isArray(city.buildQueue)) {
+      for (let q = 0; q < city.buildQueue.length; q++) {
+        const item = city.buildQueue[q];
+        if (!item || item.buildingId !== buildingId) continue;
+        const itemType = item.type || 'build';
+        // Count only queued/in-progress NEW builds (previousLevel === 0), not upgrades/moves/demolitions
+        if (itemType === 'build' && (item.previousLevel || 0) === 0) {
+          queuedNewCount++;
+        }
+      }
+    }
+  }
+  const totalCount = builtCount + queuedNewCount;
+  const atLimit = totalCount >= maxPerCity;
+  const duplicateDetected = builtCount > maxPerCity;
+  let reason = null;
+  if (atLimit) {
+    const label = (def && def.name) ? def.name : buildingId;
+    if (builtCount >= maxPerCity) {
+      reason = 'Limit ' + maxPerCity + '/city — ' + label + ' already built' + (duplicateDetected ? ' (duplicate detected)' : '');
+    } else {
+      reason = 'Limit ' + maxPerCity + '/city — ' + label + ' construction already queued';
+    }
+  }
+  return {
+    limited: true,
+    maxPerCity: maxPerCity,
+    builtCount: builtCount,
+    queuedNewCount: queuedNewCount,
+    totalCount: totalCount,
+    atLimit: atLimit,
+    duplicateDetected: duplicateDetected,
+    reason: reason
+  };
+}
+
+export function getBuildingsGroupedByMenuCategory(city, opts) {
+  const includeMeetingHall = Boolean(opts && opts.includeMeetingHall);
+  const buckets = {};
+  for (let i = 0; i < BUILDING_MENU_CATEGORIES.length; i++) {
+    buckets[BUILDING_MENU_CATEGORIES[i].id] = [];
+  }
+  const allKeys = Object.keys(CITY_BUILDINGS_CATALOG);
+  for (let i = 0; i < allKeys.length; i++) {
+    const bId = allKeys[i];
+    if (!includeMeetingHall && bId === 'meeting_hall') continue;
+    const bDef = CITY_BUILDINGS_CATALOG[bId];
+    const catId = (bDef && bDef.menuCategory && buckets[bDef.menuCategory]) ? bDef.menuCategory : 'administration';
+    buckets[catId].push(bId);
+  }
+  const groups = [];
+  for (let i = 0; i < BUILDING_MENU_CATEGORIES.length; i++) {
+    const cat = BUILDING_MENU_CATEGORIES[i];
+    const items = buckets[cat.id];
+    if (items && items.length > 0) {
+      groups.push({
+        id: cat.id,
+        label: cat.label,
+        icon: cat.icon,
+        buildingIds: items
+      });
+    }
+  }
+  return groups;
+}
 
 export const CITY_PLOT_SLOTS = [
   { plotIndex: 0, label: 'Meeting Hall Plot', defaultBuilding: 'meeting_hall', lockedTo: 'meeting_hall' },

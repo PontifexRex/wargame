@@ -23,7 +23,8 @@ import {
   CODEX_MASTERY_KILLS,
   CODEX_MASTERY_DMG_MULT
 } from '../constants.js';
-import { CLASSES } from '../data/classes.js';
+import { CLASSES, normalizeHeroClassId } from '../data/classes.js';
+import { TALENT_TREES } from '../data/talents.js';
 import { ORE_CATALOG } from '../data/ores.js';
 import { computeItemPowerScore, computeClassItemPreferenceScore, normalizeEquipmentItem, isItemUpgrade, getItemTypeIcon, SLOT_METADATA } from '../data/items.js';
 import { CURATED_DUNGEON_PROFILES, BIOME_PALETTES, resolveFloorBiome } from '../data/dungeons.js';
@@ -139,6 +140,8 @@ import {
   getSkillTargetingInfo,
   getAbilityTargetingInfo,
   getHeroAbilityBarState,
+  getHeroQuickAccessBar,
+  executeQuickSlotAbility,
   triggerReactiveAbilities,
   processTurn,
   hasLineOfSight,
@@ -158,8 +161,17 @@ import {
   revokeAbilityAccess,
   hasAbilityAccess,
   getAbilityCooldownRemaining,
-  resetActorAbilityCooldowns
+  resetActorAbilityCooldowns,
+  getHeroQuickSlots,
+  assignQuickSlot,
+  clearQuickSlot,
+  swapQuickSlots,
+  QUICK_SLOT_COUNT
 } from '../core/abilityEngine.js';
+import {
+  buildHeroSpellbookEntries,
+  renderHeroSpellbookHtml
+} from '../ui/shared/spellbook.js';
 
 export function evaluateSelfTests() {
   const results = [];
@@ -196,7 +208,7 @@ export function evaluateSelfTests() {
   });
 
   // 2. All 5 Classes Registered with Complete Declarations
-  const reqClasses = ['fighter', 'thief', 'mage', 'ranger', 'paladin'];
+  const reqClasses = ['bruiser', 'thief', 'mage', 'ranger', 'paladin'];
   const t2Pass = reqClasses.every(
     k => CLASSES[k] && CLASSES[k].skillName && CLASSES[k].passiveName && CLASSES[k].starterGear.pickaxe
   );
@@ -1238,7 +1250,7 @@ export function evaluateSelfTests() {
   // 25. 5-Class Handcrafted Vector Sprites, 2.5D Ashlar Wall Masonry & Drop-Shadow Mechanics
   let spritesRenderedAllClasses = true;
   const classOpsCounts = {};
-  const allClasses = ['fighter', 'thief', 'mage', 'ranger', 'paladin'];
+  const allClasses = ['bruiser', 'thief', 'mage', 'ranger', 'paladin'];
 
   for (let ci = 0; ci < allClasses.length; ci++) {
     const cId = allClasses[ci];
@@ -1679,7 +1691,7 @@ export function evaluateSelfTests() {
   addWorldObject(f28, bashedDoor);
   sandbox28.hero.x = 16;
   sandbox28.hero.y = 15; // Stand adjacent to bashed door
-  sandbox28.hero.classId = 'fighter';
+  sandbox28.hero.classId = 'bruiser';
   sandbox28.hero.atk = 40;
   const bashReq = createInteractionRequest(sandbox28.hero, bashedDoor.instanceId, 'bash');
   executeInteraction(bashReq, sandbox28);
@@ -2547,6 +2559,195 @@ export function evaluateSelfTests() {
       : 'Failed checks: ' + failed37.join(', ')
   });
 
+  // =========================================================================
+  // Test 38: MG-01C Canonical Bruiser/Acolyte Rename, Legacy Save Migration,
+  //          Spellbook Direct Non-Slotted Cast & Configurable Quick-Access Slots
+  // =========================================================================
+  const sb38 = createDefaultGameState();
+  selectAdventurerClass('bruiser', sb38);
+  sb38.inGuild = false;
+  const fl38 = ensureDungeonFloorHydrated(sb38.dungeon, 1);
+  sb38.hero.x = 10;
+  sb38.hero.y = 10;
+  for (let y38 = 8; y38 <= 12; y38++) {
+    for (let x38 = 8; x38 <= 12; x38++) {
+      if (fl38.tiles[y38] && fl38.tiles[y38][x38] !== undefined) fl38.tiles[y38][x38] = TILE_FLOOR;
+    }
+  }
+  fl38.monsters = [];
+
+  // 1. Canonical Bruiser/Acolyte definitions, Talent Tree, Item Preference & Portraits
+  const axe38 = generateProceduralEquipment(4, 'common', 'weapon', 0, 'wep_cleaver');
+  const staff38 = generateProceduralEquipment(4, 'common', 'weapon', 0, 'wep_staff');
+  const bow38 = generateProceduralEquipment(4, 'common', 'weapon', 0, 'wep_bow');
+  const canonicalDataOk38 = Boolean(
+    CLASSES.bruiser && CLASSES.bruiser.name === 'Bruiser' &&
+    CLASSES.acolyte && CLASSES.acolyte.name === 'Acolyte' &&
+    !CLASSES.fighter && !CLASSES.cleric &&
+    TALENT_TREES.bruiser && !TALENT_TREES.fighter &&
+    normalizeHeroClassId('fighter') === 'bruiser' &&
+    normalizeHeroClassId('cleric') === 'acolyte' &&
+    computeClassItemPreferenceScore(axe38, 'bruiser') > computeClassItemPreferenceScore(staff38, 'bruiser') &&
+    computeClassItemPreferenceScore(staff38, 'acolyte') > computeClassItemPreferenceScore(axe38, 'acolyte') &&
+    computeClassItemPreferenceScore(bow38, 'scout') >= 0 &&
+    getProductionImageSrc(getHeroPortraitAssetId('bruiser')) &&
+    getHeroPortraitAssetId('acolyte') === 'char_portrait_cleric_default_idle' &&
+    getProductionImageSrc(getHeroPortraitAssetId('scout'))
+  );
+
+  // 2. Legacy save migration ('fighter' -> 'bruiser', 'cleric' -> 'acolyte') + quickSlots persistence
+  const migFighter38 = migrateSaveData({
+    version: 'v0.1.0-inc1',
+    hero: { classId: 'fighter', level: 2 }
+  });
+  const migCleric38 = migrateSaveData({
+    version: 'v0.5.0-inc5',
+    hero: {
+      classId: 'cleric',
+      level: 3,
+      quickSlots: { tactical_dungeon: ['healing_light', 'sacred_flame', null, 'sanctuary'], overworld: [null, null, null, null] },
+      _quickSlotsCustomized: true
+    }
+  });
+  const legacyMigrateOk38 = Boolean(
+    migFighter38 && migFighter38.hero && migFighter38.hero.classId === 'bruiser' &&
+    migCleric38 && migCleric38.hero && migCleric38.hero.classId === 'acolyte' &&
+    migCleric38.hero._quickSlotsCustomized === true &&
+    migCleric38.hero.quickSlots &&
+    migCleric38.hero.quickSlots.tactical_dungeon[0] === 'healing_light' &&
+    migCleric38.hero.quickSlots.tactical_dungeon[2] === null
+  );
+
+  // 3. Configurable Quick-Access Slots match getHeroQuickAccessBar 1:1
+  const qAssign38 = assignQuickSlot(sb38.hero, 'tactical_dungeon', 3, 'battle_cry');
+  const qSwapDup38 = assignQuickSlot(sb38.hero, 'tactical_dungeon', 0, 'battle_cry');
+  const qClear38 = clearQuickSlot(sb38.hero, 'tactical_dungeon', 1);
+  const qSwap02_38 = swapQuickSlots(sb38.hero, 'tactical_dungeon', 0, 2);
+  const bar38 = getHeroQuickAccessBar(sb38);
+  const quickBarParityOk38 = Boolean(
+    qAssign38.ok &&
+    qSwapDup38.ok && qSwapDup38.swappedWith === 3 &&
+    qClear38.ok &&
+    qSwap02_38.ok &&
+    bar38.length === QUICK_SLOT_COUNT &&
+    bar38[0].hotkey === '1' &&
+    bar38[1].empty === true &&
+    bar38[2].id === 'battle_cry' &&
+    bar38[2].hotkey === '3'
+  );
+
+  // 4. Direct Spellbook activation of a NON-SLOTTED usable ability (clear 'brace' from bar, then cast it directly)
+  const sbEntries38 = buildHeroSpellbookEntries(sb38.hero, { context: 'tactical_dungeon' });
+  const braceSlotIdx38 = getHeroQuickSlots(sb38.hero, 'tactical_dungeon').findIndex(function(s) { return s.abilityId === 'brace'; });
+  if (braceSlotIdx38 !== -1) clearQuickSlot(sb38.hero, 'tactical_dungeon', braceSlotIdx38);
+  const sbEntriesAfterClear38 = buildHeroSpellbookEntries(sb38.hero, { context: 'tactical_dungeon' });
+  const braceEntry38 = sbEntriesAfterClear38.find(function(e) { return e.id === 'brace'; });
+  const braceCast38 = executeAbility('brace', null, sb38);
+  const sbHtml38 = renderHeroSpellbookHtml(sb38.hero, { context: 'tactical_dungeon', showQuickSlots: true, allowCast: true });
+  const nonSlottedCastOk38 = Boolean(
+    sbEntries38.length === 6 &&
+    braceEntry38 && braceEntry38.assignedSlotIndex === -1 && braceEntry38.usableNow === true &&
+    braceCast38.ok && getAbilityCooldownRemaining(sb38.hero, 'brace') > 0 &&
+    sbHtml38.indexOf('Battle Cry') !== -1 && sbHtml38.indexOf('Brace') !== -1
+  );
+
+  const t38Checks = {
+    canonicalDataOk: canonicalDataOk38,
+    legacyMigrateOk: legacyMigrateOk38,
+    quickBarParityOk: quickBarParityOk38,
+    nonSlottedCastOk: nonSlottedCastOk38
+  };
+  const failed38 = Object.keys(t38Checks).filter(function(k) { return !t38Checks[k]; });
+  const t38Pass = failed38.length === 0;
+  results.push({
+    name: '38. MG-01C: Canonical Bruiser/Acolyte Rename, Legacy Save Migration, Quick-Access Bar Parity & Non-Slotted Spellbook Cast',
+    pass: t38Pass,
+    detail: t38Pass
+      ? 'Canonical bruiser/acolyte classes, legacy save migration, 4-slot Quick-Access bar parity, and direct non-slotted Spellbook activation verified'
+      : 'Failed checks: ' + failed38.join(', ')
+  });
+
+  // =========================================================================
+  // Test 39: MG-01C Playtest Corrections — Hotlist Ownership, [1]-[4] Labels,
+  //          Cleared Slots, Revoked/Restored Access & Independent Spellbook Order
+  // =========================================================================
+  const sb39 = createDefaultGameState();
+  selectAdventurerClass('mage', sb39);
+  sb39.inGuild = false;
+  const fl39 = ensureDungeonFloorHydrated(sb39.dungeon, 1);
+  sb39.hero.x = 10;
+  sb39.hero.y = 10;
+  sb39.hero.mp = 80;
+  for (let y39 = 8; y39 <= 12; y39++) {
+    for (let x39 = 8; x39 <= 12; x39++) {
+      if (fl39.tiles[y39] && fl39.tiles[y39][x39] !== undefined) fl39.tiles[y39][x39] = TILE_FLOOR;
+    }
+  }
+  fl39.monsters = [];
+
+  // 1. Hotkeys are strictly 1-4 (no Q marker on individual slots or spellbook cards)
+  const barInit39 = getHeroQuickAccessBar(sb39);
+  const sbHtml39 = renderHeroSpellbookHtml(sb39.hero, { context: 'tactical_dungeon', allowCast: true });
+  const hotkeys14Ok39 = Boolean(
+    barInit39.length === 4 &&
+    barInit39[0].hotkey === '1' &&
+    barInit39[1].hotkey === '2' &&
+    barInit39[2].hotkey === '3' &&
+    barInit39[3].hotkey === '4' &&
+    sbHtml39.indexOf('[Q] Slot') === -1 &&
+    sbHtml39.indexOf('[1] Slot 1') !== -1
+  );
+
+  // 2. Clear ALL 4 slots -> stays empty across normalization, save migration, and direct spellbook cast
+  clearQuickSlot(sb39.hero, 'tactical_dungeon', 0);
+  clearQuickSlot(sb39.hero, 'tactical_dungeon', 1);
+  clearQuickSlot(sb39.hero, 'tactical_dungeon', 2);
+  clearQuickSlot(sb39.hero, 'tactical_dungeon', 3);
+  const mpPreEmpty39 = sb39.hero.mp;
+  const emptyCast39 = executeQuickSlotAbility(0, null, sb39);
+  const directCast39 = executeAbility('arcane_ward', null, sb39);
+  const migEmpty39 = migrateSaveData(JSON.parse(JSON.stringify(sb39)));
+  const barAfterMig39 = getHeroQuickAccessBar(migEmpty39);
+  const clearedPersistOk39 = Boolean(
+    !emptyCast39.ok && emptyCast39.reason === 'empty_slot' &&
+    directCast39.ok &&
+    sb39.hero.mp < mpPreEmpty39 &&
+    barAfterMig39.length === 4 &&
+    barAfterMig39.every(function(sl) { return sl.empty === true; })
+  );
+
+  // 3. Assign learned ability, revoke access -> stays in slot greyed out & rejects without spending MP -> restore access -> usable again
+  grantAbilityAccess(sb39.hero, 'purification', 'temporary');
+  assignQuickSlot(sb39.hero, 'tactical_dungeon', 2, 'purification');
+  const orderBefore39 = buildHeroSpellbookEntries(sb39.hero, { context: 'tactical_dungeon' }).map(function(e) { return e.id; }).join(',');
+  revokeAbilityAccess(sb39.hero, 'purification', 'temporary');
+  const barRevoked39 = getHeroQuickAccessBar(sb39);
+  const mpPreRev39 = sb39.hero.mp;
+  const castRevoked39 = executeQuickSlotAbility(2, null, sb39);
+  const mpAfterRev39 = sb39.hero.mp;
+  grantAbilityAccess(sb39.hero, 'purification', 'temporary');
+  const barRestored39 = getHeroQuickAccessBar(sb39);
+  const castRestored39 = executeQuickSlotAbility(2, null, sb39);
+  const orderAfter39 = buildHeroSpellbookEntries(sb39.hero, { context: 'tactical_dungeon' }).map(function(e) { return e.id; }).join(',');
+  const t39Checks = {
+    hotkeys14Ok: hotkeys14Ok39,
+    clearedPersistOk: clearedPersistOk39,
+    revokedStaysInSlot: Boolean(barRevoked39[2].id === 'purification' && barRevoked39[2].granted === false && barRevoked39[2].ready === false),
+    revokedRejectsNoMp: Boolean(!castRevoked39.ok && castRevoked39.reason === 'not_granted' && mpAfterRev39 === mpPreRev39),
+    restoredUsable: Boolean(barRestored39[2].id === 'purification' && barRestored39[2].granted === true && barRestored39[2].ready === true),
+    restoredCastOk: Boolean(castRestored39 && castRestored39.ok),
+    spellbookOrderStable: orderBefore39 === orderAfter39
+  };
+  const failed39 = Object.keys(t39Checks).filter(function(k) { return !t39Checks[k]; });
+  const t39Pass = failed39.length === 0;
+  results.push({
+    name: '39. MG-01C Playtest Corrections: Hotlist Ownership, [1]-[4] Labels, Cleared Slots & Revoke/Restore Access',
+    pass: t39Pass,
+    detail: t39Pass
+      ? 'Strict [1]-[4] hotlist labels, persistent empty slots, revoked/restored access preservation, zero wasted MP, and stable Spellbook ordering verified'
+      : 'Failed checks: ' + failed39.join(', ')
+  });
+
   return results;
 }
 
@@ -2595,7 +2796,7 @@ export function closeDiagnosticsModal() {
 }
 
 export function runChaosFuzzer(seedCount = 25) {
-  const classes = ['fighter', 'thief', 'mage', 'ranger', 'paladin'];
+  const classes = ['bruiser', 'thief', 'mage', 'ranger', 'paladin', 'acolyte', 'scout'];
   const sizePresets = [
     { w: 48,  h: 36,  name: 'compact' },
     { w: 80,  h: 60,  name: 'standard' },

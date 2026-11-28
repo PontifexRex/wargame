@@ -1,7 +1,7 @@
 // Class Talent Trees
 
 export const TALENT_TREES = {
-  fighter: [
+  bruiser: [
     { id: 'f_a1', name: 'Juggernaut Plating',   desc: '+12 Max HP per rank.', max: 3 },
     { id: 'f_a2', name: 'Heavy Cleaver',        desc: '+3 Physical ATK per rank.', max: 3 },
     { id: 'f_a3', name: 'Titan Resurgence',     desc: 'Counter-attack adjacent attackers for 50% ATK (35% chance).', max: 1 }

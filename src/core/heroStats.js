@@ -3,7 +3,7 @@
 // Preserves fractional internal attribute values during calculation;
 // presentation layers display whole numbers via formatAttributeDisplay (Math.floor).
 
-import { CLASSES, HERO_ATTRIBUTE_KEYS, DEFAULT_HERO_SPI, DEFAULT_LEVEL_GROWTH } from '../data/classes.js';
+import { CLASSES, HERO_ATTRIBUTE_KEYS, DEFAULT_HERO_SPI, DEFAULT_LEVEL_GROWTH, normalizeHeroClassId } from '../data/classes.js';
 import { GEM_CATALOG } from '../data/gems.js';
 
 function roundFrac(val) {
@@ -11,7 +11,8 @@ function roundFrac(val) {
 }
 
 export function getClassLevelGrowth(classId) {
-  const cls = (classId && CLASSES[classId]) ? CLASSES[classId] : null;
+  const normId = normalizeHeroClassId(classId);
+  const cls = (normId && CLASSES[normId]) ? CLASSES[normId] : null;
   const src = (cls && cls.levelGrowth && typeof cls.levelGrowth === 'object') ? cls.levelGrowth : DEFAULT_LEVEL_GROWTH;
   return {
     str: typeof src.str === 'number' && isFinite(src.str) ? src.str : DEFAULT_LEVEL_GROWTH.str,
@@ -65,7 +66,7 @@ export function normalizeHeroBonusStats(rawBonus) {
 // Returns null if hero or classId is invalid (no silent Fighter substitution).
 export function computeHeroDerivedStats(hero, externalModifiers) {
   if (!hero || typeof hero !== 'object') return null;
-  const classId = hero.classId;
+  const classId = normalizeHeroClassId(hero.classId);
   const cls = (classId && CLASSES[classId]) ? CLASSES[classId] : null;
   if (!cls) return null;
 
@@ -97,11 +98,11 @@ export function computeHeroDerivedStats(hero, externalModifiers) {
   let flatWard = ext.ward || 0;
 
   // Passive Class Bonuses
-  if (classId === 'fighter') flatHp += 10;
+  if (classId === 'bruiser') flatHp += 10;
   if (classId === 'thief')   flatCrit += 15;
   if (classId === 'ranger')  flatDodge += 15;
   if (classId === 'paladin') flatDef += 10;
-  if (classId === 'cleric')  flatDef += 5;
+  if (classId === 'acolyte') flatDef += 5;
 
   // Talent Bonuses
   const t = (hero.talentsAllocated && typeof hero.talentsAllocated === 'object') ? hero.talentsAllocated : {};
@@ -200,7 +201,7 @@ export function computeHeroDerivedStats(hero, externalModifiers) {
 
   // Provisional SPI contributions (justified for divine/spiritual & arcane classes;
   // fractional attributes are preserved until final rounding)
-  const spiMpBonus = classId === 'cleric'
+  const spiMpBonus = classId === 'acolyte'
     ? (spi * 1.5)
     : classId === 'paladin'
       ? (spi * 1.0)
@@ -213,13 +214,13 @@ export function computeHeroDerivedStats(hero, externalModifiers) {
 
   const primaryOffensive = classId === 'mage'
     ? (intel * 1.1 + str * 0.3)
-    : (classId === 'ranger' || classId === 'thief')
+    : (classId === 'ranger' || classId === 'thief' || classId === 'scout')
       ? (dex * 0.9 + str * 0.4)
-      : classId === 'cleric'
+      : classId === 'acolyte'
         ? (str * 0.65 + spi * 0.55)
         : (str * 0.95 + dex * 0.35);
 
-  const magicBase = (classId === 'cleric' || classId === 'paladin')
+  const magicBase = (classId === 'acolyte' || classId === 'paladin')
     ? (spi * 1.35 + intel * 0.65)
     : (intel * 1.2 + spi * 0.35);
 

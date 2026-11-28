@@ -43,6 +43,7 @@ import {
   MARKET_RARITY_BASE_VALUES,
   computeBuildingUpgradeCost,
   computeBuildingDurationMs,
+  evaluateCityBuildingLimit,
   isBuildingPrerequisiteMet,
   getBuildingPrerequisiteMissingReason,
   computeMaxPartySize,
@@ -517,6 +518,14 @@ export function dispatchWargameCommand(commandEnvelope, state, scheduler, eventS
 
     if (plot.buildingId && !isSameBuilding) {
       return reject('Plot is already occupied by ' + plot.buildingId);
+    }
+
+    // Enforce configurable per-city construction limit on NEW builds (upgrades of existing building remain allowed)
+    if (!isSameBuilding) {
+      const limitInfo = evaluateCityBuildingLimit(city, buildingId);
+      if (limitInfo.atLimit) {
+        return reject(limitInfo.reason || (bDef.name + ' is limited to ' + limitInfo.maxPerCity + ' per city'));
+      }
     }
 
     // Check building prerequisites & population requirements

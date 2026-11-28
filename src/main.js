@@ -96,7 +96,14 @@ import {
   clearChronicle,
   setChronicleFilter,
   getChronicleFilter,
-  renderCodexTab
+  renderCodexTab,
+  toggleStandaloneSpellbook,
+  handleStandaloneSpellbookFilter,
+  handleStandaloneAssignQuickSlot,
+  handleStandaloneClearQuickSlot,
+  handleStandaloneSwapQuickSlots,
+  handleStandaloneSpellbookCast,
+  handleStandaloneQuickSlot
 } from './ui/domSync.js';
 import {
   openClassSelectModal,
@@ -381,7 +388,14 @@ export const AethelgardAPI = {
   handleDevActivatePocketPortalClick,
   SPAWN_SUB_OPTIONS,
   handleDevTerminalSubmit,
-  handleDevTerminalKeyDown
+  handleDevTerminalKeyDown,
+  toggleStandaloneSpellbook,
+  handleSpellbookFilter: handleStandaloneSpellbookFilter,
+  handleAssignQuickSlot: handleStandaloneAssignQuickSlot,
+  handleClearQuickSlot: handleStandaloneClearQuickSlot,
+  handleSwapQuickSlots: handleStandaloneSwapQuickSlots,
+  handleSpellbookCast: handleStandaloneSpellbookCast,
+  handleStandaloneQuickSlot
 };
 
 function bootstrapApp() {
@@ -391,7 +405,7 @@ function bootstrapApp() {
   if (handoff) {
     const isNewCamp = !gameState.wargameSession || gameState.wargameSession.campaignId !== (handoff.campaignId || 'world_prime');
     if (!loaded || !gameState.hero || isNewCamp) {
-      selectAdventurerClass((handoff.hero && handoff.hero.classId) || 'fighter');
+      selectAdventurerClass((handoff.hero && handoff.hero.classId) || 'bruiser');
     }
     applyWargameEntryHandoff(handoff, gameState);
     updateFOV();
@@ -399,7 +413,7 @@ function bootstrapApp() {
     updateAllUI();
   } else
   if (!loaded || !gameState.hero) {
-    selectAdventurerClass('fighter');
+    selectAdventurerClass('bruiser');
     openClassSelectModal(false);
   } else {
     updateFOV();

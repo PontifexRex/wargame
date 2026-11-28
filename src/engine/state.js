@@ -7,7 +7,7 @@ import {
   CODEX_MASTERY_KILLS,
   CODEX_MASTERY_DMG_MULT
 } from '../constants.js';
-import { CLASSES } from '../data/classes.js';
+import { CLASSES, normalizeHeroClassId } from '../data/classes.js';
 import { GEM_IDS, GEM_CATALOG } from '../data/gems.js';
 import { normalizeEquipmentItem } from '../data/items.js';
 import { buildProceduralBountySet } from '../data/bounties.js';
@@ -302,9 +302,10 @@ export function migrateSaveData(raw) {
     );
   }
 
-  // Migrate Hero
+  // Migrate Hero (normalizes legacy fighter -> bruiser, cleric -> acolyte)
   if (data.hero) {
-    const clsId = CLASSES[data.hero.classId] ? data.hero.classId : 'fighter';
+    const normClsId = normalizeHeroClassId(data.hero.classId);
+    const clsId = CLASSES[normClsId] ? normClsId : 'bruiser';
     const cls = CLASSES[clsId];
     const eqSource = data.hero.equipment || data.hero.equipped || {};
     migrated.hero = {
@@ -350,6 +351,9 @@ export function migrateSaveData(raw) {
       usedDivineIntervention: !!data.hero.usedDivineIntervention,
       abilityGrants: data.hero.abilityGrants ? JSON.parse(JSON.stringify(data.hero.abilityGrants)) : null,
       abilityCooldowns: data.hero.abilityCooldowns ? Object.assign({}, data.hero.abilityCooldowns) : {},
+      quickSlots: data.hero.quickSlots ? JSON.parse(JSON.stringify(data.hero.quickSlots)) : null,
+      _quickSlotsCustomized: Boolean(data.hero._quickSlotsCustomized),
+      _quickSlotsInitialized: data.hero._quickSlotsInitialized ? Object.assign({}, data.hero._quickSlotsInitialized) : null,
       activeAbilityId: data.hero.activeAbilityId || null,
       absorbShield: typeof data.hero.absorbShield === 'number' ? Math.max(0, data.hero.absorbShield) : 0,
       pendingCast: data.hero.pendingCast ? JSON.parse(JSON.stringify(data.hero.pendingCast)) : null,

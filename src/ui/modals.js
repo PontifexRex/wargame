@@ -6,7 +6,7 @@ import {
   MAP_SIZE_PRESETS,
   DEFAULT_MAX_CHARTERED_DUNGEONS
 } from '../constants.js';
-import { CLASSES } from '../data/classes.js';
+import { CLASSES, normalizeHeroClassId } from '../data/classes.js';
 import { TALENT_TREES } from '../data/talents.js';
 import { GEM_IDS, GEM_CATALOG } from '../data/gems.js';
 import { LAYOUT_STYLES } from '../data/dungeons.js';
@@ -717,7 +717,7 @@ export function unsocketFromInspect(targetRef, socketIdx, isEquippedSlot) {
 export function openClassSelectModal(allowCancel = false) {
   if (typeof document === 'undefined') return;
   document.getElementById('btnCloseClassModal').classList.toggle('hidden', !allowCancel);
-  const classList = ['fighter', 'thief', 'mage', 'ranger', 'paladin'].map(function(id) { return CLASSES[id]; }).filter(Boolean);
+  const classList = ['bruiser', 'thief', 'mage', 'ranger', 'paladin'].map(function(id) { return CLASSES[id]; }).filter(Boolean);
   for (let i = 0; i < classList.length; i++) {
     const c = classList[i];
     const cardCanvas = document.getElementById('classCardCanvas_' + c.id);
@@ -739,7 +739,8 @@ export function closeClassSelectModal() {
 
 export function selectAdventurerClass(classId, targetState = gameState) {
   syncActiveDungeonAlias(targetState);
-  const cls = CLASSES[classId] || CLASSES.fighter;
+  const normId = normalizeHeroClassId(classId);
+  const cls = CLASSES[normId] || CLASSES.bruiser;
   const eqCopy = JSON.parse(JSON.stringify(cls.starterGear));
   Object.keys(eqCopy).forEach(k => {
     normalizeEquipmentSockets(eqCopy[k]);

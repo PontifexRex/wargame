@@ -4,7 +4,7 @@
 // Canonical identity (name, title, color) and base attributes (str, dex, int, vit)
 // are always resolved from CLASSES rather than duplicated here.
 
-import { CLASSES, DEFAULT_HERO_SPI } from '../../data/classes.js';
+import { CLASSES, DEFAULT_HERO_SPI, normalizeHeroClassId } from '../../data/classes.js';
 import { computeHeroDerivedStats, createDefaultBonusStats } from '../../core/heroStats.js';
 import {
   BASE_HERO_RECRUIT_DURATION_MS,
@@ -25,12 +25,12 @@ export const HERO_RECRUITMENT_ELIGIBILITY_STATES = {
 
 export const HERO_RECRUITMENT_ORDER = [
   'adventurer',
-  'fighter',
+  'bruiser',
   'scout',
   'ranger',
   'mage',
   'thief',
-  'cleric',
+  'acolyte',
   'paladin'
 ];
 
@@ -44,15 +44,15 @@ export const HERO_RECRUITMENT_CATALOG = {
     costGold: 35,
     costFood: 20,
     durationMs: BASE_HERO_RECRUIT_DURATION_MS,
-    specialty: 'Versatile dungeon delver trained at the Adventurers Guild: Torch Flare stun, extra vision, and reinforced mining.'
+    specialty: 'Versatile dungeon delver trained at the Adventurers Guild: Second Wind, Careful Search, Disarm Trap, Lockpicking, and Appraise.'
   },
-  fighter: {
-    classId: 'fighter',
+  bruiser: {
+    classId: 'bruiser',
     icon: '🛡️',
     costGold: 50,
     costFood: 30,
     durationMs: BASE_HERO_RECRUIT_DURATION_MS,
-    specialty: 'Frontline bastion defence, Whirlwind Cleave, and door breaching.'
+    specialty: 'Fighters Guild frontline brawler: Power Strike, Cleave, Overpower, Brace, Charge, and Battle Cry.'
   },
   ranger: {
     classId: 'ranger',
@@ -68,7 +68,7 @@ export const HERO_RECRUITMENT_CATALOG = {
     costGold: 60,
     costFood: 30,
     durationMs: BASE_HERO_RECRUIT_DURATION_MS,
-    specialty: 'High-area Starfall Nova and arcane rune-seal dispelling.'
+    specialty: 'Mages Guild arcanist: Arcane Missile, Fireball, Frost Nova, Arcane Ward, Blink, and Detect Magic.'
   },
   thief: {
     classId: 'thief',
@@ -78,13 +78,13 @@ export const HERO_RECRUITMENT_CATALOG = {
     durationMs: BASE_HERO_RECRUIT_DURATION_MS,
     specialty: 'Master lockpicking, secret door discovery, and Shadowstep Strike.'
   },
-  cleric: {
-    classId: 'cleric',
+  acolyte: {
+    classId: 'acolyte',
     icon: '✝️',
     costGold: 55,
     costFood: 30,
     durationMs: BASE_HERO_RECRUIT_DURATION_MS,
-    specialty: 'Entry-level Temple Chapterhouse healer, blessing wards, and undead turning.'
+    specialty: 'Entry-tier Temple Chapterhouse devotee: Healing Light, Sacred Flame, Blessing, Purification, Sanctuary, and Divine Sight.'
   },
   paladin: {
     classId: 'paladin',
@@ -100,20 +100,22 @@ export const HERO_RECRUITMENT_CATALOG = {
     costGold: 45,
     costFood: 25,
     durationMs: BASE_HERO_RECRUIT_DURATION_MS,
-    specialty: 'Frontier reconnaissance & wilderness specialist: Aimed Shot, Tracking, Camouflage, Snare, Forage, Reconnaissance, and Forced Pace (normal recruitment pending Rangers Lodge).'
+    specialty: 'Rangers Lodge reconnaissance & wilderness specialist: Aimed Shot, Tracking, Camouflage, Snare, Forage, Reconnaissance, and Forced Pace.'
   }
 };
 
 export function isClassRecruitable(classId) {
-  return Boolean(classId && HERO_RECRUITMENT_CATALOG[classId] && CLASSES[classId]);
+  const normId = normalizeHeroClassId(classId);
+  return Boolean(normId && HERO_RECRUITMENT_CATALOG[normId] && CLASSES[normId]);
 }
 
 // Composes a recruitment descriptor by resolving canonical class identity, base attributes,
 // and derived baseline stats from CLASSES + shared heroStats calculator (HR-11 / HR-13).
 export function getRecruitableHeroEntry(classId) {
   if (!classId) return null;
-  const rec = HERO_RECRUITMENT_CATALOG[classId];
-  const cls = CLASSES[classId];
+  const normId = normalizeHeroClassId(classId);
+  const rec = HERO_RECRUITMENT_CATALOG[normId];
+  const cls = CLASSES[normId];
   if (!rec || !cls) return null;
 
   const canonicalAttrs = cls.baseStats || { str: 10, dex: 10, int: 10, vit: 10, spi: DEFAULT_HERO_SPI };
@@ -180,7 +182,8 @@ export function evaluateHeroRecruitmentEligibility(city, world, classId) {
     };
   }
 
-  const classDef = getRecruitableHeroEntry(classId);
+  const normClassId = normalizeHeroClassId(classId);
+  const classDef = getRecruitableHeroEntry(normClassId);
   if (!classDef) {
     return {
       eligible: false,
@@ -191,7 +194,7 @@ export function evaluateHeroRecruitmentEligibility(city, world, classId) {
   }
 
   const unlockedClasses = getCityRecruitableClasses(city);
-  if (unlockedClasses.indexOf(classId) === -1) {
+  if (unlockedClasses.indexOf(normClassId) === -1) {
     return {
       eligible: false,
       status: HERO_RECRUITMENT_ELIGIBILITY_STATES.LOCKED_BUILDING,

@@ -19,6 +19,8 @@ import {
   computeBuildingDurationMs,
   isBuildingPrerequisiteMet,
   getBuildingPrerequisiteMissingReason,
+  evaluateCityBuildingLimit,
+  getBuildingsGroupedByMenuCategory,
   computeMaxPartySize,
   isFacilityButtonUnlocked,
   getBuildingLevelsTable,
@@ -62,6 +64,8 @@ import {
 } from '../engine/state.js';
 import { getFormattedTasksList } from '../engine/taskEngine.js';
 import { getOverworldAbilitiesForUnit } from '../engine/strategicAbilities.js';
+import { renderHeroSpellbookHtml } from '../../ui/shared/spellbook.js';
+import { getHeroQuickSlots } from '../../core/abilityEngine.js';
 import { renderProgressionModals } from './progressionUi.js';
 import { renderDevPortalModal } from './devPortal.js';
 import {
@@ -421,7 +425,24 @@ export function renderWargameCharacterSheetModal(simHost) {
 
   const statsEl = document.getElementById('wgSheetStatsGrid');
   if (statsEl) {
-    setHtmlIfChanged(statsEl, buildSharedHeroStatsHtml(profile));
+    const sbCtxFilter = state._spellbookContextFilter || 'all';
+    const sbKindFilter = state._spellbookKindFilter || 'all';
+    const sbHtml =
+      '<div class="mt-3 pt-2.5 border-t border-[#283347] space-y-2">' +
+        '<div class="flex items-center justify-between">' +
+          '<span class="text-[11px] font-mono font-bold uppercase tracking-wider text-[#60a5fa]">📖 Spells, Prayers &amp; Skills</span>' +
+          '<span class="text-[10px] font-mono text-[#94a3b8]">Quick Slots &amp; Full Catalog</span>' +
+        '</div>' +
+        renderHeroSpellbookHtml(rawHero, {
+          context: state._spellbookActiveContext || 'tactical_dungeon',
+          contextFilter: sbCtxFilter,
+          kindFilter: sbKindFilter,
+          nowSimTimeMs: (world.clock && world.clock.simTimeMs) || 0,
+          allowCast: false,
+          actionPrefix: 'window.WargameApp'
+        }) +
+      '</div>';
+    setHtmlIfChanged(statsEl, buildSharedHeroStatsHtml(profile) + sbHtml);
   }
 
   const cosEl = document.getElementById('wgSheetCosmeticsStrip');
@@ -1734,16 +1755,33 @@ export function renderLeftCommandSidebar(simHost) {
           ${marchHtml}
           ${armyDetailHtml}
           ${(function() {
-            const owAbilities = getOverworldAbilitiesForUnit(state, selUnit);
-            if (!owAbilities || owAbilities.length === 0) return '';
+            const heroForOw = (world.heroes || []).find(function(h) { return h && h.id === selUnit.leaderHeroId; }) || null;
+            const owAbilities = getOverworldAbilitiesForUnit(state, selUnit) || [];
+            if (!heroForOw && owAbilities.length === 0) return '';
+            const owSlots = heroForOw ? getHeroQuickSlots(heroForOw, 'overworld') : [];
+            const hasAnyAssigned = owSlots.some(function(sl) { return Boolean(sl && sl.abilityId); });
+            if (owAbilities.length === 0 && !hasAnyAssigned) return '';
+            const abById = {};
+            for (let oi = 0; oi < owAbilities.length; oi++) abById[owAbilities[oi].id] = owAbilities[oi];
             const fbHtml = state._lastStrategicFeedback
               ? '<div class="text-[10px] font-mono text-[#34d399] bg-[#080b11] px-2 py-1 rounded border border-[#34d399]/30">' + state._lastStrategicFeedback + '</div>'
               : '';
-            const btns = owAbilities.map(function(ab) {
-              const label = ab.ready ? (ab.icon + ' ' + ab.name) : (ab.icon + ' ' + ab.name + ' (' + ab.cooldownRemainingSec + 's)');
-              return '<button title="' + ab.desc + '" onclick="window.WargameApp.handleStrategicAbility(\'' + ab.id + '\')" ' + (!ab.ready ? 'disabled' : '') + ' class="px-2 py-1 rounded text-[10px] font-mono border ' + (ab.ready ? 'bg-[#1a2232] hover:bg-[#283347] border-[#10b981]/50 text-[#34d399] cursor-pointer' : 'bg-[#0f141e] border-[#283347] text-[#64748b] cursor-not-allowed') + '">' + label + '</button>';
+            const btns = owSlots.map(function(sl) {
+              if (!sl.abilityId) {
+                return '<button type="button" onclick="window.WargameApp.handleOpenHeroSheet(\'' + heroForOw.id + '\')" class="px-2 py-1 rounded text-[10px] font-mono border border-dashed border-[#283347] bg-[#080b11] text-[#64748b] cursor-pointer">[' + sl.hotkey + '] Empty</button>';
+              }
+              const ab = abById[sl.abilityId] || null;
+              if (!sl.granted || !sl.availableInContext || !ab) {
+                const reason = !sl.granted ? 'No Access' : (!sl.availableInContext ? 'Wrong Context' : 'Unavailable');
+                return '<button type="button" disabled title="' + reason + '" class="px-2 py-1 rounded text-[10px] font-mono border border-[#283347] bg-[#0f141e] text-[#64748b] opacity-60 cursor-not-allowed">[' + sl.hotkey + '] ' + (ab ? (ab.icon + ' ' + ab.name) : sl.abilityId) + ' (' + reason + ')</button>';
+              }
+              const label = '[' + sl.hotkey + '] ' + ab.icon + ' ' + ab.name + (ab.ready ? '' : (' (' + ab.cooldownRemainingSec + 's)'));
+              return '<button type="button" title="' + ab.desc + '" onclick="window.WargameApp.handleOverworldQuickSlot(' + sl.slotIndex + ')" ' + (!ab.ready ? 'disabled' : '') + ' class="px-2 py-1 rounded text-[10px] font-mono border ' + (ab.ready ? 'bg-[#1a2232] hover:bg-[#283347] border-[#10b981]/50 text-[#34d399] cursor-pointer' : 'bg-[#0f141e] border-[#283347] text-[#64748b] opacity-60 cursor-not-allowed') + '">' + label + '</button>';
             }).join('');
-            return '<div class="space-y-1.5 pt-1 border-t border-[#283347]/70"><div class="text-[10px] font-mono uppercase text-[#10b981]">Field Skills</div><div class="flex flex-wrap gap-1">' + btns + '</div>' + fbHtml + '</div>';
+            const sbBtn = heroForOw
+              ? '<button type="button" onclick="window.WargameApp.handleOpenHeroSheet(\'' + heroForOw.id + '\')" class="px-1.5 py-0.5 rounded bg-[#1a2232] hover:bg-[#283347] border border-[#60a5fa]/40 text-[9px] font-mono text-[#93c5fd] cursor-pointer">📖 Spellbook [Q]</button>'
+              : '';
+            return '<div class="space-y-1.5 pt-1 border-t border-[#283347]/70"><div class="flex items-center justify-between"><span class="text-[10px] font-mono uppercase text-[#10b981]">Field Skills [1-4]</span>' + sbBtn + '</div><div class="flex flex-wrap gap-1">' + btns + '</div>' + fbHtml + '</div>';
           })()}
           ${nearbyDng ? `
             <button data-action="enter-dungeon" data-poi-id="${nearbyDng.id}" onclick="window.WargameApp.handleEnterDungeon('${nearbyDng.id}')" class="w-full py-2 rounded-lg font-bold text-xs uppercase tracking-wider shadow bg-[#f87171] hover:bg-[#ef4444] text-[#080b11] cursor-pointer">
@@ -2468,69 +2506,93 @@ export function renderCityBuilderPanel(simHost) {
         }
       }
 
-      // Hide meeting hall (founded at center plot); show unlocked buildings first,
-      // then clearly list locked structures with their prerequisite unlock chain (e.g. Quarry -> Smeltery -> Blacksmith)
-      const constructibleKeys = Object.keys(CITY_BUILDINGS_CATALOG).filter(function(k) {
-        if (k === 'meeting_hall') return false;
-        return isBuildingPrerequisiteMet(city, k);
-      });
-      const lockedKeys = Object.keys(CITY_BUILDINGS_CATALOG).filter(function(k) {
-        if (k === 'meeting_hall') return false;
-        return !isBuildingPrerequisiteMet(city, k);
-      });
+      // Data-driven collapsible building categories with prerequisite locks & per-city uniqueness limits
+      const collapsedCats = (state && state._collapsedBuildingCategories && typeof state._collapsedBuildingCategories === 'object')
+        ? state._collapsedBuildingCategories
+        : {};
+      const categoryGroups = getBuildingsGroupedByMenuCategory(city);
 
-      const catalogCards = constructibleKeys.length > 0
-        ? constructibleKeys.map(function(bId) {
-            const bDef = CITY_BUILDINGS_CATALOG[bId];
-            const cost = computeBuildingUpgradeCost(bId, 1);
-            const durMs = computeBuildingDurationMs(bId, 1);
+      const groupedHtml = categoryGroups.map(function(grp) {
+        const isCollapsed = Boolean(collapsedCats[grp.id]);
+        let unlockedCount = 0;
+        const rowsHtml = grp.buildingIds.map(function(bId) {
+          const bDef = CITY_BUILDINGS_CATALOG[bId];
+          const prereqMet = isBuildingPrerequisiteMet(city, bId);
+          const limitInfo = evaluateCityBuildingLimit(city, bId);
+          const cost = computeBuildingUpgradeCost(bId, 1);
+          const durMs = computeBuildingDurationMs(bId, 1);
 
-            const canAfford = (city.stockpile.wood  || 0) >= (cost.wood  || 0) &&
-                              (city.stockpile.stone || 0) >= (cost.stone || 0) &&
-                              (city.stockpile.gold  || 0) >= (cost.gold  || 0) &&
-                              (city.stockpile.water || 0) >= (cost.water || 0) &&
-                              (city.stockpile.ore   || 0) >= (cost.ore   || 0);
-
+          if (!prereqMet) {
+            const reqText = getBuildingPrerequisiteMissingReason(city, bId) || 'Prerequisite required';
             return `
-              <div class="p-2.5 rounded bg-[#080b11] border border-[#283347] flex items-center justify-between gap-2">
-                <div class="flex items-center gap-2.5 min-w-0">
-                  <span class="text-xl">${bDef.icon}</span>
+              <div class="p-2 rounded bg-[#06090f] border border-[#1e293b]/80 flex items-center justify-between gap-2 opacity-70">
+                <div class="flex items-center gap-2 min-w-0">
+                  <span class="text-base">${bDef.icon}</span>
                   <div class="min-w-0">
-                    <div class="text-xs font-bold text-[#e6edf3] truncate">${bDef.name}</div>
-                    <div class="text-[10px] font-mono text-[#8b949e]">
-                      ${cost.wood}W • ${cost.stone}S${cost.gold ? (' • ' + cost.gold + 'G') : ''}${cost.water ? (' • ' + cost.water + '💧') : ''}${cost.ore ? (' • ' + cost.ore + '⛏️') : ''} • ⏱ ${formatSimDuration(durMs)}
-                    </div>
+                    <div class="text-[11px] font-bold text-[#94a3b8] truncate">${bDef.name}</div>
+                    <div class="text-[10px] font-mono text-[#fbbf24]/80 truncate">${reqText}</div>
                   </div>
                 </div>
-                <button data-action="queue-building" data-plot-index="${selPlot.plotIndex}" data-building-id="${bId}" onclick="window.WargameApp.handleQueueBuilding(${selPlot.plotIndex}, '${bId}')" ${!canAfford ? 'disabled' : ''} class="px-3 py-1.5 rounded font-bold text-[11px] uppercase whitespace-nowrap cursor-pointer ${canAfford ? 'bg-amber-400 hover:bg-amber-500 text-slate-900' : 'bg-slate-800 text-slate-500 cursor-not-allowed'}">
-                  🔨 Build
-                </button>
+                <span class="px-2 py-0.5 rounded bg-[#111722] text-[10px] font-mono text-[#64748b] whitespace-nowrap">🔒 Locked</span>
               </div>
             `;
-          }).join('')
-        : `<div class="p-3.5 rounded bg-[#080b11] border border-[#283347] text-center text-xs text-[#8b949e] italic">No new buildings currently available. Grow your population or fulfill current tasks to unlock new structures!</div>`;
+          }
 
-      const lockedCards = lockedKeys.length > 0
-        ? `<div class="pt-2 border-t border-[#1e293b] space-y-1">
-            <div class="text-[10px] font-mono uppercase tracking-wider text-[#64748b] font-bold">🔒 Locked Structures (Prerequisites)</div>
-            ${lockedKeys.map(function(bId) {
-              const bDef = CITY_BUILDINGS_CATALOG[bId];
-              const reqText = getBuildingPrerequisiteMissingReason(city, bId) || 'Prerequisite required';
-              return `
-                <div class="p-2 rounded bg-[#06090f] border border-[#1e293b]/80 flex items-center justify-between gap-2 opacity-75">
-                  <div class="flex items-center gap-2 min-w-0">
-                    <span class="text-base">${bDef.icon}</span>
-                    <div class="min-w-0">
-                      <div class="text-[11px] font-bold text-[#94a3b8] truncate">${bDef.name}</div>
-                      <div class="text-[10px] font-mono text-[#fbbf24]/80 truncate">${reqText}</div>
-                    </div>
+          if (limitInfo.atLimit) {
+            const capReason = limitInfo.reason || ('Limit ' + limitInfo.maxPerCity + '/city reached');
+            return `
+              <div class="p-2 rounded bg-[#06090f] border border-[#283347]/80 flex items-center justify-between gap-2 opacity-65">
+                <div class="flex items-center gap-2 min-w-0">
+                  <span class="text-base grayscale">${bDef.icon}</span>
+                  <div class="min-w-0">
+                    <div class="text-[11px] font-bold text-[#94a3b8] truncate">${bDef.name}</div>
+                    <div class="text-[10px] font-mono text-[#f87171]/90 truncate">${capReason}</div>
                   </div>
-                  <span class="px-2 py-0.5 rounded bg-[#111722] text-[10px] font-mono text-[#64748b] whitespace-nowrap">Locked</span>
                 </div>
-              `;
-            }).join('')}
-          </div>`
-        : '';
+                <button type="button" disabled class="px-2.5 py-1 rounded bg-slate-900 border border-slate-700 text-[10px] font-mono text-slate-500 whitespace-nowrap cursor-not-allowed">Limit Reached</button>
+              </div>
+            `;
+          }
+
+          unlockedCount++;
+          const canAfford = (city.stockpile.wood  || 0) >= (cost.wood  || 0) &&
+                            (city.stockpile.stone || 0) >= (cost.stone || 0) &&
+                            (city.stockpile.gold  || 0) >= (cost.gold  || 0) &&
+                            (city.stockpile.water || 0) >= (cost.water || 0) &&
+                            (city.stockpile.ore   || 0) >= (cost.ore   || 0);
+
+          const uniqueBadge = limitInfo.limited
+            ? `<span class="ml-1 px-1 py-0.5 rounded bg-[#1e293b] text-[9px] font-mono text-[#93c5fd]">Max ${limitInfo.maxPerCity}/City</span>`
+            : '';
+
+          return `
+            <div class="p-2.5 rounded bg-[#080b11] border border-[#283347] flex items-center justify-between gap-2">
+              <div class="flex items-center gap-2.5 min-w-0">
+                <span class="text-xl">${bDef.icon}</span>
+                <div class="min-w-0">
+                  <div class="text-xs font-bold text-[#e6edf3] truncate">${bDef.name}${uniqueBadge}</div>
+                  <div class="text-[10px] font-mono text-[#8b949e]">
+                    ${cost.wood}W • ${cost.stone}S${cost.gold ? (' • ' + cost.gold + 'G') : ''}${cost.water ? (' • ' + cost.water + '💧') : ''}${cost.ore ? (' • ' + cost.ore + '⛏️') : ''} • ⏱ ${formatSimDuration(durMs)}
+                  </div>
+                </div>
+              </div>
+              <button data-action="queue-building" data-plot-index="${selPlot.plotIndex}" data-building-id="${bId}" onclick="window.WargameApp.handleQueueBuilding(${selPlot.plotIndex}, '${bId}')" ${!canAfford ? 'disabled' : ''} class="px-3 py-1.5 rounded font-bold text-[11px] uppercase whitespace-nowrap cursor-pointer ${canAfford ? 'bg-amber-400 hover:bg-amber-500 text-slate-900' : 'bg-slate-800 text-slate-500 cursor-not-allowed'}">
+                🔨 Build
+              </button>
+            </div>
+          `;
+        }).join('');
+
+        return `
+          <div class="rounded border border-[#1e293b] bg-[#0b111e]/70 overflow-hidden">
+            <button type="button" onclick="window.WargameApp.handleToggleBuildingCategory('${grp.id}')" class="w-full px-2.5 py-1.5 flex items-center justify-between bg-[#111722] hover:bg-[#1a2232] text-left cursor-pointer">
+              <span class="text-[11px] font-mono font-bold text-[#e6edf3]">${grp.icon} ${grp.label}</span>
+              <span class="text-[10px] font-mono text-[#94a3b8]">${unlockedCount}/${grp.buildingIds.length} ready ${isCollapsed ? '▸' : '▾'}</span>
+            </button>
+            ${isCollapsed ? '' : `<div class="p-1.5 space-y-1.5">${rowsHtml}</div>`}
+          </div>
+        `;
+      }).join('');
 
       inspectorHtml += `
         <div class="space-y-2">
@@ -2538,9 +2600,8 @@ export function renderCityBuilderPanel(simHost) {
             <span class="text-xs font-bold text-[#fbbf24] uppercase tracking-wider">Construct New Facility</span>
             ${isAdjacentToWindmill ? `<span class="px-2 py-0.5 rounded bg-purple-950/60 text-purple-300 border border-purple-500/40 text-[9px] font-mono font-bold">💨 Windmill +20% Bonus Zone</span>` : ''}
           </div>
-          <div class="space-y-1.5 max-h-[380px] overflow-y-auto pr-1">
-            ${catalogCards}
-            ${lockedCards}
+          <div class="space-y-2 max-h-[380px] overflow-y-auto pr-1">
+            ${groupedHtml}
           </div>
         </div>
       `;

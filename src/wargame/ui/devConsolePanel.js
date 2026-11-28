@@ -747,7 +747,7 @@ export function attachDevConsolePanelListeners(devConsole, onRender) {
     } else if (act === 'apply-status') {
       devConsole.applyTestStatusToHero(actBtn.getAttribute('data-val') || 'burn', 3);
     } else if (act === 'recruit-hero') {
-      const clsId = fieldVal('recruitClass') || 'fighter';
+      const clsId = fieldVal('recruitClass') || 'bruiser';
       const rName = String(fieldVal('recruitName') || '').trim();
       devConsole.execute(rName ? ('recruit ' + clsId + ' "' + rName.replace(/"/g, '') + '"') : ('recruit ' + clsId));
     } else if (act === 'select-party') {

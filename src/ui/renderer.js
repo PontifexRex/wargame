@@ -177,7 +177,7 @@ export function drawHeroSprite(ctx, px, py, classId, size = TILE_SIZE) {
   drawSafeEllipse(ctx, 16, 29, 9, 3);
   ctx.fill();
 
-  if (classId === 'fighter') {
+  if (classId === 'bruiser') {
     // 1. FIGHTER: Ironclad Vanguard with Crimson Cape, Horned Helm, Heater Shield & Broadsword
     // Flowing crimson cape behind
     ctx.fillStyle = '#7f1d1d';
@@ -692,7 +692,7 @@ function __legacyPaperDollUnused(canvas, hero) {
   const h = canvas.height;
   ctx.clearRect(0, 0, w, h);
 
-  const classId = hero ? hero.classId : 'fighter';
+  const classId = hero ? hero.classId : 'bruiser';
   const cls = CLASSES[classId] || CLASSES.fighter;
   const themeColor = cls.color || '#fbbf24';
 
@@ -740,7 +740,7 @@ function __legacyPaperDollUnused(canvas, hero) {
   ctx.fill();
 
   // Class-specific silhouette cape & back ornaments
-  if (classId === 'fighter') {
+  if (classId === 'bruiser') {
     ctx.fillStyle = 'rgba(185, 28, 28, 0.45)';
     ctx.beginPath();
     ctx.moveTo(cx - 36, 100);
@@ -802,7 +802,7 @@ function __legacyPaperDollUnused(canvas, hero) {
   ctx.stroke();
 
   // Class Headwear Silhouettes
-  if (classId === 'fighter') {
+  if (classId === 'bruiser') {
     ctx.fillStyle = '#cbd5e1';
     ctx.beginPath();
     ctx.moveTo(cx - 15, 62);

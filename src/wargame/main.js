@@ -94,6 +94,7 @@ import {
   executeAbility,
   getSkillTargetingInfo,
   getHeroAbilityBarState,
+  getHeroQuickAccessBar,
   selectHeroActiveAbility,
   useStairsAtPlayer,
   waitTurn,
@@ -103,6 +104,13 @@ import {
   runCorridor,
   registerCombatFOVCallback
 } from '../engine/combat.js';
+import {
+  getHeroQuickSlots,
+  assignQuickSlot,
+  clearQuickSlot,
+  swapQuickSlots
+} from '../core/abilityEngine.js';
+import { renderHeroSpellbookHtml } from '../ui/shared/spellbook.js';
 import {
   renderDungeonCanvas,
   updateFOV,
@@ -125,6 +133,7 @@ const levelUpNotificationQueue = [];
 let levelUpAutoDismissTimer = null;
 let dungeonCanvasWired = false;
 let dungeonInventoryOpen = false;
+let dungeonSpellbookOpen = false;
 let wargameBootstrapped = false;
 
 export function getLevelUpNotificationQueue() {
@@ -407,7 +416,7 @@ function syncIntegratedDungeonHud() {
 
   const skillEl = document.getElementById('wgDungeonSkillCard');
   if (skillEl) {
-    const abilities = getHeroAbilityBarState(gameState);
+    const quickSlots = getHeroQuickAccessBar(gameState);
     const manualId = getManualTargetingAbility();
     const shieldBanner = (h.absorbShield || 0) > 0
       ? '<div class="px-2 py-1 rounded bg-[#312e81]/40 border border-[#818cf8]/50 text-[10px] font-mono text-[#c7d2fe]">🛡️ Absorb Shield: <strong>' + h.absorbShield + '</strong></div>'
@@ -416,38 +425,63 @@ function syncIntegratedDungeonHud() {
       ? '<div class="px-2 py-1 rounded bg-[#7c2d12]/40 border border-[#fb923c]/60 text-[10px] font-mono text-[#fed7aa]">⏳ Channeling <strong>' + h.pendingCast.name + '</strong> (' + h.pendingCast.turnsLeft + 't)</div>'
       : '';
     const targetBanner = manualId
-      ? '<div class="flex items-center justify-between px-2 py-1 rounded bg-[#1e3a8a]/50 border border-[#fbbf24]/70 text-[10px] font-mono text-[#fef08a]"><span>🎯 Click tile/foe to cast</span><button onclick="window.WargameApp.handleCancelDungeonTargeting()" class="px-1.5 py-0.5 rounded bg-[#0f172a] text-[#e2e8f0] hover:bg-[#1e293b] cursor-pointer">Esc</button></div>'
+      ? '<div class="flex items-center justify-between px-2 py-1 rounded bg-[#1e3a8a]/50 border border-[#fbbf24]/70 text-[10px] font-mono text-[#fef08a]"><span>🎯 Tap/click tile or foe</span><button onclick="window.WargameApp.handleCancelDungeonTargeting()" class="px-1.5 py-0.5 rounded bg-[#0f172a] text-[#e2e8f0] hover:bg-[#1e293b] cursor-pointer">Cancel</button></div>'
       : '';
-    const btnsHtml = abilities.map(function(ab) {
-      const isTargeting = manualId === ab.id;
-      const costText = ab.effectiveMp > 0
-        ? (ab.effectiveMp + ' MP' + (ab.chilledPenalty > 0 ? '❄' : ''))
-        : (ab.cooldown > 0 ? (ab.cooldown + 't CD') : 'Free');
-      const stateTag = ab.silenced
-        ? '<span class="text-[#e879f9]">SILENCED</span>'
-        : (ab.cooldownRemaining > 0
-          ? '<span class="text-[#f87171]">CD ' + ab.cooldownRemaining + 't</span>'
-          : (ab.canAfford ? '<span class="text-[#34d399]">READY</span>' : '<span class="text-[#f87171]">LOW MP</span>'));
-      const borderCls = isTargeting
-        ? 'border-[#fbbf24] bg-[#1e293b]'
-        : (ab.ready ? 'border-[#60a5fa]/40 bg-[#1a2232] hover:bg-[#283347]' : 'border-[#283347] bg-[#0f141e] opacity-75');
-      return '<button title="' + (ab.desc || '') + '" onmouseenter="window.WargameApp.handleDungeonAbilityHover(true, \'' + ab.id + '\')" onmouseleave="window.WargameApp.handleDungeonAbilityHover(false)" onclick="window.WargameApp.handleDungeonAbilityClick(\'' + ab.id + '\')" class="w-full px-2 py-1.5 rounded border text-left text-[11px] font-mono cursor-pointer transition-colors ' + borderCls + '">' +
-        '<div class="flex items-center justify-between gap-1">' +
-          '<span class="font-bold text-[#e6edf3] truncate">[' + ab.hotkey + '] ' + ab.icon + ' ' + ab.name + '</span>' +
-          '<span class="text-[10px] text-[#fbbf24] shrink-0">' + costText + '</span>' +
-        '</div>' +
-        '<div class="flex items-center justify-between text-[9px] text-[#94a3b8] mt-0.5">' +
-          '<span class="uppercase">' + ab.domain + ' • ' + ab.kind + (ab.timing === 'delayed' ? ' • 1t windup' : '') + '</span>' +
-          stateTag +
-        '</div>' +
-      '</button>';
-    }).join('');
+    const headerBar =
+      '<div class="flex items-center justify-between gap-1 pb-1">' +
+        '<span class="text-[10px] font-mono uppercase tracking-wider text-[#94a3b8]">Quick Slots [1-4]</span>' +
+        '<button type="button" onclick="window.WargameApp.handleToggleDungeonSpellbook()" class="px-2 py-0.5 rounded border text-[10px] font-mono cursor-pointer ' +
+          (dungeonSpellbookOpen ? 'bg-[#60a5fa]/20 border-[#60a5fa] text-[#93c5fd] font-bold' : 'bg-[#1a2232] hover:bg-[#283347] border-[#334155] text-[#cbd5e1]') + '">' +
+          (dungeonSpellbookOpen ? '✕ Close [Q]' : '📖 Spellbook [Q]') +
+        '</button>' +
+      '</div>';
 
-    skillEl.innerHTML =
-      shieldBanner +
-      pendingBanner +
-      targetBanner +
-      '<div class="space-y-1.5 max-h-[210px] overflow-y-auto pr-0.5">' + btnsHtml + '</div>';
+    let bodyHtml = '';
+    if (dungeonSpellbookOpen) {
+      bodyHtml = renderHeroSpellbookHtml(h, {
+        context: 'tactical_dungeon',
+        contextFilter: (simHost.state && simHost.state._spellbookContextFilter) || 'all',
+        kindFilter: (simHost.state && simHost.state._spellbookKindFilter) || 'all',
+        allowCast: true,
+        actionPrefix: 'window.WargameApp'
+      });
+    } else {
+      bodyHtml = '<div class="space-y-1.5">' + quickSlots.map(function(ab) {
+        if (ab.empty) {
+          return '<button type="button" onclick="window.WargameApp.handleToggleDungeonSpellbook()" class="w-full px-2 py-1.5 rounded border border-dashed border-[#283347] bg-[#080b11] text-left text-[10px] font-mono text-[#64748b] hover:text-[#94a3b8] cursor-pointer">[' + ab.hotkey + '] Empty Slot — Open Spellbook [Q] to assign</button>';
+        }
+        const isTargeting = manualId === ab.id;
+        const costText = ab.effectiveMp > 0
+          ? (ab.effectiveMp + ' MP' + (ab.chilledPenalty > 0 ? '❄' : ''))
+          : (ab.cooldown > 0 ? (ab.cooldown + 't CD') : 'Free');
+        const stateTag = !ab.granted
+          ? '<span class="text-[#f87171]">NO ACCESS</span>'
+          : (!ab.availableInContext
+            ? '<span class="text-[#f87171]">WRONG CTX</span>'
+            : (ab.silenced
+              ? '<span class="text-[#e879f9]">SILENCED</span>'
+              : (ab.cooldownRemaining > 0
+                ? '<span class="text-[#f87171]">CD ' + ab.cooldownRemaining + 't</span>'
+                : (ab.unavailableReason === 'requires_ranged_weapon'
+                  ? '<span class="text-[#fb923c]">NEED BOW</span>'
+                  : (ab.canAfford ? '<span class="text-[#34d399]">READY</span>' : '<span class="text-[#f87171]">LOW MP</span>')))));
+        const borderCls = isTargeting
+          ? 'border-[#fbbf24] bg-[#1e293b]'
+          : (ab.ready ? 'border-[#60a5fa]/40 bg-[#1a2232] hover:bg-[#283347] cursor-pointer' : 'border-[#283347] bg-[#0f141e] opacity-60 cursor-not-allowed');
+        return '<button title="' + (ab.desc || '') + '" onmouseenter="window.WargameApp.handleDungeonAbilityHover(true, \'' + ab.id + '\')" onmouseleave="window.WargameApp.handleDungeonAbilityHover(false)" onclick="window.WargameApp.handleDungeonQuickSlot(' + ab.slotIndex + ')" class="w-full px-2 py-1.5 rounded border text-left text-[11px] font-mono transition-colors ' + borderCls + '">' +
+          '<div class="flex items-center justify-between gap-1">' +
+            '<span class="font-bold ' + (ab.ready ? 'text-[#e6edf3]' : 'text-[#94a3b8]') + ' truncate">[' + ab.hotkey + '] ' + ab.icon + ' ' + ab.name + '</span>' +
+            '<span class="text-[10px] text-[#fbbf24] shrink-0">' + costText + '</span>' +
+          '</div>' +
+          '<div class="flex items-center justify-between text-[9px] text-[#94a3b8] mt-0.5">' +
+            '<span class="uppercase">' + ab.domain + ' • ' + ab.kind + (ab.timing === 'delayed' ? ' • 1t windup' : '') + '</span>' +
+            stateTag +
+          '</div>' +
+        '</button>';
+      }).join('') + '</div>';
+    }
+
+    skillEl.innerHTML = headerBar + shieldBanner + pendingBanner + targetBanner + bodyHtml;
   }
 
   const logEl = document.getElementById('wgDungeonLog');
@@ -637,6 +671,9 @@ export const appContext = createAppContextController({
   dungeonState: gameState,
   onEnsureDungeonInitialized: wireIntegratedDungeonCallbacksOnce,
   onContextChanged: function(ctx) {
+    setManualTargetingAbility(null);
+    setSkillHover(false);
+    dungeonSpellbookOpen = false;
     if (ctx === APP_CONTEXTS.DUNGEON) {
       dungeonInventoryOpen = false;
       updateFOV();
@@ -1782,6 +1819,8 @@ export function handleDungeonWait() {
 
 export function handleDungeonUseStairs() {
   if (appContext.getActiveContext() !== APP_CONTEXTS.DUNGEON) return;
+  setManualTargetingAbility(null);
+  setSkillHover(false);
   useStairsAtPlayer();
   syncIntegratedDungeonHud();
 }
@@ -1832,14 +1871,105 @@ export function handleDungeonDropItem(itemUid) {
 
 export function handleDungeonSkill() {
   if (appContext.getActiveContext() !== APP_CONTEXTS.DUNGEON) return;
-  const abilities = getHeroAbilityBarState(gameState);
-  const first = abilities[0] || null;
+  const qSlots = getHeroQuickAccessBar(gameState);
+  const first = qSlots[0] && !qSlots[0].empty ? qSlots[0] : null;
   if (first) {
     handleDungeonAbilityClick(first.id);
     return;
   }
   executeClassSkill(gameState);
   syncIntegratedDungeonHud();
+}
+
+export function handleToggleDungeonSpellbook(forceOpen) {
+  dungeonSpellbookOpen = typeof forceOpen === 'boolean' ? forceOpen : !dungeonSpellbookOpen;
+  syncIntegratedDungeonHud();
+}
+
+function resolveSpellbookHero() {
+  if (appContext.getActiveContext() === APP_CONTEXTS.DUNGEON && gameState && gameState.hero) {
+    return gameState.hero;
+  }
+  const w = simHost && simHost.state && simHost.state.world;
+  if (!w || !Array.isArray(w.heroes)) return null;
+  if (simHost.state._openHeroSheetId) {
+    return w.heroes.find(function(h) { return h && h.id === simHost.state._openHeroSheetId; }) || w.heroes[0] || null;
+  }
+  return w.heroes[0] || null;
+}
+
+function mirrorQuickSlotsToCanonicalHero(hero) {
+  if (!hero || !simHost || !simHost.state || !simHost.state.world || !Array.isArray(simHost.state.world.heroes)) return;
+  const canonical = simHost.state.world.heroes.find(function(h) { return h && h.id === hero.id; });
+  if (canonical && canonical !== hero && hero.quickSlots) {
+    canonical.quickSlots = JSON.parse(JSON.stringify(hero.quickSlots));
+    canonical._quickSlotsCustomized = Boolean(hero._quickSlotsCustomized);
+    canonical._quickSlotsInitialized = hero._quickSlotsInitialized ? Object.assign({}, hero._quickSlotsInitialized) : null;
+  }
+}
+
+export function handleSpellbookFilter(ctxFilter, kindFilter) {
+  if (simHost && simHost.state) {
+    simHost.state._spellbookContextFilter = ctxFilter || 'all';
+    simHost.state._spellbookKindFilter = kindFilter || 'all';
+    if (ctxFilter === 'overworld' || ctxFilter === 'tactical_dungeon') {
+      simHost.state._spellbookActiveContext = ctxFilter;
+    }
+    simHost.state._dirty = true;
+  }
+  if (appContext.getActiveContext() === APP_CONTEXTS.DUNGEON) syncIntegratedDungeonHud();
+  else syncWargameUI(simHost);
+}
+
+export function handleAssignQuickSlot(contextId, slotIndex, abilityId) {
+  const hero = resolveSpellbookHero();
+  if (!hero) return { ok: false, reason: 'no_hero' };
+  const res = assignQuickSlot(hero, contextId, slotIndex, abilityId);
+  if (res.ok) {
+    mirrorQuickSlotsToCanonicalHero(hero);
+    simHost.save();
+    if (appContext.getActiveContext() === APP_CONTEXTS.DUNGEON) syncIntegratedDungeonHud();
+    else syncWargameUI(simHost);
+  }
+  return res;
+}
+
+export function handleClearQuickSlot(contextId, slotIndex) {
+  const hero = resolveSpellbookHero();
+  if (!hero) return { ok: false, reason: 'no_hero' };
+  const res = clearQuickSlot(hero, contextId, slotIndex);
+  if (res.ok) {
+    mirrorQuickSlotsToCanonicalHero(hero);
+    simHost.save();
+    if (appContext.getActiveContext() === APP_CONTEXTS.DUNGEON) syncIntegratedDungeonHud();
+    else syncWargameUI(simHost);
+  }
+  return res;
+}
+
+export function handleSwapQuickSlots(contextId, idxA, idxB) {
+  const hero = resolveSpellbookHero();
+  if (!hero) return { ok: false, reason: 'no_hero' };
+  const res = swapQuickSlots(hero, contextId, idxA, idxB);
+  if (res.ok) {
+    mirrorQuickSlotsToCanonicalHero(hero);
+    simHost.save();
+    if (appContext.getActiveContext() === APP_CONTEXTS.DUNGEON) syncIntegratedDungeonHud();
+    else syncWargameUI(simHost);
+  }
+  return res;
+}
+
+export function handleSpellbookCast(abilityId, contextId) {
+  if (contextId === 'overworld') {
+    return handleStrategicAbility(abilityId);
+  }
+  if (appContext.getActiveContext() === APP_CONTEXTS.DUNGEON) {
+    dungeonSpellbookOpen = false;
+    handleDungeonAbilityClick(abilityId);
+    return { ok: true };
+  }
+  return { ok: false, reason: 'wrong_context' };
 }
 
 export function handleDungeonAbilityHover(active, abilityId) {
@@ -1861,12 +1991,77 @@ export function handleStrategicAbility(abilityId) {
   return res;
 }
 
+export function handleDungeonQuickSlot(slotIndex) {
+  if (appContext.getActiveContext() !== APP_CONTEXTS.DUNGEON || !gameState || !gameState.hero) return { ok: false, reason: 'wrong_context' };
+  const qSlots = getHeroQuickAccessBar(gameState);
+  const slot = qSlots[slotIndex];
+  if (!slot || slot.empty || !slot.id) {
+    appendUnifiedDungeonLog('Quick Slot [' + (slotIndex + 1) + '] is empty. Press [Q] to open Spellbook and assign a spell or skill.', 'info');
+    syncIntegratedDungeonHud();
+    return { ok: false, reason: 'empty_slot' };
+  }
+  if (!slot.granted) {
+    appendUnifiedDungeonLog(slot.name + ' is currently unavailable (no access).', 'bad');
+    syncIntegratedDungeonHud();
+    return { ok: false, reason: 'not_granted' };
+  }
+  if (!slot.availableInContext) {
+    appendUnifiedDungeonLog(slot.name + ' cannot be used in Tactical Dungeon.', 'bad');
+    syncIntegratedDungeonHud();
+    return { ok: false, reason: 'invalid_context' };
+  }
+  if (!slot.ready) {
+    const why = slot.silenced ? 'Silenced' : (slot.cooldownRemaining > 0 ? ('Cooldown ' + slot.cooldownRemaining + 't') : (slot.unavailableReason === 'requires_ranged_weapon' ? 'Requires Ranged Weapon' : 'Insufficient MP'));
+    appendUnifiedDungeonLog(slot.name + ' cannot be used (' + why + ').', 'bad');
+    syncIntegratedDungeonHud();
+    return { ok: false, reason: slot.unavailableReason || 'unavailable' };
+  }
+  return handleDungeonAbilityClick(slot.id);
+}
+
+export function handleOverworldQuickSlot(slotIndex) {
+  if (!simHost || !simHost.state || !simHost.state.world) return { ok: false, reason: 'no_world' };
+  const selUnit = getSelectedOverworldUnit(simHost.state);
+  if (!selUnit || !selUnit.leaderHeroId) return { ok: false, reason: 'no_hero_unit' };
+  const hero = (simHost.state.world.heroes || []).find(function(h) { return h && h.id === selUnit.leaderHeroId; }) || null;
+  if (!hero) return { ok: false, reason: 'no_hero' };
+  const slots = getHeroQuickSlots(hero, 'overworld');
+  const sl = slots[slotIndex];
+  if (!sl || !sl.abilityId) return { ok: false, reason: 'empty_slot' };
+  if (!sl.granted || !sl.availableInContext) {
+    simHost.state._lastStrategicFeedback = 'Quick Slot [' + (slotIndex + 1) + '] is currently unavailable.';
+    syncWargameUI(simHost);
+    return { ok: false, reason: !sl.granted ? 'not_granted' : 'invalid_context' };
+  }
+  return handleStrategicAbility(sl.abilityId);
+}
+
+export function handleToggleBuildingCategory(categoryId) {
+  if (!simHost || !simHost.state || !categoryId) return;
+  if (!simHost.state._collapsedBuildingCategories || typeof simHost.state._collapsedBuildingCategories !== 'object') {
+    simHost.state._collapsedBuildingCategories = {};
+  }
+  simHost.state._collapsedBuildingCategories[categoryId] = !simHost.state._collapsedBuildingCategories[categoryId];
+  simHost.state._dirty = true;
+  syncWargameUI(simHost);
+}
+
 export function handleDungeonAbilityClick(abilityId) {
-  if (appContext.getActiveContext() !== APP_CONTEXTS.DUNGEON || !gameState || !gameState.hero) return;
-  selectHeroActiveAbility(abilityId, gameState);
+  if (appContext.getActiveContext() !== APP_CONTEXTS.DUNGEON || !gameState || !gameState.hero) return { ok: false, reason: 'wrong_context' };
   const bar = getHeroAbilityBarState(gameState);
   const entry = bar.find(function(a) { return a.id === abilityId; });
-  if (entry && entry.requiresManualTarget) {
+  if (!entry) {
+    appendUnifiedDungeonLog('That spell or skill is not currently accessible.', 'bad');
+    syncIntegratedDungeonHud();
+    return { ok: false, reason: 'not_granted' };
+  }
+  if (!entry.ready) {
+    const why = entry.silenced ? 'Silenced' : (entry.cooldownRemaining > 0 ? ('Cooldown ' + entry.cooldownRemaining + 't') : (entry.unavailableReason === 'requires_ranged_weapon' ? 'Requires Ranged Weapon' : 'Insufficient MP'));
+    appendUnifiedDungeonLog(entry.name + ' cannot be used (' + why + ').', 'bad');
+    syncIntegratedDungeonHud();
+    return { ok: false, reason: entry.unavailableReason || 'unavailable' };
+  }
+  if (entry.requiresManualTarget) {
     if (getManualTargetingAbility() === abilityId) {
       // Second click cancels targeting
       setManualTargetingAbility(null);
@@ -1876,12 +2071,13 @@ export function handleDungeonAbilityClick(abilityId) {
       setSkillHover(true, abilityId);
     }
     syncIntegratedDungeonHud();
-    return;
+    return { ok: true, targeting: getManualTargetingAbility() };
   }
   setManualTargetingAbility(null);
   setSkillHover(false);
-  executeAbility(abilityId, null, gameState);
+  const res = executeAbility(abilityId, null, gameState);
   syncIntegratedDungeonHud();
+  return res;
 }
 
 export function handleDungeonTonic() {
@@ -2170,17 +2366,17 @@ function setupWargameListeners() {
         syncIntegratedDungeonHud();
       } else if (e.key === 'q' || e.key === 'Q') {
         e.preventDefault();
-        handleDungeonSkill();
-      } else if (e.key >= '1' && e.key <= '7') {
+        handleToggleDungeonSpellbook();
+      } else if (e.key >= '1' && e.key <= '4') {
+        e.preventDefault();
         const slotIdx = parseInt(e.key, 10) - 1;
-        const bar = getHeroAbilityBarState(gameState);
-        if (bar[slotIdx]) {
-          e.preventDefault();
-          handleDungeonAbilityClick(bar[slotIdx].id);
-        }
+        handleDungeonQuickSlot(slotIdx);
       } else if (e.key === 'Escape' && getManualTargetingAbility()) {
         e.preventDefault();
         handleCancelDungeonTargeting();
+      } else if (e.key === 'Escape' && dungeonSpellbookOpen) {
+        e.preventDefault();
+        handleToggleDungeonSpellbook(false);
       } else if (e.key === 'h' || e.key === 'H') {
         e.preventDefault();
         handleDungeonTonic();
@@ -2211,6 +2407,28 @@ function setupWargameListeners() {
       handleStepOverworld(1, 0);
     } else if (e.key === ' ') {
       handleTogglePauseClock();
+    } else if (e.key === 'q' || e.key === 'Q') {
+      e.preventDefault();
+      if (simHost.state._openHeroSheetId) {
+        handleCloseHeroSheet();
+      } else {
+        const selOw = getSelectedOverworldUnit(simHost.state);
+        const hId = (selOw && selOw.leaderHeroId) || null;
+        if (simHost.state.activeView === WARGAME_VIEWS.OVERWORLD) {
+          simHost.state._spellbookActiveContext = 'overworld';
+        }
+        handleOpenHeroSheet(hId);
+      }
+    } else if (e.key >= '1' && e.key <= '4' && simHost.state.activeView === WARGAME_VIEWS.OVERWORLD && !simHost.state._openHeroSheetId) {
+      const selOw = getSelectedOverworldUnit(simHost.state);
+      if (selOw && selOw.leaderHeroId) {
+        e.preventDefault();
+        handleOverworldQuickSlot(parseInt(e.key, 10) - 1);
+      } else if (e.key === '1') {
+        handleSetSimSpeed(1);
+      } else if (e.key === '2') {
+        handleSetSimSpeed(2);
+      }
     } else if (e.key === '1') {
       handleSetSimSpeed(1);
     } else if (e.key === '2') {
@@ -2383,6 +2601,15 @@ export const WargameApp = {
   handleDungeonAbilityClick: handleDungeonAbilityClick,
   handleDungeonAbilityHover: handleDungeonAbilityHover,
   handleCancelDungeonTargeting: handleCancelDungeonTargeting,
+  handleDungeonQuickSlot: handleDungeonQuickSlot,
+  handleOverworldQuickSlot: handleOverworldQuickSlot,
+  handleToggleBuildingCategory: handleToggleBuildingCategory,
+  handleToggleDungeonSpellbook: handleToggleDungeonSpellbook,
+  handleSpellbookFilter: handleSpellbookFilter,
+  handleAssignQuickSlot: handleAssignQuickSlot,
+  handleClearQuickSlot: handleClearQuickSlot,
+  handleSwapQuickSlots: handleSwapQuickSlots,
+  handleSpellbookCast: handleSpellbookCast,
   handleStrategicAbility: handleStrategicAbility,
   handleDungeonTonic: handleDungeonTonic,
   handleDungeonRecall: handleDungeonRecall,

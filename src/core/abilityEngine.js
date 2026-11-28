@@ -10,6 +10,28 @@ import {
 } from '../data/abilities.js';
 import { isRangedWeaponItem } from '../data/items.js';
 
+export const QUICK_SLOT_COUNT = 4;
+const QUICK_SLOT_CONTEXTS = ['tactical_dungeon', 'overworld'];
+
+function normalizeQuickSlotArray(rawArr, defaultIds, allowDefaultSeed) {
+  const out = [];
+  if (Array.isArray(rawArr)) {
+    for (let i = 0; i < QUICK_SLOT_COUNT; i++) {
+      const id = rawArr[i];
+      out.push((typeof id === 'string' && ABILITIES[id]) ? id : null);
+    }
+    return out;
+  }
+  if (!allowDefaultSeed) {
+    for (let i = 0; i < QUICK_SLOT_COUNT; i++) out.push(null);
+    return out;
+  }
+  for (let i = 0; i < QUICK_SLOT_COUNT; i++) {
+    out.push(defaultIds[i] || null);
+  }
+  return out;
+}
+
 export function normalizeActorAbilityState(actor) {
   if (!actor || typeof actor !== 'object') return null;
 
@@ -68,7 +90,120 @@ export function normalizeActorAbilityState(actor) {
     actor.activeAbilityId = activeIds.length > 0 ? activeIds[0] : null;
   }
 
+  // Initialize (one-time per context) or strictly preserve per-context configurable quick-access slots.
+  // After initial setup, player assignments/order (including intentionally cleared null slots and
+  // temporarily unavailable/ungranted abilities) are never auto-repopulated, reordered, or replaced.
+  if (!actor.quickSlots || typeof actor.quickSlots !== 'object') {
+    actor.quickSlots = {};
+  }
+  if (!actor._quickSlotsInitialized || typeof actor._quickSlotsInitialized !== 'object') {
+    actor._quickSlotsInitialized = {};
+  }
+  for (let cIdx = 0; cIdx < QUICK_SLOT_CONTEXTS.length; cIdx++) {
+    const ctxKey = QUICK_SLOT_CONTEXTS[cIdx];
+    const existing = actor.quickSlots[ctxKey];
+    const alreadyInit = Boolean(actor._quickSlotsInitialized[ctxKey] || actor._quickSlotsCustomized || Array.isArray(existing));
+    if (!alreadyInit) {
+      const ctxDefaults = getGrantedAbilityIds(actor, { activation: 'active', context: ctxKey });
+      actor.quickSlots[ctxKey] = normalizeQuickSlotArray(null, ctxDefaults, true);
+      actor._quickSlotsInitialized[ctxKey] = true;
+    } else {
+      actor.quickSlots[ctxKey] = normalizeQuickSlotArray(Array.isArray(existing) ? existing : [], null, false);
+      actor._quickSlotsInitialized[ctxKey] = true;
+    }
+  }
+
   return actor;
+}
+
+export function getHeroQuickSlots(actor, contextId) {
+  if (!actor) return [];
+  normalizeActorAbilityState(actor);
+  const ctxKey = QUICK_SLOT_CONTEXTS.indexOf(contextId) !== -1 ? contextId : 'tactical_dungeon';
+  const arr = actor.quickSlots[ctxKey] || [];
+  const out = [];
+  for (let i = 0; i < QUICK_SLOT_COUNT; i++) {
+    const id = arr[i] || null;
+    const def = id ? getAbilityDefinition(id) : null;
+    const granted = Boolean(id && hasAbilityAccess(actor, id));
+    const ctxOk = Boolean(def && Array.isArray(def.contexts) && def.contexts.indexOf(ctxKey) !== -1);
+    out.push({
+      slotIndex: i,
+      hotkey: String(i + 1),
+      abilityId: id,
+      granted: granted,
+      availableInContext: ctxOk
+    });
+  }
+  return out;
+}
+
+export function assignQuickSlot(actor, contextId, slotIndex, abilityId) {
+  if (!actor) return { ok: false, reason: 'invalid_actor' };
+  normalizeActorAbilityState(actor);
+  const ctxKey = QUICK_SLOT_CONTEXTS.indexOf(contextId) !== -1 ? contextId : 'tactical_dungeon';
+  const idx = Math.floor(Number(slotIndex));
+  if (isNaN(idx) || idx < 0 || idx >= QUICK_SLOT_COUNT) return { ok: false, reason: 'invalid_slot' };
+  const def = getAbilityDefinition(abilityId);
+  if (!def || def.activation !== 'active') return { ok: false, reason: 'invalid_ability' };
+  if (!hasAbilityAccess(actor, abilityId)) return { ok: false, reason: 'not_granted' };
+  if (!Array.isArray(def.contexts) || def.contexts.indexOf(ctxKey) === -1) {
+    return { ok: false, reason: 'invalid_context' };
+  }
+  const slots = actor.quickSlots[ctxKey];
+  const prevIdx = slots.indexOf(abilityId);
+  let swappedWith = -1;
+  if (prevIdx !== -1 && prevIdx !== idx) {
+    // Prevent duplicates by swapping existing slot position
+    const displaced = slots[idx] || null;
+    slots[idx] = abilityId;
+    slots[prevIdx] = displaced;
+    swappedWith = prevIdx;
+  } else {
+    slots[idx] = abilityId;
+  }
+  actor._quickSlotsCustomized = true;
+  if (!actor._quickSlotsInitialized || typeof actor._quickSlotsInitialized !== 'object') {
+    actor._quickSlotsInitialized = {};
+  }
+  actor._quickSlotsInitialized[ctxKey] = true;
+  return { ok: true, slotIndex: idx, abilityId: abilityId, swappedWith: swappedWith, slots: slots.slice() };
+}
+
+export function clearQuickSlot(actor, contextId, slotIndex) {
+  if (!actor) return { ok: false, reason: 'invalid_actor' };
+  normalizeActorAbilityState(actor);
+  const ctxKey = QUICK_SLOT_CONTEXTS.indexOf(contextId) !== -1 ? contextId : 'tactical_dungeon';
+  const idx = Math.floor(Number(slotIndex));
+  if (isNaN(idx) || idx < 0 || idx >= QUICK_SLOT_COUNT) return { ok: false, reason: 'invalid_slot' };
+  actor.quickSlots[ctxKey][idx] = null;
+  actor._quickSlotsCustomized = true;
+  if (!actor._quickSlotsInitialized || typeof actor._quickSlotsInitialized !== 'object') {
+    actor._quickSlotsInitialized = {};
+  }
+  actor._quickSlotsInitialized[ctxKey] = true;
+  return { ok: true, slotIndex: idx, slots: actor.quickSlots[ctxKey].slice() };
+}
+
+export function swapQuickSlots(actor, contextId, idxA, idxB) {
+  if (!actor) return { ok: false, reason: 'invalid_actor' };
+  normalizeActorAbilityState(actor);
+  const ctxKey = QUICK_SLOT_CONTEXTS.indexOf(contextId) !== -1 ? contextId : 'tactical_dungeon';
+  const a = Math.floor(Number(idxA));
+  const b = Math.floor(Number(idxB));
+  if (isNaN(a) || isNaN(b) || a < 0 || a >= QUICK_SLOT_COUNT || b < 0 || b >= QUICK_SLOT_COUNT) {
+    return { ok: false, reason: 'invalid_slot' };
+  }
+  const slots = actor.quickSlots[ctxKey];
+  const tmp = slots[a];
+  slots[a] = slots[b];
+  slots[b] = tmp;
+  actor._quickSlotsCustomized = true;
+  if (!actor._quickSlotsInitialized || typeof actor._quickSlotsInitialized !== 'object') {
+    actor._quickSlotsInitialized = {};
+  }
+  actor._quickSlotsInitialized[ctxKey] = true;
+  return { ok: true, slots: slots.slice() };
 }
 
 export function getGrantedAbilityIds(actor, opts) {

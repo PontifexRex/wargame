@@ -22,6 +22,7 @@ import { CLEANSEABLE_STATUS_IDS, getAbilityDefinition } from '../data/abilities.
 import {
   normalizeActorAbilityState,
   getGrantedAbilityIds,
+  getHeroQuickSlots,
   getAbilityCooldownRemaining,
   setAbilityCooldown,
   tickActorAbilityCooldowns,
@@ -753,7 +754,7 @@ export function monsterAttackHero(m, isRanged, state = gameState) {
   if ((m.statuses || []).some(function(s) { return s && s.id === 'disrupted'; })) {
     raw = Math.max(1, Math.round(raw * 0.75));
   }
-  if (h.classId === 'fighter') raw = Math.round(raw * 0.85);
+  if (h.classId === 'bruiser') raw = Math.round(raw * 0.85);
   // Bruiser Brace physical mitigation (-25% physical damage, distinct from Arcane Ward absorption shield)
   if ((h.statuses || []).some(function(s) { return s && s.id === 'physical_mitigation'; })) {
     raw = Math.max(1, Math.round(raw * 0.75));
@@ -818,7 +819,7 @@ export function monsterAttackHero(m, isRanged, state = gameState) {
   }
 
   // Fighter Titan Resurgence Counter-Attack
-  if (!isRanged && h.classId === 'fighter' && ((h.talentsAllocated && h.talentsAllocated.f_a3) || 0) > 0 && Math.random() < 0.35) {
+  if (!isRanged && h.classId === 'bruiser' && ((h.talentsAllocated && h.talentsAllocated.f_a3) || 0) > 0 && Math.random() < 0.35) {
     const counterDmg = Math.max(2, Math.round(h.atk * 0.5));
     m.hp -= counterDmg;
     if (state === gameState) {
@@ -929,7 +930,7 @@ function resolveTelegraphedAbility(m, floor, state) {
 
   const mult = (ability && ability.damageMult) ? ability.damageMult : 1.5;
   let raw = Math.round((m.atk || 8) * mult);
-  if (h.classId === 'fighter') raw = Math.round(raw * 0.85);
+  if (h.classId === 'bruiser') raw = Math.round(raw * 0.85);
   if ((h.ward || 0) > 0) raw = Math.max(1, raw - h.ward);
   const dmg = Math.max(2, raw - Math.floor((h.def || 0) * 0.6));
   h.hp -= dmg;
@@ -1058,7 +1059,7 @@ export function processTurn(state = gameState) {
   if (h.classId === 'paladin' && state.turn % 3 === 0) {
     h.hp = Math.min(h.maxHp, h.hp + 1);
   }
-  if (h.classId === 'cleric' && state.turn % 2 === 0) {
+  if (h.classId === 'acolyte' && state.turn % 2 === 0) {
     h.mp = Math.min(h.maxMp, h.mp + 1);
   }
 
@@ -1486,6 +1487,81 @@ export function cancelPendingAbilityCast(state = gameState) {
     ui.updateUI();
   }
   return { ok: true, cancelled: cancelled };
+}
+
+export function getHeroQuickAccessBar(state = gameState) {
+  if (!state || !state.hero) return [];
+  const h = state.hero;
+  normalizeActorAbilityState(h);
+  const slots = getHeroQuickSlots(h, 'tactical_dungeon');
+  const out = [];
+  for (let i = 0; i < slots.length; i++) {
+    const sl = slots[i];
+    if (!sl.abilityId) {
+      out.push({
+        slotIndex: sl.slotIndex,
+        hotkey: sl.hotkey,
+        empty: true,
+        id: null,
+        name: 'Empty Slot',
+        ready: false
+      });
+      continue;
+    }
+    const def = getAbilityDefinition(sl.abilityId);
+    if (!def) continue;
+    const val = sl.granted ? validateAbilityActivation(h, def, { context: 'tactical_dungeon' }) : { ok: false, reason: 'not_granted' };
+    const costInfo = getEffectiveAbilityCost(h, def);
+    const cdRem = getAbilityCooldownRemaining(h, def.id);
+    const silenced = isAbilitySilenced(h, def);
+    const mode = (def.targeting && def.targeting.mode) || 'self';
+    out.push({
+      slotIndex: sl.slotIndex,
+      hotkey: sl.hotkey,
+      empty: false,
+      id: def.id,
+      name: def.name,
+      icon: def.icon || '✦',
+      kind: def.kind,
+      domain: def.domain,
+      timing: def.timing,
+      desc: def.desc,
+      effectiveMp: costInfo.mp,
+      baseMp: costInfo.baseMp,
+      chilledPenalty: costInfo.chilledPenalty,
+      cooldown: costInfo.cooldown,
+      cooldownRemaining: cdRem,
+      silenced: silenced,
+      granted: sl.granted,
+      availableInContext: sl.availableInContext,
+      unavailableReason: !sl.granted ? 'not_granted' : (!sl.availableInContext ? 'invalid_context' : (val.ok ? null : val.reason)),
+      canAfford: (h.mp || 0) >= costInfo.mp,
+      ready: Boolean(val.ok && sl.granted && sl.availableInContext),
+      requiresManualTarget: (mode === 'manual_enemy' || mode === 'manual_location' || mode === 'directional'),
+      mode: mode
+    });
+  }
+  return out;
+}
+
+export function executeQuickSlotAbility(slotIndex, targetPayload, state = gameState) {
+  const idx = Math.floor(Number(slotIndex));
+  if (isNaN(idx) || idx < 0) return { ok: false, reason: 'invalid_slot' };
+  const bar = getHeroQuickAccessBar(state);
+  const slot = bar[idx];
+  if (!slot || slot.empty || !slot.id) {
+    return { ok: false, reason: 'empty_slot' };
+  }
+  if (!slot.granted) {
+    return { ok: false, reason: 'not_granted' };
+  }
+  if (!slot.availableInContext) {
+    return { ok: false, reason: 'invalid_context' };
+  }
+  if (!slot.ready) {
+    return { ok: false, reason: slot.unavailableReason || 'unavailable' };
+  }
+  return executeAbility(slot.id, targetPayload || null, state);
 }
 
 export function getHeroAbilityBarState(state = gameState) {

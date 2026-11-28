@@ -331,7 +331,7 @@ export function executeInteraction(request, state = gameState) {
     return createInteractionResult(false, request.actionId, 'target_not_found', false, [], 'Target not found');
   }
 
-  const actor = (state && state.hero) || { name: 'Player', classId: 'fighter' };
+  const actor = (state && state.hero) || { name: 'Player', classId: 'bruiser' };
 
   // Spatial range validation (Chebyshev distance <= 1.5 for manual interactions, 0 for step-over triggers)
   const maxRange = request.maxRange !== undefined ? request.maxRange : 1.5;

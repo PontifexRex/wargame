@@ -785,6 +785,47 @@ function normalizeBuildingId(buildingId) {
   return buildingId;
 }
 
+const BUILDING_MENU_CATEGORIES = Object.freeze([
+  { id: 'administration',        label: 'Administration & Housing',  icon: '🏛️' },
+  { id: 'resource_gathering',    label: 'Resource Gathering',        icon: '⛏️' },
+  { id: 'processing_production', label: 'Processing & Production',   icon: '🔥' },
+  { id: 'crafting',              label: 'Crafting',                  icon: '🔨' },
+  { id: 'commerce_logistics',    label: 'Commerce & Logistics',      icon: '📦' },
+  { id: 'hero_guilds',           label: 'Hero Recruitment & Guilds', icon: '⚔️' },
+  { id: 'religion',              label: 'Religion',                  icon: '⛪' },
+  { id: 'military',              label: 'Military & Defense',        icon: '🛡️' },
+  { id: 'research_learning',     label: 'Research & Learning',       icon: '🎓' }
+]);
+
+const BUILDING_MENU_CATEGORY_MAP = Object.freeze({
+  meeting_hall:        'administration',
+  hut:                 'administration',
+  well:                'administration',
+  garden:              'resource_gathering',
+  lumber_camp:         'resource_gathering',
+  quarry:              'resource_gathering',
+  mine:                'resource_gathering',
+  smeltery:            'processing_production',
+  apothecary:          'processing_production',
+  windmill:            'processing_production',
+  blacksmith:          'crafting',
+  lapidary:            'crafting',
+  silo:                'commerce_logistics',
+  warehouse:           'commerce_logistics',
+  market_post:         'commerce_logistics',
+  guild_hall:          'hero_guilds',
+  fighters_guild:      'hero_guilds',
+  mages_guild:         'hero_guilds',
+  rangers_lodge:       'hero_guilds',
+  thieves_guild:       'hero_guilds',
+  temple_chapterhouse: 'religion',
+  barracks:            'military',
+  fighter_camp:        'military',
+  archer_camp:         'military',
+  garrison:            'military',
+  arcane_academy:      'research_learning'
+});
+
 const CITY_BUILDINGS_CATALOG = {
   // ---------------------------------------------------------------------------
   // 1. CIVIC STRUCTURES
@@ -1087,6 +1128,7 @@ const CITY_BUILDINGS_CATALOG = {
     name: 'Adventurers Guild',
     icon: '⚔️',
     category: 'military',
+    maxPerCity: 1,
     color: '#60a5fa',
     maxLevel: 3,
     baseBuildTimeMs: 6000,
@@ -1125,6 +1167,7 @@ const CITY_BUILDINGS_CATALOG = {
     name: 'Temple Chapterhouse',
     icon: '⛪',
     category: 'arcane',
+    maxPerCity: 1,
     color: '#fef08a',
     maxLevel: 5,
     baseBuildTimeMs: 6500,
@@ -1134,7 +1177,7 @@ const CITY_BUILDINGS_CATALOG = {
     facilities: {
       recruitment: {
         classes: [
-          { classId: 'cleric',  minLevel: 1 },
+          { classId: 'acolyte', minLevel: 1 },
           { classId: 'paladin', minLevel: 2 }
         ]
       },
@@ -1143,13 +1186,14 @@ const CITY_BUILDINGS_CATALOG = {
       research:   { domain: 'temple' },
       shop:       { catalogId: 'shop_temple_exclusive' }
     },
-    desc: 'Sacred sanctuary recruiting Clerics (Lv 1) and Paladins (Lv 2+), with holy quests, training, research, and exclusive temple relics.'
+    desc: 'Sacred sanctuary recruiting Acolytes (Lv 1) and Paladins (Lv 2+), with holy quests, training, research, and exclusive temple relics.'
   },
   fighters_guild: {
     id: 'fighters_guild',
     name: 'Fighters Guild',
     icon: '🛡️',
     category: 'military',
+    maxPerCity: 1,
     color: '#f87171',
     maxLevel: 5,
     baseBuildTimeMs: 5500,
@@ -1157,13 +1201,13 @@ const CITY_BUILDINGS_CATALOG = {
     requires: { meeting_hall: 1, quarry: 1 },
     interiorAssetId: 'city_interior_fighters_guild_default_static',
     facilities: {
-      recruitment: { classes: [{ classId: 'fighter', minLevel: 1 }] },
+      recruitment: { classes: [{ classId: 'bruiser', minLevel: 1 }] },
       questBoard: { domain: 'fighters' },
       training:   { domain: 'fighters' },
       research:   { domain: 'fighters' },
       shop:       { catalogId: 'shop_fighters_exclusive' }
     },
-    desc: 'Martial brotherhood recruiting Fighters, offering martial quests, training, research, and exclusive arms.'
+    desc: 'Martial brotherhood recruiting Bruisers, offering martial quests, training, research, and exclusive arms.'
   },
   thieves_guild: {
     id: 'thieves_guild',
@@ -1190,6 +1234,7 @@ const CITY_BUILDINGS_CATALOG = {
     name: 'Mages Guild',
     icon: '✨',
     category: 'arcane',
+    maxPerCity: 1,
     color: '#60a5fa',
     maxLevel: 5,
     baseBuildTimeMs: 6500,
@@ -1210,6 +1255,7 @@ const CITY_BUILDINGS_CATALOG = {
     name: 'Rangers Lodge',
     icon: '🏹',
     category: 'military',
+    maxPerCity: 1,
     color: '#34d399',
     maxLevel: 5,
     baseBuildTimeMs: 5500,
@@ -1217,7 +1263,12 @@ const CITY_BUILDINGS_CATALOG = {
     requires: { meeting_hall: 1, lumber_camp: 1 },
     interiorAssetId: 'city_interior_rangers_lodge_default_static',
     facilities: {
-      recruitment: { classes: [{ classId: 'ranger', minLevel: 1 }] },
+      recruitment: {
+        classes: [
+          { classId: 'scout',  minLevel: 1 },
+          { classId: 'ranger', minLevel: 1 }
+        ]
+      },
       questBoard: { domain: 'rangers' },
       training:   { domain: 'rangers' },
       research:   { domain: 'rangers' },
@@ -1226,6 +1277,121 @@ const CITY_BUILDINGS_CATALOG = {
     desc: 'Frontier pathfinder lodge recruiting Rangers, offering scouting quests, archery training, research, and bows.'
   }
 };
+
+// Populate data-driven menuCategory metadata onto every catalog entry
+(function attachBuildingMenuCategories() {
+  const keys = Object.keys(CITY_BUILDINGS_CATALOG);
+  for (let i = 0; i < keys.length; i++) {
+    const id = keys[i];
+    if (!CITY_BUILDINGS_CATALOG[id].menuCategory) {
+      CITY_BUILDINGS_CATALOG[id].menuCategory = BUILDING_MENU_CATEGORY_MAP[id] || 'administration';
+    }
+  }
+})();
+
+function getBuildingMaxPerCity(buildingId) {
+  const def = CITY_BUILDINGS_CATALOG[buildingId];
+  if (!def || typeof def.maxPerCity !== 'number' || !isFinite(def.maxPerCity) || def.maxPerCity <= 0) {
+    return null;
+  }
+  return Math.floor(def.maxPerCity);
+}
+
+function evaluateCityBuildingLimit(city, buildingId) {
+  const maxPerCity = getBuildingMaxPerCity(buildingId);
+  const def = CITY_BUILDINGS_CATALOG[buildingId];
+  if (!maxPerCity) {
+    return {
+      limited: false,
+      maxPerCity: null,
+      builtCount: 0,
+      queuedNewCount: 0,
+      totalCount: 0,
+      atLimit: false,
+      duplicateDetected: false,
+      reason: null
+    };
+  }
+  let builtCount = 0;
+  let queuedNewCount = 0;
+  if (city) {
+    if (Array.isArray(city.plots) && city.plots.length > 0) {
+      for (let i = 0; i < city.plots.length; i++) {
+        const p = city.plots[i];
+        if (p && p.buildingId === buildingId && (p.level || 0) > 0) {
+          builtCount++;
+        }
+      }
+    }
+    // Fallback for legacy/synthetic city snapshots where city.buildings was seeded directly without plot entries
+    if (builtCount === 0 && city.buildings && (city.buildings[buildingId] || 0) > 0) {
+      builtCount = 1;
+    }
+    if (Array.isArray(city.buildQueue)) {
+      for (let q = 0; q < city.buildQueue.length; q++) {
+        const item = city.buildQueue[q];
+        if (!item || item.buildingId !== buildingId) continue;
+        const itemType = item.type || 'build';
+        // Count only queued/in-progress NEW builds (previousLevel === 0), not upgrades/moves/demolitions
+        if (itemType === 'build' && (item.previousLevel || 0) === 0) {
+          queuedNewCount++;
+        }
+      }
+    }
+  }
+  const totalCount = builtCount + queuedNewCount;
+  const atLimit = totalCount >= maxPerCity;
+  const duplicateDetected = builtCount > maxPerCity;
+  let reason = null;
+  if (atLimit) {
+    const label = (def && def.name) ? def.name : buildingId;
+    if (builtCount >= maxPerCity) {
+      reason = 'Limit ' + maxPerCity + '/city — ' + label + ' already built' + (duplicateDetected ? ' (duplicate detected)' : '');
+    } else {
+      reason = 'Limit ' + maxPerCity + '/city — ' + label + ' construction already queued';
+    }
+  }
+  return {
+    limited: true,
+    maxPerCity: maxPerCity,
+    builtCount: builtCount,
+    queuedNewCount: queuedNewCount,
+    totalCount: totalCount,
+    atLimit: atLimit,
+    duplicateDetected: duplicateDetected,
+    reason: reason
+  };
+}
+
+function getBuildingsGroupedByMenuCategory(city, opts) {
+  const includeMeetingHall = Boolean(opts && opts.includeMeetingHall);
+  const buckets = {};
+  for (let i = 0; i < BUILDING_MENU_CATEGORIES.length; i++) {
+    buckets[BUILDING_MENU_CATEGORIES[i].id] = [];
+  }
+  const allKeys = Object.keys(CITY_BUILDINGS_CATALOG);
+  for (let i = 0; i < allKeys.length; i++) {
+    const bId = allKeys[i];
+    if (!includeMeetingHall && bId === 'meeting_hall') continue;
+    const bDef = CITY_BUILDINGS_CATALOG[bId];
+    const catId = (bDef && bDef.menuCategory && buckets[bDef.menuCategory]) ? bDef.menuCategory : 'administration';
+    buckets[catId].push(bId);
+  }
+  const groups = [];
+  for (let i = 0; i < BUILDING_MENU_CATEGORIES.length; i++) {
+    const cat = BUILDING_MENU_CATEGORIES[i];
+    const items = buckets[cat.id];
+    if (items && items.length > 0) {
+      groups.push({
+        id: cat.id,
+        label: cat.label,
+        icon: cat.icon,
+        buildingIds: items
+      });
+    }
+  }
+  return groups;
+}
 
 const CITY_PLOT_SLOTS = [
   { plotIndex: 0, label: 'Meeting Hall Plot', defaultBuilding: 'meeting_hall', lockedTo: 'meeting_hall' },
@@ -4876,12 +5042,13 @@ function computeItemPowerScore(item) {
 
 // Lightweight, explicit, provisional class preference weights grounded in heroStats.js & combat.js scaling.
 const CLASS_ITEM_PREFERENCE_WEIGHTS = {
-  fighter:    { atk: 2.6, def: 2.2, magicPower: 0.2, maxHp: 0.35, maxMp: 0.10, crit: 1.3, dodge: 1.0, str: 2.2, dex: 1.0, int: 0.2, vit: 2.0, spi: 0.2, thorns: 1.8, leech: 2.4, ward: 2.0, visionBonus: 1.5 },
+  bruiser:    { atk: 2.6, def: 2.2, magicPower: 0.2, maxHp: 0.35, maxMp: 0.10, crit: 1.3, dodge: 1.0, str: 2.2, dex: 1.0, int: 0.2, vit: 2.0, spi: 0.2, thorns: 1.8, leech: 2.4, ward: 2.0, visionBonus: 1.5 },
   thief:      { atk: 2.3, def: 1.4, magicPower: 0.2, maxHp: 0.20, maxMp: 0.15, crit: 2.5, dodge: 2.2, str: 1.1, dex: 2.4, int: 0.3, vit: 1.0, spi: 0.2, thorns: 0.8, leech: 2.2, ward: 1.4, visionBonus: 2.0 },
   ranger:     { atk: 2.3, def: 1.5, magicPower: 0.2, maxHp: 0.20, maxMp: 0.15, crit: 2.3, dodge: 2.4, str: 1.1, dex: 2.4, int: 0.3, vit: 1.0, spi: 0.2, thorns: 0.8, leech: 1.8, ward: 1.5, visionBonus: 3.0 },
+  scout:      { atk: 2.2, def: 1.4, magicPower: 0.4, maxHp: 0.22, maxMp: 0.18, crit: 2.2, dodge: 2.3, str: 1.0, dex: 2.4, int: 1.4, vit: 1.1, spi: 0.5, thorns: 0.7, leech: 1.5, ward: 1.4, visionBonus: 3.0 },
   mage:       { atk: 0.6, def: 1.3, magicPower: 2.8, maxHp: 0.20, maxMp: 0.40, crit: 1.4, dodge: 1.3, str: 0.3, dex: 0.8, int: 2.6, vit: 1.0, spi: 1.2, thorns: 0.6, leech: 0.8, ward: 2.4, visionBonus: 2.0 },
   paladin:    { atk: 2.2, def: 2.3, magicPower: 1.2, maxHp: 0.32, maxMp: 0.22, crit: 1.1, dodge: 0.9, str: 1.8, dex: 0.8, int: 0.8, vit: 2.0, spi: 1.8, thorns: 1.8, leech: 1.8, ward: 2.2, visionBonus: 1.5 },
-  cleric:     { atk: 1.1, def: 1.8, magicPower: 2.6, maxHp: 0.28, maxMp: 0.35, crit: 0.9, dodge: 1.0, str: 0.8, dex: 0.6, int: 1.6, vit: 1.5, spi: 2.6, thorns: 0.8, leech: 1.0, ward: 2.4, visionBonus: 1.5 },
+  acolyte:    { atk: 1.1, def: 1.8, magicPower: 2.6, maxHp: 0.28, maxMp: 0.35, crit: 0.9, dodge: 1.0, str: 0.8, dex: 0.6, int: 1.6, vit: 1.5, spi: 2.6, thorns: 0.8, leech: 1.0, ward: 2.4, visionBonus: 1.5 },
   adventurer: { atk: 2.0, def: 2.0, magicPower: 1.4, maxHp: 0.25, maxMp: 0.25, crit: 1.5, dodge: 1.5, str: 1.4, dex: 1.4, int: 1.2, vit: 1.4, spi: 1.2, thorns: 1.5, leech: 1.8, ward: 2.0, visionBonus: 2.5 }
 };
 
@@ -4890,7 +5057,8 @@ function computeClassItemPreferenceScore(item, classId) {
   if (item.slot === 'pickaxe') {
     return computeItemPowerScore(item);
   }
-  const w = (classId && CLASS_ITEM_PREFERENCE_WEIGHTS[classId]) ? CLASS_ITEM_PREFERENCE_WEIGHTS[classId] : null;
+  const normId = classId === 'fighter' ? 'bruiser' : (classId === 'cleric' ? 'acolyte' : classId);
+  const w = (normId && CLASS_ITEM_PREFERENCE_WEIGHTS[normId]) ? CLASS_ITEM_PREFERENCE_WEIGHTS[normId] : null;
   if (!w) return computeItemPowerScore(item);
   const b = getEffectiveItemBonuses(item);
   const openSockets = Math.max(0, (item.maxSockets || 0) - (Array.isArray(item.sockets) ? item.sockets.length : 0));
@@ -4958,7 +5126,7 @@ function getItemTypeIcon(itemOrSlot) {
 }
 
   // --- Module: src/data/classes.js ---
-// Canonical Playable Classes Registry (5 Core + Adventurer + Cleric)
+// Canonical Playable Classes Registry (5 Entry-Tier + Preserved Legacy Prototype Classes)
 // Five foundational attributes: STR, DEX, INT, VIT, SPI (HR-13)
 
 const HERO_ATTRIBUTE_KEYS = ['str', 'dex', 'int', 'vit', 'spi'];
@@ -4966,10 +5134,25 @@ const DEFAULT_HERO_SPI = 10;
 // Provisional per-level automatic attribute growth fallback (~1.5 total/level across 5 attributes; HR-14.1)
 const DEFAULT_LEVEL_GROWTH = { str: 0.3, dex: 0.3, int: 0.3, vit: 0.3, spi: 0.3 };
 
+// Narrow legacy class ID normalization map (MG-01C): fighter -> bruiser, cleric -> acolyte
+const LEGACY_CLASS_ID_MAP = Object.freeze({
+  fighter: 'bruiser',
+  cleric: 'acolyte'
+});
+
+function normalizeHeroClassId(classId) {
+  if (!classId || typeof classId !== 'string') return classId;
+  const key = classId.toLowerCase();
+  if (Object.prototype.hasOwnProperty.call(LEGACY_CLASS_ID_MAP, key)) {
+    return LEGACY_CLASS_ID_MAP[key];
+  }
+  return key;
+}
+
 const CLASSES = {
-  fighter: {
-    id: 'fighter',
-    name: 'Fighter',
+  bruiser: {
+    id: 'bruiser',
+    name: 'Bruiser',
     title: 'Iron Vanguard',
     color: '#f87171',
     canEnterDungeon: true,
@@ -4988,10 +5171,10 @@ const CLASSES = {
     },
     passiveName: 'Unstoppable Stride',
     passiveDesc: '+10 Max HP & reduces incoming physical damage by 15%.',
-    skillName: 'Whirlwind Cleave',
-    skillCost: 10,
+    skillName: 'Power Strike',
+    skillCost: 0,
     skillRange: 1,
-    skillDesc: 'Cleaves all adjacent foes for 150% weapon damage and stuns them for 1 turn.'
+    skillDesc: 'Enhanced single-target physical strike (0 MP, 2t CD).'
   },
   thief: {
     id: 'thief',
@@ -5123,9 +5306,9 @@ const CLASSES = {
     skillRange: 1,
     skillDesc: 'Blasts an adjacent foe with searing torchlight for 180% damage and stuns them for 1 turn.'
   },
-  cleric: {
-    id: 'cleric',
-    name: 'Cleric',
+  acolyte: {
+    id: 'acolyte',
+    name: 'Acolyte',
     title: 'Temple Devotee',
     color: '#fef08a',
     canEnterDungeon: true,
@@ -5144,10 +5327,10 @@ const CLASSES = {
     },
     passiveName: 'Sanctuary Ward',
     passiveDesc: '+5 Armor & restores +1 MP every 2 turns.',
-    skillName: 'Sacred Ward',
-    skillCost: 14,
-    skillRange: 3,
-    skillDesc: 'Channels holy light against a visible foe within 3 tiles for 160% holy damage and restores 20% Max HP.'
+    skillName: 'Sacred Flame',
+    skillCost: 8,
+    skillRange: 4,
+    skillDesc: 'Calls down radiant divine fire on a visible enemy within 4 tiles (+35% vs Undead/Corrupted).'
   },
   scout: {
     id: 'scout',
@@ -5177,20 +5360,21 @@ const CLASSES = {
   }
 };
 
-// Explicit MG-01B catalog-to-runtime class binding table (no silent class renames or deletions)
+// Canonical MG-01C entry-tier class-to-guild bindings
 const CLASS_CATALOG_BINDINGS = Object.freeze({
-  bruiser:    { runtimeClassId: 'fighter',    displayRole: 'Bruiser (Fighter)',  guild: 'Fighters Guild',   tier: 'entry', bindingType: 'prototype_compatibility_binding' },
-  mage:       { runtimeClassId: 'mage',       displayRole: 'Mage',               guild: 'Mages Guild',      tier: 'entry', bindingType: 'direct' },
-  acolyte:    { runtimeClassId: 'cleric',     displayRole: 'Acolyte (Cleric)',   guild: 'Temple',           tier: 'entry', bindingType: 'prototype_compatibility_binding' },
-  scout:      { runtimeClassId: 'scout',      displayRole: 'Scout',              guild: 'Rangers Lodge',    tier: 'entry', bindingType: 'direct_dev_recruit_until_lodge' },
-  adventurer: { runtimeClassId: 'adventurer', displayRole: 'Adventurer',         guild: 'Adventurers Guild', tier: 'entry', bindingType: 'direct' }
+  bruiser:    { runtimeClassId: 'bruiser',    displayRole: 'Bruiser',    guild: 'Fighters Guild',      buildingId: 'fighters_guild',      tier: 'entry', bindingType: 'direct' },
+  mage:       { runtimeClassId: 'mage',       displayRole: 'Mage',       guild: 'Mages Guild',         buildingId: 'mages_guild',         tier: 'entry', bindingType: 'direct' },
+  acolyte:    { runtimeClassId: 'acolyte',    displayRole: 'Acolyte',    guild: 'Temple Chapterhouse', buildingId: 'temple_chapterhouse', tier: 'entry', bindingType: 'direct' },
+  scout:      { runtimeClassId: 'scout',      displayRole: 'Scout',      guild: 'Rangers Lodge',       buildingId: 'rangers_lodge',       tier: 'entry', bindingType: 'direct' },
+  adventurer: { runtimeClassId: 'adventurer', displayRole: 'Adventurer', guild: 'Adventurers Guild',   buildingId: 'guild_hall',          tier: 'entry', bindingType: 'direct' }
 });
 
-// Fail-closed canonical dungeon eligibility evaluators (HR-12).
+// Fail-closed canonical dungeon eligibility evaluators (HR-12 / MG-01C).
 // Entities/classes without explicit canEnterDungeon === true are ineligible by default.
 function isClassDungeonEligible(classId) {
   if (!classId || typeof classId !== 'string') return false;
-  const cls = CLASSES[classId];
+  const canonicalId = normalizeHeroClassId(classId);
+  const cls = CLASSES[canonicalId];
   return Boolean(cls && cls.canEnterDungeon === true);
 }
 
@@ -5213,7 +5397,8 @@ function roundFrac(val) {
 }
 
 function getClassLevelGrowth(classId) {
-  const cls = (classId && CLASSES[classId]) ? CLASSES[classId] : null;
+  const normId = normalizeHeroClassId(classId);
+  const cls = (normId && CLASSES[normId]) ? CLASSES[normId] : null;
   const src = (cls && cls.levelGrowth && typeof cls.levelGrowth === 'object') ? cls.levelGrowth : DEFAULT_LEVEL_GROWTH;
   return {
     str: typeof src.str === 'number' && isFinite(src.str) ? src.str : DEFAULT_LEVEL_GROWTH.str,
@@ -5267,7 +5452,7 @@ function normalizeHeroBonusStats(rawBonus) {
 // Returns null if hero or classId is invalid (no silent Fighter substitution).
 function computeHeroDerivedStats(hero, externalModifiers) {
   if (!hero || typeof hero !== 'object') return null;
-  const classId = hero.classId;
+  const classId = normalizeHeroClassId(hero.classId);
   const cls = (classId && CLASSES[classId]) ? CLASSES[classId] : null;
   if (!cls) return null;
 
@@ -5299,11 +5484,11 @@ function computeHeroDerivedStats(hero, externalModifiers) {
   let flatWard = ext.ward || 0;
 
   // Passive Class Bonuses
-  if (classId === 'fighter') flatHp += 10;
+  if (classId === 'bruiser') flatHp += 10;
   if (classId === 'thief')   flatCrit += 15;
   if (classId === 'ranger')  flatDodge += 15;
   if (classId === 'paladin') flatDef += 10;
-  if (classId === 'cleric')  flatDef += 5;
+  if (classId === 'acolyte') flatDef += 5;
 
   // Talent Bonuses
   const t = (hero.talentsAllocated && typeof hero.talentsAllocated === 'object') ? hero.talentsAllocated : {};
@@ -5402,7 +5587,7 @@ function computeHeroDerivedStats(hero, externalModifiers) {
 
   // Provisional SPI contributions (justified for divine/spiritual & arcane classes;
   // fractional attributes are preserved until final rounding)
-  const spiMpBonus = classId === 'cleric'
+  const spiMpBonus = classId === 'acolyte'
     ? (spi * 1.5)
     : classId === 'paladin'
       ? (spi * 1.0)
@@ -5415,13 +5600,13 @@ function computeHeroDerivedStats(hero, externalModifiers) {
 
   const primaryOffensive = classId === 'mage'
     ? (intel * 1.1 + str * 0.3)
-    : (classId === 'ranger' || classId === 'thief')
+    : (classId === 'ranger' || classId === 'thief' || classId === 'scout')
       ? (dex * 0.9 + str * 0.4)
-      : classId === 'cleric'
+      : classId === 'acolyte'
         ? (str * 0.65 + spi * 0.55)
         : (str * 0.95 + dex * 0.35);
 
-  const magicBase = (classId === 'cleric' || classId === 'paladin')
+  const magicBase = (classId === 'acolyte' || classId === 'paladin')
     ? (spi * 1.35 + intel * 0.65)
     : (intel * 1.2 + spi * 0.35);
 
@@ -6023,6 +6208,1887 @@ function evaluateMonsterKnowledgeReveal(hero, monster) {
     traitNote: traitNote,
     tacticalTip: tacticalTip,
     summary: parts.join(' • ')
+  };
+}
+
+  // --- Module: src/data/abilities.js ---
+// Shared Context-Independent Spell, Prayer, Martial Technique & Adventuring Skill Catalog (MG-01A / MG-01B)
+// Complete 32-entry approved entry-tier catalog across Bruiser (fighter), Mage (mage),
+// Acolyte (cleric), Scout (scout), and Adventurer (adventurer), plus preserved legacy class skills.
+
+const ABILITY_DOMAINS = Object.freeze({
+  ARCANE: 'arcane',
+  DIVINE: 'divine',
+  NATURE: 'nature',
+  MARTIAL: 'martial',
+  ADVENTURING: 'adventuring'
+});
+
+const ABILITY_KINDS = Object.freeze({
+  SPELL: 'spell',
+  PRAYER: 'prayer',
+  TECHNIQUE: 'technique',
+  SKILL: 'skill',
+  POWER: 'power'
+});
+
+const ABILITY_ACCESS_SOURCES = Object.freeze([
+  'class',
+  'learned',
+  'item',
+  'temporary'
+]);
+
+const CLEANSEABLE_STATUS_IDS = Object.freeze([
+  'burn',
+  'poison',
+  'bleed',
+  'weakened',
+  'chilled',
+  'slow',
+  'silence',
+  'disrupted',
+  'rooted'
+]);
+
+const ABILITIES = Object.freeze({
+  // =========================================================================
+  // 1. BRUISER (Runtime: fighter) — 6 Martial Skills (Cooldowns, 0 MP)
+  // =========================================================================
+  power_strike: Object.freeze({
+    id: 'power_strike',
+    name: 'Power Strike',
+    icon: '🪓',
+    kind: 'technique',
+    domain: 'martial',
+    discipline: 'weapon_mastery',
+    purpose: 'damage',
+    activation: 'active',
+    timing: 'immediate',
+    windupTurns: 0,
+    contexts: ['tactical_dungeon'],
+    timeSemantics: 'tactical_turn',
+    acquisition: 'class',
+    costs: { mp: 0, cooldown: 2 },
+    targeting: {
+      mode: 'manual_enemy',
+      pattern: 'single',
+      range: 1.5,
+      radius: 0,
+      requireLos: false,
+      filter: 'enemy',
+      maxTargets: 1
+    },
+    scaling: 'physical',
+    damageType: 'physical',
+    effects: [
+      { type: 'damage', mult: 1.65, bonusFlat: 4, damageType: 'physical', scaling: 'physical', respectGuarding: true }
+    ],
+    vfx: { type: 'crit_slash', color: '#fb923c' },
+    desc: 'Enhanced single-target physical strike dealing 165% ATK + 4 damage (respects Guarding; 0 MP, 2t CD).'
+  }),
+
+  cleave: Object.freeze({
+    id: 'cleave',
+    name: 'Cleave',
+    icon: '⚔️',
+    kind: 'technique',
+    domain: 'martial',
+    discipline: 'weapon_mastery',
+    purpose: 'damage',
+    activation: 'active',
+    timing: 'immediate',
+    windupTurns: 0,
+    contexts: ['tactical_dungeon'],
+    timeSemantics: 'tactical_turn',
+    acquisition: 'class',
+    costs: { mp: 0, cooldown: 3 },
+    targeting: {
+      mode: 'auto_area',
+      pattern: 'radius',
+      range: 1.5,
+      radius: 1.5,
+      requireLos: false,
+      filter: 'enemy',
+      maxTargets: 8
+    },
+    scaling: 'physical',
+    damageType: 'physical',
+    effects: [
+      { type: 'damage', mult: 1.35, damageType: 'physical', scaling: 'physical', respectGuarding: true }
+    ],
+    vfx: { type: 'slash', color: '#f97316' },
+    desc: 'Sweeping physical cleave hitting all adjacent enemies for 135% ATK (respects Guarding; 0 MP, 3t CD).'
+  }),
+
+  overpower: Object.freeze({
+    id: 'overpower',
+    name: 'Overpower',
+    icon: '💥',
+    kind: 'technique',
+    domain: 'martial',
+    discipline: 'combat_control',
+    purpose: 'control',
+    activation: 'active',
+    timing: 'immediate',
+    windupTurns: 0,
+    contexts: ['tactical_dungeon'],
+    timeSemantics: 'tactical_turn',
+    acquisition: 'class',
+    costs: { mp: 0, cooldown: 4 },
+    targeting: {
+      mode: 'manual_enemy',
+      pattern: 'single',
+      range: 1.5,
+      radius: 0,
+      requireLos: false,
+      filter: 'enemy',
+      maxTargets: 1
+    },
+    scaling: 'physical',
+    damageType: 'physical',
+    effects: [
+      { type: 'damage', mult: 1.25, damageType: 'physical', scaling: 'physical', respectGuarding: true },
+      { type: 'knockback', distance: 1, collideStunTurns: 2, collideBonusDmg: 6 }
+    ],
+    vfx: { type: 'slash', color: '#f59e0b' },
+    desc: 'Crushing blow knocking an adjacent enemy back 1 tile; wall collision deals +6 damage and stuns for 2 turns (0 MP, 4t CD).'
+  }),
+
+  brace: Object.freeze({
+    id: 'brace',
+    name: 'Brace',
+    icon: '🛡️',
+    kind: 'technique',
+    domain: 'martial',
+    discipline: 'defense',
+    purpose: 'defense',
+    activation: 'active',
+    timing: 'immediate',
+    windupTurns: 0,
+    contexts: ['tactical_dungeon'],
+    timeSemantics: 'tactical_turn',
+    acquisition: 'class',
+    costs: { mp: 0, cooldown: 4 },
+    targeting: {
+      mode: 'self',
+      pattern: 'self',
+      range: 0,
+      radius: 0,
+      requireLos: false,
+      filter: 'self',
+      maxTargets: 1
+    },
+    scaling: 'physical',
+    damageType: 'none',
+    effects: [
+      { type: 'status', statusId: 'guarding', duration: 2, targetSelf: true },
+      { type: 'status', statusId: 'physical_mitigation', duration: 2, targetSelf: true }
+    ],
+    vfx: { type: 'shield', color: '#60a5fa' },
+    desc: 'Temporary physical stance granting Guarding (+60% DEF) and 25% physical damage mitigation for 2 turns (distinct from Arcane Ward absorption; 0 MP, 4t CD).'
+  }),
+
+  charge: Object.freeze({
+    id: 'charge',
+    name: 'Charge',
+    icon: '🐂',
+    kind: 'technique',
+    domain: 'martial',
+    discipline: 'vanguard',
+    purpose: 'mobility',
+    activation: 'active',
+    timing: 'immediate',
+    windupTurns: 0,
+    contexts: ['tactical_dungeon'],
+    timeSemantics: 'tactical_turn',
+    acquisition: 'class',
+    costs: { mp: 0, cooldown: 4 },
+    targeting: {
+      mode: 'manual_enemy',
+      pattern: 'single',
+      range: 4.2,
+      minRange: 1.8,
+      radius: 0,
+      requireLos: true,
+      requireChargePath: true,
+      filter: 'enemy',
+      maxTargets: 1
+    },
+    scaling: 'physical',
+    damageType: 'physical',
+    effects: [
+      { type: 'charge_move' },
+      { type: 'damage', mult: 1.5, bonusFlat: 3, damageType: 'physical', scaling: 'physical', respectGuarding: true },
+      { type: 'status', statusId: 'stun', duration: 1 }
+    ],
+    vfx: { type: 'crit_slash', color: '#f97316' },
+    desc: 'Rush along a clear path to an enemy 2–4 tiles away, delivering a 150% physical impact + 1t Stun (0 MP, 4t CD).'
+  }),
+
+  battle_cry: Object.freeze({
+    id: 'battle_cry',
+    name: 'Battle Cry',
+    icon: '📯',
+    kind: 'technique',
+    domain: 'martial',
+    discipline: 'command',
+    purpose: 'buff',
+    activation: 'active',
+    timing: 'immediate',
+    windupTurns: 0,
+    contexts: ['tactical_dungeon'],
+    timeSemantics: 'tactical_turn',
+    acquisition: 'class',
+    groupExtensible: true,
+    costs: { mp: 0, cooldown: 5 },
+    targeting: {
+      mode: 'self',
+      pattern: 'self',
+      range: 0,
+      radius: 0,
+      requireLos: false,
+      filter: 'self',
+      maxTargets: 1
+    },
+    scaling: 'physical',
+    damageType: 'none',
+    effects: [
+      { type: 'status', statusId: 'battle_cry', duration: 3, targetSelf: true }
+    ],
+    vfx: { type: 'wave', color: '#f59e0b' },
+    desc: 'Rousing warcry granting +4 ATK and +10% Crit for 3 turns (0 MP, 5t CD; extensible to party allies).'
+  }),
+
+  // =========================================================================
+  // 2. MAGE (Runtime: mage) — 6 Arcane Spells (Mana by default)
+  // =========================================================================
+  arcane_missile: Object.freeze({
+    id: 'arcane_missile',
+    name: 'Arcane Missile',
+    icon: '🔮',
+    kind: 'spell',
+    domain: 'arcane',
+    discipline: 'evocation',
+    purpose: 'damage',
+    activation: 'active',
+    timing: 'immediate',
+    windupTurns: 0,
+    contexts: ['tactical_dungeon'],
+    timeSemantics: 'tactical_turn',
+    acquisition: 'class',
+    costs: { mp: 6, cooldown: 0 },
+    targeting: {
+      mode: 'manual_enemy',
+      pattern: 'single',
+      range: 5.5,
+      radius: 0,
+      requireLos: true,
+      filter: 'enemy',
+      maxTargets: 1
+    },
+    scaling: 'arcane',
+    damageType: 'magical',
+    effects: [
+      { type: 'damage', mult: 1.35, bonusFlat: 4, damageType: 'magical', scaling: 'arcane' }
+    ],
+    vfx: { type: 'beam', color: '#a78bfa' },
+    desc: 'Fires a focused arcane bolt at a visible enemy within 5 tiles, scaling with Magic Power (6 MP).'
+  }),
+
+  fireball: Object.freeze({
+    id: 'fireball',
+    name: 'Fireball',
+    icon: '🔥',
+    kind: 'spell',
+    domain: 'arcane',
+    discipline: 'pyromancy',
+    purpose: 'damage',
+    activation: 'active',
+    timing: 'delayed',
+    windupTurns: 1,
+    contexts: ['tactical_dungeon'],
+    timeSemantics: 'tactical_turn',
+    acquisition: 'class',
+    costs: { mp: 14, cooldown: 2 },
+    targeting: {
+      mode: 'manual_location',
+      pattern: 'radius',
+      range: 5.2,
+      radius: 1,
+      requireLos: true,
+      filter: 'enemy',
+      maxTargets: 9
+    },
+    scaling: 'arcane',
+    damageType: 'magical',
+    effects: [
+      { type: 'damage', mult: 1.85, bonusFlat: 6, damageType: 'magical', scaling: 'arcane' },
+      { type: 'status', statusId: 'burn', duration: 3 }
+    ],
+    vfx: { type: 'spell', color: '#fb923c' },
+    desc: 'Channels for 1 turn (interruptible by Stun/Silence), then detonates a 3x3 arcane blast dealing high magical damage + Burn (14 MP, 2t CD).'
+  }),
+
+  frost_nova: Object.freeze({
+    id: 'frost_nova',
+    name: 'Frost Nova',
+    icon: '❄️',
+    kind: 'spell',
+    domain: 'arcane',
+    discipline: 'cryomancy',
+    purpose: 'control',
+    activation: 'active',
+    timing: 'immediate',
+    windupTurns: 0,
+    contexts: ['tactical_dungeon'],
+    timeSemantics: 'tactical_turn',
+    acquisition: 'class',
+    costs: { mp: 12, cooldown: 3 },
+    targeting: {
+      mode: 'auto_area',
+      pattern: 'radius',
+      range: 2.5,
+      radius: 2.5,
+      requireLos: true,
+      filter: 'enemy',
+      maxTargets: 12
+    },
+    scaling: 'arcane',
+    damageType: 'magical',
+    effects: [
+      { type: 'damage', mult: 1.15, bonusFlat: 2, damageType: 'magical', scaling: 'arcane' },
+      { type: 'status', statusId: 'slow', duration: 3 },
+      { type: 'status', statusId: 'chilled', duration: 2 }
+    ],
+    vfx: { type: 'wave', color: '#38bdf8' },
+    desc: 'Freezing ring around the caster dealing magical damage and inflicting Slow (3t) and Chilled (2t) (12 MP, 3t CD).'
+  }),
+
+  arcane_ward: Object.freeze({
+    id: 'arcane_ward',
+    name: 'Arcane Ward',
+    icon: '🔷',
+    kind: 'spell',
+    domain: 'arcane',
+    discipline: 'abjuration',
+    purpose: 'defense',
+    activation: 'active',
+    timing: 'immediate',
+    windupTurns: 0,
+    contexts: ['tactical_dungeon'],
+    timeSemantics: 'tactical_turn',
+    acquisition: 'class',
+    costs: { mp: 10, cooldown: 3 },
+    targeting: {
+      mode: 'self',
+      pattern: 'self',
+      range: 0,
+      radius: 0,
+      requireLos: false,
+      filter: 'self',
+      maxTargets: 1
+    },
+    scaling: 'arcane',
+    damageType: 'none',
+    effects: [
+      { type: 'shield', baseAmount: 16, magicMult: 1.35, maxShieldCap: 95 },
+      { type: 'status', statusId: 'ward_buff', duration: 3, targetSelf: true }
+    ],
+    vfx: { type: 'shield', color: '#818cf8' },
+    desc: 'Weaves an arcane absorption barrier (scales with Magic Power) and +4 Ward for 3 turns (10 MP, 3t CD).'
+  }),
+
+  blink: Object.freeze({
+    id: 'blink',
+    name: 'Blink',
+    icon: '🌀',
+    kind: 'spell',
+    domain: 'arcane',
+    discipline: 'translocation',
+    purpose: 'mobility',
+    activation: 'active',
+    timing: 'immediate',
+    windupTurns: 0,
+    contexts: ['tactical_dungeon'],
+    timeSemantics: 'tactical_turn',
+    acquisition: 'class',
+    costs: { mp: 10, cooldown: 3 },
+    targeting: {
+      mode: 'manual_location',
+      pattern: 'single',
+      range: 4.5,
+      radius: 0,
+      requireLos: true,
+      filter: 'any',
+      maxTargets: 1,
+      requireWalkable: true,
+      respectTeleportWard: true
+    },
+    scaling: 'arcane',
+    damageType: 'none',
+    effects: [
+      { type: 'teleport' }
+    ],
+    vfx: { type: 'teleport', color: '#c084fc' },
+    desc: 'Short-distance teleport to a visible unobstructed floor tile within 4 tiles (respects protected/warded tiles; 10 MP, 3t CD).'
+  }),
+
+  detect_magic: Object.freeze({
+    id: 'detect_magic',
+    name: 'Detect Magic',
+    icon: '👁️',
+    kind: 'spell',
+    domain: 'arcane',
+    discipline: 'divination',
+    purpose: 'utility',
+    activation: 'active',
+    timing: 'immediate',
+    windupTurns: 0,
+    contexts: ['tactical_dungeon'],
+    timeSemantics: 'tactical_turn',
+    acquisition: 'class',
+    costs: { mp: 4, cooldown: 3 },
+    targeting: {
+      mode: 'self',
+      pattern: 'self',
+      range: 0,
+      radius: 6,
+      requireLos: false,
+      filter: 'self',
+      maxTargets: 1
+    },
+    scaling: 'arcane',
+    damageType: 'none',
+    effects: [
+      { type: 'detect', modality: 'magical', radius: 6 }
+    ],
+    vfx: { type: 'detect_pulse', color: '#818cf8' },
+    desc: 'Senses magical signatures (arcane rune traps, enchanted shrines/portals, arcane seals, magical foes) within 6 tiles; does not reveal mundane physical traps/doors (4 MP, 3t CD).'
+  }),
+
+  // =========================================================================
+  // 3. ACOLYTE (Runtime: cleric) — 6 Divine Prayers (Mana by default)
+  // =========================================================================
+  healing_light: Object.freeze({
+    id: 'healing_light',
+    name: 'Healing Light',
+    icon: '💚',
+    kind: 'prayer',
+    domain: 'divine',
+    discipline: 'restoration',
+    purpose: 'healing',
+    activation: 'active',
+    timing: 'immediate',
+    windupTurns: 0,
+    contexts: ['tactical_dungeon'],
+    timeSemantics: 'tactical_turn',
+    acquisition: 'class',
+    costs: { mp: 10, cooldown: 1 },
+    targeting: {
+      mode: 'self',
+      pattern: 'self',
+      range: 0,
+      radius: 0,
+      requireLos: false,
+      filter: 'self',
+      maxTargets: 1
+    },
+    scaling: 'divine',
+    damageType: 'none',
+    effects: [
+      { type: 'heal', baseAmount: 14, magicMult: 1.1, maxHpPct: 0.12, targetSelf: true },
+      { type: 'status', statusId: 'regen', duration: 2, targetSelf: true }
+    ],
+    vfx: { type: 'shield', color: '#4ade80' },
+    desc: 'Restores HP immediately (scales with SPI/Magic Power) and grants 2t Regeneration — no enemy target required (10 MP, 1t CD).'
+  }),
+
+  sacred_flame: Object.freeze({
+    id: 'sacred_flame',
+    name: 'Sacred Flame',
+    icon: '☀️',
+    kind: 'prayer',
+    domain: 'divine',
+    discipline: 'radiance',
+    purpose: 'damage',
+    activation: 'active',
+    timing: 'immediate',
+    windupTurns: 0,
+    contexts: ['tactical_dungeon'],
+    timeSemantics: 'tactical_turn',
+    acquisition: 'class',
+    costs: { mp: 8, cooldown: 0 },
+    targeting: {
+      mode: 'manual_enemy',
+      pattern: 'single',
+      range: 4.2,
+      radius: 0,
+      requireLos: true,
+      filter: 'enemy',
+      maxTargets: 1
+    },
+    scaling: 'divine',
+    damageType: 'magical',
+    effects: [
+      {
+        type: 'damage',
+        mult: 1.4,
+        bonusFlat: 3,
+        damageType: 'magical',
+        scaling: 'divine',
+        bonusVsTraits: ['undead', 'corrupted'],
+        bonusTraitMult: 1.35
+      }
+    ],
+    vfx: { type: 'spell', color: '#fbbf24' },
+    desc: 'Calls down radiant divine fire on a visible enemy within 4 tiles (+35% bonus damage vs Undead/Corrupted; 8 MP).'
+  }),
+
+  blessing: Object.freeze({
+    id: 'blessing',
+    name: 'Blessing',
+    icon: '🙏',
+    kind: 'prayer',
+    domain: 'divine',
+    discipline: 'benediction',
+    purpose: 'buff',
+    activation: 'active',
+    timing: 'immediate',
+    windupTurns: 0,
+    contexts: ['tactical_dungeon'],
+    timeSemantics: 'tactical_turn',
+    acquisition: 'class',
+    groupExtensible: true,
+    costs: { mp: 10, cooldown: 4 },
+    targeting: {
+      mode: 'self',
+      pattern: 'self',
+      range: 0,
+      radius: 0,
+      requireLos: false,
+      filter: 'self',
+      maxTargets: 1
+    },
+    scaling: 'divine',
+    damageType: 'none',
+    effects: [
+      { type: 'status', statusId: 'blessed', duration: 4, targetSelf: true }
+    ],
+    vfx: { type: 'shield', color: '#fef08a' },
+    desc: 'Bestows a sacred benediction granting +3 ATK, +3 Magic Power, +3 DEF, and +3 Ward for 4 turns (10 MP, 4t CD).'
+  }),
+
+  purification: Object.freeze({
+    id: 'purification',
+    name: 'Purification',
+    icon: '🕊️',
+    kind: 'prayer',
+    domain: 'divine',
+    discipline: 'restoration',
+    purpose: 'utility',
+    activation: 'active',
+    timing: 'immediate',
+    windupTurns: 0,
+    contexts: ['tactical_dungeon'],
+    timeSemantics: 'tactical_turn',
+    acquisition: 'class',
+    costs: { mp: 8, cooldown: 2 },
+    targeting: {
+      mode: 'self',
+      pattern: 'self',
+      range: 0,
+      radius: 0,
+      requireLos: false,
+      filter: 'self',
+      maxTargets: 1
+    },
+    scaling: 'divine',
+    damageType: 'none',
+    effects: [
+      { type: 'cleanse', maxRemoved: 3, targetSelf: true },
+      { type: 'heal', baseAmount: 6, magicMult: 0.35, targetSelf: true }
+    ],
+    vfx: { type: 'wave', color: '#fef08a' },
+    desc: 'Removes up to 3 eligible harmful statuses (Burn, Poison, Bleed, Slow, Chilled, Weakened, Silence, Disrupted, Rooted) and restores light HP (8 MP, 2t CD).'
+  }),
+
+  sanctuary: Object.freeze({
+    id: 'sanctuary',
+    name: 'Sanctuary',
+    icon: '⛪',
+    kind: 'prayer',
+    domain: 'divine',
+    discipline: 'consecration',
+    purpose: 'defense',
+    activation: 'active',
+    timing: 'immediate',
+    windupTurns: 0,
+    contexts: ['tactical_dungeon'],
+    timeSemantics: 'tactical_turn',
+    acquisition: 'class',
+    costs: { mp: 14, cooldown: 4 },
+    targeting: {
+      mode: 'manual_location',
+      pattern: 'radius',
+      range: 3.5,
+      radius: 1,
+      requireLos: true,
+      filter: 'any',
+      maxTargets: 9
+    },
+    scaling: 'divine',
+    damageType: 'none',
+    effects: [
+      {
+        type: 'persistent_area',
+        areaId: 'sanctuary_zone',
+        name: 'Sanctuary',
+        duration: 3,
+        radius: 1,
+        color: '#fbbf24',
+        healPerTurnBase: 8,
+        healMagicMult: 0.45,
+        grantStatus: 'sanctuary_ward',
+        affectsHero: true,
+        affectsMonsters: false
+      }
+    ],
+    vfx: { type: 'wave', color: '#fbbf24' },
+    desc: 'Consecrates a persistent 3x3 protective zone for 3 turns: grants Sanctuary Ward & periodic healing while inside; ward lifts on exit or expiry (14 MP, 4t CD).'
+  }),
+
+  divine_sight: Object.freeze({
+    id: 'divine_sight',
+    name: 'Divine Sight',
+    icon: '🌟',
+    kind: 'prayer',
+    domain: 'divine',
+    discipline: 'revelation',
+    purpose: 'utility',
+    activation: 'active',
+    timing: 'immediate',
+    windupTurns: 0,
+    contexts: ['tactical_dungeon'],
+    timeSemantics: 'tactical_turn',
+    acquisition: 'class',
+    costs: { mp: 4, cooldown: 3 },
+    targeting: {
+      mode: 'self',
+      pattern: 'self',
+      range: 0,
+      radius: 6,
+      requireLos: false,
+      filter: 'self',
+      maxTargets: 1
+    },
+    scaling: 'divine',
+    damageType: 'none',
+    effects: [
+      { type: 'detect', modality: 'spiritual', radius: 6 }
+    ],
+    vfx: { type: 'detect_pulse', color: '#fbbf24' },
+    desc: 'Attunes to spiritual/divine signatures (undead, corrupted foes, cursed/desecrated shrines, spiritual seals) within 6 tiles; does not reveal mundane objects (4 MP, 3t CD).'
+  }),
+
+  // =========================================================================
+  // 4. SCOUT (Runtime: scout) — 7 Skills (Cooldowns + Equipment/Environment)
+  // =========================================================================
+  aimed_shot: Object.freeze({
+    id: 'aimed_shot',
+    name: 'Aimed Shot',
+    icon: '🏹',
+    kind: 'skill',
+    domain: 'martial',
+    discipline: 'marksmanship',
+    purpose: 'damage',
+    activation: 'active',
+    timing: 'immediate',
+    windupTurns: 0,
+    contexts: ['tactical_dungeon'],
+    timeSemantics: 'tactical_turn',
+    acquisition: 'class',
+    requiresRangedWeapon: true,
+    costs: { mp: 0, cooldown: 2 },
+    targeting: {
+      mode: 'manual_enemy',
+      pattern: 'single',
+      range: 6.0,
+      radius: 0,
+      requireLos: true,
+      filter: 'enemy',
+      maxTargets: 1
+    },
+    scaling: 'physical',
+    damageType: 'physical',
+    effects: [
+      { type: 'damage', mult: 1.55, bonusFlat: 3, bonusCritChance: 20, damageType: 'physical', scaling: 'physical', respectGuarding: true }
+    ],
+    vfx: { type: 'beam', color: '#10b981' },
+    desc: 'Focused ranged shot (+20% Crit, 155% ATK) within 6 tiles; requires an equipped ranged weapon (0 MP, 2t CD).'
+  }),
+
+  tracking: Object.freeze({
+    id: 'tracking',
+    name: 'Tracking',
+    icon: '🐾',
+    kind: 'skill',
+    domain: 'adventuring',
+    discipline: 'wilderness',
+    purpose: 'utility',
+    activation: 'active',
+    timing: 'immediate',
+    windupTurns: 0,
+    contexts: ['tactical_dungeon', 'overworld'],
+    timeSemantics: 'tactical_turn',
+    strategicCooldownMs: 15000,
+    acquisition: 'class',
+    costs: { mp: 0, cooldown: 3 },
+    targeting: {
+      mode: 'self',
+      pattern: 'self',
+      range: 0,
+      radius: 8,
+      requireLos: false,
+      filter: 'self',
+      maxTargets: 1
+    },
+    scaling: 'none',
+    damageType: 'none',
+    effects: [
+      { type: 'track_clues', radius: 8 }
+    ],
+    vfx: { type: 'detect_pulse', color: '#10b981' },
+    desc: 'Reads tracks and movement clues within 8 tiles/hexes, reporting approximate bearings and creature activity (distinct from exact map reveal; 0 MP, 3t CD).'
+  }),
+
+  camouflage: Object.freeze({
+    id: 'camouflage',
+    name: 'Camouflage',
+    icon: '🌿',
+    kind: 'skill',
+    domain: 'adventuring',
+    discipline: 'stealth',
+    purpose: 'defense',
+    activation: 'active',
+    timing: 'immediate',
+    windupTurns: 0,
+    contexts: ['tactical_dungeon', 'overworld'],
+    timeSemantics: 'tactical_turn',
+    strategicCooldownMs: 35000,
+    acquisition: 'class',
+    costs: { mp: 0, cooldown: 4 },
+    targeting: {
+      mode: 'self',
+      pattern: 'self',
+      range: 0,
+      radius: 0,
+      requireLos: false,
+      filter: 'self',
+      maxTargets: 1
+    },
+    scaling: 'none',
+    damageType: 'none',
+    effects: [
+      { type: 'camouflage', duration: 3 }
+    ],
+    vfx: { type: 'shield', color: '#10b981' },
+    desc: 'Blends with surroundings (requires no adjacent enemy), cutting enemy detection radius to 2 tiles for 3 turns until attacking or acting aggressively (0 MP, 4t CD).'
+  }),
+
+  snare: Object.freeze({
+    id: 'snare',
+    name: 'Snare',
+    icon: '🪢',
+    kind: 'skill',
+    domain: 'adventuring',
+    discipline: 'trapping',
+    purpose: 'control',
+    activation: 'active',
+    timing: 'immediate',
+    windupTurns: 0,
+    contexts: ['tactical_dungeon'],
+    timeSemantics: 'tactical_turn',
+    acquisition: 'class',
+    costs: { mp: 0, cooldown: 4 },
+    targeting: {
+      mode: 'manual_location',
+      pattern: 'single',
+      range: 2.5,
+      radius: 0,
+      requireLos: true,
+      filter: 'any',
+      maxTargets: 1,
+      requireWalkable: true
+    },
+    scaling: 'physical',
+    damageType: 'physical',
+    effects: [
+      { type: 'place_snare', duration: 8, rootDuration: 3, maxActive: 2, triggerDamage: 8 }
+    ],
+    vfx: { type: 'detect_pulse', color: '#84cc16' },
+    desc: 'Places a concealed snare on an open floor tile within 2 tiles (max 2 active, lasts 8t). Triggering damages and Roots/Slows the foe for 3 turns (0 MP, 4t CD).'
+  }),
+
+  forage: Object.freeze({
+    id: 'forage',
+    name: 'Forage',
+    icon: '🍄',
+    kind: 'skill',
+    domain: 'adventuring',
+    discipline: 'survival',
+    purpose: 'utility',
+    activation: 'active',
+    timing: 'immediate',
+    windupTurns: 0,
+    contexts: ['overworld', 'tactical_dungeon'],
+    timeSemantics: 'tactical_turn',
+    strategicCooldownMs: 30000,
+    acquisition: 'class',
+    costs: { mp: 0, cooldown: 5 },
+    targeting: {
+      mode: 'self',
+      pattern: 'self',
+      range: 0,
+      radius: 0,
+      requireLos: false,
+      filter: 'self',
+      maxTargets: 1
+    },
+    scaling: 'none',
+    damageType: 'none',
+    effects: [
+      { type: 'forage' }
+    ],
+    vfx: { type: 'detect_pulse', color: '#4ade80' },
+    desc: 'Gathers provisions/herbs from eligible natural terrain (once per location to prevent infinite farming; 0 MP, 5t / 30s CD).'
+  }),
+
+  reconnaissance: Object.freeze({
+    id: 'reconnaissance',
+    name: 'Reconnaissance',
+    icon: '🔭',
+    kind: 'skill',
+    domain: 'adventuring',
+    discipline: 'scouting',
+    purpose: 'utility',
+    activation: 'active',
+    timing: 'immediate',
+    windupTurns: 0,
+    contexts: ['overworld'],
+    timeSemantics: 'overworld_realtime',
+    strategicCooldownMs: 25000,
+    acquisition: 'class',
+    costs: { mp: 0, cooldown: 0 },
+    targeting: {
+      mode: 'self',
+      pattern: 'self',
+      range: 0,
+      radius: 6,
+      requireLos: false,
+      filter: 'self',
+      maxTargets: 1
+    },
+    scaling: 'none',
+    damageType: 'none',
+    effects: [
+      { type: 'overworld_recon', bonusVision: 3 }
+    ],
+    vfx: { type: 'detect_pulse', color: '#38bdf8' },
+    desc: 'Overworld survey expanding vision by +3 hexes, discovering POIs/dungeons and counting nearby hostile threats (25s CD).'
+  }),
+
+  forced_pace: Object.freeze({
+    id: 'forced_pace',
+    name: 'Forced Pace',
+    icon: '🥾',
+    kind: 'skill',
+    domain: 'adventuring',
+    discipline: 'travel',
+    purpose: 'mobility',
+    activation: 'active',
+    timing: 'immediate',
+    windupTurns: 0,
+    contexts: ['overworld'],
+    timeSemantics: 'overworld_realtime',
+    strategicCooldownMs: 45000,
+    acquisition: 'class',
+    costs: { mp: 0, cooldown: 0 },
+    targeting: {
+      mode: 'self',
+      pattern: 'self',
+      range: 0,
+      radius: 0,
+      requireLos: false,
+      filter: 'self',
+      maxTargets: 1
+    },
+    scaling: 'none',
+    damageType: 'none',
+    effects: [
+      { type: 'overworld_forced_pace', durationMs: 30000, speedBonusRatio: 0.25 }
+    ],
+    vfx: { type: 'wave', color: '#34d399' },
+    desc: 'Overworld travel skill increasing this Scout unit\'s march speed by 25% across eligible terrain for 30s (individual unit only; 45s CD).'
+  }),
+
+  // =========================================================================
+  // 5. ADVENTURER (Runtime: adventurer) — 7 Skills (Cooldowns + Tools/Situational)
+  // =========================================================================
+  second_wind: Object.freeze({
+    id: 'second_wind',
+    name: 'Second Wind',
+    icon: '🫀',
+    kind: 'skill',
+    domain: 'martial',
+    discipline: 'endurance',
+    purpose: 'healing',
+    activation: 'active',
+    timing: 'immediate',
+    windupTurns: 0,
+    contexts: ['tactical_dungeon'],
+    timeSemantics: 'tactical_turn',
+    acquisition: 'class',
+    costs: { mp: 0, cooldown: 5 },
+    targeting: {
+      mode: 'self',
+      pattern: 'self',
+      range: 0,
+      radius: 0,
+      requireLos: false,
+      filter: 'self',
+      maxTargets: 1
+    },
+    scaling: 'physical',
+    damageType: 'none',
+    effects: [
+      { type: 'heal', maxHpPct: 0.22, vitMult: 0.8, targetSelf: true }
+    ],
+    vfx: { type: 'shield', color: '#34d399' },
+    desc: 'Deliberate endurance recovery restoring 22% Max HP + VIT bonus without requiring an enemy target (0 MP, 5t CD).'
+  }),
+
+  careful_search: Object.freeze({
+    id: 'careful_search',
+    name: 'Careful Search',
+    icon: '🔍',
+    kind: 'skill',
+    domain: 'adventuring',
+    discipline: 'delving',
+    purpose: 'utility',
+    activation: 'active',
+    timing: 'immediate',
+    windupTurns: 0,
+    contexts: ['tactical_dungeon'],
+    timeSemantics: 'tactical_turn',
+    acquisition: 'class',
+    costs: { mp: 0, cooldown: 2 },
+    targeting: {
+      mode: 'self',
+      pattern: 'self',
+      range: 0,
+      radius: 3,
+      requireLos: false,
+      filter: 'self',
+      maxTargets: 1
+    },
+    scaling: 'none',
+    damageType: 'none',
+    effects: [
+      { type: 'detect', modality: 'physical', radius: 3 }
+    ],
+    vfx: { type: 'detect_pulse', color: '#38bdf8' },
+    desc: 'Actively searches within 3 tiles for physically concealed traps, secret passages, and hidden treasure caches (0 MP, 2t CD).'
+  }),
+
+  disengage: Object.freeze({
+    id: 'disengage',
+    name: 'Disengage',
+    icon: '↩️',
+    kind: 'skill',
+    domain: 'adventuring',
+    discipline: 'evasion',
+    purpose: 'mobility',
+    activation: 'active',
+    timing: 'immediate',
+    windupTurns: 0,
+    contexts: ['tactical_dungeon'],
+    timeSemantics: 'tactical_turn',
+    acquisition: 'class',
+    costs: { mp: 0, cooldown: 3 },
+    targeting: {
+      mode: 'manual_location',
+      pattern: 'single',
+      range: 2.2,
+      radius: 0,
+      requireLos: true,
+      filter: 'any',
+      maxTargets: 1,
+      requireWalkable: true
+    },
+    scaling: 'none',
+    damageType: 'none',
+    effects: [
+      { type: 'disengage_move' },
+      { type: 'status', statusId: 'disengaged', duration: 2, targetSelf: true }
+    ],
+    vfx: { type: 'teleport', color: '#38bdf8' },
+    desc: 'Safely withdraws up to 2 tiles to an open floor space and grants +25% Dodge for 2 turns (0 MP, 3t CD).'
+  }),
+
+  dirty_fighting: Object.freeze({
+    id: 'dirty_fighting',
+    name: 'Dirty Fighting',
+    icon: '🥊',
+    kind: 'skill',
+    domain: 'martial',
+    discipline: 'brawling',
+    purpose: 'control',
+    activation: 'active',
+    timing: 'immediate',
+    windupTurns: 0,
+    contexts: ['tactical_dungeon'],
+    timeSemantics: 'tactical_turn',
+    acquisition: 'class',
+    costs: { mp: 0, cooldown: 3 },
+    targeting: {
+      mode: 'manual_enemy',
+      pattern: 'single',
+      range: 1.5,
+      radius: 0,
+      requireLos: false,
+      filter: 'enemy',
+      maxTargets: 1
+    },
+    scaling: 'physical',
+    damageType: 'physical',
+    effects: [
+      { type: 'damage', mult: 1.15, damageType: 'physical', scaling: 'physical', respectGuarding: true },
+      { type: 'status', statusId: 'disrupted', duration: 2 },
+      { type: 'status', statusId: 'stun', duration: 1 }
+    ],
+    vfx: { type: 'slash', color: '#fbbf24' },
+    desc: 'Opportunistic strike dealing 115% ATK, inflicting Disrupted (2t) and Stun (1t, interrupts enemy windups; 0 MP, 3t CD).'
+  }),
+
+  appraise: Object.freeze({
+    id: 'appraise',
+    name: 'Appraise',
+    icon: '💎',
+    kind: 'skill',
+    domain: 'adventuring',
+    discipline: 'evaluation',
+    purpose: 'utility',
+    activation: 'active',
+    timing: 'immediate',
+    windupTurns: 0,
+    contexts: ['tactical_dungeon', 'overworld'],
+    timeSemantics: 'tactical_turn',
+    strategicCooldownMs: 5000,
+    acquisition: 'class',
+    costs: { mp: 0, cooldown: 2 },
+    targeting: {
+      mode: 'self',
+      pattern: 'self',
+      range: 0,
+      radius: 0,
+      requireLos: false,
+      filter: 'self',
+      maxTargets: 1
+    },
+    scaling: 'none',
+    damageType: 'none',
+    effects: [
+      { type: 'appraise_item' }
+    ],
+    vfx: { type: 'detect_pulse', color: '#fbbf24' },
+    desc: 'Inspects an unappraised item in your pack or loadout, revealing exact quality, valuation, and unusual properties (0 MP, 2t CD).'
+  }),
+
+  disarm_trap: Object.freeze({
+    id: 'disarm_trap',
+    name: 'Disarm Trap',
+    icon: '🔧',
+    kind: 'skill',
+    domain: 'adventuring',
+    discipline: 'mechanisms',
+    purpose: 'utility',
+    activation: 'active',
+    timing: 'immediate',
+    windupTurns: 0,
+    contexts: ['tactical_dungeon'],
+    timeSemantics: 'tactical_turn',
+    acquisition: 'class',
+    costs: { mp: 0, cooldown: 2 },
+    targeting: {
+      mode: 'manual_location',
+      pattern: 'single',
+      range: 1.5,
+      radius: 0,
+      requireLos: false,
+      filter: 'any',
+      maxTargets: 1,
+      requireDiscoveredTrap: true
+    },
+    scaling: 'none',
+    damageType: 'none',
+    effects: [
+      { type: 'disarm_trap' }
+    ],
+    vfx: { type: 'detect_pulse', color: '#34d399' },
+    desc: 'Disables an adjacent discovered trap or disarmable floor hazard, updating actual trap state and awarding XP (0 MP, 2t CD).'
+  }),
+
+  lockpicking: Object.freeze({
+    id: 'lockpicking',
+    name: 'Lockpicking',
+    icon: '🗝️',
+    kind: 'skill',
+    domain: 'adventuring',
+    discipline: 'mechanisms',
+    purpose: 'utility',
+    activation: 'active',
+    timing: 'immediate',
+    windupTurns: 0,
+    contexts: ['tactical_dungeon'],
+    timeSemantics: 'tactical_turn',
+    acquisition: 'class',
+    costs: { mp: 0, cooldown: 2 },
+    targeting: {
+      mode: 'manual_location',
+      pattern: 'single',
+      range: 1.5,
+      radius: 0,
+      requireLos: false,
+      filter: 'any',
+      maxTargets: 1,
+      requireLockedObject: true
+    },
+    scaling: 'none',
+    damageType: 'none',
+    effects: [
+      { type: 'lockpick', maxSecurityLevel: 2 }
+    ],
+    vfx: { type: 'detect_pulse', color: '#fbbf24' },
+    desc: 'Picks an adjacent ordinary locked door or container without a key; respects arcane seals and protected boss locks (0 MP, 2t CD).'
+  }),
+
+  // =========================================================================
+  // 6. PRESERVED LEGACY PROTOTYPE SKILLS (Paladin / Thief / Ranger / Reactive)
+  // =========================================================================
+  holy_smite: Object.freeze({
+    id: 'holy_smite',
+    name: 'Holy Smite',
+    icon: '⚜️',
+    kind: 'prayer',
+    domain: 'divine',
+    discipline: 'retribution',
+    purpose: 'hybrid',
+    activation: 'active',
+    timing: 'immediate',
+    windupTurns: 0,
+    contexts: ['tactical_dungeon'],
+    timeSemantics: 'tactical_turn',
+    acquisition: 'class',
+    costs: { mp: 12, cooldown: 0 },
+    targeting: {
+      mode: 'auto_enemy',
+      pattern: 'single',
+      range: 1.5,
+      radius: 0,
+      requireLos: false,
+      filter: 'enemy',
+      maxTargets: 1
+    },
+    scaling: 'hybrid_divine',
+    damageType: 'magical',
+    effects: [
+      { type: 'damage', mult: 1.35, magicRatio: 0.75, damageType: 'magical', scaling: 'hybrid_divine' },
+      { type: 'heal', maxHpPct: 0.15, magicMult: 0.3, targetSelf: true }
+    ],
+    vfx: { type: 'spell', color: '#fbbf24' },
+    desc: 'Hybrid physical + divine strike (scales with ATK and Magic Power/SPI) that restores 15% Max HP.'
+  }),
+
+  shadowstep_strike: Object.freeze({
+    id: 'shadowstep_strike',
+    name: 'Shadowstep Strike',
+    icon: '🗡️',
+    kind: 'skill',
+    domain: 'martial',
+    discipline: 'stealth',
+    purpose: 'mobility',
+    activation: 'active',
+    timing: 'immediate',
+    windupTurns: 0,
+    contexts: ['tactical_dungeon'],
+    timeSemantics: 'tactical_turn',
+    acquisition: 'class',
+    costs: { mp: 14, cooldown: 0 },
+    targeting: {
+      mode: 'auto_enemy',
+      pattern: 'single',
+      range: 3.5,
+      radius: 0,
+      requireLos: true,
+      filter: 'enemy',
+      maxTargets: 1,
+      requireAdjacentLanding: true
+    },
+    scaling: 'physical',
+    damageType: 'physical',
+    effects: [
+      { type: 'shadowstep' },
+      { type: 'damage', mult: 1.85, guaranteedCrit: true, damageType: 'physical', scaling: 'physical', respectGuarding: true }
+    ],
+    vfx: { type: 'crit_slash', color: '#a855f7' },
+    desc: 'Teleports behind a visible enemy within 3 tiles and strikes for a guaranteed critical hit.'
+  }),
+
+  starfall_volley: Object.freeze({
+    id: 'starfall_volley',
+    name: 'Starfall Volley',
+    icon: '🏹',
+    kind: 'skill',
+    domain: 'martial',
+    discipline: 'marksmanship',
+    purpose: 'damage',
+    activation: 'active',
+    timing: 'immediate',
+    windupTurns: 0,
+    contexts: ['tactical_dungeon'],
+    timeSemantics: 'tactical_turn',
+    acquisition: 'class',
+    costs: { mp: 16, cooldown: 0 },
+    targeting: {
+      mode: 'auto_area',
+      pattern: 'radius',
+      range: 5.2,
+      radius: 5.2,
+      requireLos: true,
+      filter: 'enemy',
+      maxTargets: 3
+    },
+    scaling: 'physical',
+    damageType: 'physical',
+    effects: [
+      { type: 'damage', mult: 1.25, damageType: 'physical', scaling: 'physical', respectGuarding: true }
+    ],
+    vfx: { type: 'projectile', color: '#34d399' },
+    desc: 'Looses up to 3 arrows at visible enemies within 5 tiles (respects Guarding).'
+  }),
+
+  second_wind_reactive: Object.freeze({
+    id: 'second_wind_reactive',
+    name: 'Resilient Grit',
+    icon: '🛡️',
+    kind: 'technique',
+    domain: 'martial',
+    discipline: 'endurance',
+    purpose: 'defense',
+    activation: 'reactive',
+    triggerEvent: 'on_hero_low_hp',
+    triggerThresholdPct: 0.35,
+    timing: 'immediate',
+    windupTurns: 0,
+    contexts: ['tactical_dungeon'],
+    timeSemantics: 'tactical_turn',
+    acquisition: 'learned',
+    costs: { mp: 0, cooldown: 6 },
+    targeting: {
+      mode: 'self',
+      pattern: 'self',
+      range: 0,
+      radius: 0,
+      requireLos: false,
+      filter: 'self',
+      maxTargets: 1
+    },
+    scaling: 'physical',
+    damageType: 'none',
+    effects: [
+      { type: 'heal', maxHpPct: 0.16, targetSelf: true },
+      { type: 'shield', baseAmount: 10, defMult: 0.8, maxShieldCap: 60 }
+    ],
+    vfx: { type: 'shield', color: '#34d399' },
+    desc: 'Reactive passive: automatically triggers below 35% HP to restore 16% Max HP and raise a barrier (6t CD).'
+  })
+});
+
+const ABILITY_IDS = Object.freeze(Object.keys(ABILITIES));
+
+// Complete 32-entry approved entry-tier default bindings + preserved legacy classes
+const CLASS_DEFAULT_ABILITIES = Object.freeze({
+  bruiser:    Object.freeze(['power_strike', 'cleave', 'overpower', 'brace', 'charge', 'battle_cry']),
+  mage:       Object.freeze(['arcane_missile', 'fireball', 'frost_nova', 'arcane_ward', 'blink', 'detect_magic']),
+  acolyte:    Object.freeze(['sacred_flame', 'healing_light', 'blessing', 'purification', 'sanctuary', 'divine_sight']),
+  scout:      Object.freeze(['aimed_shot', 'tracking', 'camouflage', 'snare', 'forage', 'reconnaissance', 'forced_pace']),
+  adventurer: Object.freeze(['second_wind', 'careful_search', 'disengage', 'dirty_fighting', 'appraise', 'disarm_trap', 'lockpicking']),
+  // Legacy prototype classes preserved until deliberate roster progression pass
+  paladin:    Object.freeze(['holy_smite', 'brace', 'purification']),
+  thief:      Object.freeze(['shadowstep_strike']),
+  ranger:     Object.freeze(['starfall_volley', 'aimed_shot'])
+});
+
+function getAbilityDefinition(abilityId) {
+  if (!abilityId || typeof abilityId !== 'string') return null;
+  return ABILITIES[abilityId] || null;
+}
+
+function getDefaultAbilityIdsForClass(classId) {
+  const key = classId === 'fighter' ? 'bruiser' : (classId === 'cleric' ? 'acolyte' : classId);
+  const list = CLASS_DEFAULT_ABILITIES[key];
+  return Array.isArray(list) ? list.slice() : [];
+}
+
+  // --- Module: src/core/abilityEngine.js ---
+// Context-Independent Shared Spell, Prayer & Skill Runtime Service (MG-01A)
+// Manages actor ability access grants (multi-source), cooldowns, cost/silence validation,
+// damage/shield/healing scaling, and damage absorption independent of Dungeon/Strategy UI.
+
+
+
+const QUICK_SLOT_COUNT = 4;
+const QUICK_SLOT_CONTEXTS = ['tactical_dungeon', 'overworld'];
+
+function normalizeQuickSlotArray(rawArr, defaultIds, allowDefaultSeed) {
+  const out = [];
+  if (Array.isArray(rawArr)) {
+    for (let i = 0; i < QUICK_SLOT_COUNT; i++) {
+      const id = rawArr[i];
+      out.push((typeof id === 'string' && ABILITIES[id]) ? id : null);
+    }
+    return out;
+  }
+  if (!allowDefaultSeed) {
+    for (let i = 0; i < QUICK_SLOT_COUNT; i++) out.push(null);
+    return out;
+  }
+  for (let i = 0; i < QUICK_SLOT_COUNT; i++) {
+    out.push(defaultIds[i] || null);
+  }
+  return out;
+}
+
+function normalizeActorAbilityState(actor) {
+  if (!actor || typeof actor !== 'object') return null;
+
+  if (!actor.abilityGrants || typeof actor.abilityGrants !== 'object') {
+    actor.abilityGrants = {};
+  }
+  for (let i = 0; i < ABILITY_ACCESS_SOURCES.length; i++) {
+    const src = ABILITY_ACCESS_SOURCES[i];
+    if (!Array.isArray(actor.abilityGrants[src])) {
+      actor.abilityGrants[src] = [];
+    } else {
+      // Deduplicate & keep valid ability IDs only
+      const seen = {};
+      const clean = [];
+      for (let j = 0; j < actor.abilityGrants[src].length; j++) {
+        const id = actor.abilityGrants[src][j];
+        if (typeof id === 'string' && ABILITIES[id] && !seen[id]) {
+          seen[id] = true;
+          clean.push(id);
+        }
+      }
+      actor.abilityGrants[src] = clean;
+    }
+  }
+
+  // Ensure class default abilities stay synced if classId is initialized or switched
+  if (actor.classId && (actor.abilityGrants.class.length === 0 || (actor._abilityClassId && actor._abilityClassId !== actor.classId))) {
+    const defaults = getDefaultAbilityIdsForClass(actor.classId);
+    actor.abilityGrants.class = defaults.slice();
+    actor._abilityClassId = actor.classId;
+    if (defaults.length > 0) {
+      actor.activeAbilityId = defaults[0];
+    }
+  } else if (actor.classId && !actor._abilityClassId) {
+    actor._abilityClassId = actor.classId;
+  }
+
+  if (!actor.abilityCooldowns || typeof actor.abilityCooldowns !== 'object') {
+    actor.abilityCooldowns = {};
+  }
+  if (!actor.abilityCooldownUntilSimMs || typeof actor.abilityCooldownUntilSimMs !== 'object') {
+    actor.abilityCooldownUntilSimMs = {};
+  }
+  if (typeof actor.absorbShield !== 'number' || isNaN(actor.absorbShield) || actor.absorbShield < 0) {
+    actor.absorbShield = 0;
+  }
+  if (actor.pendingCast !== null && actor.pendingCast !== undefined && typeof actor.pendingCast !== 'object') {
+    actor.pendingCast = null;
+  }
+  if (actor.pendingCast === undefined) {
+    actor.pendingCast = null;
+  }
+
+  const activeIds = getGrantedAbilityIds(actor, { activation: 'active' });
+  if (!actor.activeAbilityId || activeIds.indexOf(actor.activeAbilityId) === -1) {
+    actor.activeAbilityId = activeIds.length > 0 ? activeIds[0] : null;
+  }
+
+  // Initialize (one-time per context) or strictly preserve per-context configurable quick-access slots.
+  // After initial setup, player assignments/order (including intentionally cleared null slots and
+  // temporarily unavailable/ungranted abilities) are never auto-repopulated, reordered, or replaced.
+  if (!actor.quickSlots || typeof actor.quickSlots !== 'object') {
+    actor.quickSlots = {};
+  }
+  if (!actor._quickSlotsInitialized || typeof actor._quickSlotsInitialized !== 'object') {
+    actor._quickSlotsInitialized = {};
+  }
+  for (let cIdx = 0; cIdx < QUICK_SLOT_CONTEXTS.length; cIdx++) {
+    const ctxKey = QUICK_SLOT_CONTEXTS[cIdx];
+    const existing = actor.quickSlots[ctxKey];
+    const alreadyInit = Boolean(actor._quickSlotsInitialized[ctxKey] || actor._quickSlotsCustomized || Array.isArray(existing));
+    if (!alreadyInit) {
+      const ctxDefaults = getGrantedAbilityIds(actor, { activation: 'active', context: ctxKey });
+      actor.quickSlots[ctxKey] = normalizeQuickSlotArray(null, ctxDefaults, true);
+      actor._quickSlotsInitialized[ctxKey] = true;
+    } else {
+      actor.quickSlots[ctxKey] = normalizeQuickSlotArray(Array.isArray(existing) ? existing : [], null, false);
+      actor._quickSlotsInitialized[ctxKey] = true;
+    }
+  }
+
+  return actor;
+}
+
+function getHeroQuickSlots(actor, contextId) {
+  if (!actor) return [];
+  normalizeActorAbilityState(actor);
+  const ctxKey = QUICK_SLOT_CONTEXTS.indexOf(contextId) !== -1 ? contextId : 'tactical_dungeon';
+  const arr = actor.quickSlots[ctxKey] || [];
+  const out = [];
+  for (let i = 0; i < QUICK_SLOT_COUNT; i++) {
+    const id = arr[i] || null;
+    const def = id ? getAbilityDefinition(id) : null;
+    const granted = Boolean(id && hasAbilityAccess(actor, id));
+    const ctxOk = Boolean(def && Array.isArray(def.contexts) && def.contexts.indexOf(ctxKey) !== -1);
+    out.push({
+      slotIndex: i,
+      hotkey: String(i + 1),
+      abilityId: id,
+      granted: granted,
+      availableInContext: ctxOk
+    });
+  }
+  return out;
+}
+
+function assignQuickSlot(actor, contextId, slotIndex, abilityId) {
+  if (!actor) return { ok: false, reason: 'invalid_actor' };
+  normalizeActorAbilityState(actor);
+  const ctxKey = QUICK_SLOT_CONTEXTS.indexOf(contextId) !== -1 ? contextId : 'tactical_dungeon';
+  const idx = Math.floor(Number(slotIndex));
+  if (isNaN(idx) || idx < 0 || idx >= QUICK_SLOT_COUNT) return { ok: false, reason: 'invalid_slot' };
+  const def = getAbilityDefinition(abilityId);
+  if (!def || def.activation !== 'active') return { ok: false, reason: 'invalid_ability' };
+  if (!hasAbilityAccess(actor, abilityId)) return { ok: false, reason: 'not_granted' };
+  if (!Array.isArray(def.contexts) || def.contexts.indexOf(ctxKey) === -1) {
+    return { ok: false, reason: 'invalid_context' };
+  }
+  const slots = actor.quickSlots[ctxKey];
+  const prevIdx = slots.indexOf(abilityId);
+  let swappedWith = -1;
+  if (prevIdx !== -1 && prevIdx !== idx) {
+    // Prevent duplicates by swapping existing slot position
+    const displaced = slots[idx] || null;
+    slots[idx] = abilityId;
+    slots[prevIdx] = displaced;
+    swappedWith = prevIdx;
+  } else {
+    slots[idx] = abilityId;
+  }
+  actor._quickSlotsCustomized = true;
+  if (!actor._quickSlotsInitialized || typeof actor._quickSlotsInitialized !== 'object') {
+    actor._quickSlotsInitialized = {};
+  }
+  actor._quickSlotsInitialized[ctxKey] = true;
+  return { ok: true, slotIndex: idx, abilityId: abilityId, swappedWith: swappedWith, slots: slots.slice() };
+}
+
+function clearQuickSlot(actor, contextId, slotIndex) {
+  if (!actor) return { ok: false, reason: 'invalid_actor' };
+  normalizeActorAbilityState(actor);
+  const ctxKey = QUICK_SLOT_CONTEXTS.indexOf(contextId) !== -1 ? contextId : 'tactical_dungeon';
+  const idx = Math.floor(Number(slotIndex));
+  if (isNaN(idx) || idx < 0 || idx >= QUICK_SLOT_COUNT) return { ok: false, reason: 'invalid_slot' };
+  actor.quickSlots[ctxKey][idx] = null;
+  actor._quickSlotsCustomized = true;
+  if (!actor._quickSlotsInitialized || typeof actor._quickSlotsInitialized !== 'object') {
+    actor._quickSlotsInitialized = {};
+  }
+  actor._quickSlotsInitialized[ctxKey] = true;
+  return { ok: true, slotIndex: idx, slots: actor.quickSlots[ctxKey].slice() };
+}
+
+function swapQuickSlots(actor, contextId, idxA, idxB) {
+  if (!actor) return { ok: false, reason: 'invalid_actor' };
+  normalizeActorAbilityState(actor);
+  const ctxKey = QUICK_SLOT_CONTEXTS.indexOf(contextId) !== -1 ? contextId : 'tactical_dungeon';
+  const a = Math.floor(Number(idxA));
+  const b = Math.floor(Number(idxB));
+  if (isNaN(a) || isNaN(b) || a < 0 || a >= QUICK_SLOT_COUNT || b < 0 || b >= QUICK_SLOT_COUNT) {
+    return { ok: false, reason: 'invalid_slot' };
+  }
+  const slots = actor.quickSlots[ctxKey];
+  const tmp = slots[a];
+  slots[a] = slots[b];
+  slots[b] = tmp;
+  actor._quickSlotsCustomized = true;
+  if (!actor._quickSlotsInitialized || typeof actor._quickSlotsInitialized !== 'object') {
+    actor._quickSlotsInitialized = {};
+  }
+  actor._quickSlotsInitialized[ctxKey] = true;
+  return { ok: true, slots: slots.slice() };
+}
+
+function getGrantedAbilityIds(actor, opts) {
+  if (!actor || typeof actor !== 'object') return [];
+  if (!actor.abilityGrants || typeof actor.abilityGrants !== 'object') {
+    normalizeActorAbilityState(actor);
+  }
+  const seen = {};
+  const list = [];
+  const activationFilter = (opts && opts.activation) ? opts.activation : null;
+  const contextFilter = (opts && opts.context) ? opts.context : null;
+
+  for (let i = 0; i < ABILITY_ACCESS_SOURCES.length; i++) {
+    const src = ABILITY_ACCESS_SOURCES[i];
+    const bucket = actor.abilityGrants[src];
+    if (!Array.isArray(bucket)) continue;
+    for (let j = 0; j < bucket.length; j++) {
+      const id = bucket[j];
+      if (seen[id]) continue;
+      const def = getAbilityDefinition(id);
+      if (!def) continue;
+      if (activationFilter && def.activation !== activationFilter) continue;
+      if (contextFilter && Array.isArray(def.contexts) && def.contexts.indexOf(contextFilter) === -1) continue;
+      seen[id] = true;
+      list.push(id);
+    }
+  }
+  return list;
+}
+
+function getGrantedAbilitySources(actor, abilityId) {
+  if (!actor || !actor.abilityGrants || !abilityId) return [];
+  const sources = [];
+  for (let i = 0; i < ABILITY_ACCESS_SOURCES.length; i++) {
+    const src = ABILITY_ACCESS_SOURCES[i];
+    const bucket = actor.abilityGrants[src];
+    if (Array.isArray(bucket) && bucket.indexOf(abilityId) !== -1) {
+      sources.push(src);
+    }
+  }
+  return sources;
+}
+
+function hasAbilityAccess(actor, abilityId) {
+  return getGrantedAbilitySources(actor, abilityId).length > 0;
+}
+
+function grantAbilityAccess(actor, abilityId, sourceType) {
+  if (!actor || typeof actor !== 'object') return { ok: false, reason: 'invalid_actor' };
+  const def = getAbilityDefinition(abilityId);
+  if (!def) return { ok: false, reason: 'unknown_ability' };
+  const src = ABILITY_ACCESS_SOURCES.indexOf(sourceType) !== -1 ? sourceType : 'learned';
+  normalizeActorAbilityState(actor);
+  const bucket = actor.abilityGrants[src];
+  if (bucket.indexOf(abilityId) === -1) {
+    bucket.push(abilityId);
+  }
+  if (!actor.activeAbilityId && def.activation === 'active') {
+    actor.activeAbilityId = abilityId;
+  }
+  return { ok: true, abilityId: abilityId, source: src };
+}
+
+function revokeAbilityAccess(actor, abilityId, sourceType) {
+  if (!actor || typeof actor !== 'object') return { ok: false, reason: 'invalid_actor' };
+  normalizeActorAbilityState(actor);
+  const src = ABILITY_ACCESS_SOURCES.indexOf(sourceType) !== -1 ? sourceType : 'learned';
+  const bucket = actor.abilityGrants[src];
+  const idx = bucket.indexOf(abilityId);
+  if (idx !== -1) {
+    bucket.splice(idx, 1);
+  }
+  const stillHas = hasAbilityAccess(actor, abilityId);
+  if (!stillHas && actor.activeAbilityId === abilityId) {
+    const remaining = getGrantedAbilityIds(actor, { activation: 'active' });
+    actor.activeAbilityId = remaining.length > 0 ? remaining[0] : null;
+  }
+  return { ok: true, abilityId: abilityId, source: src, stillGranted: stillHas };
+}
+
+function getAbilityCooldownRemaining(actor, abilityId) {
+  if (!actor || !actor.abilityCooldowns || !abilityId) return 0;
+  const cd = actor.abilityCooldowns[abilityId];
+  return (typeof cd === 'number' && cd > 0) ? Math.ceil(cd) : 0;
+}
+
+function setAbilityCooldown(actor, abilityId, turns) {
+  if (!actor || !abilityId) return;
+  if (!actor.abilityCooldowns || typeof actor.abilityCooldowns !== 'object') {
+    actor.abilityCooldowns = {};
+  }
+  if (!actor.abilityCooldownUntilSimMs || typeof actor.abilityCooldownUntilSimMs !== 'object') {
+    actor.abilityCooldownUntilSimMs = {};
+  }
+  if (turns > 0) {
+    actor.abilityCooldowns[abilityId] = Math.ceil(turns);
+  } else {
+    delete actor.abilityCooldowns[abilityId];
+  }
+}
+
+function tickActorAbilityCooldowns(actor) {
+  if (!actor || !actor.abilityCooldowns || typeof actor.abilityCooldowns !== 'object') return;
+  const keys = Object.keys(actor.abilityCooldowns);
+  for (let i = 0; i < keys.length; i++) {
+    const k = keys[i];
+    const cur = actor.abilityCooldowns[k];
+    if (typeof cur === 'number' && cur > 1) {
+      actor.abilityCooldowns[k] = cur - 1;
+    } else {
+      delete actor.abilityCooldowns[k];
+    }
+  }
+}
+
+function resetActorAbilityCooldowns(actor) {
+  if (!actor) return;
+  actor.abilityCooldowns = {};
+  actor.abilityCooldownUntilSimMs = {};
+  actor.skillCooldown = 0;
+}
+
+function getStrategicAbilityCooldownRemainingMs(actor, abilityId, nowSimTimeMs) {
+  if (!actor || !actor.abilityCooldownUntilSimMs || !abilityId) return 0;
+  const due = actor.abilityCooldownUntilSimMs[abilityId];
+  if (typeof due !== 'number' || !isFinite(due)) return 0;
+  const now = typeof nowSimTimeMs === 'number' ? nowSimTimeMs : 0;
+  return Math.max(0, due - now);
+}
+
+function setStrategicAbilityCooldownMs(actor, abilityId, nowSimTimeMs, durationMs) {
+  if (!actor || !abilityId) return;
+  if (!actor.abilityCooldownUntilSimMs || typeof actor.abilityCooldownUntilSimMs !== 'object') {
+    actor.abilityCooldownUntilSimMs = {};
+  }
+  const dur = Math.max(0, Number(durationMs) || 0);
+  if (dur > 0) {
+    actor.abilityCooldownUntilSimMs[abilityId] = (Number(nowSimTimeMs) || 0) + dur;
+  } else {
+    delete actor.abilityCooldownUntilSimMs[abilityId];
+  }
+}
+
+function isAbilitySilenced(actor, abilityDef) {
+  if (!actor || !abilityDef) return false;
+  const silenced = (actor.statuses || []).some(function(s) { return s && s.id === 'silence'; });
+  if (!silenced) return false;
+  // Silence blocks arcane, divine, and nature magic while allowing martial techniques and adventuring skills
+  return (
+    abilityDef.domain === 'arcane' ||
+    abilityDef.domain === 'divine' ||
+    abilityDef.domain === 'nature'
+  );
+}
+
+function getEffectiveAbilityCost(actor, abilityDef) {
+  if (!abilityDef) return { mp: 0, baseMp: 0, cooldown: 0, chilledPenalty: 0 };
+  const baseMp = (abilityDef.costs && typeof abilityDef.costs.mp === 'number') ? abilityDef.costs.mp : 0;
+  const cooldown = (abilityDef.costs && typeof abilityDef.costs.cooldown === 'number') ? abilityDef.costs.cooldown : 0;
+  const isChilled = Boolean(actor && (actor.statuses || []).some(function(s) { return s && s.id === 'chilled'; }));
+  // Chilled adds +2 MP to mana-using abilities (cooldown-only 0-MP martial techniques stay 0 MP)
+  const chilledPenalty = (baseMp > 0 && isChilled) ? 2 : 0;
+  return {
+    mp: baseMp + chilledPenalty,
+    baseMp: baseMp,
+    cooldown: cooldown,
+    chilledPenalty: chilledPenalty
+  };
+}
+
+function validateAbilityActivation(actor, abilityDef, ctx) {
+  if (!actor || !abilityDef) {
+    return { ok: false, reason: 'invalid_ability' };
+  }
+  normalizeActorAbilityState(actor);
+
+  const contextId = (ctx && ctx.context) ? ctx.context : 'tactical_dungeon';
+  if (Array.isArray(abilityDef.contexts) && abilityDef.contexts.indexOf(contextId) === -1) {
+    return { ok: false, reason: 'invalid_context' };
+  }
+  if (abilityDef.activation !== 'active' && !(ctx && ctx.allowTriggered)) {
+    return { ok: false, reason: 'not_active_ability' };
+  }
+  if (!hasAbilityAccess(actor, abilityDef.id) && !(ctx && ctx.bypassAccessCheck)) {
+    return { ok: false, reason: 'not_granted' };
+  }
+  if (abilityDef.requiresRangedWeapon) {
+    const wep = actor.equipment ? actor.equipment.weapon : null;
+    if (!isRangedWeaponItem(wep)) {
+      return { ok: false, reason: 'requires_ranged_weapon' };
+    }
+  }
+  if (actor.pendingCast && !(ctx && ctx.allowWhileCasting)) {
+    return { ok: false, reason: 'already_casting' };
+  }
+  if (isAbilitySilenced(actor, abilityDef)) {
+    return { ok: false, reason: 'silenced' };
+  }
+  const cdRem = getAbilityCooldownRemaining(actor, abilityDef.id);
+  if (cdRem > 0) {
+    return { ok: false, reason: 'on_cooldown', cooldownRemaining: cdRem };
+  }
+  const costInfo = getEffectiveAbilityCost(actor, abilityDef);
+  if ((actor.mp || 0) < costInfo.mp) {
+    return { ok: false, reason: 'no_mp', effectiveCost: costInfo.mp, chilledPenalty: costInfo.chilledPenalty };
+  }
+  return {
+    ok: true,
+    effectiveCost: costInfo.mp,
+    baseMp: costInfo.baseMp,
+    cooldown: costInfo.cooldown,
+    chilledPenalty: costInfo.chilledPenalty
+  };
+}
+
+function getActorMagicPower(actor) {
+  if (!actor) return 0;
+  if (typeof actor.magicPower === 'number' && !isNaN(actor.magicPower)) {
+    return actor.magicPower;
+  }
+  const effInt = (actor.effectiveStats && actor.effectiveStats.int) || (actor.baseStats && actor.baseStats.int) || 10;
+  const effSpi = (actor.effectiveStats && actor.effectiveStats.spi) || (actor.baseStats && actor.baseStats.spi) || 8;
+  return Math.max(4, Math.round(effInt * 1.1 + effSpi * 0.6));
+}
+
+function computeAbilityDamage(actor, effectDef, target, extraMult) {
+  const mult = (effectDef && typeof effectDef.mult === 'number') ? effectDef.mult : 1.0;
+  const bonusFlat = (effectDef && typeof effectDef.bonusFlat === 'number') ? effectDef.bonusFlat : 0;
+  const scaling = (effectDef && effectDef.scaling) || 'physical';
+  const damageType = (effectDef && effectDef.damageType) || (scaling === 'physical' ? 'physical' : 'magical');
+  const mod = (typeof extraMult === 'number' && extraMult > 0) ? extraMult : 1.0;
+
+  const atk = (actor && typeof actor.atk === 'number') ? actor.atk : 10;
+  const magicPower = getActorMagicPower(actor);
+
+  // Explicit single-path scaling with zero attribute double-counting:
+  // magicPower in heroStats.js already incorporates INT-primary/SPI-secondary (arcane)
+  // or SPI-primary/INT-secondary (divine) plus magical equipment bonuses.
+  let raw = 0;
+  if (scaling === 'arcane') {
+    raw = Math.round(magicPower * 1.25 * mult + bonusFlat);
+  } else if (scaling === 'divine') {
+    raw = Math.round(magicPower * 1.20 * mult + bonusFlat);
+  } else if (scaling === 'hybrid_divine') {
+    const mRatio = (effectDef && typeof effectDef.magicRatio === 'number') ? effectDef.magicRatio : 0.75;
+    raw = Math.round((atk * 0.85 + magicPower * mRatio) * mult + bonusFlat);
+  } else {
+    raw = Math.round(atk * mult + bonusFlat);
+  }
+
+  // Trait-specific bonus (e.g. Sacred Flame +35% vs Undead/Corrupted)
+  let traitBonusApplied = false;
+  if (
+    target &&
+    Array.isArray(target.traits) &&
+    effectDef &&
+    Array.isArray(effectDef.bonusVsTraits) &&
+    effectDef.bonusVsTraits.length > 0
+  ) {
+    const matched = effectDef.bonusVsTraits.some(function(tr) {
+      return target.traits.indexOf(tr) !== -1;
+    });
+    if (matched) {
+      raw = Math.round(raw * (effectDef.bonusTraitMult || 1.35));
+      traitBonusApplied = true;
+    }
+  }
+
+  // Optional focused crit bonus (e.g. Scout Aimed Shot)
+  let isCrit = false;
+  if (effectDef && typeof effectDef.bonusCritChance === 'number' && effectDef.bonusCritChance > 0) {
+    const critRoll = ((actor && actor.crit) || 5) + effectDef.bonusCritChance;
+    if (Math.random() * 100 < critRoll) {
+      raw = Math.round(raw * 1.5);
+      isCrit = true;
+    }
+  }
+
+  raw = Math.round(raw * mod);
+
+  // Explicit physical vs. magical defense mitigation (guarding applied exactly once to physical)
+  let mitigated = raw;
+  let guarded = false;
+  if (target) {
+    const isTargetGuarding = Boolean((target.statuses || []).some(function(s) { return s && s.id === 'guarding'; }));
+    if (damageType === 'physical') {
+      let effDef = target.def || 0;
+      if (isTargetGuarding && (!effectDef || effectDef.respectGuarding !== false)) {
+        effDef = Math.round(effDef * 1.6);
+        guarded = true;
+      }
+      mitigated = Math.max(1, raw - Math.floor(effDef * 0.5));
+    } else {
+      // Explicit baseline magical defense (independent of physical armor and Guarding)
+      const mDef = (typeof target.magicDef === 'number') ? target.magicDef : 2;
+      mitigated = Math.max(1, raw - mDef);
+    }
+  }
+
+  return {
+    damage: Math.max(1, mitigated),
+    raw: raw,
+    damageType: damageType,
+    guarded: guarded,
+    traitBonusApplied: traitBonusApplied,
+    isCrit: isCrit
+  };
+}
+
+function computeAbilityHealAmount(actor, effectDef) {
+  if (!actor || !effectDef) return 0;
+  const base = effectDef.baseAmount || 0;
+  const magicMult = effectDef.magicMult || 0;
+  const maxHpPct = effectDef.maxHpPct || 0;
+  const vitMult = effectDef.vitMult || 0;
+  const mp = getActorMagicPower(actor);
+  const effVit = (actor.computedVit || (actor.baseStats && actor.baseStats.vit) || 10);
+  const pctHeal = Math.round((actor.maxHp || 100) * maxHpPct);
+  return Math.max(1, Math.round(base + mp * magicMult + effVit * vitMult + pctHeal));
+}
+
+function computeAbilityShieldAmount(actor, effectDef) {
+  if (!actor || !effectDef) return 0;
+  const base = effectDef.baseAmount || 10;
+  const defMult = effectDef.defMult || 0;
+  const magicMult = effectDef.magicMult || 0;
+  const cap = effectDef.maxShieldCap || 100;
+  const raw = Math.round(base + (actor.def || 0) * defMult + getActorMagicPower(actor) * magicMult);
+  return Math.max(1, Math.min(cap, raw));
+}
+
+function applyDamageWithShield(actor, rawDamage) {
+  const dmg = Math.max(0, Math.round(rawDamage || 0));
+  if (!actor || dmg <= 0) {
+    return { absorbed: 0, hpLoss: 0, remainingShield: (actor && actor.absorbShield) || 0 };
+  }
+  const curShield = (typeof actor.absorbShield === 'number' && actor.absorbShield > 0) ? actor.absorbShield : 0;
+  const absorbed = Math.min(curShield, dmg);
+  const hpLoss = dmg - absorbed;
+  actor.absorbShield = Math.max(0, curShield - absorbed);
+  if (hpLoss > 0) {
+    actor.hp = (actor.hp || 0) - hpLoss;
+  }
+  return {
+    absorbed: absorbed,
+    hpLoss: hpLoss,
+    remainingShield: actor.absorbShield
   };
 }
 
@@ -9667,1751 +11733,6 @@ function resolveHazardStepEffects(actor, x, y, floor) {
   return { triggered: true, damage: totalDmg, statuses: appliedStatuses };
 }
 
-  // --- Module: src/data/abilities.js ---
-// Shared Context-Independent Spell, Prayer, Martial Technique & Adventuring Skill Catalog (MG-01A / MG-01B)
-// Complete 32-entry approved entry-tier catalog across Bruiser (fighter), Mage (mage),
-// Acolyte (cleric), Scout (scout), and Adventurer (adventurer), plus preserved legacy class skills.
-
-const ABILITY_DOMAINS = Object.freeze({
-  ARCANE: 'arcane',
-  DIVINE: 'divine',
-  NATURE: 'nature',
-  MARTIAL: 'martial',
-  ADVENTURING: 'adventuring'
-});
-
-const ABILITY_KINDS = Object.freeze({
-  SPELL: 'spell',
-  PRAYER: 'prayer',
-  TECHNIQUE: 'technique',
-  SKILL: 'skill',
-  POWER: 'power'
-});
-
-const ABILITY_ACCESS_SOURCES = Object.freeze([
-  'class',
-  'learned',
-  'item',
-  'temporary'
-]);
-
-const CLEANSEABLE_STATUS_IDS = Object.freeze([
-  'burn',
-  'poison',
-  'bleed',
-  'weakened',
-  'chilled',
-  'slow',
-  'silence',
-  'disrupted',
-  'rooted'
-]);
-
-const ABILITIES = Object.freeze({
-  // =========================================================================
-  // 1. BRUISER (Runtime: fighter) — 6 Martial Skills (Cooldowns, 0 MP)
-  // =========================================================================
-  power_strike: Object.freeze({
-    id: 'power_strike',
-    name: 'Power Strike',
-    icon: '🪓',
-    kind: 'technique',
-    domain: 'martial',
-    discipline: 'weapon_mastery',
-    purpose: 'damage',
-    activation: 'active',
-    timing: 'immediate',
-    windupTurns: 0,
-    contexts: ['tactical_dungeon'],
-    timeSemantics: 'tactical_turn',
-    acquisition: 'class',
-    costs: { mp: 0, cooldown: 2 },
-    targeting: {
-      mode: 'manual_enemy',
-      pattern: 'single',
-      range: 1.5,
-      radius: 0,
-      requireLos: false,
-      filter: 'enemy',
-      maxTargets: 1
-    },
-    scaling: 'physical',
-    damageType: 'physical',
-    effects: [
-      { type: 'damage', mult: 1.65, bonusFlat: 4, damageType: 'physical', scaling: 'physical', respectGuarding: true }
-    ],
-    vfx: { type: 'crit_slash', color: '#fb923c' },
-    desc: 'Enhanced single-target physical strike dealing 165% ATK + 4 damage (respects Guarding; 0 MP, 2t CD).'
-  }),
-
-  cleave: Object.freeze({
-    id: 'cleave',
-    name: 'Cleave',
-    icon: '⚔️',
-    kind: 'technique',
-    domain: 'martial',
-    discipline: 'weapon_mastery',
-    purpose: 'damage',
-    activation: 'active',
-    timing: 'immediate',
-    windupTurns: 0,
-    contexts: ['tactical_dungeon'],
-    timeSemantics: 'tactical_turn',
-    acquisition: 'class',
-    costs: { mp: 0, cooldown: 3 },
-    targeting: {
-      mode: 'auto_area',
-      pattern: 'radius',
-      range: 1.5,
-      radius: 1.5,
-      requireLos: false,
-      filter: 'enemy',
-      maxTargets: 8
-    },
-    scaling: 'physical',
-    damageType: 'physical',
-    effects: [
-      { type: 'damage', mult: 1.35, damageType: 'physical', scaling: 'physical', respectGuarding: true }
-    ],
-    vfx: { type: 'slash', color: '#f97316' },
-    desc: 'Sweeping physical cleave hitting all adjacent enemies for 135% ATK (respects Guarding; 0 MP, 3t CD).'
-  }),
-
-  overpower: Object.freeze({
-    id: 'overpower',
-    name: 'Overpower',
-    icon: '💥',
-    kind: 'technique',
-    domain: 'martial',
-    discipline: 'combat_control',
-    purpose: 'control',
-    activation: 'active',
-    timing: 'immediate',
-    windupTurns: 0,
-    contexts: ['tactical_dungeon'],
-    timeSemantics: 'tactical_turn',
-    acquisition: 'class',
-    costs: { mp: 0, cooldown: 4 },
-    targeting: {
-      mode: 'manual_enemy',
-      pattern: 'single',
-      range: 1.5,
-      radius: 0,
-      requireLos: false,
-      filter: 'enemy',
-      maxTargets: 1
-    },
-    scaling: 'physical',
-    damageType: 'physical',
-    effects: [
-      { type: 'damage', mult: 1.25, damageType: 'physical', scaling: 'physical', respectGuarding: true },
-      { type: 'knockback', distance: 1, collideStunTurns: 2, collideBonusDmg: 6 }
-    ],
-    vfx: { type: 'slash', color: '#f59e0b' },
-    desc: 'Crushing blow knocking an adjacent enemy back 1 tile; wall collision deals +6 damage and stuns for 2 turns (0 MP, 4t CD).'
-  }),
-
-  brace: Object.freeze({
-    id: 'brace',
-    name: 'Brace',
-    icon: '🛡️',
-    kind: 'technique',
-    domain: 'martial',
-    discipline: 'defense',
-    purpose: 'defense',
-    activation: 'active',
-    timing: 'immediate',
-    windupTurns: 0,
-    contexts: ['tactical_dungeon'],
-    timeSemantics: 'tactical_turn',
-    acquisition: 'class',
-    costs: { mp: 0, cooldown: 4 },
-    targeting: {
-      mode: 'self',
-      pattern: 'self',
-      range: 0,
-      radius: 0,
-      requireLos: false,
-      filter: 'self',
-      maxTargets: 1
-    },
-    scaling: 'physical',
-    damageType: 'none',
-    effects: [
-      { type: 'status', statusId: 'guarding', duration: 2, targetSelf: true },
-      { type: 'status', statusId: 'physical_mitigation', duration: 2, targetSelf: true }
-    ],
-    vfx: { type: 'shield', color: '#60a5fa' },
-    desc: 'Temporary physical stance granting Guarding (+60% DEF) and 25% physical damage mitigation for 2 turns (distinct from Arcane Ward absorption; 0 MP, 4t CD).'
-  }),
-
-  charge: Object.freeze({
-    id: 'charge',
-    name: 'Charge',
-    icon: '🐂',
-    kind: 'technique',
-    domain: 'martial',
-    discipline: 'vanguard',
-    purpose: 'mobility',
-    activation: 'active',
-    timing: 'immediate',
-    windupTurns: 0,
-    contexts: ['tactical_dungeon'],
-    timeSemantics: 'tactical_turn',
-    acquisition: 'class',
-    costs: { mp: 0, cooldown: 4 },
-    targeting: {
-      mode: 'manual_enemy',
-      pattern: 'single',
-      range: 4.2,
-      minRange: 1.8,
-      radius: 0,
-      requireLos: true,
-      requireChargePath: true,
-      filter: 'enemy',
-      maxTargets: 1
-    },
-    scaling: 'physical',
-    damageType: 'physical',
-    effects: [
-      { type: 'charge_move' },
-      { type: 'damage', mult: 1.5, bonusFlat: 3, damageType: 'physical', scaling: 'physical', respectGuarding: true },
-      { type: 'status', statusId: 'stun', duration: 1 }
-    ],
-    vfx: { type: 'crit_slash', color: '#f97316' },
-    desc: 'Rush along a clear path to an enemy 2–4 tiles away, delivering a 150% physical impact + 1t Stun (0 MP, 4t CD).'
-  }),
-
-  battle_cry: Object.freeze({
-    id: 'battle_cry',
-    name: 'Battle Cry',
-    icon: '📯',
-    kind: 'technique',
-    domain: 'martial',
-    discipline: 'command',
-    purpose: 'buff',
-    activation: 'active',
-    timing: 'immediate',
-    windupTurns: 0,
-    contexts: ['tactical_dungeon'],
-    timeSemantics: 'tactical_turn',
-    acquisition: 'class',
-    groupExtensible: true,
-    costs: { mp: 0, cooldown: 5 },
-    targeting: {
-      mode: 'self',
-      pattern: 'self',
-      range: 0,
-      radius: 0,
-      requireLos: false,
-      filter: 'self',
-      maxTargets: 1
-    },
-    scaling: 'physical',
-    damageType: 'none',
-    effects: [
-      { type: 'status', statusId: 'battle_cry', duration: 3, targetSelf: true }
-    ],
-    vfx: { type: 'wave', color: '#f59e0b' },
-    desc: 'Rousing warcry granting +4 ATK and +10% Crit for 3 turns (0 MP, 5t CD; extensible to party allies).'
-  }),
-
-  // =========================================================================
-  // 2. MAGE (Runtime: mage) — 6 Arcane Spells (Mana by default)
-  // =========================================================================
-  arcane_missile: Object.freeze({
-    id: 'arcane_missile',
-    name: 'Arcane Missile',
-    icon: '🔮',
-    kind: 'spell',
-    domain: 'arcane',
-    discipline: 'evocation',
-    purpose: 'damage',
-    activation: 'active',
-    timing: 'immediate',
-    windupTurns: 0,
-    contexts: ['tactical_dungeon'],
-    timeSemantics: 'tactical_turn',
-    acquisition: 'class',
-    costs: { mp: 6, cooldown: 0 },
-    targeting: {
-      mode: 'manual_enemy',
-      pattern: 'single',
-      range: 5.5,
-      radius: 0,
-      requireLos: true,
-      filter: 'enemy',
-      maxTargets: 1
-    },
-    scaling: 'arcane',
-    damageType: 'magical',
-    effects: [
-      { type: 'damage', mult: 1.35, bonusFlat: 4, damageType: 'magical', scaling: 'arcane' }
-    ],
-    vfx: { type: 'beam', color: '#a78bfa' },
-    desc: 'Fires a focused arcane bolt at a visible enemy within 5 tiles, scaling with Magic Power (6 MP).'
-  }),
-
-  fireball: Object.freeze({
-    id: 'fireball',
-    name: 'Fireball',
-    icon: '🔥',
-    kind: 'spell',
-    domain: 'arcane',
-    discipline: 'pyromancy',
-    purpose: 'damage',
-    activation: 'active',
-    timing: 'delayed',
-    windupTurns: 1,
-    contexts: ['tactical_dungeon'],
-    timeSemantics: 'tactical_turn',
-    acquisition: 'class',
-    costs: { mp: 14, cooldown: 2 },
-    targeting: {
-      mode: 'manual_location',
-      pattern: 'radius',
-      range: 5.2,
-      radius: 1,
-      requireLos: true,
-      filter: 'enemy',
-      maxTargets: 9
-    },
-    scaling: 'arcane',
-    damageType: 'magical',
-    effects: [
-      { type: 'damage', mult: 1.85, bonusFlat: 6, damageType: 'magical', scaling: 'arcane' },
-      { type: 'status', statusId: 'burn', duration: 3 }
-    ],
-    vfx: { type: 'spell', color: '#fb923c' },
-    desc: 'Channels for 1 turn (interruptible by Stun/Silence), then detonates a 3x3 arcane blast dealing high magical damage + Burn (14 MP, 2t CD).'
-  }),
-
-  frost_nova: Object.freeze({
-    id: 'frost_nova',
-    name: 'Frost Nova',
-    icon: '❄️',
-    kind: 'spell',
-    domain: 'arcane',
-    discipline: 'cryomancy',
-    purpose: 'control',
-    activation: 'active',
-    timing: 'immediate',
-    windupTurns: 0,
-    contexts: ['tactical_dungeon'],
-    timeSemantics: 'tactical_turn',
-    acquisition: 'class',
-    costs: { mp: 12, cooldown: 3 },
-    targeting: {
-      mode: 'auto_area',
-      pattern: 'radius',
-      range: 2.5,
-      radius: 2.5,
-      requireLos: true,
-      filter: 'enemy',
-      maxTargets: 12
-    },
-    scaling: 'arcane',
-    damageType: 'magical',
-    effects: [
-      { type: 'damage', mult: 1.15, bonusFlat: 2, damageType: 'magical', scaling: 'arcane' },
-      { type: 'status', statusId: 'slow', duration: 3 },
-      { type: 'status', statusId: 'chilled', duration: 2 }
-    ],
-    vfx: { type: 'wave', color: '#38bdf8' },
-    desc: 'Freezing ring around the caster dealing magical damage and inflicting Slow (3t) and Chilled (2t) (12 MP, 3t CD).'
-  }),
-
-  arcane_ward: Object.freeze({
-    id: 'arcane_ward',
-    name: 'Arcane Ward',
-    icon: '🔷',
-    kind: 'spell',
-    domain: 'arcane',
-    discipline: 'abjuration',
-    purpose: 'defense',
-    activation: 'active',
-    timing: 'immediate',
-    windupTurns: 0,
-    contexts: ['tactical_dungeon'],
-    timeSemantics: 'tactical_turn',
-    acquisition: 'class',
-    costs: { mp: 10, cooldown: 3 },
-    targeting: {
-      mode: 'self',
-      pattern: 'self',
-      range: 0,
-      radius: 0,
-      requireLos: false,
-      filter: 'self',
-      maxTargets: 1
-    },
-    scaling: 'arcane',
-    damageType: 'none',
-    effects: [
-      { type: 'shield', baseAmount: 16, magicMult: 1.35, maxShieldCap: 95 },
-      { type: 'status', statusId: 'ward_buff', duration: 3, targetSelf: true }
-    ],
-    vfx: { type: 'shield', color: '#818cf8' },
-    desc: 'Weaves an arcane absorption barrier (scales with Magic Power) and +4 Ward for 3 turns (10 MP, 3t CD).'
-  }),
-
-  blink: Object.freeze({
-    id: 'blink',
-    name: 'Blink',
-    icon: '🌀',
-    kind: 'spell',
-    domain: 'arcane',
-    discipline: 'translocation',
-    purpose: 'mobility',
-    activation: 'active',
-    timing: 'immediate',
-    windupTurns: 0,
-    contexts: ['tactical_dungeon'],
-    timeSemantics: 'tactical_turn',
-    acquisition: 'class',
-    costs: { mp: 10, cooldown: 3 },
-    targeting: {
-      mode: 'manual_location',
-      pattern: 'single',
-      range: 4.5,
-      radius: 0,
-      requireLos: true,
-      filter: 'any',
-      maxTargets: 1,
-      requireWalkable: true,
-      respectTeleportWard: true
-    },
-    scaling: 'arcane',
-    damageType: 'none',
-    effects: [
-      { type: 'teleport' }
-    ],
-    vfx: { type: 'teleport', color: '#c084fc' },
-    desc: 'Short-distance teleport to a visible unobstructed floor tile within 4 tiles (respects protected/warded tiles; 10 MP, 3t CD).'
-  }),
-
-  detect_magic: Object.freeze({
-    id: 'detect_magic',
-    name: 'Detect Magic',
-    icon: '👁️',
-    kind: 'spell',
-    domain: 'arcane',
-    discipline: 'divination',
-    purpose: 'utility',
-    activation: 'active',
-    timing: 'immediate',
-    windupTurns: 0,
-    contexts: ['tactical_dungeon'],
-    timeSemantics: 'tactical_turn',
-    acquisition: 'class',
-    costs: { mp: 4, cooldown: 3 },
-    targeting: {
-      mode: 'self',
-      pattern: 'self',
-      range: 0,
-      radius: 6,
-      requireLos: false,
-      filter: 'self',
-      maxTargets: 1
-    },
-    scaling: 'arcane',
-    damageType: 'none',
-    effects: [
-      { type: 'detect', modality: 'magical', radius: 6 }
-    ],
-    vfx: { type: 'detect_pulse', color: '#818cf8' },
-    desc: 'Senses magical signatures (arcane rune traps, enchanted shrines/portals, arcane seals, magical foes) within 6 tiles; does not reveal mundane physical traps/doors (4 MP, 3t CD).'
-  }),
-
-  // =========================================================================
-  // 3. ACOLYTE (Runtime: cleric) — 6 Divine Prayers (Mana by default)
-  // =========================================================================
-  healing_light: Object.freeze({
-    id: 'healing_light',
-    name: 'Healing Light',
-    icon: '💚',
-    kind: 'prayer',
-    domain: 'divine',
-    discipline: 'restoration',
-    purpose: 'healing',
-    activation: 'active',
-    timing: 'immediate',
-    windupTurns: 0,
-    contexts: ['tactical_dungeon'],
-    timeSemantics: 'tactical_turn',
-    acquisition: 'class',
-    costs: { mp: 10, cooldown: 1 },
-    targeting: {
-      mode: 'self',
-      pattern: 'self',
-      range: 0,
-      radius: 0,
-      requireLos: false,
-      filter: 'self',
-      maxTargets: 1
-    },
-    scaling: 'divine',
-    damageType: 'none',
-    effects: [
-      { type: 'heal', baseAmount: 14, magicMult: 1.1, maxHpPct: 0.12, targetSelf: true },
-      { type: 'status', statusId: 'regen', duration: 2, targetSelf: true }
-    ],
-    vfx: { type: 'shield', color: '#4ade80' },
-    desc: 'Restores HP immediately (scales with SPI/Magic Power) and grants 2t Regeneration — no enemy target required (10 MP, 1t CD).'
-  }),
-
-  sacred_flame: Object.freeze({
-    id: 'sacred_flame',
-    name: 'Sacred Flame',
-    icon: '☀️',
-    kind: 'prayer',
-    domain: 'divine',
-    discipline: 'radiance',
-    purpose: 'damage',
-    activation: 'active',
-    timing: 'immediate',
-    windupTurns: 0,
-    contexts: ['tactical_dungeon'],
-    timeSemantics: 'tactical_turn',
-    acquisition: 'class',
-    costs: { mp: 8, cooldown: 0 },
-    targeting: {
-      mode: 'manual_enemy',
-      pattern: 'single',
-      range: 4.2,
-      radius: 0,
-      requireLos: true,
-      filter: 'enemy',
-      maxTargets: 1
-    },
-    scaling: 'divine',
-    damageType: 'magical',
-    effects: [
-      {
-        type: 'damage',
-        mult: 1.4,
-        bonusFlat: 3,
-        damageType: 'magical',
-        scaling: 'divine',
-        bonusVsTraits: ['undead', 'corrupted'],
-        bonusTraitMult: 1.35
-      }
-    ],
-    vfx: { type: 'spell', color: '#fbbf24' },
-    desc: 'Calls down radiant divine fire on a visible enemy within 4 tiles (+35% bonus damage vs Undead/Corrupted; 8 MP).'
-  }),
-
-  blessing: Object.freeze({
-    id: 'blessing',
-    name: 'Blessing',
-    icon: '🙏',
-    kind: 'prayer',
-    domain: 'divine',
-    discipline: 'benediction',
-    purpose: 'buff',
-    activation: 'active',
-    timing: 'immediate',
-    windupTurns: 0,
-    contexts: ['tactical_dungeon'],
-    timeSemantics: 'tactical_turn',
-    acquisition: 'class',
-    groupExtensible: true,
-    costs: { mp: 10, cooldown: 4 },
-    targeting: {
-      mode: 'self',
-      pattern: 'self',
-      range: 0,
-      radius: 0,
-      requireLos: false,
-      filter: 'self',
-      maxTargets: 1
-    },
-    scaling: 'divine',
-    damageType: 'none',
-    effects: [
-      { type: 'status', statusId: 'blessed', duration: 4, targetSelf: true }
-    ],
-    vfx: { type: 'shield', color: '#fef08a' },
-    desc: 'Bestows a sacred benediction granting +3 ATK, +3 Magic Power, +3 DEF, and +3 Ward for 4 turns (10 MP, 4t CD).'
-  }),
-
-  purification: Object.freeze({
-    id: 'purification',
-    name: 'Purification',
-    icon: '🕊️',
-    kind: 'prayer',
-    domain: 'divine',
-    discipline: 'restoration',
-    purpose: 'utility',
-    activation: 'active',
-    timing: 'immediate',
-    windupTurns: 0,
-    contexts: ['tactical_dungeon'],
-    timeSemantics: 'tactical_turn',
-    acquisition: 'class',
-    costs: { mp: 8, cooldown: 2 },
-    targeting: {
-      mode: 'self',
-      pattern: 'self',
-      range: 0,
-      radius: 0,
-      requireLos: false,
-      filter: 'self',
-      maxTargets: 1
-    },
-    scaling: 'divine',
-    damageType: 'none',
-    effects: [
-      { type: 'cleanse', maxRemoved: 3, targetSelf: true },
-      { type: 'heal', baseAmount: 6, magicMult: 0.35, targetSelf: true }
-    ],
-    vfx: { type: 'wave', color: '#fef08a' },
-    desc: 'Removes up to 3 eligible harmful statuses (Burn, Poison, Bleed, Slow, Chilled, Weakened, Silence, Disrupted, Rooted) and restores light HP (8 MP, 2t CD).'
-  }),
-
-  sanctuary: Object.freeze({
-    id: 'sanctuary',
-    name: 'Sanctuary',
-    icon: '⛪',
-    kind: 'prayer',
-    domain: 'divine',
-    discipline: 'consecration',
-    purpose: 'defense',
-    activation: 'active',
-    timing: 'immediate',
-    windupTurns: 0,
-    contexts: ['tactical_dungeon'],
-    timeSemantics: 'tactical_turn',
-    acquisition: 'class',
-    costs: { mp: 14, cooldown: 4 },
-    targeting: {
-      mode: 'manual_location',
-      pattern: 'radius',
-      range: 3.5,
-      radius: 1,
-      requireLos: true,
-      filter: 'any',
-      maxTargets: 9
-    },
-    scaling: 'divine',
-    damageType: 'none',
-    effects: [
-      {
-        type: 'persistent_area',
-        areaId: 'sanctuary_zone',
-        name: 'Sanctuary',
-        duration: 3,
-        radius: 1,
-        color: '#fbbf24',
-        healPerTurnBase: 8,
-        healMagicMult: 0.45,
-        grantStatus: 'sanctuary_ward',
-        affectsHero: true,
-        affectsMonsters: false
-      }
-    ],
-    vfx: { type: 'wave', color: '#fbbf24' },
-    desc: 'Consecrates a persistent 3x3 protective zone for 3 turns: grants Sanctuary Ward & periodic healing while inside; ward lifts on exit or expiry (14 MP, 4t CD).'
-  }),
-
-  divine_sight: Object.freeze({
-    id: 'divine_sight',
-    name: 'Divine Sight',
-    icon: '🌟',
-    kind: 'prayer',
-    domain: 'divine',
-    discipline: 'revelation',
-    purpose: 'utility',
-    activation: 'active',
-    timing: 'immediate',
-    windupTurns: 0,
-    contexts: ['tactical_dungeon'],
-    timeSemantics: 'tactical_turn',
-    acquisition: 'class',
-    costs: { mp: 4, cooldown: 3 },
-    targeting: {
-      mode: 'self',
-      pattern: 'self',
-      range: 0,
-      radius: 6,
-      requireLos: false,
-      filter: 'self',
-      maxTargets: 1
-    },
-    scaling: 'divine',
-    damageType: 'none',
-    effects: [
-      { type: 'detect', modality: 'spiritual', radius: 6 }
-    ],
-    vfx: { type: 'detect_pulse', color: '#fbbf24' },
-    desc: 'Attunes to spiritual/divine signatures (undead, corrupted foes, cursed/desecrated shrines, spiritual seals) within 6 tiles; does not reveal mundane objects (4 MP, 3t CD).'
-  }),
-
-  // =========================================================================
-  // 4. SCOUT (Runtime: scout) — 7 Skills (Cooldowns + Equipment/Environment)
-  // =========================================================================
-  aimed_shot: Object.freeze({
-    id: 'aimed_shot',
-    name: 'Aimed Shot',
-    icon: '🏹',
-    kind: 'skill',
-    domain: 'martial',
-    discipline: 'marksmanship',
-    purpose: 'damage',
-    activation: 'active',
-    timing: 'immediate',
-    windupTurns: 0,
-    contexts: ['tactical_dungeon'],
-    timeSemantics: 'tactical_turn',
-    acquisition: 'class',
-    requiresRangedWeapon: true,
-    costs: { mp: 0, cooldown: 2 },
-    targeting: {
-      mode: 'manual_enemy',
-      pattern: 'single',
-      range: 6.0,
-      radius: 0,
-      requireLos: true,
-      filter: 'enemy',
-      maxTargets: 1
-    },
-    scaling: 'physical',
-    damageType: 'physical',
-    effects: [
-      { type: 'damage', mult: 1.55, bonusFlat: 3, bonusCritChance: 20, damageType: 'physical', scaling: 'physical', respectGuarding: true }
-    ],
-    vfx: { type: 'beam', color: '#10b981' },
-    desc: 'Focused ranged shot (+20% Crit, 155% ATK) within 6 tiles; requires an equipped ranged weapon (0 MP, 2t CD).'
-  }),
-
-  tracking: Object.freeze({
-    id: 'tracking',
-    name: 'Tracking',
-    icon: '🐾',
-    kind: 'skill',
-    domain: 'adventuring',
-    discipline: 'wilderness',
-    purpose: 'utility',
-    activation: 'active',
-    timing: 'immediate',
-    windupTurns: 0,
-    contexts: ['tactical_dungeon', 'overworld'],
-    timeSemantics: 'tactical_turn',
-    strategicCooldownMs: 15000,
-    acquisition: 'class',
-    costs: { mp: 0, cooldown: 3 },
-    targeting: {
-      mode: 'self',
-      pattern: 'self',
-      range: 0,
-      radius: 8,
-      requireLos: false,
-      filter: 'self',
-      maxTargets: 1
-    },
-    scaling: 'none',
-    damageType: 'none',
-    effects: [
-      { type: 'track_clues', radius: 8 }
-    ],
-    vfx: { type: 'detect_pulse', color: '#10b981' },
-    desc: 'Reads tracks and movement clues within 8 tiles/hexes, reporting approximate bearings and creature activity (distinct from exact map reveal; 0 MP, 3t CD).'
-  }),
-
-  camouflage: Object.freeze({
-    id: 'camouflage',
-    name: 'Camouflage',
-    icon: '🌿',
-    kind: 'skill',
-    domain: 'adventuring',
-    discipline: 'stealth',
-    purpose: 'defense',
-    activation: 'active',
-    timing: 'immediate',
-    windupTurns: 0,
-    contexts: ['tactical_dungeon', 'overworld'],
-    timeSemantics: 'tactical_turn',
-    strategicCooldownMs: 35000,
-    acquisition: 'class',
-    costs: { mp: 0, cooldown: 4 },
-    targeting: {
-      mode: 'self',
-      pattern: 'self',
-      range: 0,
-      radius: 0,
-      requireLos: false,
-      filter: 'self',
-      maxTargets: 1
-    },
-    scaling: 'none',
-    damageType: 'none',
-    effects: [
-      { type: 'camouflage', duration: 3 }
-    ],
-    vfx: { type: 'shield', color: '#10b981' },
-    desc: 'Blends with surroundings (requires no adjacent enemy), cutting enemy detection radius to 2 tiles for 3 turns until attacking or acting aggressively (0 MP, 4t CD).'
-  }),
-
-  snare: Object.freeze({
-    id: 'snare',
-    name: 'Snare',
-    icon: '🪢',
-    kind: 'skill',
-    domain: 'adventuring',
-    discipline: 'trapping',
-    purpose: 'control',
-    activation: 'active',
-    timing: 'immediate',
-    windupTurns: 0,
-    contexts: ['tactical_dungeon'],
-    timeSemantics: 'tactical_turn',
-    acquisition: 'class',
-    costs: { mp: 0, cooldown: 4 },
-    targeting: {
-      mode: 'manual_location',
-      pattern: 'single',
-      range: 2.5,
-      radius: 0,
-      requireLos: true,
-      filter: 'any',
-      maxTargets: 1,
-      requireWalkable: true
-    },
-    scaling: 'physical',
-    damageType: 'physical',
-    effects: [
-      { type: 'place_snare', duration: 8, rootDuration: 3, maxActive: 2, triggerDamage: 8 }
-    ],
-    vfx: { type: 'detect_pulse', color: '#84cc16' },
-    desc: 'Places a concealed snare on an open floor tile within 2 tiles (max 2 active, lasts 8t). Triggering damages and Roots/Slows the foe for 3 turns (0 MP, 4t CD).'
-  }),
-
-  forage: Object.freeze({
-    id: 'forage',
-    name: 'Forage',
-    icon: '🍄',
-    kind: 'skill',
-    domain: 'adventuring',
-    discipline: 'survival',
-    purpose: 'utility',
-    activation: 'active',
-    timing: 'immediate',
-    windupTurns: 0,
-    contexts: ['overworld', 'tactical_dungeon'],
-    timeSemantics: 'tactical_turn',
-    strategicCooldownMs: 30000,
-    acquisition: 'class',
-    costs: { mp: 0, cooldown: 5 },
-    targeting: {
-      mode: 'self',
-      pattern: 'self',
-      range: 0,
-      radius: 0,
-      requireLos: false,
-      filter: 'self',
-      maxTargets: 1
-    },
-    scaling: 'none',
-    damageType: 'none',
-    effects: [
-      { type: 'forage' }
-    ],
-    vfx: { type: 'detect_pulse', color: '#4ade80' },
-    desc: 'Gathers provisions/herbs from eligible natural terrain (once per location to prevent infinite farming; 0 MP, 5t / 30s CD).'
-  }),
-
-  reconnaissance: Object.freeze({
-    id: 'reconnaissance',
-    name: 'Reconnaissance',
-    icon: '🔭',
-    kind: 'skill',
-    domain: 'adventuring',
-    discipline: 'scouting',
-    purpose: 'utility',
-    activation: 'active',
-    timing: 'immediate',
-    windupTurns: 0,
-    contexts: ['overworld'],
-    timeSemantics: 'overworld_realtime',
-    strategicCooldownMs: 25000,
-    acquisition: 'class',
-    costs: { mp: 0, cooldown: 0 },
-    targeting: {
-      mode: 'self',
-      pattern: 'self',
-      range: 0,
-      radius: 6,
-      requireLos: false,
-      filter: 'self',
-      maxTargets: 1
-    },
-    scaling: 'none',
-    damageType: 'none',
-    effects: [
-      { type: 'overworld_recon', bonusVision: 3 }
-    ],
-    vfx: { type: 'detect_pulse', color: '#38bdf8' },
-    desc: 'Overworld survey expanding vision by +3 hexes, discovering POIs/dungeons and counting nearby hostile threats (25s CD).'
-  }),
-
-  forced_pace: Object.freeze({
-    id: 'forced_pace',
-    name: 'Forced Pace',
-    icon: '🥾',
-    kind: 'skill',
-    domain: 'adventuring',
-    discipline: 'travel',
-    purpose: 'mobility',
-    activation: 'active',
-    timing: 'immediate',
-    windupTurns: 0,
-    contexts: ['overworld'],
-    timeSemantics: 'overworld_realtime',
-    strategicCooldownMs: 45000,
-    acquisition: 'class',
-    costs: { mp: 0, cooldown: 0 },
-    targeting: {
-      mode: 'self',
-      pattern: 'self',
-      range: 0,
-      radius: 0,
-      requireLos: false,
-      filter: 'self',
-      maxTargets: 1
-    },
-    scaling: 'none',
-    damageType: 'none',
-    effects: [
-      { type: 'overworld_forced_pace', durationMs: 30000, speedBonusRatio: 0.25 }
-    ],
-    vfx: { type: 'wave', color: '#34d399' },
-    desc: 'Overworld travel skill increasing this Scout unit\'s march speed by 25% across eligible terrain for 30s (individual unit only; 45s CD).'
-  }),
-
-  // =========================================================================
-  // 5. ADVENTURER (Runtime: adventurer) — 7 Skills (Cooldowns + Tools/Situational)
-  // =========================================================================
-  second_wind: Object.freeze({
-    id: 'second_wind',
-    name: 'Second Wind',
-    icon: '🫀',
-    kind: 'skill',
-    domain: 'martial',
-    discipline: 'endurance',
-    purpose: 'healing',
-    activation: 'active',
-    timing: 'immediate',
-    windupTurns: 0,
-    contexts: ['tactical_dungeon'],
-    timeSemantics: 'tactical_turn',
-    acquisition: 'class',
-    costs: { mp: 0, cooldown: 5 },
-    targeting: {
-      mode: 'self',
-      pattern: 'self',
-      range: 0,
-      radius: 0,
-      requireLos: false,
-      filter: 'self',
-      maxTargets: 1
-    },
-    scaling: 'physical',
-    damageType: 'none',
-    effects: [
-      { type: 'heal', maxHpPct: 0.22, vitMult: 0.8, targetSelf: true }
-    ],
-    vfx: { type: 'shield', color: '#34d399' },
-    desc: 'Deliberate endurance recovery restoring 22% Max HP + VIT bonus without requiring an enemy target (0 MP, 5t CD).'
-  }),
-
-  careful_search: Object.freeze({
-    id: 'careful_search',
-    name: 'Careful Search',
-    icon: '🔍',
-    kind: 'skill',
-    domain: 'adventuring',
-    discipline: 'delving',
-    purpose: 'utility',
-    activation: 'active',
-    timing: 'immediate',
-    windupTurns: 0,
-    contexts: ['tactical_dungeon'],
-    timeSemantics: 'tactical_turn',
-    acquisition: 'class',
-    costs: { mp: 0, cooldown: 2 },
-    targeting: {
-      mode: 'self',
-      pattern: 'self',
-      range: 0,
-      radius: 3,
-      requireLos: false,
-      filter: 'self',
-      maxTargets: 1
-    },
-    scaling: 'none',
-    damageType: 'none',
-    effects: [
-      { type: 'detect', modality: 'physical', radius: 3 }
-    ],
-    vfx: { type: 'detect_pulse', color: '#38bdf8' },
-    desc: 'Actively searches within 3 tiles for physically concealed traps, secret passages, and hidden treasure caches (0 MP, 2t CD).'
-  }),
-
-  disengage: Object.freeze({
-    id: 'disengage',
-    name: 'Disengage',
-    icon: '↩️',
-    kind: 'skill',
-    domain: 'adventuring',
-    discipline: 'evasion',
-    purpose: 'mobility',
-    activation: 'active',
-    timing: 'immediate',
-    windupTurns: 0,
-    contexts: ['tactical_dungeon'],
-    timeSemantics: 'tactical_turn',
-    acquisition: 'class',
-    costs: { mp: 0, cooldown: 3 },
-    targeting: {
-      mode: 'manual_location',
-      pattern: 'single',
-      range: 2.2,
-      radius: 0,
-      requireLos: true,
-      filter: 'any',
-      maxTargets: 1,
-      requireWalkable: true
-    },
-    scaling: 'none',
-    damageType: 'none',
-    effects: [
-      { type: 'disengage_move' },
-      { type: 'status', statusId: 'disengaged', duration: 2, targetSelf: true }
-    ],
-    vfx: { type: 'teleport', color: '#38bdf8' },
-    desc: 'Safely withdraws up to 2 tiles to an open floor space and grants +25% Dodge for 2 turns (0 MP, 3t CD).'
-  }),
-
-  dirty_fighting: Object.freeze({
-    id: 'dirty_fighting',
-    name: 'Dirty Fighting',
-    icon: '🥊',
-    kind: 'skill',
-    domain: 'martial',
-    discipline: 'brawling',
-    purpose: 'control',
-    activation: 'active',
-    timing: 'immediate',
-    windupTurns: 0,
-    contexts: ['tactical_dungeon'],
-    timeSemantics: 'tactical_turn',
-    acquisition: 'class',
-    costs: { mp: 0, cooldown: 3 },
-    targeting: {
-      mode: 'manual_enemy',
-      pattern: 'single',
-      range: 1.5,
-      radius: 0,
-      requireLos: false,
-      filter: 'enemy',
-      maxTargets: 1
-    },
-    scaling: 'physical',
-    damageType: 'physical',
-    effects: [
-      { type: 'damage', mult: 1.15, damageType: 'physical', scaling: 'physical', respectGuarding: true },
-      { type: 'status', statusId: 'disrupted', duration: 2 },
-      { type: 'status', statusId: 'stun', duration: 1 }
-    ],
-    vfx: { type: 'slash', color: '#fbbf24' },
-    desc: 'Opportunistic strike dealing 115% ATK, inflicting Disrupted (2t) and Stun (1t, interrupts enemy windups; 0 MP, 3t CD).'
-  }),
-
-  appraise: Object.freeze({
-    id: 'appraise',
-    name: 'Appraise',
-    icon: '💎',
-    kind: 'skill',
-    domain: 'adventuring',
-    discipline: 'evaluation',
-    purpose: 'utility',
-    activation: 'active',
-    timing: 'immediate',
-    windupTurns: 0,
-    contexts: ['tactical_dungeon', 'overworld'],
-    timeSemantics: 'tactical_turn',
-    strategicCooldownMs: 5000,
-    acquisition: 'class',
-    costs: { mp: 0, cooldown: 2 },
-    targeting: {
-      mode: 'self',
-      pattern: 'self',
-      range: 0,
-      radius: 0,
-      requireLos: false,
-      filter: 'self',
-      maxTargets: 1
-    },
-    scaling: 'none',
-    damageType: 'none',
-    effects: [
-      { type: 'appraise_item' }
-    ],
-    vfx: { type: 'detect_pulse', color: '#fbbf24' },
-    desc: 'Inspects an unappraised item in your pack or loadout, revealing exact quality, valuation, and unusual properties (0 MP, 2t CD).'
-  }),
-
-  disarm_trap: Object.freeze({
-    id: 'disarm_trap',
-    name: 'Disarm Trap',
-    icon: '🔧',
-    kind: 'skill',
-    domain: 'adventuring',
-    discipline: 'mechanisms',
-    purpose: 'utility',
-    activation: 'active',
-    timing: 'immediate',
-    windupTurns: 0,
-    contexts: ['tactical_dungeon'],
-    timeSemantics: 'tactical_turn',
-    acquisition: 'class',
-    costs: { mp: 0, cooldown: 2 },
-    targeting: {
-      mode: 'manual_location',
-      pattern: 'single',
-      range: 1.5,
-      radius: 0,
-      requireLos: false,
-      filter: 'any',
-      maxTargets: 1,
-      requireDiscoveredTrap: true
-    },
-    scaling: 'none',
-    damageType: 'none',
-    effects: [
-      { type: 'disarm_trap' }
-    ],
-    vfx: { type: 'detect_pulse', color: '#34d399' },
-    desc: 'Disables an adjacent discovered trap or disarmable floor hazard, updating actual trap state and awarding XP (0 MP, 2t CD).'
-  }),
-
-  lockpicking: Object.freeze({
-    id: 'lockpicking',
-    name: 'Lockpicking',
-    icon: '🗝️',
-    kind: 'skill',
-    domain: 'adventuring',
-    discipline: 'mechanisms',
-    purpose: 'utility',
-    activation: 'active',
-    timing: 'immediate',
-    windupTurns: 0,
-    contexts: ['tactical_dungeon'],
-    timeSemantics: 'tactical_turn',
-    acquisition: 'class',
-    costs: { mp: 0, cooldown: 2 },
-    targeting: {
-      mode: 'manual_location',
-      pattern: 'single',
-      range: 1.5,
-      radius: 0,
-      requireLos: false,
-      filter: 'any',
-      maxTargets: 1,
-      requireLockedObject: true
-    },
-    scaling: 'none',
-    damageType: 'none',
-    effects: [
-      { type: 'lockpick', maxSecurityLevel: 2 }
-    ],
-    vfx: { type: 'detect_pulse', color: '#fbbf24' },
-    desc: 'Picks an adjacent ordinary locked door or container without a key; respects arcane seals and protected boss locks (0 MP, 2t CD).'
-  }),
-
-  // =========================================================================
-  // 6. PRESERVED LEGACY PROTOTYPE SKILLS (Paladin / Thief / Ranger / Reactive)
-  // =========================================================================
-  holy_smite: Object.freeze({
-    id: 'holy_smite',
-    name: 'Holy Smite',
-    icon: '⚜️',
-    kind: 'prayer',
-    domain: 'divine',
-    discipline: 'retribution',
-    purpose: 'hybrid',
-    activation: 'active',
-    timing: 'immediate',
-    windupTurns: 0,
-    contexts: ['tactical_dungeon'],
-    timeSemantics: 'tactical_turn',
-    acquisition: 'class',
-    costs: { mp: 12, cooldown: 0 },
-    targeting: {
-      mode: 'auto_enemy',
-      pattern: 'single',
-      range: 1.5,
-      radius: 0,
-      requireLos: false,
-      filter: 'enemy',
-      maxTargets: 1
-    },
-    scaling: 'hybrid_divine',
-    damageType: 'magical',
-    effects: [
-      { type: 'damage', mult: 1.35, magicRatio: 0.75, damageType: 'magical', scaling: 'hybrid_divine' },
-      { type: 'heal', maxHpPct: 0.15, magicMult: 0.3, targetSelf: true }
-    ],
-    vfx: { type: 'spell', color: '#fbbf24' },
-    desc: 'Hybrid physical + divine strike (scales with ATK and Magic Power/SPI) that restores 15% Max HP.'
-  }),
-
-  shadowstep_strike: Object.freeze({
-    id: 'shadowstep_strike',
-    name: 'Shadowstep Strike',
-    icon: '🗡️',
-    kind: 'skill',
-    domain: 'martial',
-    discipline: 'stealth',
-    purpose: 'mobility',
-    activation: 'active',
-    timing: 'immediate',
-    windupTurns: 0,
-    contexts: ['tactical_dungeon'],
-    timeSemantics: 'tactical_turn',
-    acquisition: 'class',
-    costs: { mp: 14, cooldown: 0 },
-    targeting: {
-      mode: 'auto_enemy',
-      pattern: 'single',
-      range: 3.5,
-      radius: 0,
-      requireLos: true,
-      filter: 'enemy',
-      maxTargets: 1,
-      requireAdjacentLanding: true
-    },
-    scaling: 'physical',
-    damageType: 'physical',
-    effects: [
-      { type: 'shadowstep' },
-      { type: 'damage', mult: 1.85, guaranteedCrit: true, damageType: 'physical', scaling: 'physical', respectGuarding: true }
-    ],
-    vfx: { type: 'crit_slash', color: '#a855f7' },
-    desc: 'Teleports behind a visible enemy within 3 tiles and strikes for a guaranteed critical hit.'
-  }),
-
-  starfall_volley: Object.freeze({
-    id: 'starfall_volley',
-    name: 'Starfall Volley',
-    icon: '🏹',
-    kind: 'skill',
-    domain: 'martial',
-    discipline: 'marksmanship',
-    purpose: 'damage',
-    activation: 'active',
-    timing: 'immediate',
-    windupTurns: 0,
-    contexts: ['tactical_dungeon'],
-    timeSemantics: 'tactical_turn',
-    acquisition: 'class',
-    costs: { mp: 16, cooldown: 0 },
-    targeting: {
-      mode: 'auto_area',
-      pattern: 'radius',
-      range: 5.2,
-      radius: 5.2,
-      requireLos: true,
-      filter: 'enemy',
-      maxTargets: 3
-    },
-    scaling: 'physical',
-    damageType: 'physical',
-    effects: [
-      { type: 'damage', mult: 1.25, damageType: 'physical', scaling: 'physical', respectGuarding: true }
-    ],
-    vfx: { type: 'projectile', color: '#34d399' },
-    desc: 'Looses up to 3 arrows at visible enemies within 5 tiles (respects Guarding).'
-  }),
-
-  second_wind_reactive: Object.freeze({
-    id: 'second_wind_reactive',
-    name: 'Resilient Grit',
-    icon: '🛡️',
-    kind: 'technique',
-    domain: 'martial',
-    discipline: 'endurance',
-    purpose: 'defense',
-    activation: 'reactive',
-    triggerEvent: 'on_hero_low_hp',
-    triggerThresholdPct: 0.35,
-    timing: 'immediate',
-    windupTurns: 0,
-    contexts: ['tactical_dungeon'],
-    timeSemantics: 'tactical_turn',
-    acquisition: 'learned',
-    costs: { mp: 0, cooldown: 6 },
-    targeting: {
-      mode: 'self',
-      pattern: 'self',
-      range: 0,
-      radius: 0,
-      requireLos: false,
-      filter: 'self',
-      maxTargets: 1
-    },
-    scaling: 'physical',
-    damageType: 'none',
-    effects: [
-      { type: 'heal', maxHpPct: 0.16, targetSelf: true },
-      { type: 'shield', baseAmount: 10, defMult: 0.8, maxShieldCap: 60 }
-    ],
-    vfx: { type: 'shield', color: '#34d399' },
-    desc: 'Reactive passive: automatically triggers below 35% HP to restore 16% Max HP and raise a barrier (6t CD).'
-  })
-});
-
-const ABILITY_IDS = Object.freeze(Object.keys(ABILITIES));
-
-// Complete 32-entry approved entry-tier default bindings + preserved legacy classes
-const CLASS_DEFAULT_ABILITIES = Object.freeze({
-  fighter:    Object.freeze(['power_strike', 'cleave', 'overpower', 'brace', 'charge', 'battle_cry']),
-  mage:       Object.freeze(['arcane_missile', 'fireball', 'frost_nova', 'arcane_ward', 'blink', 'detect_magic']),
-  cleric:     Object.freeze(['sacred_flame', 'healing_light', 'blessing', 'purification', 'sanctuary', 'divine_sight']),
-  scout:      Object.freeze(['aimed_shot', 'tracking', 'camouflage', 'snare', 'forage', 'reconnaissance', 'forced_pace']),
-  adventurer: Object.freeze(['second_wind', 'careful_search', 'disengage', 'dirty_fighting', 'appraise', 'disarm_trap', 'lockpicking']),
-  // Legacy prototype classes preserved until deliberate roster progression pass
-  paladin:    Object.freeze(['holy_smite', 'brace', 'purification']),
-  thief:      Object.freeze(['shadowstep_strike']),
-  ranger:     Object.freeze(['starfall_volley', 'aimed_shot'])
-});
-
-function getAbilityDefinition(abilityId) {
-  if (!abilityId || typeof abilityId !== 'string') return null;
-  return ABILITIES[abilityId] || null;
-}
-
-function getDefaultAbilityIdsForClass(classId) {
-  const list = CLASS_DEFAULT_ABILITIES[classId];
-  return Array.isArray(list) ? list.slice() : [];
-}
-
-  // --- Module: src/core/abilityEngine.js ---
-// Context-Independent Shared Spell, Prayer & Skill Runtime Service (MG-01A)
-// Manages actor ability access grants (multi-source), cooldowns, cost/silence validation,
-// damage/shield/healing scaling, and damage absorption independent of Dungeon/Strategy UI.
-
-
-
-function normalizeActorAbilityState(actor) {
-  if (!actor || typeof actor !== 'object') return null;
-
-  if (!actor.abilityGrants || typeof actor.abilityGrants !== 'object') {
-    actor.abilityGrants = {};
-  }
-  for (let i = 0; i < ABILITY_ACCESS_SOURCES.length; i++) {
-    const src = ABILITY_ACCESS_SOURCES[i];
-    if (!Array.isArray(actor.abilityGrants[src])) {
-      actor.abilityGrants[src] = [];
-    } else {
-      // Deduplicate & keep valid ability IDs only
-      const seen = {};
-      const clean = [];
-      for (let j = 0; j < actor.abilityGrants[src].length; j++) {
-        const id = actor.abilityGrants[src][j];
-        if (typeof id === 'string' && ABILITIES[id] && !seen[id]) {
-          seen[id] = true;
-          clean.push(id);
-        }
-      }
-      actor.abilityGrants[src] = clean;
-    }
-  }
-
-  // Ensure class default abilities stay synced if classId is initialized or switched
-  if (actor.classId && (actor.abilityGrants.class.length === 0 || (actor._abilityClassId && actor._abilityClassId !== actor.classId))) {
-    const defaults = getDefaultAbilityIdsForClass(actor.classId);
-    actor.abilityGrants.class = defaults.slice();
-    actor._abilityClassId = actor.classId;
-    if (defaults.length > 0) {
-      actor.activeAbilityId = defaults[0];
-    }
-  } else if (actor.classId && !actor._abilityClassId) {
-    actor._abilityClassId = actor.classId;
-  }
-
-  if (!actor.abilityCooldowns || typeof actor.abilityCooldowns !== 'object') {
-    actor.abilityCooldowns = {};
-  }
-  if (!actor.abilityCooldownUntilSimMs || typeof actor.abilityCooldownUntilSimMs !== 'object') {
-    actor.abilityCooldownUntilSimMs = {};
-  }
-  if (typeof actor.absorbShield !== 'number' || isNaN(actor.absorbShield) || actor.absorbShield < 0) {
-    actor.absorbShield = 0;
-  }
-  if (actor.pendingCast !== null && actor.pendingCast !== undefined && typeof actor.pendingCast !== 'object') {
-    actor.pendingCast = null;
-  }
-  if (actor.pendingCast === undefined) {
-    actor.pendingCast = null;
-  }
-
-  const activeIds = getGrantedAbilityIds(actor, { activation: 'active' });
-  if (!actor.activeAbilityId || activeIds.indexOf(actor.activeAbilityId) === -1) {
-    actor.activeAbilityId = activeIds.length > 0 ? activeIds[0] : null;
-  }
-
-  return actor;
-}
-
-function getGrantedAbilityIds(actor, opts) {
-  if (!actor || typeof actor !== 'object') return [];
-  if (!actor.abilityGrants || typeof actor.abilityGrants !== 'object') {
-    normalizeActorAbilityState(actor);
-  }
-  const seen = {};
-  const list = [];
-  const activationFilter = (opts && opts.activation) ? opts.activation : null;
-  const contextFilter = (opts && opts.context) ? opts.context : null;
-
-  for (let i = 0; i < ABILITY_ACCESS_SOURCES.length; i++) {
-    const src = ABILITY_ACCESS_SOURCES[i];
-    const bucket = actor.abilityGrants[src];
-    if (!Array.isArray(bucket)) continue;
-    for (let j = 0; j < bucket.length; j++) {
-      const id = bucket[j];
-      if (seen[id]) continue;
-      const def = getAbilityDefinition(id);
-      if (!def) continue;
-      if (activationFilter && def.activation !== activationFilter) continue;
-      if (contextFilter && Array.isArray(def.contexts) && def.contexts.indexOf(contextFilter) === -1) continue;
-      seen[id] = true;
-      list.push(id);
-    }
-  }
-  return list;
-}
-
-function getGrantedAbilitySources(actor, abilityId) {
-  if (!actor || !actor.abilityGrants || !abilityId) return [];
-  const sources = [];
-  for (let i = 0; i < ABILITY_ACCESS_SOURCES.length; i++) {
-    const src = ABILITY_ACCESS_SOURCES[i];
-    const bucket = actor.abilityGrants[src];
-    if (Array.isArray(bucket) && bucket.indexOf(abilityId) !== -1) {
-      sources.push(src);
-    }
-  }
-  return sources;
-}
-
-function hasAbilityAccess(actor, abilityId) {
-  return getGrantedAbilitySources(actor, abilityId).length > 0;
-}
-
-function grantAbilityAccess(actor, abilityId, sourceType) {
-  if (!actor || typeof actor !== 'object') return { ok: false, reason: 'invalid_actor' };
-  const def = getAbilityDefinition(abilityId);
-  if (!def) return { ok: false, reason: 'unknown_ability' };
-  const src = ABILITY_ACCESS_SOURCES.indexOf(sourceType) !== -1 ? sourceType : 'learned';
-  normalizeActorAbilityState(actor);
-  const bucket = actor.abilityGrants[src];
-  if (bucket.indexOf(abilityId) === -1) {
-    bucket.push(abilityId);
-  }
-  if (!actor.activeAbilityId && def.activation === 'active') {
-    actor.activeAbilityId = abilityId;
-  }
-  return { ok: true, abilityId: abilityId, source: src };
-}
-
-function revokeAbilityAccess(actor, abilityId, sourceType) {
-  if (!actor || typeof actor !== 'object') return { ok: false, reason: 'invalid_actor' };
-  normalizeActorAbilityState(actor);
-  const src = ABILITY_ACCESS_SOURCES.indexOf(sourceType) !== -1 ? sourceType : 'learned';
-  const bucket = actor.abilityGrants[src];
-  const idx = bucket.indexOf(abilityId);
-  if (idx !== -1) {
-    bucket.splice(idx, 1);
-  }
-  const stillHas = hasAbilityAccess(actor, abilityId);
-  if (!stillHas && actor.activeAbilityId === abilityId) {
-    const remaining = getGrantedAbilityIds(actor, { activation: 'active' });
-    actor.activeAbilityId = remaining.length > 0 ? remaining[0] : null;
-  }
-  return { ok: true, abilityId: abilityId, source: src, stillGranted: stillHas };
-}
-
-function getAbilityCooldownRemaining(actor, abilityId) {
-  if (!actor || !actor.abilityCooldowns || !abilityId) return 0;
-  const cd = actor.abilityCooldowns[abilityId];
-  return (typeof cd === 'number' && cd > 0) ? Math.ceil(cd) : 0;
-}
-
-function setAbilityCooldown(actor, abilityId, turns) {
-  if (!actor || !abilityId) return;
-  if (!actor.abilityCooldowns || typeof actor.abilityCooldowns !== 'object') {
-    actor.abilityCooldowns = {};
-  }
-  if (!actor.abilityCooldownUntilSimMs || typeof actor.abilityCooldownUntilSimMs !== 'object') {
-    actor.abilityCooldownUntilSimMs = {};
-  }
-  if (turns > 0) {
-    actor.abilityCooldowns[abilityId] = Math.ceil(turns);
-  } else {
-    delete actor.abilityCooldowns[abilityId];
-  }
-}
-
-function tickActorAbilityCooldowns(actor) {
-  if (!actor || !actor.abilityCooldowns || typeof actor.abilityCooldowns !== 'object') return;
-  const keys = Object.keys(actor.abilityCooldowns);
-  for (let i = 0; i < keys.length; i++) {
-    const k = keys[i];
-    const cur = actor.abilityCooldowns[k];
-    if (typeof cur === 'number' && cur > 1) {
-      actor.abilityCooldowns[k] = cur - 1;
-    } else {
-      delete actor.abilityCooldowns[k];
-    }
-  }
-}
-
-function resetActorAbilityCooldowns(actor) {
-  if (!actor) return;
-  actor.abilityCooldowns = {};
-  actor.abilityCooldownUntilSimMs = {};
-  actor.skillCooldown = 0;
-}
-
-function getStrategicAbilityCooldownRemainingMs(actor, abilityId, nowSimTimeMs) {
-  if (!actor || !actor.abilityCooldownUntilSimMs || !abilityId) return 0;
-  const due = actor.abilityCooldownUntilSimMs[abilityId];
-  if (typeof due !== 'number' || !isFinite(due)) return 0;
-  const now = typeof nowSimTimeMs === 'number' ? nowSimTimeMs : 0;
-  return Math.max(0, due - now);
-}
-
-function setStrategicAbilityCooldownMs(actor, abilityId, nowSimTimeMs, durationMs) {
-  if (!actor || !abilityId) return;
-  if (!actor.abilityCooldownUntilSimMs || typeof actor.abilityCooldownUntilSimMs !== 'object') {
-    actor.abilityCooldownUntilSimMs = {};
-  }
-  const dur = Math.max(0, Number(durationMs) || 0);
-  if (dur > 0) {
-    actor.abilityCooldownUntilSimMs[abilityId] = (Number(nowSimTimeMs) || 0) + dur;
-  } else {
-    delete actor.abilityCooldownUntilSimMs[abilityId];
-  }
-}
-
-function isAbilitySilenced(actor, abilityDef) {
-  if (!actor || !abilityDef) return false;
-  const silenced = (actor.statuses || []).some(function(s) { return s && s.id === 'silence'; });
-  if (!silenced) return false;
-  // Silence blocks arcane, divine, and nature magic while allowing martial techniques and adventuring skills
-  return (
-    abilityDef.domain === 'arcane' ||
-    abilityDef.domain === 'divine' ||
-    abilityDef.domain === 'nature'
-  );
-}
-
-function getEffectiveAbilityCost(actor, abilityDef) {
-  if (!abilityDef) return { mp: 0, baseMp: 0, cooldown: 0, chilledPenalty: 0 };
-  const baseMp = (abilityDef.costs && typeof abilityDef.costs.mp === 'number') ? abilityDef.costs.mp : 0;
-  const cooldown = (abilityDef.costs && typeof abilityDef.costs.cooldown === 'number') ? abilityDef.costs.cooldown : 0;
-  const isChilled = Boolean(actor && (actor.statuses || []).some(function(s) { return s && s.id === 'chilled'; }));
-  // Chilled adds +2 MP to mana-using abilities (cooldown-only 0-MP martial techniques stay 0 MP)
-  const chilledPenalty = (baseMp > 0 && isChilled) ? 2 : 0;
-  return {
-    mp: baseMp + chilledPenalty,
-    baseMp: baseMp,
-    cooldown: cooldown,
-    chilledPenalty: chilledPenalty
-  };
-}
-
-function validateAbilityActivation(actor, abilityDef, ctx) {
-  if (!actor || !abilityDef) {
-    return { ok: false, reason: 'invalid_ability' };
-  }
-  normalizeActorAbilityState(actor);
-
-  const contextId = (ctx && ctx.context) ? ctx.context : 'tactical_dungeon';
-  if (Array.isArray(abilityDef.contexts) && abilityDef.contexts.indexOf(contextId) === -1) {
-    return { ok: false, reason: 'invalid_context' };
-  }
-  if (abilityDef.activation !== 'active' && !(ctx && ctx.allowTriggered)) {
-    return { ok: false, reason: 'not_active_ability' };
-  }
-  if (!hasAbilityAccess(actor, abilityDef.id) && !(ctx && ctx.bypassAccessCheck)) {
-    return { ok: false, reason: 'not_granted' };
-  }
-  if (abilityDef.requiresRangedWeapon) {
-    const wep = actor.equipment ? actor.equipment.weapon : null;
-    if (!isRangedWeaponItem(wep)) {
-      return { ok: false, reason: 'requires_ranged_weapon' };
-    }
-  }
-  if (actor.pendingCast && !(ctx && ctx.allowWhileCasting)) {
-    return { ok: false, reason: 'already_casting' };
-  }
-  if (isAbilitySilenced(actor, abilityDef)) {
-    return { ok: false, reason: 'silenced' };
-  }
-  const cdRem = getAbilityCooldownRemaining(actor, abilityDef.id);
-  if (cdRem > 0) {
-    return { ok: false, reason: 'on_cooldown', cooldownRemaining: cdRem };
-  }
-  const costInfo = getEffectiveAbilityCost(actor, abilityDef);
-  if ((actor.mp || 0) < costInfo.mp) {
-    return { ok: false, reason: 'no_mp', effectiveCost: costInfo.mp, chilledPenalty: costInfo.chilledPenalty };
-  }
-  return {
-    ok: true,
-    effectiveCost: costInfo.mp,
-    baseMp: costInfo.baseMp,
-    cooldown: costInfo.cooldown,
-    chilledPenalty: costInfo.chilledPenalty
-  };
-}
-
-function getActorMagicPower(actor) {
-  if (!actor) return 0;
-  if (typeof actor.magicPower === 'number' && !isNaN(actor.magicPower)) {
-    return actor.magicPower;
-  }
-  const effInt = (actor.effectiveStats && actor.effectiveStats.int) || (actor.baseStats && actor.baseStats.int) || 10;
-  const effSpi = (actor.effectiveStats && actor.effectiveStats.spi) || (actor.baseStats && actor.baseStats.spi) || 8;
-  return Math.max(4, Math.round(effInt * 1.1 + effSpi * 0.6));
-}
-
-function computeAbilityDamage(actor, effectDef, target, extraMult) {
-  const mult = (effectDef && typeof effectDef.mult === 'number') ? effectDef.mult : 1.0;
-  const bonusFlat = (effectDef && typeof effectDef.bonusFlat === 'number') ? effectDef.bonusFlat : 0;
-  const scaling = (effectDef && effectDef.scaling) || 'physical';
-  const damageType = (effectDef && effectDef.damageType) || (scaling === 'physical' ? 'physical' : 'magical');
-  const mod = (typeof extraMult === 'number' && extraMult > 0) ? extraMult : 1.0;
-
-  const atk = (actor && typeof actor.atk === 'number') ? actor.atk : 10;
-  const magicPower = getActorMagicPower(actor);
-
-  // Explicit single-path scaling with zero attribute double-counting:
-  // magicPower in heroStats.js already incorporates INT-primary/SPI-secondary (arcane)
-  // or SPI-primary/INT-secondary (divine) plus magical equipment bonuses.
-  let raw = 0;
-  if (scaling === 'arcane') {
-    raw = Math.round(magicPower * 1.25 * mult + bonusFlat);
-  } else if (scaling === 'divine') {
-    raw = Math.round(magicPower * 1.20 * mult + bonusFlat);
-  } else if (scaling === 'hybrid_divine') {
-    const mRatio = (effectDef && typeof effectDef.magicRatio === 'number') ? effectDef.magicRatio : 0.75;
-    raw = Math.round((atk * 0.85 + magicPower * mRatio) * mult + bonusFlat);
-  } else {
-    raw = Math.round(atk * mult + bonusFlat);
-  }
-
-  // Trait-specific bonus (e.g. Sacred Flame +35% vs Undead/Corrupted)
-  let traitBonusApplied = false;
-  if (
-    target &&
-    Array.isArray(target.traits) &&
-    effectDef &&
-    Array.isArray(effectDef.bonusVsTraits) &&
-    effectDef.bonusVsTraits.length > 0
-  ) {
-    const matched = effectDef.bonusVsTraits.some(function(tr) {
-      return target.traits.indexOf(tr) !== -1;
-    });
-    if (matched) {
-      raw = Math.round(raw * (effectDef.bonusTraitMult || 1.35));
-      traitBonusApplied = true;
-    }
-  }
-
-  // Optional focused crit bonus (e.g. Scout Aimed Shot)
-  let isCrit = false;
-  if (effectDef && typeof effectDef.bonusCritChance === 'number' && effectDef.bonusCritChance > 0) {
-    const critRoll = ((actor && actor.crit) || 5) + effectDef.bonusCritChance;
-    if (Math.random() * 100 < critRoll) {
-      raw = Math.round(raw * 1.5);
-      isCrit = true;
-    }
-  }
-
-  raw = Math.round(raw * mod);
-
-  // Explicit physical vs. magical defense mitigation (guarding applied exactly once to physical)
-  let mitigated = raw;
-  let guarded = false;
-  if (target) {
-    const isTargetGuarding = Boolean((target.statuses || []).some(function(s) { return s && s.id === 'guarding'; }));
-    if (damageType === 'physical') {
-      let effDef = target.def || 0;
-      if (isTargetGuarding && (!effectDef || effectDef.respectGuarding !== false)) {
-        effDef = Math.round(effDef * 1.6);
-        guarded = true;
-      }
-      mitigated = Math.max(1, raw - Math.floor(effDef * 0.5));
-    } else {
-      // Explicit baseline magical defense (independent of physical armor and Guarding)
-      const mDef = (typeof target.magicDef === 'number') ? target.magicDef : 2;
-      mitigated = Math.max(1, raw - mDef);
-    }
-  }
-
-  return {
-    damage: Math.max(1, mitigated),
-    raw: raw,
-    damageType: damageType,
-    guarded: guarded,
-    traitBonusApplied: traitBonusApplied,
-    isCrit: isCrit
-  };
-}
-
-function computeAbilityHealAmount(actor, effectDef) {
-  if (!actor || !effectDef) return 0;
-  const base = effectDef.baseAmount || 0;
-  const magicMult = effectDef.magicMult || 0;
-  const maxHpPct = effectDef.maxHpPct || 0;
-  const vitMult = effectDef.vitMult || 0;
-  const mp = getActorMagicPower(actor);
-  const effVit = (actor.computedVit || (actor.baseStats && actor.baseStats.vit) || 10);
-  const pctHeal = Math.round((actor.maxHp || 100) * maxHpPct);
-  return Math.max(1, Math.round(base + mp * magicMult + effVit * vitMult + pctHeal));
-}
-
-function computeAbilityShieldAmount(actor, effectDef) {
-  if (!actor || !effectDef) return 0;
-  const base = effectDef.baseAmount || 10;
-  const defMult = effectDef.defMult || 0;
-  const magicMult = effectDef.magicMult || 0;
-  const cap = effectDef.maxShieldCap || 100;
-  const raw = Math.round(base + (actor.def || 0) * defMult + getActorMagicPower(actor) * magicMult);
-  return Math.max(1, Math.min(cap, raw));
-}
-
-function applyDamageWithShield(actor, rawDamage) {
-  const dmg = Math.max(0, Math.round(rawDamage || 0));
-  if (!actor || dmg <= 0) {
-    return { absorbed: 0, hpLoss: 0, remainingShield: (actor && actor.absorbShield) || 0 };
-  }
-  const curShield = (typeof actor.absorbShield === 'number' && actor.absorbShield > 0) ? actor.absorbShield : 0;
-  const absorbed = Math.min(curShield, dmg);
-  const hpLoss = dmg - absorbed;
-  actor.absorbShield = Math.max(0, curShield - absorbed);
-  if (hpLoss > 0) {
-    actor.hp = (actor.hp || 0) - hpLoss;
-  }
-  return {
-    absorbed: absorbed,
-    hpLoss: hpLoss,
-    remainingShield: actor.absorbShield
-  };
-}
-
   // --- Module: src/engine/state.js ---
 // Game State Schema (Multi-Dungeon Atlas v5/v6), Save Migration, RLE Persistence & Derived Hero Stats
 
@@ -11706,9 +12027,10 @@ function migrateSaveData(raw) {
     );
   }
 
-  // Migrate Hero
+  // Migrate Hero (normalizes legacy fighter -> bruiser, cleric -> acolyte)
   if (data.hero) {
-    const clsId = CLASSES[data.hero.classId] ? data.hero.classId : 'fighter';
+    const normClsId = normalizeHeroClassId(data.hero.classId);
+    const clsId = CLASSES[normClsId] ? normClsId : 'bruiser';
     const cls = CLASSES[clsId];
     const eqSource = data.hero.equipment || data.hero.equipped || {};
     migrated.hero = {
@@ -11754,6 +12076,9 @@ function migrateSaveData(raw) {
       usedDivineIntervention: !!data.hero.usedDivineIntervention,
       abilityGrants: data.hero.abilityGrants ? JSON.parse(JSON.stringify(data.hero.abilityGrants)) : null,
       abilityCooldowns: data.hero.abilityCooldowns ? Object.assign({}, data.hero.abilityCooldowns) : {},
+      quickSlots: data.hero.quickSlots ? JSON.parse(JSON.stringify(data.hero.quickSlots)) : null,
+      _quickSlotsCustomized: Boolean(data.hero._quickSlotsCustomized),
+      _quickSlotsInitialized: data.hero._quickSlotsInitialized ? Object.assign({}, data.hero._quickSlotsInitialized) : null,
       activeAbilityId: data.hero.activeAbilityId || null,
       absorbShield: typeof data.hero.absorbShield === 'number' ? Math.max(0, data.hero.absorbShield) : 0,
       pendingCast: data.hero.pendingCast ? JSON.parse(JSON.stringify(data.hero.pendingCast)) : null,
@@ -12083,6 +12408,7 @@ function hydrateDungeonWorldSnapshot(snapshot, targetState = gameState) {
 
   // --- Module: src/wargame/engine/state.js ---
 // Wargame Authoritative State Store, Universe -> World -> Cities -> Units Hierarchy & Save Serialization
+
 
 
 
@@ -12446,6 +12772,14 @@ function refreshHeroDerivedStats(hero) {
 function normalizePersistentHeroInstance(hero) {
   if (!hero || typeof hero !== 'object') return hero;
 
+  // Narrow legacy class ID normalization (MG-01C): fighter -> bruiser, cleric -> acolyte
+  if (typeof hero.classId === 'string') {
+    const normCls = normalizeHeroClassId(hero.classId);
+    if (normCls && normCls !== hero.classId && CLASSES[normCls]) {
+      hero.classId = normCls;
+    }
+  }
+
   if (typeof hero.level !== 'number' || !isFinite(hero.level) || hero.level < 1) {
     hero.level = 1;
   }
@@ -12458,6 +12792,7 @@ function normalizePersistentHeroInstance(hero) {
 
   hero.bonusStats = normalizeHeroBonusStats(hero.bonusStats);
   hero.knowledge = normalizeHeroKnowledge(hero.knowledge);
+  normalizeActorAbilityState(hero);
   if (hero.equipment && typeof hero.equipment === 'object') {
     const eqKeys = ['weapon', 'armor', 'helm', 'boots', 'accessory', 'pickaxe'];
     for (let ei = 0; ei < eqKeys.length; ei++) {
@@ -13390,12 +13725,12 @@ const HERO_RECRUITMENT_ELIGIBILITY_STATES = {
 
 const HERO_RECRUITMENT_ORDER = [
   'adventurer',
-  'fighter',
+  'bruiser',
   'scout',
   'ranger',
   'mage',
   'thief',
-  'cleric',
+  'acolyte',
   'paladin'
 ];
 
@@ -13409,15 +13744,15 @@ const HERO_RECRUITMENT_CATALOG = {
     costGold: 35,
     costFood: 20,
     durationMs: BASE_HERO_RECRUIT_DURATION_MS,
-    specialty: 'Versatile dungeon delver trained at the Adventurers Guild: Torch Flare stun, extra vision, and reinforced mining.'
+    specialty: 'Versatile dungeon delver trained at the Adventurers Guild: Second Wind, Careful Search, Disarm Trap, Lockpicking, and Appraise.'
   },
-  fighter: {
-    classId: 'fighter',
+  bruiser: {
+    classId: 'bruiser',
     icon: '🛡️',
     costGold: 50,
     costFood: 30,
     durationMs: BASE_HERO_RECRUIT_DURATION_MS,
-    specialty: 'Frontline bastion defence, Whirlwind Cleave, and door breaching.'
+    specialty: 'Fighters Guild frontline brawler: Power Strike, Cleave, Overpower, Brace, Charge, and Battle Cry.'
   },
   ranger: {
     classId: 'ranger',
@@ -13433,7 +13768,7 @@ const HERO_RECRUITMENT_CATALOG = {
     costGold: 60,
     costFood: 30,
     durationMs: BASE_HERO_RECRUIT_DURATION_MS,
-    specialty: 'High-area Starfall Nova and arcane rune-seal dispelling.'
+    specialty: 'Mages Guild arcanist: Arcane Missile, Fireball, Frost Nova, Arcane Ward, Blink, and Detect Magic.'
   },
   thief: {
     classId: 'thief',
@@ -13443,13 +13778,13 @@ const HERO_RECRUITMENT_CATALOG = {
     durationMs: BASE_HERO_RECRUIT_DURATION_MS,
     specialty: 'Master lockpicking, secret door discovery, and Shadowstep Strike.'
   },
-  cleric: {
-    classId: 'cleric',
+  acolyte: {
+    classId: 'acolyte',
     icon: '✝️',
     costGold: 55,
     costFood: 30,
     durationMs: BASE_HERO_RECRUIT_DURATION_MS,
-    specialty: 'Entry-level Temple Chapterhouse healer, blessing wards, and undead turning.'
+    specialty: 'Entry-tier Temple Chapterhouse devotee: Healing Light, Sacred Flame, Blessing, Purification, Sanctuary, and Divine Sight.'
   },
   paladin: {
     classId: 'paladin',
@@ -13465,20 +13800,22 @@ const HERO_RECRUITMENT_CATALOG = {
     costGold: 45,
     costFood: 25,
     durationMs: BASE_HERO_RECRUIT_DURATION_MS,
-    specialty: 'Frontier reconnaissance & wilderness specialist: Aimed Shot, Tracking, Camouflage, Snare, Forage, Reconnaissance, and Forced Pace (normal recruitment pending Rangers Lodge).'
+    specialty: 'Rangers Lodge reconnaissance & wilderness specialist: Aimed Shot, Tracking, Camouflage, Snare, Forage, Reconnaissance, and Forced Pace.'
   }
 };
 
 function isClassRecruitable(classId) {
-  return Boolean(classId && HERO_RECRUITMENT_CATALOG[classId] && CLASSES[classId]);
+  const normId = normalizeHeroClassId(classId);
+  return Boolean(normId && HERO_RECRUITMENT_CATALOG[normId] && CLASSES[normId]);
 }
 
 // Composes a recruitment descriptor by resolving canonical class identity, base attributes,
 // and derived baseline stats from CLASSES + shared heroStats calculator (HR-11 / HR-13).
 function getRecruitableHeroEntry(classId) {
   if (!classId) return null;
-  const rec = HERO_RECRUITMENT_CATALOG[classId];
-  const cls = CLASSES[classId];
+  const normId = normalizeHeroClassId(classId);
+  const rec = HERO_RECRUITMENT_CATALOG[normId];
+  const cls = CLASSES[normId];
   if (!rec || !cls) return null;
 
   const canonicalAttrs = cls.baseStats || { str: 10, dex: 10, int: 10, vit: 10, spi: DEFAULT_HERO_SPI };
@@ -13545,7 +13882,8 @@ function evaluateHeroRecruitmentEligibility(city, world, classId) {
     };
   }
 
-  const classDef = getRecruitableHeroEntry(classId);
+  const normClassId = normalizeHeroClassId(classId);
+  const classDef = getRecruitableHeroEntry(normClassId);
   if (!classDef) {
     return {
       eligible: false,
@@ -13556,7 +13894,7 @@ function evaluateHeroRecruitmentEligibility(city, world, classId) {
   }
 
   const unlockedClasses = getCityRecruitableClasses(city);
-  if (unlockedClasses.indexOf(classId) === -1) {
+  if (unlockedClasses.indexOf(normClassId) === -1) {
     return {
       eligible: false,
       status: HERO_RECRUITMENT_ELIGIBILITY_STATES.LOCKED_BUILDING,
@@ -17542,7 +17880,7 @@ function createDungeonEntryEnvelope(data) {
     hero: src.hero ? {
       id: src.hero.id || null,
       name: src.hero.name || 'Vanguard Hero',
-      classId: src.hero.classId || 'fighter',
+      classId: src.hero.classId || 'bruiser',
       level: typeof src.hero.level === 'number' ? src.hero.level : 1,
       xp: typeof src.hero.xp === 'number' ? src.hero.xp : 0,
       equipment: src.hero.equipment ? JSON.parse(JSON.stringify(src.hero.equipment)) : null,
@@ -18062,6 +18400,14 @@ function dispatchWargameCommand(commandEnvelope, state, scheduler, eventStream) 
 
     if (plot.buildingId && !isSameBuilding) {
       return reject('Plot is already occupied by ' + plot.buildingId);
+    }
+
+    // Enforce configurable per-city construction limit on NEW builds (upgrades of existing building remain allowed)
+    if (!isSameBuilding) {
+      const limitInfo = evaluateCityBuildingLimit(city, buildingId);
+      if (limitInfo.atLimit) {
+        return reject(limitInfo.reason || (bDef.name + ' is limited to ' + limitInfo.maxPerCity + ' per city'));
+      }
     }
 
     // Check building prerequisites & population requirements
@@ -21850,6 +22196,295 @@ function executeStrategicAbility(simHost, abilityId, opts) {
   return { ok: false, reason: 'unsupported_overworld_ability' };
 }
 
+  // --- Module: src/ui/shared/spellbook.js ---
+// Shared Spellbook & Skill Browser Data & HTML Renderer (MG-01C)
+// Reusable across Wargame Hero Sheet, Integrated Dungeon, and Standalone Roguelike.
+// Derives all costs, cooldowns, requirements, and numeric estimates from authoritative services.
+
+
+
+function sbEscapeHtml(str) {
+  return String(str === undefined || str === null ? '' : str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function formatKindLabel(kind) {
+  if (kind === 'spell') return 'Spell';
+  if (kind === 'prayer') return 'Prayer';
+  if (kind === 'technique') return 'Technique';
+  if (kind === 'power') return 'Power';
+  return 'Skill';
+}
+
+function formatTargetingLabel(tgt) {
+  if (!tgt) return 'Self';
+  if (tgt.mode === 'self') return 'Self';
+  const rng = typeof tgt.range === 'number' && tgt.range > 0 ? ('Rng ' + Math.round(tgt.range)) : 'Adj';
+  if (tgt.mode === 'manual_enemy') return 'Target Enemy (' + rng + ')';
+  if (tgt.mode === 'auto_enemy') return 'Auto Enemy (' + rng + ')';
+  if (tgt.mode === 'auto_area') return 'Area (' + rng + ')';
+  if (tgt.mode === 'manual_location') {
+    const rad = tgt.radius > 0 ? (' • ' + (tgt.radius * 2 + 1) + 'x' + (tgt.radius * 2 + 1)) : '';
+    return 'Target Tile (' + rng + rad + ')';
+  }
+  if (tgt.mode === 'directional') return 'Line (' + rng + ')';
+  return rng;
+}
+
+function formatUnavailableReason(reason, cdRem, cdSec) {
+  if (!reason) return 'Ready';
+  if (reason === 'no_mp') return 'Insufficient MP';
+  if (reason === 'on_cooldown') return cdSec > 0 ? ('Cooldown (' + cdSec + 's)') : ('Cooldown (' + cdRem + 't)');
+  if (reason === 'silenced') return 'Silenced';
+  if (reason === 'requires_ranged_weapon') return 'Requires Ranged Weapon';
+  if (reason === 'already_casting') return 'Channeling Another Cast';
+  if (reason === 'invalid_context') return 'Not Usable in This Context';
+  if (reason === 'not_active_ability') return 'Reactive / Passive';
+  return String(reason).replace(/_/g, ' ');
+}
+
+function buildAuthoritativeEffectEstimate(actor, def) {
+  if (!actor || !def || !Array.isArray(def.effects)) return '';
+  const parts = [];
+  for (let i = 0; i < def.effects.length; i++) {
+    const eff = def.effects[i];
+    if (!eff) continue;
+    if (eff.type === 'damage') {
+      const est = computeAbilityDamage(actor, eff, null, 1.0);
+      parts.push('~' + est.raw + ' ' + est.damageType + ' dmg');
+    } else if (eff.type === 'heal') {
+      const hAmt = computeAbilityHealAmount(actor, eff);
+      parts.push('~' + hAmt + ' HP heal');
+    } else if (eff.type === 'shield') {
+      const sAmt = computeAbilityShieldAmount(actor, eff);
+      parts.push('~' + sAmt + ' Shield');
+    }
+  }
+  return parts.join(' • ');
+}
+
+function buildHeroSpellbookEntries(hero, opts) {
+  if (!hero) return [];
+  normalizeActorAbilityState(hero);
+  const currentContext = (opts && opts.context) ? opts.context : 'tactical_dungeon';
+  const nowSimTimeMs = (opts && typeof opts.nowSimTimeMs === 'number') ? opts.nowSimTimeMs : 0;
+  const quickSlots = getHeroQuickSlots(hero, currentContext);
+  const slotMap = {};
+  for (let s = 0; s < quickSlots.length; s++) {
+    if (quickSlots[s] && quickSlots[s].abilityId) {
+      slotMap[quickSlots[s].abilityId] = quickSlots[s].slotIndex;
+    }
+  }
+
+  const allIds = getGrantedAbilityIds(hero);
+  const entries = [];
+  for (let i = 0; i < allIds.length; i++) {
+    const id = allIds[i];
+    const def = getAbilityDefinition(id);
+    if (!def) continue;
+
+    const sources = getGrantedAbilitySources(hero, id);
+    const contexts = Array.isArray(def.contexts) ? def.contexts.slice() : ['tactical_dungeon'];
+    const inCurrentContext = contexts.indexOf(currentContext) !== -1;
+    const costInfo = getEffectiveAbilityCost(hero, def);
+    const cdTurn = getAbilityCooldownRemaining(hero, id);
+    const cdMs = getStrategicAbilityCooldownRemainingMs(hero, id, nowSimTimeMs);
+    const cdSec = Math.ceil(cdMs / 1000);
+
+    let usableNow = false;
+    let reason = null;
+    if (def.activation !== 'active') {
+      usableNow = false;
+      reason = 'not_active_ability';
+    } else if (!inCurrentContext) {
+      usableNow = false;
+      reason = 'invalid_context';
+    } else if (currentContext === 'overworld') {
+      usableNow = cdMs <= 0;
+      reason = usableNow ? null : 'on_cooldown';
+    } else {
+      const val = validateAbilityActivation(hero, def, { context: currentContext });
+      usableNow = Boolean(val.ok);
+      reason = val.ok ? null : val.reason;
+    }
+
+    entries.push({
+      id: id,
+      name: def.name,
+      icon: def.icon || '✦',
+      kind: def.kind,
+      kindLabel: formatKindLabel(def.kind),
+      domain: def.domain,
+      activation: def.activation,
+      timing: def.timing,
+      windupTurns: def.windupTurns || 0,
+      sources: sources,
+      contexts: contexts,
+      inCurrentContext: inCurrentContext,
+      effectiveMp: costInfo.mp,
+      baseMp: costInfo.baseMp,
+      chilledPenalty: costInfo.chilledPenalty,
+      cooldownTurns: costInfo.cooldown,
+      cooldownRemainingTurns: cdTurn,
+      strategicCooldownSec: def.strategicCooldownMs ? Math.ceil(def.strategicCooldownMs / 1000) : 0,
+      cooldownRemainingSec: cdSec,
+      targetingLabel: formatTargetingLabel(def.targeting),
+      requiresRangedWeapon: Boolean(def.requiresRangedWeapon),
+      estimateText: buildAuthoritativeEffectEstimate(hero, def),
+      desc: def.desc || '',
+      usableNow: usableNow,
+      unavailableReason: reason,
+      statusLabel: formatUnavailableReason(reason, cdTurn, cdSec),
+      assignedSlotIndex: slotMap[id] !== undefined ? slotMap[id] : -1
+    });
+  }
+  // Stable deterministic ordering independent of quick-slot assignments, casting, or cooldowns
+  entries.sort(function(a, b) {
+    const na = String(a.name || '').toLowerCase();
+    const nb = String(b.name || '').toLowerCase();
+    if (na < nb) return -1;
+    if (na > nb) return 1;
+    return String(a.id || '').localeCompare(String(b.id || ''));
+  });
+  return entries;
+}
+
+function renderHeroSpellbookHtml(hero, opts) {
+  if (!hero) {
+    return '<div class="text-xs text-[#64748b] p-2">No hero selected.</div>';
+  }
+  const currentContext = (opts && opts.context) ? opts.context : 'tactical_dungeon';
+  const contextFilter = (opts && opts.contextFilter) ? opts.contextFilter : 'all';
+  const kindFilter = (opts && opts.kindFilter) ? opts.kindFilter : 'all';
+  const actionPrefix = (opts && opts.actionPrefix) ? opts.actionPrefix : 'window.WargameApp';
+  const allowCast = Boolean(opts && opts.allowCast);
+
+  const entries = buildHeroSpellbookEntries(hero, opts);
+  const quickSlots = getHeroQuickSlots(hero, currentContext);
+
+  const filtered = entries.filter(function(e) {
+    if (contextFilter !== 'all' && e.contexts.indexOf(contextFilter) === -1) return false;
+    if (kindFilter !== 'all' && e.kind !== kindFilter) return false;
+    return true;
+  });
+
+  // 1. Configurable Quick-Access Slot Strip
+  const slotCards = quickSlots.map(function(sl) {
+    const def = sl.abilityId ? getAbilityDefinition(sl.abilityId) : null;
+    const isMissing = Boolean(sl.abilityId && (!sl.granted || !sl.availableInContext));
+    const missingLabel = !sl.granted ? 'No Access' : (!sl.availableInContext ? 'Wrong Context' : '');
+    return (
+      '<div class="p-1.5 rounded bg-[#080b11] border ' + (isMissing ? 'border-[#f87171]/60 opacity-75' : 'border-[#283347]') + ' flex flex-col justify-between gap-1 text-[10px] font-mono">' +
+        '<div class="flex items-center justify-between gap-1">' +
+          '<span class="text-[#fbbf24] font-bold">[' + sl.hotkey + '] Slot ' + (sl.slotIndex + 1) + '</span>' +
+          (sl.abilityId
+            ? '<div class="flex items-center gap-0.5">' +
+                (sl.slotIndex > 0 ? '<button type="button" onclick="' + actionPrefix + '.handleSwapQuickSlots(\'' + currentContext + '\',' + sl.slotIndex + ',' + (sl.slotIndex - 1) + ')" class="px-1 rounded bg-[#1a2232] hover:bg-[#283347] text-[#94a3b8] cursor-pointer" title="Move Left">◀</button>' : '') +
+                (sl.slotIndex < QUICK_SLOT_COUNT - 1 ? '<button type="button" onclick="' + actionPrefix + '.handleSwapQuickSlots(\'' + currentContext + '\',' + sl.slotIndex + ',' + (sl.slotIndex + 1) + ')" class="px-1 rounded bg-[#1a2232] hover:bg-[#283347] text-[#94a3b8] cursor-pointer" title="Move Right">▶</button>' : '') +
+                '<button type="button" onclick="' + actionPrefix + '.handleClearQuickSlot(\'' + currentContext + '\',' + sl.slotIndex + ')" class="px-1 rounded bg-[#450a0a] hover:bg-[#7f1d1d] text-[#fca5a5] cursor-pointer" title="Clear Slot">✕</button>' +
+              '</div>'
+            : '') +
+        '</div>' +
+        '<div class="truncate ' + (def ? (isMissing ? 'text-[#94a3b8] line-through' : 'text-[#e6edf3] font-bold') : 'text-[#64748b] italic') + '">' +
+          (def ? (def.icon + ' ' + sbEscapeHtml(def.name)) : 'Empty Slot') +
+        '</div>' +
+        (isMissing ? '<div class="text-[9px] text-[#f87171]">' + missingLabel + '</div>' : '') +
+      '</div>'
+    );
+  }).join('');
+
+  // 2. Context & Kind Filter Controls
+  const ctxBtns = [
+    { id: 'all', label: 'All Contexts' },
+    { id: 'tactical_dungeon', label: 'Tactical' },
+    { id: 'overworld', label: 'Overworld' }
+  ].map(function(b) {
+    const active = contextFilter === b.id;
+    return '<button type="button" onclick="' + actionPrefix + '.handleSpellbookFilter(\'' + b.id + '\',\'' + kindFilter + '\')" class="px-2 py-0.5 rounded text-[10px] font-mono border cursor-pointer ' +
+      (active ? 'bg-[#60a5fa]/20 border-[#60a5fa] text-[#93c5fd] font-bold' : 'bg-[#0b111e] border-[#283347] text-[#94a3b8] hover:text-[#e6edf3]') + '">' + b.label + '</button>';
+  }).join('');
+
+  const kindBtns = [
+    { id: 'all', label: 'All Kinds' },
+    { id: 'spell', label: 'Spells' },
+    { id: 'prayer', label: 'Prayers' },
+    { id: 'technique', label: 'Techniques' },
+    { id: 'skill', label: 'Skills' }
+  ].map(function(b) {
+    const active = kindFilter === b.id;
+    return '<button type="button" onclick="' + actionPrefix + '.handleSpellbookFilter(\'' + contextFilter + '\',\'' + b.id + '\')" class="px-2 py-0.5 rounded text-[10px] font-mono border cursor-pointer ' +
+      (active ? 'bg-[#a855f7]/20 border-[#a855f7] text-[#d8b4fe] font-bold' : 'bg-[#0b111e] border-[#283347] text-[#94a3b8] hover:text-[#e6edf3]') + '">' + b.label + '</button>';
+  }).join('');
+
+  // 3. Full Known Entries List
+  const rowsHtml = filtered.length === 0
+    ? '<div class="text-[11px] text-[#64748b] py-2">No known spells, prayers, or skills match the selected filter.</div>'
+    : filtered.map(function(e) {
+      const costText = e.effectiveMp > 0
+        ? (e.effectiveMp + ' MP' + (e.chilledPenalty > 0 ? ' (Chilled +2)' : ''))
+        : (e.cooldownTurns > 0 ? (e.cooldownTurns + 't CD') : (e.strategicCooldownSec > 0 ? (e.strategicCooldownSec + 's CD') : 'Free'));
+      const ctxTags = e.contexts.map(function(c) {
+        return '<span class="px-1 py-0.5 rounded bg-[#0f172a] border border-[#334155] text-[9px] text-[#94a3b8]">' + (c === 'overworld' ? 'Overworld' : 'Tactical') + '</span>';
+      }).join(' ');
+      const srcTags = e.sources.map(function(s) {
+        return '<span class="px-1 py-0.5 rounded bg-[#1e293b] text-[9px] text-[#cbd5e1] uppercase">' + sbEscapeHtml(s) + '</span>';
+      }).join(' ');
+      const assignBtns = (e.activation === 'active' && e.inCurrentContext)
+        ? [0, 1, 2, 3].map(function(si) {
+          const isHere = e.assignedSlotIndex === si;
+          return '<button type="button" onclick="' + actionPrefix + '.handleAssignQuickSlot(\'' + currentContext + '\',' + si + ',\'' + e.id + '\')" class="px-1.5 py-0.5 rounded text-[9px] font-mono border cursor-pointer ' +
+            (isHere ? 'bg-[#fbbf24]/20 border-[#fbbf24] text-[#fbbf24] font-bold' : 'bg-[#1a2232] hover:bg-[#283347] border-[#334155] text-[#cbd5e1]') + '">' +
+            (isHere ? ('★S' + (si + 1)) : ('S' + (si + 1))) + '</button>';
+        }).join('')
+        : '';
+      const castBtn = (allowCast && e.activation === 'active' && e.inCurrentContext)
+        ? '<button type="button" onclick="' + actionPrefix + '.handleSpellbookCast(\'' + e.id + '\',\'' + currentContext + '\')" ' + (!e.usableNow ? 'disabled' : '') + ' class="px-2 py-0.5 rounded text-[10px] font-mono font-bold border ' +
+          (e.usableNow ? 'bg-[#34d399]/20 hover:bg-[#34d399]/30 border-[#34d399]/60 text-[#34d399] cursor-pointer' : 'bg-[#0f141e] border-[#283347] text-[#64748b] cursor-not-allowed') + '">Use</button>'
+        : '';
+
+      return (
+        '<div class="p-2 rounded bg-[#080b11] border ' + (e.usableNow ? 'border-[#283347]' : 'border-[#1e293b] opacity-85') + ' space-y-1">' +
+          '<div class="flex flex-wrap items-center justify-between gap-1">' +
+            '<div class="flex items-center gap-1.5">' +
+              '<span class="text-sm">' + e.icon + '</span>' +
+              '<strong class="text-xs text-[#e6edf3]">' + sbEscapeHtml(e.name) + '</strong>' +
+              '<span class="text-[9px] font-mono uppercase px-1 py-0.5 rounded bg-[#1a2232] text-[#60a5fa]">' + sbEscapeHtml(e.kindLabel) + '</span>' +
+              srcTags +
+            '</div>' +
+            '<div class="flex items-center gap-1.5 text-[10px] font-mono">' +
+              '<span class="text-[#fbbf24]">' + sbEscapeHtml(costText) + '</span>' +
+              '<span class="' + (e.usableNow ? 'text-[#34d399]' : 'text-[#f87171]') + '">' + sbEscapeHtml(e.statusLabel) + '</span>' +
+            '</div>' +
+          '</div>' +
+          '<div class="text-[11px] text-[#94a3b8]">' + sbEscapeHtml(e.desc) + '</div>' +
+          '<div class="flex flex-wrap items-center justify-between gap-1 text-[10px] font-mono text-[#cbd5e1]">' +
+            '<div class="flex flex-wrap items-center gap-1.5">' +
+              '<span>' + sbEscapeHtml(e.targetingLabel) + '</span>' +
+              (e.estimateText ? ('<span class="text-[#34d399]">• ' + sbEscapeHtml(e.estimateText) + '</span>') : '') +
+              (e.requiresRangedWeapon ? '<span class="text-[#fb923c]">• Needs Ranged Weapon</span>' : '') +
+              ctxTags +
+            '</div>' +
+            '<div class="flex items-center gap-1">' + assignBtns + castBtn + '</div>' +
+          '</div>' +
+        '</div>'
+      );
+    }).join('');
+
+  return (
+    '<div class="space-y-2.5">' +
+      '<div class="space-y-1">' +
+        '<div class="text-[10px] font-mono uppercase tracking-wider text-[#fbbf24]">Quick-Access Slots (' + (currentContext === 'overworld' ? 'Overworld' : 'Tactical') + ')</div>' +
+        '<div class="grid grid-cols-2 sm:grid-cols-4 gap-1.5">' + slotCards + '</div>' +
+      '</div>' +
+      '<div class="flex flex-wrap items-center gap-1 pt-1 border-t border-[#283347]/70">' + ctxBtns + ' <span class="text-[#334155]">|</span> ' + kindBtns + '</div>' +
+      '<div class="space-y-1.5 max-h-[260px] overflow-y-auto pr-0.5">' + rowsHtml + '</div>' +
+    '</div>'
+  );
+}
+
   // --- Module: src/progression/accrualService.js ---
 // =============================================================================
 // RESEARCH POINT ACCRUAL & ANTI-ABUSE SERVICE (Inc 10.2 / ADR-0015 / Spec §5)
@@ -23522,7 +24157,9 @@ function getFacilityInteriorAssetId(buildingId) {
 
 function getHeroPortraitAssetId(classId) {
   if (!classId) return null;
-  return 'char_portrait_' + String(classId).toLowerCase() + '_default_idle';
+  const key = String(classId).toLowerCase();
+  const assetKey = key === 'bruiser' ? 'fighter' : (key === 'acolyte' ? 'cleric' : (key === 'scout' ? 'ranger' : key));
+  return 'char_portrait_' + assetKey + '_default_idle';
 }
 
 function getCachedImage(assetId, onLoad) {
@@ -24994,7 +25631,7 @@ function drawSharedSafeEllipse(ctx, cx, cy, rx, ry) {
 
 function normalizeSharedHeroProfile(hero) {
   const h = hero || {};
-  const classId = h.classId || 'fighter';
+  const classId = h.classId || 'bruiser';
   const cls = CLASSES[classId] || CLASSES.fighter;
   const st = h.stats || {};
   const derived = computeHeroDerivedStats(h);
@@ -25056,7 +25693,7 @@ function renderSharedPaperDollMannequin(canvas, hero) {
   const h = canvas.height;
   ctx.clearRect(0, 0, w, h);
 
-  const classId = hero ? hero.classId : 'fighter';
+  const classId = hero ? hero.classId : 'bruiser';
   const cls = CLASSES[classId] || CLASSES.fighter;
   const cosmeticAura = hero && hero.cosmetics && hero.cosmetics.aura ? hero.cosmetics.aura.color : null;
   const themeColor = cosmeticAura || cls.color || '#fbbf24';
@@ -25138,7 +25775,7 @@ function renderSharedPaperDollMannequin(canvas, hero) {
   ctx.fill();
 
   // Class-specific silhouette cape & back ornaments
-  if (classId === 'fighter') {
+  if (classId === 'bruiser') {
     ctx.fillStyle = 'rgba(185, 28, 28, 0.45)';
     ctx.beginPath();
     ctx.moveTo(cx - 36, 100);
@@ -25238,7 +25875,7 @@ function renderSharedPaperDollMannequin(canvas, hero) {
   ctx.stroke();
 
   // Class head crest / visor
-  if (classId === 'fighter') {
+  if (classId === 'bruiser') {
     ctx.fillStyle = '#fbbf24';
     ctx.fillRect(cx - 12, 70, 24, 4);
   } else if (classId === 'mage') {
@@ -26027,6 +26664,8 @@ function renderCityIsoCanvas(simHost) {
 
 
 
+
+
 function setHtmlIfChanged(el, newHtml) {
   if (!el) return;
   if (!el.dataset) el.dataset = {};
@@ -26367,7 +27006,24 @@ function renderWargameCharacterSheetModal(simHost) {
 
   const statsEl = document.getElementById('wgSheetStatsGrid');
   if (statsEl) {
-    setHtmlIfChanged(statsEl, buildSharedHeroStatsHtml(profile));
+    const sbCtxFilter = state._spellbookContextFilter || 'all';
+    const sbKindFilter = state._spellbookKindFilter || 'all';
+    const sbHtml =
+      '<div class="mt-3 pt-2.5 border-t border-[#283347] space-y-2">' +
+        '<div class="flex items-center justify-between">' +
+          '<span class="text-[11px] font-mono font-bold uppercase tracking-wider text-[#60a5fa]">📖 Spells, Prayers &amp; Skills</span>' +
+          '<span class="text-[10px] font-mono text-[#94a3b8]">Quick Slots &amp; Full Catalog</span>' +
+        '</div>' +
+        renderHeroSpellbookHtml(rawHero, {
+          context: state._spellbookActiveContext || 'tactical_dungeon',
+          contextFilter: sbCtxFilter,
+          kindFilter: sbKindFilter,
+          nowSimTimeMs: (world.clock && world.clock.simTimeMs) || 0,
+          allowCast: false,
+          actionPrefix: 'window.WargameApp'
+        }) +
+      '</div>';
+    setHtmlIfChanged(statsEl, buildSharedHeroStatsHtml(profile) + sbHtml);
   }
 
   const cosEl = document.getElementById('wgSheetCosmeticsStrip');
@@ -27680,16 +28336,33 @@ function renderLeftCommandSidebar(simHost) {
           ${marchHtml}
           ${armyDetailHtml}
           ${(function() {
-            const owAbilities = getOverworldAbilitiesForUnit(state, selUnit);
-            if (!owAbilities || owAbilities.length === 0) return '';
+            const heroForOw = (world.heroes || []).find(function(h) { return h && h.id === selUnit.leaderHeroId; }) || null;
+            const owAbilities = getOverworldAbilitiesForUnit(state, selUnit) || [];
+            if (!heroForOw && owAbilities.length === 0) return '';
+            const owSlots = heroForOw ? getHeroQuickSlots(heroForOw, 'overworld') : [];
+            const hasAnyAssigned = owSlots.some(function(sl) { return Boolean(sl && sl.abilityId); });
+            if (owAbilities.length === 0 && !hasAnyAssigned) return '';
+            const abById = {};
+            for (let oi = 0; oi < owAbilities.length; oi++) abById[owAbilities[oi].id] = owAbilities[oi];
             const fbHtml = state._lastStrategicFeedback
               ? '<div class="text-[10px] font-mono text-[#34d399] bg-[#080b11] px-2 py-1 rounded border border-[#34d399]/30">' + state._lastStrategicFeedback + '</div>'
               : '';
-            const btns = owAbilities.map(function(ab) {
-              const label = ab.ready ? (ab.icon + ' ' + ab.name) : (ab.icon + ' ' + ab.name + ' (' + ab.cooldownRemainingSec + 's)');
-              return '<button title="' + ab.desc + '" onclick="window.WargameApp.handleStrategicAbility(\'' + ab.id + '\')" ' + (!ab.ready ? 'disabled' : '') + ' class="px-2 py-1 rounded text-[10px] font-mono border ' + (ab.ready ? 'bg-[#1a2232] hover:bg-[#283347] border-[#10b981]/50 text-[#34d399] cursor-pointer' : 'bg-[#0f141e] border-[#283347] text-[#64748b] cursor-not-allowed') + '">' + label + '</button>';
+            const btns = owSlots.map(function(sl) {
+              if (!sl.abilityId) {
+                return '<button type="button" onclick="window.WargameApp.handleOpenHeroSheet(\'' + heroForOw.id + '\')" class="px-2 py-1 rounded text-[10px] font-mono border border-dashed border-[#283347] bg-[#080b11] text-[#64748b] cursor-pointer">[' + sl.hotkey + '] Empty</button>';
+              }
+              const ab = abById[sl.abilityId] || null;
+              if (!sl.granted || !sl.availableInContext || !ab) {
+                const reason = !sl.granted ? 'No Access' : (!sl.availableInContext ? 'Wrong Context' : 'Unavailable');
+                return '<button type="button" disabled title="' + reason + '" class="px-2 py-1 rounded text-[10px] font-mono border border-[#283347] bg-[#0f141e] text-[#64748b] opacity-60 cursor-not-allowed">[' + sl.hotkey + '] ' + (ab ? (ab.icon + ' ' + ab.name) : sl.abilityId) + ' (' + reason + ')</button>';
+              }
+              const label = '[' + sl.hotkey + '] ' + ab.icon + ' ' + ab.name + (ab.ready ? '' : (' (' + ab.cooldownRemainingSec + 's)'));
+              return '<button type="button" title="' + ab.desc + '" onclick="window.WargameApp.handleOverworldQuickSlot(' + sl.slotIndex + ')" ' + (!ab.ready ? 'disabled' : '') + ' class="px-2 py-1 rounded text-[10px] font-mono border ' + (ab.ready ? 'bg-[#1a2232] hover:bg-[#283347] border-[#10b981]/50 text-[#34d399] cursor-pointer' : 'bg-[#0f141e] border-[#283347] text-[#64748b] opacity-60 cursor-not-allowed') + '">' + label + '</button>';
             }).join('');
-            return '<div class="space-y-1.5 pt-1 border-t border-[#283347]/70"><div class="text-[10px] font-mono uppercase text-[#10b981]">Field Skills</div><div class="flex flex-wrap gap-1">' + btns + '</div>' + fbHtml + '</div>';
+            const sbBtn = heroForOw
+              ? '<button type="button" onclick="window.WargameApp.handleOpenHeroSheet(\'' + heroForOw.id + '\')" class="px-1.5 py-0.5 rounded bg-[#1a2232] hover:bg-[#283347] border border-[#60a5fa]/40 text-[9px] font-mono text-[#93c5fd] cursor-pointer">📖 Spellbook [Q]</button>'
+              : '';
+            return '<div class="space-y-1.5 pt-1 border-t border-[#283347]/70"><div class="flex items-center justify-between"><span class="text-[10px] font-mono uppercase text-[#10b981]">Field Skills [1-4]</span>' + sbBtn + '</div><div class="flex flex-wrap gap-1">' + btns + '</div>' + fbHtml + '</div>';
           })()}
           ${nearbyDng ? `
             <button data-action="enter-dungeon" data-poi-id="${nearbyDng.id}" onclick="window.WargameApp.handleEnterDungeon('${nearbyDng.id}')" class="w-full py-2 rounded-lg font-bold text-xs uppercase tracking-wider shadow bg-[#f87171] hover:bg-[#ef4444] text-[#080b11] cursor-pointer">
@@ -28414,69 +29087,93 @@ function renderCityBuilderPanel(simHost) {
         }
       }
 
-      // Hide meeting hall (founded at center plot); show unlocked buildings first,
-      // then clearly list locked structures with their prerequisite unlock chain (e.g. Quarry -> Smeltery -> Blacksmith)
-      const constructibleKeys = Object.keys(CITY_BUILDINGS_CATALOG).filter(function(k) {
-        if (k === 'meeting_hall') return false;
-        return isBuildingPrerequisiteMet(city, k);
-      });
-      const lockedKeys = Object.keys(CITY_BUILDINGS_CATALOG).filter(function(k) {
-        if (k === 'meeting_hall') return false;
-        return !isBuildingPrerequisiteMet(city, k);
-      });
+      // Data-driven collapsible building categories with prerequisite locks & per-city uniqueness limits
+      const collapsedCats = (state && state._collapsedBuildingCategories && typeof state._collapsedBuildingCategories === 'object')
+        ? state._collapsedBuildingCategories
+        : {};
+      const categoryGroups = getBuildingsGroupedByMenuCategory(city);
 
-      const catalogCards = constructibleKeys.length > 0
-        ? constructibleKeys.map(function(bId) {
-            const bDef = CITY_BUILDINGS_CATALOG[bId];
-            const cost = computeBuildingUpgradeCost(bId, 1);
-            const durMs = computeBuildingDurationMs(bId, 1);
+      const groupedHtml = categoryGroups.map(function(grp) {
+        const isCollapsed = Boolean(collapsedCats[grp.id]);
+        let unlockedCount = 0;
+        const rowsHtml = grp.buildingIds.map(function(bId) {
+          const bDef = CITY_BUILDINGS_CATALOG[bId];
+          const prereqMet = isBuildingPrerequisiteMet(city, bId);
+          const limitInfo = evaluateCityBuildingLimit(city, bId);
+          const cost = computeBuildingUpgradeCost(bId, 1);
+          const durMs = computeBuildingDurationMs(bId, 1);
 
-            const canAfford = (city.stockpile.wood  || 0) >= (cost.wood  || 0) &&
-                              (city.stockpile.stone || 0) >= (cost.stone || 0) &&
-                              (city.stockpile.gold  || 0) >= (cost.gold  || 0) &&
-                              (city.stockpile.water || 0) >= (cost.water || 0) &&
-                              (city.stockpile.ore   || 0) >= (cost.ore   || 0);
-
+          if (!prereqMet) {
+            const reqText = getBuildingPrerequisiteMissingReason(city, bId) || 'Prerequisite required';
             return `
-              <div class="p-2.5 rounded bg-[#080b11] border border-[#283347] flex items-center justify-between gap-2">
-                <div class="flex items-center gap-2.5 min-w-0">
-                  <span class="text-xl">${bDef.icon}</span>
+              <div class="p-2 rounded bg-[#06090f] border border-[#1e293b]/80 flex items-center justify-between gap-2 opacity-70">
+                <div class="flex items-center gap-2 min-w-0">
+                  <span class="text-base">${bDef.icon}</span>
                   <div class="min-w-0">
-                    <div class="text-xs font-bold text-[#e6edf3] truncate">${bDef.name}</div>
-                    <div class="text-[10px] font-mono text-[#8b949e]">
-                      ${cost.wood}W • ${cost.stone}S${cost.gold ? (' • ' + cost.gold + 'G') : ''}${cost.water ? (' • ' + cost.water + '💧') : ''}${cost.ore ? (' • ' + cost.ore + '⛏️') : ''} • ⏱ ${formatSimDuration(durMs)}
-                    </div>
+                    <div class="text-[11px] font-bold text-[#94a3b8] truncate">${bDef.name}</div>
+                    <div class="text-[10px] font-mono text-[#fbbf24]/80 truncate">${reqText}</div>
                   </div>
                 </div>
-                <button data-action="queue-building" data-plot-index="${selPlot.plotIndex}" data-building-id="${bId}" onclick="window.WargameApp.handleQueueBuilding(${selPlot.plotIndex}, '${bId}')" ${!canAfford ? 'disabled' : ''} class="px-3 py-1.5 rounded font-bold text-[11px] uppercase whitespace-nowrap cursor-pointer ${canAfford ? 'bg-amber-400 hover:bg-amber-500 text-slate-900' : 'bg-slate-800 text-slate-500 cursor-not-allowed'}">
-                  🔨 Build
-                </button>
+                <span class="px-2 py-0.5 rounded bg-[#111722] text-[10px] font-mono text-[#64748b] whitespace-nowrap">🔒 Locked</span>
               </div>
             `;
-          }).join('')
-        : `<div class="p-3.5 rounded bg-[#080b11] border border-[#283347] text-center text-xs text-[#8b949e] italic">No new buildings currently available. Grow your population or fulfill current tasks to unlock new structures!</div>`;
+          }
 
-      const lockedCards = lockedKeys.length > 0
-        ? `<div class="pt-2 border-t border-[#1e293b] space-y-1">
-            <div class="text-[10px] font-mono uppercase tracking-wider text-[#64748b] font-bold">🔒 Locked Structures (Prerequisites)</div>
-            ${lockedKeys.map(function(bId) {
-              const bDef = CITY_BUILDINGS_CATALOG[bId];
-              const reqText = getBuildingPrerequisiteMissingReason(city, bId) || 'Prerequisite required';
-              return `
-                <div class="p-2 rounded bg-[#06090f] border border-[#1e293b]/80 flex items-center justify-between gap-2 opacity-75">
-                  <div class="flex items-center gap-2 min-w-0">
-                    <span class="text-base">${bDef.icon}</span>
-                    <div class="min-w-0">
-                      <div class="text-[11px] font-bold text-[#94a3b8] truncate">${bDef.name}</div>
-                      <div class="text-[10px] font-mono text-[#fbbf24]/80 truncate">${reqText}</div>
-                    </div>
+          if (limitInfo.atLimit) {
+            const capReason = limitInfo.reason || ('Limit ' + limitInfo.maxPerCity + '/city reached');
+            return `
+              <div class="p-2 rounded bg-[#06090f] border border-[#283347]/80 flex items-center justify-between gap-2 opacity-65">
+                <div class="flex items-center gap-2 min-w-0">
+                  <span class="text-base grayscale">${bDef.icon}</span>
+                  <div class="min-w-0">
+                    <div class="text-[11px] font-bold text-[#94a3b8] truncate">${bDef.name}</div>
+                    <div class="text-[10px] font-mono text-[#f87171]/90 truncate">${capReason}</div>
                   </div>
-                  <span class="px-2 py-0.5 rounded bg-[#111722] text-[10px] font-mono text-[#64748b] whitespace-nowrap">Locked</span>
                 </div>
-              `;
-            }).join('')}
-          </div>`
-        : '';
+                <button type="button" disabled class="px-2.5 py-1 rounded bg-slate-900 border border-slate-700 text-[10px] font-mono text-slate-500 whitespace-nowrap cursor-not-allowed">Limit Reached</button>
+              </div>
+            `;
+          }
+
+          unlockedCount++;
+          const canAfford = (city.stockpile.wood  || 0) >= (cost.wood  || 0) &&
+                            (city.stockpile.stone || 0) >= (cost.stone || 0) &&
+                            (city.stockpile.gold  || 0) >= (cost.gold  || 0) &&
+                            (city.stockpile.water || 0) >= (cost.water || 0) &&
+                            (city.stockpile.ore   || 0) >= (cost.ore   || 0);
+
+          const uniqueBadge = limitInfo.limited
+            ? `<span class="ml-1 px-1 py-0.5 rounded bg-[#1e293b] text-[9px] font-mono text-[#93c5fd]">Max ${limitInfo.maxPerCity}/City</span>`
+            : '';
+
+          return `
+            <div class="p-2.5 rounded bg-[#080b11] border border-[#283347] flex items-center justify-between gap-2">
+              <div class="flex items-center gap-2.5 min-w-0">
+                <span class="text-xl">${bDef.icon}</span>
+                <div class="min-w-0">
+                  <div class="text-xs font-bold text-[#e6edf3] truncate">${bDef.name}${uniqueBadge}</div>
+                  <div class="text-[10px] font-mono text-[#8b949e]">
+                    ${cost.wood}W • ${cost.stone}S${cost.gold ? (' • ' + cost.gold + 'G') : ''}${cost.water ? (' • ' + cost.water + '💧') : ''}${cost.ore ? (' • ' + cost.ore + '⛏️') : ''} • ⏱ ${formatSimDuration(durMs)}
+                  </div>
+                </div>
+              </div>
+              <button data-action="queue-building" data-plot-index="${selPlot.plotIndex}" data-building-id="${bId}" onclick="window.WargameApp.handleQueueBuilding(${selPlot.plotIndex}, '${bId}')" ${!canAfford ? 'disabled' : ''} class="px-3 py-1.5 rounded font-bold text-[11px] uppercase whitespace-nowrap cursor-pointer ${canAfford ? 'bg-amber-400 hover:bg-amber-500 text-slate-900' : 'bg-slate-800 text-slate-500 cursor-not-allowed'}">
+                🔨 Build
+              </button>
+            </div>
+          `;
+        }).join('');
+
+        return `
+          <div class="rounded border border-[#1e293b] bg-[#0b111e]/70 overflow-hidden">
+            <button type="button" onclick="window.WargameApp.handleToggleBuildingCategory('${grp.id}')" class="w-full px-2.5 py-1.5 flex items-center justify-between bg-[#111722] hover:bg-[#1a2232] text-left cursor-pointer">
+              <span class="text-[11px] font-mono font-bold text-[#e6edf3]">${grp.icon} ${grp.label}</span>
+              <span class="text-[10px] font-mono text-[#94a3b8]">${unlockedCount}/${grp.buildingIds.length} ready ${isCollapsed ? '▸' : '▾'}</span>
+            </button>
+            ${isCollapsed ? '' : `<div class="p-1.5 space-y-1.5">${rowsHtml}</div>`}
+          </div>
+        `;
+      }).join('');
 
       inspectorHtml += `
         <div class="space-y-2">
@@ -28484,9 +29181,8 @@ function renderCityBuilderPanel(simHost) {
             <span class="text-xs font-bold text-[#fbbf24] uppercase tracking-wider">Construct New Facility</span>
             ${isAdjacentToWindmill ? `<span class="px-2 py-0.5 rounded bg-purple-950/60 text-purple-300 border border-purple-500/40 text-[9px] font-mono font-bold">💨 Windmill +20% Bonus Zone</span>` : ''}
           </div>
-          <div class="space-y-1.5 max-h-[380px] overflow-y-auto pr-1">
-            ${catalogCards}
-            ${lockedCards}
+          <div class="space-y-2 max-h-[380px] overflow-y-auto pr-1">
+            ${groupedHtml}
           </div>
         </div>
       `;
@@ -32325,10 +33021,11 @@ function createDungeonHeroForClass(classId, canonicalHero, ownerPlayerId) {
       return null;
     }
   }
-  if (!isClassDungeonEligible(classId)) {
+  const normClassId = normalizeHeroClassId(classId);
+  if (!isClassDungeonEligible(normClassId)) {
     return null;
   }
-  const cls = CLASSES[classId];
+  const cls = CLASSES[normClassId];
   const startEq = cls.starterGear || {};
   const base = cls.baseStats || { str: 10, dex: 10, int: 10, vit: 10 };
   const eq = {
@@ -32385,6 +33082,9 @@ function createDungeonHeroForClass(classId, canonicalHero, ownerPlayerId) {
     skillCooldown: 0,
     abilityGrants: (canonicalHero && canonicalHero.abilityGrants) ? JSON.parse(JSON.stringify(canonicalHero.abilityGrants)) : null,
     abilityCooldowns: (canonicalHero && canonicalHero.abilityCooldowns) ? Object.assign({}, canonicalHero.abilityCooldowns) : {},
+    quickSlots: (canonicalHero && canonicalHero.quickSlots) ? JSON.parse(JSON.stringify(canonicalHero.quickSlots)) : null,
+    _quickSlotsCustomized: Boolean(canonicalHero && canonicalHero._quickSlotsCustomized),
+    _quickSlotsInitialized: (canonicalHero && canonicalHero._quickSlotsInitialized) ? Object.assign({}, canonicalHero._quickSlotsInitialized) : null,
     activeAbilityId: (canonicalHero && canonicalHero.activeAbilityId) || null,
     absorbShield: (canonicalHero && typeof canonicalHero.absorbShield === 'number') ? Math.max(0, canonicalHero.absorbShield) : 0,
     pendingCast: null,
@@ -32467,6 +33167,11 @@ function bindCanonicalHeroToDungeonState(simHost, dungeonState, entryInfo) {
     }
     if (canonicalHero.abilityGrants && typeof canonicalHero.abilityGrants === 'object') {
       dungeonState.hero.abilityGrants = JSON.parse(JSON.stringify(canonicalHero.abilityGrants));
+    }
+    if (canonicalHero.quickSlots && typeof canonicalHero.quickSlots === 'object') {
+      dungeonState.hero.quickSlots = JSON.parse(JSON.stringify(canonicalHero.quickSlots));
+      dungeonState.hero._quickSlotsCustomized = Boolean(canonicalHero._quickSlotsCustomized);
+      dungeonState.hero._quickSlotsInitialized = canonicalHero._quickSlotsInitialized ? Object.assign({}, canonicalHero._quickSlotsInitialized) : null;
     }
     normalizeActorAbilityState(dungeonState.hero);
   }
@@ -32643,7 +33348,7 @@ function createAppContextController(options) {
     const poiId = resData.poiId || p.poiId || null;
     const dungeonId = resData.dungeonId || 'dng_starfall';
     const heroId = (env && env.hero && env.hero.id) || null;
-    const heroClassId = (env && env.hero && env.hero.classId) || 'fighter';
+    const heroClassId = (env && env.hero && env.hero.classId) || 'bruiser';
 
     nextSessionSeq += 1;
     const sessionId = 'dng_sess_' + nextSessionSeq;
@@ -33226,7 +33931,7 @@ function executeInteraction(request, state = gameState) {
     return createInteractionResult(false, request.actionId, 'target_not_found', false, [], 'Target not found');
   }
 
-  const actor = (state && state.hero) || { name: 'Player', classId: 'fighter' };
+  const actor = (state && state.hero) || { name: 'Player', classId: 'bruiser' };
 
   // Spatial range validation (Chebyshev distance <= 1.5 for manual interactions, 0 for step-over triggers)
   const maxRange = request.maxRange !== undefined ? request.maxRange : 1.5;
@@ -33968,7 +34673,7 @@ function monsterAttackHero(m, isRanged, state = gameState) {
   if ((m.statuses || []).some(function(s) { return s && s.id === 'disrupted'; })) {
     raw = Math.max(1, Math.round(raw * 0.75));
   }
-  if (h.classId === 'fighter') raw = Math.round(raw * 0.85);
+  if (h.classId === 'bruiser') raw = Math.round(raw * 0.85);
   // Bruiser Brace physical mitigation (-25% physical damage, distinct from Arcane Ward absorption shield)
   if ((h.statuses || []).some(function(s) { return s && s.id === 'physical_mitigation'; })) {
     raw = Math.max(1, Math.round(raw * 0.75));
@@ -34033,7 +34738,7 @@ function monsterAttackHero(m, isRanged, state = gameState) {
   }
 
   // Fighter Titan Resurgence Counter-Attack
-  if (!isRanged && h.classId === 'fighter' && ((h.talentsAllocated && h.talentsAllocated.f_a3) || 0) > 0 && Math.random() < 0.35) {
+  if (!isRanged && h.classId === 'bruiser' && ((h.talentsAllocated && h.talentsAllocated.f_a3) || 0) > 0 && Math.random() < 0.35) {
     const counterDmg = Math.max(2, Math.round(h.atk * 0.5));
     m.hp -= counterDmg;
     if (state === gameState) {
@@ -34144,7 +34849,7 @@ function resolveTelegraphedAbility(m, floor, state) {
 
   const mult = (ability && ability.damageMult) ? ability.damageMult : 1.5;
   let raw = Math.round((m.atk || 8) * mult);
-  if (h.classId === 'fighter') raw = Math.round(raw * 0.85);
+  if (h.classId === 'bruiser') raw = Math.round(raw * 0.85);
   if ((h.ward || 0) > 0) raw = Math.max(1, raw - h.ward);
   const dmg = Math.max(2, raw - Math.floor((h.def || 0) * 0.6));
   h.hp -= dmg;
@@ -34273,7 +34978,7 @@ function processTurn(state = gameState) {
   if (h.classId === 'paladin' && state.turn % 3 === 0) {
     h.hp = Math.min(h.maxHp, h.hp + 1);
   }
-  if (h.classId === 'cleric' && state.turn % 2 === 0) {
+  if (h.classId === 'acolyte' && state.turn % 2 === 0) {
     h.mp = Math.min(h.maxMp, h.mp + 1);
   }
 
@@ -34701,6 +35406,81 @@ function cancelPendingAbilityCast(state = gameState) {
     ui.updateUI();
   }
   return { ok: true, cancelled: cancelled };
+}
+
+function getHeroQuickAccessBar(state = gameState) {
+  if (!state || !state.hero) return [];
+  const h = state.hero;
+  normalizeActorAbilityState(h);
+  const slots = getHeroQuickSlots(h, 'tactical_dungeon');
+  const out = [];
+  for (let i = 0; i < slots.length; i++) {
+    const sl = slots[i];
+    if (!sl.abilityId) {
+      out.push({
+        slotIndex: sl.slotIndex,
+        hotkey: sl.hotkey,
+        empty: true,
+        id: null,
+        name: 'Empty Slot',
+        ready: false
+      });
+      continue;
+    }
+    const def = getAbilityDefinition(sl.abilityId);
+    if (!def) continue;
+    const val = sl.granted ? validateAbilityActivation(h, def, { context: 'tactical_dungeon' }) : { ok: false, reason: 'not_granted' };
+    const costInfo = getEffectiveAbilityCost(h, def);
+    const cdRem = getAbilityCooldownRemaining(h, def.id);
+    const silenced = isAbilitySilenced(h, def);
+    const mode = (def.targeting && def.targeting.mode) || 'self';
+    out.push({
+      slotIndex: sl.slotIndex,
+      hotkey: sl.hotkey,
+      empty: false,
+      id: def.id,
+      name: def.name,
+      icon: def.icon || '✦',
+      kind: def.kind,
+      domain: def.domain,
+      timing: def.timing,
+      desc: def.desc,
+      effectiveMp: costInfo.mp,
+      baseMp: costInfo.baseMp,
+      chilledPenalty: costInfo.chilledPenalty,
+      cooldown: costInfo.cooldown,
+      cooldownRemaining: cdRem,
+      silenced: silenced,
+      granted: sl.granted,
+      availableInContext: sl.availableInContext,
+      unavailableReason: !sl.granted ? 'not_granted' : (!sl.availableInContext ? 'invalid_context' : (val.ok ? null : val.reason)),
+      canAfford: (h.mp || 0) >= costInfo.mp,
+      ready: Boolean(val.ok && sl.granted && sl.availableInContext),
+      requiresManualTarget: (mode === 'manual_enemy' || mode === 'manual_location' || mode === 'directional'),
+      mode: mode
+    });
+  }
+  return out;
+}
+
+function executeQuickSlotAbility(slotIndex, targetPayload, state = gameState) {
+  const idx = Math.floor(Number(slotIndex));
+  if (isNaN(idx) || idx < 0) return { ok: false, reason: 'invalid_slot' };
+  const bar = getHeroQuickAccessBar(state);
+  const slot = bar[idx];
+  if (!slot || slot.empty || !slot.id) {
+    return { ok: false, reason: 'empty_slot' };
+  }
+  if (!slot.granted) {
+    return { ok: false, reason: 'not_granted' };
+  }
+  if (!slot.availableInContext) {
+    return { ok: false, reason: 'invalid_context' };
+  }
+  if (!slot.ready) {
+    return { ok: false, reason: slot.unavailableReason || 'unavailable' };
+  }
+  return executeAbility(slot.id, targetPayload || null, state);
 }
 
 function getHeroAbilityBarState(state = gameState) {
@@ -37551,28 +38331,29 @@ function createDevConsoleController(options) {
       category: 'Heroes & Progression',
       usage: 'recruit <classId> ["Hero Name"]',
       params: [
-        { name: 'classId', required: true, desc: 'Adventuring class ID (fighter, thief, mage, ranger, paladin).' },
+        { name: 'classId', required: true, desc: 'Adventuring class ID (bruiser, mage, acolyte, scout, adventurer, thief, ranger, paladin).' },
         { name: 'Hero Name', required: false, desc: 'Optional custom name (quote if it has spaces).' }
       ],
-      examples: ['recruit fighter', 'recruit mage "Lyra Star"'],
+      examples: ['recruit bruiser', 'recruit scout "Kael"', 'recruit acolyte "Mara"'],
       aliases: [],
       contexts: ['strategy'],
-      desc: 'Queue hero recruitment through canonical RECRUIT_HERO command.',
+      desc: 'Recruit a hero via canonical RECRUIT_HERO (or dev instant recruit for entry classes if guild prerequisites are not yet built).',
       run: function(args) {
         const simHost = getSimHost();
         if (!simHost) return { ok: false, text: 'SimHost unavailable.' };
-        const classId = args[0] ? args[0].toLowerCase() : '';
-        if (!classId) return { ok: false, text: 'Usage: recruit <classId> ["Hero Name"]' };
+        const rawCls = args[0] ? args[0].toLowerCase() : '';
+        if (!rawCls) return { ok: false, text: 'Usage: recruit <classId> ["Hero Name"]' };
+        const classId = normalizeHeroClassId(rawCls);
         const res = simHost.dispatch({
           type: COMMAND_TYPES.RECRUIT_HERO,
           payload: { classId: classId, heroName: args[1] || null }
         });
-        if ((!res || !res.ok) && classId === 'scout' && CLASSES.scout && simHost.state && simHost.state.world) {
-          // Safe Dev Console recruitment path for Scout while Rangers Lodge building is deferred (MG-01B §3)
+        if ((!res || !res.ok) && CLASSES[classId] && ['bruiser', 'mage', 'acolyte', 'scout', 'adventurer'].indexOf(classId) !== -1 && simHost.state && simHost.state.world) {
+          // Safe Dev Console instant recruitment shortcut for entry-tier playtesting without altering city buildings
           const w = simHost.state.world;
           const city = getPrimaryCity(simHost.state);
-          const heroId = 'hero_scout_' + Date.now() + '_' + ((w.heroes && w.heroes.length) || 0);
-          const sCls = CLASSES.scout;
+          const heroId = 'hero_' + classId + '_' + Date.now() + '_' + ((w.heroes && w.heroes.length) || 0);
+          const sCls = CLASSES[classId];
           const startEq = {};
           const eqKeys = ['weapon', 'armor', 'helm', 'boots', 'accessory', 'pickaxe'];
           for (let i = 0; i < eqKeys.length; i++) {
@@ -37582,8 +38363,8 @@ function createDevConsoleController(options) {
           const newHero = {
             id: heroId,
             ownerPlayerId: (w.player && w.player.id) || 'player_1',
-            classId: 'scout',
-            name: args[1] || 'Frontier Scout',
+            classId: classId,
+            name: args[1] || sCls.name,
             level: 1,
             xp: 0,
             maxXp: 60,
@@ -37604,21 +38385,21 @@ function createDevConsoleController(options) {
           if (w.overworld && Array.isArray(w.overworld.units)) {
             const sx = city ? city.x : Math.floor((w.overworld.width || 40) / 2);
             const sy = city ? city.y : Math.floor((w.overworld.height || 30) / 2);
-            const unitId = 'unit_scout_' + Date.now() + '_' + w.overworld.units.length;
+            const unitId = 'unit_' + classId + '_' + Date.now() + '_' + w.overworld.units.length;
             w.overworld.units.push({
               id: unitId,
               unitType: 'hero_party',
               leaderHeroId: heroId,
               heroId: heroId,
-              heroClassId: 'scout',
-              name: newHero.name + ' (Scout)',
+              heroClassId: classId,
+              name: newHero.name + ' (' + sCls.name + ')',
               shortName: newHero.name,
               x: sx,
               y: sy,
-              hp: newHero.stats ? newHero.stats.maxHp : 94,
-              maxHp: newHero.stats ? newHero.stats.maxHp : 94,
-              vision: 7,
-              visionRadius: 7,
+              hp: newHero.stats ? newHero.stats.maxHp : (sCls.hpBase || 100),
+              maxHp: newHero.stats ? newHero.stats.maxHp : (sCls.hpBase || 100),
+              vision: sCls.vision || 5,
+              visionRadius: sCls.vision || 5,
               alive: true,
               canEnterDungeon: true,
               status: 'idle'
@@ -37627,7 +38408,7 @@ function createDevConsoleController(options) {
           }
           selectedHeroId = heroId;
           notifyMutated();
-          return { ok: true, text: 'Recruited Scout "' + newHero.name + '" via Dev Console (normal recruitment awaits Rangers Lodge).' };
+          return { ok: true, text: 'Recruited ' + sCls.name + ' "' + newHero.name + '" via Dev Console shortcut.' };
         }
         if (!res || !res.ok) return { ok: false, text: 'Recruit failed: ' + ((res && (res.reason || res.error)) || 'rejected') };
         notifyMutated();
@@ -38563,7 +39344,7 @@ function drawHeroSprite(ctx, px, py, classId, size = TILE_SIZE) {
   drawSafeEllipse(ctx, 16, 29, 9, 3);
   ctx.fill();
 
-  if (classId === 'fighter') {
+  if (classId === 'bruiser') {
     // 1. FIGHTER: Ironclad Vanguard with Crimson Cape, Horned Helm, Heater Shield & Broadsword
     // Flowing crimson cape behind
     ctx.fillStyle = '#7f1d1d';
@@ -39078,7 +39859,7 @@ function __legacyPaperDollUnused(canvas, hero) {
   const h = canvas.height;
   ctx.clearRect(0, 0, w, h);
 
-  const classId = hero ? hero.classId : 'fighter';
+  const classId = hero ? hero.classId : 'bruiser';
   const cls = CLASSES[classId] || CLASSES.fighter;
   const themeColor = cls.color || '#fbbf24';
 
@@ -39126,7 +39907,7 @@ function __legacyPaperDollUnused(canvas, hero) {
   ctx.fill();
 
   // Class-specific silhouette cape & back ornaments
-  if (classId === 'fighter') {
+  if (classId === 'bruiser') {
     ctx.fillStyle = 'rgba(185, 28, 28, 0.45)';
     ctx.beginPath();
     ctx.moveTo(cx - 36, 100);
@@ -39188,7 +39969,7 @@ function __legacyPaperDollUnused(canvas, hero) {
   ctx.stroke();
 
   // Class Headwear Silhouettes
-  if (classId === 'fighter') {
+  if (classId === 'bruiser') {
     ctx.fillStyle = '#cbd5e1';
     ctx.beginPath();
     ctx.moveTo(cx - 15, 62);
@@ -41029,6 +41810,9 @@ function renderDungeonCanvas() {
 
 
 
+
+
+
 function evaluateWargameSelfTests() {
   const results = [];
 
@@ -41910,7 +42694,7 @@ function evaluateWargameSelfTests() {
   const templeAndGarrisonVerified = Boolean(
     preGarrisonMax === 1 &&
     postGarrisonMax === 2 &&
-    templeLv1Classes.indexOf('cleric') !== -1 &&
+    templeLv1Classes.indexOf('acolyte') !== -1 &&
     templeLv1Classes.indexOf('paladin') === -1 &&
     templeLv2Classes.indexOf('paladin') !== -1
   );
@@ -45842,14 +46626,14 @@ function evaluateWargameSelfTests() {
     };
     clericSandbox46.dungeon.floors[1] = cFloor46;
     clericSandbox46.hero = {
-      classId: 'cleric',
+      classId: 'acolyte',
       name: 'Sister Lyra',
       level: 1,
       xp: 0,
       maxXp: 60,
       x: 4,
       y: 4,
-      equipment: Object.assign({}, CLASSES.cleric ? CLASSES.cleric.starterGear : {}),
+      equipment: Object.assign({}, CLASSES.acolyte ? CLASSES.acolyte.starterGear : {}),
       bonusStats: { str: 0, dex: 0, int: 0, vit: 0 },
       talentsAllocated: {},
       statuses: []
@@ -45876,7 +46660,7 @@ function evaluateWargameSelfTests() {
     const hpPreHeal46 = clericSandbox46.hero.hp;
     const preview46 = getSkillTargetingInfo(clericSandbox46);
     const clericHit46 = executeClassSkill(clericSandbox46);
-    const clericClassRegOk46 = Boolean(CLASSES.cleric && clericSandbox46.hero.classId === 'cleric');
+    const clericClassRegOk46 = Boolean(CLASSES.acolyte && clericSandbox46.hero.classId === 'acolyte');
     const clericZeroMpOk46 = Boolean(!clericEmptySkill46.ok && mpAfterEmpty46 === mpPreEmpty46);
     const clericPreviewOk46 = Boolean(preview46 && preview46.valid === true && preview46.skillName === 'Sacred Flame');
     const clericHeal46 = executeAbility('healing_light', null, clericSandbox46);
@@ -45899,7 +46683,7 @@ function evaluateWargameSelfTests() {
     hostGear46.dispatch({ type: COMMAND_TYPES.RECRUIT_HERO, payload: { classId: 'mage', heroName: 'Vaelen' } });
     hostGear46.dispatch({ type: COMMAND_TYPES.RECRUIT_HERO, payload: { classId: 'ranger', heroName: 'Kael' } });
     hostGear46.stepClock(200000);
-    const hCleric46 = hostGear46.state.world.heroes.find(function(h) { return h.classId === 'cleric'; });
+    const hCleric46 = hostGear46.state.world.heroes.find(function(h) { return h.classId === 'acolyte'; });
     const hMage46 = hostGear46.state.world.heroes.find(function(h) { return h.classId === 'mage'; });
     const hRanger46 = hostGear46.state.world.heroes.find(function(h) { return h.classId === 'ranger'; });
     const starterGearOk46 = Boolean(
@@ -45956,8 +46740,8 @@ function evaluateWargameSelfTests() {
     host47.dispatch({ type: COMMAND_TYPES.RECRUIT_HERO, payload: { classId: 'cleric', heroName: 'Sister Sera' } });
     host47.stepClock(150000);
 
-    const newFighter47 = host47.state.world.heroes.find(function(h) { return h.classId === 'fighter'; });
-    const newCleric47 = host47.state.world.heroes.find(function(h) { return h.classId === 'cleric'; });
+    const newFighter47 = host47.state.world.heroes.find(function(h) { return h.classId === 'bruiser'; });
+    const newCleric47 = host47.state.world.heroes.find(function(h) { return h.classId === 'acolyte'; });
     const newHeroInitOk47 = Boolean(
       newFighter47 && newCleric47 &&
       newFighter47.level === 1 && newFighter47.xp === 0 && newFighter47.maxXp === DEFAULT_PERSISTENT_HERO_MAX_XP &&
@@ -46083,7 +46867,7 @@ function evaluateWargameSelfTests() {
     recomputeHeroDerivedStats(true, dngSandbox47);
     const dungeonCompatOk47 = Boolean(
       dngVet47.id === 'hero_vet_47' &&
-      dngVet47.classId === 'fighter' &&
+      dngVet47.classId === 'bruiser' &&
       dngVet47.level === 4 &&
       dngVet47.xp === 45 &&
       dngVet47.maxXp === 165 &&
@@ -46122,7 +46906,7 @@ function evaluateWargameSelfTests() {
   // =========================================================================
   // Test 48: HR-11 Canonical Class & Recruitment Metadata Separation
   // =========================================================================
-  const expectedRecruitIds48 = ['adventurer', 'fighter', 'scout', 'ranger', 'mage', 'thief', 'cleric', 'paladin'];
+  const expectedRecruitIds48 = ['adventurer', 'bruiser', 'scout', 'ranger', 'mage', 'thief', 'acolyte', 'paladin'];
   const allEntries48 = getAllRecruitableHeroEntries();
   const catalogKeys48 = Object.keys(HERO_RECRUITMENT_CATALOG);
 
@@ -46198,8 +46982,8 @@ function evaluateWargameSelfTests() {
   const fgtRecruitHtml48 = buildUnifiedBuildingStageHtml(host48, 'fighters_guild', city48);
   const uiRenderOk48 = Boolean(
     fgtRecruitHtml48 &&
-    fgtRecruitHtml48.indexOf(CLASSES.fighter.name) !== -1 &&
-    fgtRecruitHtml48.indexOf(CLASSES.fighter.title) !== -1 &&
+    fgtRecruitHtml48.indexOf(CLASSES.bruiser.name) !== -1 &&
+    fgtRecruitHtml48.indexOf(CLASSES.bruiser.title) !== -1 &&
     fgtRecruitHtml48.indexOf('50g') !== -1 &&
     fgtRecruitHtml48.indexOf('30 Food') !== -1
   );
@@ -46315,7 +47099,7 @@ function evaluateWargameSelfTests() {
 
     host49.dispatch({ type: COMMAND_TYPES.RECRUIT_HERO, payload: { classId: 'fighter', heroName: 'Bram Guard' } });
     host49.stepClock(80000);
-    const validHero49 = host49.state.world.heroes.find(function(h) { return h.classId === 'fighter'; });
+    const validHero49 = host49.state.world.heroes.find(function(h) { return h.classId === 'bruiser'; });
     const validUnit49 = host49.state.world.overworld.units.find(function(u) { return u.leaderHeroId === validHero49.id; });
 
     // Non-adventuring specialist (canEnterDungeon: false) cannot bind or enter
@@ -46356,7 +47140,7 @@ function evaluateWargameSelfTests() {
       unknownBindRejected49 &&
       stateNotCorrupted49 &&
       validBindRes49.ok &&
-      dngState49.hero && dngState49.hero.id === validHero49.id && dngState49.hero.classId === 'fighter'
+      dngState49.hero && dngState49.hero.id === validHero49.id && dngState49.hero.classId === 'bruiser'
     );
 
     t49Checks = {
@@ -46395,14 +47179,14 @@ function evaluateWargameSelfTests() {
     const city50 = getPrimaryCity(host50.state);
     city50.stockpile.gold = 600; city50.stockpile.food = 600;
     city50.buildings.temple_chapterhouse = 1;
-    host50.dispatch({ type: COMMAND_TYPES.RECRUIT_HERO, payload: { classId: 'cleric', heroName: 'Brother Aurelius' } });
+    host50.dispatch({ type: COMMAND_TYPES.RECRUIT_HERO, payload: { classId: 'acolyte', heroName: 'Brother Aurelius' } });
     host50.stepClock(80000);
 
-    const cleric50 = host50.state.world.heroes.find(function(h) { return h.classId === 'cleric'; });
+    const cleric50 = host50.state.world.heroes.find(function(h) { return h.classId === 'acolyte'; });
     const fiveAttrsInitOk50 = Boolean(
       cleric50 &&
       cleric50.bonusStats && cleric50.bonusStats.spi === 0 &&
-      cleric50.stats && cleric50.stats.spi === CLASSES.cleric.baseStats.spi &&
+      cleric50.stats && cleric50.stats.spi === CLASSES.acolyte.baseStats.spi &&
       cleric50.stats.magicPower > 0 &&
       cleric50.knowledge &&
       KNOWLEDGE_CATEGORIES.every(function(ck) { return cleric50.knowledge[ck] === 0; })
@@ -46489,7 +47273,7 @@ function evaluateWargameSelfTests() {
       relCleric50.knowledge.monster_knowledge === 2.5 &&
       relLegacy50 && relLegacy50.bonusStats.spi === 0 && relLegacy50.bonusStats.str === 1 &&
       relLegacy50.knowledge && relLegacy50.knowledge.monster_knowledge === 0 &&
-      relLegacy50.stats && relLegacy50.stats.spi === CLASSES.fighter.baseStats.spi + CLASSES.fighter.levelGrowth.spi
+      relLegacy50.stats && relLegacy50.stats.spi === CLASSES.bruiser.baseStats.spi + CLASSES.bruiser.levelGrowth.spi
     );
 
     // 7. Monster Knowledge gameplay reveal tiers (INT assists but does not substitute for topic expertise)
@@ -46564,7 +47348,7 @@ function evaluateWargameSelfTests() {
     host51.dispatch({ type: COMMAND_TYPES.RECRUIT_HERO, payload: { classId: 'cleric', heroName: 'Sister Lyra' } });
     host51.stepClock(80000);
 
-    const cleric51 = host51.state.world.heroes.find(function(h) { return h.classId === 'cleric'; });
+    const cleric51 = host51.state.world.heroes.find(function(h) { return h.classId === 'acolyte'; });
     const adv51 = host51.state.world.heroes.find(function(h) { return h.classId === 'adventurer'; });
     const clericUnit51 = host51.state.world.overworld.units.find(function(u) { return u.leaderHeroId === cleric51.id; });
     const advUnit51 = host51.state.world.overworld.units.find(function(u) { return u.leaderHeroId === adv51.id; });
@@ -46610,11 +47394,11 @@ function evaluateWargameSelfTests() {
     const rosterAfterReloadOk51 = Boolean(
       loaded51b &&
       !host51b.state.world.heroes.some(function(h) { return h.classId === 'mage'; }) &&
-      host51b.state.world.heroes.some(function(h) { return h.classId === 'cleric'; })
+      host51b.state.world.heroes.some(function(h) { return h.classId === 'acolyte'; })
     );
 
     // Re-enter the SAME dungeon with Cleric (different hero!)
-    const clericUnit51b = host51b.state.world.overworld.units.find(function(u) { return u.heroClassId === 'cleric' && u.alive; });
+    const clericUnit51b = host51b.state.world.overworld.units.find(function(u) { return u.heroClassId === 'acolyte' && u.alive; });
     clericUnit51b.x = dngPoi51.x; clericUnit51b.y = dngPoi51.y;
     const enterCleric51 = ctx51b.enterDungeon({ unitId: clericUnit51b.id, poiId: dngPoi51.id });
     const fl1After51 = ensureDungeonFloorHydrated(dngState51b.dungeon, 1);
@@ -46622,7 +47406,7 @@ function evaluateWargameSelfTests() {
       enterAdv51.ok && enterCleric51.ok &&
       dngState51b.dungeon.seedCode === origSeed51 &&
       fl1After51 && fl1After51.explored && fl1After51.explored[2] && fl1After51.explored[2][2] === 1 &&
-      dngState51b.hero && dngState51b.hero.classId === 'cleric'
+      dngState51b.hero && dngState51b.hero.classId === 'acolyte'
     );
 
     // Issue C: Level-up Cleric -> class-relevant fractional auto growth, +2 statPoints, +1 talentPoint; SPI allocation works
@@ -46664,8 +47448,8 @@ function evaluateWargameSelfTests() {
     // Issue E: Cleric/Acolyte skill metadata & targeting info populated cleanly
     const skillInfo51 = getSkillTargetingInfo(dngState51b);
     const skillVisibilityOk51 = Boolean(
-      CLASSES.cleric &&
-      CLASSES.cleric.skillDesc && CLASSES.cleric.skillDesc.length > 10 &&
+      CLASSES.acolyte &&
+      CLASSES.acolyte.skillDesc && CLASSES.acolyte.skillDesc.length > 10 &&
       skillInfo51 && skillInfo51.skillName === 'Sacred Flame' && skillInfo51.effectiveCost === 8
     );
 
@@ -46812,7 +47596,7 @@ function evaluateWargameSelfTests() {
   const owSpawn53 = con53.execute('spawn vault_crawler');
   const retireNoConfirm53 = vera53 ? con53.execute('retire ' + vera53.id) : { ok: true };
   const strategyOk53 = Boolean(
-    recCmd53.ok && vera53 && vera53.classId === 'cleric' &&
+    recCmd53.ok && vera53 && vera53.classId === 'acolyte' &&
     heroInspect53.ok && heroInspect53.text.indexOf('Sister Vera') !== -1 &&
     owSpawn53.ok &&
     !retireNoConfirm53.ok && retireNoConfirm53.text.indexOf('confirm') !== -1
@@ -46863,7 +47647,7 @@ function evaluateWargameSelfTests() {
   const clearCmd53 = con53.execute('clear');
   const dungeonCmdsOk53 = Boolean(
     xpCmd53.ok && dngState53.hero.level === 2 &&
-    skillsCmd53.ok && skillsCmd53.text.indexOf('Sacred Ward') !== -1 &&
+    skillsCmd53.ok && skillsCmd53.text.indexOf('Sacred Flame') !== -1 &&
     grantCmd53.ok && dngState53.hero.expeditionGear.length === 1 &&
     clearCmd53.ok && con53.getOutput().length === 1
   );
@@ -47702,16 +48486,16 @@ function evaluateWargameSelfTests() {
   const cam60 = executeStrategicAbility(host60, 'camouflage', { unit: scoutUnit60, hero: scoutHero60 });
   // 5. Complete 32-entry catalog count across the 5 approved entry-tier bindings
   const entryCounts60 = {
-    fighter: (CLASS_DEFAULT_ABILITIES.fighter || []).length,
+    bruiser: (CLASS_DEFAULT_ABILITIES.bruiser || []).length,
     mage: (CLASS_DEFAULT_ABILITIES.mage || []).length,
-    cleric: (CLASS_DEFAULT_ABILITIES.cleric || []).length,
+    acolyte: (CLASS_DEFAULT_ABILITIES.acolyte || []).length,
     scout: (CLASS_DEFAULT_ABILITIES.scout || []).length,
     adventurer: (CLASS_DEFAULT_ABILITIES.adventurer || []).length
   };
   const total32Ok60 = Boolean(
-    entryCounts60.fighter === 6 &&
+    entryCounts60.bruiser === 6 &&
     entryCounts60.mage === 6 &&
-    entryCounts60.cleric === 6 &&
+    entryCounts60.acolyte === 6 &&
     entryCounts60.scout === 7 &&
     entryCounts60.adventurer === 7 &&
     Object.keys(CLASS_CATALOG_BINDINGS).length === 5
@@ -47733,6 +48517,334 @@ function evaluateWargameSelfTests() {
     detail: t60Pass
       ? 'Scout recruitment, Reconnaissance, Forced Pace (-25% individual march step), Forage (+anti-exploit), Tracking, Camouflage & 32-entry bindings verified'
       : 'Failed checks: ' + failed60.join(', ')
+  });
+
+  // =========================================================================
+  // Test 61: MG-01C Player Experience & Integration
+  //          Canonical Bruiser/Acolyte Rename, Normal City Recruitment Paths,
+  //          Spellbook & Skill Browser, Configurable Quick-Access Slots & Persistence
+  // =========================================================================
+  const prevSavedRaw61 = (typeof localStorage !== 'undefined') ? localStorage.getItem(WARGAME_STORAGE_KEY) : null;
+  let t61Checks = {};
+  try {
+    // 1. Canonical class IDs & legacy normalization
+    const legacyHeroObj61 = {
+      id: 'hero_legacy_61',
+      name: 'Old Veteran',
+      classId: 'fighter',
+      ownerPlayerId: CANONICAL_PLAYER_ID,
+      level: 1,
+      xp: 0
+    };
+    normalizePersistentHeroInstance(legacyHeroObj61);
+    const legacyClericObj61 = {
+      id: 'hero_legacy_cleric_61',
+      name: 'Old Priest',
+      classId: 'cleric',
+      ownerPlayerId: CANONICAL_PLAYER_ID,
+      level: 1,
+      xp: 0
+    };
+    normalizePersistentHeroInstance(legacyClericObj61);
+    const canonicalIdsOk61 = Boolean(
+      CLASSES.bruiser && CLASSES.bruiser.name === 'Bruiser' &&
+      CLASSES.acolyte && CLASSES.acolyte.name === 'Acolyte' &&
+      !CLASSES.fighter && !CLASSES.cleric &&
+      CLASSES.thief && CLASSES.ranger && CLASSES.paladin &&
+      normalizeHeroClassId('fighter') === 'bruiser' &&
+      normalizeHeroClassId('cleric') === 'acolyte' &&
+      legacyHeroObj61.classId === 'bruiser' &&
+      legacyClericObj61.classId === 'acolyte'
+    );
+
+    // 2. Normal city recruitment alignment across all 5 entry guilds + Rangers Lodge & untouched troop camps
+    const host61 = createWargameSimHost();
+    host61.dispatch({ type: COMMAND_TYPES.START_NEW_CAMPAIGN, payload: { houseName: 'House Integration', worldName: 'Spellbook Realm', seedCode: 'STAR-6101' } });
+    host61.dispatch({ type: COMMAND_TYPES.FOUND_CITY, payload: { cityName: 'Lodgekeep' } });
+    const city61 = getPrimaryCity(host61.state);
+    city61.stockpile.gold = 2000;
+    city61.stockpile.food = 2000;
+    city61.buildings.guild_hall = 1;
+    city61.buildings.fighters_guild = 1;
+    city61.buildings.mages_guild = 1;
+    city61.buildings.temple_chapterhouse = 1;
+    city61.buildings.rangers_lodge = 1;
+    city61.buildings.fighter_camp = 1;
+    city61.buildings.archer_camp = 1;
+
+    const availClasses61 = getCityRecruitableClasses(city61);
+    const recruitAlignOk61 = Boolean(
+      availClasses61.indexOf('bruiser') !== -1 &&
+      availClasses61.indexOf('mage') !== -1 &&
+      availClasses61.indexOf('acolyte') !== -1 &&
+      availClasses61.indexOf('scout') !== -1 &&
+      availClasses61.indexOf('adventurer') !== -1 &&
+      availClasses61.indexOf('ranger') !== -1 &&
+      availClasses61.indexOf('fighter') === -1 &&
+      availClasses61.indexOf('cleric') === -1 &&
+      CITY_BUILDINGS_CATALOG.fighter_camp &&
+      CITY_BUILDINGS_CATALOG.archer_camp &&
+      CITY_BUILDINGS_CATALOG.rangers_lodge
+    );
+
+    // Normal recruitment of Scout via Rangers Lodge and legacy 'fighter' -> Bruiser
+    const recScout61 = host61.dispatch({ type: COMMAND_TYPES.RECRUIT_HERO, payload: { classId: 'scout', heroName: 'Lira Trailblazer' } });
+    const recLegacyFighter61 = host61.dispatch({ type: COMMAND_TYPES.RECRUIT_HERO, payload: { classId: 'fighter', heroName: 'Garrick Stone' } });
+    const recAcolyte61 = host61.dispatch({ type: COMMAND_TYPES.RECRUIT_HERO, payload: { classId: 'acolyte', heroName: 'Brother Tamsin' } });
+    host61.stepClock(220000);
+    const scout61 = host61.state.world.heroes.find(function(h) { return h.name === 'Lira Trailblazer'; });
+    const bruiser61 = host61.state.world.heroes.find(function(h) { return h.name === 'Garrick Stone'; });
+    const acolyte61 = host61.state.world.heroes.find(function(h) { return h.name === 'Brother Tamsin'; });
+    const normalRecruitOk61 = Boolean(
+      recScout61.ok && scout61 && scout61.classId === 'scout' &&
+      recLegacyFighter61.ok && bruiser61 && bruiser61.classId === 'bruiser' &&
+      recAcolyte61.ok && acolyte61 && acolyte61.classId === 'acolyte'
+    );
+
+    // 3. Spellbook & Skill Browser: shows ALL known abilities (including non-slotted & unavailable)
+    grantAbilityAccess(acolyte61, 'fireball', 'learned');
+    const sbDungeonEntries61 = buildHeroSpellbookEntries(acolyte61, { context: 'tactical_dungeon' });
+    const sbFireball61 = sbDungeonEntries61.find(function(e) { return e.id === 'fireball'; });
+    const sbSanctuary61 = sbDungeonEntries61.find(function(e) { return e.id === 'sanctuary'; });
+    const sbHtml61 = renderHeroSpellbookHtml(acolyte61, { context: 'tactical_dungeon', showQuickSlots: true, allowCast: true });
+    // Scout has both tactical_dungeon and overworld entries — verify non-current context entries are NOT hidden
+    const scoutSbEntries61 = buildHeroSpellbookEntries(scout61, { context: 'tactical_dungeon' });
+    const scoutReconEntry61 = scoutSbEntries61.find(function(e) { return e.id === 'reconnaissance'; });
+    const spellbookOk61 = Boolean(
+      sbDungeonEntries61.length === 7 &&
+      sbFireball61 && sbFireball61.sources.indexOf('learned') !== -1 &&
+      sbSanctuary61 && sbSanctuary61.sources.indexOf('class') !== -1 &&
+      sbHtml61.indexOf('Fireball') !== -1 && sbHtml61.indexOf('Sacred Flame') !== -1 &&
+      scoutReconEntry61 && scoutReconEntry61.inCurrentContext === false && scoutReconEntry61.usableNow === false && scoutReconEntry61.unavailableReason === 'invalid_context'
+    );
+
+    // 4. Configurable Quick-Access Slots (assign, duplicate-swap, clear, swap, context separation, save/load & dungeon sync)
+    const dngSlotsBefore61 = getHeroQuickSlots(acolyte61, 'tactical_dungeon');
+    const assignNew61 = assignQuickSlot(acolyte61, 'tactical_dungeon', 3, 'fireball');
+    const dupSwap61 = assignQuickSlot(acolyte61, 'tactical_dungeon', 0, 'fireball');
+    const afterDup61 = getHeroQuickSlots(acolyte61, 'tactical_dungeon');
+    const clearSlot2_61 = clearQuickSlot(acolyte61, 'tactical_dungeon', 2);
+    const swap01_61 = swapQuickSlots(acolyte61, 'tactical_dungeon', 0, 1);
+    const afterOps61 = getHeroQuickSlots(acolyte61, 'tactical_dungeon');
+    // Overworld slots for Scout remain independent from dungeon slots
+    const scoutOwAssign61 = assignQuickSlot(scout61, 'overworld', 0, 'forage');
+    const scoutDngSlots61 = getHeroQuickSlots(scout61, 'tactical_dungeon');
+    const scoutOwSlots61 = getHeroQuickSlots(scout61, 'overworld');
+
+    const quickSlotOpsOk61 = Boolean(
+      dngSlotsBefore61.length === QUICK_SLOT_COUNT &&
+      assignNew61.ok &&
+      dupSwap61.ok && dupSwap61.swappedWith === 3 &&
+      afterDup61[0].abilityId === 'fireball' &&
+      clearSlot2_61.ok &&
+      swap01_61.ok &&
+      afterOps61[1].abilityId === 'fireball' &&
+      afterOps61[2].abilityId === null &&
+      scoutOwAssign61.ok &&
+      scoutOwSlots61[0].abilityId === 'forage' &&
+      scoutDngSlots61[0].abilityId !== 'forage'
+    );
+
+    // Persist quick slots across save/load AND bindCanonicalHeroToDungeonState
+    host61.save();
+    const reload61 = createWargameSimHost();
+    reload61.load();
+    const relAcolyte61 = acolyte61 ? reload61.state.world.heroes.find(function(h) { return h.id === acolyte61.id; }) : null;
+    const relSlots61 = relAcolyte61 ? getHeroQuickSlots(relAcolyte61, 'tactical_dungeon') : [];
+    const dngState61 = createDefaultGameState();
+    const bindRes61 = relAcolyte61
+      ? bindCanonicalHeroToDungeonState(reload61, dngState61, { heroId: relAcolyte61.id, dungeonId: 'starfall_vaults' })
+      : { ok: false };
+    const boundSlots61 = bindRes61.ok ? getHeroQuickSlots(dngState61.hero, 'tactical_dungeon') : [];
+    const quickSlotPersistOk61 = Boolean(
+      relSlots61.length === QUICK_SLOT_COUNT &&
+      relSlots61[1].abilityId === 'fireball' &&
+      relSlots61[2].abilityId === null &&
+      bindRes61.ok &&
+      boundSlots61[1].abilityId === 'fireball' &&
+      boundSlots61[2].abilityId === null
+    );
+
+    t61Checks = {
+      canonicalIdsOk: canonicalIdsOk61,
+      recruitAlignOk: recruitAlignOk61,
+      normalRecruitOk: normalRecruitOk61,
+      spellbookOk: spellbookOk61,
+      quickSlotOpsOk: quickSlotOpsOk61,
+      quickSlotPersistOk: quickSlotPersistOk61
+    };
+  } finally {
+    if (typeof localStorage !== 'undefined') {
+      if (prevSavedRaw61 === null) localStorage.removeItem(WARGAME_STORAGE_KEY);
+      else localStorage.setItem(WARGAME_STORAGE_KEY, prevSavedRaw61);
+    }
+  }
+  const failed61 = Object.keys(t61Checks).filter(function(k) { return !t61Checks[k]; });
+  const t61Pass = failed61.length === 0 && Object.keys(t61Checks).length > 0;
+  results.push({
+    name: '61. MG-01C: Canonical Bruiser/Acolyte Rename, Normal City Recruitment, Spellbook Browser & Configurable Quick-Access Slots',
+    pass: t61Pass,
+    detail: t61Pass
+      ? 'Canonical bruiser/acolyte IDs + legacy migration, all 5 entry guild recruitment paths (incl. Rangers Lodge), Spellbook browser, and 4-slot configurable Quick-Access persistence verified'
+      : 'Failed checks: ' + failed61.join(', ')
+  });
+
+  // =========================================================================
+  // Test 62: MG-01C Playtest Corrections
+  //          Hotlist Ownership ([1]-[4], Cleared Slots, Revoke/Restore),
+  //          Categorized Building Menu & Per-City Guild Uniqueness Lifecycle
+  // =========================================================================
+  const prevSavedRaw62 = (typeof localStorage !== 'undefined') ? localStorage.getItem(WARGAME_STORAGE_KEY) : null;
+  let t62Checks = {};
+  try {
+    const host62 = createWargameSimHost();
+    host62.dispatch({ type: COMMAND_TYPES.START_NEW_CAMPAIGN, payload: { houseName: 'House Limits', worldName: 'Guild Realm', seedCode: 'STAR-6201' } });
+    host62.dispatch({ type: COMMAND_TYPES.FOUND_CITY, payload: { cityName: 'Uniquehold' } });
+    const city62 = getPrimaryCity(host62.state);
+    city62.stockpile.wood = 2000;
+    city62.stockpile.stone = 2000;
+    city62.stockpile.gold = 2000;
+    city62.stockpile.food = 2000;
+    city62.stockpile.water = 2000;
+    city62.buildings.meeting_hall = 2;
+    city62.buildings.quarry = 1;
+    city62.buildings.lumber_camp = 1;
+    city62.buildings.barracks = 1;
+    city62.population.current = 30;
+    city62.population.max = 40;
+
+    // 1. Categorized Building Menu covers all constructible catalog entries with valid metadata
+    const groups62 = getBuildingsGroupedByMenuCategory(city62);
+    const groupedIds62 = [];
+    for (let gi = 0; gi < groups62.length; gi++) {
+      for (let bi = 0; bi < groups62[gi].buildingIds.length; bi++) {
+        groupedIds62.push(groups62[gi].buildingIds[bi]);
+      }
+    }
+    const expectedConstructibleCount62 = Object.keys(CITY_BUILDINGS_CATALOG).filter(function(k) { return k !== 'meeting_hall'; }).length;
+    const categoriesOk62 = Boolean(
+      BUILDING_MENU_CATEGORIES.length >= 7 &&
+      groups62.length >= 7 &&
+      groupedIds62.length === expectedConstructibleCount62
+    );
+
+    // 2. Per-city limit metadata ONLY on approved unique hero/temple guilds (not huts or troop camps)
+    const limitMetaOk62 = Boolean(
+      getBuildingMaxPerCity('fighters_guild') === 1 &&
+      getBuildingMaxPerCity('mages_guild') === 1 &&
+      getBuildingMaxPerCity('rangers_lodge') === 1 &&
+      getBuildingMaxPerCity('guild_hall') === 1 &&
+      getBuildingMaxPerCity('temple_chapterhouse') === 1 &&
+      getBuildingMaxPerCity('hut') === null &&
+      getBuildingMaxPerCity('garden') === null &&
+      getBuildingMaxPerCity('fighter_camp') === null &&
+      getBuildingMaxPerCity('archer_camp') === null
+    );
+
+    // 3. Authoritative QUEUE_BUILDING lifecycle: first build -> reject queued dup -> complete -> reject built dup -> upgrade OK -> demolish -> rebuild OK
+    const emptyPlots62 = city62.plots.filter(function(p) { return !p.buildingId; }).map(function(p) { return p.plotIndex; });
+    const pA62 = emptyPlots62[0];
+    const pB62 = emptyPlots62[1];
+    const pC62 = emptyPlots62[2];
+
+    const firstFg62 = host62.dispatch({ type: COMMAND_TYPES.QUEUE_BUILDING, payload: { plotIndex: pA62, buildingId: 'fighters_guild' } });
+    const limWhileQueued62 = evaluateCityBuildingLimit(city62, 'fighters_guild');
+    const dupQueuedFg62 = host62.dispatch({ type: COMMAND_TYPES.QUEUE_BUILDING, payload: { plotIndex: pB62, buildingId: 'fighters_guild' } });
+    host62.stepClock(15000); // Finish Lv 1 Fighters Guild
+    const limAfterBuilt62 = evaluateCityBuildingLimit(city62, 'fighters_guild');
+    const dupBuiltFg62 = host62.dispatch({ type: COMMAND_TYPES.QUEUE_BUILDING, payload: { plotIndex: pB62, buildingId: 'fighters_guild' } });
+    // Upgrading the existing Fighters Guild on pA62 (Lv 1 -> Lv 2) must remain allowed!
+    const upgradeFg62 = host62.dispatch({ type: COMMAND_TYPES.QUEUE_BUILDING, payload: { plotIndex: pA62, buildingId: 'fighters_guild' } });
+    host62.stepClock(25000); // Finish Lv 2 Fighters Guild
+    // Demolishing releases the allocation so a rebuild succeeds
+    const demolishFg62 = host62.dispatch({ type: COMMAND_TYPES.DEMOLISH_BUILDING, payload: { plotIndex: pA62 } });
+    host62.stepClock(30000); // Finish demolition
+    const limAfterDemolish62 = evaluateCityBuildingLimit(city62, 'fighters_guild');
+    const rebuildFg62 = host62.dispatch({ type: COMMAND_TYPES.QUEUE_BUILDING, payload: { plotIndex: pC62, buildingId: 'fighters_guild' } });
+    host62.stepClock(15000);
+
+    const guildLifecycleOk62 = Boolean(
+      firstFg62.ok &&
+      limWhileQueued62.atLimit === true && limWhileQueued62.queuedNewCount === 1 &&
+      !dupQueuedFg62.ok &&
+      limAfterBuilt62.atLimit === true && limAfterBuilt62.builtCount === 1 &&
+      !dupBuiltFg62.ok &&
+      upgradeFg62.ok &&
+      demolishFg62.ok &&
+      limAfterDemolish62.atLimit === false && limAfterDemolish62.builtCount === 0 &&
+      rebuildFg62.ok
+    );
+
+    // 4. Repeatable buildings (Hut) & troop camps (Fighter Camp) remain unaffected; pre-existing duplicates are reported non-destructively
+    const pD62 = emptyPlots62[3];
+    const pE62 = emptyPlots62[4];
+    const pF62 = emptyPlots62[5];
+    const hut1_62 = host62.dispatch({ type: COMMAND_TYPES.QUEUE_BUILDING, payload: { plotIndex: pD62, buildingId: 'hut' } });
+    const hut2_62 = host62.dispatch({ type: COMMAND_TYPES.QUEUE_BUILDING, payload: { plotIndex: pE62, buildingId: 'hut' } });
+    const fc1_62 = host62.dispatch({ type: COMMAND_TYPES.QUEUE_BUILDING, payload: { plotIndex: pF62, buildingId: 'fighter_camp' } });
+    host62.stepClock(30000);
+    // Simulate pre-existing duplicate Mages Guilds in a playtest profile
+    const pG62 = emptyPlots62[6];
+    const pH62 = emptyPlots62[7];
+    city62.plots[pG62].buildingId = 'mages_guild'; city62.plots[pG62].level = 1;
+    city62.plots[pH62].buildingId = 'mages_guild'; city62.plots[pH62].level = 1;
+    const dupDetect62 = evaluateCityBuildingLimit(city62, 'mages_guild');
+    const repeatableAndDupOk62 = Boolean(
+      hut1_62.ok && hut2_62.ok && fc1_62.ok &&
+      dupDetect62.builtCount === 2 &&
+      dupDetect62.duplicateDetected === true &&
+      dupDetect62.atLimit === true &&
+      city62.plots[pG62].buildingId === 'mages_guild' &&
+      city62.plots[pH62].buildingId === 'mages_guild'
+    );
+
+    // 5. Hotlist ownership in Wargame: [1]-[4] labels, all-cleared slots persist across save/load & dungeon bind
+    host62.dispatch({ type: COMMAND_TYPES.RECRUIT_HERO, payload: { classId: 'bruiser', heroName: 'Torin Shield' } });
+    host62.stepClock(70000);
+    const torin62 = host62.state.world.heroes.find(function(h) { return h.name === 'Torin Shield'; });
+    const initSlots62 = torin62 ? getHeroQuickSlots(torin62, 'tactical_dungeon') : [];
+    if (torin62) {
+      clearQuickSlot(torin62, 'tactical_dungeon', 0);
+      clearQuickSlot(torin62, 'tactical_dungeon', 1);
+      clearQuickSlot(torin62, 'tactical_dungeon', 2);
+      clearQuickSlot(torin62, 'tactical_dungeon', 3);
+    }
+    host62.save();
+    const reload62 = createWargameSimHost();
+    reload62.load();
+    const relTorin62 = torin62 ? reload62.state.world.heroes.find(function(h) { return h.id === torin62.id; }) : null;
+    const relSlots62 = relTorin62 ? getHeroQuickSlots(relTorin62, 'tactical_dungeon') : [];
+    const dng62 = createDefaultGameState();
+    const bind62 = relTorin62 ? bindCanonicalHeroToDungeonState(reload62, dng62, { heroId: relTorin62.id, dungeonId: 'starfall_vaults' }) : { ok: false };
+    const boundSlots62 = bind62.ok ? getHeroQuickSlots(dng62.hero, 'tactical_dungeon') : [];
+    const hotlistOwnershipOk62 = Boolean(
+      initSlots62.length === 4 &&
+      initSlots62[0].hotkey === '1' && initSlots62[3].hotkey === '4' &&
+      relSlots62.length === 4 && relSlots62.every(function(s) { return s.abilityId === null; }) &&
+      bind62.ok && boundSlots62.length === 4 && boundSlots62.every(function(s) { return s.abilityId === null; })
+    );
+
+    t62Checks = {
+      categoriesOk: categoriesOk62,
+      limitMetaOk: limitMetaOk62,
+      guildLifecycleOk: guildLifecycleOk62,
+      repeatableAndDupOk: repeatableAndDupOk62,
+      hotlistOwnershipOk: hotlistOwnershipOk62
+    };
+  } finally {
+    if (typeof localStorage !== 'undefined') {
+      if (prevSavedRaw62 === null) localStorage.removeItem(WARGAME_STORAGE_KEY);
+      else localStorage.setItem(WARGAME_STORAGE_KEY, prevSavedRaw62);
+    }
+  }
+  const failed62 = Object.keys(t62Checks).filter(function(k) { return !t62Checks[k]; });
+  const t62Pass = failed62.length === 0 && Object.keys(t62Checks).length > 0;
+  results.push({
+    name: '62. MG-01C Playtest Corrections: Hotlist Ownership ([1]-[4]), Categorized Building Menu & Per-City Guild Uniqueness',
+    pass: t62Pass,
+    detail: t62Pass
+      ? 'Strict [1]-[4] hotlist ownership + persistent cleared slots, data-driven building categories, and authoritative 1/city guild limit (queued/built/upgrade/demolish/rebuild) verified'
+      : 'Failed checks: ' + failed62.join(', ')
   });
 
   return results;
@@ -48487,7 +49599,7 @@ function attachDevConsolePanelListeners(devConsole, onRender) {
     } else if (act === 'apply-status') {
       devConsole.applyTestStatusToHero(actBtn.getAttribute('data-val') || 'burn', 3);
     } else if (act === 'recruit-hero') {
-      const clsId = fieldVal('recruitClass') || 'fighter';
+      const clsId = fieldVal('recruitClass') || 'bruiser';
       const rName = String(fieldVal('recruitName') || '').trim();
       devConsole.execute(rName ? ('recruit ' + clsId + ' "' + rName.replace(/"/g, '') + '"') : ('recruit ' + clsId));
     } else if (act === 'select-party') {
@@ -48555,6 +49667,8 @@ function attachDevConsolePanelListeners(devConsole, onRender) {
 
 
 
+
+
 const simHost = createWargameSimHost();
 simHost.attachDungeonState(gameState);
 
@@ -48563,6 +49677,7 @@ const levelUpNotificationQueue = [];
 let levelUpAutoDismissTimer = null;
 let dungeonCanvasWired = false;
 let dungeonInventoryOpen = false;
+let dungeonSpellbookOpen = false;
 let wargameBootstrapped = false;
 
 function getLevelUpNotificationQueue() {
@@ -48845,7 +49960,7 @@ function syncIntegratedDungeonHud() {
 
   const skillEl = document.getElementById('wgDungeonSkillCard');
   if (skillEl) {
-    const abilities = getHeroAbilityBarState(gameState);
+    const quickSlots = getHeroQuickAccessBar(gameState);
     const manualId = getManualTargetingAbility();
     const shieldBanner = (h.absorbShield || 0) > 0
       ? '<div class="px-2 py-1 rounded bg-[#312e81]/40 border border-[#818cf8]/50 text-[10px] font-mono text-[#c7d2fe]">🛡️ Absorb Shield: <strong>' + h.absorbShield + '</strong></div>'
@@ -48854,38 +49969,63 @@ function syncIntegratedDungeonHud() {
       ? '<div class="px-2 py-1 rounded bg-[#7c2d12]/40 border border-[#fb923c]/60 text-[10px] font-mono text-[#fed7aa]">⏳ Channeling <strong>' + h.pendingCast.name + '</strong> (' + h.pendingCast.turnsLeft + 't)</div>'
       : '';
     const targetBanner = manualId
-      ? '<div class="flex items-center justify-between px-2 py-1 rounded bg-[#1e3a8a]/50 border border-[#fbbf24]/70 text-[10px] font-mono text-[#fef08a]"><span>🎯 Click tile/foe to cast</span><button onclick="window.WargameApp.handleCancelDungeonTargeting()" class="px-1.5 py-0.5 rounded bg-[#0f172a] text-[#e2e8f0] hover:bg-[#1e293b] cursor-pointer">Esc</button></div>'
+      ? '<div class="flex items-center justify-between px-2 py-1 rounded bg-[#1e3a8a]/50 border border-[#fbbf24]/70 text-[10px] font-mono text-[#fef08a]"><span>🎯 Tap/click tile or foe</span><button onclick="window.WargameApp.handleCancelDungeonTargeting()" class="px-1.5 py-0.5 rounded bg-[#0f172a] text-[#e2e8f0] hover:bg-[#1e293b] cursor-pointer">Cancel</button></div>'
       : '';
-    const btnsHtml = abilities.map(function(ab) {
-      const isTargeting = manualId === ab.id;
-      const costText = ab.effectiveMp > 0
-        ? (ab.effectiveMp + ' MP' + (ab.chilledPenalty > 0 ? '❄' : ''))
-        : (ab.cooldown > 0 ? (ab.cooldown + 't CD') : 'Free');
-      const stateTag = ab.silenced
-        ? '<span class="text-[#e879f9]">SILENCED</span>'
-        : (ab.cooldownRemaining > 0
-          ? '<span class="text-[#f87171]">CD ' + ab.cooldownRemaining + 't</span>'
-          : (ab.canAfford ? '<span class="text-[#34d399]">READY</span>' : '<span class="text-[#f87171]">LOW MP</span>'));
-      const borderCls = isTargeting
-        ? 'border-[#fbbf24] bg-[#1e293b]'
-        : (ab.ready ? 'border-[#60a5fa]/40 bg-[#1a2232] hover:bg-[#283347]' : 'border-[#283347] bg-[#0f141e] opacity-75');
-      return '<button title="' + (ab.desc || '') + '" onmouseenter="window.WargameApp.handleDungeonAbilityHover(true, \'' + ab.id + '\')" onmouseleave="window.WargameApp.handleDungeonAbilityHover(false)" onclick="window.WargameApp.handleDungeonAbilityClick(\'' + ab.id + '\')" class="w-full px-2 py-1.5 rounded border text-left text-[11px] font-mono cursor-pointer transition-colors ' + borderCls + '">' +
-        '<div class="flex items-center justify-between gap-1">' +
-          '<span class="font-bold text-[#e6edf3] truncate">[' + ab.hotkey + '] ' + ab.icon + ' ' + ab.name + '</span>' +
-          '<span class="text-[10px] text-[#fbbf24] shrink-0">' + costText + '</span>' +
-        '</div>' +
-        '<div class="flex items-center justify-between text-[9px] text-[#94a3b8] mt-0.5">' +
-          '<span class="uppercase">' + ab.domain + ' • ' + ab.kind + (ab.timing === 'delayed' ? ' • 1t windup' : '') + '</span>' +
-          stateTag +
-        '</div>' +
-      '</button>';
-    }).join('');
+    const headerBar =
+      '<div class="flex items-center justify-between gap-1 pb-1">' +
+        '<span class="text-[10px] font-mono uppercase tracking-wider text-[#94a3b8]">Quick Slots [1-4]</span>' +
+        '<button type="button" onclick="window.WargameApp.handleToggleDungeonSpellbook()" class="px-2 py-0.5 rounded border text-[10px] font-mono cursor-pointer ' +
+          (dungeonSpellbookOpen ? 'bg-[#60a5fa]/20 border-[#60a5fa] text-[#93c5fd] font-bold' : 'bg-[#1a2232] hover:bg-[#283347] border-[#334155] text-[#cbd5e1]') + '">' +
+          (dungeonSpellbookOpen ? '✕ Close [Q]' : '📖 Spellbook [Q]') +
+        '</button>' +
+      '</div>';
 
-    skillEl.innerHTML =
-      shieldBanner +
-      pendingBanner +
-      targetBanner +
-      '<div class="space-y-1.5 max-h-[210px] overflow-y-auto pr-0.5">' + btnsHtml + '</div>';
+    let bodyHtml = '';
+    if (dungeonSpellbookOpen) {
+      bodyHtml = renderHeroSpellbookHtml(h, {
+        context: 'tactical_dungeon',
+        contextFilter: (simHost.state && simHost.state._spellbookContextFilter) || 'all',
+        kindFilter: (simHost.state && simHost.state._spellbookKindFilter) || 'all',
+        allowCast: true,
+        actionPrefix: 'window.WargameApp'
+      });
+    } else {
+      bodyHtml = '<div class="space-y-1.5">' + quickSlots.map(function(ab) {
+        if (ab.empty) {
+          return '<button type="button" onclick="window.WargameApp.handleToggleDungeonSpellbook()" class="w-full px-2 py-1.5 rounded border border-dashed border-[#283347] bg-[#080b11] text-left text-[10px] font-mono text-[#64748b] hover:text-[#94a3b8] cursor-pointer">[' + ab.hotkey + '] Empty Slot — Open Spellbook [Q] to assign</button>';
+        }
+        const isTargeting = manualId === ab.id;
+        const costText = ab.effectiveMp > 0
+          ? (ab.effectiveMp + ' MP' + (ab.chilledPenalty > 0 ? '❄' : ''))
+          : (ab.cooldown > 0 ? (ab.cooldown + 't CD') : 'Free');
+        const stateTag = !ab.granted
+          ? '<span class="text-[#f87171]">NO ACCESS</span>'
+          : (!ab.availableInContext
+            ? '<span class="text-[#f87171]">WRONG CTX</span>'
+            : (ab.silenced
+              ? '<span class="text-[#e879f9]">SILENCED</span>'
+              : (ab.cooldownRemaining > 0
+                ? '<span class="text-[#f87171]">CD ' + ab.cooldownRemaining + 't</span>'
+                : (ab.unavailableReason === 'requires_ranged_weapon'
+                  ? '<span class="text-[#fb923c]">NEED BOW</span>'
+                  : (ab.canAfford ? '<span class="text-[#34d399]">READY</span>' : '<span class="text-[#f87171]">LOW MP</span>')))));
+        const borderCls = isTargeting
+          ? 'border-[#fbbf24] bg-[#1e293b]'
+          : (ab.ready ? 'border-[#60a5fa]/40 bg-[#1a2232] hover:bg-[#283347] cursor-pointer' : 'border-[#283347] bg-[#0f141e] opacity-60 cursor-not-allowed');
+        return '<button title="' + (ab.desc || '') + '" onmouseenter="window.WargameApp.handleDungeonAbilityHover(true, \'' + ab.id + '\')" onmouseleave="window.WargameApp.handleDungeonAbilityHover(false)" onclick="window.WargameApp.handleDungeonQuickSlot(' + ab.slotIndex + ')" class="w-full px-2 py-1.5 rounded border text-left text-[11px] font-mono transition-colors ' + borderCls + '">' +
+          '<div class="flex items-center justify-between gap-1">' +
+            '<span class="font-bold ' + (ab.ready ? 'text-[#e6edf3]' : 'text-[#94a3b8]') + ' truncate">[' + ab.hotkey + '] ' + ab.icon + ' ' + ab.name + '</span>' +
+            '<span class="text-[10px] text-[#fbbf24] shrink-0">' + costText + '</span>' +
+          '</div>' +
+          '<div class="flex items-center justify-between text-[9px] text-[#94a3b8] mt-0.5">' +
+            '<span class="uppercase">' + ab.domain + ' • ' + ab.kind + (ab.timing === 'delayed' ? ' • 1t windup' : '') + '</span>' +
+            stateTag +
+          '</div>' +
+        '</button>';
+      }).join('') + '</div>';
+    }
+
+    skillEl.innerHTML = headerBar + shieldBanner + pendingBanner + targetBanner + bodyHtml;
   }
 
   const logEl = document.getElementById('wgDungeonLog');
@@ -49075,6 +50215,9 @@ const appContext = createAppContextController({
   dungeonState: gameState,
   onEnsureDungeonInitialized: wireIntegratedDungeonCallbacksOnce,
   onContextChanged: function(ctx) {
+    setManualTargetingAbility(null);
+    setSkillHover(false);
+    dungeonSpellbookOpen = false;
     if (ctx === APP_CONTEXTS.DUNGEON) {
       dungeonInventoryOpen = false;
       updateFOV();
@@ -50220,6 +51363,8 @@ function handleDungeonWait() {
 
 function handleDungeonUseStairs() {
   if (appContext.getActiveContext() !== APP_CONTEXTS.DUNGEON) return;
+  setManualTargetingAbility(null);
+  setSkillHover(false);
   useStairsAtPlayer();
   syncIntegratedDungeonHud();
 }
@@ -50270,14 +51415,105 @@ function handleDungeonDropItem(itemUid) {
 
 function handleDungeonSkill() {
   if (appContext.getActiveContext() !== APP_CONTEXTS.DUNGEON) return;
-  const abilities = getHeroAbilityBarState(gameState);
-  const first = abilities[0] || null;
+  const qSlots = getHeroQuickAccessBar(gameState);
+  const first = qSlots[0] && !qSlots[0].empty ? qSlots[0] : null;
   if (first) {
     handleDungeonAbilityClick(first.id);
     return;
   }
   executeClassSkill(gameState);
   syncIntegratedDungeonHud();
+}
+
+function handleToggleDungeonSpellbook(forceOpen) {
+  dungeonSpellbookOpen = typeof forceOpen === 'boolean' ? forceOpen : !dungeonSpellbookOpen;
+  syncIntegratedDungeonHud();
+}
+
+function resolveSpellbookHero() {
+  if (appContext.getActiveContext() === APP_CONTEXTS.DUNGEON && gameState && gameState.hero) {
+    return gameState.hero;
+  }
+  const w = simHost && simHost.state && simHost.state.world;
+  if (!w || !Array.isArray(w.heroes)) return null;
+  if (simHost.state._openHeroSheetId) {
+    return w.heroes.find(function(h) { return h && h.id === simHost.state._openHeroSheetId; }) || w.heroes[0] || null;
+  }
+  return w.heroes[0] || null;
+}
+
+function mirrorQuickSlotsToCanonicalHero(hero) {
+  if (!hero || !simHost || !simHost.state || !simHost.state.world || !Array.isArray(simHost.state.world.heroes)) return;
+  const canonical = simHost.state.world.heroes.find(function(h) { return h && h.id === hero.id; });
+  if (canonical && canonical !== hero && hero.quickSlots) {
+    canonical.quickSlots = JSON.parse(JSON.stringify(hero.quickSlots));
+    canonical._quickSlotsCustomized = Boolean(hero._quickSlotsCustomized);
+    canonical._quickSlotsInitialized = hero._quickSlotsInitialized ? Object.assign({}, hero._quickSlotsInitialized) : null;
+  }
+}
+
+function handleSpellbookFilter(ctxFilter, kindFilter) {
+  if (simHost && simHost.state) {
+    simHost.state._spellbookContextFilter = ctxFilter || 'all';
+    simHost.state._spellbookKindFilter = kindFilter || 'all';
+    if (ctxFilter === 'overworld' || ctxFilter === 'tactical_dungeon') {
+      simHost.state._spellbookActiveContext = ctxFilter;
+    }
+    simHost.state._dirty = true;
+  }
+  if (appContext.getActiveContext() === APP_CONTEXTS.DUNGEON) syncIntegratedDungeonHud();
+  else syncWargameUI(simHost);
+}
+
+function handleAssignQuickSlot(contextId, slotIndex, abilityId) {
+  const hero = resolveSpellbookHero();
+  if (!hero) return { ok: false, reason: 'no_hero' };
+  const res = assignQuickSlot(hero, contextId, slotIndex, abilityId);
+  if (res.ok) {
+    mirrorQuickSlotsToCanonicalHero(hero);
+    simHost.save();
+    if (appContext.getActiveContext() === APP_CONTEXTS.DUNGEON) syncIntegratedDungeonHud();
+    else syncWargameUI(simHost);
+  }
+  return res;
+}
+
+function handleClearQuickSlot(contextId, slotIndex) {
+  const hero = resolveSpellbookHero();
+  if (!hero) return { ok: false, reason: 'no_hero' };
+  const res = clearQuickSlot(hero, contextId, slotIndex);
+  if (res.ok) {
+    mirrorQuickSlotsToCanonicalHero(hero);
+    simHost.save();
+    if (appContext.getActiveContext() === APP_CONTEXTS.DUNGEON) syncIntegratedDungeonHud();
+    else syncWargameUI(simHost);
+  }
+  return res;
+}
+
+function handleSwapQuickSlots(contextId, idxA, idxB) {
+  const hero = resolveSpellbookHero();
+  if (!hero) return { ok: false, reason: 'no_hero' };
+  const res = swapQuickSlots(hero, contextId, idxA, idxB);
+  if (res.ok) {
+    mirrorQuickSlotsToCanonicalHero(hero);
+    simHost.save();
+    if (appContext.getActiveContext() === APP_CONTEXTS.DUNGEON) syncIntegratedDungeonHud();
+    else syncWargameUI(simHost);
+  }
+  return res;
+}
+
+function handleSpellbookCast(abilityId, contextId) {
+  if (contextId === 'overworld') {
+    return handleStrategicAbility(abilityId);
+  }
+  if (appContext.getActiveContext() === APP_CONTEXTS.DUNGEON) {
+    dungeonSpellbookOpen = false;
+    handleDungeonAbilityClick(abilityId);
+    return { ok: true };
+  }
+  return { ok: false, reason: 'wrong_context' };
 }
 
 function handleDungeonAbilityHover(active, abilityId) {
@@ -50299,12 +51535,77 @@ function handleStrategicAbility(abilityId) {
   return res;
 }
 
+function handleDungeonQuickSlot(slotIndex) {
+  if (appContext.getActiveContext() !== APP_CONTEXTS.DUNGEON || !gameState || !gameState.hero) return { ok: false, reason: 'wrong_context' };
+  const qSlots = getHeroQuickAccessBar(gameState);
+  const slot = qSlots[slotIndex];
+  if (!slot || slot.empty || !slot.id) {
+    appendUnifiedDungeonLog('Quick Slot [' + (slotIndex + 1) + '] is empty. Press [Q] to open Spellbook and assign a spell or skill.', 'info');
+    syncIntegratedDungeonHud();
+    return { ok: false, reason: 'empty_slot' };
+  }
+  if (!slot.granted) {
+    appendUnifiedDungeonLog(slot.name + ' is currently unavailable (no access).', 'bad');
+    syncIntegratedDungeonHud();
+    return { ok: false, reason: 'not_granted' };
+  }
+  if (!slot.availableInContext) {
+    appendUnifiedDungeonLog(slot.name + ' cannot be used in Tactical Dungeon.', 'bad');
+    syncIntegratedDungeonHud();
+    return { ok: false, reason: 'invalid_context' };
+  }
+  if (!slot.ready) {
+    const why = slot.silenced ? 'Silenced' : (slot.cooldownRemaining > 0 ? ('Cooldown ' + slot.cooldownRemaining + 't') : (slot.unavailableReason === 'requires_ranged_weapon' ? 'Requires Ranged Weapon' : 'Insufficient MP'));
+    appendUnifiedDungeonLog(slot.name + ' cannot be used (' + why + ').', 'bad');
+    syncIntegratedDungeonHud();
+    return { ok: false, reason: slot.unavailableReason || 'unavailable' };
+  }
+  return handleDungeonAbilityClick(slot.id);
+}
+
+function handleOverworldQuickSlot(slotIndex) {
+  if (!simHost || !simHost.state || !simHost.state.world) return { ok: false, reason: 'no_world' };
+  const selUnit = getSelectedOverworldUnit(simHost.state);
+  if (!selUnit || !selUnit.leaderHeroId) return { ok: false, reason: 'no_hero_unit' };
+  const hero = (simHost.state.world.heroes || []).find(function(h) { return h && h.id === selUnit.leaderHeroId; }) || null;
+  if (!hero) return { ok: false, reason: 'no_hero' };
+  const slots = getHeroQuickSlots(hero, 'overworld');
+  const sl = slots[slotIndex];
+  if (!sl || !sl.abilityId) return { ok: false, reason: 'empty_slot' };
+  if (!sl.granted || !sl.availableInContext) {
+    simHost.state._lastStrategicFeedback = 'Quick Slot [' + (slotIndex + 1) + '] is currently unavailable.';
+    syncWargameUI(simHost);
+    return { ok: false, reason: !sl.granted ? 'not_granted' : 'invalid_context' };
+  }
+  return handleStrategicAbility(sl.abilityId);
+}
+
+function handleToggleBuildingCategory(categoryId) {
+  if (!simHost || !simHost.state || !categoryId) return;
+  if (!simHost.state._collapsedBuildingCategories || typeof simHost.state._collapsedBuildingCategories !== 'object') {
+    simHost.state._collapsedBuildingCategories = {};
+  }
+  simHost.state._collapsedBuildingCategories[categoryId] = !simHost.state._collapsedBuildingCategories[categoryId];
+  simHost.state._dirty = true;
+  syncWargameUI(simHost);
+}
+
 function handleDungeonAbilityClick(abilityId) {
-  if (appContext.getActiveContext() !== APP_CONTEXTS.DUNGEON || !gameState || !gameState.hero) return;
-  selectHeroActiveAbility(abilityId, gameState);
+  if (appContext.getActiveContext() !== APP_CONTEXTS.DUNGEON || !gameState || !gameState.hero) return { ok: false, reason: 'wrong_context' };
   const bar = getHeroAbilityBarState(gameState);
   const entry = bar.find(function(a) { return a.id === abilityId; });
-  if (entry && entry.requiresManualTarget) {
+  if (!entry) {
+    appendUnifiedDungeonLog('That spell or skill is not currently accessible.', 'bad');
+    syncIntegratedDungeonHud();
+    return { ok: false, reason: 'not_granted' };
+  }
+  if (!entry.ready) {
+    const why = entry.silenced ? 'Silenced' : (entry.cooldownRemaining > 0 ? ('Cooldown ' + entry.cooldownRemaining + 't') : (entry.unavailableReason === 'requires_ranged_weapon' ? 'Requires Ranged Weapon' : 'Insufficient MP'));
+    appendUnifiedDungeonLog(entry.name + ' cannot be used (' + why + ').', 'bad');
+    syncIntegratedDungeonHud();
+    return { ok: false, reason: entry.unavailableReason || 'unavailable' };
+  }
+  if (entry.requiresManualTarget) {
     if (getManualTargetingAbility() === abilityId) {
       // Second click cancels targeting
       setManualTargetingAbility(null);
@@ -50314,12 +51615,13 @@ function handleDungeonAbilityClick(abilityId) {
       setSkillHover(true, abilityId);
     }
     syncIntegratedDungeonHud();
-    return;
+    return { ok: true, targeting: getManualTargetingAbility() };
   }
   setManualTargetingAbility(null);
   setSkillHover(false);
-  executeAbility(abilityId, null, gameState);
+  const res = executeAbility(abilityId, null, gameState);
   syncIntegratedDungeonHud();
+  return res;
 }
 
 function handleDungeonTonic() {
@@ -50608,17 +51910,17 @@ function setupWargameListeners() {
         syncIntegratedDungeonHud();
       } else if (e.key === 'q' || e.key === 'Q') {
         e.preventDefault();
-        handleDungeonSkill();
-      } else if (e.key >= '1' && e.key <= '7') {
+        handleToggleDungeonSpellbook();
+      } else if (e.key >= '1' && e.key <= '4') {
+        e.preventDefault();
         const slotIdx = parseInt(e.key, 10) - 1;
-        const bar = getHeroAbilityBarState(gameState);
-        if (bar[slotIdx]) {
-          e.preventDefault();
-          handleDungeonAbilityClick(bar[slotIdx].id);
-        }
+        handleDungeonQuickSlot(slotIdx);
       } else if (e.key === 'Escape' && getManualTargetingAbility()) {
         e.preventDefault();
         handleCancelDungeonTargeting();
+      } else if (e.key === 'Escape' && dungeonSpellbookOpen) {
+        e.preventDefault();
+        handleToggleDungeonSpellbook(false);
       } else if (e.key === 'h' || e.key === 'H') {
         e.preventDefault();
         handleDungeonTonic();
@@ -50649,6 +51951,28 @@ function setupWargameListeners() {
       handleStepOverworld(1, 0);
     } else if (e.key === ' ') {
       handleTogglePauseClock();
+    } else if (e.key === 'q' || e.key === 'Q') {
+      e.preventDefault();
+      if (simHost.state._openHeroSheetId) {
+        handleCloseHeroSheet();
+      } else {
+        const selOw = getSelectedOverworldUnit(simHost.state);
+        const hId = (selOw && selOw.leaderHeroId) || null;
+        if (simHost.state.activeView === WARGAME_VIEWS.OVERWORLD) {
+          simHost.state._spellbookActiveContext = 'overworld';
+        }
+        handleOpenHeroSheet(hId);
+      }
+    } else if (e.key >= '1' && e.key <= '4' && simHost.state.activeView === WARGAME_VIEWS.OVERWORLD && !simHost.state._openHeroSheetId) {
+      const selOw = getSelectedOverworldUnit(simHost.state);
+      if (selOw && selOw.leaderHeroId) {
+        e.preventDefault();
+        handleOverworldQuickSlot(parseInt(e.key, 10) - 1);
+      } else if (e.key === '1') {
+        handleSetSimSpeed(1);
+      } else if (e.key === '2') {
+        handleSetSimSpeed(2);
+      }
     } else if (e.key === '1') {
       handleSetSimSpeed(1);
     } else if (e.key === '2') {
@@ -50821,6 +52145,15 @@ const WargameApp = {
   handleDungeonAbilityClick: handleDungeonAbilityClick,
   handleDungeonAbilityHover: handleDungeonAbilityHover,
   handleCancelDungeonTargeting: handleCancelDungeonTargeting,
+  handleDungeonQuickSlot: handleDungeonQuickSlot,
+  handleOverworldQuickSlot: handleOverworldQuickSlot,
+  handleToggleBuildingCategory: handleToggleBuildingCategory,
+  handleToggleDungeonSpellbook: handleToggleDungeonSpellbook,
+  handleSpellbookFilter: handleSpellbookFilter,
+  handleAssignQuickSlot: handleAssignQuickSlot,
+  handleClearQuickSlot: handleClearQuickSlot,
+  handleSwapQuickSlots: handleSwapQuickSlots,
+  handleSpellbookCast: handleSpellbookCast,
   handleStrategicAbility: handleStrategicAbility,
   handleDungeonTonic: handleDungeonTonic,
   handleDungeonRecall: handleDungeonRecall,

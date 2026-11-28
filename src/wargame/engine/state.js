@@ -24,9 +24,10 @@ import { isInOverworldBounds, areHexesAdjacent } from './hexSpatial.js';
 import { createInitialTasksState } from './taskEngine.js';
 import { CITY_PLOT_SLOTS, CITY_BUILDINGS_CATALOG, normalizeBuildingId } from '../data/buildings.js';
 import { normalizeEquipmentItem } from '../../data/items.js';
-import { isClassDungeonEligible } from '../../data/classes.js';
+import { CLASSES, isClassDungeonEligible, normalizeHeroClassId } from '../../data/classes.js';
 import { computeHeroDerivedStats, normalizeHeroBonusStats } from '../../core/heroStats.js';
 import { normalizeHeroKnowledge } from '../../core/knowledge.js';
+import { normalizeActorAbilityState } from '../../core/abilityEngine.js';
 import {
   getTroopDefinition,
   normalizeLegacyTroopDefId,
@@ -389,6 +390,14 @@ export function refreshHeroDerivedStats(hero) {
 export function normalizePersistentHeroInstance(hero) {
   if (!hero || typeof hero !== 'object') return hero;
 
+  // Narrow legacy class ID normalization (MG-01C): fighter -> bruiser, cleric -> acolyte
+  if (typeof hero.classId === 'string') {
+    const normCls = normalizeHeroClassId(hero.classId);
+    if (normCls && normCls !== hero.classId && CLASSES[normCls]) {
+      hero.classId = normCls;
+    }
+  }
+
   if (typeof hero.level !== 'number' || !isFinite(hero.level) || hero.level < 1) {
     hero.level = 1;
   }
@@ -401,6 +410,7 @@ export function normalizePersistentHeroInstance(hero) {
 
   hero.bonusStats = normalizeHeroBonusStats(hero.bonusStats);
   hero.knowledge = normalizeHeroKnowledge(hero.knowledge);
+  normalizeActorAbilityState(hero);
   if (hero.equipment && typeof hero.equipment === 'object') {
     const eqKeys = ['weapon', 'armor', 'helm', 'boots', 'accessory', 'pickaxe'];
     for (let ei = 0; ei < eqKeys.length; ei++) {

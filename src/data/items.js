@@ -473,12 +473,13 @@ export function computeItemPowerScore(item) {
 
 // Lightweight, explicit, provisional class preference weights grounded in heroStats.js & combat.js scaling.
 export const CLASS_ITEM_PREFERENCE_WEIGHTS = {
-  fighter:    { atk: 2.6, def: 2.2, magicPower: 0.2, maxHp: 0.35, maxMp: 0.10, crit: 1.3, dodge: 1.0, str: 2.2, dex: 1.0, int: 0.2, vit: 2.0, spi: 0.2, thorns: 1.8, leech: 2.4, ward: 2.0, visionBonus: 1.5 },
+  bruiser:    { atk: 2.6, def: 2.2, magicPower: 0.2, maxHp: 0.35, maxMp: 0.10, crit: 1.3, dodge: 1.0, str: 2.2, dex: 1.0, int: 0.2, vit: 2.0, spi: 0.2, thorns: 1.8, leech: 2.4, ward: 2.0, visionBonus: 1.5 },
   thief:      { atk: 2.3, def: 1.4, magicPower: 0.2, maxHp: 0.20, maxMp: 0.15, crit: 2.5, dodge: 2.2, str: 1.1, dex: 2.4, int: 0.3, vit: 1.0, spi: 0.2, thorns: 0.8, leech: 2.2, ward: 1.4, visionBonus: 2.0 },
   ranger:     { atk: 2.3, def: 1.5, magicPower: 0.2, maxHp: 0.20, maxMp: 0.15, crit: 2.3, dodge: 2.4, str: 1.1, dex: 2.4, int: 0.3, vit: 1.0, spi: 0.2, thorns: 0.8, leech: 1.8, ward: 1.5, visionBonus: 3.0 },
+  scout:      { atk: 2.2, def: 1.4, magicPower: 0.4, maxHp: 0.22, maxMp: 0.18, crit: 2.2, dodge: 2.3, str: 1.0, dex: 2.4, int: 1.4, vit: 1.1, spi: 0.5, thorns: 0.7, leech: 1.5, ward: 1.4, visionBonus: 3.0 },
   mage:       { atk: 0.6, def: 1.3, magicPower: 2.8, maxHp: 0.20, maxMp: 0.40, crit: 1.4, dodge: 1.3, str: 0.3, dex: 0.8, int: 2.6, vit: 1.0, spi: 1.2, thorns: 0.6, leech: 0.8, ward: 2.4, visionBonus: 2.0 },
   paladin:    { atk: 2.2, def: 2.3, magicPower: 1.2, maxHp: 0.32, maxMp: 0.22, crit: 1.1, dodge: 0.9, str: 1.8, dex: 0.8, int: 0.8, vit: 2.0, spi: 1.8, thorns: 1.8, leech: 1.8, ward: 2.2, visionBonus: 1.5 },
-  cleric:     { atk: 1.1, def: 1.8, magicPower: 2.6, maxHp: 0.28, maxMp: 0.35, crit: 0.9, dodge: 1.0, str: 0.8, dex: 0.6, int: 1.6, vit: 1.5, spi: 2.6, thorns: 0.8, leech: 1.0, ward: 2.4, visionBonus: 1.5 },
+  acolyte:    { atk: 1.1, def: 1.8, magicPower: 2.6, maxHp: 0.28, maxMp: 0.35, crit: 0.9, dodge: 1.0, str: 0.8, dex: 0.6, int: 1.6, vit: 1.5, spi: 2.6, thorns: 0.8, leech: 1.0, ward: 2.4, visionBonus: 1.5 },
   adventurer: { atk: 2.0, def: 2.0, magicPower: 1.4, maxHp: 0.25, maxMp: 0.25, crit: 1.5, dodge: 1.5, str: 1.4, dex: 1.4, int: 1.2, vit: 1.4, spi: 1.2, thorns: 1.5, leech: 1.8, ward: 2.0, visionBonus: 2.5 }
 };
 
@@ -487,7 +488,8 @@ export function computeClassItemPreferenceScore(item, classId) {
   if (item.slot === 'pickaxe') {
     return computeItemPowerScore(item);
   }
-  const w = (classId && CLASS_ITEM_PREFERENCE_WEIGHTS[classId]) ? CLASS_ITEM_PREFERENCE_WEIGHTS[classId] : null;
+  const normId = classId === 'fighter' ? 'bruiser' : (classId === 'cleric' ? 'acolyte' : classId);
+  const w = (normId && CLASS_ITEM_PREFERENCE_WEIGHTS[normId]) ? CLASS_ITEM_PREFERENCE_WEIGHTS[normId] : null;
   if (!w) return computeItemPowerScore(item);
   const b = getEffectiveItemBonuses(item);
   const openSockets = Math.max(0, (item.maxSockets || 0) - (Array.isArray(item.sockets) ? item.sockets.length : 0));
