@@ -5305,6 +5305,7 @@ function computeHeroDerivedStats(hero, externalModifiers) {
   }
 
   // Active Status & Shrine Buffs
+  let heroGuarding = false;
   if (Array.isArray(hero.statuses)) {
     for (let i = 0; i < hero.statuses.length; i++) {
       const st = hero.statuses[i];
@@ -5317,6 +5318,12 @@ function computeHeroDerivedStats(hero, externalModifiers) {
         visionBonus += 1;
       } else if (st.id === 'chilled') {
         flatDodge -= 15;
+      } else if (st.id === 'slow') {
+        flatDodge -= 10;
+      } else if (st.id === 'ward_buff') {
+        flatWard += 4;
+      } else if (st.id === 'guarding') {
+        heroGuarding = true;
       }
     }
   }
@@ -5348,7 +5355,8 @@ function computeHeroDerivedStats(hero, externalModifiers) {
 
   const atk = Math.round(primaryOffensive + flatAtk);
   const magicPower = Math.round(magicBase + flatMagic);
-  const def = Math.round(vit * 0.45) + flatDef;
+  const baseDef = Math.round(vit * 0.45) + flatDef;
+  const def = heroGuarding ? Math.round(baseDef * 1.6) : baseDef;
   const crit = Math.min(75, Math.round(5 + (dex * 0.45) + flatCrit));
   const dodge = Math.max(0, Math.min(60, Math.round(4 + (dex * 0.35) + flatDodge)));
   const visionRadius = (cls.vision || 5) + visionBonus;
@@ -9565,8 +9573,1192 @@ function resolveHazardStepEffects(actor, x, y, floor) {
   return { triggered: true, damage: totalDmg, statuses: appliedStatuses };
 }
 
+  // --- Module: src/data/abilities.js ---
+// Shared Context-Independent Spell, Prayer, Martial Technique & Adventuring Skill Catalog (MG-01A)
+// Immutable definitions separated from actor-owned runtime access grants and cooldowns.
+
+const ABILITY_DOMAINS = Object.freeze({
+  ARCANE: 'arcane',
+  DIVINE: 'divine',
+  NATURE: 'nature',
+  MARTIAL: 'martial',
+  ADVENTURING: 'adventuring'
+});
+
+const ABILITY_KINDS = Object.freeze({
+  SPELL: 'spell',
+  PRAYER: 'prayer',
+  TECHNIQUE: 'technique',
+  SKILL: 'skill',
+  POWER: 'power'
+});
+
+const ABILITY_ACCESS_SOURCES = Object.freeze([
+  'class',
+  'learned',
+  'item',
+  'temporary'
+]);
+
+const CLEANSEABLE_STATUS_IDS = Object.freeze([
+  'burn',
+  'poison',
+  'bleed',
+  'weakened',
+  'chilled',
+  'slow',
+  'silence'
+]);
+
+const ABILITIES = Object.freeze({
+  // -------------------------------------------------------------------------
+  // MARTIAL TECHNIQUES (Fighter / Bruiser & shared physical skills)
+  // -------------------------------------------------------------------------
+  whirlwind_cleave: Object.freeze({
+    id: 'whirlwind_cleave',
+    name: 'Whirlwind Cleave',
+    icon: '⚔️',
+    kind: 'technique',
+    domain: 'martial',
+    discipline: 'weapon_mastery',
+    purpose: 'damage',
+    activation: 'active',
+    timing: 'immediate',
+    windupTurns: 0,
+    contexts: ['tactical_dungeon'],
+    timeSemantics: 'tactical_turn',
+    acquisition: 'class',
+    costs: { mp: 10, cooldown: 0 },
+    targeting: {
+      mode: 'auto_area',
+      pattern: 'radius',
+      range: 1.5,
+      radius: 1.5,
+      requireLos: false,
+      filter: 'enemy',
+      maxTargets: 8
+    },
+    scaling: 'physical',
+    damageType: 'physical',
+    effects: [
+      { type: 'damage', mult: 1.45, damageType: 'physical', scaling: 'physical', respectGuarding: true },
+      { type: 'status', statusId: 'stun', duration: 1 }
+    ],
+    vfx: { type: 'slash', color: '#f97316' },
+    desc: 'Sweeping cleave striking all adjacent enemies for 145% physical damage (respects Guarding).'
+  }),
+
+  power_strike: Object.freeze({
+    id: 'power_strike',
+    name: 'Power Strike',
+    icon: '🪓',
+    kind: 'technique',
+    domain: 'martial',
+    discipline: 'weapon_mastery',
+    purpose: 'damage',
+    activation: 'active',
+    timing: 'immediate',
+    windupTurns: 0,
+    contexts: ['tactical_dungeon'],
+    timeSemantics: 'tactical_turn',
+    acquisition: 'class',
+    costs: { mp: 0, cooldown: 2 },
+    targeting: {
+      mode: 'manual_enemy',
+      pattern: 'single',
+      range: 1.5,
+      radius: 0,
+      requireLos: false,
+      filter: 'enemy',
+      maxTargets: 1
+    },
+    scaling: 'physical',
+    damageType: 'physical',
+    effects: [
+      { type: 'damage', mult: 1.65, bonusFlat: 4, damageType: 'physical', scaling: 'physical', respectGuarding: true }
+    ],
+    vfx: { type: 'crit_slash', color: '#fb923c' },
+    desc: 'Cooldown martial strike dealing 165% physical damage to an adjacent enemy (0 MP, 2t CD).'
+  }),
+
+  overpower: Object.freeze({
+    id: 'overpower',
+    name: 'Overpower',
+    icon: '💥',
+    kind: 'technique',
+    domain: 'martial',
+    discipline: 'combat_control',
+    purpose: 'control',
+    activation: 'active',
+    timing: 'immediate',
+    windupTurns: 0,
+    contexts: ['tactical_dungeon'],
+    timeSemantics: 'tactical_turn',
+    acquisition: 'class',
+    costs: { mp: 0, cooldown: 4 },
+    targeting: {
+      mode: 'manual_enemy',
+      pattern: 'single',
+      range: 1.5,
+      radius: 0,
+      requireLos: false,
+      filter: 'enemy',
+      maxTargets: 1
+    },
+    scaling: 'physical',
+    damageType: 'physical',
+    effects: [
+      { type: 'damage', mult: 1.25, damageType: 'physical', scaling: 'physical', respectGuarding: true },
+      { type: 'knockback', distance: 1, collideStunTurns: 2, collideBonusDmg: 6 }
+    ],
+    vfx: { type: 'slash', color: '#f59e0b' },
+    desc: 'Crushing blow that knocks an adjacent foe back 1 tile; slamming into a wall stuns for 2 turns (0 MP, 4t CD).'
+  }),
+
+  brace: Object.freeze({
+    id: 'brace',
+    name: 'Brace',
+    icon: '🛡️',
+    kind: 'technique',
+    domain: 'martial',
+    discipline: 'defense',
+    purpose: 'defense',
+    activation: 'active',
+    timing: 'immediate',
+    windupTurns: 0,
+    contexts: ['tactical_dungeon'],
+    timeSemantics: 'tactical_turn',
+    acquisition: 'class',
+    costs: { mp: 0, cooldown: 4 },
+    targeting: {
+      mode: 'self',
+      pattern: 'self',
+      range: 0,
+      radius: 0,
+      requireLos: false,
+      filter: 'self',
+      maxTargets: 1
+    },
+    scaling: 'physical',
+    damageType: 'none',
+    effects: [
+      { type: 'shield', baseAmount: 14, defMult: 1.2, maxShieldCap: 80 },
+      { type: 'status', statusId: 'guarding', duration: 2, targetSelf: true }
+    ],
+    vfx: { type: 'shield', color: '#60a5fa' },
+    desc: 'Raise a defensive stance gaining an Absorb Shield and Guarding (+60% DEF) for 2 turns (0 MP, 4t CD).'
+  }),
+
+  second_wind_reactive: Object.freeze({
+    id: 'second_wind_reactive',
+    name: 'Second Wind',
+    icon: '🫀',
+    kind: 'technique',
+    domain: 'martial',
+    discipline: 'endurance',
+    purpose: 'defense',
+    activation: 'reactive',
+    triggerEvent: 'on_hero_low_hp',
+    triggerThresholdPct: 0.35,
+    timing: 'immediate',
+    windupTurns: 0,
+    contexts: ['tactical_dungeon'],
+    timeSemantics: 'tactical_turn',
+    acquisition: 'class',
+    costs: { mp: 0, cooldown: 6 },
+    targeting: {
+      mode: 'self',
+      pattern: 'self',
+      range: 0,
+      radius: 0,
+      requireLos: false,
+      filter: 'self',
+      maxTargets: 1
+    },
+    scaling: 'physical',
+    damageType: 'none',
+    effects: [
+      { type: 'heal', maxHpPct: 0.16, targetSelf: true },
+      { type: 'shield', baseAmount: 10, defMult: 0.8, maxShieldCap: 60 }
+    ],
+    vfx: { type: 'shield', color: '#34d399' },
+    desc: 'Reactive technique: automatically triggers when dropping below 35% HP to restore 16% Max HP and raise a shield (6t CD).'
+  }),
+
+  // -------------------------------------------------------------------------
+  // ARCANE SPELLS (Mage representative catalog)
+  // -------------------------------------------------------------------------
+  starfall_nova: Object.freeze({
+    id: 'starfall_nova',
+    name: 'Starfall Nova',
+    icon: '✨',
+    kind: 'spell',
+    domain: 'arcane',
+    discipline: 'evocation',
+    purpose: 'damage',
+    activation: 'active',
+    timing: 'immediate',
+    windupTurns: 0,
+    contexts: ['tactical_dungeon'],
+    timeSemantics: 'tactical_turn',
+    acquisition: 'class',
+    costs: { mp: 16, cooldown: 0 },
+    targeting: {
+      mode: 'auto_area',
+      pattern: 'radius',
+      range: 4.2,
+      radius: 4.2,
+      requireLos: true,
+      filter: 'enemy',
+      maxTargets: 12
+    },
+    scaling: 'arcane',
+    damageType: 'magical',
+    effects: [
+      { type: 'damage', mult: 1.55, bonusFlat: 4, damageType: 'magical', scaling: 'arcane' }
+    ],
+    vfx: { type: 'wave', color: '#818cf8' },
+    desc: 'Arcane burst striking all visible foes within 4 tiles, scaling with Magic Power and INT.'
+  }),
+
+  arcane_missile: Object.freeze({
+    id: 'arcane_missile',
+    name: 'Arcane Missile',
+    icon: '🔮',
+    kind: 'spell',
+    domain: 'arcane',
+    discipline: 'evocation',
+    purpose: 'damage',
+    activation: 'active',
+    timing: 'immediate',
+    windupTurns: 0,
+    contexts: ['tactical_dungeon'],
+    timeSemantics: 'tactical_turn',
+    acquisition: 'class',
+    costs: { mp: 6, cooldown: 0 },
+    targeting: {
+      mode: 'manual_enemy',
+      pattern: 'single',
+      range: 5.5,
+      radius: 0,
+      requireLos: true,
+      filter: 'enemy',
+      maxTargets: 1
+    },
+    scaling: 'arcane',
+    damageType: 'magical',
+    effects: [
+      { type: 'damage', mult: 1.35, bonusFlat: 4, damageType: 'magical', scaling: 'arcane' }
+    ],
+    vfx: { type: 'beam', color: '#a78bfa' },
+    desc: 'Fires a focused bolt of arcane energy at a visible enemy within 5 tiles (scales with Magic Power).'
+  }),
+
+  fireball: Object.freeze({
+    id: 'fireball',
+    name: 'Fireball',
+    icon: '🔥',
+    kind: 'spell',
+    domain: 'arcane',
+    discipline: 'pyromancy',
+    purpose: 'damage',
+    activation: 'active',
+    timing: 'delayed',
+    windupTurns: 1,
+    contexts: ['tactical_dungeon'],
+    timeSemantics: 'tactical_turn',
+    acquisition: 'class',
+    costs: { mp: 14, cooldown: 2 },
+    targeting: {
+      mode: 'manual_location',
+      pattern: 'radius',
+      range: 5.2,
+      radius: 1,
+      requireLos: true,
+      filter: 'enemy',
+      maxTargets: 9
+    },
+    scaling: 'arcane',
+    damageType: 'magical',
+    effects: [
+      { type: 'damage', mult: 1.85, bonusFlat: 6, damageType: 'magical', scaling: 'arcane' },
+      { type: 'status', statusId: 'burn', duration: 3 }
+    ],
+    vfx: { type: 'spell', color: '#fb923c' },
+    desc: 'Channels for 1 turn, then detonates a 3x3 fireball at the target location dealing high arcane damage + Burn (interruptible by Stun/Silence).'
+  }),
+
+  frost_nova: Object.freeze({
+    id: 'frost_nova',
+    name: 'Frost Nova',
+    icon: '❄️',
+    kind: 'spell',
+    domain: 'arcane',
+    discipline: 'cryomancy',
+    purpose: 'control',
+    activation: 'active',
+    timing: 'immediate',
+    windupTurns: 0,
+    contexts: ['tactical_dungeon'],
+    timeSemantics: 'tactical_turn',
+    acquisition: 'class',
+    costs: { mp: 12, cooldown: 3 },
+    targeting: {
+      mode: 'auto_area',
+      pattern: 'radius',
+      range: 2.5,
+      radius: 2.5,
+      requireLos: true,
+      filter: 'enemy',
+      maxTargets: 12
+    },
+    scaling: 'arcane',
+    damageType: 'magical',
+    effects: [
+      { type: 'damage', mult: 1.15, bonusFlat: 2, damageType: 'magical', scaling: 'arcane' },
+      { type: 'status', statusId: 'slow', duration: 3 },
+      { type: 'status', statusId: 'chilled', duration: 2 }
+    ],
+    vfx: { type: 'wave', color: '#38bdf8' },
+    desc: 'Freezing ring around the caster dealing magical damage and inflicting Slow (3t) and Chilled (2t).'
+  }),
+
+  arcane_ward: Object.freeze({
+    id: 'arcane_ward',
+    name: 'Arcane Ward',
+    icon: '🔷',
+    kind: 'spell',
+    domain: 'arcane',
+    discipline: 'abjuration',
+    purpose: 'defense',
+    activation: 'active',
+    timing: 'immediate',
+    windupTurns: 0,
+    contexts: ['tactical_dungeon'],
+    timeSemantics: 'tactical_turn',
+    acquisition: 'class',
+    costs: { mp: 10, cooldown: 3 },
+    targeting: {
+      mode: 'self',
+      pattern: 'self',
+      range: 0,
+      radius: 0,
+      requireLos: false,
+      filter: 'self',
+      maxTargets: 1
+    },
+    scaling: 'arcane',
+    damageType: 'none',
+    effects: [
+      { type: 'shield', baseAmount: 16, magicMult: 1.35, maxShieldCap: 95 },
+      { type: 'status', statusId: 'ward_buff', duration: 3, targetSelf: true }
+    ],
+    vfx: { type: 'shield', color: '#818cf8' },
+    desc: 'Weaves an arcane barrier absorbing incoming damage (scales with Magic Power) and granting +4 Ward for 3 turns.'
+  }),
+
+  blink: Object.freeze({
+    id: 'blink',
+    name: 'Blink',
+    icon: '🌀',
+    kind: 'spell',
+    domain: 'arcane',
+    discipline: 'translocation',
+    purpose: 'mobility',
+    activation: 'active',
+    timing: 'immediate',
+    windupTurns: 0,
+    contexts: ['tactical_dungeon'],
+    timeSemantics: 'tactical_turn',
+    acquisition: 'class',
+    costs: { mp: 10, cooldown: 3 },
+    targeting: {
+      mode: 'manual_location',
+      pattern: 'single',
+      range: 4.5,
+      radius: 0,
+      requireLos: true,
+      filter: 'any',
+      maxTargets: 1,
+      requireWalkable: true
+    },
+    scaling: 'arcane',
+    damageType: 'none',
+    effects: [
+      { type: 'teleport' }
+    ],
+    vfx: { type: 'teleport', color: '#c084fc' },
+    desc: 'Instantly teleports to an unobstructed visible floor tile within 4 tiles.'
+  }),
+
+  detect_magic: Object.freeze({
+    id: 'detect_magic',
+    name: 'Detect Magic',
+    icon: '👁️',
+    kind: 'spell',
+    domain: 'arcane',
+    discipline: 'divination',
+    purpose: 'utility',
+    activation: 'active',
+    timing: 'immediate',
+    windupTurns: 0,
+    contexts: ['tactical_dungeon'],
+    timeSemantics: 'tactical_turn',
+    acquisition: 'class',
+    costs: { mp: 0, cooldown: 3 },
+    targeting: {
+      mode: 'self',
+      pattern: 'self',
+      range: 0,
+      radius: 6,
+      requireLos: false,
+      filter: 'self',
+      maxTargets: 1
+    },
+    scaling: 'none',
+    damageType: 'none',
+    effects: [
+      { type: 'detect', radius: 6, revealTraps: true, revealSecretDoors: true }
+    ],
+    vfx: { type: 'wave', color: '#34d399' },
+    desc: 'Divination pulse revealing hidden traps and secret doors within 6 tiles (0 MP, 3t CD).'
+  }),
+
+  // -------------------------------------------------------------------------
+  // DIVINE PRAYERS (Cleric / Acolyte & Paladin representative catalog)
+  // -------------------------------------------------------------------------
+  sacred_ward: Object.freeze({
+    id: 'sacred_ward',
+    name: 'Sacred Ward',
+    icon: '☀️',
+    kind: 'prayer',
+    domain: 'divine',
+    discipline: 'radiance',
+    purpose: 'hybrid',
+    activation: 'active',
+    timing: 'immediate',
+    windupTurns: 0,
+    contexts: ['tactical_dungeon'],
+    timeSemantics: 'tactical_turn',
+    acquisition: 'class',
+    costs: { mp: 14, cooldown: 0 },
+    targeting: {
+      mode: 'auto_enemy',
+      pattern: 'single',
+      range: 3.2,
+      radius: 0,
+      requireLos: true,
+      filter: 'enemy',
+      maxTargets: 1
+    },
+    scaling: 'divine',
+    damageType: 'magical',
+    effects: [
+      { type: 'damage', mult: 1.45, bonusFlat: 4, damageType: 'magical', scaling: 'divine' },
+      { type: 'heal', maxHpPct: 0.14, magicMult: 0.45, targetSelf: true }
+    ],
+    vfx: { type: 'spell', color: '#fbbf24' },
+    desc: 'Calls down radiant divine damage on a visible foe within 3 tiles while mending the caster.'
+  }),
+
+  healing_light: Object.freeze({
+    id: 'healing_light',
+    name: 'Healing Light',
+    icon: '💚',
+    kind: 'prayer',
+    domain: 'divine',
+    discipline: 'restoration',
+    purpose: 'healing',
+    activation: 'active',
+    timing: 'immediate',
+    windupTurns: 0,
+    contexts: ['tactical_dungeon'],
+    timeSemantics: 'tactical_turn',
+    acquisition: 'class',
+    costs: { mp: 10, cooldown: 1 },
+    targeting: {
+      mode: 'self',
+      pattern: 'self',
+      range: 0,
+      radius: 0,
+      requireLos: false,
+      filter: 'self',
+      maxTargets: 1
+    },
+    scaling: 'divine',
+    damageType: 'none',
+    effects: [
+      { type: 'heal', baseAmount: 14, magicMult: 1.1, maxHpPct: 0.12, targetSelf: true },
+      { type: 'status', statusId: 'regen', duration: 2, targetSelf: true }
+    ],
+    vfx: { type: 'shield', color: '#4ade80' },
+    desc: 'Restores HP immediately (scaling with SPI & Magic Power) and grants Regeneration for 2 turns.'
+  }),
+
+  purification: Object.freeze({
+    id: 'purification',
+    name: 'Purification',
+    icon: '🕊️',
+    kind: 'prayer',
+    domain: 'divine',
+    discipline: 'restoration',
+    purpose: 'utility',
+    activation: 'active',
+    timing: 'immediate',
+    windupTurns: 0,
+    contexts: ['tactical_dungeon'],
+    timeSemantics: 'tactical_turn',
+    acquisition: 'class',
+    costs: { mp: 8, cooldown: 2 },
+    targeting: {
+      mode: 'self',
+      pattern: 'self',
+      range: 0,
+      radius: 0,
+      requireLos: false,
+      filter: 'self',
+      maxTargets: 1
+    },
+    scaling: 'divine',
+    damageType: 'none',
+    effects: [
+      { type: 'cleanse', maxRemoved: 3, targetSelf: true },
+      { type: 'heal', baseAmount: 6, magicMult: 0.35, targetSelf: true }
+    ],
+    vfx: { type: 'wave', color: '#fef08a' },
+    desc: 'Cleanses up to 3 negative status effects (Burn, Poison, Bleed, Slow, Chilled, Weakened) and heals lightly.'
+  }),
+
+  sanctuary: Object.freeze({
+    id: 'sanctuary',
+    name: 'Sanctuary',
+    icon: '⛪',
+    kind: 'prayer',
+    domain: 'divine',
+    discipline: 'consecration',
+    purpose: 'defense',
+    activation: 'active',
+    timing: 'immediate',
+    windupTurns: 0,
+    contexts: ['tactical_dungeon'],
+    timeSemantics: 'tactical_turn',
+    acquisition: 'class',
+    costs: { mp: 14, cooldown: 4 },
+    targeting: {
+      mode: 'manual_location',
+      pattern: 'radius',
+      range: 3.5,
+      radius: 1,
+      requireLos: true,
+      filter: 'any',
+      maxTargets: 9
+    },
+    scaling: 'divine',
+    damageType: 'none',
+    effects: [
+      {
+        type: 'persistent_area',
+        areaId: 'sanctuary_zone',
+        name: 'Sanctuary',
+        duration: 3,
+        radius: 1,
+        color: '#fbbf24',
+        healPerTurnBase: 8,
+        healMagicMult: 0.45,
+        grantStatus: 'ward_buff',
+        affectsHero: true,
+        affectsMonsters: false
+      }
+    ],
+    vfx: { type: 'wave', color: '#fbbf24' },
+    desc: 'Consecrates a 3x3 ground zone for 3 turns that periodically heals the hero and grants Ward while inside.'
+  }),
+
+  holy_smite: Object.freeze({
+    id: 'holy_smite',
+    name: 'Holy Smite',
+    icon: '⚜️',
+    kind: 'prayer',
+    domain: 'divine',
+    discipline: 'retribution',
+    purpose: 'hybrid',
+    activation: 'active',
+    timing: 'immediate',
+    windupTurns: 0,
+    contexts: ['tactical_dungeon'],
+    timeSemantics: 'tactical_turn',
+    acquisition: 'class',
+    costs: { mp: 12, cooldown: 0 },
+    targeting: {
+      mode: 'auto_enemy',
+      pattern: 'single',
+      range: 1.5,
+      radius: 0,
+      requireLos: false,
+      filter: 'enemy',
+      maxTargets: 1
+    },
+    scaling: 'hybrid_divine',
+    damageType: 'magical',
+    effects: [
+      { type: 'damage', mult: 1.35, magicRatio: 0.75, damageType: 'magical', scaling: 'hybrid_divine' },
+      { type: 'heal', maxHpPct: 0.15, magicMult: 0.3, targetSelf: true }
+    ],
+    vfx: { type: 'spell', color: '#fbbf24' },
+    desc: 'Hybrid physical + divine strike (scales with ATK and Magic Power/SPI) that restores 15% Max HP.'
+  }),
+
+  // -------------------------------------------------------------------------
+  // THIEF, RANGER & ADVENTURER REPRESENTATIVE SKILLS
+  // -------------------------------------------------------------------------
+  shadowstep_strike: Object.freeze({
+    id: 'shadowstep_strike',
+    name: 'Shadowstep Strike',
+    icon: '🗡️',
+    kind: 'skill',
+    domain: 'martial',
+    discipline: 'stealth',
+    purpose: 'mobility',
+    activation: 'active',
+    timing: 'immediate',
+    windupTurns: 0,
+    contexts: ['tactical_dungeon'],
+    timeSemantics: 'tactical_turn',
+    acquisition: 'class',
+    costs: { mp: 14, cooldown: 0 },
+    targeting: {
+      mode: 'auto_enemy',
+      pattern: 'single',
+      range: 3.5,
+      radius: 0,
+      requireLos: true,
+      filter: 'enemy',
+      maxTargets: 1,
+      requireAdjacentLanding: true
+    },
+    scaling: 'physical',
+    damageType: 'physical',
+    effects: [
+      { type: 'shadowstep' },
+      { type: 'damage', mult: 1.85, guaranteedCrit: true, damageType: 'physical', scaling: 'physical', respectGuarding: true }
+    ],
+    vfx: { type: 'crit_slash', color: '#a855f7' },
+    desc: 'Teleports behind a visible enemy within 3 tiles and strikes for a guaranteed critical hit.'
+  }),
+
+  crippling_throw: Object.freeze({
+    id: 'crippling_throw',
+    name: 'Crippling Throw',
+    icon: '🎯',
+    kind: 'skill',
+    domain: 'martial',
+    discipline: 'skirmish',
+    purpose: 'control',
+    activation: 'active',
+    timing: 'immediate',
+    windupTurns: 0,
+    contexts: ['tactical_dungeon'],
+    timeSemantics: 'tactical_turn',
+    acquisition: 'class',
+    costs: { mp: 0, cooldown: 3 },
+    targeting: {
+      mode: 'manual_enemy',
+      pattern: 'single',
+      range: 4.5,
+      radius: 0,
+      requireLos: true,
+      filter: 'enemy',
+      maxTargets: 1
+    },
+    scaling: 'physical',
+    damageType: 'physical',
+    effects: [
+      { type: 'damage', mult: 1.05, damageType: 'physical', scaling: 'physical', respectGuarding: true },
+      { type: 'status', statusId: 'slow', duration: 2 },
+      { type: 'status', statusId: 'bleed', duration: 2 }
+    ],
+    vfx: { type: 'projectile', color: '#f87171' },
+    desc: 'Hurls a weighted blade inflicting Slow (2t) and Bleed (2t) (0 MP, 3t CD).'
+  }),
+
+  starfall_volley: Object.freeze({
+    id: 'starfall_volley',
+    name: 'Starfall Volley',
+    icon: '🏹',
+    kind: 'skill',
+    domain: 'martial',
+    discipline: 'marksmanship',
+    purpose: 'damage',
+    activation: 'active',
+    timing: 'immediate',
+    windupTurns: 0,
+    contexts: ['tactical_dungeon'],
+    timeSemantics: 'tactical_turn',
+    acquisition: 'class',
+    costs: { mp: 16, cooldown: 0 },
+    targeting: {
+      mode: 'auto_area',
+      pattern: 'radius',
+      range: 5.2,
+      radius: 5.2,
+      requireLos: true,
+      filter: 'enemy',
+      maxTargets: 3
+    },
+    scaling: 'physical',
+    damageType: 'physical',
+    effects: [
+      { type: 'damage', mult: 1.25, damageType: 'physical', scaling: 'physical', respectGuarding: true }
+    ],
+    vfx: { type: 'projectile', color: '#34d399' },
+    desc: 'Looses up to 3 arrows at visible enemies within 5 tiles (respects Guarding).'
+  }),
+
+  piercing_line: Object.freeze({
+    id: 'piercing_line',
+    name: 'Piercing Shot',
+    icon: '⚡',
+    kind: 'technique',
+    domain: 'martial',
+    discipline: 'marksmanship',
+    purpose: 'damage',
+    activation: 'active',
+    timing: 'immediate',
+    windupTurns: 0,
+    contexts: ['tactical_dungeon'],
+    timeSemantics: 'tactical_turn',
+    acquisition: 'class',
+    costs: { mp: 0, cooldown: 3 },
+    targeting: {
+      mode: 'directional',
+      pattern: 'line',
+      range: 4,
+      radius: 0,
+      requireLos: true,
+      filter: 'enemy',
+      maxTargets: 4
+    },
+    scaling: 'physical',
+    damageType: 'physical',
+    effects: [
+      { type: 'damage', mult: 1.35, damageType: 'physical', scaling: 'physical', respectGuarding: true }
+    ],
+    vfx: { type: 'beam', color: '#34d399' },
+    desc: 'Fires a piercing arrow in a 4-tile line, hitting every enemy along the path (0 MP, 3t CD).'
+  }),
+
+  torch_flare: Object.freeze({
+    id: 'torch_flare',
+    name: 'Torch Flare',
+    icon: '🔦',
+    kind: 'skill',
+    domain: 'adventuring',
+    discipline: 'delving',
+    purpose: 'damage',
+    activation: 'active',
+    timing: 'immediate',
+    windupTurns: 0,
+    contexts: ['tactical_dungeon'],
+    timeSemantics: 'tactical_turn',
+    acquisition: 'class',
+    costs: { mp: 10, cooldown: 0 },
+    targeting: {
+      mode: 'auto_enemy',
+      pattern: 'single',
+      range: 1.5,
+      radius: 0,
+      requireLos: false,
+      filter: 'enemy',
+      maxTargets: 1
+    },
+    scaling: 'physical',
+    damageType: 'physical',
+    effects: [
+      { type: 'damage', mult: 1.35, damageType: 'physical', scaling: 'physical', respectGuarding: true },
+      { type: 'status', statusId: 'burn', duration: 3 }
+    ],
+    vfx: { type: 'spell', color: '#f97316' },
+    desc: 'Swings a blazing torch at an adjacent foe, dealing physical damage and applying Burn for 3 turns.'
+  })
+});
+
+const ABILITY_IDS = Object.freeze(Object.keys(ABILITIES));
+
+// Representative default ability sets for all 7 existing prototype classes.
+// First entry preserves each class's legacy primary skill for backward compatibility.
+const CLASS_DEFAULT_ABILITIES = Object.freeze({
+  fighter: Object.freeze(['whirlwind_cleave', 'power_strike', 'overpower', 'brace', 'second_wind_reactive']),
+  mage: Object.freeze(['starfall_nova', 'arcane_missile', 'fireball', 'frost_nova', 'arcane_ward', 'blink', 'detect_magic']),
+  cleric: Object.freeze(['sacred_ward', 'healing_light', 'purification', 'sanctuary']),
+  paladin: Object.freeze(['holy_smite', 'brace', 'purification']),
+  thief: Object.freeze(['shadowstep_strike', 'crippling_throw']),
+  ranger: Object.freeze(['starfall_volley', 'piercing_line']),
+  adventurer: Object.freeze(['torch_flare', 'brace', 'detect_magic'])
+});
+
+function getAbilityDefinition(abilityId) {
+  if (!abilityId || typeof abilityId !== 'string') return null;
+  return ABILITIES[abilityId] || null;
+}
+
+function getDefaultAbilityIdsForClass(classId) {
+  const list = CLASS_DEFAULT_ABILITIES[classId];
+  return Array.isArray(list) ? list.slice() : [];
+}
+
+  // --- Module: src/core/abilityEngine.js ---
+// Context-Independent Shared Spell, Prayer & Skill Runtime Service (MG-01A)
+// Manages actor ability access grants (multi-source), cooldowns, cost/silence validation,
+// damage/shield/healing scaling, and damage absorption independent of Dungeon/Strategy UI.
+
+
+function normalizeActorAbilityState(actor) {
+  if (!actor || typeof actor !== 'object') return null;
+
+  if (!actor.abilityGrants || typeof actor.abilityGrants !== 'object') {
+    actor.abilityGrants = {};
+  }
+  for (let i = 0; i < ABILITY_ACCESS_SOURCES.length; i++) {
+    const src = ABILITY_ACCESS_SOURCES[i];
+    if (!Array.isArray(actor.abilityGrants[src])) {
+      actor.abilityGrants[src] = [];
+    } else {
+      // Deduplicate & keep valid ability IDs only
+      const seen = {};
+      const clean = [];
+      for (let j = 0; j < actor.abilityGrants[src].length; j++) {
+        const id = actor.abilityGrants[src][j];
+        if (typeof id === 'string' && ABILITIES[id] && !seen[id]) {
+          seen[id] = true;
+          clean.push(id);
+        }
+      }
+      actor.abilityGrants[src] = clean;
+    }
+  }
+
+  // Ensure class default abilities stay synced if classId is initialized or switched
+  if (actor.classId && (actor.abilityGrants.class.length === 0 || (actor._abilityClassId && actor._abilityClassId !== actor.classId))) {
+    const defaults = getDefaultAbilityIdsForClass(actor.classId);
+    actor.abilityGrants.class = defaults.slice();
+    actor._abilityClassId = actor.classId;
+    if (defaults.length > 0) {
+      actor.activeAbilityId = defaults[0];
+    }
+  } else if (actor.classId && !actor._abilityClassId) {
+    actor._abilityClassId = actor.classId;
+  }
+
+  if (!actor.abilityCooldowns || typeof actor.abilityCooldowns !== 'object') {
+    actor.abilityCooldowns = {};
+  }
+  if (typeof actor.absorbShield !== 'number' || isNaN(actor.absorbShield) || actor.absorbShield < 0) {
+    actor.absorbShield = 0;
+  }
+  if (actor.pendingCast !== null && actor.pendingCast !== undefined && typeof actor.pendingCast !== 'object') {
+    actor.pendingCast = null;
+  }
+  if (actor.pendingCast === undefined) {
+    actor.pendingCast = null;
+  }
+
+  const activeIds = getGrantedAbilityIds(actor, { activation: 'active' });
+  if (!actor.activeAbilityId || activeIds.indexOf(actor.activeAbilityId) === -1) {
+    actor.activeAbilityId = activeIds.length > 0 ? activeIds[0] : null;
+  }
+
+  return actor;
+}
+
+function getGrantedAbilityIds(actor, opts) {
+  if (!actor || typeof actor !== 'object') return [];
+  if (!actor.abilityGrants || typeof actor.abilityGrants !== 'object') {
+    normalizeActorAbilityState(actor);
+  }
+  const seen = {};
+  const list = [];
+  const activationFilter = (opts && opts.activation) ? opts.activation : null;
+  const contextFilter = (opts && opts.context) ? opts.context : null;
+
+  for (let i = 0; i < ABILITY_ACCESS_SOURCES.length; i++) {
+    const src = ABILITY_ACCESS_SOURCES[i];
+    const bucket = actor.abilityGrants[src];
+    if (!Array.isArray(bucket)) continue;
+    for (let j = 0; j < bucket.length; j++) {
+      const id = bucket[j];
+      if (seen[id]) continue;
+      const def = getAbilityDefinition(id);
+      if (!def) continue;
+      if (activationFilter && def.activation !== activationFilter) continue;
+      if (contextFilter && Array.isArray(def.contexts) && def.contexts.indexOf(contextFilter) === -1) continue;
+      seen[id] = true;
+      list.push(id);
+    }
+  }
+  return list;
+}
+
+function getGrantedAbilitySources(actor, abilityId) {
+  if (!actor || !actor.abilityGrants || !abilityId) return [];
+  const sources = [];
+  for (let i = 0; i < ABILITY_ACCESS_SOURCES.length; i++) {
+    const src = ABILITY_ACCESS_SOURCES[i];
+    const bucket = actor.abilityGrants[src];
+    if (Array.isArray(bucket) && bucket.indexOf(abilityId) !== -1) {
+      sources.push(src);
+    }
+  }
+  return sources;
+}
+
+function hasAbilityAccess(actor, abilityId) {
+  return getGrantedAbilitySources(actor, abilityId).length > 0;
+}
+
+function grantAbilityAccess(actor, abilityId, sourceType) {
+  if (!actor || typeof actor !== 'object') return { ok: false, reason: 'invalid_actor' };
+  const def = getAbilityDefinition(abilityId);
+  if (!def) return { ok: false, reason: 'unknown_ability' };
+  const src = ABILITY_ACCESS_SOURCES.indexOf(sourceType) !== -1 ? sourceType : 'learned';
+  normalizeActorAbilityState(actor);
+  const bucket = actor.abilityGrants[src];
+  if (bucket.indexOf(abilityId) === -1) {
+    bucket.push(abilityId);
+  }
+  if (!actor.activeAbilityId && def.activation === 'active') {
+    actor.activeAbilityId = abilityId;
+  }
+  return { ok: true, abilityId: abilityId, source: src };
+}
+
+function revokeAbilityAccess(actor, abilityId, sourceType) {
+  if (!actor || typeof actor !== 'object') return { ok: false, reason: 'invalid_actor' };
+  normalizeActorAbilityState(actor);
+  const src = ABILITY_ACCESS_SOURCES.indexOf(sourceType) !== -1 ? sourceType : 'learned';
+  const bucket = actor.abilityGrants[src];
+  const idx = bucket.indexOf(abilityId);
+  if (idx !== -1) {
+    bucket.splice(idx, 1);
+  }
+  const stillHas = hasAbilityAccess(actor, abilityId);
+  if (!stillHas && actor.activeAbilityId === abilityId) {
+    const remaining = getGrantedAbilityIds(actor, { activation: 'active' });
+    actor.activeAbilityId = remaining.length > 0 ? remaining[0] : null;
+  }
+  return { ok: true, abilityId: abilityId, source: src, stillGranted: stillHas };
+}
+
+function getAbilityCooldownRemaining(actor, abilityId) {
+  if (!actor || !actor.abilityCooldowns || !abilityId) return 0;
+  const cd = actor.abilityCooldowns[abilityId];
+  return (typeof cd === 'number' && cd > 0) ? Math.ceil(cd) : 0;
+}
+
+function setAbilityCooldown(actor, abilityId, turns) {
+  if (!actor || !abilityId) return;
+  if (!actor.abilityCooldowns || typeof actor.abilityCooldowns !== 'object') {
+    actor.abilityCooldowns = {};
+  }
+  if (turns > 0) {
+    actor.abilityCooldowns[abilityId] = Math.ceil(turns);
+  } else {
+    delete actor.abilityCooldowns[abilityId];
+  }
+}
+
+function tickActorAbilityCooldowns(actor) {
+  if (!actor || !actor.abilityCooldowns || typeof actor.abilityCooldowns !== 'object') return;
+  const keys = Object.keys(actor.abilityCooldowns);
+  for (let i = 0; i < keys.length; i++) {
+    const k = keys[i];
+    const cur = actor.abilityCooldowns[k];
+    if (typeof cur === 'number' && cur > 1) {
+      actor.abilityCooldowns[k] = cur - 1;
+    } else {
+      delete actor.abilityCooldowns[k];
+    }
+  }
+}
+
+function resetActorAbilityCooldowns(actor) {
+  if (!actor) return;
+  actor.abilityCooldowns = {};
+  actor.skillCooldown = 0;
+}
+
+function isAbilitySilenced(actor, abilityDef) {
+  if (!actor || !abilityDef) return false;
+  const silenced = (actor.statuses || []).some(function(s) { return s && s.id === 'silence'; });
+  if (!silenced) return false;
+  // Silence blocks arcane, divine, and nature magic while allowing martial techniques and adventuring skills
+  return (
+    abilityDef.domain === 'arcane' ||
+    abilityDef.domain === 'divine' ||
+    abilityDef.domain === 'nature'
+  );
+}
+
+function getEffectiveAbilityCost(actor, abilityDef) {
+  if (!abilityDef) return { mp: 0, baseMp: 0, cooldown: 0, chilledPenalty: 0 };
+  const baseMp = (abilityDef.costs && typeof abilityDef.costs.mp === 'number') ? abilityDef.costs.mp : 0;
+  const cooldown = (abilityDef.costs && typeof abilityDef.costs.cooldown === 'number') ? abilityDef.costs.cooldown : 0;
+  const isChilled = Boolean(actor && (actor.statuses || []).some(function(s) { return s && s.id === 'chilled'; }));
+  // Chilled adds +2 MP to mana-using abilities (cooldown-only 0-MP martial techniques stay 0 MP)
+  const chilledPenalty = (baseMp > 0 && isChilled) ? 2 : 0;
+  return {
+    mp: baseMp + chilledPenalty,
+    baseMp: baseMp,
+    cooldown: cooldown,
+    chilledPenalty: chilledPenalty
+  };
+}
+
+function validateAbilityActivation(actor, abilityDef, ctx) {
+  if (!actor || !abilityDef) {
+    return { ok: false, reason: 'invalid_ability' };
+  }
+  normalizeActorAbilityState(actor);
+
+  const contextId = (ctx && ctx.context) ? ctx.context : 'tactical_dungeon';
+  if (Array.isArray(abilityDef.contexts) && abilityDef.contexts.indexOf(contextId) === -1) {
+    return { ok: false, reason: 'invalid_context' };
+  }
+  if (abilityDef.activation !== 'active' && !(ctx && ctx.allowTriggered)) {
+    return { ok: false, reason: 'not_active_ability' };
+  }
+  if (!hasAbilityAccess(actor, abilityDef.id) && !(ctx && ctx.bypassAccessCheck)) {
+    return { ok: false, reason: 'not_granted' };
+  }
+  if (actor.pendingCast && !(ctx && ctx.allowWhileCasting)) {
+    return { ok: false, reason: 'already_casting' };
+  }
+  if (isAbilitySilenced(actor, abilityDef)) {
+    return { ok: false, reason: 'silenced' };
+  }
+  const cdRem = getAbilityCooldownRemaining(actor, abilityDef.id);
+  if (cdRem > 0) {
+    return { ok: false, reason: 'on_cooldown', cooldownRemaining: cdRem };
+  }
+  const costInfo = getEffectiveAbilityCost(actor, abilityDef);
+  if ((actor.mp || 0) < costInfo.mp) {
+    return { ok: false, reason: 'no_mp', effectiveCost: costInfo.mp, chilledPenalty: costInfo.chilledPenalty };
+  }
+  return {
+    ok: true,
+    effectiveCost: costInfo.mp,
+    baseMp: costInfo.baseMp,
+    cooldown: costInfo.cooldown,
+    chilledPenalty: costInfo.chilledPenalty
+  };
+}
+
+function getActorMagicPower(actor) {
+  if (!actor) return 0;
+  if (typeof actor.magicPower === 'number' && !isNaN(actor.magicPower)) {
+    return actor.magicPower;
+  }
+  const effInt = (actor.effectiveStats && actor.effectiveStats.int) || (actor.baseStats && actor.baseStats.int) || 10;
+  const effSpi = (actor.effectiveStats && actor.effectiveStats.spi) || (actor.baseStats && actor.baseStats.spi) || 8;
+  return Math.max(4, Math.round(effInt * 1.1 + effSpi * 0.6));
+}
+
+function computeAbilityDamage(actor, effectDef, target, extraMult) {
+  const mult = (effectDef && typeof effectDef.mult === 'number') ? effectDef.mult : 1.0;
+  const bonusFlat = (effectDef && typeof effectDef.bonusFlat === 'number') ? effectDef.bonusFlat : 0;
+  const scaling = (effectDef && effectDef.scaling) || 'physical';
+  const damageType = (effectDef && effectDef.damageType) || (scaling === 'physical' ? 'physical' : 'magical');
+  const mod = (typeof extraMult === 'number' && extraMult > 0) ? extraMult : 1.0;
+
+  const atk = (actor && typeof actor.atk === 'number') ? actor.atk : 10;
+  const magicPower = getActorMagicPower(actor);
+  const effInt = (actor && actor.effectiveStats && actor.effectiveStats.int) || 10;
+  const effSpi = (actor && actor.effectiveStats && actor.effectiveStats.spi) || 8;
+
+  let raw = 0;
+  if (scaling === 'arcane') {
+    raw = Math.round((magicPower * 1.15 + effInt * 0.35) * mult + bonusFlat);
+  } else if (scaling === 'divine') {
+    raw = Math.round((magicPower * 1.05 + effSpi * 0.45) * mult + bonusFlat);
+  } else if (scaling === 'hybrid_divine') {
+    const mRatio = (effectDef && typeof effectDef.magicRatio === 'number') ? effectDef.magicRatio : 0.75;
+    raw = Math.round((atk * 0.85 + magicPower * mRatio) * mult + bonusFlat);
+  } else {
+    raw = Math.round(atk * mult + bonusFlat);
+  }
+
+  raw = Math.round(raw * mod);
+
+  // Explicit physical vs. magical defense mitigation
+  let mitigated = raw;
+  let guarded = false;
+  if (target) {
+    const isTargetGuarding = Boolean((target.statuses || []).some(function(s) { return s && s.id === 'guarding'; }));
+    if (damageType === 'physical') {
+      let effDef = target.def || 0;
+      if (isTargetGuarding && (!effectDef || effectDef.respectGuarding !== false)) {
+        effDef = Math.round(effDef * 1.6);
+        guarded = true;
+      }
+      mitigated = Math.max(1, raw - Math.floor(effDef * 0.5));
+    } else {
+      // Magical defense uses explicit magicDef/ward if defined, else 25% of physical DEF (distinct from full armor & physical Guarding)
+      const mDef = (typeof target.magicDef === 'number')
+        ? target.magicDef
+        : Math.floor((target.def || 0) * 0.25);
+      mitigated = Math.max(1, raw - mDef);
+    }
+  }
+
+  return {
+    damage: Math.max(1, mitigated),
+    raw: raw,
+    damageType: damageType,
+    guarded: guarded
+  };
+}
+
+function computeAbilityHealAmount(actor, effectDef) {
+  if (!actor || !effectDef) return 0;
+  const base = effectDef.baseAmount || 0;
+  const magicMult = effectDef.magicMult || 0;
+  const maxHpPct = effectDef.maxHpPct || 0;
+  const mp = getActorMagicPower(actor);
+  const pctHeal = Math.round((actor.maxHp || 100) * maxHpPct);
+  return Math.max(1, Math.round(base + mp * magicMult + pctHeal));
+}
+
+function computeAbilityShieldAmount(actor, effectDef) {
+  if (!actor || !effectDef) return 0;
+  const base = effectDef.baseAmount || 10;
+  const defMult = effectDef.defMult || 0;
+  const magicMult = effectDef.magicMult || 0;
+  const cap = effectDef.maxShieldCap || 100;
+  const raw = Math.round(base + (actor.def || 0) * defMult + getActorMagicPower(actor) * magicMult);
+  return Math.max(1, Math.min(cap, raw));
+}
+
+function applyDamageWithShield(actor, rawDamage) {
+  const dmg = Math.max(0, Math.round(rawDamage || 0));
+  if (!actor || dmg <= 0) {
+    return { absorbed: 0, hpLoss: 0, remainingShield: (actor && actor.absorbShield) || 0 };
+  }
+  const curShield = (typeof actor.absorbShield === 'number' && actor.absorbShield > 0) ? actor.absorbShield : 0;
+  const absorbed = Math.min(curShield, dmg);
+  const hpLoss = dmg - absorbed;
+  actor.absorbShield = Math.max(0, curShield - absorbed);
+  if (hpLoss > 0) {
+    actor.hp = (actor.hp || 0) - hpLoss;
+  }
+  return {
+    absorbed: absorbed,
+    hpLoss: hpLoss,
+    remainingShield: actor.absorbShield
+  };
+}
+
   // --- Module: src/engine/state.js ---
 // Game State Schema (Multi-Dungeon Atlas v5/v6), Save Migration, RLE Persistence & Derived Hero Stats
+
 
 
 
@@ -9904,9 +11096,15 @@ function migrateSaveData(raw) {
         : [],
       statuses: Array.isArray(data.hero.statuses) ? data.hero.statuses : [],
       usedDivineIntervention: !!data.hero.usedDivineIntervention,
+      abilityGrants: data.hero.abilityGrants ? JSON.parse(JSON.stringify(data.hero.abilityGrants)) : null,
+      abilityCooldowns: data.hero.abilityCooldowns ? Object.assign({}, data.hero.abilityCooldowns) : {},
+      activeAbilityId: data.hero.activeAbilityId || null,
+      absorbShield: typeof data.hero.absorbShield === 'number' ? Math.max(0, data.hero.absorbShield) : 0,
+      pendingCast: data.hero.pendingCast ? JSON.parse(JSON.stringify(data.hero.pendingCast)) : null,
       x: data.hero.x || 1,
       y: data.hero.y || 1
     };
+    normalizeActorAbilityState(migrated.hero);
   }
 
   // Migrate Multi-Dungeon Registry OR Legacy Single Dungeon
@@ -9980,6 +11178,7 @@ function getPickaxeMaxDurability(state = gameState) {
 function recomputeHeroDerivedStats(fullRestore = false, state = gameState) {
   const h = state.hero;
   if (!h) return;
+  normalizeActorAbilityState(h);
   const derived = computeHeroDerivedStats(h);
   if (!derived) return;
 
@@ -28236,24 +29435,50 @@ function getActionCallbacks() {
   return actionCallbacks;
 }
 
-function applyStatusEffect(target, id, duration) {
+function applyStatusEffect(target, id, duration, opts) {
   if (!target.statuses) target.statuses = [];
   const metaMap = {
-    burn:            { id: 'burn',            name: 'Burn',              color: '#fb923c', duration, isBuff: false },
-    bleed:           { id: 'bleed',           name: 'Bleed',             color: '#f87171', duration, isBuff: false },
-    poison:          { id: 'poison',          name: 'Poison',            color: '#4ade80', duration, isBuff: false },
-    stun:            { id: 'stun',            name: 'Stunned',           color: '#fbbf24', duration, isBuff: false },
-    weakened:        { id: 'weakened',        name: 'Weakened',          color: '#c084fc', duration, isBuff: false },
-    chilled:         { id: 'chilled',         name: 'Chilled',           color: '#38bdf8', duration, isBuff: false },
-    guarding:        { id: 'guarding',        name: 'Guarding',          color: '#60a5fa', duration, isBuff: true },
-    shrine_starfire: { id: 'shrine_starfire', name: 'Starfire Blessing', color: '#fbbf24', duration, isBuff: true },
-    shrine_aegis:    { id: 'shrine_aegis',    name: 'Astral Aegis',      color: '#60a5fa', duration, isBuff: true }
+    burn:            { id: 'burn',            name: 'Burn',              color: '#fb923c', duration, isBuff: false, stackPolicy: 'refresh' },
+    bleed:           { id: 'bleed',           name: 'Bleed',             color: '#f87171', duration, isBuff: false, stackPolicy: 'refresh' },
+    poison:          { id: 'poison',          name: 'Poison',            color: '#4ade80', duration, isBuff: false, stackPolicy: 'refresh' },
+    stun:            { id: 'stun',            name: 'Stunned',           color: '#fbbf24', duration, isBuff: false, stackPolicy: 'max' },
+    weakened:        { id: 'weakened',        name: 'Weakened',          color: '#c084fc', duration, isBuff: false, stackPolicy: 'refresh' },
+    chilled:         { id: 'chilled',         name: 'Chilled',           color: '#38bdf8', duration, isBuff: false, stackPolicy: 'refresh' },
+    slow:            { id: 'slow',            name: 'Slowed',            color: '#38bdf8', duration, isBuff: false, stackPolicy: 'refresh' },
+    silence:         { id: 'silence',         name: 'Silenced',          color: '#e879f9', duration, isBuff: false, stackPolicy: 'max' },
+    guarding:        { id: 'guarding',        name: 'Guarding',          color: '#60a5fa', duration, isBuff: true,  stackPolicy: 'refresh' },
+    regen:           { id: 'regen',           name: 'Regeneration',      color: '#4ade80', duration, isBuff: true,  stackPolicy: 'refresh' },
+    ward_buff:       { id: 'ward_buff',       name: 'Arcane Ward',       color: '#818cf8', duration, isBuff: true,  stackPolicy: 'refresh' },
+    shrine_starfire: { id: 'shrine_starfire', name: 'Starfire Blessing', color: '#fbbf24', duration, isBuff: true,  stackPolicy: 'max' },
+    shrine_aegis:    { id: 'shrine_aegis',    name: 'Astral Aegis',      color: '#60a5fa', duration, isBuff: true,  stackPolicy: 'max' }
   };
   const meta = metaMap[id];
-  if (!meta) return;
-  const existing = target.statuses.find(s => s.id === id);
-  if (existing) existing.duration = Math.max(existing.duration, duration);
-  else target.statuses.push(Object.assign({}, meta));
+  if (!meta) return null;
+  const sourceId = (opts && opts.sourceId) ? opts.sourceId : null;
+  const sourceAbilityId = (opts && opts.sourceAbilityId) ? opts.sourceAbilityId : null;
+  const policy = (opts && opts.stackPolicy) ? opts.stackPolicy : (meta.stackPolicy || 'max');
+  const existing = target.statuses.find(function(s) { return s && s.id === id; });
+  if (existing) {
+    if (policy === 'stack') {
+      existing.duration = (existing.duration || 0) + duration;
+      existing.stacks = (existing.stacks || 1) + 1;
+    } else if (policy === 'refresh') {
+      existing.duration = Math.max(existing.duration || 0, duration);
+    } else {
+      existing.duration = Math.max(existing.duration || 0, duration);
+    }
+    if (sourceId) existing.sourceId = sourceId;
+    if (sourceAbilityId) existing.sourceAbilityId = sourceAbilityId;
+    return existing;
+  }
+  const entry = Object.assign({}, meta, {
+    duration: duration,
+    stacks: 1,
+    sourceId: sourceId,
+    sourceAbilityId: sourceAbilityId
+  });
+  target.statuses.push(entry);
+  return entry;
 }
 
 function addExpeditionTradeItem(id, name, val, qty = 1, type = 'Ore', state = gameState) {
@@ -30145,6 +31370,7 @@ function usePocketPortal(state = gameState, autoStepThrough = true) {
 
 
 
+
 const CANONICAL_EQ_SLOTS = ['weapon', 'armor', 'helm', 'boots', 'accessory', 'pickaxe'];
 
 function createDungeonHeroForClass(classId, canonicalHero, ownerPlayerId) {
@@ -30178,7 +31404,7 @@ function createDungeonHeroForClass(classId, canonicalHero, ownerPlayerId) {
     }
   }
 
-  return {
+  const created = {
     id: (canonicalHero && canonicalHero.id) || 'hero_1',
     ownerPlayerId: (canonicalHero && canonicalHero.ownerPlayerId) || ownerPlayerId,
     classId: cls.id,
@@ -30212,8 +31438,15 @@ function createDungeonHeroForClass(classId, canonicalHero, ownerPlayerId) {
     statuses: [],
     usedDivineIntervention: false,
     skillCooldown: 0,
+    abilityGrants: (canonicalHero && canonicalHero.abilityGrants) ? JSON.parse(JSON.stringify(canonicalHero.abilityGrants)) : null,
+    abilityCooldowns: (canonicalHero && canonicalHero.abilityCooldowns) ? Object.assign({}, canonicalHero.abilityCooldowns) : {},
+    activeAbilityId: (canonicalHero && canonicalHero.activeAbilityId) || null,
+    absorbShield: (canonicalHero && typeof canonicalHero.absorbShield === 'number') ? Math.max(0, canonicalHero.absorbShield) : 0,
+    pendingCast: null,
     godMode: false
   };
+  normalizeActorAbilityState(created);
+  return created;
 }
 
 function bindCanonicalHeroToDungeonState(simHost, dungeonState, entryInfo) {
@@ -30287,6 +31520,10 @@ function bindCanonicalHeroToDungeonState(simHost, dungeonState, entryInfo) {
     if (canonicalHero.talentsAllocated && typeof canonicalHero.talentsAllocated === 'object') {
       dungeonState.hero.talentsAllocated = Object.assign({}, canonicalHero.talentsAllocated);
     }
+    if (canonicalHero.abilityGrants && typeof canonicalHero.abilityGrants === 'object') {
+      dungeonState.hero.abilityGrants = JSON.parse(JSON.stringify(canonicalHero.abilityGrants));
+    }
+    normalizeActorAbilityState(dungeonState.hero);
   }
 
   // Sync city provisions into hero consumables if city has provisions
@@ -31791,12 +33028,20 @@ function monsterAttackHero(m, isRanged, state = gameState) {
   }
 
   const dmg = Math.max(1, raw - Math.floor(h.def * 0.6));
-  h.hp -= dmg;
+  const shieldRes = applyDamageWithShield(h, dmg);
 
   if (state === gameState) {
     playSound('hit');
-    ui.floatingText(h.x, h.y, `-${dmg}${isRanged ? ' 🏹' : ''}`, '#f87171');
-    ui.log(`${m.name} strikes you for ${dmg} damage!`, 'bad');
+    if (shieldRes.absorbed > 0 && shieldRes.hpLoss === 0) {
+      ui.floatingText(h.x, h.y, `ABSORBED (${shieldRes.absorbed})`, '#818cf8');
+      ui.log(`Your barrier absorbed all ${shieldRes.absorbed} damage from ${m.name}!`, 'good');
+    } else if (shieldRes.absorbed > 0) {
+      ui.floatingText(h.x, h.y, `-${shieldRes.hpLoss} (${shieldRes.absorbed} blk)`, '#f87171');
+      ui.log(`${m.name} strikes for ${dmg} (${shieldRes.absorbed} absorbed by shield, -${shieldRes.hpLoss} HP)!`, 'bad');
+    } else {
+      ui.floatingText(h.x, h.y, `-${dmg}${isRanged ? ' 🏹' : ''}`, '#f87171');
+      ui.log(`${m.name} strikes you for ${dmg} damage!`, 'bad');
+    }
     if (typeof ui.combatAnim === 'function') {
       ui.combatAnim(h.x, h.y, isRanged ? 'projectile' : 'claw', '#f87171');
     }
@@ -31847,6 +33092,8 @@ function monsterAttackHero(m, isRanged, state = gameState) {
 
   if (h.hp <= 0) {
     checkHeroFatalDamage(m.name, state);
+  } else {
+    triggerReactiveAbilities(h, 'on_hero_low_hp', state);
   }
 }
 
@@ -31971,6 +33218,8 @@ function resolveTelegraphedAbility(m, floor, state) {
 
   if (h.hp <= 0) {
     checkHeroFatalDamage(m.name, state);
+  } else {
+    triggerReactiveAbilities(h, 'on_hero_low_hp', state);
   }
 }
 
@@ -32076,6 +33325,13 @@ function processTurn(state = gameState) {
     h.mp = Math.min(h.maxMp, h.mp + 1);
   }
 
+  // Tick hero per-ability cooldowns
+  tickActorAbilityCooldowns(h);
+
+  // Capture pre-tick CC state so 1-turn Stun/Silence reliably interrupts delayed casts on this turn
+  const heroStunnedBeforeTick = (h.statuses || []).some(function(s) { return s && s.id === 'stun'; });
+  const heroSilencedBeforeTick = (h.statuses || []).some(function(s) { return s && s.id === 'silence'; });
+
   // Hero Status & Shrine Buff Ticks (normalizes legacy turns-only hazard statuses)
   if (h.statuses && h.statuses.length > 0) {
     let buffExpired = false;
@@ -32087,14 +33343,20 @@ function processTurn(state = gameState) {
       }
       if (st.id === 'burn' || st.id === 'bleed' || st.id === 'poison') {
         const dot = Math.max(2, Math.round(h.maxHp * 0.04));
-        h.hp -= dot;
+        applyDamageWithShield(h, dot);
         if (state === gameState) {
           ui.floatingText(h.x, h.y, `-${dot} ${(st.name || st.id).toUpperCase()}`, st.color || '#f87171');
+        }
+      } else if (st.id === 'regen') {
+        const healTick = Math.max(3, Math.round(h.maxHp * 0.06));
+        h.hp = Math.min(h.maxHp, h.hp + healTick);
+        if (state === gameState) {
+          ui.floatingText(h.x, h.y, `+${healTick} REGEN`, '#4ade80');
         }
       }
       st.duration -= 1;
       if (st.duration <= 0) {
-        if (st.isBuff || st.id === 'chilled') buffExpired = true;
+        if (st.isBuff || st.id === 'chilled' || st.id === 'slow' || st.id === 'silence') buffExpired = true;
         h.statuses.splice(i, 1);
       }
     }
@@ -32104,6 +33366,59 @@ function processTurn(state = gameState) {
     if (h.hp <= 0) {
       checkHeroFatalDamage('Affliction', state);
       return;
+    }
+  }
+
+  // Tick Persistent Ground Areas (e.g. Sanctuary)
+  if (Array.isArray(floor.persistentAreas) && floor.persistentAreas.length > 0) {
+    for (let aIdx = floor.persistentAreas.length - 1; aIdx >= 0; aIdx--) {
+      const area = floor.persistentAreas[aIdx];
+      if (!area) {
+        floor.persistentAreas.splice(aIdx, 1);
+        continue;
+      }
+      const inside = Array.isArray(area.tiles) && area.tiles.some(function(t) { return t.x === h.x && t.y === h.y; });
+      if (inside && area.affectsHero) {
+        const healAmt = Math.max(2, area.healPerTurn || 6);
+        h.hp = Math.min(h.maxHp, h.hp + healAmt);
+        if (area.grantStatus) {
+          applyStatusEffect(h, area.grantStatus, 2, { sourceId: h.id, sourceAbilityId: area.sourceAbilityId || 'sanctuary' });
+          recomputeHeroDerivedStats(false, state);
+        }
+        if (state === gameState) {
+          ui.floatingText(h.x, h.y, `+${healAmt} ${area.name || 'ZONE'}`, area.color || '#fbbf24');
+        }
+      }
+      area.turnsLeft = (typeof area.turnsLeft === 'number' ? area.turnsLeft : 1) - 1;
+      if (area.turnsLeft <= 0) {
+        floor.persistentAreas.splice(aIdx, 1);
+      }
+    }
+  }
+
+  // Resolve or Interrupt Delayed Hero Casts (e.g. Fireball)
+  if (h.pendingCast) {
+    const pDef = getAbilityDefinition(h.pendingCast.abilityId);
+    const heroStunned = heroStunnedBeforeTick || (h.statuses || []).some(function(s) { return s && s.id === 'stun'; });
+    const heroSilenced = pDef ? (isAbilitySilenced(h, pDef) || (heroSilencedBeforeTick && (pDef.domain === 'arcane' || pDef.domain === 'divine' || pDef.domain === 'nature'))) : false;
+    if (!pDef || heroStunned || heroSilenced) {
+      const reasonLabel = heroStunned ? 'Stun' : (heroSilenced ? 'Silence' : 'Disruption');
+      const castName = pDef ? pDef.name : 'Cast';
+      h.pendingCast = null;
+      if (state === gameState) {
+        ui.floatingText(h.x, h.y, 'INTERRUPTED!', '#f87171');
+        ui.log(`✦ Your ${castName} cast was interrupted by ${reasonLabel}!`, 'bad');
+        if (typeof ui.combatAnim === 'function') {
+          ui.combatAnim(h.x, h.y, 'interrupt', '#f87171');
+        }
+      }
+    } else {
+      h.pendingCast.turnsLeft = (typeof h.pendingCast.turnsLeft === 'number' ? h.pendingCast.turnsLeft : 1) - 1;
+      if (h.pendingCast.turnsLeft <= 0) {
+        const committed = h.pendingCast;
+        h.pendingCast = null;
+        resolveCommittedAbilityEffects(pDef, committed, floor, state);
+      }
     }
   }
 
@@ -32204,7 +33519,14 @@ function processTurn(state = gameState) {
         monsterAttackHero(m, true, state);
         if (state.inGuild) return;
       } else if (hasLineOfSight(floor, m.x, m.y, h.x, h.y) || dist <= 4.2) {
-        // 4. Baseline Pursuit
+        // 4. Baseline Pursuit (Slowed monsters skip movement on odd turns)
+        const isSlowed = (m.statuses || []).some(function(s) { return s && s.id === 'slow'; });
+        if (isSlowed && (state.turn % 2 === 1)) {
+          if (state === gameState) {
+            ui.floatingText(m.x, m.y, 'SLOWED', '#38bdf8');
+          }
+          continue;
+        }
         const sx = Math.sign(h.x - m.x);
         const sy = Math.sign(h.y - m.y);
         const candidates = Math.abs(h.x - m.x) >= Math.abs(h.y - m.y)
@@ -32239,414 +33561,797 @@ function processTurn(state = gameState) {
 // Wire turn-end hook into actions.js (for Healing Tonic turn advance)
 registerActionCallbacks({ onTurnEnd: () => processTurn(gameState) });
 
-function getSkillTargetingInfo(state = gameState) {
+// ============================================================================
+// MG-01A UNIFIED SPELL, PRAYER, TECHNIQUE & SKILL TARGETING AND EXECUTION
+// ============================================================================
+
+const MAX_REACTIVE_TRIGGER_DEPTH = 2;
+let reactiveTriggerDepth = 0;
+
+function isTileWalkableForAbility(floor, tx, ty, fw, fh) {
+  if (!floor || !floor.tiles || tx < 0 || tx >= fw || ty < 0 || ty >= fh) return false;
+  const t = floor.tiles[ty][tx];
+  const walkable = (
+    t === TILE_FLOOR ||
+    t === TILE_STAIRS_UP ||
+    t === TILE_STAIRS_DOWN ||
+    t === TILE_CHEST_OPEN ||
+    t === TILE_SHRINE_USED ||
+    t === TILE_TRAP_DISARMED
+  );
+  if (!walkable) return false;
+  if (floor.objects && floor.objects.length > 0) {
+    const doorObj = floor.objects.find(function(o) { return o && o.x === tx && o.y === ty && o.objectType === 'door'; });
+    if (doorObj && !isDoorWalkable(doorObj)) return false;
+  }
+  return true;
+}
+
+function isTileThreatenableForAbility(floor, tx, ty, fw, fh) {
+  if (!floor || !floor.tiles || tx < 0 || tx >= fw || ty < 0 || ty >= fh) return false;
+  const t = floor.tiles[ty][tx];
+  if (t === TILE_WALL || ORE_CATALOG[t]) return false;
+  if (floor.objects && floor.objects.length > 0) {
+    const doorObj = floor.objects.find(function(o) { return o && o.x === tx && o.y === ty && isDoorOpaque(o); });
+    if (doorObj) return false;
+  }
+  return true;
+}
+
+function findShadowstepLanding(floor, m, fw, fh) {
+  const neighbors = [[0, -1], [0, 1], [-1, 0], [1, 0]];
+  for (let i = 0; i < neighbors.length; i++) {
+    const tx = m.x + neighbors[i][0];
+    const ty = m.y + neighbors[i][1];
+    if (!isTileWalkableForAbility(floor, tx, ty, fw, fh)) continue;
+    const occupied = (floor.monsters || []).some(function(other) {
+      return other && !other._dead && other.hp > 0 && other.x === tx && other.y === ty;
+    });
+    if (!occupied) {
+      return { x: tx, y: ty };
+    }
+  }
+  return null;
+}
+
+function buildPatternTiles(floor, originX, originY, centerX, centerY, targeting, fw, fh) {
+  const tiles = [];
+  const pattern = (targeting && targeting.pattern) || 'single';
+  if (pattern === 'self') {
+    tiles.push({ x: originX, y: originY });
+    return tiles;
+  }
+  if (pattern === 'single') {
+    if (isTileThreatenableForAbility(floor, centerX, centerY, fw, fh)) {
+      tiles.push({ x: centerX, y: centerY });
+    }
+    return tiles;
+  }
+  if (pattern === 'radius') {
+    const rad = Math.max(0, Math.floor((targeting && typeof targeting.radius === 'number') ? targeting.radius : 1));
+    for (let dy = -rad; dy <= rad; dy++) {
+      for (let dx = -rad; dx <= rad; dx++) {
+        const cx = centerX + dx;
+        const cy = centerY + dy;
+        if (isTileThreatenableForAbility(floor, cx, cy, fw, fh)) {
+          tiles.push({ x: cx, y: cy });
+        }
+      }
+    }
+    return tiles;
+  }
+  if (pattern === 'line') {
+    const sdx = Math.sign(centerX - originX);
+    const sdy = Math.sign(centerY - originY);
+    if (sdx === 0 && sdy === 0) return tiles;
+    const maxLen = Math.max(1, Math.floor((targeting && targeting.range) || 4));
+    for (let step = 1; step <= maxLen; step++) {
+      const cx = originX + sdx * step;
+      const cy = originY + sdy * step;
+      if (!isTileThreatenableForAbility(floor, cx, cy, fw, fh)) break;
+      tiles.push({ x: cx, y: cy });
+    }
+    return tiles;
+  }
+  if (pattern === 'cone') {
+    const sdx = Math.sign(centerX - originX);
+    const sdy = Math.sign(centerY - originY);
+    if (sdx === 0 && sdy === 0) return tiles;
+    const maxLen = Math.max(1, Math.floor((targeting && targeting.range) || 3));
+    for (let step = 1; step <= maxLen; step++) {
+      const bx = originX + sdx * step;
+      const by = originY + sdy * step;
+      const spread = step - 1;
+      for (let s = -spread; s <= spread; s++) {
+        const cx = sdx !== 0 ? bx : bx + s;
+        const cy = sdy !== 0 ? by : by + s;
+        if (isTileThreatenableForAbility(floor, cx, cy, fw, fh)) {
+          tiles.push({ x: cx, y: cy });
+        }
+      }
+    }
+    return tiles;
+  }
+  return tiles;
+}
+
+function selectHeroActiveAbility(abilityId, state = gameState) {
+  if (!state || !state.hero) return { ok: false, reason: 'no_hero' };
+  const h = state.hero;
+  normalizeActorAbilityState(h);
+  const def = getAbilityDefinition(abilityId);
+  if (!def || def.activation !== 'active') return { ok: false, reason: 'invalid_ability' };
+  const activeIds = getGrantedAbilityIds(h, { activation: 'active' });
+  if (activeIds.indexOf(abilityId) === -1) return { ok: false, reason: 'not_granted' };
+  h.activeAbilityId = abilityId;
+  return { ok: true, abilityId: abilityId };
+}
+
+function cancelPendingAbilityCast(state = gameState) {
+  if (!state || !state.hero || !state.hero.pendingCast) {
+    return { ok: false, reason: 'no_pending_cast' };
+  }
+  const cancelled = state.hero.pendingCast;
+  state.hero.pendingCast = null;
+  if (state === gameState) {
+    const ui = getActionCallbacks();
+    ui.floatingText(state.hero.x, state.hero.y, 'CAST CANCELLED', '#94a3b8');
+    ui.log('Cancelled pending spell cast.', 'info');
+    ui.updateUI();
+  }
+  return { ok: true, cancelled: cancelled };
+}
+
+function getHeroAbilityBarState(state = gameState) {
+  if (!state || !state.hero) return [];
+  const h = state.hero;
+  normalizeActorAbilityState(h);
+  const activeIds = getGrantedAbilityIds(h, { activation: 'active' });
+  const list = [];
+  for (let i = 0; i < activeIds.length; i++) {
+    const id = activeIds[i];
+    const def = getAbilityDefinition(id);
+    if (!def) continue;
+    const costInfo = getEffectiveAbilityCost(h, def);
+    const cdRem = getAbilityCooldownRemaining(h, id);
+    const silenced = isAbilitySilenced(h, def);
+    const canAfford = (h.mp || 0) >= costInfo.mp;
+    const ready = !silenced && cdRem <= 0 && canAfford && !h.pendingCast;
+    const mode = (def.targeting && def.targeting.mode) || 'self';
+    const requiresManualTarget = (mode === 'manual_enemy' || mode === 'manual_location' || mode === 'directional');
+    list.push({
+      id: id,
+      name: def.name,
+      icon: def.icon || '✦',
+      kind: def.kind,
+      domain: def.domain,
+      timing: def.timing,
+      desc: def.desc,
+      effectiveMp: costInfo.mp,
+      baseMp: costInfo.baseMp,
+      chilledPenalty: costInfo.chilledPenalty,
+      cooldown: costInfo.cooldown,
+      cooldownRemaining: cdRem,
+      silenced: silenced,
+      canAfford: canAfford,
+      ready: ready,
+      isSelected: h.activeAbilityId === id,
+      requiresManualTarget: requiresManualTarget,
+      mode: mode,
+      hotkey: i === 0 ? 'Q' : String(i + 1)
+    });
+  }
+  return list;
+}
+
+function getAbilityTargetingInfo(abilityId, state = gameState, targetOverride = null) {
   if (!state || state.inGuild || !state.hero) {
-    return { valid: false, reason: 'not_in_dungeon', targets: [], targetCoords: [], canAfford: false, reachRadius: 0 };
+    return { valid: false, reason: 'not_in_dungeon', targets: [], targetCoords: [], targetTiles: [], canAfford: false, reachRadius: 0 };
   }
   const h = state.hero;
-  const cls = CLASSES[h.classId];
-  if (!cls) {
-    return { valid: false, reason: 'unknown_class', targets: [], targetCoords: [], canAfford: false, reachRadius: 0 };
+  normalizeActorAbilityState(h);
+  const resolvedId = abilityId || h.activeAbilityId || (getGrantedAbilityIds(h, { activation: 'active' })[0] || null);
+  const def = getAbilityDefinition(resolvedId);
+  if (!def) {
+    return { valid: false, reason: 'unknown_ability', targets: [], targetCoords: [], targetTiles: [], canAfford: false, reachRadius: 0 };
   }
   const floor = ensureDungeonFloorHydrated(state.dungeon, state.dungeon.currentFloor);
   if (!floor || !floor.monsters) {
-    return { valid: false, reason: 'no_floor', targets: [], targetCoords: [], canAfford: false, reachRadius: 0 };
+    return { valid: false, reason: 'no_floor', targets: [], targetCoords: [], targetTiles: [], canAfford: false, reachRadius: 0 };
   }
 
   const fw = floor.width || (floor.tiles[0] ? floor.tiles[0].length : DEFAULT_MAP_W);
   const fh = floor.height || floor.tiles.length || DEFAULT_MAP_H;
 
-  const isChilled = (h.statuses || []).some(s => s.id === 'chilled');
-  const effectiveCost = cls.skillCost + (isChilled ? 2 : 0);
-  const canAfford = (h.mp >= effectiveCost);
+  const costInfo = getEffectiveAbilityCost(h, def);
+  const cdRem = getAbilityCooldownRemaining(h, def.id);
+  const silenced = isAbilitySilenced(h, def);
+  const canAfford = (h.mp || 0) >= costInfo.mp && cdRem <= 0 && !silenced && !h.pendingCast;
 
-  let targets = [];
-  let reachRadius = cls.skillRange || 1.5;
-  let destTile = null;
-
-  if (h.classId === 'fighter') {
-    reachRadius = 1.5;
-    targets = floor.monsters.filter(m => m.hp > 0 && Math.hypot(m.x - h.x, m.y - h.y) <= 1.5);
-  } else if (h.classId === 'thief') {
-    reachRadius = 3.5;
-    const candidates = floor.monsters.filter(
-      m => m.hp > 0 && Math.hypot(m.x - h.x, m.y - h.y) <= 3.5 && hasLineOfSight(floor, h.x, h.y, m.x, m.y)
-    );
-    for (let cIdx = 0; cIdx < candidates.length; cIdx++) {
-      const m = candidates[cIdx];
-      const neighbors = [[0, -1], [0, 1], [-1, 0], [1, 0]];
-      for (let nIdx = 0; nIdx < neighbors.length; nIdx++) {
-        const tx = m.x + neighbors[nIdx][0];
-        const ty = m.y + neighbors[nIdx][1];
-        if (tx >= 0 && tx < fw && ty >= 0 && ty < fh) {
-          const t = floor.tiles[ty][tx];
-          const walkable = (
-            t === TILE_FLOOR ||
-            t === TILE_STAIRS_UP ||
-            t === TILE_STAIRS_DOWN ||
-            t === TILE_CHEST_OPEN ||
-            t === TILE_SHRINE_USED ||
-            t === TILE_TRAP_DISARMED
-          );
-          const occupied = floor.monsters.some(other => other.hp > 0 && other.x === tx && other.y === ty);
-          if (walkable && !occupied) {
-            targets.push(m);
-            destTile = { x: tx, y: ty };
-            break;
-          }
-        }
-      }
-      if (targets.length > 0 && destTile) break;
-    }
-  } else if (h.classId === 'mage') {
-    reachRadius = 4.2;
-    targets = floor.monsters.filter(
-      m => m.hp > 0 && Math.hypot(m.x - h.x, m.y - h.y) <= 4.2 && hasLineOfSight(floor, h.x, h.y, m.x, m.y)
-    );
-  } else if (h.classId === 'ranger') {
-    reachRadius = 5.2;
-    const maxTargets = ((h.talentsAllocated && h.talentsAllocated.r_d3) || 0) > 0 ? 5 : 3;
-    targets = floor.monsters
-      .filter(m => m.hp > 0 && Math.hypot(m.x - h.x, m.y - h.y) <= 5.2 && hasLineOfSight(floor, h.x, h.y, m.x, m.y))
-      .sort((a, b) => Math.hypot(a.x - h.x, a.y - h.y) - Math.hypot(b.x - h.x, b.y - h.y))
-      .slice(0, maxTargets);
-  } else if (h.classId === 'paladin' || h.classId === 'adventurer') {
-    reachRadius = 1.5;
-    const t = floor.monsters.find(m => m.hp > 0 && Math.hypot(m.x - h.x, m.y - h.y) <= 1.5);
-    if (t) targets.push(t);
-  } else if (h.classId === 'cleric') {
-    reachRadius = 3.2;
-    const visTargets = floor.monsters
-      .filter(m => m.hp > 0 && Math.hypot(m.x - h.x, m.y - h.y) <= 3.2 && hasLineOfSight(floor, h.x, h.y, m.x, m.y))
-      .sort((a, b) => Math.hypot(a.x - h.x, a.y - h.y) - Math.hypot(b.x - h.x, b.y - h.y));
-    if (visTargets.length > 0) targets.push(visTargets[0]);
+  const tgt = def.targeting || { mode: 'self', pattern: 'self', range: 0, radius: 0, requireLos: false, filter: 'self', maxTargets: 1 };
+  const reachRadius = typeof tgt.range === 'number' ? tgt.range : 1.5;
+  let maxTargets = tgt.maxTargets || 1;
+  if (def.id === 'starfall_volley' && ((h.talentsAllocated && h.talentsAllocated.r_d3) || 0) > 0) {
+    maxTargets = 5;
   }
 
-  const targetCoords = targets.map(m => ({ x: m.x, y: m.y }));
+  const livingMonsters = floor.monsters.filter(function(m) { return m && !m._dead && m.hp > 0; });
+  let targets = [];
+  let targetTiles = [];
+  let destTile = null;
+  let validTarget = false;
+  const requiresManualTarget = (tgt.mode === 'manual_enemy' || tgt.mode === 'manual_location' || tgt.mode === 'directional');
 
+  if (tgt.mode === 'self') {
+    validTarget = true;
+    targetTiles = [{ x: h.x, y: h.y }];
+  } else if (tgt.mode === 'auto_area') {
+    const inRange = livingMonsters
+      .filter(function(m) {
+        const d = Math.hypot(m.x - h.x, m.y - h.y);
+        if (d > reachRadius) return false;
+        if (tgt.requireLos && !hasLineOfSight(floor, h.x, h.y, m.x, m.y)) return false;
+        return true;
+      })
+      .sort(function(a, b) {
+        return Math.hypot(a.x - h.x, a.y - h.y) - Math.hypot(b.x - h.x, b.y - h.y);
+      })
+      .slice(0, maxTargets);
+    targets = inRange;
+    targetTiles = inRange.map(function(m) { return { x: m.x, y: m.y }; });
+    validTarget = targets.length > 0;
+  } else if (tgt.mode === 'auto_enemy') {
+    const candidates = livingMonsters
+      .filter(function(m) {
+        const d = Math.hypot(m.x - h.x, m.y - h.y);
+        if (d > reachRadius) return false;
+        if (tgt.requireLos && !hasLineOfSight(floor, h.x, h.y, m.x, m.y)) return false;
+        return true;
+      })
+      .sort(function(a, b) {
+        return Math.hypot(a.x - h.x, a.y - h.y) - Math.hypot(b.x - h.x, b.y - h.y);
+      });
+    if (tgt.requireAdjacentLanding) {
+      for (let i = 0; i < candidates.length; i++) {
+        const landing = findShadowstepLanding(floor, candidates[i], fw, fh);
+        if (landing) {
+          targets = [candidates[i]];
+          destTile = landing;
+          targetTiles = [{ x: candidates[i].x, y: candidates[i].y }];
+          validTarget = true;
+          break;
+        }
+      }
+    } else if (candidates.length > 0) {
+      targets = [candidates[0]];
+      targetTiles = [{ x: candidates[0].x, y: candidates[0].y }];
+      validTarget = true;
+    }
+  } else if (tgt.mode === 'manual_enemy') {
+    let chosen = null;
+    if (targetOverride && typeof targetOverride.targetX === 'number' && typeof targetOverride.targetY === 'number') {
+      chosen = livingMonsters.find(function(m) {
+        if (m.x !== targetOverride.targetX || m.y !== targetOverride.targetY) return false;
+        const d = Math.hypot(m.x - h.x, m.y - h.y);
+        if (d > reachRadius) return false;
+        if (tgt.requireLos && !hasLineOfSight(floor, h.x, h.y, m.x, m.y)) return false;
+        return true;
+      }) || null;
+    } else {
+      // Auto-preview nearest legal enemy if no manual cursor override provided
+      const candidates = livingMonsters
+        .filter(function(m) {
+          const d = Math.hypot(m.x - h.x, m.y - h.y);
+          if (d > reachRadius) return false;
+          if (tgt.requireLos && !hasLineOfSight(floor, h.x, h.y, m.x, m.y)) return false;
+          return true;
+        })
+        .sort(function(a, b) {
+          return Math.hypot(a.x - h.x, a.y - h.y) - Math.hypot(b.x - h.x, b.y - h.y);
+        });
+      chosen = candidates[0] || null;
+    }
+    if (chosen) {
+      targets = [chosen];
+      targetTiles = [{ x: chosen.x, y: chosen.y }];
+      validTarget = true;
+    }
+  } else if (tgt.mode === 'manual_location') {
+    const cx = (targetOverride && typeof targetOverride.targetX === 'number') ? targetOverride.targetX : h.x;
+    const cy = (targetOverride && typeof targetOverride.targetY === 'number') ? targetOverride.targetY : h.y;
+    const d = Math.hypot(cx - h.x, cy - h.y);
+    const inRange = d <= reachRadius + 0.05;
+    const losOk = !tgt.requireLos || hasLineOfSight(floor, h.x, h.y, cx, cy);
+    const walkableOk = !tgt.requireWalkable || (
+      isTileWalkableForAbility(floor, cx, cy, fw, fh) &&
+      !(cx === h.x && cy === h.y) &&
+      !livingMonsters.some(function(m) { return m.x === cx && m.y === cy; })
+    );
+    if (inRange && losOk && walkableOk && isTileThreatenableForAbility(floor, cx, cy, fw, fh)) {
+      targetTiles = buildPatternTiles(floor, h.x, h.y, cx, cy, tgt, fw, fh);
+      if (tgt.requireWalkable) {
+        destTile = { x: cx, y: cy };
+      }
+      if (tgt.filter === 'enemy') {
+        targets = livingMonsters.filter(function(m) {
+          return targetTiles.some(function(pt) { return pt.x === m.x && pt.y === m.y; });
+        });
+      }
+      validTarget = targetTiles.length > 0;
+    }
+  } else if (tgt.mode === 'directional') {
+    let tx = (targetOverride && typeof targetOverride.targetX === 'number') ? targetOverride.targetX : null;
+    let ty = (targetOverride && typeof targetOverride.targetY === 'number') ? targetOverride.targetY : null;
+    if (tx === null || ty === null) {
+      if (targetOverride && (targetOverride.dirX || targetOverride.dirY)) {
+        tx = h.x + Math.sign(targetOverride.dirX || 0);
+        ty = h.y + Math.sign(targetOverride.dirY || 0);
+      } else {
+        const nearest = livingMonsters
+          .filter(function(m) { return Math.hypot(m.x - h.x, m.y - h.y) <= reachRadius + 1; })
+          .sort(function(a, b) { return Math.hypot(a.x - h.x, a.y - h.y) - Math.hypot(b.x - h.x, b.y - h.y); })[0];
+        if (nearest) {
+          tx = nearest.x;
+          ty = nearest.y;
+        }
+      }
+    }
+    if (tx !== null && ty !== null && !(tx === h.x && ty === h.y)) {
+      targetTiles = buildPatternTiles(floor, h.x, h.y, tx, ty, tgt, fw, fh);
+      targets = livingMonsters.filter(function(m) {
+        return targetTiles.some(function(pt) { return pt.x === m.x && pt.y === m.y; });
+      });
+      validTarget = targetTiles.length > 0;
+    }
+  }
+
+  const targetCoords = targets.map(function(m) { return { x: m.x, y: m.y }; });
   return {
-    valid: targets.length > 0 && canAfford,
-    hasTargets: targets.length > 0,
+    valid: validTarget && canAfford,
+    hasTargets: validTarget,
     canAfford: canAfford,
     classId: h.classId,
-    skillName: cls.skillName,
-    skillCost: cls.skillCost,
-    effectiveCost: effectiveCost,
+    abilityId: def.id,
+    abilityDef: def,
+    skillName: def.name,
+    skillCost: costInfo.baseMp,
+    effectiveCost: costInfo.mp,
+    cooldownRemaining: cdRem,
+    silenced: silenced,
+    requiresManualTarget: requiresManualTarget,
+    mode: tgt.mode,
+    pattern: tgt.pattern,
     reachRadius: reachRadius,
     targets: targets,
     targetCoords: targetCoords,
+    targetTiles: targetTiles,
     destTile: destTile
   };
 }
 
-function executeClassSkill(state = gameState) {
-  const ui = getActionCallbacks();
-  cancelAutoWalk();
-  if (state.inGuild) return { ok: false, reason: 'in_guild' };
-  const h = state.hero;
-  const cls = CLASSES[h.classId];
-  if (!cls) return { ok: false, reason: 'unknown_class' };
-  const floor = ensureDungeonFloorHydrated(state.dungeon, state.dungeon.currentFloor);
-  if (!floor) return { ok: false, reason: 'no_floor' };
+function getSkillTargetingInfo(state = gameState) {
+  return getAbilityTargetingInfo(null, state, null);
+}
 
+function resolveCommittedAbilityEffects(abilityDef, commitCtx, floor, state) {
+  const ui = getActionCallbacks();
+  const h = state.hero;
   const fw = floor.width || (floor.tiles[0] ? floor.tiles[0].length : DEFAULT_MAP_W);
   const fh = floor.height || floor.tiles.length || DEFAULT_MAP_H;
+  const tiles = Array.isArray(commitCtx.tiles) ? commitCtx.tiles : [];
+  const livingMonsters = (floor.monsters || []).filter(function(m) { return m && !m._dead && m.hp > 0; });
 
-  const isChilled = (h.statuses || []).some(s => s.id === 'chilled');
-  const effectiveCost = cls.skillCost + (isChilled ? 2 : 0);
-
-  if (h.mp < effectiveCost) {
-    if (state === gameState) {
-      ui.floatingText(h.x, h.y, 'Low MP!', '#60a5fa');
-      const chilledNote = isChilled ? ' (Chilled penalty: +2 MP)' : '';
-      ui.log(`Not enough MP for ${cls.skillName} (${effectiveCost} MP required${chilledNote}).`, 'bad');
-    }
-    return { ok: false, reason: 'no_mp' };
+  // Resolve target monsters at resolution time (important for delayed casts like Fireball!)
+  let affectedMonsters = [];
+  if (Array.isArray(commitCtx.explicitTargets) && commitCtx.explicitTargets.length > 0) {
+    affectedMonsters = commitCtx.explicitTargets.filter(function(m) { return m && !m._dead && m.hp > 0; });
+  } else if (tiles.length > 0 && abilityDef.targeting && abilityDef.targeting.filter === 'enemy') {
+    affectedMonsters = livingMonsters.filter(function(m) {
+      return tiles.some(function(pt) { return pt.x === m.x && pt.y === m.y; });
+    });
   }
 
-  // 1. FIGHTER: Whirlwind Cleave (Requires at least 1 adjacent monster)
-  if (h.classId === 'fighter') {
-    const adjTargets = floor.monsters.filter(m => Math.hypot(m.x - h.x, m.y - h.y) <= 1.5);
-    if (adjTargets.length === 0) {
-      if (state === gameState) {
-        ui.floatingText(h.x, h.y, 'No Adjacent Foes!', '#fbbf24');
-        ui.log('Whirlwind Cleave requires at least one adjacent enemy.', 'bad');
-      }
-      return { ok: false, reason: 'no_target' };
+  const summary = {
+    totalDmg: 0,
+    hits: 0,
+    kills: 0,
+    healAmt: 0,
+    shieldAmt: 0,
+    cleansedCount: 0,
+    revealedCount: 0,
+    movedTo: null,
+    knockbackCollided: false
+  };
+
+  if (state === gameState) {
+    playSound('spell');
+    if (abilityDef.vfx && typeof ui.combatAnim === 'function') {
+      const animX = (typeof commitCtx.targetX === 'number') ? commitCtx.targetX : h.x;
+      const animY = (typeof commitCtx.targetY === 'number') ? commitCtx.targetY : h.y;
+      ui.combatAnim(animX, animY, abilityDef.vfx.type || 'spell', abilityDef.vfx.color || '#60a5fa');
     }
-    h.mp -= effectiveCost;
-    if (state === gameState) {
-      playSound('spell');
-      ui.floatingText(h.x, h.y, 'WHIRLWIND!', '#f87171');
-      if (typeof ui.combatAnim === 'function') {
-        ui.combatAnim(h.x, h.y, 'spell', '#f87171');
+  }
+
+  const effects = Array.isArray(abilityDef.effects) ? abilityDef.effects : [];
+  for (let eIdx = 0; eIdx < effects.length; eIdx++) {
+    const eff = effects[eIdx];
+    if (!eff) continue;
+
+    if (eff.type === 'shadowstep' && commitCtx.destTile) {
+      h.x = commitCtx.destTile.x;
+      h.y = commitCtx.destTile.y;
+      summary.movedTo = { x: h.x, y: h.y };
+      if (state === gameState && typeof ui.combatAnim === 'function') {
+        ui.combatAnim(h.x, h.y, 'teleport', '#a855f7');
       }
-    }
-    adjTargets.slice().forEach(m => {
-      const masteryMult = getCodexMasteryMultiplier(m.id, state);
-      const dmg = Math.max(2, Math.round(h.atk * 1.5 * masteryMult) - m.def);
-      m.hp -= dmg;
-      applyStatusEffect(m, 'stun', 1);
+    } else if (eff.type === 'teleport' && commitCtx.destTile) {
+      h.x = commitCtx.destTile.x;
+      h.y = commitCtx.destTile.y;
+      summary.movedTo = { x: h.x, y: h.y };
       if (state === gameState) {
-        ui.floatingText(m.x, m.y, `-${dmg} STUN`, '#f87171');
+        ui.floatingText(h.x, h.y, 'BLINK!', '#c084fc');
+        ui.log(`You blink to (${h.x}, ${h.y})!`, 'info');
         if (typeof ui.combatAnim === 'function') {
-          ui.combatAnim(m.x, m.y, 'slash', '#f87171');
+          ui.combatAnim(h.x, h.y, 'teleport', '#c084fc');
         }
       }
-      if (m.hp <= 0) killMonster(m, state);
-    });
-    if (state === gameState) processTurn(state);
-    return { ok: true, skill: 'whirlwind' };
-  }
+    } else if (eff.type === 'damage') {
+      const ampRank = (abilityDef.id === 'starfall_nova' && h.talentsAllocated && h.talentsAllocated.m_c2) || 0;
+      const hasEcho = abilityDef.id === 'starfall_nova' && ((h.talentsAllocated && h.talentsAllocated.m_c3) || 0) > 0;
+      const talentMult = 1 + ampRank * 0.15;
 
-  // 2. THIEF: Shadowstep Strike (Requires visible target within 3.5 tiles AND an unoccupied safe floor tile adjacent to target)
-  if (h.classId === 'thief') {
-    const candidates = floor.monsters.filter(
-      m => Math.hypot(m.x - h.x, m.y - h.y) <= 3.5 && hasLineOfSight(floor, h.x, h.y, m.x, m.y)
-    );
-    let chosenTarget = null;
-    let destTile = null;
+      for (let mIdx = 0; mIdx < affectedMonsters.length; mIdx++) {
+        const m = affectedMonsters[mIdx];
+        if (!m || m._dead || m.hp <= 0) continue;
+        const masteryMult = getCodexMasteryMultiplier(m.id, state);
+        const dmgRes = computeAbilityDamage(h, eff, m, masteryMult * talentMult);
+        let dmg = dmgRes.damage;
+        if (hasEcho) dmg += Math.round(dmg * 0.5);
+        m.hp -= dmg;
+        summary.totalDmg += dmg;
+        summary.hits += 1;
 
-    for (let cIdx = 0; cIdx < candidates.length; cIdx++) {
-      const m = candidates[cIdx];
-      const neighbors = [[0, -1], [0, 1], [-1, 0], [1, 0]];
-      for (let nIdx = 0; nIdx < neighbors.length; nIdx++) {
-        const tx = m.x + neighbors[nIdx][0];
-        const ty = m.y + neighbors[nIdx][1];
-        if (tx >= 0 && tx < fw && ty >= 0 && ty < fh) {
-          const t = floor.tiles[ty][tx];
-          const walkable = (
-            t === TILE_FLOOR ||
-            t === TILE_STAIRS_UP ||
-            t === TILE_STAIRS_DOWN ||
-            t === TILE_CHEST_OPEN ||
-            t === TILE_SHRINE_USED ||
-            t === TILE_TRAP_DISARMED
-          );
-          const occupied = floor.monsters.some(other => other.x === tx && other.y === ty);
-          if (walkable && !occupied) {
-            chosenTarget = m;
-            destTile = { x: tx, y: ty };
-            break;
+        if (state === gameState) {
+          const guardTag = dmgRes.guarded ? ' (GUARD)' : '';
+          ui.floatingText(m.x, m.y, `-${dmg}${guardTag}`, (abilityDef.vfx && abilityDef.vfx.color) || '#fbbf24');
+          if (typeof ui.combatAnim === 'function') {
+            ui.combatAnim(m.x, m.y, abilityDef.vfx ? abilityDef.vfx.type : 'slash', (abilityDef.vfx && abilityDef.vfx.color) || '#fbbf24');
+          }
+        }
+        if (m.hp <= 0 && !m._dead) {
+          killMonster(m, state);
+          summary.kills += 1;
+        }
+      }
+    } else if (eff.type === 'status') {
+      const stOpts = { sourceId: h.id || 'hero', sourceAbilityId: abilityDef.id };
+      if (eff.targetSelf) {
+        applyStatusEffect(h, eff.statusId, eff.duration || 2, stOpts);
+        recomputeHeroDerivedStats(false, state);
+        if (state === gameState) {
+          ui.floatingText(h.x, h.y, eff.statusId.toUpperCase(), (abilityDef.vfx && abilityDef.vfx.color) || '#60a5fa');
+        }
+      } else {
+        for (let mIdx = 0; mIdx < affectedMonsters.length; mIdx++) {
+          const m = affectedMonsters[mIdx];
+          if (!m || m._dead || m.hp <= 0) continue;
+          applyStatusEffect(m, eff.statusId, eff.duration || 2, stOpts);
+          if (state === gameState) {
+            ui.floatingText(m.x, m.y, eff.statusId.toUpperCase(), '#fbbf24');
           }
         }
       }
-      if (chosenTarget && destTile) break;
-    }
-
-    if (!chosenTarget || !destTile) {
+    } else if (eff.type === 'heal') {
+      const healAmt = computeAbilityHealAmount(h, eff);
+      h.hp = Math.min(h.maxHp, h.hp + healAmt);
+      summary.healAmt += healAmt;
       if (state === gameState) {
-        ui.floatingText(h.x, h.y, 'No Valid Shadowstep!', '#c084fc');
-        ui.log('Shadowstep Strike requires a visible target within 3 tiles with an open adjacent floor tile.', 'bad');
+        ui.floatingText(h.x, h.y, `+${healAmt} HP`, '#34d399');
       }
-      return { ok: false, reason: 'no_valid_shadowstep' };
-    }
-
-    h.mp -= effectiveCost;
-    h.x = destTile.x;
-    h.y = destTile.y;
-    const masteryMult = getCodexMasteryMultiplier(chosenTarget.id, state);
-    const dmg = Math.max(4, Math.round(h.atk * 2.2 * masteryMult) - Math.floor(chosenTarget.def * 0.5));
-    chosenTarget.hp -= dmg;
-
-    if (state === gameState) {
-      playSound('spell');
-      ui.floatingText(chosenTarget.x, chosenTarget.y, `-${dmg} CRIT BACKSTAB!`, '#fbbf24');
-      ui.log(`Shadowstep Strike hits ${chosenTarget.name} for ${dmg} critical damage!`, 'gold');
-      if (typeof ui.combatAnim === 'function') {
-        ui.combatAnim(chosenTarget.x, chosenTarget.y, 'crit_slash', '#fbbf24');
-      }
-    }
-    if (chosenTarget.hp <= 0) killMonster(chosenTarget, state);
-    if (state === gameState) processTurn(state);
-    return { ok: true, skill: 'shadowstep', destTile };
-  }
-
-  // 3. MAGE: Starfall Nova (Requires at least 1 enemy within 4 tiles)
-  if (h.classId === 'mage') {
-    const targets = floor.monsters.filter(
-      m => Math.hypot(m.x - h.x, m.y - h.y) <= 4.2 && hasLineOfSight(floor, h.x, h.y, m.x, m.y)
-    );
-    if (targets.length === 0) {
+    } else if (eff.type === 'shield') {
+      const shieldAmt = computeAbilityShieldAmount(h, eff);
+      h.absorbShield = Math.max(h.absorbShield || 0, shieldAmt);
+      summary.shieldAmt = h.absorbShield;
       if (state === gameState) {
-        ui.floatingText(h.x, h.y, 'No Foes in Range!', '#60a5fa');
-        ui.log('Starfall Nova requires at least one visible enemy within 4 tiles.', 'bad');
-      }
-      return { ok: false, reason: 'no_target' };
-    }
-
-    h.mp -= effectiveCost;
-    const ampRank = (h.talentsAllocated && h.talentsAllocated.m_c2) || 0;
-    const hasEcho = ((h.talentsAllocated && h.talentsAllocated.m_c3) || 0) > 0;
-    const spellMult = 2.0 * (1 + ampRank * 0.15);
-
-    if (state === gameState) {
-      playSound('spell');
-      ui.floatingText(h.x, h.y, 'STARFALL NOVA!', '#60a5fa');
-      if (typeof ui.combatAnim === 'function') {
-        ui.combatAnim(h.x, h.y, 'spell', '#60a5fa');
-      }
-    }
-
-    targets.slice().forEach(m => {
-      const masteryMult = getCodexMasteryMultiplier(m.id, state);
-      let dmg = Math.max(4, Math.round(h.atk * spellMult * masteryMult) - Math.floor(m.def * 0.4));
-      if (hasEcho) dmg += Math.round(dmg * 0.5);
-      m.hp -= dmg;
-      applyStatusEffect(m, 'burn', 3);
-      if (state === gameState) {
-        ui.floatingText(m.x, m.y, `-${dmg}${hasEcho ? ' ECHO!' : ''}`, '#60a5fa');
+        ui.floatingText(h.x, h.y, `+${shieldAmt} SHIELD`, (abilityDef.vfx && abilityDef.vfx.color) || '#818cf8');
         if (typeof ui.combatAnim === 'function') {
-          ui.combatAnim(m.x, m.y, 'crit_slash', '#60a5fa');
+          ui.combatAnim(h.x, h.y, 'shield', (abilityDef.vfx && abilityDef.vfx.color) || '#818cf8');
         }
       }
-      if (m.hp <= 0) killMonster(m, state);
-    });
-
-    if (state === gameState) processTurn(state);
-    return { ok: true, skill: 'nova' };
-  }
-
-  // 4. RANGER: Starfall Volley (Up to 3—or 5 with Rain of Needles—visible targets within 5 tiles)
-  if (h.classId === 'ranger') {
-    const maxTargets = ((h.talentsAllocated && h.talentsAllocated.r_d3) || 0) > 0 ? 5 : 3;
-    const pierceRank = (h.talentsAllocated && h.talentsAllocated.r_d2) || 0;
-    const defIgnore = Math.min(0.8, pierceRank * 0.30);
-
-    const targets = floor.monsters
-      .filter(m => Math.hypot(m.x - h.x, m.y - h.y) <= 5.2 && hasLineOfSight(floor, h.x, h.y, m.x, m.y))
-      .sort((a, b) => Math.hypot(a.x - h.x, a.y - h.y) - Math.hypot(b.x - h.x, b.y - h.y))
-      .slice(0, maxTargets);
-
-    if (targets.length === 0) {
-      if (state === gameState) {
-        ui.floatingText(h.x, h.y, 'No Targets in Sight!', '#34d399');
-        ui.log('Starfall Volley requires at least one visible enemy within 5 tiles.', 'bad');
-      }
-      return { ok: false, reason: 'no_target' };
-    }
-
-    h.mp -= effectiveCost;
-    if (state === gameState) {
-      playSound('spell');
-      ui.floatingText(h.x, h.y, 'STARFALL VOLLEY!', '#34d399');
-    }
-
-    targets.forEach(m => {
-      const effDef = Math.round(m.def * (1 - defIgnore));
-      const masteryMult = getCodexMasteryMultiplier(m.id, state);
-      const dmg = Math.max(3, Math.round(h.atk * 1.8 * masteryMult) - effDef);
-      m.hp -= dmg;
-      if (state === gameState) {
-        ui.floatingText(m.x, m.y, `-${dmg} VOLLEY`, '#34d399');
-        if (typeof ui.combatAnim === 'function') {
-          ui.combatAnim(m.x, m.y, 'slash', '#34d399');
+    } else if (eff.type === 'cleanse') {
+      const maxRem = eff.maxRemoved || 3;
+      let removed = 0;
+      if (Array.isArray(h.statuses)) {
+        for (let i = h.statuses.length - 1; i >= 0 && removed < maxRem; i--) {
+          const st = h.statuses[i];
+          if (st && CLEANSEABLE_STATUS_IDS.indexOf(st.id) !== -1) {
+            h.statuses.splice(i, 1);
+            removed += 1;
+          }
         }
       }
-      if (m.hp <= 0) killMonster(m, state);
-    });
-
-    if (state === gameState) processTurn(state);
-    return { ok: true, skill: 'volley', count: targets.length };
+      summary.cleansedCount += removed;
+      if (removed > 0) {
+        recomputeHeroDerivedStats(false, state);
+      }
+      if (state === gameState) {
+        ui.floatingText(h.x, h.y, removed > 0 ? `CLEANSED (${removed})` : 'PURIFIED', '#fef08a');
+        ui.log(removed > 0 ? `Purification cleansed ${removed} negative effect(s)!` : 'Purification washes over you.', 'good');
+      }
+    } else if (eff.type === 'knockback') {
+      const dist = eff.distance || 1;
+      for (let mIdx = 0; mIdx < affectedMonsters.length; mIdx++) {
+        const m = affectedMonsters[mIdx];
+        if (!m || m._dead || m.hp <= 0) continue;
+        const dx = Math.sign(m.x - h.x);
+        const dy = Math.sign(m.y - h.y);
+        if (dx === 0 && dy === 0) continue;
+        let collided = false;
+        for (let step = 0; step < dist; step++) {
+          const nx = m.x + dx;
+          const ny = m.y + dy;
+          if (isMonsterWalkableTile(floor, nx, ny, h, fw, fh)) {
+            m.x = nx;
+            m.y = ny;
+          } else {
+            collided = true;
+            break;
+          }
+        }
+        if (collided) {
+          summary.knockbackCollided = true;
+          if (eff.collideBonusDmg > 0) {
+            m.hp -= eff.collideBonusDmg;
+          }
+          if (eff.collideStunTurns > 0) {
+            applyStatusEffect(m, 'stun', eff.collideStunTurns, { sourceId: h.id || 'hero', sourceAbilityId: abilityDef.id });
+          }
+          if (state === gameState) {
+            ui.floatingText(m.x, m.y, 'WALL SLAM! STUN', '#fbbf24');
+            ui.log(`${m.name} slammed into an obstacle and is stunned!`, 'gold');
+          }
+          if (m.hp <= 0 && !m._dead) {
+            killMonster(m, state);
+            summary.kills += 1;
+          }
+        } else if (state === gameState) {
+          ui.floatingText(m.x, m.y, 'KNOCKBACK!', '#f59e0b');
+        }
+      }
+    } else if (eff.type === 'detect') {
+      const rad = eff.radius || 6;
+      let revealed = 0;
+      if (eff.revealTraps && floor.tiles) {
+        for (let ty = Math.max(0, h.y - rad); ty <= Math.min(fh - 1, h.y + rad); ty++) {
+          for (let tx = Math.max(0, h.x - rad); tx <= Math.min(fw - 1, h.x + rad); tx++) {
+            if (Math.hypot(tx - h.x, ty - h.y) <= rad && floor.tiles[ty][tx] === TILE_TRAP_HIDDEN) {
+              floor.tiles[ty][tx] = TILE_TRAP_VISIBLE;
+              revealed += 1;
+            }
+          }
+        }
+      }
+      if (eff.revealSecretDoors && Array.isArray(floor.objects)) {
+        for (let oIdx = 0; oIdx < floor.objects.length; oIdx++) {
+          const obj = floor.objects[oIdx];
+          if (!obj || Math.hypot(obj.x - h.x, obj.y - h.y) > rad) continue;
+          if (obj.runtimeState && obj.runtimeState.discovered === false) {
+            obj.runtimeState.discovered = true;
+            revealed += 1;
+          }
+        }
+      }
+      summary.revealedCount += revealed;
+      if (state === gameState) {
+        ui.floatingText(h.x, h.y, revealed > 0 ? `REVEALED (${revealed})` : 'SENSE CLEAR', '#34d399');
+        ui.log(revealed > 0 ? `Detect Magic revealed ${revealed} concealed trap(s) or secret(s)!` : 'Detect Magic senses no hidden traps or secrets nearby.', 'info');
+      }
+    } else if (eff.type === 'persistent_area') {
+      if (!Array.isArray(floor.persistentAreas)) floor.persistentAreas = [];
+      const healPerTurn = Math.max(4, Math.round((eff.healPerTurnBase || 6) + (h.magicPower || 0) * (eff.healMagicMult || 0.35)));
+      floor.persistentAreas.push({
+        id: (eff.areaId || 'zone') + '_' + (state.turn || 0) + '_' + floor.persistentAreas.length,
+        name: eff.name || abilityDef.name,
+        sourceAbilityId: abilityDef.id,
+        centerX: commitCtx.targetX,
+        centerY: commitCtx.targetY,
+        tiles: tiles.slice(),
+        turnsLeft: eff.duration || 3,
+        color: eff.color || '#fbbf24',
+        healPerTurn: healPerTurn,
+        grantStatus: eff.grantStatus || null,
+        affectsHero: eff.affectsHero !== false,
+        affectsMonsters: Boolean(eff.affectsMonsters)
+      });
+      if (state === gameState) {
+        ui.floatingText(commitCtx.targetX, commitCtx.targetY, eff.name || 'SANCTUARY', eff.color || '#fbbf24');
+        ui.log(`${abilityDef.name} consecrates the ground for ${eff.duration || 3} turns!`, 'gold');
+      }
+    }
   }
 
-  // 5. PALADIN: Holy Smite (Requires adjacent enemy before deducting MP; deals 240% holy dmg + heals 15% Max HP)
-  if (h.classId === 'paladin') {
-    const target = floor.monsters.find(m => Math.hypot(m.x - h.x, m.y - h.y) <= 1.5);
-    if (!target) {
-      if (state === gameState) {
-        ui.floatingText(h.x, h.y, 'No Adjacent Foe!', '#fbbf24');
-        ui.log('Holy Smite requires an adjacent monster target.', 'bad');
+  // Legacy Starfall Nova Burn side effect preservation
+  if (abilityDef.id === 'starfall_nova') {
+    for (let i = 0; i < affectedMonsters.length; i++) {
+      const m = affectedMonsters[i];
+      if (m && !m._dead && m.hp > 0) {
+        applyStatusEffect(m, 'burn', 3, { sourceId: h.id || 'hero', sourceAbilityId: 'starfall_nova' });
       }
-      return { ok: false, reason: 'no_adjacent_target' };
     }
+  }
+  // Legacy Torch Flare Stun side effect preservation
+  if (abilityDef.id === 'torch_flare') {
+    for (let i = 0; i < affectedMonsters.length; i++) {
+      const m = affectedMonsters[i];
+      if (m && !m._dead && m.hp > 0) {
+        m.stunned = Math.max(m.stunned || 0, 1);
+        applyStatusEffect(m, 'stun', 1, { sourceId: h.id || 'hero', sourceAbilityId: 'torch_flare' });
+      }
+    }
+  }
 
-    h.mp -= effectiveCost;
-    const masteryMult = getCodexMasteryMultiplier(target.id, state);
-    const dmg = Math.max(5, Math.round(h.atk * 2.4 * masteryMult) - Math.floor(target.def * 0.5));
-    const healAmt = Math.round(h.maxHp * 0.15);
-    target.hp -= dmg;
-    h.hp = Math.min(h.maxHp, h.hp + healAmt);
+  if (state === gameState && summary.hits > 0) {
+    ui.log(`${abilityDef.name} hit ${summary.hits} foe(s) for ${summary.totalDmg} total damage!`, 'gold');
+  }
 
+  return summary;
+}
+
+function triggerReactiveAbilities(actor, eventName, state = gameState) {
+  if (!actor || !eventName || !state || state.inGuild) return [];
+  if (reactiveTriggerDepth >= MAX_REACTIVE_TRIGGER_DEPTH) return [];
+  normalizeActorAbilityState(actor);
+  const floor = ensureDungeonFloorHydrated(state.dungeon, state.dungeon.currentFloor);
+  if (!floor) return [];
+
+  const reactiveIds = getGrantedAbilityIds(actor, { activation: 'reactive' });
+  const triggered = [];
+  reactiveTriggerDepth += 1;
+  try {
+    for (let i = 0; i < reactiveIds.length; i++) {
+      const def = getAbilityDefinition(reactiveIds[i]);
+      if (!def || def.triggerEvent !== eventName) continue;
+      if (eventName === 'on_hero_low_hp') {
+        const thresh = def.triggerThresholdPct || 0.35;
+        if ((actor.hp || 0) <= 0 || (actor.hp / Math.max(1, actor.maxHp || 100)) > thresh) continue;
+      }
+      const val = validateAbilityActivation(actor, def, { context: 'tactical_dungeon', allowTriggered: true, allowWhileCasting: true });
+      if (!val.ok) continue;
+      if (val.effectiveCost > 0) actor.mp -= val.effectiveCost;
+      if (val.cooldown > 0) setAbilityCooldown(actor, def.id, val.cooldown);
+      const summary = resolveCommittedAbilityEffects(def, {
+        targetX: actor.x,
+        targetY: actor.y,
+        tiles: [{ x: actor.x, y: actor.y }],
+        explicitTargets: []
+      }, floor, state);
+      if (state === gameState) {
+        const ui = getActionCallbacks();
+        ui.floatingText(actor.x, actor.y, `${def.name.toUpperCase()}!`, '#34d399');
+        ui.log(`✦ Reactive ${def.name} triggered!`, 'good');
+      }
+      triggered.push({ abilityId: def.id, summary: summary });
+    }
+  } finally {
+    reactiveTriggerDepth -= 1;
+  }
+  return triggered;
+}
+
+function executeAbility(abilityId, targetOpts = null, state = gameState) {
+  const ui = getActionCallbacks();
+  cancelAutoWalk();
+  if (!state || state.inGuild || !state.hero) return { ok: false, reason: 'in_guild' };
+  const h = state.hero;
+  normalizeActorAbilityState(h);
+  const resolvedId = abilityId || h.activeAbilityId || (getGrantedAbilityIds(h, { activation: 'active' })[0] || null);
+  const def = getAbilityDefinition(resolvedId);
+  if (!def) return { ok: false, reason: 'unknown_ability' };
+
+  const floor = ensureDungeonFloorHydrated(state.dungeon, state.dungeon.currentFloor);
+  if (!floor) return { ok: false, reason: 'no_floor' };
+
+  // 1. Validate access, silence, cooldown, pendingCast, and MP BEFORE spending anything
+  const val = validateAbilityActivation(h, def, { context: 'tactical_dungeon' });
+  if (!val.ok) {
+    if (state === gameState) {
+      if (val.reason === 'no_mp') {
+        ui.floatingText(h.x, h.y, 'Low MP!', '#60a5fa');
+        const chillNote = val.chilledPenalty > 0 ? ' (Chilled: +2 MP)' : '';
+        ui.log(`Not enough MP for ${def.name} (${val.effectiveCost} MP required${chillNote}).`, 'bad');
+      } else if (val.reason === 'on_cooldown') {
+        ui.floatingText(h.x, h.y, `CD: ${val.cooldownRemaining}t`, '#94a3b8');
+        ui.log(`${def.name} is on cooldown (${val.cooldownRemaining} turn(s) remaining).`, 'bad');
+      } else if (val.reason === 'silenced') {
+        ui.floatingText(h.x, h.y, 'SILENCED!', '#e879f9');
+        ui.log(`You are Silenced and cannot cast ${def.name}!`, 'bad');
+      } else if (val.reason === 'already_casting') {
+        ui.floatingText(h.x, h.y, 'CASTING...', '#fbbf24');
+      }
+    }
+    return { ok: false, reason: val.reason, cooldownRemaining: val.cooldownRemaining || 0 };
+  }
+
+  // 2. Validate targeting BEFORE spending resources
+  const info = getAbilityTargetingInfo(def.id, state, targetOpts);
+  if (!info.hasTargets) {
+    if (state === gameState) {
+      ui.floatingText(h.x, h.y, 'No Valid Target!', '#fbbf24');
+      ui.log(`${def.name} has no valid target in range.`, 'bad');
+    }
+    const noTargetReason = (def.id === 'shadowstep_strike') ? 'no_valid_shadowstep' : 'no_target';
+    return { ok: false, reason: noTargetReason };
+  }
+
+  // 3. Commit resources (MP + cooldown)
+  if (val.effectiveCost > 0) {
+    h.mp -= val.effectiveCost;
+  }
+  if (val.cooldown > 0) {
+    setAbilityCooldown(h, def.id, val.cooldown);
+  }
+
+  const targetX = (targetOpts && typeof targetOpts.targetX === 'number')
+    ? targetOpts.targetX
+    : (info.destTile ? info.destTile.x : (info.targets[0] ? info.targets[0].x : h.x));
+  const targetY = (targetOpts && typeof targetOpts.targetY === 'number')
+    ? targetOpts.targetY
+    : (info.destTile ? info.destTile.y : (info.targets[0] ? info.targets[0].y : h.y));
+
+  // 4. Delayed cast windup OR immediate resolution
+  if (def.timing === 'delayed' && (def.windupTurns || 1) > 0) {
+    h.pendingCast = {
+      abilityId: def.id,
+      name: def.name,
+      targetX: targetX,
+      targetY: targetY,
+      tiles: info.targetTiles.slice(),
+      turnsLeft: def.windupTurns || 1,
+      color: (def.vfx && def.vfx.color) || '#fb923c'
+    };
     if (state === gameState) {
       playSound('spell');
-      ui.floatingText(target.x, target.y, `-${dmg} HOLY SMITE!`, '#fbbf24');
-      ui.floatingText(h.x, h.y, `+${healAmt} HP`, '#34d399');
-      ui.log(`Holy Smite sears ${target.name} for ${dmg} damage and heals you for +${healAmt} HP!`, 'gold');
+      ui.floatingText(h.x, h.y, `CASTING ${def.name.toUpperCase()}...`, '#fbbf24');
+      ui.log(`You begin channeling ${def.name} at (${targetX}, ${targetY}) — resolves next turn!`, 'gold');
       if (typeof ui.combatAnim === 'function') {
-        ui.combatAnim(target.x, target.y, 'crit_slash', '#fbbf24');
+        ui.combatAnim(h.x, h.y, 'cast_ring', h.pendingCast.color);
       }
+      processTurn(state);
     }
-    if (target.hp <= 0) killMonster(target, state);
-    if (state === gameState) processTurn(state);
-    return { ok: true, skill: 'smite', dmg, healAmt };
+    return { ok: true, delayed: true, skill: def.id, abilityId: def.id, pendingCast: h.pendingCast };
   }
 
-  // 6. ADVENTURER: Torch Flare (Requires adjacent enemy before deducting MP; deals 180% dmg + 1-turn stun)
-  if (h.classId === 'adventurer') {
-    const target = floor.monsters.find(m => Math.hypot(m.x - h.x, m.y - h.y) <= 1.5);
-    if (!target) {
-      if (state === gameState) {
-        ui.floatingText(h.x, h.y, 'No Adjacent Foe!', '#38bdf8');
-        ui.log('Torch Flare requires an adjacent monster target.', 'bad');
-      }
-      return { ok: false, reason: 'no_adjacent_target' };
-    }
+  const summary = resolveCommittedAbilityEffects(def, {
+    targetX: targetX,
+    targetY: targetY,
+    tiles: info.targetTiles,
+    explicitTargets: info.targets,
+    destTile: info.destTile
+  }, floor, state);
 
-    h.mp -= effectiveCost;
-    const masteryMult = getCodexMasteryMultiplier(target.id, state);
-    const dmg = Math.max(4, Math.round(h.atk * 1.8 * masteryMult) - Math.floor(target.def * 0.5));
-    target.hp -= dmg;
-    target.stunned = Math.max(target.stunned || 0, 1);
-    applyStatusEffect(target, 'stun', 1);
-
-    if (state === gameState) {
-      playSound('spell');
-      ui.floatingText(target.x, target.y, `-${dmg} FLARE!`, '#38bdf8');
-      ui.log(`Torch Flare sears ${target.name} for ${dmg} damage and stuns it!`, 'gold');
-    }
-    if (target.hp <= 0) killMonster(target, state);
-    if (state === gameState) processTurn(state);
-    return { ok: true, skill: 'torch_flare', dmg };
+  if (state === gameState) {
+    processTurn(state);
   }
 
-  // 7. CLERIC: Sacred Ward (Requires visible foe within 3 tiles before deducting MP; deals 160% holy/INT dmg + heals 20% Max HP)
-  if (h.classId === 'cleric') {
-    const visTargets = floor.monsters
-      .filter(m => m.hp > 0 && Math.hypot(m.x - h.x, m.y - h.y) <= 3.2 && hasLineOfSight(floor, h.x, h.y, m.x, m.y))
-      .sort((a, b) => Math.hypot(a.x - h.x, a.y - h.y) - Math.hypot(b.x - h.x, b.y - h.y));
-    const target = visTargets[0] || null;
-    if (!target) {
-      if (state === gameState) {
-        ui.floatingText(h.x, h.y, 'No Visible Foe!', '#fef08a');
-        ui.log('Sacred Ward requires a visible monster within 3 tiles.', 'bad');
-      }
-      return { ok: false, reason: 'no_target_in_range' };
-    }
+  return {
+    ok: true,
+    skill: def.id,
+    abilityId: def.id,
+    dmg: summary.totalDmg,
+    hits: summary.hits,
+    kills: summary.kills,
+    healAmt: summary.healAmt,
+    shieldAmt: summary.shieldAmt,
+    cleansedCount: summary.cleansedCount,
+    revealedCount: summary.revealedCount,
+    destTile: info.destTile,
+    movedTo: summary.movedTo,
+    knockbackCollided: summary.knockbackCollided
+  };
+}
 
-    h.mp -= effectiveCost;
-    const masteryMult = getCodexMasteryMultiplier(target.id, state);
-    const spellBase = Math.max(h.atk, h.magicPower || Math.round((h.computedInt || h.int || 12) * 1.6));
-    const dmg = Math.max(5, Math.round(spellBase * 1.6 * masteryMult) - Math.floor(target.def * 0.4));
-    const healAmt = Math.max(6, Math.round(h.maxHp * 0.20));
-    target.hp -= dmg;
-    h.hp = Math.min(h.maxHp, h.hp + healAmt);
-
-    if (state === gameState) {
-      playSound('spell');
-      ui.floatingText(target.x, target.y, `-${dmg} SACRED WARD!`, '#fef08a');
-      ui.floatingText(h.x, h.y, `+${healAmt} HP`, '#34d399');
-      ui.log(`Sacred Ward strikes ${target.name} for ${dmg} holy damage and restores +${healAmt} HP!`, 'gold');
-      if (typeof ui.combatAnim === 'function') {
-        ui.combatAnim(target.x, target.y, 'crit_slash', '#fef08a');
-      }
-    }
-    if (target.hp <= 0) killMonster(target, state);
-    if (state === gameState) processTurn(state);
-    return { ok: true, skill: 'sacred_ward', dmg, healAmt };
-  }
-
-  return { ok: false };
+function executeClassSkill(state = gameState) {
+  return executeAbility(null, null, state);
 }
 
 function handlePlayerAction(dx, dy, state = gameState) {
@@ -33712,6 +35417,8 @@ function spawnEntity(type, subId = null, x = null, y = null, state = gameState, 
 // Shared Developer Console Engine & Control Panel State (HR-15)
 // Works consistently across Wargame (Overworld/City) and Integrated Dungeon contexts.
 // No arbitrary JS execution or eval; all mutations route through canonical game services.
+
+
 
 
 
@@ -35073,8 +36780,78 @@ function createDevConsoleController(options) {
         shopItems: SHOP_ITEMS.map(function(it) {
           return { id: it.id, name: it.name, slot: it.slot || it.type || 'item', cost: it.cost || 0 };
         })
-      }
+      },
+      abilities: (function() {
+        const targetHero = activeHero || null;
+        if (targetHero) normalizeActorAbilityState(targetHero);
+        const grantedIds = targetHero ? getGrantedAbilityIds(targetHero) : [];
+        return {
+          catalog: ABILITY_IDS.map(function(id) {
+            const d = ABILITIES[id];
+            return { id: d.id, name: d.name, domain: d.domain, kind: d.kind, activation: d.activation };
+          }),
+          granted: grantedIds.map(function(id) {
+            const d = getAbilityDefinition(id);
+            return {
+              id: id,
+              name: d ? d.name : id,
+              domain: d ? d.domain : 'martial',
+              kind: d ? d.kind : 'skill',
+              sources: targetHero ? getGrantedAbilitySources(targetHero, id) : [],
+              cooldownRemaining: targetHero ? getAbilityCooldownRemaining(targetHero, id) : 0
+            };
+          }),
+          absorbShield: targetHero ? (targetHero.absorbShield || 0) : 0,
+          pendingCast: targetHero ? (targetHero.pendingCast || null) : null,
+          statuses: (targetHero && Array.isArray(targetHero.statuses)) ? targetHero.statuses.map(function(s) {
+            return { id: s.id, name: s.name || s.id, duration: s.duration || 1, isBuff: Boolean(s.isBuff) };
+          }) : []
+        };
+      })()
     };
+  }
+
+  function grantHeroAbility(abilityId, sourceType) {
+    const hero = resolveActiveHero(null);
+    if (!hero) return recordFeedback({ ok: false, text: 'No active hero available.' }, 'Abilities');
+    const res = grantAbilityAccess(hero, abilityId, sourceType || 'learned');
+    if (!res.ok) return recordFeedback({ ok: false, text: 'Grant ability failed: ' + res.reason }, 'Abilities');
+    notifyMutated();
+    return recordFeedback({ ok: true, text: 'Granted ' + abilityId + ' (' + res.source + ') to ' + hero.name + '.' }, 'Abilities');
+  }
+
+  function revokeHeroAbility(abilityId, sourceType) {
+    const hero = resolveActiveHero(null);
+    if (!hero) return recordFeedback({ ok: false, text: 'No active hero available.' }, 'Abilities');
+    const res = revokeAbilityAccess(hero, abilityId, sourceType || 'learned');
+    if (!res.ok) return recordFeedback({ ok: false, text: 'Revoke ability failed: ' + res.reason }, 'Abilities');
+    notifyMutated();
+    return recordFeedback({
+      ok: true,
+      stillGranted: res.stillGranted,
+      text: 'Revoked ' + abilityId + ' (' + res.source + ')' + (res.stillGranted ? ' — still granted via another source.' : '.')
+    }, 'Abilities');
+  }
+
+  function resetHeroCooldownsAndMp() {
+    const hero = resolveActiveHero(null);
+    if (!hero) return recordFeedback({ ok: false, text: 'No active hero available.' }, 'Abilities');
+    resetActorAbilityCooldowns(hero);
+    hero.mp = hero.maxMp || hero.mp || 40;
+    hero.pendingCast = null;
+    notifyMutated();
+    return recordFeedback({ ok: true, text: 'Reset all ability cooldowns & restored full MP for ' + hero.name + '.' }, 'Abilities');
+  }
+
+  function applyTestStatusToHero(statusId, duration) {
+    const hero = resolveActiveHero(null);
+    if (!hero) return recordFeedback({ ok: false, text: 'No active hero available.' }, 'Abilities');
+    applyStatusEffect(hero, statusId, duration || 3, { sourceId: 'dev_console' });
+    if (getContext() === 'dungeon') {
+      recomputeHeroDerivedStats(false, getDungeonState());
+    }
+    notifyMutated();
+    return recordFeedback({ ok: true, text: 'Applied status "' + statusId + '" (' + (duration || 3) + 't) to ' + hero.name + '.' }, 'Abilities');
   }
 
   function setOpen(nextOpen) {
@@ -35140,6 +36917,10 @@ function createDevConsoleController(options) {
     toggleHeroGodMode: toggleHeroGodMode,
     spawnObject: spawnObject,
     triggerHeroSkill: triggerHeroSkill,
+    grantHeroAbility: grantHeroAbility,
+    revokeHeroAbility: revokeHeroAbility,
+    resetHeroCooldownsAndMp: resetHeroCooldownsAndMp,
+    applyTestStatusToHero: applyTestStatusToHero,
     setupCityForgeWorkflow: setupCityForgeWorkflow,
     adjustCityResource: adjustCityResource,
     grantShopItem: grantShopItem,
@@ -35151,8 +36932,2530 @@ function createDevConsoleController(options) {
   };
 }
 
+  // --- Module: src/ui/renderer.js ---
+// 2D Frustum-Culled Camera Renderer, Bresenham Torchlight FOV, Minimap / Cartographer's Map & Floating Text
+
+
+const floatingTexts = [];
+let hoverTile = null;
+let visibleCoordMap = {};
+let skillHoverActive = false;
+let skillHoverAbilityId = null;
+let manualTargetingAbilityId = null;
+const combatAnimations = [];
+let heroLungeOffset = { x: 0, y: 0, ticks: 0 };
+
+function setSkillHover(active, abilityId) {
+  skillHoverActive = !!active;
+  skillHoverAbilityId = active && abilityId ? abilityId : null;
+}
+
+function getSkillHover() {
+  return skillHoverActive;
+}
+
+function setManualTargetingAbility(abilityId) {
+  manualTargetingAbilityId = abilityId || null;
+}
+
+function getManualTargetingAbility() {
+  return manualTargetingAbilityId;
+}
+
+function triggerCombatAnimation(gx, gy, type = 'slash', color = '#f87171') {
+  combatAnimations.push({
+    gx: gx,
+    gy: gy,
+    type: type,
+    color: color,
+    ticks: 14,
+    maxTicks: 14
+  });
+}
+
+function triggerHeroLunge(dx, dy) {
+  heroLungeOffset = { x: (dx || 0) * 8, y: (dy || 0) * 8, ticks: 6 };
+}
+
+function setHoverTile(tile) {
+  hoverTile = tile;
+}
+
+function getHoverTile() {
+  return hoverTile;
+}
+
+function getCameraOrigin(floor, hx, hy) {
+  const fw = (floor && floor.width) || (floor && floor.tiles && floor.tiles[0] ? floor.tiles[0].length : VIEWPORT_WIDTH);
+  const fh = (floor && floor.height) || (floor && floor.tiles ? floor.tiles.length : VIEWPORT_HEIGHT);
+  const maxCamX = Math.max(0, fw - VIEWPORT_WIDTH);
+  const maxCamY = Math.max(0, fh - VIEWPORT_HEIGHT);
+  const camX = Math.max(0, Math.min(maxCamX, Math.round(hx) - Math.floor(VIEWPORT_WIDTH / 2)));
+  const camY = Math.max(0, Math.min(maxCamY, Math.round(hy) - Math.floor(VIEWPORT_HEIGHT / 2)));
+  return { camX, camY, fw, fh };
+}
+
+function spawnFloatingText(gx, gy, text, color = '#fff') {
+  floatingTexts.push({
+    gx,
+    gy,
+    riseOffset: 0,
+    text,
+    color,
+    ticks: 28
+  });
+}
+
+function updateFOV(state = gameState) {
+  visibleCoordMap = {};
+  if (!state || state.inGuild || !state.hero) return;
+  const floor = ensureDungeonFloorHydrated(state.dungeon, state.dungeon.currentFloor);
+  if (!floor || !floor.tiles) return;
+
+  const fw = floor.width || (floor.tiles[0] ? floor.tiles[0].length : DEFAULT_MAP_W);
+  const fh = floor.height || floor.tiles.length || DEFAULT_MAP_H;
+  const hx = state.hero.x;
+  const hy = state.hero.y;
+  const radius = state.hero.visionRadius || 5;
+
+  const minY = Math.max(0, Math.floor(hy - radius - 1));
+  const maxY = Math.min(fh - 1, Math.ceil(hy + radius + 1));
+  const minX = Math.max(0, Math.floor(hx - radius - 1));
+  const maxX = Math.min(fw - 1, Math.ceil(hx + radius + 1));
+
+  for (let y = minY; y <= maxY; y++) {
+    for (let x = minX; x <= maxX; x++) {
+      if (Math.hypot(x - hx, y - hy) <= radius + 0.35 && hasLineOfSight(floor, hx, hy, x, y)) {
+        floor.explored[y][x] = 1;
+        visibleCoordMap[`${x},${y}`] = true;
+      }
+    }
+  }
+
+  detectNearbyTraps(floor, state);
+
+  if (state === gameState && typeof document !== 'undefined') {
+    renderMinimapCanvas('minimapCanvas');
+    const fullModal = document.getElementById('fullMapModal');
+    if (fullModal && !fullModal.classList.contains('hidden')) {
+      renderMinimapCanvas('fullMapCanvas');
+    }
+  }
+}
+
+function isTileVisibleNow(floor, hx, hy, vision, x, y) {
+  if (visibleCoordMap[`${x},${y}`]) return true;
+  if (Math.abs(x - hx) > vision + 1 || Math.abs(y - hy) > vision + 1) return false;
+  return Math.hypot(x - hx, y - hy) <= vision + 0.35 && hasLineOfSight(floor, hx, hy, x, y);
+}
+
+function drawSafeEllipse(ctx, ex, ey, rx, ry) {
+  if (typeof ctx.ellipse === 'function') {
+    ctx.ellipse(ex, ey, rx, ry, 0, 0, Math.PI * 2);
+  } else {
+    ctx.save();
+    ctx.translate(ex, ey);
+    ctx.scale(1, rx > 0 ? ry / rx : 1);
+    ctx.beginPath();
+    ctx.arc(0, 0, rx, 0, Math.PI * 2);
+    ctx.restore();
+  }
+}
+
+function hexToRgb(hex) {
+  if (!hex || hex[0] !== '#') return '255, 255, 255';
+  var c = hex.slice(1);
+  if (c.length === 3) c = c[0] + c[0] + c[1] + c[1] + c[2] + c[2];
+  var num = parseInt(c, 16);
+  if (isNaN(num)) return '255, 255, 255';
+  return ((num >> 16) & 255) + ', ' + ((num >> 8) & 255) + ', ' + (num & 255);
+}
+
+function drawHeroSprite(ctx, px, py, classId, size = TILE_SIZE) {
+  if (!ctx) return;
+  ctx.save();
+  ctx.translate(px, py);
+  const scale = size / 32;
+  ctx.scale(scale, scale);
+
+  // Ground drop shadow common to all hero classes
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.42)';
+  ctx.beginPath();
+  drawSafeEllipse(ctx, 16, 29, 9, 3);
+  ctx.fill();
+
+  if (classId === 'fighter') {
+    // 1. FIGHTER: Ironclad Vanguard with Crimson Cape, Horned Helm, Heater Shield & Broadsword
+    // Flowing crimson cape behind
+    ctx.fillStyle = '#7f1d1d';
+    ctx.beginPath();
+    ctx.moveTo(9, 13);
+    ctx.lineTo(5, 28);
+    ctx.lineTo(27, 28);
+    ctx.lineTo(23, 13);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = '#b91c1c';
+    ctx.beginPath();
+    ctx.moveTo(11, 13);
+    ctx.lineTo(8, 27);
+    ctx.lineTo(15, 27);
+    ctx.lineTo(13, 13);
+    ctx.closePath();
+    ctx.fill();
+
+    // Greaves & Sabatons
+    ctx.fillStyle = '#334155';
+    ctx.fillRect(10, 23, 4, 6);
+    ctx.fillRect(18, 23, 4, 6);
+    ctx.fillStyle = '#475569';
+    ctx.fillRect(9, 27, 5, 2.5);
+    ctx.fillRect(18, 27, 5, 2.5);
+
+    // Steel Cuirass (Torso)
+    ctx.fillStyle = '#475569';
+    ctx.beginPath();
+    ctx.moveTo(10, 13);
+    ctx.lineTo(22, 13);
+    ctx.lineTo(20, 23);
+    ctx.lineTo(12, 23);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = '#94a3b8';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(16, 13);
+    ctx.lineTo(16, 22);
+    ctx.stroke();
+
+    // Gold belt & buckle
+    ctx.fillStyle = '#b45309';
+    ctx.fillRect(12, 21, 8, 2);
+    ctx.fillStyle = '#fbbf24';
+    ctx.fillRect(14, 20.5, 4, 3);
+
+    // Steel Pauldrons
+    ctx.fillStyle = '#64748b';
+    ctx.strokeStyle = '#fbbf24';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(9, 14, 3.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(23, 14, 3.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    // Horned Greathelm
+    ctx.fillStyle = '#334155';
+    ctx.fillRect(14, 11, 4, 3);
+    ctx.fillStyle = '#64748b';
+    ctx.beginPath();
+    ctx.arc(16, 8, 5.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#475569';
+    ctx.fillRect(11.5, 6, 9, 6.5);
+
+    // Iron horns
+    ctx.fillStyle = '#cbd5e1';
+    ctx.beginPath();
+    ctx.moveTo(12, 6);
+    ctx.lineTo(6, 1.5);
+    ctx.lineTo(9.5, 7.5);
+    ctx.closePath();
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(20, 6);
+    ctx.lineTo(26, 1.5);
+    ctx.lineTo(22.5, 7.5);
+    ctx.closePath();
+    ctx.fill();
+
+    // Glowing amber visor slit
+    ctx.fillStyle = '#0f172a';
+    ctx.fillRect(13, 8, 6, 2.5);
+    ctx.fillStyle = '#fbbf24';
+    ctx.fillRect(14, 8.5, 4, 1.5);
+
+    // Left Arm: Iron Heater Shield
+    ctx.fillStyle = '#1e293b';
+    ctx.beginPath();
+    ctx.moveTo(3.5, 12);
+    ctx.lineTo(10.5, 12);
+    ctx.lineTo(9.5, 21);
+    ctx.lineTo(7, 24.5);
+    ctx.lineTo(4.5, 21);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = '#fbbf24';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.fillStyle = '#ef4444';
+    ctx.fillRect(6, 15, 2, 4);
+
+    // Right Arm: Steel Broadsword
+    ctx.fillStyle = '#f59e0b';
+    ctx.fillRect(23, 15, 6, 1.5);
+    ctx.fillStyle = '#78350f';
+    ctx.fillRect(25, 16.5, 2, 2.5);
+    ctx.fillStyle = '#f59e0b';
+    ctx.fillRect(25, 19, 2, 1.5);
+    ctx.fillStyle = '#f8fafc';
+    ctx.beginPath();
+    ctx.moveTo(25, 15);
+    ctx.lineTo(25, 2);
+    ctx.lineTo(26, 0.5);
+    ctx.lineTo(27, 2);
+    ctx.lineTo(27, 15);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = '#94a3b8';
+    ctx.fillRect(25.7, 3, 0.6, 11);
+
+  } else if (classId === 'thief') {
+    // 2. THIEF: Shadowblade with Midnight Shroud Cowl, Emerald Eyes & Dual Daggers
+    // Midnight shadow shroud cape
+    ctx.fillStyle = '#090d16';
+    ctx.beginPath();
+    ctx.moveTo(11, 13);
+    ctx.lineTo(5, 27);
+    ctx.lineTo(8, 25.5);
+    ctx.lineTo(12, 28);
+    ctx.lineTo(17, 25.5);
+    ctx.lineTo(22, 27);
+    ctx.lineTo(21, 13);
+    ctx.closePath();
+    ctx.fill();
+
+    // Dark trousers & silent boots
+    ctx.fillStyle = '#111827';
+    ctx.fillRect(11, 22, 3.5, 6);
+    ctx.fillRect(17.5, 22, 3.5, 6);
+    ctx.fillStyle = '#1f2937';
+    ctx.fillRect(10, 26, 4.5, 3.5);
+    ctx.fillRect(17.5, 26, 4.5, 3.5);
+
+    // Studded Leather Doublet
+    ctx.fillStyle = '#1e293b';
+    ctx.beginPath();
+    ctx.moveTo(11, 13);
+    ctx.lineTo(21, 13);
+    ctx.lineTo(19, 22);
+    ctx.lineTo(13, 22);
+    ctx.closePath();
+    ctx.fill();
+
+    // Emerald harness straps & rivets
+    ctx.strokeStyle = '#065f46';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(12, 13);
+    ctx.lineTo(18, 22);
+    ctx.stroke();
+    ctx.fillStyle = '#34d399';
+    ctx.fillRect(13, 15, 1.5, 1.5);
+    ctx.fillRect(17, 18, 1.5, 1.5);
+
+    // Leather belt with green poison vial pouch
+    ctx.fillStyle = '#374151';
+    ctx.fillRect(12, 20, 8, 2);
+    ctx.fillStyle = '#10b981';
+    ctx.fillRect(18.5, 20, 2.5, 3);
+
+    // Rogue Cowl & Mask
+    ctx.fillStyle = '#0f172a';
+    ctx.beginPath();
+    ctx.arc(16, 8, 5.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(13, 4);
+    ctx.lineTo(16, 1.5);
+    ctx.lineTo(19, 4);
+    ctx.fill();
+
+    // Face shadow cavity & mask
+    ctx.fillStyle = '#020617';
+    ctx.fillRect(13, 6, 6, 5);
+    ctx.fillStyle = '#1e293b';
+    ctx.fillRect(13, 9, 6, 2.5);
+
+    // Piercing glowing emerald rogue eyes
+    ctx.fillStyle = '#34d399';
+    ctx.fillRect(13.8, 7.2, 1.6, 1.3);
+    ctx.fillRect(16.6, 7.2, 1.6, 1.3);
+
+    // Left Hand: Reverse-grip poison stiletto
+    ctx.fillStyle = '#1e293b';
+    ctx.fillRect(7, 14, 4, 3);
+    ctx.fillStyle = '#cbd5e1';
+    ctx.beginPath();
+    ctx.moveTo(7.5, 17);
+    ctx.lineTo(5, 26);
+    ctx.lineTo(8.5, 18);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = '#34d399';
+    ctx.fillRect(4.5, 26, 2, 2);
+
+    // Right Hand: Forward-grip curved dagger
+    ctx.fillStyle = '#1e293b';
+    ctx.fillRect(21, 14, 4, 3);
+    ctx.fillStyle = '#10b981';
+    ctx.fillRect(24.5, 15, 3, 1.5);
+    ctx.fillStyle = '#e2e8f0';
+    ctx.beginPath();
+    ctx.moveTo(25.5, 15);
+    ctx.lineTo(28.5, 6.5);
+    ctx.lineTo(27, 15);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = '#6ee7b7';
+    ctx.fillRect(27.8, 8, 1.2, 1.2);
+
+  } else if (classId === 'mage') {
+    // 3. MAGE: Astral Elementalist with Cobalt Robes, Wizard Hat, Spell-Flame & Starlit Staff
+    // Flowing Astral Cobalt Robes
+    ctx.fillStyle = '#1e1b4b';
+    ctx.beginPath();
+    ctx.moveTo(11, 12);
+    ctx.lineTo(6.5, 28);
+    ctx.lineTo(25.5, 28);
+    ctx.lineTo(21, 12);
+    ctx.closePath();
+    ctx.fill();
+
+    // Mystical stole / central tabard
+    ctx.fillStyle = '#312e81';
+    ctx.fillRect(13, 13, 6, 15);
+    ctx.fillStyle = '#60a5fa';
+    ctx.fillRect(8, 26.5, 16, 1.5);
+    ctx.fillStyle = '#38bdf8';
+    ctx.fillRect(12, 18, 8, 2);
+
+    // Wizard Cowl & Pointed Hat
+    ctx.fillStyle = '#312e81';
+    ctx.beginPath();
+    ctx.arc(16, 9, 5.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#1e1b4b';
+    ctx.beginPath();
+    ctx.moveTo(11.5, 6);
+    ctx.lineTo(13, 0.5);
+    ctx.lineTo(20.5, 6);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = '#fbbf24';
+    ctx.fillRect(12.5, 5, 7, 1.5);
+
+    // Shadow face cavity & glowing sapphire eyes
+    ctx.fillStyle = '#0f172a';
+    ctx.fillRect(13, 7, 6, 4.5);
+    ctx.fillStyle = '#38bdf8';
+    ctx.fillRect(13.8, 8.2, 1.6, 1.4);
+    ctx.fillRect(16.6, 8.2, 1.6, 1.4);
+
+    // Left Hand: Channeling active azure spell-flame
+    ctx.fillStyle = '#312e81';
+    ctx.fillRect(6, 14, 5, 5);
+    ctx.fillStyle = 'rgba(56, 189, 248, 0.35)';
+    ctx.beginPath();
+    ctx.arc(6, 12, 4, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#38bdf8';
+    ctx.beginPath();
+    ctx.arc(6, 12, 2.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(5.5, 11.5, 1.5, 1.5);
+
+    // Right Hand: Arcane Gnarled Rowan Staff
+    ctx.fillStyle = '#78350f';
+    ctx.fillRect(25, 4, 2, 24);
+    ctx.fillStyle = '#fbbf24';
+    ctx.fillRect(24, 3, 4, 2);
+    // Floating Diamond Star Crystal Prism
+    ctx.fillStyle = '#60a5fa';
+    ctx.beginPath();
+    ctx.moveTo(26, -0.5);
+    ctx.lineTo(28.5, 2.5);
+    ctx.lineTo(26, 5.5);
+    ctx.lineTo(23.5, 2.5);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(25.5, 1.5, 1.2, 1.2);
+
+  } else if (classId === 'ranger') {
+    // 4. RANGER: Hawkeye Scout with Woodland Camo Cloak, Quiver, Recurve Bow & Arrow
+    // Woodland camo cloak draped on left
+    ctx.fillStyle = '#14532d';
+    ctx.beginPath();
+    ctx.moveTo(10, 13);
+    ctx.lineTo(5.5, 27);
+    ctx.lineTo(13, 27);
+    ctx.lineTo(13, 14);
+    ctx.closePath();
+    ctx.fill();
+
+    // Diagonal leather quiver over shoulder with arrow fletchings
+    ctx.fillStyle = '#78350f';
+    ctx.fillRect(20, 8.5, 3.5, 11);
+    ctx.fillStyle = '#fbbf24';
+    ctx.fillRect(20.5, 5.5, 1.2, 3.5);
+    ctx.fillStyle = '#ef4444';
+    ctx.fillRect(22.5, 4.5, 1.2, 4.5);
+
+    // Hunter leggings & boots
+    ctx.fillStyle = '#27272a';
+    ctx.fillRect(11, 22, 3.5, 6);
+    ctx.fillRect(17.5, 22, 3.5, 6);
+    ctx.fillStyle = '#523d29';
+    ctx.fillRect(10, 26, 4.5, 3.5);
+    ctx.fillRect(17.5, 26, 4.5, 3.5);
+
+    // Boiled Leather Tunic & Leaf Green Trim
+    ctx.fillStyle = '#451a03';
+    ctx.beginPath();
+    ctx.moveTo(11, 13);
+    ctx.lineTo(21, 13);
+    ctx.lineTo(19, 22);
+    ctx.lineTo(13, 22);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = '#15803d';
+    ctx.fillRect(14, 13, 4, 8);
+    // Belt
+    ctx.fillStyle = '#78350f';
+    ctx.fillRect(12, 20, 8, 2);
+    ctx.fillStyle = '#fbbf24';
+    ctx.fillRect(15, 19.5, 2, 3);
+
+    // Archer's Peaked Cowl & Hawk Eyes
+    ctx.fillStyle = '#166534';
+    ctx.beginPath();
+    ctx.arc(16, 8, 5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(13, 4);
+    ctx.lineTo(16, 1.5);
+    ctx.lineTo(19, 4);
+    ctx.fill();
+    ctx.fillStyle = '#eab308';
+    ctx.fillRect(18.5, 2, 1.5, 4);
+
+    ctx.fillStyle = '#fed7aa';
+    ctx.fillRect(13, 6.5, 6, 4);
+    ctx.fillStyle = '#854d0e';
+    ctx.fillRect(13.8, 7.5, 1.5, 1.2);
+    ctx.fillRect(16.7, 7.5, 1.5, 1.2);
+
+    // Left Hand: Curved Recurve Bow
+    ctx.strokeStyle = '#92400e';
+    ctx.lineWidth = 1.8;
+    ctx.beginPath();
+    ctx.arc(6, 16, 9.5, -Math.PI / 2.2, Math.PI / 2.2);
+    ctx.stroke();
+    ctx.strokeStyle = '#cbd5e1';
+    ctx.lineWidth = 0.8;
+    ctx.beginPath();
+    ctx.moveTo(5, 7);
+    ctx.lineTo(5, 25);
+    ctx.stroke();
+
+    // Right Hand: Notched Arrow
+    ctx.fillStyle = '#523d29';
+    ctx.fillRect(19, 14, 4, 3);
+    ctx.fillStyle = '#b45309';
+    ctx.fillRect(9, 15.5, 12, 1);
+    ctx.fillStyle = '#f8fafc';
+    ctx.beginPath();
+    ctx.moveTo(9, 14.5);
+    ctx.lineTo(6, 16);
+    ctx.lineTo(9, 17.5);
+    ctx.closePath();
+    ctx.fill();
+
+  } else {
+    // 5. PALADIN: Radiant Crusader with Winged Helm, Sun Tabard, Sun Halo & Warhammer
+    // Radiant Sunburst Halo above head
+    ctx.strokeStyle = '#fef08a';
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.arc(16, 4, 6.5, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.fillStyle = '#fbbf24';
+    ctx.fillRect(15.5, -2, 1, 2);
+    ctx.fillRect(15.5, 10, 1, 2);
+    ctx.fillRect(8.5, 3.5, 2, 1);
+    ctx.fillRect(21.5, 3.5, 2, 1);
+
+    // Flowing White & Gold Crusader Cape
+    ctx.fillStyle = '#f8fafc';
+    ctx.beginPath();
+    ctx.moveTo(9, 13);
+    ctx.lineTo(5.5, 28);
+    ctx.lineTo(26.5, 28);
+    ctx.lineTo(23, 13);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = '#f59e0b';
+    ctx.fillRect(5.5, 26, 21, 2);
+
+    // Greaves & Torso Plate
+    ctx.fillStyle = '#cbd5e1';
+    ctx.fillRect(10, 23, 4, 6);
+    ctx.fillRect(18, 23, 4, 6);
+    ctx.fillStyle = '#e2e8f0';
+    ctx.beginPath();
+    ctx.moveTo(10, 13);
+    ctx.lineTo(22, 13);
+    ctx.lineTo(20, 23);
+    ctx.lineTo(12, 23);
+    ctx.closePath();
+    ctx.fill();
+
+    // White Tabard with Golden Sun Cross
+    ctx.fillStyle = '#f8fafc';
+    ctx.fillRect(13, 13, 6, 10.5);
+    ctx.fillStyle = '#fbbf24';
+    ctx.fillRect(15, 14, 2, 8);
+    ctx.fillRect(13.5, 16, 5, 2);
+
+    // Golden Pauldrons
+    ctx.fillStyle = '#f59e0b';
+    ctx.beginPath();
+    ctx.arc(9, 14, 3.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(23, 14, 3.5, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Winged Greathelm
+    ctx.fillStyle = '#e2e8f0';
+    ctx.beginPath();
+    ctx.arc(16, 8, 5.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#fbbf24';
+    ctx.beginPath();
+    ctx.moveTo(11, 7);
+    ctx.lineTo(7, 2);
+    ctx.lineTo(11, 4.5);
+    ctx.closePath();
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(21, 7);
+    ctx.lineTo(25, 2);
+    ctx.lineTo(21, 4.5);
+    ctx.closePath();
+    ctx.fill();
+    // Visor cross
+    ctx.fillStyle = '#0f172a';
+    ctx.fillRect(12, 7.5, 8, 2.5);
+    ctx.fillStyle = '#fef08a';
+    ctx.fillRect(13, 8, 6, 1.5);
+
+    // Left Hand: Towering Sun Kite Shield
+    ctx.fillStyle = '#1e293b';
+    ctx.beginPath();
+    ctx.moveTo(3.5, 11);
+    ctx.lineTo(10.5, 11);
+    ctx.lineTo(9.5, 22);
+    ctx.lineTo(7, 26);
+    ctx.lineTo(4.5, 22);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = '#fbbf24';
+    ctx.lineWidth = 1.2;
+    ctx.stroke();
+    ctx.fillStyle = '#fbbf24';
+    ctx.beginPath();
+    ctx.arc(7, 17, 2.5, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Right Hand: Righteous Warhammer
+    ctx.fillStyle = '#94a3b8';
+    ctx.fillRect(24, 6, 2, 17);
+    ctx.fillStyle = '#f59e0b';
+    ctx.fillRect(22, 5, 6, 4);
+    ctx.fillStyle = '#fef08a';
+    ctx.fillRect(21, 6, 2, 2);
+    ctx.fillRect(27, 6, 2, 2);
+  }
+
+  ctx.restore();
+}
+
+function drawPaperDollMannequin(canvas, hero) {
+  return renderSharedPaperDollMannequin(canvas, hero);
+}
+
+function __legacyPaperDollUnused(canvas, hero) {
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+
+  const w = canvas.width;
+  const h = canvas.height;
+  ctx.clearRect(0, 0, w, h);
+
+  const classId = hero ? hero.classId : 'fighter';
+  const cls = CLASSES[classId] || CLASSES.fighter;
+  const themeColor = cls.color || '#fbbf24';
+
+  ctx.save();
+
+  const cx = Math.floor(w / 2);
+  const cy = Math.floor(h / 2);
+
+  // Radial celestial aura behind chest
+  if (typeof ctx.createRadialGradient === 'function') {
+    const grad = ctx.createRadialGradient(cx, cy - 20, 10, cx, cy - 20, 120);
+    if (grad && typeof grad.addColorStop === 'function') {
+      grad.addColorStop(0, themeColor + '22');
+      grad.addColorStop(0.6, themeColor + '08');
+      grad.addColorStop(1, 'transparent');
+      ctx.fillStyle = grad;
+    }
+  } else {
+    ctx.fillStyle = themeColor + '15';
+  }
+  ctx.beginPath();
+  ctx.arc(cx, cy - 20, 120, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Pedestal / Dais ellipse at feet
+  ctx.fillStyle = '#0f172a';
+  ctx.beginPath();
+  drawSafeEllipse(ctx, cx, h - 35, 75, 18);
+  ctx.fill();
+  ctx.strokeStyle = themeColor + '44';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+
+  // Runic floor circle rings
+  ctx.strokeStyle = '#283347';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  drawSafeEllipse(ctx, cx, h - 35, 60, 14);
+  ctx.stroke();
+
+  // Body shadow
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
+  ctx.beginPath();
+  drawSafeEllipse(ctx, cx, h - 34, 45, 10);
+  ctx.fill();
+
+  // Class-specific silhouette cape & back ornaments
+  if (classId === 'fighter') {
+    ctx.fillStyle = 'rgba(185, 28, 28, 0.45)';
+    ctx.beginPath();
+    ctx.moveTo(cx - 36, 100);
+    ctx.lineTo(cx - 65, 235);
+    ctx.lineTo(cx + 65, 235);
+    ctx.lineTo(cx + 36, 100);
+    ctx.closePath();
+    ctx.fill();
+  } else if (classId === 'thief') {
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.65)';
+    ctx.beginPath();
+    ctx.moveTo(cx - 36, 100);
+    ctx.lineTo(cx - 72, 235);
+    ctx.lineTo(cx - 15, 235);
+    ctx.lineTo(cx - 20, 100);
+    ctx.closePath();
+    ctx.fill();
+  } else if (classId === 'paladin') {
+    ctx.fillStyle = 'rgba(248, 250, 252, 0.35)';
+    ctx.beginPath();
+    ctx.moveTo(cx - 36, 100);
+    ctx.lineTo(cx - 65, 235);
+    ctx.lineTo(cx + 65, 235);
+    ctx.lineTo(cx + 36, 100);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = '#f59e0b';
+    ctx.fillRect(cx - 65, 230, 130, 5);
+
+    // Radiant Sun Halo above helm
+    ctx.strokeStyle = '#fef08a';
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.arc(cx, 38, 22, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.fillStyle = '#fbbf24';
+    ctx.fillRect(cx - 2, 10, 4, 6);
+    ctx.fillRect(cx - 2, 60, 4, 6);
+    ctx.fillRect(cx - 28, 36, 6, 4);
+    ctx.fillRect(cx + 22, 36, 6, 4);
+  } else if (classId === 'ranger') {
+    ctx.fillStyle = 'rgba(20, 83, 45, 0.45)';
+    ctx.beginPath();
+    ctx.moveTo(cx + 20, 100);
+    ctx.lineTo(cx + 68, 235);
+    ctx.lineTo(cx + 10, 235);
+    ctx.lineTo(cx + 10, 100);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  // Head
+  ctx.fillStyle = '#1e293b';
+  ctx.strokeStyle = themeColor + '66';
+  ctx.lineWidth = 1.6;
+  ctx.beginPath();
+  ctx.arc(cx, 68, 18, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+
+  // Class Headwear Silhouettes
+  if (classId === 'fighter') {
+    ctx.fillStyle = '#cbd5e1';
+    ctx.beginPath();
+    ctx.moveTo(cx - 15, 62);
+    ctx.lineTo(cx - 32, 44);
+    ctx.lineTo(cx - 15, 52);
+    ctx.closePath();
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(cx + 15, 62);
+    ctx.lineTo(cx + 32, 44);
+    ctx.lineTo(cx + 15, 52);
+    ctx.closePath();
+    ctx.fill();
+  } else if (classId === 'thief') {
+    ctx.fillStyle = '#0f172a';
+    ctx.beginPath();
+    ctx.moveTo(cx - 14, 54);
+    ctx.lineTo(cx, 34);
+    ctx.lineTo(cx + 14, 54);
+    ctx.closePath();
+    ctx.fill();
+  } else if (classId === 'mage') {
+    ctx.fillStyle = '#1e1b4b';
+    ctx.beginPath();
+    ctx.moveTo(cx - 16, 54);
+    ctx.lineTo(cx - 8, 18);
+    ctx.lineTo(cx + 16, 54);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = '#fbbf24';
+    ctx.fillRect(cx - 15, 51, 30, 4);
+  } else if (classId === 'ranger') {
+    ctx.fillStyle = '#166534';
+    ctx.beginPath();
+    ctx.moveTo(cx - 14, 54);
+    ctx.lineTo(cx, 36);
+    ctx.lineTo(cx + 14, 54);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = '#eab308';
+    ctx.fillRect(cx + 10, 30, 3, 18);
+  } else if (classId === 'paladin') {
+    ctx.fillStyle = '#fbbf24';
+    ctx.beginPath();
+    ctx.moveTo(cx - 14, 64);
+    ctx.lineTo(cx - 30, 42);
+    ctx.lineTo(cx - 14, 54);
+    ctx.closePath();
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(cx + 14, 64);
+    ctx.lineTo(cx + 30, 42);
+    ctx.lineTo(cx + 14, 54);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  // Helm Visor Slit
+  ctx.fillStyle = classId === 'thief' ? '#34d399' : themeColor;
+  ctx.fillRect(cx - 9, 66, 18, 3.5);
+
+  // Neck
+  ctx.fillStyle = '#1e293b';
+  ctx.fillRect(cx - 6, 84, 12, 10);
+
+  // Torso / Chest & Abdomen
+  ctx.fillStyle = '#182234';
+  ctx.beginPath();
+  ctx.moveTo(cx - 36, 94);
+  ctx.lineTo(cx + 36, 94);
+  ctx.lineTo(cx + 22, 175);
+  ctx.lineTo(cx - 22, 175);
+  ctx.closePath();
+  ctx.fill();
+  ctx.strokeStyle = themeColor + '55';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+
+  // Breastplate contour lines
+  ctx.strokeStyle = '#334155';
+  ctx.lineWidth = 1.2;
+  ctx.beginPath();
+  ctx.moveTo(cx, 98);
+  ctx.lineTo(cx, 165);
+  ctx.moveTo(cx - 24, 118);
+  ctx.lineTo(cx, 134);
+  ctx.lineTo(cx + 24, 118);
+  ctx.stroke();
+
+  // Class Chest Emblems
+  if (classId === 'paladin') {
+    ctx.fillStyle = '#fbbf24';
+    ctx.fillRect(cx - 3, 115, 6, 32);
+    ctx.fillRect(cx - 16, 126, 32, 6);
+  } else if (classId === 'thief') {
+    ctx.fillStyle = '#34d399';
+    ctx.fillRect(cx - 18, 118, 4, 4);
+    ctx.fillRect(cx + 14, 118, 4, 4);
+    ctx.fillRect(cx - 10, 142, 4, 4);
+    ctx.fillRect(cx + 6, 142, 4, 4);
+  } else if (classId === 'mage') {
+    ctx.fillStyle = '#312e81';
+    ctx.fillRect(cx - 10, 96, 20, 78);
+    ctx.fillStyle = '#60a5fa';
+    ctx.fillRect(cx - 8, 168, 16, 4);
+  } else if (classId === 'ranger') {
+    ctx.fillStyle = '#15803d';
+    ctx.fillRect(cx - 8, 96, 16, 78);
+    ctx.strokeStyle = '#78350f';
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.moveTo(cx - 24, 100);
+    ctx.lineTo(cx + 20, 165);
+    ctx.stroke();
+  }
+
+  // Shoulders / Pauldrons
+  ctx.fillStyle = '#223048';
+  ctx.strokeStyle = themeColor + '77';
+  ctx.beginPath();
+  ctx.arc(cx - 38, 98, 12, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.arc(cx + 38, 98, 12, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+
+  // Left Arm (holding weapon position)
+  ctx.strokeStyle = '#182234';
+  ctx.lineWidth = 14;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(cx - 38, 106);
+  ctx.lineTo(cx - 62, 150);
+  ctx.lineTo(cx - 58, 180);
+  ctx.stroke();
+  ctx.strokeStyle = themeColor + '44';
+  ctx.lineWidth = 1.2;
+  ctx.stroke();
+
+  // Active Mana Flame Orbit on Mage Left Hand
+  if (classId === 'mage') {
+    ctx.fillStyle = 'rgba(56, 189, 248, 0.4)';
+    ctx.beginPath();
+    ctx.arc(cx - 58, 180, 12, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#38bdf8';
+    ctx.beginPath();
+    ctx.arc(cx - 58, 180, 6, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Right Arm (holding offhand/pickaxe position)
+  ctx.strokeStyle = '#182234';
+  ctx.lineWidth = 14;
+  ctx.beginPath();
+  ctx.moveTo(cx + 38, 106);
+  ctx.lineTo(cx + 62, 150);
+  ctx.lineTo(cx + 58, 180);
+  ctx.stroke();
+  ctx.strokeStyle = themeColor + '44';
+  ctx.lineWidth = 1.2;
+  ctx.stroke();
+
+  // Belt & Tassets
+  ctx.fillStyle = '#2d3748';
+  ctx.fillRect(cx - 24, 174, 48, 8);
+  ctx.fillStyle = themeColor;
+  ctx.fillRect(cx - 4, 173, 8, 10);
+
+  // Left Leg
+  ctx.strokeStyle = '#182234';
+  ctx.lineWidth = 15;
+  ctx.beginPath();
+  ctx.moveTo(cx - 14, 185);
+  ctx.lineTo(cx - 18, 240);
+  ctx.lineTo(cx - 20, 280);
+  ctx.stroke();
+  ctx.strokeStyle = themeColor + '44';
+  ctx.lineWidth = 1.2;
+  ctx.stroke();
+
+  // Right Leg
+  ctx.strokeStyle = '#182234';
+  ctx.lineWidth = 15;
+  ctx.beginPath();
+  ctx.moveTo(cx + 14, 185);
+  ctx.lineTo(cx + 18, 240);
+  ctx.lineTo(cx + 20, 280);
+  ctx.stroke();
+  ctx.strokeStyle = themeColor + '44';
+  ctx.lineWidth = 1.2;
+  ctx.stroke();
+
+  // Boots
+  ctx.fillStyle = '#223048';
+  ctx.strokeStyle = themeColor + '66';
+  ctx.lineWidth = 1.2;
+  ctx.fillRect(cx - 28, 275, 17, 18);
+  ctx.strokeRect(cx - 28, 275, 17, 18);
+  ctx.fillRect(cx + 11, 275, 17, 18);
+  ctx.strokeRect(cx + 11, 275, 17, 18);
+
+  ctx.restore();
+}
+
+function minimapPixelToGrid(canvas, clientX, clientY, floor) {
+  if (!canvas || !floor || !floor.tiles) return null;
+  const fw = floor.width || (floor.tiles[0] ? floor.tiles[0].length : DEFAULT_MAP_W);
+  const fh = floor.height || floor.tiles.length || DEFAULT_MAP_H;
+  const rect = canvas.getBoundingClientRect();
+  if (!rect || rect.width <= 0 || rect.height <= 0) return null;
+
+  const px = (clientX - rect.left) * (canvas.width / rect.width);
+  const py = (clientY - rect.top) * (canvas.height / rect.height);
+  const scale = Math.min(canvas.width / fw, canvas.height / fh);
+  const offX = Math.floor((canvas.width - fw * scale) / 2);
+  const offY = Math.floor((canvas.height - fh * scale) / 2);
+
+  const gx = Math.floor((px - offX) / scale);
+  const gy = Math.floor((py - offY) / scale);
+  if (gx < 0 || gx >= fw || gy < 0 || gy >= fh) return null;
+  return { x: gx, y: gy };
+}
+
+function renderMinimapCanvas(targetCanvasId = 'minimapCanvas') {
+  if (typeof document === 'undefined') return;
+  const canvas = document.getElementById(targetCanvasId);
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#04060a';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  if (gameState.inGuild || !gameState.hero) {
+    ctx.fillStyle = '#64748b';
+    ctx.font = '11px "JetBrains Mono", monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('Descend to chart subterranean floors', Math.floor(canvas.width / 2), Math.floor(canvas.height / 2));
+    return;
+  }
+
+  const floor = ensureDungeonFloorHydrated(gameState.dungeon, gameState.dungeon.currentFloor);
+  if (!floor || !floor.tiles) return;
+
+  const biomeId = floor.biomeId || resolveFloorBiome(gameState.dungeon, floor.depth);
+  const biome = BIOME_PALETTES[biomeId] || BIOME_PALETTES.dwarven_catacombs;
+
+  const fw = floor.width || (floor.tiles[0] ? floor.tiles[0].length : DEFAULT_MAP_W);
+  const fh = floor.height || floor.tiles.length || DEFAULT_MAP_H;
+  const scale = Math.min(canvas.width / fw, canvas.height / fh);
+  const offX = Math.floor((canvas.width - fw * scale) / 2);
+  const offY = Math.floor((canvas.height - fh * scale) / 2);
+  const drawSize = Math.max(1, Math.ceil(scale));
+
+  const hx = gameState.hero.x;
+  const hy = gameState.hero.y;
+  const vision = gameState.hero.visionRadius || 5;
+  const poiMarkers = [];
+
+  for (let y = 0; y < fh; y++) {
+    const expRow = floor.explored[y];
+    if (!expRow) continue;
+    const tileRow = floor.tiles[y];
+    for (let x = 0; x < fw; x++) {
+      if (!expRow[x]) continue;
+      const t = tileRow[x];
+      const rx = Math.floor(offX + x * scale);
+      const ry = Math.floor(offY + y * scale);
+
+      if (t === TILE_WALL) {
+        ctx.fillStyle = biome.minimapWall;
+        ctx.fillRect(rx, ry, drawSize, drawSize);
+      } else if (ORE_CATALOG[t]) {
+        ctx.fillStyle = ORE_CATALOG[t].color;
+        ctx.fillRect(rx, ry, Math.max(2, drawSize), Math.max(2, drawSize));
+      } else {
+        ctx.fillStyle = biome.minimapFloor;
+        ctx.fillRect(rx, ry, drawSize, drawSize);
+        if (t === TILE_STAIRS_UP) {
+          poiMarkers.push({ x: rx, y: ry, color: '#10b981', size: Math.max(3, drawSize + 1) });
+        } else if (t === TILE_STAIRS_DOWN) {
+          poiMarkers.push({ x: rx, y: ry, color: '#60a5fa', size: Math.max(3, drawSize + 1) });
+        } else if (t === TILE_CHEST) {
+          poiMarkers.push({ x: rx, y: ry, color: '#fbbf24', size: Math.max(2, drawSize) });
+        } else if (t === TILE_SHRINE) {
+          poiMarkers.push({ x: rx, y: ry, color: '#34d399', size: Math.max(2, drawSize) });
+        } else if (t === TILE_TRAP_VISIBLE) {
+          poiMarkers.push({ x: rx, y: ry, color: '#fb923c', size: Math.max(2, drawSize) });
+        }
+      }
+    }
+  }
+
+  // Explored Doors & Portals on Minimap
+  if (floor.objects && floor.objects.length > 0) {
+    for (let oi = 0; oi < floor.objects.length; oi++) {
+      const obj = floor.objects[oi];
+      if (!obj || !floor.explored[obj.y] || !floor.explored[obj.y][obj.x]) continue;
+
+      if (obj.objectType === 'door') {
+        const disc = obj.runtimeState && obj.runtimeState.discovery;
+        if (disc !== 'unknown') {
+          const rx = Math.floor(offX + obj.x * scale);
+          const ry = Math.floor(offY + obj.y * scale);
+          const sec = obj.runtimeState && obj.runtimeState.security;
+          const color = sec === 'locked' ? '#fbbf24' : '#d97706';
+          poiMarkers.push({ x: rx, y: ry, color: color, size: Math.max(2, drawSize) });
+        }
+      } else if (obj.objectType === 'portal') {
+        const rx = Math.floor(offX + obj.x * scale);
+        const ry = Math.floor(offY + obj.y * scale);
+        const pDefId = obj.definitionId || '';
+        const color = pDefId === 'portal_astral_rift' ? '#c084fc' : (pDefId === 'portal_boss_extraction' ? '#fbbf24' : '#38bdf8');
+        poiMarkers.push({ x: rx, y: ry, color: color, size: Math.max(3, drawSize + 1) });
+      }
+    }
+  }
+
+  for (let i = 0; i < poiMarkers.length; i++) {
+    const p = poiMarkers[i];
+    ctx.fillStyle = p.color;
+    ctx.fillRect(p.x, p.y, p.size, p.size);
+  }
+
+  // Visible Monsters on Minimap
+  for (let i = 0; i < floor.monsters.length; i++) {
+    const m = floor.monsters[i];
+    if (!m || m.hp <= 0) continue;
+    if (!isTileVisibleNow(floor, hx, hy, vision, m.x, m.y)) continue;
+    ctx.fillStyle = m.isBoss ? '#fbbf24' : '#f87171';
+    const mx = Math.floor(offX + m.x * scale);
+    const my = Math.floor(offY + m.y * scale);
+    ctx.fillRect(mx, my, Math.max(2, drawSize), Math.max(2, drawSize));
+  }
+
+  // Camera Viewport Outline
+  const cam = getCameraOrigin(floor, hx, hy);
+  ctx.strokeStyle = 'rgba(251, 191, 36, 0.55)';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(
+    Math.floor(offX + cam.camX * scale) + 0.5,
+    Math.floor(offY + cam.camY * scale) + 0.5,
+    Math.min(fw, VIEWPORT_WIDTH) * scale,
+    Math.min(fh, VIEWPORT_HEIGHT) * scale
+  );
+
+  // Hero Beacon
+  const heroPx = Math.floor(offX + hx * scale);
+  const heroPy = Math.floor(offY + hy * scale);
+  const beacon = Math.max(3, drawSize + 1);
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(heroPx - 1, heroPy - 1, beacon, beacon);
+}
+
+function renderDoorTile(ctx, px, py, door, biome, inSight) {
+  if (!ctx || !door) return;
+  const defId = door.definitionId || '';
+  const rState = door.runtimeState || {};
+  const mech = rState.mechanical || 'closed';
+  const sec = rState.security || 'unlocked';
+  const struct = rState.structural || 'intact';
+  const disc = rState.discovery || 'revealed';
+
+  // Unknown secret door renders as standard biome wall masonry
+  if (disc === 'unknown') {
+    ctx.fillStyle = biome.wallBase;
+    ctx.fillRect(px, py, TILE_SIZE, TILE_SIZE);
+    ctx.fillStyle = biome.wallShadow;
+    ctx.fillRect(px, py + 22, TILE_SIZE, 10);
+    ctx.strokeStyle = biome.wallBorder;
+    ctx.strokeRect(px + 0.5, py + 0.5, TILE_SIZE - 1, TILE_SIZE - 1);
+    return;
+  }
+
+  // Destroyed / Breached Door Rubble
+  if (struct === 'destroyed') {
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.35)';
+    ctx.fillRect(px + 4, py + 8, 24, 16);
+    ctx.fillStyle = '#78350f';
+    ctx.fillRect(px + 6, py + 12, 8, 3);
+    ctx.fillRect(px + 18, py + 16, 7, 3);
+    ctx.fillStyle = '#475569';
+    ctx.fillRect(px + 12, py + 10, 6, 4);
+    ctx.fillRect(px + 14, py + 20, 9, 3);
+    ctx.fillStyle = '#94a3b8';
+    ctx.fillRect(px + 9, py + 18, 4, 4);
+    return;
+  }
+
+  // Open Door (any type)
+  if (mech === 'open') {
+    ctx.fillStyle = '#1e293b';
+    ctx.fillRect(px + 2, py + 2, 4, 28);
+    ctx.fillRect(px + 26, py + 2, 4, 28);
+    ctx.fillRect(px + 2, py + 2, 28, 3);
+
+    if (defId === 'door_iron_portcullis') {
+      ctx.fillStyle = '#475569';
+      ctx.fillRect(px + 6, py + 3, 20, 6);
+      ctx.fillStyle = '#94a3b8';
+      for (let bx = 8; bx <= 24; bx += 4) {
+        ctx.fillRect(px + bx, py + 9, 2, 4);
+      }
+      ctx.fillStyle = '#cbd5e1';
+      ctx.fillRect(px + 4, py + 3, 1, 14);
+      ctx.fillRect(px + 27, py + 3, 1, 14);
+    } else if (defId === 'door_secret_stone') {
+      ctx.fillStyle = '#334155';
+      ctx.beginPath();
+      ctx.moveTo(px + 6, py + 4);
+      ctx.lineTo(px + 12, py + 2);
+      ctx.lineTo(px + 12, py + 28);
+      ctx.lineTo(px + 6, py + 28);
+      ctx.closePath();
+      ctx.fill();
+    } else {
+      ctx.fillStyle = defId === 'door_iron_reinforced' ? '#334155' : '#78350f';
+      ctx.fillRect(px + 6, py + 4, 4, 24);
+      ctx.fillStyle = '#fbbf24';
+      ctx.fillRect(px + 4, py + 8, 3, 3);
+      ctx.fillRect(px + 4, py + 22, 3, 3);
+    }
+    return;
+  }
+
+  // CLOSED DOORS:
+  if (defId === 'door_secret_stone') {
+    ctx.fillStyle = biome.wallBase;
+    ctx.fillRect(px, py, TILE_SIZE, TILE_SIZE);
+    ctx.fillStyle = biome.wallShadow;
+    ctx.fillRect(px, py + 22, TILE_SIZE, 10);
+    ctx.strokeStyle = '#38bdf8';
+    ctx.lineWidth = 1.2;
+    ctx.strokeRect(px + 4, py + 4, 24, 24);
+    ctx.fillStyle = '#38bdf8';
+    ctx.font = 'bold 9px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('ᚱ', px + 16, py + 18);
+    return;
+  }
+
+  if (defId === 'door_iron_portcullis') {
+    ctx.fillStyle = '#1e293b';
+    ctx.fillRect(px + 1, py + 1, 5, 30);
+    ctx.fillRect(px + 26, py + 1, 5, 30);
+    ctx.fillRect(px + 1, py + 1, 30, 4);
+
+    ctx.fillStyle = '#334155';
+    ctx.fillRect(px + 6, py + 10, 20, 2.5);
+    ctx.fillRect(px + 6, py + 20, 20, 2.5);
+
+    for (let bx = 8; bx <= 24; bx += 4) {
+      ctx.fillStyle = '#64748b';
+      ctx.fillRect(px + bx, py + 4, 2.5, 22);
+      ctx.fillStyle = '#94a3b8';
+      ctx.beginPath();
+      ctx.moveTo(px + bx, py + 26);
+      ctx.lineTo(px + bx + 1.25, py + 29);
+      ctx.lineTo(px + bx + 2.5, py + 26);
+      ctx.closePath();
+      ctx.fill();
+    }
+    return;
+  }
+
+  if (defId === 'door_vault_ancient') {
+    ctx.fillStyle = '#1e293b';
+    ctx.fillRect(px + 2, py + 2, 28, 28);
+    ctx.fillStyle = '#78350f';
+    ctx.fillRect(px + 4, py + 4, 24, 24);
+
+    ctx.fillStyle = '#d97706';
+    ctx.beginPath();
+    ctx.arc(px + 16, py + 16, 11, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = '#fbbf24';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    ctx.strokeStyle = '#fef08a';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(px + 16, py + 16, 6, 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.fillStyle = sec === 'locked' ? '#ef4444' : '#10b981';
+    ctx.fillRect(px + 14.5, py + 14.5, 3, 3);
+    return;
+  }
+
+  if (defId === 'door_iron_reinforced') {
+    ctx.fillStyle = '#0f172a';
+    ctx.fillRect(px + 2, py + 2, 28, 28);
+    ctx.fillStyle = '#334155';
+    ctx.fillRect(px + 4, py + 4, 24, 24);
+
+    ctx.strokeStyle = '#475569';
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.moveTo(px + 5, py + 5); ctx.lineTo(px + 27, py + 27);
+    ctx.moveTo(px + 27, py + 5); ctx.lineTo(px + 5, py + 27);
+    ctx.stroke();
+
+    ctx.fillStyle = '#94a3b8';
+    ctx.fillRect(px + 5, py + 5, 2, 2);
+    ctx.fillRect(px + 25, py + 5, 2, 2);
+    ctx.fillRect(px + 5, py + 25, 2, 2);
+    ctx.fillRect(px + 25, py + 25, 2, 2);
+
+    ctx.fillStyle = sec === 'locked' ? '#fbbf24' : '#64748b';
+    ctx.fillRect(px + 14, py + 13, 4, 6);
+    ctx.fillStyle = '#0f172a';
+    ctx.fillRect(px + 15, py + 15, 2, 2);
+    return;
+  }
+
+  // Standard Wooden Hinged Door (door_wood_hinged)
+  ctx.fillStyle = '#1e293b';
+  ctx.fillRect(px + 2, py + 2, 28, 28);
+
+  ctx.fillStyle = '#78350f';
+  ctx.fillRect(px + 4, py + 4, 24, 24);
+  ctx.fillStyle = '#451a03';
+  ctx.fillRect(px + 10, py + 4, 1, 24);
+  ctx.fillRect(px + 16, py + 4, 1, 24);
+  ctx.fillRect(px + 22, py + 4, 1, 24);
+
+  ctx.fillStyle = '#334155';
+  ctx.fillRect(px + 4, py + 8, 24, 3);
+  ctx.fillRect(px + 4, py + 20, 24, 3);
+  ctx.fillStyle = '#64748b';
+  ctx.fillRect(px + 6, py + 9, 1.5, 1.5);
+  ctx.fillRect(px + 18, py + 9, 1.5, 1.5);
+  ctx.fillRect(px + 6, py + 21, 1.5, 1.5);
+  ctx.fillRect(px + 18, py + 21, 1.5, 1.5);
+
+  if (sec === 'locked') {
+    ctx.fillStyle = '#fbbf24';
+    ctx.fillRect(px + 22, py + 14, 3, 4);
+    ctx.fillStyle = '#451a03';
+    ctx.fillRect(px + 23, py + 15, 1, 2);
+  } else {
+    ctx.fillStyle = '#94a3b8';
+    ctx.beginPath();
+    ctx.arc(px + 23, py + 16, 2, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+}
+
+function drawGildedChestProp(ctx, px, py, isOpen) {
+  if (!isOpen) {
+    // 3D Banded Gilded Vault Chest (Closed)
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
+    ctx.fillRect(px + 5, py + 24, 22, 4);
+
+    // Domed oak chest body
+    ctx.fillStyle = '#78350f';
+    ctx.fillRect(px + 6, py + 13, 20, 11);
+    // Domed lid
+    ctx.fillStyle = '#92400e';
+    ctx.beginPath();
+    ctx.moveTo(px + 6, py + 13);
+    if (typeof ctx.quadraticCurveTo === 'function') {
+      ctx.quadraticCurveTo(px + 16, py + 7, px + 26, py + 13);
+    } else {
+      ctx.lineTo(px + 16, py + 8);
+      ctx.lineTo(px + 26, py + 13);
+    }
+    ctx.closePath();
+    ctx.fill();
+
+    // Gilded iron straps with rivets
+    ctx.fillStyle = '#f59e0b';
+    ctx.fillRect(px + 8, py + 10, 3, 14);
+    ctx.fillRect(px + 21, py + 10, 3, 14);
+    ctx.fillStyle = '#fbbf24';
+    ctx.fillRect(px + 6, py + 13, 20, 2);
+    ctx.fillStyle = '#fef08a';
+    ctx.fillRect(px + 9, py + 11, 1, 1);
+    ctx.fillRect(px + 9, py + 17, 1, 1);
+    ctx.fillRect(px + 22, py + 11, 1, 1);
+    ctx.fillRect(px + 22, py + 17, 1, 1);
+
+    // Golden padlock with keyhole
+    ctx.fillStyle = '#fbbf24';
+    ctx.fillRect(px + 14, py + 13, 4, 5);
+    ctx.fillStyle = '#451a03';
+    ctx.fillRect(px + 15, py + 15, 2, 2);
+  } else {
+    // Looted Vault Chest with glittering spoils
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
+    ctx.fillRect(px + 5, py + 24, 22, 4);
+
+    // Tilted open lid thrown back
+    ctx.fillStyle = '#451a03';
+    ctx.fillRect(px + 6, py + 6, 20, 6);
+    ctx.fillStyle = '#78350f';
+    ctx.fillRect(px + 6, py + 12, 20, 12);
+
+    // Open interior cavity
+    ctx.fillStyle = '#1c0a00';
+    ctx.fillRect(px + 8, py + 14, 16, 8);
+    // Gleaming coin and gem sparkles
+    ctx.fillStyle = '#fbbf24';
+    ctx.fillRect(px + 9, py + 18, 3, 2);
+    ctx.fillRect(px + 14, py + 19, 3, 2);
+    ctx.fillRect(px + 18, py + 17, 2, 2);
+    ctx.fillStyle = '#ef4444';
+    ctx.fillRect(px + 12, py + 17, 2, 2);
+    ctx.fillStyle = '#10b981';
+    ctx.fillRect(px + 16, py + 18, 2, 2);
+  }
+}
+
+function renderPortalTile(ctx, px, py, portal, biome, inSight) {
+  if (!ctx || !portal) return;
+  const defId = portal.definitionId || '';
+  const rState = portal.runtimeState || {};
+  const isCollapsed = rState.mechanical === 'collapsed';
+
+  // Base circular shadow dais
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
+  ctx.beginPath();
+  if (typeof ctx.ellipse === 'function') {
+    ctx.ellipse(px + 16, py + 22, 12, 6, 0, 0, Math.PI * 2);
+  } else {
+    ctx.arc(px + 16, py + 20, 10, 0, Math.PI * 2);
+  }
+  ctx.fill();
+
+  if (isCollapsed) {
+    ctx.fillStyle = '#1e293b';
+    ctx.fillRect(px + 8, py + 14, 16, 6);
+    ctx.strokeStyle = '#475569';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(px + 8, py + 14, 16, 6);
+    ctx.fillStyle = '#64748b';
+    ctx.fillRect(px + 12, py + 16, 8, 2);
+    return;
+  }
+
+  if (defId === 'portal_astral_rift') {
+    const trav = portal.components && portal.components.traversal;
+    const charges = trav && typeof trav.charges === 'number' ? trav.charges : 2;
+
+    ctx.fillStyle = 'rgba(192, 132, 252, 0.25)';
+    ctx.beginPath();
+    ctx.arc(px + 16, py + 16, 12, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.strokeStyle = '#c084fc';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(px + 16, py + 16, 8, 0, Math.PI * 1.5);
+    ctx.stroke();
+
+    ctx.strokeStyle = '#f472b6';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(px + 16, py + 16, 5, Math.PI * 0.5, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.fillStyle = '#0f172a';
+    ctx.beginPath();
+    ctx.arc(px + 16, py + 16, 3.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(px + 15, py + 15, 2, 2);
+
+    for (let c = 0; c < charges; c++) {
+      ctx.fillStyle = '#f472b6';
+      ctx.fillRect(px + 12 + c * 5, py + 4, 3, 3);
+    }
+    return;
+  }
+
+  if (defId === 'portal_boss_extraction') {
+    ctx.fillStyle = 'rgba(251, 191, 36, 0.25)';
+    ctx.beginPath();
+    ctx.arc(px + 16, py + 16, 13, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.strokeStyle = '#fbbf24';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(px + 16, py + 16, 9, 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.strokeStyle = '#fef08a';
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.arc(px + 16, py + 16, 5, 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.fillStyle = 'rgba(254, 240, 138, 0.6)';
+    ctx.fillRect(px + 15, py + 2, 2, 8);
+    ctx.fillRect(px + 10, py + 5, 2, 6);
+    ctx.fillRect(px + 20, py + 5, 2, 6);
+    return;
+  }
+
+  // Ancient Celestial Waypoint (portal_ancient_waypoint)
+  const isAttuned = rState.discovery === 'revealed';
+
+  ctx.fillStyle = '#1e293b';
+  ctx.fillRect(px + 6, py + 18, 20, 8);
+  ctx.fillStyle = '#334155';
+  ctx.fillRect(px + 9, py + 14, 14, 6);
+
+  ctx.fillStyle = '#475569';
+  ctx.fillRect(px + 5, py + 12, 3, 10);
+  ctx.fillRect(px + 24, py + 12, 3, 10);
+  ctx.fillRect(px + 5, py + 10, 3, 2);
+  ctx.fillRect(px + 24, py + 10, 3, 2);
+
+  const auraColor = isAttuned ? 'rgba(56, 189, 248, 0.35)' : 'rgba(148, 163, 184, 0.20)';
+  ctx.fillStyle = auraColor;
+  ctx.beginPath();
+  ctx.arc(px + 16, py + 10, 7, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = isAttuned ? '#38bdf8' : '#94a3b8';
+  ctx.beginPath();
+  ctx.moveTo(px + 16, py + 4);
+  ctx.lineTo(px + 20, py + 10);
+  ctx.lineTo(px + 16, py + 16);
+  ctx.lineTo(px + 12, py + 10);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.fillStyle = isAttuned ? '#ffffff' : '#cbd5e1';
+  ctx.fillRect(px + 15, py + 9, 2, 2);
+}
+
+function renderDungeonCanvas() {
+  if (typeof document === 'undefined') return;
+  const canvas = document.getElementById('dungeonCanvas');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#04060a';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  if (gameState.inGuild || !gameState.hero) return;
+  const floor = ensureDungeonFloorHydrated(gameState.dungeon, gameState.dungeon.currentFloor);
+  if (!floor || !floor.tiles) return;
+
+  const biomeId = floor.biomeId || resolveFloorBiome(gameState.dungeon, floor.depth);
+  const biome = BIOME_PALETTES[biomeId] || BIOME_PALETTES.dwarven_catacombs;
+
+  const hx = gameState.hero.x;
+  const hy = gameState.hero.y;
+  const vision = gameState.hero.visionRadius || 5;
+  const cam = getCameraOrigin(floor, hx, hy);
+  const camX = cam.camX;
+  const camY = cam.camY;
+  const fw = cam.fw;
+  const fh = cam.fh;
+
+  // Frustum-culled O(21*15) tile render loop
+  for (let vy = 0; vy < VIEWPORT_HEIGHT; vy++) {
+    const y = camY + vy;
+    if (y < 0 || y >= fh) continue;
+    const expRow = floor.explored[y];
+    if (!expRow) continue;
+
+    for (let vx = 0; vx < VIEWPORT_WIDTH; vx++) {
+      const x = camX + vx;
+      if (x < 0 || x >= fw) continue;
+      if (!expRow[x]) continue;
+
+      const px = vx * TILE_SIZE;
+      const py = vy * TILE_SIZE;
+      const dist = Math.hypot(x - hx, y - hy);
+      const inSight = isTileVisibleNow(floor, hx, hy, vision, x, y);
+      const tile = floor.tiles[y][x];
+
+      // Draw Wall or Ore Vein Wall
+      if (tile === TILE_WALL || ORE_CATALOG[tile]) {
+        // Base Wall Fill
+        ctx.fillStyle = biome.wallFill;
+        ctx.fillRect(px, py, TILE_SIZE, TILE_SIZE);
+
+        // 2.5D Top Wall Ledge (Cap) - 8px high top surface seen from above
+        ctx.fillStyle = biome.wallCap;
+        ctx.fillRect(px, py, TILE_SIZE, 8);
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.08)';
+        ctx.fillRect(px, py, TILE_SIZE, 1);
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
+        ctx.fillRect(px, py + 7, TILE_SIZE, 1);
+
+        // 2.5D Vertical Wall Face - Ashlar Brickwork (24px height)
+        // Two 11px high masonry courses with 1px horizontal mortar groove at py + 19
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.40)';
+        ctx.fillRect(px, py + 19, TILE_SIZE, 1);
+        ctx.fillStyle = biome.wallBase;
+        ctx.fillRect(px, py + 31, TILE_SIZE, 1);
+
+        // Staggered vertical mortar joints (running-bond masonry)
+        const stagger = (x + y) % 2 === 0;
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
+        if (stagger) {
+          ctx.fillRect(px + 16, py + 8, 1, 11);
+          ctx.fillRect(px + 8, py + 20, 1, 11);
+          ctx.fillRect(px + 24, py + 20, 1, 11);
+        } else {
+          ctx.fillRect(px + 8, py + 8, 1, 11);
+          ctx.fillRect(px + 24, py + 8, 1, 11);
+          ctx.fillRect(px + 16, py + 20, 1, 11);
+        }
+
+        // Course bevel highlights
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.05)';
+        ctx.fillRect(px, py + 8, TILE_SIZE, 1);
+        ctx.fillRect(px, py + 20, TILE_SIZE, 1);
+
+        // Distinct Biome Masonry Accents
+        if (!ORE_CATALOG[tile]) {
+          if (biome.id === 'dwarven_catacombs' && (x * 17 + y * 11) % 5 === 0) {
+            ctx.fillStyle = 'rgba(251, 191, 36, 0.18)';
+            ctx.fillRect(px + 12, py + 12, 3, 1);
+            ctx.fillRect(px + 13, py + 11, 1, 3);
+          } else if (biome.id === 'crystalline_caverns' && (x * 13 + y * 7) % 4 === 0) {
+            ctx.fillStyle = '#38bdf8';
+            ctx.fillRect(px + 15, py + 18, 2, 2);
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(px + 15, py + 18, 1, 1);
+          } else if (biome.id === 'molten_forgeworks' && (x * 13 + y * 7) % 3 === 0) {
+            ctx.fillStyle = '#f97316';
+            ctx.fillRect(px + 6, py + 19, 6, 1);
+            ctx.fillStyle = '#fbbf24';
+            ctx.fillRect(px + 8, py + 19, 2, 1);
+          } else if (biome.id === 'vespera_crater' && (x * 13 + y * 7) % 4 === 0) {
+            ctx.fillStyle = '#c084fc';
+            ctx.fillRect(px + 14, py + 12, 3, 3);
+            ctx.fillStyle = '#f3e8ff';
+            ctx.fillRect(px + 15, py + 13, 1, 1);
+          }
+        }
+
+        // Ore Vein Faceted Crystal Geodes
+        if (ORE_CATALOG[tile]) {
+          const ore = ORE_CATALOG[tile];
+          // Shard 1 (Left)
+          ctx.fillStyle = ore.color;
+          ctx.beginPath();
+          ctx.moveTo(px + 6, py + 19);
+          ctx.lineTo(px + 9, py + 12);
+          ctx.lineTo(px + 13, py + 15);
+          ctx.lineTo(px + 10, py + 22);
+          ctx.closePath();
+          ctx.fill();
+          ctx.fillStyle = 'rgba(0, 0, 0, 0.25)';
+          ctx.beginPath();
+          ctx.moveTo(px + 10, py + 22);
+          ctx.lineTo(px + 13, py + 15);
+          ctx.lineTo(px + 9, py + 12);
+          ctx.closePath();
+          ctx.fill();
+
+          // Shard 2 (Center High)
+          ctx.fillStyle = ore.color;
+          ctx.beginPath();
+          ctx.moveTo(px + 14, py + 17);
+          ctx.lineTo(px + 18, py + 8);
+          ctx.lineTo(px + 22, py + 13);
+          ctx.lineTo(px + 18, py + 21);
+          ctx.closePath();
+          ctx.fill();
+          ctx.fillStyle = 'rgba(0, 0, 0, 0.25)';
+          ctx.beginPath();
+          ctx.moveTo(px + 18, py + 21);
+          ctx.lineTo(px + 22, py + 13);
+          ctx.lineTo(px + 18, py + 8);
+          ctx.closePath();
+          ctx.fill();
+
+          // Shard 3 (Right Low)
+          ctx.fillStyle = ore.color;
+          ctx.beginPath();
+          ctx.moveTo(px + 20, py + 24);
+          ctx.lineTo(px + 24, py + 16);
+          ctx.lineTo(px + 27, py + 19);
+          ctx.lineTo(px + 23, py + 27);
+          ctx.closePath();
+          ctx.fill();
+
+          // Specular sparkles
+          ctx.fillStyle = ore.sparkle || '#ffffff';
+          ctx.fillRect(px + 9, py + 12, 2, 2);
+          ctx.fillRect(px + 18, py + 8, 2, 2);
+          ctx.fillRect(px + 24, py + 16, 2, 2);
+        }
+      } else {
+        // Walkable Floor Tile (including concealed traps)
+        // 1. Base 2x2 Flagstone Pavers
+        ctx.fillStyle = (x + y) % 2 === 0 ? biome.floor1 : biome.floor2;
+        ctx.fillRect(px, py, TILE_SIZE, TILE_SIZE);
+
+        // Recessed mortar lines between 4 flagstone pavers
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.35)';
+        ctx.fillRect(px, py + 15, TILE_SIZE, 1);
+        ctx.fillRect(px + 15, py, 1, TILE_SIZE);
+
+        // Subtle paver edge bevel highlights
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.03)';
+        ctx.fillRect(px + 1, py + 1, 14, 1);
+        ctx.fillRect(px + 1, py + 1, 1, 14);
+        ctx.fillRect(px + 16, py + 1, 14, 1);
+        ctx.fillRect(px + 16, py + 1, 1, 14);
+        ctx.fillRect(px + 1, py + 16, 14, 1);
+        ctx.fillRect(px + 1, py + 16, 1, 14);
+        ctx.fillRect(px + 16, py + 16, 14, 1);
+        ctx.fillRect(px + 16, py + 16, 1, 14);
+
+        // Tile border outline
+        ctx.strokeStyle = biome.floorBorder;
+        ctx.strokeRect(px + 0.5, py + 0.5, TILE_SIZE - 1, TILE_SIZE - 1);
+
+        // Deterministic stone fissure on occasional pavers
+        if ((x * 19 + y * 23) % 7 === 0) {
+          ctx.strokeStyle = 'rgba(0, 0, 0, 0.28)';
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.moveTo(px + 4, py + 5);
+          ctx.lineTo(px + 8, py + 9);
+          ctx.lineTo(px + 12, py + 11);
+          ctx.stroke();
+        }
+
+        // 2. Ambient Occlusion Drop-Shadows cast by adjacent walls
+        const hasNorthWall = y > 0 && floor.tiles[y - 1] && (floor.tiles[y - 1][x] === TILE_WALL || !!ORE_CATALOG[floor.tiles[y - 1][x]]);
+        if (hasNorthWall) {
+          ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
+          ctx.fillRect(px, py, TILE_SIZE, 3);
+          ctx.fillStyle = 'rgba(0, 0, 0, 0.28)';
+          ctx.fillRect(px, py + 3, TILE_SIZE, 3);
+          ctx.fillStyle = 'rgba(0, 0, 0, 0.12)';
+          ctx.fillRect(px, py + 6, TILE_SIZE, 2);
+        }
+        const hasWestWall = x > 0 && (floor.tiles[y][x - 1] === TILE_WALL || !!ORE_CATALOG[floor.tiles[y][x - 1]]);
+        if (hasWestWall) {
+          ctx.fillStyle = 'rgba(0, 0, 0, 0.22)';
+          ctx.fillRect(px, py, 2, TILE_SIZE);
+          ctx.fillStyle = 'rgba(0, 0, 0, 0.10)';
+          ctx.fillRect(px + 2, py, 2, TILE_SIZE);
+        }
+
+        // 3. 3D Landmark Props
+        if (tile === TILE_STAIRS_UP) {
+          // Ascending Stairs: 4-tier beveled stone staircase with emerald guide runes
+          ctx.fillStyle = '#1e293b';
+          ctx.fillRect(px + 4, py + 24, 24, 5);
+          ctx.fillStyle = '#10b981';
+          ctx.fillRect(px + 4, py + 24, 24, 1.2);
+
+          ctx.fillStyle = '#334155';
+          ctx.fillRect(px + 6, py + 18, 20, 5);
+          ctx.fillStyle = '#34d399';
+          ctx.fillRect(px + 6, py + 18, 20, 1.2);
+
+          ctx.fillStyle = '#475569';
+          ctx.fillRect(px + 8, py + 12, 16, 5);
+          ctx.fillStyle = '#6ee7b7';
+          ctx.fillRect(px + 8, py + 12, 16, 1.2);
+
+          // Top portal arch
+          ctx.fillStyle = '#065f46';
+          ctx.fillRect(px + 10, py + 5, 12, 6);
+          // Ascending upward beacon chevron
+          ctx.fillStyle = '#a7f3d0';
+          ctx.beginPath();
+          ctx.moveTo(px + 16, py + 5);
+          ctx.lineTo(px + 20, py + 9);
+          ctx.lineTo(px + 18, py + 9);
+          ctx.lineTo(px + 18, py + 13);
+          ctx.lineTo(px + 14, py + 13);
+          ctx.lineTo(px + 14, py + 9);
+          ctx.lineTo(px + 12, py + 9);
+          ctx.closePath();
+          ctx.fill();
+
+        } else if (tile === TILE_STAIRS_DOWN) {
+          // Descending Stairs: 4-tier dark abyss staircase receding into the depths
+          ctx.fillStyle = '#475569';
+          ctx.fillRect(px + 4, py + 4, 24, 4);
+          ctx.fillStyle = '#334155';
+          ctx.fillRect(px + 6, py + 8, 20, 4);
+          ctx.fillStyle = '#1e293b';
+          ctx.fillRect(px + 8, py + 12, 16, 4);
+          ctx.fillStyle = '#050b14';
+          ctx.fillRect(px + 10, py + 16, 12, 12);
+
+          // Deep cyan abyss glow
+          ctx.fillStyle = 'rgba(56, 189, 248, 0.45)';
+          ctx.fillRect(px + 11, py + 21, 10, 4);
+          // Descending chevron pointing into the abyss
+          ctx.fillStyle = '#38bdf8';
+          ctx.beginPath();
+          ctx.moveTo(px + 16, py + 26);
+          ctx.lineTo(px + 12, py + 21);
+          ctx.lineTo(px + 14, py + 21);
+          ctx.lineTo(px + 14, py + 17);
+          ctx.lineTo(px + 18, py + 17);
+          ctx.lineTo(px + 18, py + 21);
+          ctx.lineTo(px + 20, py + 21);
+          ctx.closePath();
+          ctx.fill();
+
+        } else if (tile === TILE_CHEST) {
+          // 3D Banded Gilded Vault Chest (Closed)
+          ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
+          ctx.fillRect(px + 5, py + 24, 22, 4);
+
+          // Domed oak chest body
+          ctx.fillStyle = '#78350f';
+          ctx.fillRect(px + 6, py + 13, 20, 11);
+          // Domed lid
+          ctx.fillStyle = '#92400e';
+          ctx.beginPath();
+          ctx.moveTo(px + 6, py + 13);
+          if (typeof ctx.quadraticCurveTo === 'function') {
+            ctx.quadraticCurveTo(px + 16, py + 7, px + 26, py + 13);
+          } else {
+            ctx.lineTo(px + 16, py + 8);
+            ctx.lineTo(px + 26, py + 13);
+          }
+          ctx.closePath();
+          ctx.fill();
+
+          // Gilded iron straps with rivets
+          ctx.fillStyle = '#f59e0b';
+          ctx.fillRect(px + 8, py + 10, 3, 14);
+          ctx.fillRect(px + 21, py + 10, 3, 14);
+          ctx.fillStyle = '#fbbf24';
+          ctx.fillRect(px + 6, py + 13, 20, 2);
+          ctx.fillStyle = '#fef08a';
+          ctx.fillRect(px + 9, py + 11, 1, 1);
+          ctx.fillRect(px + 9, py + 17, 1, 1);
+          ctx.fillRect(px + 22, py + 11, 1, 1);
+          ctx.fillRect(px + 22, py + 17, 1, 1);
+
+          // Golden padlock with keyhole
+          ctx.fillStyle = '#fbbf24';
+          ctx.fillRect(px + 14, py + 13, 4, 5);
+          ctx.fillStyle = '#451a03';
+          ctx.fillRect(px + 15, py + 15, 2, 2);
+
+        } else if (tile === TILE_CHEST_OPEN) {
+          // Looted Vault Chest with glittering spoils
+          ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
+          ctx.fillRect(px + 5, py + 24, 22, 4);
+
+          // Tilted open lid thrown back
+          ctx.fillStyle = '#451a03';
+          ctx.fillRect(px + 6, py + 6, 20, 6);
+          ctx.fillStyle = '#78350f';
+          ctx.fillRect(px + 6, py + 12, 20, 12);
+
+          // Open interior cavity
+          ctx.fillStyle = '#1c0a00';
+          ctx.fillRect(px + 8, py + 14, 16, 8);
+          // Gleaming coin and gem sparkles
+          ctx.fillStyle = '#fbbf24';
+          ctx.fillRect(px + 9, py + 18, 3, 2);
+          ctx.fillRect(px + 14, py + 19, 3, 2);
+          ctx.fillRect(px + 18, py + 17, 2, 2);
+          ctx.fillStyle = '#ef4444';
+          ctx.fillRect(px + 12, py + 17, 2, 2);
+          ctx.fillStyle = '#10b981';
+          ctx.fillRect(px + 16, py + 18, 2, 2);
+
+        } else if (tile === TILE_SHRINE) {
+          // Active Astral Shrine with Stepped Dais & Hovering Crystal Prism
+          const sMeta = (floor.shrines && floor.shrines[`${x},${y}`]) || { type: 'sanctuary' };
+          const sDef = SHRINE_CATALOG[sMeta.type] || SHRINE_CATALOG.sanctuary;
+
+          // Stepped stone dais
+          ctx.fillStyle = '#1e293b';
+          ctx.fillRect(px + 6, py + 22, 20, 6);
+          ctx.fillStyle = '#334155';
+          ctx.fillRect(px + 9, py + 16, 14, 6);
+          ctx.fillStyle = sDef.color;
+          ctx.fillRect(px + 11, py + 19, 3, 1);
+          ctx.fillRect(px + 18, py + 19, 3, 1);
+
+          // Hovering Celestial Diamond Prism
+          ctx.fillStyle = 'rgba(255, 255, 255, 0.15)';
+          ctx.beginPath();
+          ctx.arc(px + 16, py + 9, 6.5, 0, Math.PI * 2);
+          ctx.fill();
+
+          ctx.fillStyle = sDef.color;
+          ctx.beginPath();
+          ctx.moveTo(px + 16, py + 3);
+          ctx.lineTo(px + 21, py + 9);
+          ctx.lineTo(px + 16, py + 15);
+          ctx.lineTo(px + 11, py + 9);
+          ctx.closePath();
+          ctx.fill();
+
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(px + 15, py + 7, 2, 2);
+
+        } else if (tile === TILE_SHRINE_USED) {
+          // Dormant stone pedestal
+          ctx.fillStyle = '#0f172a';
+          ctx.fillRect(px + 6, py + 22, 20, 6);
+          ctx.fillStyle = '#1e293b';
+          ctx.fillRect(px + 9, py + 16, 14, 6);
+          ctx.fillStyle = '#334155';
+          ctx.beginPath();
+          ctx.moveTo(px + 16, py + 12);
+          ctx.lineTo(px + 19, py + 16);
+          ctx.lineTo(px + 13, py + 16);
+          ctx.closePath();
+          ctx.fill();
+
+        } else if (tile === TILE_TRAP_VISIBLE) {
+          // Warning Metal Grate with Jutting Spikes
+          const tMeta = (floor.traps && floor.traps[`${x},${y}`]) || { type: 'spike' };
+          const tDef = TRAP_CATALOG[tMeta.type] || TRAP_CATALOG.spike;
+          ctx.strokeStyle = tDef.color;
+          ctx.lineWidth = 1.4;
+          ctx.strokeRect(px + 5, py + 5, 22, 22);
+
+          // Diagonal cross grate bars
+          ctx.strokeStyle = 'rgba(0, 0, 0, 0.45)';
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.moveTo(px + 5, py + 5);
+          ctx.lineTo(px + 27, py + 27);
+          ctx.moveTo(px + 27, py + 5);
+          ctx.lineTo(px + 5, py + 27);
+          ctx.stroke();
+
+          // Steel spike teeth
+          ctx.fillStyle = tDef.color;
+          ctx.beginPath();
+          ctx.moveTo(px + 9, py + 21);
+          ctx.lineTo(px + 12, py + 10);
+          ctx.lineTo(px + 15, py + 21);
+          ctx.fill();
+          ctx.beginPath();
+          ctx.moveTo(px + 17, py + 21);
+          ctx.lineTo(px + 20, py + 10);
+          ctx.lineTo(px + 23, py + 21);
+          ctx.fill();
+
+        } else if (tile === TILE_TRAP_DISARMED) {
+          // Deactivated Grate with sheared spikes
+          ctx.strokeStyle = '#475569';
+          ctx.lineWidth = 1;
+          ctx.strokeRect(px + 7, py + 7, 18, 18);
+          ctx.fillStyle = '#334155';
+          ctx.fillRect(px + 10, py + 15, 12, 2);
+          ctx.fillStyle = '#1e293b';
+          ctx.fillRect(px + 13, py + 12, 6, 2);
+        }
+      }
+
+      // 4. World Objects on Tile (Doors & Portals)
+      if (floor.objects && floor.objects.length > 0) {
+        for (let oi = 0; oi < floor.objects.length; oi++) {
+          const obj = floor.objects[oi];
+          if (obj && obj.x === x && obj.y === y) {
+            if (obj.objectType === 'door') {
+              renderDoorTile(ctx, px, py, obj, biome, inSight);
+              break;
+            } else if (obj.objectType === 'portal') {
+              renderPortalTile(ctx, px, py, obj, biome, inSight);
+            } else if (obj.objectType === 'mechanism') {
+              const isPulled = obj.runtimeState && obj.runtimeState.mechanical === 'pulled';
+              ctx.save();
+              ctx.fillStyle = isPulled ? '#34d399' : '#fbbf24';
+              if (obj.definitionId === 'mech_pressure_plate') {
+                ctx.fillStyle = isPulled ? '#1e293b' : '#475569';
+                ctx.fillRect(px + 6, py + 6, 20, 20);
+                ctx.strokeStyle = isPulled ? '#34d399' : '#fbbf24';
+                ctx.lineWidth = 1.5;
+                ctx.strokeRect(px + 6, py + 6, 20, 20);
+              } else {
+                ctx.fillStyle = '#475569';
+                ctx.fillRect(px + 10, py + 20, 12, 6);
+                ctx.strokeStyle = isPulled ? '#34d399' : '#fbbf24';
+                ctx.lineWidth = 3;
+                ctx.beginPath();
+                ctx.moveTo(px + 16, py + 21);
+                ctx.lineTo(px + (isPulled ? 23 : 9), py + 8);
+                ctx.stroke();
+              }
+              ctx.restore();
+            } else if (obj.objectType === 'prop' && (!obj.runtimeState || obj.runtimeState.structural !== 'destroyed')) {
+              ctx.save();
+              if (obj.definitionId === 'prop_oil_barrel') {
+                ctx.fillStyle = '#451a03';
+                ctx.beginPath();
+                ctx.arc(px + 16, py + 16, 10, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.strokeStyle = '#f97316';
+                ctx.lineWidth = 2;
+                ctx.stroke();
+              } else if (obj.definitionId === 'prop_wooden_barrel') {
+                ctx.fillStyle = '#78350f';
+                ctx.beginPath();
+                ctx.arc(px + 16, py + 16, 10, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.strokeStyle = '#d97706';
+                ctx.lineWidth = 1.5;
+                ctx.stroke();
+              } else {
+                ctx.fillStyle = '#78350f';
+                ctx.fillRect(px + 6, py + 6, 20, 20);
+                ctx.strokeStyle = '#d97706';
+                ctx.lineWidth = 1.5;
+                ctx.strokeRect(px + 6, py + 6, 20, 20);
+              }
+              ctx.restore();
+            } else if (obj.objectType === 'container') {
+              // Avoid double-drawing when legacy TILE_CHEST / TILE_CHEST_OPEN already rendered the 3D gilded chest
+              if (tile !== TILE_CHEST && tile !== TILE_CHEST_OPEN) {
+                const isOpen = obj.runtimeState && obj.runtimeState.mechanical === 'open';
+                ctx.save();
+                drawGildedChestProp(ctx, px, py, isOpen);
+                ctx.restore();
+              }
+            } else if (obj.objectType === 'hazard' && obj.runtimeState && obj.runtimeState.mechanical === 'active') {
+              ctx.save();
+              if (obj.definitionId === 'hazard_slag_vent') {
+                ctx.fillStyle = 'rgba(249, 115, 22, 0.55)';
+                ctx.fillRect(px + 4, py + 4, 24, 24);
+              } else if (obj.definitionId === 'hazard_spore_cloud') {
+                ctx.fillStyle = 'rgba(52, 211, 153, 0.35)';
+                ctx.beginPath();
+                ctx.arc(px + 16, py + 16, 12, 0, Math.PI * 2);
+                ctx.fill();
+              } else {
+                ctx.fillStyle = 'rgba(30, 41, 59, 0.85)';
+                ctx.beginPath();
+                ctx.arc(px + 16, py + 16, 12, 0, Math.PI * 2);
+                ctx.fill();
+              }
+              ctx.restore();
+              break;
+            }
+          }
+        }
+      }
+
+      // Torchlight Warmth or Fog Dimming
+      if (!inSight) {
+        ctx.fillStyle = 'rgba(4, 6, 10, 0.68)';
+        ctx.fillRect(px, py, TILE_SIZE, TILE_SIZE);
+      } else {
+        const glow = Math.max(0, 0.13 - dist * 0.022);
+        if (glow > 0) {
+          ctx.fillStyle = `rgba(${biome.torchR}, ${biome.torchG}, ${biome.torchB}, ${glow})`;
+          ctx.fillRect(px, py, TILE_SIZE, TILE_SIZE);
+        }
+      }
+    }
+  }
+
+  // Draw Auto-Walk Breadcrumb Trail (if active)
+  const walkPath = getAutoWalkPath();
+  if (walkPath.length > 0) {
+    ctx.fillStyle = 'rgba(96, 165, 250, 0.7)';
+    for (let i = 0; i < walkPath.length; i++) {
+      const st = walkPath[i];
+      const vx = st.x - camX;
+      const vy = st.y - camY;
+      if (vx >= 0 && vx < VIEWPORT_WIDTH && vy >= 0 && vy < VIEWPORT_HEIGHT) {
+        ctx.beginPath();
+        ctx.arc(vx * TILE_SIZE + 16, vy * TILE_SIZE + 16, i === walkPath.length - 1 ? 5 : 2.5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+  }
+
+  // Draw Visible Ground Pickups (floor.objects with objectType === 'pickup')
+  const floorObjs = floor.objects || [];
+  for (let i = 0; i < floorObjs.length; i++) {
+    const o = floorObjs[i];
+    if (!o || o.objectType !== 'pickup' || !o.components || !o.components.pickup) continue;
+    const it = o.components.pickup.item;
+    if (!it) continue;
+
+    const vx = o.x - camX;
+    const vy = o.y - camY;
+    if (vx < 0 || vx >= VIEWPORT_WIDTH || vy < 0 || vy >= VIEWPORT_HEIGHT) continue;
+    if (!isTileVisibleNow(floor, hx, hy, vision, o.x, o.y)) continue;
+
+    const ox = vx * TILE_SIZE;
+    const oy = vy * TILE_SIZE;
+
+    // Glowing drop aura
+    const rKey = it.rarity || 'common';
+    const rDef = RARITY[rKey];
+    const rColor = (rDef && rDef.color) || '#94a3b8';
+
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
+    ctx.beginPath();
+    if (typeof ctx.ellipse === 'function') {
+      ctx.ellipse(ox + 16, oy + 24, 9, 4, 0, 0, Math.PI * 2);
+    } else {
+      ctx.arc(ox + 16, oy + 24, 6, 0, Math.PI * 2);
+    }
+    ctx.fill();
+
+    ctx.strokeStyle = rColor;
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.arc(ox + 16, oy + 16, 11, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // Upfront item type icon
+    const icon = getItemTypeIcon(it) || '📦';
+    ctx.font = '13px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(icon, ox + 16, oy + 16);
+  }
+
+  // Draw Committed Monster Ability Telegraph Zones (MS-01 — distinct from range indicators, respects visibility)
+  for (let ti = 0; ti < floor.monsters.length; ti++) {
+    const tm = floor.monsters[ti];
+    if (!tm || tm._dead || tm.hp <= 0 || !tm.telegraph || !Array.isArray(tm.telegraph.tiles)) continue;
+    const casterVisible = isTileVisibleNow(floor, hx, hy, vision, tm.x, tm.y);
+    const tgColor = tm.telegraph.color || '#ef4444';
+    for (let ptIdx = 0; ptIdx < tm.telegraph.tiles.length; ptIdx++) {
+      const pt = tm.telegraph.tiles[ptIdx];
+      const tvx = pt.x - camX;
+      const tvy = pt.y - camY;
+      if (tvx < 0 || tvx >= VIEWPORT_WIDTH || tvy < 0 || tvy >= VIEWPORT_HEIGHT) continue;
+      if (!casterVisible && !isTileVisibleNow(floor, hx, hy, vision, pt.x, pt.y)) continue;
+      const tpx = tvx * TILE_SIZE;
+      const tpy = tvy * TILE_SIZE;
+      ctx.save();
+      ctx.fillStyle = 'rgba(239, 68, 68, 0.28)';
+      ctx.fillRect(tpx + 1, tpy + 1, TILE_SIZE - 2, TILE_SIZE - 2);
+      ctx.strokeStyle = tgColor;
+      ctx.lineWidth = 2;
+      ctx.strokeRect(tpx + 2, tpy + 2, TILE_SIZE - 4, TILE_SIZE - 4);
+      // Diagonal hazard hash
+      ctx.strokeStyle = 'rgba(251, 191, 36, 0.55)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(tpx + 5, tpy + 5);
+      ctx.lineTo(tpx + 11, tpy + 11);
+      ctx.moveTo(tpx + 27, tpy + 5);
+      ctx.lineTo(tpx + 21, tpy + 11);
+      ctx.moveTo(tpx + 5, tpy + 27);
+      ctx.lineTo(tpx + 11, tpy + 21);
+      ctx.moveTo(tpx + 27, tpy + 27);
+      ctx.lineTo(tpx + 21, tpy + 21);
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+
+  // Draw Visible Monsters inside Camera Frustum
+  for (let i = 0; i < floor.monsters.length; i++) {
+    const m = floor.monsters[i];
+    if (!m || m._dead || m.hp <= 0) continue;
+    const vx = m.x - camX;
+    const vy = m.y - camY;
+    if (vx < 0 || vx >= VIEWPORT_WIDTH || vy < 0 || vy >= VIEWPORT_HEIGHT) continue;
+    if (!isTileVisibleNow(floor, hx, hy, vision, m.x, m.y)) continue;
+
+    const mx = vx * TILE_SIZE;
+    const my = vy * TILE_SIZE;
+
+    if (m.isBoss) {
+      ctx.strokeStyle = '#f87171';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(mx + 2, my + 2, TILE_SIZE - 4, TILE_SIZE - 4);
+    } else if (m.isElite) {
+      ctx.strokeStyle = '#fbbf24';
+      ctx.lineWidth = 1.8;
+      ctx.beginPath();
+      ctx.arc(mx + 16, my + 16, 13, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+
+    ctx.fillStyle = m.color;
+    ctx.fillRect(mx + 8, my + 7, 16, 16);
+    ctx.fillStyle = '#080b11';
+    ctx.fillRect(mx + 11, my + 11, 3, 3);
+    ctx.fillRect(mx + 18, my + 11, 3, 3);
+
+    // Monster Health Bar
+    const pct = Math.max(0, m.hp / m.maxHp);
+    ctx.fillStyle = '#04060a';
+    ctx.fillRect(mx + 4, my + 26, 24, 4);
+    ctx.fillStyle = m.isBoss || m.isElite ? '#fbbf24' : '#f87171';
+    ctx.fillRect(mx + 4, my + 26, Math.round(24 * pct), 4);
+
+    // Overhead Status Effect Badges
+    if (m.statuses && m.statuses.length > 0) {
+      const statusColors = {
+        burn:     '#fb923c',
+        bleed:    '#f87171',
+        poison:   '#4ade80',
+        stun:     '#fbbf24',
+        chilled:  '#38bdf8',
+        weakened: '#c084fc',
+        guarding: '#60a5fa'
+      };
+      let isGuardingVis = false;
+      for (let sIdx = 0; sIdx < m.statuses.length; sIdx++) {
+        const st = m.statuses[sIdx];
+        if (st.id === 'guarding') isGuardingVis = true;
+        const sc = statusColors[st.id] || '#94a3b8';
+        const bx = mx + 4 + sIdx * 7;
+        ctx.fillStyle = sc;
+        ctx.fillRect(bx, my - 4, 6, 4);
+      }
+      if (isGuardingVis) {
+        ctx.strokeStyle = '#60a5fa';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(mx + 16, my + 16, 14, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+    }
+
+    // Active Committed Ability Windup Badge vs Generic Attack Range Indicator
+    const distToHero = Math.hypot(m.x - hx, m.y - hy);
+    if (m.telegraph) {
+      ctx.fillStyle = '#fbbf24';
+      ctx.font = 'bold 10px "JetBrains Mono", monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText('⚠', mx + 16, my - 6);
+    } else if (distToHero <= 1.5) {
+      // Melee threat alert: red chevron pulse above monster
+      ctx.fillStyle = '#ef4444';
+      ctx.beginPath();
+      ctx.moveTo(mx + 16, my - 3);
+      ctx.lineTo(mx + 13, my + 1);
+      ctx.lineTo(mx + 19, my + 1);
+      ctx.closePath();
+      ctx.fill();
+    } else if (
+      m.isRanged &&
+      distToHero <= (m.range || 3) + 0.3 &&
+      hasLineOfSight(floor, m.x, m.y, hx, hy)
+    ) {
+      // Subtle ranged attack-range indicator (distinct from committed telegraph tiles)
+      ctx.strokeStyle = 'rgba(148, 163, 184, 0.35)';
+      ctx.lineWidth = 1;
+      if (typeof ctx.setLineDash === 'function') ctx.setLineDash([2, 5]);
+      ctx.beginPath();
+      ctx.moveTo(mx + 16, my + 16);
+      ctx.lineTo((hx - camX) * TILE_SIZE + 16, (hy - camY) * TILE_SIZE + 16);
+      ctx.stroke();
+      if (typeof ctx.setLineDash === 'function') ctx.setLineDash([]);
+    }
+  }
+
+  // Draw Persistent Ground Areas (e.g. Sanctuary)
+  if (Array.isArray(floor.persistentAreas) && floor.persistentAreas.length > 0) {
+    for (let aIdx = 0; aIdx < floor.persistentAreas.length; aIdx++) {
+      const area = floor.persistentAreas[aIdx];
+      if (!area || !Array.isArray(area.tiles)) continue;
+      for (let tIdx = 0; tIdx < area.tiles.length; tIdx++) {
+        const pt = area.tiles[tIdx];
+        const avx = pt.x - camX;
+        const avy = pt.y - camY;
+        if (avx >= 0 && avx < VIEWPORT_WIDTH && avy >= 0 && avy < VIEWPORT_HEIGHT) {
+          const apx = avx * TILE_SIZE;
+          const apy = avy * TILE_SIZE;
+          ctx.fillStyle = 'rgba(251, 191, 36, 0.18)';
+          ctx.fillRect(apx + 1, apy + 1, TILE_SIZE - 2, TILE_SIZE - 2);
+          ctx.strokeStyle = area.color || '#fbbf24';
+          ctx.lineWidth = 1.2;
+          ctx.strokeRect(apx + 2, apy + 2, TILE_SIZE - 4, TILE_SIZE - 4);
+        }
+      }
+    }
+  }
+
+  // Draw Hero Pending Delayed Cast Target Zone (e.g. Fireball windup)
+  const heroPending = gameState.hero && gameState.hero.pendingCast;
+  if (heroPending && Array.isArray(heroPending.tiles)) {
+    for (let pIdx = 0; pIdx < heroPending.tiles.length; pIdx++) {
+      const pt = heroPending.tiles[pIdx];
+      const pvx = pt.x - camX;
+      const pvy = pt.y - camY;
+      if (pvx >= 0 && pvx < VIEWPORT_WIDTH && pvy >= 0 && pvy < VIEWPORT_HEIGHT) {
+        const ppx = pvx * TILE_SIZE;
+        const ppy = pvy * TILE_SIZE;
+        ctx.fillStyle = 'rgba(251, 146, 60, 0.25)';
+        ctx.fillRect(ppx + 2, ppy + 2, TILE_SIZE - 4, TILE_SIZE - 4);
+        ctx.strokeStyle = heroPending.color || '#fb923c';
+        ctx.lineWidth = 1.5;
+        ctx.strokeRect(ppx + 2, ppy + 2, TILE_SIZE - 4, TILE_SIZE - 4);
+      }
+    }
+  }
+
+  // Draw Player Sprite relative to Camera Origin (incorporating lunge displacement)
+  const lx = heroLungeOffset.ticks > 0 ? heroLungeOffset.x * (heroLungeOffset.ticks / 6) : 0;
+  const ly = heroLungeOffset.ticks > 0 ? heroLungeOffset.y * (heroLungeOffset.ticks / 6) : 0;
+  const heroDrawX = (hx - camX) * TILE_SIZE + lx;
+  const heroDrawY = (hy - camY) * TILE_SIZE + ly;
+  drawHeroSprite(ctx, heroDrawX, heroDrawY, gameState.hero.classId, TILE_SIZE);
+  if (heroLungeOffset.ticks > 0) heroLungeOffset.ticks--;
+
+  // Hero Absorb Shield Aura Ring
+  if (gameState.hero && (gameState.hero.absorbShield || 0) > 0) {
+    ctx.strokeStyle = 'rgba(129, 140, 248, 0.85)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(heroDrawX + 16, heroDrawY + 16, 15, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  // Hero Casting Channel Ring
+  if (heroPending) {
+    ctx.strokeStyle = heroPending.color || '#fbbf24';
+    ctx.lineWidth = 2;
+    if (typeof ctx.setLineDash === 'function') ctx.setLineDash([3, 3]);
+    ctx.beginPath();
+    ctx.arc(heroDrawX + 16, heroDrawY + 16, 17, 0, Math.PI * 2);
+    ctx.stroke();
+    if (typeof ctx.setLineDash === 'function') ctx.setLineDash([]);
+  }
+
+  // Draw Tactical Skill Range & Target Preview (if skill hovered OR manual targeting active)
+  const previewAbilityId = manualTargetingAbilityId || (skillHoverActive ? skillHoverAbilityId : null);
+  if (skillHoverActive || manualTargetingAbilityId) {
+    const targetOverride = (manualTargetingAbilityId && hoverTile)
+      ? { targetX: hoverTile.x, targetY: hoverTile.y }
+      : null;
+    const targeting = previewAbilityId
+      ? getAbilityTargetingInfo(previewAbilityId, gameState, targetOverride)
+      : getSkillTargetingInfo(gameState);
+    if (targeting && (targeting.reachRadius > 0 || (targeting.targetTiles && targeting.targetTiles.length > 0))) {
+      const pCenterX = (hx - camX) * TILE_SIZE + 16;
+      const pCenterY = (hy - camY) * TILE_SIZE + 16;
+      const reachPx = Math.max(1, targeting.reachRadius || 0) * TILE_SIZE;
+
+      // Circular reach boundary
+      if (targeting.reachRadius > 0) {
+        ctx.strokeStyle = targeting.canAfford ? 'rgba(96, 165, 250, 0.75)' : 'rgba(239, 68, 68, 0.65)';
+        ctx.lineWidth = 1.5;
+        if (typeof ctx.setLineDash === 'function') ctx.setLineDash([4, 4]);
+        ctx.beginPath();
+        ctx.arc(pCenterX, pCenterY, reachPx, 0, Math.PI * 2);
+        ctx.fillStyle = targeting.canAfford ? 'rgba(96, 165, 250, 0.08)' : 'rgba(239, 68, 68, 0.06)';
+        ctx.fill();
+        ctx.stroke();
+        if (typeof ctx.setLineDash === 'function') ctx.setLineDash([]);
+      }
+
+      // Highlight pattern tiles (AoE radius, line, cone, location)
+      if (Array.isArray(targeting.targetTiles) && targeting.targetTiles.length > 0 && (manualTargetingAbilityId || targeting.pattern === 'radius' || targeting.pattern === 'line' || targeting.pattern === 'cone')) {
+        for (let tt = 0; tt < targeting.targetTiles.length; tt++) {
+          const pt = targeting.targetTiles[tt];
+          const tvx = pt.x - camX;
+          const tvy = pt.y - camY;
+          if (tvx >= 0 && tvx < VIEWPORT_WIDTH && tvy >= 0 && tvy < VIEWPORT_HEIGHT) {
+            ctx.fillStyle = targeting.valid ? 'rgba(251, 191, 36, 0.22)' : 'rgba(239, 68, 68, 0.16)';
+            ctx.fillRect(tvx * TILE_SIZE + 2, tvy * TILE_SIZE + 2, TILE_SIZE - 4, TILE_SIZE - 4);
+            ctx.strokeStyle = targeting.valid ? 'rgba(251, 191, 36, 0.85)' : 'rgba(239, 68, 68, 0.65)';
+            ctx.lineWidth = 1.2;
+            ctx.strokeRect(tvx * TILE_SIZE + 2, tvy * TILE_SIZE + 2, TILE_SIZE - 4, TILE_SIZE - 4);
+          }
+        }
+      }
+
+      // Tactical reticles over eligible targets
+      for (let tIdx = 0; tIdx < targeting.targets.length; tIdx++) {
+        const tg = targeting.targets[tIdx];
+        const tvx = tg.x - camX;
+        const tvy = tg.y - camY;
+        if (tvx >= 0 && tvx < VIEWPORT_WIDTH && tvy >= 0 && tvy < VIEWPORT_HEIGHT) {
+          const tpx = tvx * TILE_SIZE;
+          const tpy = tvy * TILE_SIZE;
+
+          // Corner brackets
+          ctx.strokeStyle = '#ef4444';
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          // Top-left
+          ctx.moveTo(tpx + 2, tpy + 8); ctx.lineTo(tpx + 2, tpy + 2); ctx.lineTo(tpx + 8, tpy + 2);
+          // Top-right
+          ctx.moveTo(tpx + 30, tpy + 8); ctx.lineTo(tpx + 30, tpy + 2); ctx.lineTo(tpx + 24, tpy + 2);
+          // Bottom-left
+          ctx.moveTo(tpx + 2, tpy + 24); ctx.lineTo(tpx + 2, tpy + 30); ctx.lineTo(tpx + 8, tpy + 30);
+          // Bottom-right
+          ctx.moveTo(tpx + 30, tpy + 24); ctx.lineTo(tpx + 30, tpy + 30); ctx.lineTo(tpx + 24, tpy + 30);
+          ctx.stroke();
+
+          // Center crosshair / diamond
+          ctx.strokeStyle = '#fbbf24';
+          ctx.lineWidth = 1.2;
+          ctx.strokeRect(tpx + 11, tpy + 11, 10, 10);
+
+          // Overhead TARGET label
+          ctx.font = 'bold 9px "JetBrains Mono", monospace';
+          ctx.textAlign = 'center';
+          ctx.fillStyle = '#ef4444';
+          ctx.fillText('TARGET', tpx + 16, tpy - 4);
+        }
+      }
+
+      // Leap destination marker for Thief
+      if (targeting.destTile) {
+        const dvx = targeting.destTile.x - camX;
+        const dvy = targeting.destTile.y - camY;
+        if (dvx >= 0 && dvx < VIEWPORT_WIDTH && dvy >= 0 && dvy < VIEWPORT_HEIGHT) {
+          const dpx = dvx * TILE_SIZE;
+          const dpy = dvy * TILE_SIZE;
+          ctx.strokeStyle = '#c084fc';
+          ctx.lineWidth = 1.5;
+          ctx.strokeRect(dpx + 3, dpy + 3, 26, 26);
+          ctx.fillStyle = 'rgba(192, 132, 252, 0.20)';
+          ctx.fillRect(dpx + 3, dpy + 3, 26, 26);
+          ctx.font = 'bold 8px "JetBrains Mono", monospace';
+          ctx.textAlign = 'center';
+          ctx.fillStyle = '#c084fc';
+          ctx.fillText('LEAP', dpx + 16, dpy + 17);
+        }
+      }
+    }
+  }
+
+  // Draw Active Combat Animations (slashes, crit bursts, spell impacts)
+  for (let aIdx = combatAnimations.length - 1; aIdx >= 0; aIdx--) {
+    const anim = combatAnimations[aIdx];
+    const cpx = (anim.gx - camX) * TILE_SIZE + 16;
+    const cpy = (anim.gy - camY) * TILE_SIZE + 16;
+    const prog = 1 - (anim.ticks / anim.maxTicks);
+
+    if (cpx >= -32 && cpx <= canvas.width + 32 && cpy >= -32 && cpy <= canvas.height + 32) {
+      if (anim.type === 'slash') {
+        ctx.strokeStyle = anim.color || '#f87171';
+        ctx.lineWidth = Math.max(1, 3.5 - prog * 2.5);
+        ctx.beginPath();
+        ctx.moveTo(cpx - 14 + prog * 6, cpy - 14 + prog * 6);
+        ctx.lineTo(cpx + 14, cpy + 14);
+        ctx.stroke();
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 1.2;
+        ctx.beginPath();
+        ctx.moveTo(cpx - 10 + prog * 6, cpy - 10 + prog * 6);
+        ctx.lineTo(cpx + 10, cpy + 10);
+        ctx.stroke();
+      } else if (anim.type === 'crit_slash') {
+        ctx.strokeStyle = anim.color || '#fbbf24';
+        ctx.lineWidth = Math.max(1, 4 - prog * 3);
+        const radius = 6 + prog * 14;
+        ctx.beginPath();
+        ctx.moveTo(cpx - radius, cpy); ctx.lineTo(cpx + radius, cpy);
+        ctx.moveTo(cpx, cpy - radius); ctx.lineTo(cpx, cpy + radius);
+        ctx.moveTo(cpx - radius * 0.7, cpy - radius * 0.7); ctx.lineTo(cpx + radius * 0.7, cpy + radius * 0.7);
+        ctx.moveTo(cpx + radius * 0.7, cpy - radius * 0.7); ctx.lineTo(cpx - radius * 0.7, cpy + radius * 0.7);
+        ctx.stroke();
+      } else if (anim.type === 'spell' || anim.type === 'wave') {
+        ctx.strokeStyle = anim.color || '#60a5fa';
+        ctx.lineWidth = Math.max(1, 3 - prog * 2);
+        ctx.beginPath();
+        ctx.arc(cpx, cpy, 4 + prog * (anim.type === 'wave' ? 28 : 18), 0, Math.PI * 2);
+        ctx.stroke();
+      } else if (anim.type === 'shield' || anim.type === 'cast_ring') {
+        ctx.strokeStyle = anim.color || '#818cf8';
+        ctx.lineWidth = 2.2;
+        ctx.beginPath();
+        ctx.arc(cpx, cpy, 10 + Math.sin(prog * Math.PI) * 6, 0, Math.PI * 2);
+        ctx.stroke();
+      } else if (anim.type === 'teleport') {
+        ctx.strokeStyle = anim.color || '#c084fc';
+        ctx.lineWidth = Math.max(1, 3 - prog * 2.5);
+        ctx.strokeRect(cpx - 12 * (1 - prog * 0.5), cpy - 12 * (1 - prog * 0.5), 24 * (1 - prog * 0.5), 24 * (1 - prog * 0.5));
+      } else if (anim.type === 'beam') {
+        ctx.strokeStyle = anim.color || '#a78bfa';
+        ctx.lineWidth = Math.max(1, 4 - prog * 3);
+        ctx.beginPath();
+        ctx.moveTo(cpx - 14, cpy);
+        ctx.lineTo(cpx + 14, cpy);
+        ctx.moveTo(cpx, cpy - 14);
+        ctx.lineTo(cpx, cpy + 14);
+        ctx.stroke();
+      } else if (anim.type === 'interrupt') {
+        ctx.strokeStyle = anim.color || '#f87171';
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.moveTo(cpx - 10, cpy - 10); ctx.lineTo(cpx + 10, cpy + 10);
+        ctx.moveTo(cpx + 10, cpy - 10); ctx.lineTo(cpx - 10, cpy + 10);
+        ctx.stroke();
+      } else if (anim.type === 'projectile') {
+        ctx.fillStyle = anim.color || '#f87171';
+        ctx.beginPath();
+        ctx.arc(cpx, cpy, Math.max(1, 5 - prog * 4), 0, Math.PI * 2);
+        ctx.fill();
+      } else {
+        ctx.strokeStyle = anim.color || '#f87171';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(cpx - 8, cpy - 8); ctx.lineTo(cpx - 4, cpy + 8);
+        ctx.moveTo(cpx, cpy - 8); ctx.lineTo(cpx + 4, cpy + 8);
+        ctx.stroke();
+      }
+    }
+
+    anim.ticks--;
+    if (anim.ticks <= 0) {
+      combatAnimations.splice(aIdx, 1);
+    }
+  }
+
+  // Draw Hover Highlight relative to Camera Origin
+  if (hoverTile) {
+    const hvx = hoverTile.x - camX;
+    const hvy = hoverTile.y - camY;
+    if (hvx >= 0 && hvx < VIEWPORT_WIDTH && hvy >= 0 && hvy < VIEWPORT_HEIGHT) {
+      ctx.strokeStyle = 'rgba(251, 191, 36, 0.75)';
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(hvx * TILE_SIZE + 1, hvy * TILE_SIZE + 1, TILE_SIZE - 2, TILE_SIZE - 2);
+    }
+  }
+
+  // Draw Floating Combat/Mining Numbers projected into Camera Space
+  for (let i = floatingTexts.length - 1; i >= 0; i--) {
+    const ft = floatingTexts[i];
+    const px = (ft.gx - camX) * TILE_SIZE + 16;
+    const py = (ft.gy - camY) * TILE_SIZE + 10 - ft.riseOffset;
+    if (px >= -40 && px <= canvas.width + 40 && py >= -20 && py <= canvas.height + 20) {
+      ctx.font = 'bold 11px "JetBrains Mono", monospace';
+      ctx.textAlign = 'center';
+      ctx.fillStyle = '#000';
+      ctx.fillText(ft.text, px + 1, py + 1);
+      ctx.fillStyle = ft.color;
+      ctx.fillText(ft.text, px, py);
+    }
+    ft.riseOffset += 0.45;
+    ft.ticks -= 1;
+    if (ft.ticks <= 0) floatingTexts.splice(i, 1);
+  }
+}
+
   // --- Module: src/wargame/test/wargameSelfTest.js ---
 // Headless & In-Browser Verification Suite for the Standalone Macro Wargame & Real-Time Simulation Engine
+
+
+
 
 
 
@@ -41735,6 +46038,99 @@ function evaluateWargameSelfTests() {
       : 'Failed checks: ' + failed58.join(', ')
   });
 
+  // =========================================================================
+  // Test 59: MG-01A Integrated Dungeon Ability Bar, Manual Targeting & Dev Console Controls
+  // =========================================================================
+  const host59 = createWargameSimHost();
+  host59.dispatch({ type: COMMAND_TYPES.START_NEW_CAMPAIGN, payload: { houseName: 'House Arcana', worldName: 'Starfall', seedCode: 'MG01A-59', simSpeed: 1 } });
+  const settler59 = getSelectedOverworldUnit(host59.state);
+  host59.dispatch({ type: COMMAND_TYPES.FOUND_CITY, payload: { unitId: settler59.id, cityName: 'Arcana Keep' } });
+  const city59 = getPrimaryCity(host59.state);
+  city59.stockpile.gold = 2000;
+  city59.stockpile.food = 800;
+  city59.stockpile.timber = 500;
+  city59.stockpile.stone = 500;
+  city59.level = 2;
+  city59.buildings.meeting_hall = 2;
+  city59.buildings.adventurers_guild = 1;
+  city59.buildings.mages_guild = 1;
+  host59.dispatch({ type: COMMAND_TYPES.RECRUIT_HERO, payload: { classId: 'mage', heroName: 'Lyra' } });
+  host59.stepClock(80000);
+
+  const mage59 = (host59.state.world.heroes || []).find(function(h) { return h && h.classId === 'mage'; }) || host59.state.world.heroes[0];
+  const dngState59 = createDefaultGameState();
+  host59.attachDungeonState(dngState59);
+  const unit59 = mage59
+    ? (host59.state.world.overworld.units || []).find(function(u) { return u && u.alive && u.leaderHeroId === mage59.id; })
+    : null;
+  const poi59 = (host59.state.world.overworld.pois || []).find(function(p) { return p && p.type === 'dungeon_entrance'; });
+  host59.state.world.overworld.militaryTargets = [];
+  if (poi59) poi59.discovered = true;
+  const appCtx59 = createAppContextController({ simHost: host59, dungeonState: dngState59 });
+  if (unit59 && poi59) {
+    unit59.x = poi59.x;
+    unit59.y = poi59.y;
+  }
+  const enter59 = unit59 ? appCtx59.enterDungeon({ unitId: unit59.id, poiId: poi59 ? poi59.id : null }) : { ok: false };
+
+  // 1. Multi-ability bar exposes all representative Mage abilities with hotkeys & manual-target flags
+  const bar59 = getHeroAbilityBarState(dngState59);
+  const barOk59 = Boolean(
+    enter59.ok &&
+    bar59.length >= 6 &&
+    bar59.some(function(a) { return a.id === 'arcane_missile' && a.requiresManualTarget; }) &&
+    bar59.some(function(a) { return a.id === 'fireball' && a.timing === 'delayed'; }) &&
+    bar59.some(function(a) { return a.id === 'arcane_ward' && !a.requiresManualTarget; }) &&
+    bar59.some(function(a) { return a.id === 'blink' && a.requiresManualTarget; }) &&
+    bar59.some(function(a) { return a.id === 'detect_magic' && a.effectiveMp === 0; })
+  );
+
+  // 2. Hover & Manual Targeting state toggles cleanly in Integrated Dungeon context
+  setSkillHover(true, 'fireball');
+  setManualTargetingAbility('fireball');
+  const tgtInfo59 = getAbilityTargetingInfo('fireball', dngState59, { targetX: dngState59.hero.x, targetY: dngState59.hero.y });
+  const hoverTargetOk59 = Boolean(getSkillHover() && getManualTargetingAbility() === 'fireball' && tgtInfo59.targetTiles.length >= 1);
+  setManualTargetingAbility(null);
+  setSkillHover(false);
+
+  // 3. Developer Control Panel ability grant/revoke, reset cooldowns, test status & inspector snapshot
+  const dc59 = createDevConsoleController({
+    simHost: host59,
+    dungeonState: dngState59,
+    getContext: function() { return 'dungeon'; }
+  });
+  const dcGrant59 = dc59.grantHeroAbility('brace', 'item');
+  const dcWard59 = executeAbility('arcane_ward', null, dngState59);
+  const dcStatus59 = dc59.applyTestStatusToHero('silence', 2);
+  const snap59 = dc59.getInspectorSnapshot();
+  const dcReset59 = dc59.resetHeroCooldownsAndMp();
+  const dcRevoke59 = dc59.revokeHeroAbility('brace', 'item');
+  const devPanelOk59 = Boolean(
+    dcGrant59.ok && hasAbilityAccess(dngState59.hero, 'brace') === false && // revoked after snapshot
+    dcWard59.ok &&
+    dcStatus59.ok &&
+    snap59.abilities && snap59.abilities.absorbShield > 0 &&
+    snap59.abilities.granted.some(function(g) { return g.id === 'brace' && g.sources.indexOf('item') !== -1; }) &&
+    snap59.abilities.statuses.some(function(s) { return s.id === 'silence'; }) &&
+    dcReset59.ok && getAbilityCooldownRemaining(dngState59.hero, 'arcane_ward') === 0 &&
+    dcRevoke59.ok && !dcRevoke59.stillGranted
+  );
+
+  const t59Checks = {
+    barOk: barOk59,
+    hoverTargetOk: hoverTargetOk59,
+    devPanelOk: devPanelOk59
+  };
+  const failed59 = Object.keys(t59Checks).filter(function(k) { return !t59Checks[k]; });
+  const t59Pass = failed59.length === 0;
+  results.push({
+    name: '59. MG-01A: Integrated Dungeon Multi-Ability Bar, Manual Targeting & Dev Console Ability Controls',
+    pass: t59Pass,
+    detail: t59Pass
+      ? 'Multi-ability bar, hover/manual targeting preview, Dev Console grant/revoke/status/cooldown reset & Integrated Dungeon execution verified'
+      : 'Failed checks: ' + failed59.join(', ')
+  });
+
   return results;
 }
 
@@ -42040,9 +46436,60 @@ function dcpRenderCombatTab(snap) {
       );
     }).join('');
 
+  const abSnap = snap.abilities || { catalog: [], granted: [], absorbShield: 0, pendingCast: null, statuses: [] };
+  const abOpts = abSnap.catalog.map(function(a) {
+    return '<option value="' + dcpEscapeHtml(a.id) + '">' + dcpEscapeHtml(a.name + ' [' + a.domain + ' ' + a.kind + ']') + '</option>';
+  }).join('');
+  const grantedChips = abSnap.granted.length === 0
+    ? '<span class="text-[#64748b]">None</span>'
+    : abSnap.granted.map(function(g) {
+      return '<span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-[#070b12] border border-[#283347] text-[10px]">' +
+        '<strong class="text-[#e6edf3]">' + dcpEscapeHtml(g.name) + '</strong>' +
+        '<span class="text-[#64748b]">(' + dcpEscapeHtml(g.sources.join('+')) + ')</span>' +
+        (g.cooldownRemaining > 0 ? '<span class="text-[#f87171]">CD:' + g.cooldownRemaining + 't</span>' : '') +
+      '</span>';
+    }).join(' ');
+  const statusChips = abSnap.statuses.length === 0
+    ? '<span class="text-[#64748b]">None</span>'
+    : abSnap.statuses.map(function(s) {
+      return '<span class="px-1.5 py-0.5 rounded bg-[#070b12] border border-[#283347] text-[10px] ' + (s.isBuff ? 'text-[#34d399]' : 'text-[#f87171]') + '">' + dcpEscapeHtml(s.name) + ' (' + s.duration + 't)</span>';
+    }).join(' ');
+
+  const abilityBox =
+    '<div class="p-3 rounded-lg bg-[#0b111e] border border-[#283347] space-y-2">' +
+      '<div class="flex flex-wrap items-center justify-between gap-2">' +
+        '<div class="text-[11px] font-bold uppercase text-[#818cf8]">✨ Spells, Prayers &amp; Skills (MG-01A)</div>' +
+        '<div class="flex items-center gap-1.5">' +
+          '<span class="text-[10px] text-[#c7d2fe]">Shield: <strong>' + (abSnap.absorbShield || 0) + '</strong></span>' +
+          '<button type="button" data-dev-act="reset-cds" class="px-2 py-0.5 rounded bg-[#34d399]/20 hover:bg-[#34d399]/30 border border-[#34d399]/50 text-[10px] text-[#34d399] font-bold cursor-pointer">Reset CDs + Full MP</button>' +
+        '</div>' +
+      '</div>' +
+      '<div class="flex flex-wrap items-center gap-1.5">' +
+        '<select data-dev-field="devAbilityId" class="flex-1 min-w-[180px] px-2 py-1 rounded bg-[#05080f] border border-[#334155] text-[#e6edf3]">' + abOpts + '</select>' +
+        '<select data-dev-field="devAbilitySrc" class="px-2 py-1 rounded bg-[#05080f] border border-[#334155] text-[#e6edf3]">' +
+          '<option value="learned">learned</option>' +
+          '<option value="item">item</option>' +
+          '<option value="temporary">temporary</option>' +
+          '<option value="class">class</option>' +
+        '</select>' +
+        '<button type="button" data-dev-act="grant-ability" class="px-2.5 py-1 rounded bg-[#818cf8]/20 hover:bg-[#818cf8]/30 border border-[#818cf8]/50 text-[#c7d2fe] font-bold cursor-pointer">+ Grant</button>' +
+        '<button type="button" data-dev-act="revoke-ability" class="px-2.5 py-1 rounded bg-[#f87171]/20 hover:bg-[#f87171]/30 border border-[#f87171]/50 text-[#fca5a5] font-bold cursor-pointer">Revoke</button>' +
+      '</div>' +
+      '<div class="flex flex-wrap gap-1 items-center text-[10px]"><span class="text-[#94a3b8]">Granted:</span> ' + grantedChips + '</div>' +
+      '<div class="flex flex-wrap gap-1 items-center text-[10px]"><span class="text-[#94a3b8]">Active Statuses:</span> ' + statusChips + '</div>' +
+      '<div class="flex flex-wrap items-center gap-1 text-[10px]">' +
+        '<span class="text-[#94a3b8]">Test Status:</span>' +
+        '<button type="button" data-dev-act="apply-status" data-val="silence" class="px-1.5 py-0.5 rounded bg-[#1a2232] hover:bg-[#283347] text-[#e879f9] cursor-pointer">+ Silence</button>' +
+        '<button type="button" data-dev-act="apply-status" data-val="chilled" class="px-1.5 py-0.5 rounded bg-[#1a2232] hover:bg-[#283347] text-[#38bdf8] cursor-pointer">+ Chilled</button>' +
+        '<button type="button" data-dev-act="apply-status" data-val="burn" class="px-1.5 py-0.5 rounded bg-[#1a2232] hover:bg-[#283347] text-[#fb923c] cursor-pointer">+ Burn</button>' +
+        '<button type="button" data-dev-act="apply-status" data-val="slow" class="px-1.5 py-0.5 rounded bg-[#1a2232] hover:bg-[#283347] text-[#38bdf8] cursor-pointer">+ Slow</button>' +
+      '</div>' +
+    '</div>';
+
   return (
     '<div class="space-y-3">' +
       spawnerBox +
+      abilityBox +
       skillBox +
       '<div class="p-3 rounded-lg bg-[#0b111e] border border-[#283347]">' +
         '<div class="text-[11px] font-bold uppercase text-[#94a3b8] border-b border-[#283347] pb-1 mb-1">' +
@@ -42427,6 +46874,14 @@ function attachDevConsolePanelListeners(devConsole, onRender) {
       devConsole.spawnObject(actBtn.getAttribute('data-otype'), actBtn.getAttribute('data-sub'), null, null);
     } else if (act === 'trigger-skill') {
       devConsole.triggerHeroSkill();
+    } else if (act === 'grant-ability') {
+      devConsole.grantHeroAbility(fieldVal('devAbilityId'), fieldVal('devAbilitySrc') || 'learned');
+    } else if (act === 'revoke-ability') {
+      devConsole.revokeHeroAbility(fieldVal('devAbilityId'), fieldVal('devAbilitySrc') || 'learned');
+    } else if (act === 'reset-cds') {
+      devConsole.resetHeroCooldownsAndMp();
+    } else if (act === 'apply-status') {
+      devConsole.applyTestStatusToHero(actBtn.getAttribute('data-val') || 'burn', 3);
     } else if (act === 'recruit-hero') {
       const clsId = fieldVal('recruitClass') || 'fighter';
       const rName = String(fieldVal('recruitName') || '').trim();
@@ -42466,2402 +46921,6 @@ function attachDevConsolePanelListeners(devConsole, onRender) {
 
     if (typeof onRender === 'function') onRender();
   });
-}
-
-  // --- Module: src/ui/renderer.js ---
-// 2D Frustum-Culled Camera Renderer, Bresenham Torchlight FOV, Minimap / Cartographer's Map & Floating Text
-
-
-const floatingTexts = [];
-let hoverTile = null;
-let visibleCoordMap = {};
-let skillHoverActive = false;
-const combatAnimations = [];
-let heroLungeOffset = { x: 0, y: 0, ticks: 0 };
-
-function setSkillHover(active) {
-  skillHoverActive = !!active;
-}
-
-function getSkillHover() {
-  return skillHoverActive;
-}
-
-function triggerCombatAnimation(gx, gy, type = 'slash', color = '#f87171') {
-  combatAnimations.push({
-    gx: gx,
-    gy: gy,
-    type: type,
-    color: color,
-    ticks: 14,
-    maxTicks: 14
-  });
-}
-
-function triggerHeroLunge(dx, dy) {
-  heroLungeOffset = { x: (dx || 0) * 8, y: (dy || 0) * 8, ticks: 6 };
-}
-
-function setHoverTile(tile) {
-  hoverTile = tile;
-}
-
-function getHoverTile() {
-  return hoverTile;
-}
-
-function getCameraOrigin(floor, hx, hy) {
-  const fw = (floor && floor.width) || (floor && floor.tiles && floor.tiles[0] ? floor.tiles[0].length : VIEWPORT_WIDTH);
-  const fh = (floor && floor.height) || (floor && floor.tiles ? floor.tiles.length : VIEWPORT_HEIGHT);
-  const maxCamX = Math.max(0, fw - VIEWPORT_WIDTH);
-  const maxCamY = Math.max(0, fh - VIEWPORT_HEIGHT);
-  const camX = Math.max(0, Math.min(maxCamX, Math.round(hx) - Math.floor(VIEWPORT_WIDTH / 2)));
-  const camY = Math.max(0, Math.min(maxCamY, Math.round(hy) - Math.floor(VIEWPORT_HEIGHT / 2)));
-  return { camX, camY, fw, fh };
-}
-
-function spawnFloatingText(gx, gy, text, color = '#fff') {
-  floatingTexts.push({
-    gx,
-    gy,
-    riseOffset: 0,
-    text,
-    color,
-    ticks: 28
-  });
-}
-
-function updateFOV(state = gameState) {
-  visibleCoordMap = {};
-  if (!state || state.inGuild || !state.hero) return;
-  const floor = ensureDungeonFloorHydrated(state.dungeon, state.dungeon.currentFloor);
-  if (!floor || !floor.tiles) return;
-
-  const fw = floor.width || (floor.tiles[0] ? floor.tiles[0].length : DEFAULT_MAP_W);
-  const fh = floor.height || floor.tiles.length || DEFAULT_MAP_H;
-  const hx = state.hero.x;
-  const hy = state.hero.y;
-  const radius = state.hero.visionRadius || 5;
-
-  const minY = Math.max(0, Math.floor(hy - radius - 1));
-  const maxY = Math.min(fh - 1, Math.ceil(hy + radius + 1));
-  const minX = Math.max(0, Math.floor(hx - radius - 1));
-  const maxX = Math.min(fw - 1, Math.ceil(hx + radius + 1));
-
-  for (let y = minY; y <= maxY; y++) {
-    for (let x = minX; x <= maxX; x++) {
-      if (Math.hypot(x - hx, y - hy) <= radius + 0.35 && hasLineOfSight(floor, hx, hy, x, y)) {
-        floor.explored[y][x] = 1;
-        visibleCoordMap[`${x},${y}`] = true;
-      }
-    }
-  }
-
-  detectNearbyTraps(floor, state);
-
-  if (state === gameState && typeof document !== 'undefined') {
-    renderMinimapCanvas('minimapCanvas');
-    const fullModal = document.getElementById('fullMapModal');
-    if (fullModal && !fullModal.classList.contains('hidden')) {
-      renderMinimapCanvas('fullMapCanvas');
-    }
-  }
-}
-
-function isTileVisibleNow(floor, hx, hy, vision, x, y) {
-  if (visibleCoordMap[`${x},${y}`]) return true;
-  if (Math.abs(x - hx) > vision + 1 || Math.abs(y - hy) > vision + 1) return false;
-  return Math.hypot(x - hx, y - hy) <= vision + 0.35 && hasLineOfSight(floor, hx, hy, x, y);
-}
-
-function drawSafeEllipse(ctx, ex, ey, rx, ry) {
-  if (typeof ctx.ellipse === 'function') {
-    ctx.ellipse(ex, ey, rx, ry, 0, 0, Math.PI * 2);
-  } else {
-    ctx.save();
-    ctx.translate(ex, ey);
-    ctx.scale(1, rx > 0 ? ry / rx : 1);
-    ctx.beginPath();
-    ctx.arc(0, 0, rx, 0, Math.PI * 2);
-    ctx.restore();
-  }
-}
-
-function hexToRgb(hex) {
-  if (!hex || hex[0] !== '#') return '255, 255, 255';
-  var c = hex.slice(1);
-  if (c.length === 3) c = c[0] + c[0] + c[1] + c[1] + c[2] + c[2];
-  var num = parseInt(c, 16);
-  if (isNaN(num)) return '255, 255, 255';
-  return ((num >> 16) & 255) + ', ' + ((num >> 8) & 255) + ', ' + (num & 255);
-}
-
-function drawHeroSprite(ctx, px, py, classId, size = TILE_SIZE) {
-  if (!ctx) return;
-  ctx.save();
-  ctx.translate(px, py);
-  const scale = size / 32;
-  ctx.scale(scale, scale);
-
-  // Ground drop shadow common to all hero classes
-  ctx.fillStyle = 'rgba(0, 0, 0, 0.42)';
-  ctx.beginPath();
-  drawSafeEllipse(ctx, 16, 29, 9, 3);
-  ctx.fill();
-
-  if (classId === 'fighter') {
-    // 1. FIGHTER: Ironclad Vanguard with Crimson Cape, Horned Helm, Heater Shield & Broadsword
-    // Flowing crimson cape behind
-    ctx.fillStyle = '#7f1d1d';
-    ctx.beginPath();
-    ctx.moveTo(9, 13);
-    ctx.lineTo(5, 28);
-    ctx.lineTo(27, 28);
-    ctx.lineTo(23, 13);
-    ctx.closePath();
-    ctx.fill();
-    ctx.fillStyle = '#b91c1c';
-    ctx.beginPath();
-    ctx.moveTo(11, 13);
-    ctx.lineTo(8, 27);
-    ctx.lineTo(15, 27);
-    ctx.lineTo(13, 13);
-    ctx.closePath();
-    ctx.fill();
-
-    // Greaves & Sabatons
-    ctx.fillStyle = '#334155';
-    ctx.fillRect(10, 23, 4, 6);
-    ctx.fillRect(18, 23, 4, 6);
-    ctx.fillStyle = '#475569';
-    ctx.fillRect(9, 27, 5, 2.5);
-    ctx.fillRect(18, 27, 5, 2.5);
-
-    // Steel Cuirass (Torso)
-    ctx.fillStyle = '#475569';
-    ctx.beginPath();
-    ctx.moveTo(10, 13);
-    ctx.lineTo(22, 13);
-    ctx.lineTo(20, 23);
-    ctx.lineTo(12, 23);
-    ctx.closePath();
-    ctx.fill();
-    ctx.strokeStyle = '#94a3b8';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(16, 13);
-    ctx.lineTo(16, 22);
-    ctx.stroke();
-
-    // Gold belt & buckle
-    ctx.fillStyle = '#b45309';
-    ctx.fillRect(12, 21, 8, 2);
-    ctx.fillStyle = '#fbbf24';
-    ctx.fillRect(14, 20.5, 4, 3);
-
-    // Steel Pauldrons
-    ctx.fillStyle = '#64748b';
-    ctx.strokeStyle = '#fbbf24';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.arc(9, 14, 3.5, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.arc(23, 14, 3.5, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.stroke();
-
-    // Horned Greathelm
-    ctx.fillStyle = '#334155';
-    ctx.fillRect(14, 11, 4, 3);
-    ctx.fillStyle = '#64748b';
-    ctx.beginPath();
-    ctx.arc(16, 8, 5.5, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = '#475569';
-    ctx.fillRect(11.5, 6, 9, 6.5);
-
-    // Iron horns
-    ctx.fillStyle = '#cbd5e1';
-    ctx.beginPath();
-    ctx.moveTo(12, 6);
-    ctx.lineTo(6, 1.5);
-    ctx.lineTo(9.5, 7.5);
-    ctx.closePath();
-    ctx.fill();
-    ctx.beginPath();
-    ctx.moveTo(20, 6);
-    ctx.lineTo(26, 1.5);
-    ctx.lineTo(22.5, 7.5);
-    ctx.closePath();
-    ctx.fill();
-
-    // Glowing amber visor slit
-    ctx.fillStyle = '#0f172a';
-    ctx.fillRect(13, 8, 6, 2.5);
-    ctx.fillStyle = '#fbbf24';
-    ctx.fillRect(14, 8.5, 4, 1.5);
-
-    // Left Arm: Iron Heater Shield
-    ctx.fillStyle = '#1e293b';
-    ctx.beginPath();
-    ctx.moveTo(3.5, 12);
-    ctx.lineTo(10.5, 12);
-    ctx.lineTo(9.5, 21);
-    ctx.lineTo(7, 24.5);
-    ctx.lineTo(4.5, 21);
-    ctx.closePath();
-    ctx.fill();
-    ctx.strokeStyle = '#fbbf24';
-    ctx.lineWidth = 1;
-    ctx.stroke();
-    ctx.fillStyle = '#ef4444';
-    ctx.fillRect(6, 15, 2, 4);
-
-    // Right Arm: Steel Broadsword
-    ctx.fillStyle = '#f59e0b';
-    ctx.fillRect(23, 15, 6, 1.5);
-    ctx.fillStyle = '#78350f';
-    ctx.fillRect(25, 16.5, 2, 2.5);
-    ctx.fillStyle = '#f59e0b';
-    ctx.fillRect(25, 19, 2, 1.5);
-    ctx.fillStyle = '#f8fafc';
-    ctx.beginPath();
-    ctx.moveTo(25, 15);
-    ctx.lineTo(25, 2);
-    ctx.lineTo(26, 0.5);
-    ctx.lineTo(27, 2);
-    ctx.lineTo(27, 15);
-    ctx.closePath();
-    ctx.fill();
-    ctx.fillStyle = '#94a3b8';
-    ctx.fillRect(25.7, 3, 0.6, 11);
-
-  } else if (classId === 'thief') {
-    // 2. THIEF: Shadowblade with Midnight Shroud Cowl, Emerald Eyes & Dual Daggers
-    // Midnight shadow shroud cape
-    ctx.fillStyle = '#090d16';
-    ctx.beginPath();
-    ctx.moveTo(11, 13);
-    ctx.lineTo(5, 27);
-    ctx.lineTo(8, 25.5);
-    ctx.lineTo(12, 28);
-    ctx.lineTo(17, 25.5);
-    ctx.lineTo(22, 27);
-    ctx.lineTo(21, 13);
-    ctx.closePath();
-    ctx.fill();
-
-    // Dark trousers & silent boots
-    ctx.fillStyle = '#111827';
-    ctx.fillRect(11, 22, 3.5, 6);
-    ctx.fillRect(17.5, 22, 3.5, 6);
-    ctx.fillStyle = '#1f2937';
-    ctx.fillRect(10, 26, 4.5, 3.5);
-    ctx.fillRect(17.5, 26, 4.5, 3.5);
-
-    // Studded Leather Doublet
-    ctx.fillStyle = '#1e293b';
-    ctx.beginPath();
-    ctx.moveTo(11, 13);
-    ctx.lineTo(21, 13);
-    ctx.lineTo(19, 22);
-    ctx.lineTo(13, 22);
-    ctx.closePath();
-    ctx.fill();
-
-    // Emerald harness straps & rivets
-    ctx.strokeStyle = '#065f46';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(12, 13);
-    ctx.lineTo(18, 22);
-    ctx.stroke();
-    ctx.fillStyle = '#34d399';
-    ctx.fillRect(13, 15, 1.5, 1.5);
-    ctx.fillRect(17, 18, 1.5, 1.5);
-
-    // Leather belt with green poison vial pouch
-    ctx.fillStyle = '#374151';
-    ctx.fillRect(12, 20, 8, 2);
-    ctx.fillStyle = '#10b981';
-    ctx.fillRect(18.5, 20, 2.5, 3);
-
-    // Rogue Cowl & Mask
-    ctx.fillStyle = '#0f172a';
-    ctx.beginPath();
-    ctx.arc(16, 8, 5.5, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.beginPath();
-    ctx.moveTo(13, 4);
-    ctx.lineTo(16, 1.5);
-    ctx.lineTo(19, 4);
-    ctx.fill();
-
-    // Face shadow cavity & mask
-    ctx.fillStyle = '#020617';
-    ctx.fillRect(13, 6, 6, 5);
-    ctx.fillStyle = '#1e293b';
-    ctx.fillRect(13, 9, 6, 2.5);
-
-    // Piercing glowing emerald rogue eyes
-    ctx.fillStyle = '#34d399';
-    ctx.fillRect(13.8, 7.2, 1.6, 1.3);
-    ctx.fillRect(16.6, 7.2, 1.6, 1.3);
-
-    // Left Hand: Reverse-grip poison stiletto
-    ctx.fillStyle = '#1e293b';
-    ctx.fillRect(7, 14, 4, 3);
-    ctx.fillStyle = '#cbd5e1';
-    ctx.beginPath();
-    ctx.moveTo(7.5, 17);
-    ctx.lineTo(5, 26);
-    ctx.lineTo(8.5, 18);
-    ctx.closePath();
-    ctx.fill();
-    ctx.fillStyle = '#34d399';
-    ctx.fillRect(4.5, 26, 2, 2);
-
-    // Right Hand: Forward-grip curved dagger
-    ctx.fillStyle = '#1e293b';
-    ctx.fillRect(21, 14, 4, 3);
-    ctx.fillStyle = '#10b981';
-    ctx.fillRect(24.5, 15, 3, 1.5);
-    ctx.fillStyle = '#e2e8f0';
-    ctx.beginPath();
-    ctx.moveTo(25.5, 15);
-    ctx.lineTo(28.5, 6.5);
-    ctx.lineTo(27, 15);
-    ctx.closePath();
-    ctx.fill();
-    ctx.fillStyle = '#6ee7b7';
-    ctx.fillRect(27.8, 8, 1.2, 1.2);
-
-  } else if (classId === 'mage') {
-    // 3. MAGE: Astral Elementalist with Cobalt Robes, Wizard Hat, Spell-Flame & Starlit Staff
-    // Flowing Astral Cobalt Robes
-    ctx.fillStyle = '#1e1b4b';
-    ctx.beginPath();
-    ctx.moveTo(11, 12);
-    ctx.lineTo(6.5, 28);
-    ctx.lineTo(25.5, 28);
-    ctx.lineTo(21, 12);
-    ctx.closePath();
-    ctx.fill();
-
-    // Mystical stole / central tabard
-    ctx.fillStyle = '#312e81';
-    ctx.fillRect(13, 13, 6, 15);
-    ctx.fillStyle = '#60a5fa';
-    ctx.fillRect(8, 26.5, 16, 1.5);
-    ctx.fillStyle = '#38bdf8';
-    ctx.fillRect(12, 18, 8, 2);
-
-    // Wizard Cowl & Pointed Hat
-    ctx.fillStyle = '#312e81';
-    ctx.beginPath();
-    ctx.arc(16, 9, 5.5, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = '#1e1b4b';
-    ctx.beginPath();
-    ctx.moveTo(11.5, 6);
-    ctx.lineTo(13, 0.5);
-    ctx.lineTo(20.5, 6);
-    ctx.closePath();
-    ctx.fill();
-    ctx.fillStyle = '#fbbf24';
-    ctx.fillRect(12.5, 5, 7, 1.5);
-
-    // Shadow face cavity & glowing sapphire eyes
-    ctx.fillStyle = '#0f172a';
-    ctx.fillRect(13, 7, 6, 4.5);
-    ctx.fillStyle = '#38bdf8';
-    ctx.fillRect(13.8, 8.2, 1.6, 1.4);
-    ctx.fillRect(16.6, 8.2, 1.6, 1.4);
-
-    // Left Hand: Channeling active azure spell-flame
-    ctx.fillStyle = '#312e81';
-    ctx.fillRect(6, 14, 5, 5);
-    ctx.fillStyle = 'rgba(56, 189, 248, 0.35)';
-    ctx.beginPath();
-    ctx.arc(6, 12, 4, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = '#38bdf8';
-    ctx.beginPath();
-    ctx.arc(6, 12, 2.5, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(5.5, 11.5, 1.5, 1.5);
-
-    // Right Hand: Arcane Gnarled Rowan Staff
-    ctx.fillStyle = '#78350f';
-    ctx.fillRect(25, 4, 2, 24);
-    ctx.fillStyle = '#fbbf24';
-    ctx.fillRect(24, 3, 4, 2);
-    // Floating Diamond Star Crystal Prism
-    ctx.fillStyle = '#60a5fa';
-    ctx.beginPath();
-    ctx.moveTo(26, -0.5);
-    ctx.lineTo(28.5, 2.5);
-    ctx.lineTo(26, 5.5);
-    ctx.lineTo(23.5, 2.5);
-    ctx.closePath();
-    ctx.fill();
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(25.5, 1.5, 1.2, 1.2);
-
-  } else if (classId === 'ranger') {
-    // 4. RANGER: Hawkeye Scout with Woodland Camo Cloak, Quiver, Recurve Bow & Arrow
-    // Woodland camo cloak draped on left
-    ctx.fillStyle = '#14532d';
-    ctx.beginPath();
-    ctx.moveTo(10, 13);
-    ctx.lineTo(5.5, 27);
-    ctx.lineTo(13, 27);
-    ctx.lineTo(13, 14);
-    ctx.closePath();
-    ctx.fill();
-
-    // Diagonal leather quiver over shoulder with arrow fletchings
-    ctx.fillStyle = '#78350f';
-    ctx.fillRect(20, 8.5, 3.5, 11);
-    ctx.fillStyle = '#fbbf24';
-    ctx.fillRect(20.5, 5.5, 1.2, 3.5);
-    ctx.fillStyle = '#ef4444';
-    ctx.fillRect(22.5, 4.5, 1.2, 4.5);
-
-    // Hunter leggings & boots
-    ctx.fillStyle = '#27272a';
-    ctx.fillRect(11, 22, 3.5, 6);
-    ctx.fillRect(17.5, 22, 3.5, 6);
-    ctx.fillStyle = '#523d29';
-    ctx.fillRect(10, 26, 4.5, 3.5);
-    ctx.fillRect(17.5, 26, 4.5, 3.5);
-
-    // Boiled Leather Tunic & Leaf Green Trim
-    ctx.fillStyle = '#451a03';
-    ctx.beginPath();
-    ctx.moveTo(11, 13);
-    ctx.lineTo(21, 13);
-    ctx.lineTo(19, 22);
-    ctx.lineTo(13, 22);
-    ctx.closePath();
-    ctx.fill();
-    ctx.fillStyle = '#15803d';
-    ctx.fillRect(14, 13, 4, 8);
-    // Belt
-    ctx.fillStyle = '#78350f';
-    ctx.fillRect(12, 20, 8, 2);
-    ctx.fillStyle = '#fbbf24';
-    ctx.fillRect(15, 19.5, 2, 3);
-
-    // Archer's Peaked Cowl & Hawk Eyes
-    ctx.fillStyle = '#166534';
-    ctx.beginPath();
-    ctx.arc(16, 8, 5, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.beginPath();
-    ctx.moveTo(13, 4);
-    ctx.lineTo(16, 1.5);
-    ctx.lineTo(19, 4);
-    ctx.fill();
-    ctx.fillStyle = '#eab308';
-    ctx.fillRect(18.5, 2, 1.5, 4);
-
-    ctx.fillStyle = '#fed7aa';
-    ctx.fillRect(13, 6.5, 6, 4);
-    ctx.fillStyle = '#854d0e';
-    ctx.fillRect(13.8, 7.5, 1.5, 1.2);
-    ctx.fillRect(16.7, 7.5, 1.5, 1.2);
-
-    // Left Hand: Curved Recurve Bow
-    ctx.strokeStyle = '#92400e';
-    ctx.lineWidth = 1.8;
-    ctx.beginPath();
-    ctx.arc(6, 16, 9.5, -Math.PI / 2.2, Math.PI / 2.2);
-    ctx.stroke();
-    ctx.strokeStyle = '#cbd5e1';
-    ctx.lineWidth = 0.8;
-    ctx.beginPath();
-    ctx.moveTo(5, 7);
-    ctx.lineTo(5, 25);
-    ctx.stroke();
-
-    // Right Hand: Notched Arrow
-    ctx.fillStyle = '#523d29';
-    ctx.fillRect(19, 14, 4, 3);
-    ctx.fillStyle = '#b45309';
-    ctx.fillRect(9, 15.5, 12, 1);
-    ctx.fillStyle = '#f8fafc';
-    ctx.beginPath();
-    ctx.moveTo(9, 14.5);
-    ctx.lineTo(6, 16);
-    ctx.lineTo(9, 17.5);
-    ctx.closePath();
-    ctx.fill();
-
-  } else {
-    // 5. PALADIN: Radiant Crusader with Winged Helm, Sun Tabard, Sun Halo & Warhammer
-    // Radiant Sunburst Halo above head
-    ctx.strokeStyle = '#fef08a';
-    ctx.lineWidth = 1.2;
-    ctx.beginPath();
-    ctx.arc(16, 4, 6.5, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.fillStyle = '#fbbf24';
-    ctx.fillRect(15.5, -2, 1, 2);
-    ctx.fillRect(15.5, 10, 1, 2);
-    ctx.fillRect(8.5, 3.5, 2, 1);
-    ctx.fillRect(21.5, 3.5, 2, 1);
-
-    // Flowing White & Gold Crusader Cape
-    ctx.fillStyle = '#f8fafc';
-    ctx.beginPath();
-    ctx.moveTo(9, 13);
-    ctx.lineTo(5.5, 28);
-    ctx.lineTo(26.5, 28);
-    ctx.lineTo(23, 13);
-    ctx.closePath();
-    ctx.fill();
-    ctx.fillStyle = '#f59e0b';
-    ctx.fillRect(5.5, 26, 21, 2);
-
-    // Greaves & Torso Plate
-    ctx.fillStyle = '#cbd5e1';
-    ctx.fillRect(10, 23, 4, 6);
-    ctx.fillRect(18, 23, 4, 6);
-    ctx.fillStyle = '#e2e8f0';
-    ctx.beginPath();
-    ctx.moveTo(10, 13);
-    ctx.lineTo(22, 13);
-    ctx.lineTo(20, 23);
-    ctx.lineTo(12, 23);
-    ctx.closePath();
-    ctx.fill();
-
-    // White Tabard with Golden Sun Cross
-    ctx.fillStyle = '#f8fafc';
-    ctx.fillRect(13, 13, 6, 10.5);
-    ctx.fillStyle = '#fbbf24';
-    ctx.fillRect(15, 14, 2, 8);
-    ctx.fillRect(13.5, 16, 5, 2);
-
-    // Golden Pauldrons
-    ctx.fillStyle = '#f59e0b';
-    ctx.beginPath();
-    ctx.arc(9, 14, 3.5, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.beginPath();
-    ctx.arc(23, 14, 3.5, 0, Math.PI * 2);
-    ctx.fill();
-
-    // Winged Greathelm
-    ctx.fillStyle = '#e2e8f0';
-    ctx.beginPath();
-    ctx.arc(16, 8, 5.5, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = '#fbbf24';
-    ctx.beginPath();
-    ctx.moveTo(11, 7);
-    ctx.lineTo(7, 2);
-    ctx.lineTo(11, 4.5);
-    ctx.closePath();
-    ctx.fill();
-    ctx.beginPath();
-    ctx.moveTo(21, 7);
-    ctx.lineTo(25, 2);
-    ctx.lineTo(21, 4.5);
-    ctx.closePath();
-    ctx.fill();
-    // Visor cross
-    ctx.fillStyle = '#0f172a';
-    ctx.fillRect(12, 7.5, 8, 2.5);
-    ctx.fillStyle = '#fef08a';
-    ctx.fillRect(13, 8, 6, 1.5);
-
-    // Left Hand: Towering Sun Kite Shield
-    ctx.fillStyle = '#1e293b';
-    ctx.beginPath();
-    ctx.moveTo(3.5, 11);
-    ctx.lineTo(10.5, 11);
-    ctx.lineTo(9.5, 22);
-    ctx.lineTo(7, 26);
-    ctx.lineTo(4.5, 22);
-    ctx.closePath();
-    ctx.fill();
-    ctx.strokeStyle = '#fbbf24';
-    ctx.lineWidth = 1.2;
-    ctx.stroke();
-    ctx.fillStyle = '#fbbf24';
-    ctx.beginPath();
-    ctx.arc(7, 17, 2.5, 0, Math.PI * 2);
-    ctx.fill();
-
-    // Right Hand: Righteous Warhammer
-    ctx.fillStyle = '#94a3b8';
-    ctx.fillRect(24, 6, 2, 17);
-    ctx.fillStyle = '#f59e0b';
-    ctx.fillRect(22, 5, 6, 4);
-    ctx.fillStyle = '#fef08a';
-    ctx.fillRect(21, 6, 2, 2);
-    ctx.fillRect(27, 6, 2, 2);
-  }
-
-  ctx.restore();
-}
-
-function drawPaperDollMannequin(canvas, hero) {
-  return renderSharedPaperDollMannequin(canvas, hero);
-}
-
-function __legacyPaperDollUnused(canvas, hero) {
-  if (!canvas) return;
-  const ctx = canvas.getContext('2d');
-  if (!ctx) return;
-
-  const w = canvas.width;
-  const h = canvas.height;
-  ctx.clearRect(0, 0, w, h);
-
-  const classId = hero ? hero.classId : 'fighter';
-  const cls = CLASSES[classId] || CLASSES.fighter;
-  const themeColor = cls.color || '#fbbf24';
-
-  ctx.save();
-
-  const cx = Math.floor(w / 2);
-  const cy = Math.floor(h / 2);
-
-  // Radial celestial aura behind chest
-  if (typeof ctx.createRadialGradient === 'function') {
-    const grad = ctx.createRadialGradient(cx, cy - 20, 10, cx, cy - 20, 120);
-    if (grad && typeof grad.addColorStop === 'function') {
-      grad.addColorStop(0, themeColor + '22');
-      grad.addColorStop(0.6, themeColor + '08');
-      grad.addColorStop(1, 'transparent');
-      ctx.fillStyle = grad;
-    }
-  } else {
-    ctx.fillStyle = themeColor + '15';
-  }
-  ctx.beginPath();
-  ctx.arc(cx, cy - 20, 120, 0, Math.PI * 2);
-  ctx.fill();
-
-  // Pedestal / Dais ellipse at feet
-  ctx.fillStyle = '#0f172a';
-  ctx.beginPath();
-  drawSafeEllipse(ctx, cx, h - 35, 75, 18);
-  ctx.fill();
-  ctx.strokeStyle = themeColor + '44';
-  ctx.lineWidth = 1.5;
-  ctx.stroke();
-
-  // Runic floor circle rings
-  ctx.strokeStyle = '#283347';
-  ctx.lineWidth = 1;
-  ctx.beginPath();
-  drawSafeEllipse(ctx, cx, h - 35, 60, 14);
-  ctx.stroke();
-
-  // Body shadow
-  ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
-  ctx.beginPath();
-  drawSafeEllipse(ctx, cx, h - 34, 45, 10);
-  ctx.fill();
-
-  // Class-specific silhouette cape & back ornaments
-  if (classId === 'fighter') {
-    ctx.fillStyle = 'rgba(185, 28, 28, 0.45)';
-    ctx.beginPath();
-    ctx.moveTo(cx - 36, 100);
-    ctx.lineTo(cx - 65, 235);
-    ctx.lineTo(cx + 65, 235);
-    ctx.lineTo(cx + 36, 100);
-    ctx.closePath();
-    ctx.fill();
-  } else if (classId === 'thief') {
-    ctx.fillStyle = 'rgba(15, 23, 42, 0.65)';
-    ctx.beginPath();
-    ctx.moveTo(cx - 36, 100);
-    ctx.lineTo(cx - 72, 235);
-    ctx.lineTo(cx - 15, 235);
-    ctx.lineTo(cx - 20, 100);
-    ctx.closePath();
-    ctx.fill();
-  } else if (classId === 'paladin') {
-    ctx.fillStyle = 'rgba(248, 250, 252, 0.35)';
-    ctx.beginPath();
-    ctx.moveTo(cx - 36, 100);
-    ctx.lineTo(cx - 65, 235);
-    ctx.lineTo(cx + 65, 235);
-    ctx.lineTo(cx + 36, 100);
-    ctx.closePath();
-    ctx.fill();
-    ctx.fillStyle = '#f59e0b';
-    ctx.fillRect(cx - 65, 230, 130, 5);
-
-    // Radiant Sun Halo above helm
-    ctx.strokeStyle = '#fef08a';
-    ctx.lineWidth = 2.5;
-    ctx.beginPath();
-    ctx.arc(cx, 38, 22, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.fillStyle = '#fbbf24';
-    ctx.fillRect(cx - 2, 10, 4, 6);
-    ctx.fillRect(cx - 2, 60, 4, 6);
-    ctx.fillRect(cx - 28, 36, 6, 4);
-    ctx.fillRect(cx + 22, 36, 6, 4);
-  } else if (classId === 'ranger') {
-    ctx.fillStyle = 'rgba(20, 83, 45, 0.45)';
-    ctx.beginPath();
-    ctx.moveTo(cx + 20, 100);
-    ctx.lineTo(cx + 68, 235);
-    ctx.lineTo(cx + 10, 235);
-    ctx.lineTo(cx + 10, 100);
-    ctx.closePath();
-    ctx.fill();
-  }
-
-  // Head
-  ctx.fillStyle = '#1e293b';
-  ctx.strokeStyle = themeColor + '66';
-  ctx.lineWidth = 1.6;
-  ctx.beginPath();
-  ctx.arc(cx, 68, 18, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.stroke();
-
-  // Class Headwear Silhouettes
-  if (classId === 'fighter') {
-    ctx.fillStyle = '#cbd5e1';
-    ctx.beginPath();
-    ctx.moveTo(cx - 15, 62);
-    ctx.lineTo(cx - 32, 44);
-    ctx.lineTo(cx - 15, 52);
-    ctx.closePath();
-    ctx.fill();
-    ctx.beginPath();
-    ctx.moveTo(cx + 15, 62);
-    ctx.lineTo(cx + 32, 44);
-    ctx.lineTo(cx + 15, 52);
-    ctx.closePath();
-    ctx.fill();
-  } else if (classId === 'thief') {
-    ctx.fillStyle = '#0f172a';
-    ctx.beginPath();
-    ctx.moveTo(cx - 14, 54);
-    ctx.lineTo(cx, 34);
-    ctx.lineTo(cx + 14, 54);
-    ctx.closePath();
-    ctx.fill();
-  } else if (classId === 'mage') {
-    ctx.fillStyle = '#1e1b4b';
-    ctx.beginPath();
-    ctx.moveTo(cx - 16, 54);
-    ctx.lineTo(cx - 8, 18);
-    ctx.lineTo(cx + 16, 54);
-    ctx.closePath();
-    ctx.fill();
-    ctx.fillStyle = '#fbbf24';
-    ctx.fillRect(cx - 15, 51, 30, 4);
-  } else if (classId === 'ranger') {
-    ctx.fillStyle = '#166534';
-    ctx.beginPath();
-    ctx.moveTo(cx - 14, 54);
-    ctx.lineTo(cx, 36);
-    ctx.lineTo(cx + 14, 54);
-    ctx.closePath();
-    ctx.fill();
-    ctx.fillStyle = '#eab308';
-    ctx.fillRect(cx + 10, 30, 3, 18);
-  } else if (classId === 'paladin') {
-    ctx.fillStyle = '#fbbf24';
-    ctx.beginPath();
-    ctx.moveTo(cx - 14, 64);
-    ctx.lineTo(cx - 30, 42);
-    ctx.lineTo(cx - 14, 54);
-    ctx.closePath();
-    ctx.fill();
-    ctx.beginPath();
-    ctx.moveTo(cx + 14, 64);
-    ctx.lineTo(cx + 30, 42);
-    ctx.lineTo(cx + 14, 54);
-    ctx.closePath();
-    ctx.fill();
-  }
-
-  // Helm Visor Slit
-  ctx.fillStyle = classId === 'thief' ? '#34d399' : themeColor;
-  ctx.fillRect(cx - 9, 66, 18, 3.5);
-
-  // Neck
-  ctx.fillStyle = '#1e293b';
-  ctx.fillRect(cx - 6, 84, 12, 10);
-
-  // Torso / Chest & Abdomen
-  ctx.fillStyle = '#182234';
-  ctx.beginPath();
-  ctx.moveTo(cx - 36, 94);
-  ctx.lineTo(cx + 36, 94);
-  ctx.lineTo(cx + 22, 175);
-  ctx.lineTo(cx - 22, 175);
-  ctx.closePath();
-  ctx.fill();
-  ctx.strokeStyle = themeColor + '55';
-  ctx.lineWidth = 1.5;
-  ctx.stroke();
-
-  // Breastplate contour lines
-  ctx.strokeStyle = '#334155';
-  ctx.lineWidth = 1.2;
-  ctx.beginPath();
-  ctx.moveTo(cx, 98);
-  ctx.lineTo(cx, 165);
-  ctx.moveTo(cx - 24, 118);
-  ctx.lineTo(cx, 134);
-  ctx.lineTo(cx + 24, 118);
-  ctx.stroke();
-
-  // Class Chest Emblems
-  if (classId === 'paladin') {
-    ctx.fillStyle = '#fbbf24';
-    ctx.fillRect(cx - 3, 115, 6, 32);
-    ctx.fillRect(cx - 16, 126, 32, 6);
-  } else if (classId === 'thief') {
-    ctx.fillStyle = '#34d399';
-    ctx.fillRect(cx - 18, 118, 4, 4);
-    ctx.fillRect(cx + 14, 118, 4, 4);
-    ctx.fillRect(cx - 10, 142, 4, 4);
-    ctx.fillRect(cx + 6, 142, 4, 4);
-  } else if (classId === 'mage') {
-    ctx.fillStyle = '#312e81';
-    ctx.fillRect(cx - 10, 96, 20, 78);
-    ctx.fillStyle = '#60a5fa';
-    ctx.fillRect(cx - 8, 168, 16, 4);
-  } else if (classId === 'ranger') {
-    ctx.fillStyle = '#15803d';
-    ctx.fillRect(cx - 8, 96, 16, 78);
-    ctx.strokeStyle = '#78350f';
-    ctx.lineWidth = 4;
-    ctx.beginPath();
-    ctx.moveTo(cx - 24, 100);
-    ctx.lineTo(cx + 20, 165);
-    ctx.stroke();
-  }
-
-  // Shoulders / Pauldrons
-  ctx.fillStyle = '#223048';
-  ctx.strokeStyle = themeColor + '77';
-  ctx.beginPath();
-  ctx.arc(cx - 38, 98, 12, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.stroke();
-  ctx.beginPath();
-  ctx.arc(cx + 38, 98, 12, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.stroke();
-
-  // Left Arm (holding weapon position)
-  ctx.strokeStyle = '#182234';
-  ctx.lineWidth = 14;
-  ctx.lineCap = 'round';
-  ctx.beginPath();
-  ctx.moveTo(cx - 38, 106);
-  ctx.lineTo(cx - 62, 150);
-  ctx.lineTo(cx - 58, 180);
-  ctx.stroke();
-  ctx.strokeStyle = themeColor + '44';
-  ctx.lineWidth = 1.2;
-  ctx.stroke();
-
-  // Active Mana Flame Orbit on Mage Left Hand
-  if (classId === 'mage') {
-    ctx.fillStyle = 'rgba(56, 189, 248, 0.4)';
-    ctx.beginPath();
-    ctx.arc(cx - 58, 180, 12, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = '#38bdf8';
-    ctx.beginPath();
-    ctx.arc(cx - 58, 180, 6, 0, Math.PI * 2);
-    ctx.fill();
-  }
-
-  // Right Arm (holding offhand/pickaxe position)
-  ctx.strokeStyle = '#182234';
-  ctx.lineWidth = 14;
-  ctx.beginPath();
-  ctx.moveTo(cx + 38, 106);
-  ctx.lineTo(cx + 62, 150);
-  ctx.lineTo(cx + 58, 180);
-  ctx.stroke();
-  ctx.strokeStyle = themeColor + '44';
-  ctx.lineWidth = 1.2;
-  ctx.stroke();
-
-  // Belt & Tassets
-  ctx.fillStyle = '#2d3748';
-  ctx.fillRect(cx - 24, 174, 48, 8);
-  ctx.fillStyle = themeColor;
-  ctx.fillRect(cx - 4, 173, 8, 10);
-
-  // Left Leg
-  ctx.strokeStyle = '#182234';
-  ctx.lineWidth = 15;
-  ctx.beginPath();
-  ctx.moveTo(cx - 14, 185);
-  ctx.lineTo(cx - 18, 240);
-  ctx.lineTo(cx - 20, 280);
-  ctx.stroke();
-  ctx.strokeStyle = themeColor + '44';
-  ctx.lineWidth = 1.2;
-  ctx.stroke();
-
-  // Right Leg
-  ctx.strokeStyle = '#182234';
-  ctx.lineWidth = 15;
-  ctx.beginPath();
-  ctx.moveTo(cx + 14, 185);
-  ctx.lineTo(cx + 18, 240);
-  ctx.lineTo(cx + 20, 280);
-  ctx.stroke();
-  ctx.strokeStyle = themeColor + '44';
-  ctx.lineWidth = 1.2;
-  ctx.stroke();
-
-  // Boots
-  ctx.fillStyle = '#223048';
-  ctx.strokeStyle = themeColor + '66';
-  ctx.lineWidth = 1.2;
-  ctx.fillRect(cx - 28, 275, 17, 18);
-  ctx.strokeRect(cx - 28, 275, 17, 18);
-  ctx.fillRect(cx + 11, 275, 17, 18);
-  ctx.strokeRect(cx + 11, 275, 17, 18);
-
-  ctx.restore();
-}
-
-function minimapPixelToGrid(canvas, clientX, clientY, floor) {
-  if (!canvas || !floor || !floor.tiles) return null;
-  const fw = floor.width || (floor.tiles[0] ? floor.tiles[0].length : DEFAULT_MAP_W);
-  const fh = floor.height || floor.tiles.length || DEFAULT_MAP_H;
-  const rect = canvas.getBoundingClientRect();
-  if (!rect || rect.width <= 0 || rect.height <= 0) return null;
-
-  const px = (clientX - rect.left) * (canvas.width / rect.width);
-  const py = (clientY - rect.top) * (canvas.height / rect.height);
-  const scale = Math.min(canvas.width / fw, canvas.height / fh);
-  const offX = Math.floor((canvas.width - fw * scale) / 2);
-  const offY = Math.floor((canvas.height - fh * scale) / 2);
-
-  const gx = Math.floor((px - offX) / scale);
-  const gy = Math.floor((py - offY) / scale);
-  if (gx < 0 || gx >= fw || gy < 0 || gy >= fh) return null;
-  return { x: gx, y: gy };
-}
-
-function renderMinimapCanvas(targetCanvasId = 'minimapCanvas') {
-  if (typeof document === 'undefined') return;
-  const canvas = document.getElementById(targetCanvasId);
-  if (!canvas) return;
-  const ctx = canvas.getContext('2d');
-  ctx.fillStyle = '#04060a';
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-  if (gameState.inGuild || !gameState.hero) {
-    ctx.fillStyle = '#64748b';
-    ctx.font = '11px "JetBrains Mono", monospace';
-    ctx.textAlign = 'center';
-    ctx.fillText('Descend to chart subterranean floors', Math.floor(canvas.width / 2), Math.floor(canvas.height / 2));
-    return;
-  }
-
-  const floor = ensureDungeonFloorHydrated(gameState.dungeon, gameState.dungeon.currentFloor);
-  if (!floor || !floor.tiles) return;
-
-  const biomeId = floor.biomeId || resolveFloorBiome(gameState.dungeon, floor.depth);
-  const biome = BIOME_PALETTES[biomeId] || BIOME_PALETTES.dwarven_catacombs;
-
-  const fw = floor.width || (floor.tiles[0] ? floor.tiles[0].length : DEFAULT_MAP_W);
-  const fh = floor.height || floor.tiles.length || DEFAULT_MAP_H;
-  const scale = Math.min(canvas.width / fw, canvas.height / fh);
-  const offX = Math.floor((canvas.width - fw * scale) / 2);
-  const offY = Math.floor((canvas.height - fh * scale) / 2);
-  const drawSize = Math.max(1, Math.ceil(scale));
-
-  const hx = gameState.hero.x;
-  const hy = gameState.hero.y;
-  const vision = gameState.hero.visionRadius || 5;
-  const poiMarkers = [];
-
-  for (let y = 0; y < fh; y++) {
-    const expRow = floor.explored[y];
-    if (!expRow) continue;
-    const tileRow = floor.tiles[y];
-    for (let x = 0; x < fw; x++) {
-      if (!expRow[x]) continue;
-      const t = tileRow[x];
-      const rx = Math.floor(offX + x * scale);
-      const ry = Math.floor(offY + y * scale);
-
-      if (t === TILE_WALL) {
-        ctx.fillStyle = biome.minimapWall;
-        ctx.fillRect(rx, ry, drawSize, drawSize);
-      } else if (ORE_CATALOG[t]) {
-        ctx.fillStyle = ORE_CATALOG[t].color;
-        ctx.fillRect(rx, ry, Math.max(2, drawSize), Math.max(2, drawSize));
-      } else {
-        ctx.fillStyle = biome.minimapFloor;
-        ctx.fillRect(rx, ry, drawSize, drawSize);
-        if (t === TILE_STAIRS_UP) {
-          poiMarkers.push({ x: rx, y: ry, color: '#10b981', size: Math.max(3, drawSize + 1) });
-        } else if (t === TILE_STAIRS_DOWN) {
-          poiMarkers.push({ x: rx, y: ry, color: '#60a5fa', size: Math.max(3, drawSize + 1) });
-        } else if (t === TILE_CHEST) {
-          poiMarkers.push({ x: rx, y: ry, color: '#fbbf24', size: Math.max(2, drawSize) });
-        } else if (t === TILE_SHRINE) {
-          poiMarkers.push({ x: rx, y: ry, color: '#34d399', size: Math.max(2, drawSize) });
-        } else if (t === TILE_TRAP_VISIBLE) {
-          poiMarkers.push({ x: rx, y: ry, color: '#fb923c', size: Math.max(2, drawSize) });
-        }
-      }
-    }
-  }
-
-  // Explored Doors & Portals on Minimap
-  if (floor.objects && floor.objects.length > 0) {
-    for (let oi = 0; oi < floor.objects.length; oi++) {
-      const obj = floor.objects[oi];
-      if (!obj || !floor.explored[obj.y] || !floor.explored[obj.y][obj.x]) continue;
-
-      if (obj.objectType === 'door') {
-        const disc = obj.runtimeState && obj.runtimeState.discovery;
-        if (disc !== 'unknown') {
-          const rx = Math.floor(offX + obj.x * scale);
-          const ry = Math.floor(offY + obj.y * scale);
-          const sec = obj.runtimeState && obj.runtimeState.security;
-          const color = sec === 'locked' ? '#fbbf24' : '#d97706';
-          poiMarkers.push({ x: rx, y: ry, color: color, size: Math.max(2, drawSize) });
-        }
-      } else if (obj.objectType === 'portal') {
-        const rx = Math.floor(offX + obj.x * scale);
-        const ry = Math.floor(offY + obj.y * scale);
-        const pDefId = obj.definitionId || '';
-        const color = pDefId === 'portal_astral_rift' ? '#c084fc' : (pDefId === 'portal_boss_extraction' ? '#fbbf24' : '#38bdf8');
-        poiMarkers.push({ x: rx, y: ry, color: color, size: Math.max(3, drawSize + 1) });
-      }
-    }
-  }
-
-  for (let i = 0; i < poiMarkers.length; i++) {
-    const p = poiMarkers[i];
-    ctx.fillStyle = p.color;
-    ctx.fillRect(p.x, p.y, p.size, p.size);
-  }
-
-  // Visible Monsters on Minimap
-  for (let i = 0; i < floor.monsters.length; i++) {
-    const m = floor.monsters[i];
-    if (!m || m.hp <= 0) continue;
-    if (!isTileVisibleNow(floor, hx, hy, vision, m.x, m.y)) continue;
-    ctx.fillStyle = m.isBoss ? '#fbbf24' : '#f87171';
-    const mx = Math.floor(offX + m.x * scale);
-    const my = Math.floor(offY + m.y * scale);
-    ctx.fillRect(mx, my, Math.max(2, drawSize), Math.max(2, drawSize));
-  }
-
-  // Camera Viewport Outline
-  const cam = getCameraOrigin(floor, hx, hy);
-  ctx.strokeStyle = 'rgba(251, 191, 36, 0.55)';
-  ctx.lineWidth = 1;
-  ctx.strokeRect(
-    Math.floor(offX + cam.camX * scale) + 0.5,
-    Math.floor(offY + cam.camY * scale) + 0.5,
-    Math.min(fw, VIEWPORT_WIDTH) * scale,
-    Math.min(fh, VIEWPORT_HEIGHT) * scale
-  );
-
-  // Hero Beacon
-  const heroPx = Math.floor(offX + hx * scale);
-  const heroPy = Math.floor(offY + hy * scale);
-  const beacon = Math.max(3, drawSize + 1);
-  ctx.fillStyle = '#ffffff';
-  ctx.fillRect(heroPx - 1, heroPy - 1, beacon, beacon);
-}
-
-function renderDoorTile(ctx, px, py, door, biome, inSight) {
-  if (!ctx || !door) return;
-  const defId = door.definitionId || '';
-  const rState = door.runtimeState || {};
-  const mech = rState.mechanical || 'closed';
-  const sec = rState.security || 'unlocked';
-  const struct = rState.structural || 'intact';
-  const disc = rState.discovery || 'revealed';
-
-  // Unknown secret door renders as standard biome wall masonry
-  if (disc === 'unknown') {
-    ctx.fillStyle = biome.wallBase;
-    ctx.fillRect(px, py, TILE_SIZE, TILE_SIZE);
-    ctx.fillStyle = biome.wallShadow;
-    ctx.fillRect(px, py + 22, TILE_SIZE, 10);
-    ctx.strokeStyle = biome.wallBorder;
-    ctx.strokeRect(px + 0.5, py + 0.5, TILE_SIZE - 1, TILE_SIZE - 1);
-    return;
-  }
-
-  // Destroyed / Breached Door Rubble
-  if (struct === 'destroyed') {
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.35)';
-    ctx.fillRect(px + 4, py + 8, 24, 16);
-    ctx.fillStyle = '#78350f';
-    ctx.fillRect(px + 6, py + 12, 8, 3);
-    ctx.fillRect(px + 18, py + 16, 7, 3);
-    ctx.fillStyle = '#475569';
-    ctx.fillRect(px + 12, py + 10, 6, 4);
-    ctx.fillRect(px + 14, py + 20, 9, 3);
-    ctx.fillStyle = '#94a3b8';
-    ctx.fillRect(px + 9, py + 18, 4, 4);
-    return;
-  }
-
-  // Open Door (any type)
-  if (mech === 'open') {
-    ctx.fillStyle = '#1e293b';
-    ctx.fillRect(px + 2, py + 2, 4, 28);
-    ctx.fillRect(px + 26, py + 2, 4, 28);
-    ctx.fillRect(px + 2, py + 2, 28, 3);
-
-    if (defId === 'door_iron_portcullis') {
-      ctx.fillStyle = '#475569';
-      ctx.fillRect(px + 6, py + 3, 20, 6);
-      ctx.fillStyle = '#94a3b8';
-      for (let bx = 8; bx <= 24; bx += 4) {
-        ctx.fillRect(px + bx, py + 9, 2, 4);
-      }
-      ctx.fillStyle = '#cbd5e1';
-      ctx.fillRect(px + 4, py + 3, 1, 14);
-      ctx.fillRect(px + 27, py + 3, 1, 14);
-    } else if (defId === 'door_secret_stone') {
-      ctx.fillStyle = '#334155';
-      ctx.beginPath();
-      ctx.moveTo(px + 6, py + 4);
-      ctx.lineTo(px + 12, py + 2);
-      ctx.lineTo(px + 12, py + 28);
-      ctx.lineTo(px + 6, py + 28);
-      ctx.closePath();
-      ctx.fill();
-    } else {
-      ctx.fillStyle = defId === 'door_iron_reinforced' ? '#334155' : '#78350f';
-      ctx.fillRect(px + 6, py + 4, 4, 24);
-      ctx.fillStyle = '#fbbf24';
-      ctx.fillRect(px + 4, py + 8, 3, 3);
-      ctx.fillRect(px + 4, py + 22, 3, 3);
-    }
-    return;
-  }
-
-  // CLOSED DOORS:
-  if (defId === 'door_secret_stone') {
-    ctx.fillStyle = biome.wallBase;
-    ctx.fillRect(px, py, TILE_SIZE, TILE_SIZE);
-    ctx.fillStyle = biome.wallShadow;
-    ctx.fillRect(px, py + 22, TILE_SIZE, 10);
-    ctx.strokeStyle = '#38bdf8';
-    ctx.lineWidth = 1.2;
-    ctx.strokeRect(px + 4, py + 4, 24, 24);
-    ctx.fillStyle = '#38bdf8';
-    ctx.font = 'bold 9px monospace';
-    ctx.textAlign = 'center';
-    ctx.fillText('ᚱ', px + 16, py + 18);
-    return;
-  }
-
-  if (defId === 'door_iron_portcullis') {
-    ctx.fillStyle = '#1e293b';
-    ctx.fillRect(px + 1, py + 1, 5, 30);
-    ctx.fillRect(px + 26, py + 1, 5, 30);
-    ctx.fillRect(px + 1, py + 1, 30, 4);
-
-    ctx.fillStyle = '#334155';
-    ctx.fillRect(px + 6, py + 10, 20, 2.5);
-    ctx.fillRect(px + 6, py + 20, 20, 2.5);
-
-    for (let bx = 8; bx <= 24; bx += 4) {
-      ctx.fillStyle = '#64748b';
-      ctx.fillRect(px + bx, py + 4, 2.5, 22);
-      ctx.fillStyle = '#94a3b8';
-      ctx.beginPath();
-      ctx.moveTo(px + bx, py + 26);
-      ctx.lineTo(px + bx + 1.25, py + 29);
-      ctx.lineTo(px + bx + 2.5, py + 26);
-      ctx.closePath();
-      ctx.fill();
-    }
-    return;
-  }
-
-  if (defId === 'door_vault_ancient') {
-    ctx.fillStyle = '#1e293b';
-    ctx.fillRect(px + 2, py + 2, 28, 28);
-    ctx.fillStyle = '#78350f';
-    ctx.fillRect(px + 4, py + 4, 24, 24);
-
-    ctx.fillStyle = '#d97706';
-    ctx.beginPath();
-    ctx.arc(px + 16, py + 16, 11, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.strokeStyle = '#fbbf24';
-    ctx.lineWidth = 1.5;
-    ctx.stroke();
-
-    ctx.strokeStyle = '#fef08a';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.arc(px + 16, py + 16, 6, 0, Math.PI * 2);
-    ctx.stroke();
-
-    ctx.fillStyle = sec === 'locked' ? '#ef4444' : '#10b981';
-    ctx.fillRect(px + 14.5, py + 14.5, 3, 3);
-    return;
-  }
-
-  if (defId === 'door_iron_reinforced') {
-    ctx.fillStyle = '#0f172a';
-    ctx.fillRect(px + 2, py + 2, 28, 28);
-    ctx.fillStyle = '#334155';
-    ctx.fillRect(px + 4, py + 4, 24, 24);
-
-    ctx.strokeStyle = '#475569';
-    ctx.lineWidth = 2.5;
-    ctx.beginPath();
-    ctx.moveTo(px + 5, py + 5); ctx.lineTo(px + 27, py + 27);
-    ctx.moveTo(px + 27, py + 5); ctx.lineTo(px + 5, py + 27);
-    ctx.stroke();
-
-    ctx.fillStyle = '#94a3b8';
-    ctx.fillRect(px + 5, py + 5, 2, 2);
-    ctx.fillRect(px + 25, py + 5, 2, 2);
-    ctx.fillRect(px + 5, py + 25, 2, 2);
-    ctx.fillRect(px + 25, py + 25, 2, 2);
-
-    ctx.fillStyle = sec === 'locked' ? '#fbbf24' : '#64748b';
-    ctx.fillRect(px + 14, py + 13, 4, 6);
-    ctx.fillStyle = '#0f172a';
-    ctx.fillRect(px + 15, py + 15, 2, 2);
-    return;
-  }
-
-  // Standard Wooden Hinged Door (door_wood_hinged)
-  ctx.fillStyle = '#1e293b';
-  ctx.fillRect(px + 2, py + 2, 28, 28);
-
-  ctx.fillStyle = '#78350f';
-  ctx.fillRect(px + 4, py + 4, 24, 24);
-  ctx.fillStyle = '#451a03';
-  ctx.fillRect(px + 10, py + 4, 1, 24);
-  ctx.fillRect(px + 16, py + 4, 1, 24);
-  ctx.fillRect(px + 22, py + 4, 1, 24);
-
-  ctx.fillStyle = '#334155';
-  ctx.fillRect(px + 4, py + 8, 24, 3);
-  ctx.fillRect(px + 4, py + 20, 24, 3);
-  ctx.fillStyle = '#64748b';
-  ctx.fillRect(px + 6, py + 9, 1.5, 1.5);
-  ctx.fillRect(px + 18, py + 9, 1.5, 1.5);
-  ctx.fillRect(px + 6, py + 21, 1.5, 1.5);
-  ctx.fillRect(px + 18, py + 21, 1.5, 1.5);
-
-  if (sec === 'locked') {
-    ctx.fillStyle = '#fbbf24';
-    ctx.fillRect(px + 22, py + 14, 3, 4);
-    ctx.fillStyle = '#451a03';
-    ctx.fillRect(px + 23, py + 15, 1, 2);
-  } else {
-    ctx.fillStyle = '#94a3b8';
-    ctx.beginPath();
-    ctx.arc(px + 23, py + 16, 2, 0, Math.PI * 2);
-    ctx.stroke();
-  }
-}
-
-function drawGildedChestProp(ctx, px, py, isOpen) {
-  if (!isOpen) {
-    // 3D Banded Gilded Vault Chest (Closed)
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
-    ctx.fillRect(px + 5, py + 24, 22, 4);
-
-    // Domed oak chest body
-    ctx.fillStyle = '#78350f';
-    ctx.fillRect(px + 6, py + 13, 20, 11);
-    // Domed lid
-    ctx.fillStyle = '#92400e';
-    ctx.beginPath();
-    ctx.moveTo(px + 6, py + 13);
-    if (typeof ctx.quadraticCurveTo === 'function') {
-      ctx.quadraticCurveTo(px + 16, py + 7, px + 26, py + 13);
-    } else {
-      ctx.lineTo(px + 16, py + 8);
-      ctx.lineTo(px + 26, py + 13);
-    }
-    ctx.closePath();
-    ctx.fill();
-
-    // Gilded iron straps with rivets
-    ctx.fillStyle = '#f59e0b';
-    ctx.fillRect(px + 8, py + 10, 3, 14);
-    ctx.fillRect(px + 21, py + 10, 3, 14);
-    ctx.fillStyle = '#fbbf24';
-    ctx.fillRect(px + 6, py + 13, 20, 2);
-    ctx.fillStyle = '#fef08a';
-    ctx.fillRect(px + 9, py + 11, 1, 1);
-    ctx.fillRect(px + 9, py + 17, 1, 1);
-    ctx.fillRect(px + 22, py + 11, 1, 1);
-    ctx.fillRect(px + 22, py + 17, 1, 1);
-
-    // Golden padlock with keyhole
-    ctx.fillStyle = '#fbbf24';
-    ctx.fillRect(px + 14, py + 13, 4, 5);
-    ctx.fillStyle = '#451a03';
-    ctx.fillRect(px + 15, py + 15, 2, 2);
-  } else {
-    // Looted Vault Chest with glittering spoils
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
-    ctx.fillRect(px + 5, py + 24, 22, 4);
-
-    // Tilted open lid thrown back
-    ctx.fillStyle = '#451a03';
-    ctx.fillRect(px + 6, py + 6, 20, 6);
-    ctx.fillStyle = '#78350f';
-    ctx.fillRect(px + 6, py + 12, 20, 12);
-
-    // Open interior cavity
-    ctx.fillStyle = '#1c0a00';
-    ctx.fillRect(px + 8, py + 14, 16, 8);
-    // Gleaming coin and gem sparkles
-    ctx.fillStyle = '#fbbf24';
-    ctx.fillRect(px + 9, py + 18, 3, 2);
-    ctx.fillRect(px + 14, py + 19, 3, 2);
-    ctx.fillRect(px + 18, py + 17, 2, 2);
-    ctx.fillStyle = '#ef4444';
-    ctx.fillRect(px + 12, py + 17, 2, 2);
-    ctx.fillStyle = '#10b981';
-    ctx.fillRect(px + 16, py + 18, 2, 2);
-  }
-}
-
-function renderPortalTile(ctx, px, py, portal, biome, inSight) {
-  if (!ctx || !portal) return;
-  const defId = portal.definitionId || '';
-  const rState = portal.runtimeState || {};
-  const isCollapsed = rState.mechanical === 'collapsed';
-
-  // Base circular shadow dais
-  ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
-  ctx.beginPath();
-  if (typeof ctx.ellipse === 'function') {
-    ctx.ellipse(px + 16, py + 22, 12, 6, 0, 0, Math.PI * 2);
-  } else {
-    ctx.arc(px + 16, py + 20, 10, 0, Math.PI * 2);
-  }
-  ctx.fill();
-
-  if (isCollapsed) {
-    ctx.fillStyle = '#1e293b';
-    ctx.fillRect(px + 8, py + 14, 16, 6);
-    ctx.strokeStyle = '#475569';
-    ctx.lineWidth = 1;
-    ctx.strokeRect(px + 8, py + 14, 16, 6);
-    ctx.fillStyle = '#64748b';
-    ctx.fillRect(px + 12, py + 16, 8, 2);
-    return;
-  }
-
-  if (defId === 'portal_astral_rift') {
-    const trav = portal.components && portal.components.traversal;
-    const charges = trav && typeof trav.charges === 'number' ? trav.charges : 2;
-
-    ctx.fillStyle = 'rgba(192, 132, 252, 0.25)';
-    ctx.beginPath();
-    ctx.arc(px + 16, py + 16, 12, 0, Math.PI * 2);
-    ctx.fill();
-
-    ctx.strokeStyle = '#c084fc';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.arc(px + 16, py + 16, 8, 0, Math.PI * 1.5);
-    ctx.stroke();
-
-    ctx.strokeStyle = '#f472b6';
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.arc(px + 16, py + 16, 5, Math.PI * 0.5, Math.PI * 2);
-    ctx.stroke();
-
-    ctx.fillStyle = '#0f172a';
-    ctx.beginPath();
-    ctx.arc(px + 16, py + 16, 3.5, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(px + 15, py + 15, 2, 2);
-
-    for (let c = 0; c < charges; c++) {
-      ctx.fillStyle = '#f472b6';
-      ctx.fillRect(px + 12 + c * 5, py + 4, 3, 3);
-    }
-    return;
-  }
-
-  if (defId === 'portal_boss_extraction') {
-    ctx.fillStyle = 'rgba(251, 191, 36, 0.25)';
-    ctx.beginPath();
-    ctx.arc(px + 16, py + 16, 13, 0, Math.PI * 2);
-    ctx.fill();
-
-    ctx.strokeStyle = '#fbbf24';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.arc(px + 16, py + 16, 9, 0, Math.PI * 2);
-    ctx.stroke();
-
-    ctx.strokeStyle = '#fef08a';
-    ctx.lineWidth = 1.2;
-    ctx.beginPath();
-    ctx.arc(px + 16, py + 16, 5, 0, Math.PI * 2);
-    ctx.stroke();
-
-    ctx.fillStyle = 'rgba(254, 240, 138, 0.6)';
-    ctx.fillRect(px + 15, py + 2, 2, 8);
-    ctx.fillRect(px + 10, py + 5, 2, 6);
-    ctx.fillRect(px + 20, py + 5, 2, 6);
-    return;
-  }
-
-  // Ancient Celestial Waypoint (portal_ancient_waypoint)
-  const isAttuned = rState.discovery === 'revealed';
-
-  ctx.fillStyle = '#1e293b';
-  ctx.fillRect(px + 6, py + 18, 20, 8);
-  ctx.fillStyle = '#334155';
-  ctx.fillRect(px + 9, py + 14, 14, 6);
-
-  ctx.fillStyle = '#475569';
-  ctx.fillRect(px + 5, py + 12, 3, 10);
-  ctx.fillRect(px + 24, py + 12, 3, 10);
-  ctx.fillRect(px + 5, py + 10, 3, 2);
-  ctx.fillRect(px + 24, py + 10, 3, 2);
-
-  const auraColor = isAttuned ? 'rgba(56, 189, 248, 0.35)' : 'rgba(148, 163, 184, 0.20)';
-  ctx.fillStyle = auraColor;
-  ctx.beginPath();
-  ctx.arc(px + 16, py + 10, 7, 0, Math.PI * 2);
-  ctx.fill();
-
-  ctx.fillStyle = isAttuned ? '#38bdf8' : '#94a3b8';
-  ctx.beginPath();
-  ctx.moveTo(px + 16, py + 4);
-  ctx.lineTo(px + 20, py + 10);
-  ctx.lineTo(px + 16, py + 16);
-  ctx.lineTo(px + 12, py + 10);
-  ctx.closePath();
-  ctx.fill();
-
-  ctx.fillStyle = isAttuned ? '#ffffff' : '#cbd5e1';
-  ctx.fillRect(px + 15, py + 9, 2, 2);
-}
-
-function renderDungeonCanvas() {
-  if (typeof document === 'undefined') return;
-  const canvas = document.getElementById('dungeonCanvas');
-  if (!canvas) return;
-  const ctx = canvas.getContext('2d');
-  ctx.fillStyle = '#04060a';
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-  if (gameState.inGuild || !gameState.hero) return;
-  const floor = ensureDungeonFloorHydrated(gameState.dungeon, gameState.dungeon.currentFloor);
-  if (!floor || !floor.tiles) return;
-
-  const biomeId = floor.biomeId || resolveFloorBiome(gameState.dungeon, floor.depth);
-  const biome = BIOME_PALETTES[biomeId] || BIOME_PALETTES.dwarven_catacombs;
-
-  const hx = gameState.hero.x;
-  const hy = gameState.hero.y;
-  const vision = gameState.hero.visionRadius || 5;
-  const cam = getCameraOrigin(floor, hx, hy);
-  const camX = cam.camX;
-  const camY = cam.camY;
-  const fw = cam.fw;
-  const fh = cam.fh;
-
-  // Frustum-culled O(21*15) tile render loop
-  for (let vy = 0; vy < VIEWPORT_HEIGHT; vy++) {
-    const y = camY + vy;
-    if (y < 0 || y >= fh) continue;
-    const expRow = floor.explored[y];
-    if (!expRow) continue;
-
-    for (let vx = 0; vx < VIEWPORT_WIDTH; vx++) {
-      const x = camX + vx;
-      if (x < 0 || x >= fw) continue;
-      if (!expRow[x]) continue;
-
-      const px = vx * TILE_SIZE;
-      const py = vy * TILE_SIZE;
-      const dist = Math.hypot(x - hx, y - hy);
-      const inSight = isTileVisibleNow(floor, hx, hy, vision, x, y);
-      const tile = floor.tiles[y][x];
-
-      // Draw Wall or Ore Vein Wall
-      if (tile === TILE_WALL || ORE_CATALOG[tile]) {
-        // Base Wall Fill
-        ctx.fillStyle = biome.wallFill;
-        ctx.fillRect(px, py, TILE_SIZE, TILE_SIZE);
-
-        // 2.5D Top Wall Ledge (Cap) - 8px high top surface seen from above
-        ctx.fillStyle = biome.wallCap;
-        ctx.fillRect(px, py, TILE_SIZE, 8);
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.08)';
-        ctx.fillRect(px, py, TILE_SIZE, 1);
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
-        ctx.fillRect(px, py + 7, TILE_SIZE, 1);
-
-        // 2.5D Vertical Wall Face - Ashlar Brickwork (24px height)
-        // Two 11px high masonry courses with 1px horizontal mortar groove at py + 19
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.40)';
-        ctx.fillRect(px, py + 19, TILE_SIZE, 1);
-        ctx.fillStyle = biome.wallBase;
-        ctx.fillRect(px, py + 31, TILE_SIZE, 1);
-
-        // Staggered vertical mortar joints (running-bond masonry)
-        const stagger = (x + y) % 2 === 0;
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
-        if (stagger) {
-          ctx.fillRect(px + 16, py + 8, 1, 11);
-          ctx.fillRect(px + 8, py + 20, 1, 11);
-          ctx.fillRect(px + 24, py + 20, 1, 11);
-        } else {
-          ctx.fillRect(px + 8, py + 8, 1, 11);
-          ctx.fillRect(px + 24, py + 8, 1, 11);
-          ctx.fillRect(px + 16, py + 20, 1, 11);
-        }
-
-        // Course bevel highlights
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.05)';
-        ctx.fillRect(px, py + 8, TILE_SIZE, 1);
-        ctx.fillRect(px, py + 20, TILE_SIZE, 1);
-
-        // Distinct Biome Masonry Accents
-        if (!ORE_CATALOG[tile]) {
-          if (biome.id === 'dwarven_catacombs' && (x * 17 + y * 11) % 5 === 0) {
-            ctx.fillStyle = 'rgba(251, 191, 36, 0.18)';
-            ctx.fillRect(px + 12, py + 12, 3, 1);
-            ctx.fillRect(px + 13, py + 11, 1, 3);
-          } else if (biome.id === 'crystalline_caverns' && (x * 13 + y * 7) % 4 === 0) {
-            ctx.fillStyle = '#38bdf8';
-            ctx.fillRect(px + 15, py + 18, 2, 2);
-            ctx.fillStyle = '#ffffff';
-            ctx.fillRect(px + 15, py + 18, 1, 1);
-          } else if (biome.id === 'molten_forgeworks' && (x * 13 + y * 7) % 3 === 0) {
-            ctx.fillStyle = '#f97316';
-            ctx.fillRect(px + 6, py + 19, 6, 1);
-            ctx.fillStyle = '#fbbf24';
-            ctx.fillRect(px + 8, py + 19, 2, 1);
-          } else if (biome.id === 'vespera_crater' && (x * 13 + y * 7) % 4 === 0) {
-            ctx.fillStyle = '#c084fc';
-            ctx.fillRect(px + 14, py + 12, 3, 3);
-            ctx.fillStyle = '#f3e8ff';
-            ctx.fillRect(px + 15, py + 13, 1, 1);
-          }
-        }
-
-        // Ore Vein Faceted Crystal Geodes
-        if (ORE_CATALOG[tile]) {
-          const ore = ORE_CATALOG[tile];
-          // Shard 1 (Left)
-          ctx.fillStyle = ore.color;
-          ctx.beginPath();
-          ctx.moveTo(px + 6, py + 19);
-          ctx.lineTo(px + 9, py + 12);
-          ctx.lineTo(px + 13, py + 15);
-          ctx.lineTo(px + 10, py + 22);
-          ctx.closePath();
-          ctx.fill();
-          ctx.fillStyle = 'rgba(0, 0, 0, 0.25)';
-          ctx.beginPath();
-          ctx.moveTo(px + 10, py + 22);
-          ctx.lineTo(px + 13, py + 15);
-          ctx.lineTo(px + 9, py + 12);
-          ctx.closePath();
-          ctx.fill();
-
-          // Shard 2 (Center High)
-          ctx.fillStyle = ore.color;
-          ctx.beginPath();
-          ctx.moveTo(px + 14, py + 17);
-          ctx.lineTo(px + 18, py + 8);
-          ctx.lineTo(px + 22, py + 13);
-          ctx.lineTo(px + 18, py + 21);
-          ctx.closePath();
-          ctx.fill();
-          ctx.fillStyle = 'rgba(0, 0, 0, 0.25)';
-          ctx.beginPath();
-          ctx.moveTo(px + 18, py + 21);
-          ctx.lineTo(px + 22, py + 13);
-          ctx.lineTo(px + 18, py + 8);
-          ctx.closePath();
-          ctx.fill();
-
-          // Shard 3 (Right Low)
-          ctx.fillStyle = ore.color;
-          ctx.beginPath();
-          ctx.moveTo(px + 20, py + 24);
-          ctx.lineTo(px + 24, py + 16);
-          ctx.lineTo(px + 27, py + 19);
-          ctx.lineTo(px + 23, py + 27);
-          ctx.closePath();
-          ctx.fill();
-
-          // Specular sparkles
-          ctx.fillStyle = ore.sparkle || '#ffffff';
-          ctx.fillRect(px + 9, py + 12, 2, 2);
-          ctx.fillRect(px + 18, py + 8, 2, 2);
-          ctx.fillRect(px + 24, py + 16, 2, 2);
-        }
-      } else {
-        // Walkable Floor Tile (including concealed traps)
-        // 1. Base 2x2 Flagstone Pavers
-        ctx.fillStyle = (x + y) % 2 === 0 ? biome.floor1 : biome.floor2;
-        ctx.fillRect(px, py, TILE_SIZE, TILE_SIZE);
-
-        // Recessed mortar lines between 4 flagstone pavers
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.35)';
-        ctx.fillRect(px, py + 15, TILE_SIZE, 1);
-        ctx.fillRect(px + 15, py, 1, TILE_SIZE);
-
-        // Subtle paver edge bevel highlights
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.03)';
-        ctx.fillRect(px + 1, py + 1, 14, 1);
-        ctx.fillRect(px + 1, py + 1, 1, 14);
-        ctx.fillRect(px + 16, py + 1, 14, 1);
-        ctx.fillRect(px + 16, py + 1, 1, 14);
-        ctx.fillRect(px + 1, py + 16, 14, 1);
-        ctx.fillRect(px + 1, py + 16, 1, 14);
-        ctx.fillRect(px + 16, py + 16, 14, 1);
-        ctx.fillRect(px + 16, py + 16, 1, 14);
-
-        // Tile border outline
-        ctx.strokeStyle = biome.floorBorder;
-        ctx.strokeRect(px + 0.5, py + 0.5, TILE_SIZE - 1, TILE_SIZE - 1);
-
-        // Deterministic stone fissure on occasional pavers
-        if ((x * 19 + y * 23) % 7 === 0) {
-          ctx.strokeStyle = 'rgba(0, 0, 0, 0.28)';
-          ctx.lineWidth = 1;
-          ctx.beginPath();
-          ctx.moveTo(px + 4, py + 5);
-          ctx.lineTo(px + 8, py + 9);
-          ctx.lineTo(px + 12, py + 11);
-          ctx.stroke();
-        }
-
-        // 2. Ambient Occlusion Drop-Shadows cast by adjacent walls
-        const hasNorthWall = y > 0 && floor.tiles[y - 1] && (floor.tiles[y - 1][x] === TILE_WALL || !!ORE_CATALOG[floor.tiles[y - 1][x]]);
-        if (hasNorthWall) {
-          ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
-          ctx.fillRect(px, py, TILE_SIZE, 3);
-          ctx.fillStyle = 'rgba(0, 0, 0, 0.28)';
-          ctx.fillRect(px, py + 3, TILE_SIZE, 3);
-          ctx.fillStyle = 'rgba(0, 0, 0, 0.12)';
-          ctx.fillRect(px, py + 6, TILE_SIZE, 2);
-        }
-        const hasWestWall = x > 0 && (floor.tiles[y][x - 1] === TILE_WALL || !!ORE_CATALOG[floor.tiles[y][x - 1]]);
-        if (hasWestWall) {
-          ctx.fillStyle = 'rgba(0, 0, 0, 0.22)';
-          ctx.fillRect(px, py, 2, TILE_SIZE);
-          ctx.fillStyle = 'rgba(0, 0, 0, 0.10)';
-          ctx.fillRect(px + 2, py, 2, TILE_SIZE);
-        }
-
-        // 3. 3D Landmark Props
-        if (tile === TILE_STAIRS_UP) {
-          // Ascending Stairs: 4-tier beveled stone staircase with emerald guide runes
-          ctx.fillStyle = '#1e293b';
-          ctx.fillRect(px + 4, py + 24, 24, 5);
-          ctx.fillStyle = '#10b981';
-          ctx.fillRect(px + 4, py + 24, 24, 1.2);
-
-          ctx.fillStyle = '#334155';
-          ctx.fillRect(px + 6, py + 18, 20, 5);
-          ctx.fillStyle = '#34d399';
-          ctx.fillRect(px + 6, py + 18, 20, 1.2);
-
-          ctx.fillStyle = '#475569';
-          ctx.fillRect(px + 8, py + 12, 16, 5);
-          ctx.fillStyle = '#6ee7b7';
-          ctx.fillRect(px + 8, py + 12, 16, 1.2);
-
-          // Top portal arch
-          ctx.fillStyle = '#065f46';
-          ctx.fillRect(px + 10, py + 5, 12, 6);
-          // Ascending upward beacon chevron
-          ctx.fillStyle = '#a7f3d0';
-          ctx.beginPath();
-          ctx.moveTo(px + 16, py + 5);
-          ctx.lineTo(px + 20, py + 9);
-          ctx.lineTo(px + 18, py + 9);
-          ctx.lineTo(px + 18, py + 13);
-          ctx.lineTo(px + 14, py + 13);
-          ctx.lineTo(px + 14, py + 9);
-          ctx.lineTo(px + 12, py + 9);
-          ctx.closePath();
-          ctx.fill();
-
-        } else if (tile === TILE_STAIRS_DOWN) {
-          // Descending Stairs: 4-tier dark abyss staircase receding into the depths
-          ctx.fillStyle = '#475569';
-          ctx.fillRect(px + 4, py + 4, 24, 4);
-          ctx.fillStyle = '#334155';
-          ctx.fillRect(px + 6, py + 8, 20, 4);
-          ctx.fillStyle = '#1e293b';
-          ctx.fillRect(px + 8, py + 12, 16, 4);
-          ctx.fillStyle = '#050b14';
-          ctx.fillRect(px + 10, py + 16, 12, 12);
-
-          // Deep cyan abyss glow
-          ctx.fillStyle = 'rgba(56, 189, 248, 0.45)';
-          ctx.fillRect(px + 11, py + 21, 10, 4);
-          // Descending chevron pointing into the abyss
-          ctx.fillStyle = '#38bdf8';
-          ctx.beginPath();
-          ctx.moveTo(px + 16, py + 26);
-          ctx.lineTo(px + 12, py + 21);
-          ctx.lineTo(px + 14, py + 21);
-          ctx.lineTo(px + 14, py + 17);
-          ctx.lineTo(px + 18, py + 17);
-          ctx.lineTo(px + 18, py + 21);
-          ctx.lineTo(px + 20, py + 21);
-          ctx.closePath();
-          ctx.fill();
-
-        } else if (tile === TILE_CHEST) {
-          // 3D Banded Gilded Vault Chest (Closed)
-          ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
-          ctx.fillRect(px + 5, py + 24, 22, 4);
-
-          // Domed oak chest body
-          ctx.fillStyle = '#78350f';
-          ctx.fillRect(px + 6, py + 13, 20, 11);
-          // Domed lid
-          ctx.fillStyle = '#92400e';
-          ctx.beginPath();
-          ctx.moveTo(px + 6, py + 13);
-          if (typeof ctx.quadraticCurveTo === 'function') {
-            ctx.quadraticCurveTo(px + 16, py + 7, px + 26, py + 13);
-          } else {
-            ctx.lineTo(px + 16, py + 8);
-            ctx.lineTo(px + 26, py + 13);
-          }
-          ctx.closePath();
-          ctx.fill();
-
-          // Gilded iron straps with rivets
-          ctx.fillStyle = '#f59e0b';
-          ctx.fillRect(px + 8, py + 10, 3, 14);
-          ctx.fillRect(px + 21, py + 10, 3, 14);
-          ctx.fillStyle = '#fbbf24';
-          ctx.fillRect(px + 6, py + 13, 20, 2);
-          ctx.fillStyle = '#fef08a';
-          ctx.fillRect(px + 9, py + 11, 1, 1);
-          ctx.fillRect(px + 9, py + 17, 1, 1);
-          ctx.fillRect(px + 22, py + 11, 1, 1);
-          ctx.fillRect(px + 22, py + 17, 1, 1);
-
-          // Golden padlock with keyhole
-          ctx.fillStyle = '#fbbf24';
-          ctx.fillRect(px + 14, py + 13, 4, 5);
-          ctx.fillStyle = '#451a03';
-          ctx.fillRect(px + 15, py + 15, 2, 2);
-
-        } else if (tile === TILE_CHEST_OPEN) {
-          // Looted Vault Chest with glittering spoils
-          ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
-          ctx.fillRect(px + 5, py + 24, 22, 4);
-
-          // Tilted open lid thrown back
-          ctx.fillStyle = '#451a03';
-          ctx.fillRect(px + 6, py + 6, 20, 6);
-          ctx.fillStyle = '#78350f';
-          ctx.fillRect(px + 6, py + 12, 20, 12);
-
-          // Open interior cavity
-          ctx.fillStyle = '#1c0a00';
-          ctx.fillRect(px + 8, py + 14, 16, 8);
-          // Gleaming coin and gem sparkles
-          ctx.fillStyle = '#fbbf24';
-          ctx.fillRect(px + 9, py + 18, 3, 2);
-          ctx.fillRect(px + 14, py + 19, 3, 2);
-          ctx.fillRect(px + 18, py + 17, 2, 2);
-          ctx.fillStyle = '#ef4444';
-          ctx.fillRect(px + 12, py + 17, 2, 2);
-          ctx.fillStyle = '#10b981';
-          ctx.fillRect(px + 16, py + 18, 2, 2);
-
-        } else if (tile === TILE_SHRINE) {
-          // Active Astral Shrine with Stepped Dais & Hovering Crystal Prism
-          const sMeta = (floor.shrines && floor.shrines[`${x},${y}`]) || { type: 'sanctuary' };
-          const sDef = SHRINE_CATALOG[sMeta.type] || SHRINE_CATALOG.sanctuary;
-
-          // Stepped stone dais
-          ctx.fillStyle = '#1e293b';
-          ctx.fillRect(px + 6, py + 22, 20, 6);
-          ctx.fillStyle = '#334155';
-          ctx.fillRect(px + 9, py + 16, 14, 6);
-          ctx.fillStyle = sDef.color;
-          ctx.fillRect(px + 11, py + 19, 3, 1);
-          ctx.fillRect(px + 18, py + 19, 3, 1);
-
-          // Hovering Celestial Diamond Prism
-          ctx.fillStyle = 'rgba(255, 255, 255, 0.15)';
-          ctx.beginPath();
-          ctx.arc(px + 16, py + 9, 6.5, 0, Math.PI * 2);
-          ctx.fill();
-
-          ctx.fillStyle = sDef.color;
-          ctx.beginPath();
-          ctx.moveTo(px + 16, py + 3);
-          ctx.lineTo(px + 21, py + 9);
-          ctx.lineTo(px + 16, py + 15);
-          ctx.lineTo(px + 11, py + 9);
-          ctx.closePath();
-          ctx.fill();
-
-          ctx.fillStyle = '#ffffff';
-          ctx.fillRect(px + 15, py + 7, 2, 2);
-
-        } else if (tile === TILE_SHRINE_USED) {
-          // Dormant stone pedestal
-          ctx.fillStyle = '#0f172a';
-          ctx.fillRect(px + 6, py + 22, 20, 6);
-          ctx.fillStyle = '#1e293b';
-          ctx.fillRect(px + 9, py + 16, 14, 6);
-          ctx.fillStyle = '#334155';
-          ctx.beginPath();
-          ctx.moveTo(px + 16, py + 12);
-          ctx.lineTo(px + 19, py + 16);
-          ctx.lineTo(px + 13, py + 16);
-          ctx.closePath();
-          ctx.fill();
-
-        } else if (tile === TILE_TRAP_VISIBLE) {
-          // Warning Metal Grate with Jutting Spikes
-          const tMeta = (floor.traps && floor.traps[`${x},${y}`]) || { type: 'spike' };
-          const tDef = TRAP_CATALOG[tMeta.type] || TRAP_CATALOG.spike;
-          ctx.strokeStyle = tDef.color;
-          ctx.lineWidth = 1.4;
-          ctx.strokeRect(px + 5, py + 5, 22, 22);
-
-          // Diagonal cross grate bars
-          ctx.strokeStyle = 'rgba(0, 0, 0, 0.45)';
-          ctx.lineWidth = 1;
-          ctx.beginPath();
-          ctx.moveTo(px + 5, py + 5);
-          ctx.lineTo(px + 27, py + 27);
-          ctx.moveTo(px + 27, py + 5);
-          ctx.lineTo(px + 5, py + 27);
-          ctx.stroke();
-
-          // Steel spike teeth
-          ctx.fillStyle = tDef.color;
-          ctx.beginPath();
-          ctx.moveTo(px + 9, py + 21);
-          ctx.lineTo(px + 12, py + 10);
-          ctx.lineTo(px + 15, py + 21);
-          ctx.fill();
-          ctx.beginPath();
-          ctx.moveTo(px + 17, py + 21);
-          ctx.lineTo(px + 20, py + 10);
-          ctx.lineTo(px + 23, py + 21);
-          ctx.fill();
-
-        } else if (tile === TILE_TRAP_DISARMED) {
-          // Deactivated Grate with sheared spikes
-          ctx.strokeStyle = '#475569';
-          ctx.lineWidth = 1;
-          ctx.strokeRect(px + 7, py + 7, 18, 18);
-          ctx.fillStyle = '#334155';
-          ctx.fillRect(px + 10, py + 15, 12, 2);
-          ctx.fillStyle = '#1e293b';
-          ctx.fillRect(px + 13, py + 12, 6, 2);
-        }
-      }
-
-      // 4. World Objects on Tile (Doors & Portals)
-      if (floor.objects && floor.objects.length > 0) {
-        for (let oi = 0; oi < floor.objects.length; oi++) {
-          const obj = floor.objects[oi];
-          if (obj && obj.x === x && obj.y === y) {
-            if (obj.objectType === 'door') {
-              renderDoorTile(ctx, px, py, obj, biome, inSight);
-              break;
-            } else if (obj.objectType === 'portal') {
-              renderPortalTile(ctx, px, py, obj, biome, inSight);
-            } else if (obj.objectType === 'mechanism') {
-              const isPulled = obj.runtimeState && obj.runtimeState.mechanical === 'pulled';
-              ctx.save();
-              ctx.fillStyle = isPulled ? '#34d399' : '#fbbf24';
-              if (obj.definitionId === 'mech_pressure_plate') {
-                ctx.fillStyle = isPulled ? '#1e293b' : '#475569';
-                ctx.fillRect(px + 6, py + 6, 20, 20);
-                ctx.strokeStyle = isPulled ? '#34d399' : '#fbbf24';
-                ctx.lineWidth = 1.5;
-                ctx.strokeRect(px + 6, py + 6, 20, 20);
-              } else {
-                ctx.fillStyle = '#475569';
-                ctx.fillRect(px + 10, py + 20, 12, 6);
-                ctx.strokeStyle = isPulled ? '#34d399' : '#fbbf24';
-                ctx.lineWidth = 3;
-                ctx.beginPath();
-                ctx.moveTo(px + 16, py + 21);
-                ctx.lineTo(px + (isPulled ? 23 : 9), py + 8);
-                ctx.stroke();
-              }
-              ctx.restore();
-            } else if (obj.objectType === 'prop' && (!obj.runtimeState || obj.runtimeState.structural !== 'destroyed')) {
-              ctx.save();
-              if (obj.definitionId === 'prop_oil_barrel') {
-                ctx.fillStyle = '#451a03';
-                ctx.beginPath();
-                ctx.arc(px + 16, py + 16, 10, 0, Math.PI * 2);
-                ctx.fill();
-                ctx.strokeStyle = '#f97316';
-                ctx.lineWidth = 2;
-                ctx.stroke();
-              } else if (obj.definitionId === 'prop_wooden_barrel') {
-                ctx.fillStyle = '#78350f';
-                ctx.beginPath();
-                ctx.arc(px + 16, py + 16, 10, 0, Math.PI * 2);
-                ctx.fill();
-                ctx.strokeStyle = '#d97706';
-                ctx.lineWidth = 1.5;
-                ctx.stroke();
-              } else {
-                ctx.fillStyle = '#78350f';
-                ctx.fillRect(px + 6, py + 6, 20, 20);
-                ctx.strokeStyle = '#d97706';
-                ctx.lineWidth = 1.5;
-                ctx.strokeRect(px + 6, py + 6, 20, 20);
-              }
-              ctx.restore();
-            } else if (obj.objectType === 'container') {
-              // Avoid double-drawing when legacy TILE_CHEST / TILE_CHEST_OPEN already rendered the 3D gilded chest
-              if (tile !== TILE_CHEST && tile !== TILE_CHEST_OPEN) {
-                const isOpen = obj.runtimeState && obj.runtimeState.mechanical === 'open';
-                ctx.save();
-                drawGildedChestProp(ctx, px, py, isOpen);
-                ctx.restore();
-              }
-            } else if (obj.objectType === 'hazard' && obj.runtimeState && obj.runtimeState.mechanical === 'active') {
-              ctx.save();
-              if (obj.definitionId === 'hazard_slag_vent') {
-                ctx.fillStyle = 'rgba(249, 115, 22, 0.55)';
-                ctx.fillRect(px + 4, py + 4, 24, 24);
-              } else if (obj.definitionId === 'hazard_spore_cloud') {
-                ctx.fillStyle = 'rgba(52, 211, 153, 0.35)';
-                ctx.beginPath();
-                ctx.arc(px + 16, py + 16, 12, 0, Math.PI * 2);
-                ctx.fill();
-              } else {
-                ctx.fillStyle = 'rgba(30, 41, 59, 0.85)';
-                ctx.beginPath();
-                ctx.arc(px + 16, py + 16, 12, 0, Math.PI * 2);
-                ctx.fill();
-              }
-              ctx.restore();
-              break;
-            }
-          }
-        }
-      }
-
-      // Torchlight Warmth or Fog Dimming
-      if (!inSight) {
-        ctx.fillStyle = 'rgba(4, 6, 10, 0.68)';
-        ctx.fillRect(px, py, TILE_SIZE, TILE_SIZE);
-      } else {
-        const glow = Math.max(0, 0.13 - dist * 0.022);
-        if (glow > 0) {
-          ctx.fillStyle = `rgba(${biome.torchR}, ${biome.torchG}, ${biome.torchB}, ${glow})`;
-          ctx.fillRect(px, py, TILE_SIZE, TILE_SIZE);
-        }
-      }
-    }
-  }
-
-  // Draw Auto-Walk Breadcrumb Trail (if active)
-  const walkPath = getAutoWalkPath();
-  if (walkPath.length > 0) {
-    ctx.fillStyle = 'rgba(96, 165, 250, 0.7)';
-    for (let i = 0; i < walkPath.length; i++) {
-      const st = walkPath[i];
-      const vx = st.x - camX;
-      const vy = st.y - camY;
-      if (vx >= 0 && vx < VIEWPORT_WIDTH && vy >= 0 && vy < VIEWPORT_HEIGHT) {
-        ctx.beginPath();
-        ctx.arc(vx * TILE_SIZE + 16, vy * TILE_SIZE + 16, i === walkPath.length - 1 ? 5 : 2.5, 0, Math.PI * 2);
-        ctx.fill();
-      }
-    }
-  }
-
-  // Draw Visible Ground Pickups (floor.objects with objectType === 'pickup')
-  const floorObjs = floor.objects || [];
-  for (let i = 0; i < floorObjs.length; i++) {
-    const o = floorObjs[i];
-    if (!o || o.objectType !== 'pickup' || !o.components || !o.components.pickup) continue;
-    const it = o.components.pickup.item;
-    if (!it) continue;
-
-    const vx = o.x - camX;
-    const vy = o.y - camY;
-    if (vx < 0 || vx >= VIEWPORT_WIDTH || vy < 0 || vy >= VIEWPORT_HEIGHT) continue;
-    if (!isTileVisibleNow(floor, hx, hy, vision, o.x, o.y)) continue;
-
-    const ox = vx * TILE_SIZE;
-    const oy = vy * TILE_SIZE;
-
-    // Glowing drop aura
-    const rKey = it.rarity || 'common';
-    const rDef = RARITY[rKey];
-    const rColor = (rDef && rDef.color) || '#94a3b8';
-
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
-    ctx.beginPath();
-    if (typeof ctx.ellipse === 'function') {
-      ctx.ellipse(ox + 16, oy + 24, 9, 4, 0, 0, Math.PI * 2);
-    } else {
-      ctx.arc(ox + 16, oy + 24, 6, 0, Math.PI * 2);
-    }
-    ctx.fill();
-
-    ctx.strokeStyle = rColor;
-    ctx.lineWidth = 1.2;
-    ctx.beginPath();
-    ctx.arc(ox + 16, oy + 16, 11, 0, Math.PI * 2);
-    ctx.stroke();
-
-    // Upfront item type icon
-    const icon = getItemTypeIcon(it) || '📦';
-    ctx.font = '13px sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(icon, ox + 16, oy + 16);
-  }
-
-  // Draw Committed Monster Ability Telegraph Zones (MS-01 — distinct from range indicators, respects visibility)
-  for (let ti = 0; ti < floor.monsters.length; ti++) {
-    const tm = floor.monsters[ti];
-    if (!tm || tm._dead || tm.hp <= 0 || !tm.telegraph || !Array.isArray(tm.telegraph.tiles)) continue;
-    const casterVisible = isTileVisibleNow(floor, hx, hy, vision, tm.x, tm.y);
-    const tgColor = tm.telegraph.color || '#ef4444';
-    for (let ptIdx = 0; ptIdx < tm.telegraph.tiles.length; ptIdx++) {
-      const pt = tm.telegraph.tiles[ptIdx];
-      const tvx = pt.x - camX;
-      const tvy = pt.y - camY;
-      if (tvx < 0 || tvx >= VIEWPORT_WIDTH || tvy < 0 || tvy >= VIEWPORT_HEIGHT) continue;
-      if (!casterVisible && !isTileVisibleNow(floor, hx, hy, vision, pt.x, pt.y)) continue;
-      const tpx = tvx * TILE_SIZE;
-      const tpy = tvy * TILE_SIZE;
-      ctx.save();
-      ctx.fillStyle = 'rgba(239, 68, 68, 0.28)';
-      ctx.fillRect(tpx + 1, tpy + 1, TILE_SIZE - 2, TILE_SIZE - 2);
-      ctx.strokeStyle = tgColor;
-      ctx.lineWidth = 2;
-      ctx.strokeRect(tpx + 2, tpy + 2, TILE_SIZE - 4, TILE_SIZE - 4);
-      // Diagonal hazard hash
-      ctx.strokeStyle = 'rgba(251, 191, 36, 0.55)';
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.moveTo(tpx + 5, tpy + 5);
-      ctx.lineTo(tpx + 11, tpy + 11);
-      ctx.moveTo(tpx + 27, tpy + 5);
-      ctx.lineTo(tpx + 21, tpy + 11);
-      ctx.moveTo(tpx + 5, tpy + 27);
-      ctx.lineTo(tpx + 11, tpy + 21);
-      ctx.moveTo(tpx + 27, tpy + 27);
-      ctx.lineTo(tpx + 21, tpy + 21);
-      ctx.stroke();
-      ctx.restore();
-    }
-  }
-
-  // Draw Visible Monsters inside Camera Frustum
-  for (let i = 0; i < floor.monsters.length; i++) {
-    const m = floor.monsters[i];
-    if (!m || m._dead || m.hp <= 0) continue;
-    const vx = m.x - camX;
-    const vy = m.y - camY;
-    if (vx < 0 || vx >= VIEWPORT_WIDTH || vy < 0 || vy >= VIEWPORT_HEIGHT) continue;
-    if (!isTileVisibleNow(floor, hx, hy, vision, m.x, m.y)) continue;
-
-    const mx = vx * TILE_SIZE;
-    const my = vy * TILE_SIZE;
-
-    if (m.isBoss) {
-      ctx.strokeStyle = '#f87171';
-      ctx.lineWidth = 2;
-      ctx.strokeRect(mx + 2, my + 2, TILE_SIZE - 4, TILE_SIZE - 4);
-    } else if (m.isElite) {
-      ctx.strokeStyle = '#fbbf24';
-      ctx.lineWidth = 1.8;
-      ctx.beginPath();
-      ctx.arc(mx + 16, my + 16, 13, 0, Math.PI * 2);
-      ctx.stroke();
-    }
-
-    ctx.fillStyle = m.color;
-    ctx.fillRect(mx + 8, my + 7, 16, 16);
-    ctx.fillStyle = '#080b11';
-    ctx.fillRect(mx + 11, my + 11, 3, 3);
-    ctx.fillRect(mx + 18, my + 11, 3, 3);
-
-    // Monster Health Bar
-    const pct = Math.max(0, m.hp / m.maxHp);
-    ctx.fillStyle = '#04060a';
-    ctx.fillRect(mx + 4, my + 26, 24, 4);
-    ctx.fillStyle = m.isBoss || m.isElite ? '#fbbf24' : '#f87171';
-    ctx.fillRect(mx + 4, my + 26, Math.round(24 * pct), 4);
-
-    // Overhead Status Effect Badges
-    if (m.statuses && m.statuses.length > 0) {
-      const statusColors = {
-        burn:     '#fb923c',
-        bleed:    '#f87171',
-        poison:   '#4ade80',
-        stun:     '#fbbf24',
-        chilled:  '#38bdf8',
-        weakened: '#c084fc',
-        guarding: '#60a5fa'
-      };
-      let isGuardingVis = false;
-      for (let sIdx = 0; sIdx < m.statuses.length; sIdx++) {
-        const st = m.statuses[sIdx];
-        if (st.id === 'guarding') isGuardingVis = true;
-        const sc = statusColors[st.id] || '#94a3b8';
-        const bx = mx + 4 + sIdx * 7;
-        ctx.fillStyle = sc;
-        ctx.fillRect(bx, my - 4, 6, 4);
-      }
-      if (isGuardingVis) {
-        ctx.strokeStyle = '#60a5fa';
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.arc(mx + 16, my + 16, 14, 0, Math.PI * 2);
-        ctx.stroke();
-      }
-    }
-
-    // Active Committed Ability Windup Badge vs Generic Attack Range Indicator
-    const distToHero = Math.hypot(m.x - hx, m.y - hy);
-    if (m.telegraph) {
-      ctx.fillStyle = '#fbbf24';
-      ctx.font = 'bold 10px "JetBrains Mono", monospace';
-      ctx.textAlign = 'center';
-      ctx.fillText('⚠', mx + 16, my - 6);
-    } else if (distToHero <= 1.5) {
-      // Melee threat alert: red chevron pulse above monster
-      ctx.fillStyle = '#ef4444';
-      ctx.beginPath();
-      ctx.moveTo(mx + 16, my - 3);
-      ctx.lineTo(mx + 13, my + 1);
-      ctx.lineTo(mx + 19, my + 1);
-      ctx.closePath();
-      ctx.fill();
-    } else if (
-      m.isRanged &&
-      distToHero <= (m.range || 3) + 0.3 &&
-      hasLineOfSight(floor, m.x, m.y, hx, hy)
-    ) {
-      // Subtle ranged attack-range indicator (distinct from committed telegraph tiles)
-      ctx.strokeStyle = 'rgba(148, 163, 184, 0.35)';
-      ctx.lineWidth = 1;
-      if (typeof ctx.setLineDash === 'function') ctx.setLineDash([2, 5]);
-      ctx.beginPath();
-      ctx.moveTo(mx + 16, my + 16);
-      ctx.lineTo((hx - camX) * TILE_SIZE + 16, (hy - camY) * TILE_SIZE + 16);
-      ctx.stroke();
-      if (typeof ctx.setLineDash === 'function') ctx.setLineDash([]);
-    }
-  }
-
-  // Draw Player Sprite relative to Camera Origin (incorporating lunge displacement)
-  const lx = heroLungeOffset.ticks > 0 ? heroLungeOffset.x * (heroLungeOffset.ticks / 6) : 0;
-  const ly = heroLungeOffset.ticks > 0 ? heroLungeOffset.y * (heroLungeOffset.ticks / 6) : 0;
-  drawHeroSprite(ctx, (hx - camX) * TILE_SIZE + lx, (hy - camY) * TILE_SIZE + ly, gameState.hero.classId, TILE_SIZE);
-  if (heroLungeOffset.ticks > 0) heroLungeOffset.ticks--;
-
-  // Draw Tactical Skill Range & Target Preview (if skill hovered / targeting active)
-  if (skillHoverActive) {
-    const targeting = getSkillTargetingInfo(gameState);
-    if (targeting && targeting.reachRadius > 0) {
-      const pCenterX = (hx - camX) * TILE_SIZE + 16;
-      const pCenterY = (hy - camY) * TILE_SIZE + 16;
-      const reachPx = targeting.reachRadius * TILE_SIZE;
-
-      // Circular reach boundary
-      ctx.strokeStyle = targeting.canAfford ? 'rgba(96, 165, 250, 0.75)' : 'rgba(239, 68, 68, 0.65)';
-      ctx.lineWidth = 1.5;
-      if (typeof ctx.setLineDash === 'function') ctx.setLineDash([4, 4]);
-      ctx.beginPath();
-      ctx.arc(pCenterX, pCenterY, reachPx, 0, Math.PI * 2);
-      ctx.fillStyle = targeting.canAfford ? 'rgba(96, 165, 250, 0.08)' : 'rgba(239, 68, 68, 0.06)';
-      ctx.fill();
-      ctx.stroke();
-      if (typeof ctx.setLineDash === 'function') ctx.setLineDash([]);
-
-      // Tactical reticles over eligible targets
-      for (let tIdx = 0; tIdx < targeting.targets.length; tIdx++) {
-        const tg = targeting.targets[tIdx];
-        const tvx = tg.x - camX;
-        const tvy = tg.y - camY;
-        if (tvx >= 0 && tvx < VIEWPORT_WIDTH && tvy >= 0 && tvy < VIEWPORT_HEIGHT) {
-          const tpx = tvx * TILE_SIZE;
-          const tpy = tvy * TILE_SIZE;
-
-          // Corner brackets
-          ctx.strokeStyle = '#ef4444';
-          ctx.lineWidth = 2;
-          ctx.beginPath();
-          // Top-left
-          ctx.moveTo(tpx + 2, tpy + 8); ctx.lineTo(tpx + 2, tpy + 2); ctx.lineTo(tpx + 8, tpy + 2);
-          // Top-right
-          ctx.moveTo(tpx + 30, tpy + 8); ctx.lineTo(tpx + 30, tpy + 2); ctx.lineTo(tpx + 24, tpy + 2);
-          // Bottom-left
-          ctx.moveTo(tpx + 2, tpy + 24); ctx.lineTo(tpx + 2, tpy + 30); ctx.lineTo(tpx + 8, tpy + 30);
-          // Bottom-right
-          ctx.moveTo(tpx + 30, tpy + 24); ctx.lineTo(tpx + 30, tpy + 30); ctx.lineTo(tpx + 24, tpy + 30);
-          ctx.stroke();
-
-          // Center crosshair / diamond
-          ctx.strokeStyle = '#fbbf24';
-          ctx.lineWidth = 1.2;
-          ctx.strokeRect(tpx + 11, tpy + 11, 10, 10);
-
-          // Overhead TARGET label
-          ctx.font = 'bold 9px "JetBrains Mono", monospace';
-          ctx.textAlign = 'center';
-          ctx.fillStyle = '#ef4444';
-          ctx.fillText('TARGET', tpx + 16, tpy - 4);
-        }
-      }
-
-      // Leap destination marker for Thief
-      if (targeting.destTile) {
-        const dvx = targeting.destTile.x - camX;
-        const dvy = targeting.destTile.y - camY;
-        if (dvx >= 0 && dvx < VIEWPORT_WIDTH && dvy >= 0 && dvy < VIEWPORT_HEIGHT) {
-          const dpx = dvx * TILE_SIZE;
-          const dpy = dvy * TILE_SIZE;
-          ctx.strokeStyle = '#c084fc';
-          ctx.lineWidth = 1.5;
-          ctx.strokeRect(dpx + 3, dpy + 3, 26, 26);
-          ctx.fillStyle = 'rgba(192, 132, 252, 0.20)';
-          ctx.fillRect(dpx + 3, dpy + 3, 26, 26);
-          ctx.font = 'bold 8px "JetBrains Mono", monospace';
-          ctx.textAlign = 'center';
-          ctx.fillStyle = '#c084fc';
-          ctx.fillText('LEAP', dpx + 16, dpy + 17);
-        }
-      }
-    }
-  }
-
-  // Draw Active Combat Animations (slashes, crit bursts, spell impacts)
-  for (let aIdx = combatAnimations.length - 1; aIdx >= 0; aIdx--) {
-    const anim = combatAnimations[aIdx];
-    const cpx = (anim.gx - camX) * TILE_SIZE + 16;
-    const cpy = (anim.gy - camY) * TILE_SIZE + 16;
-    const prog = 1 - (anim.ticks / anim.maxTicks);
-
-    if (cpx >= -32 && cpx <= canvas.width + 32 && cpy >= -32 && cpy <= canvas.height + 32) {
-      if (anim.type === 'slash') {
-        ctx.strokeStyle = anim.color || '#f87171';
-        ctx.lineWidth = Math.max(1, 3.5 - prog * 2.5);
-        ctx.beginPath();
-        ctx.moveTo(cpx - 14 + prog * 6, cpy - 14 + prog * 6);
-        ctx.lineTo(cpx + 14, cpy + 14);
-        ctx.stroke();
-        ctx.strokeStyle = '#ffffff';
-        ctx.lineWidth = 1.2;
-        ctx.beginPath();
-        ctx.moveTo(cpx - 10 + prog * 6, cpy - 10 + prog * 6);
-        ctx.lineTo(cpx + 10, cpy + 10);
-        ctx.stroke();
-      } else if (anim.type === 'crit_slash') {
-        ctx.strokeStyle = anim.color || '#fbbf24';
-        ctx.lineWidth = Math.max(1, 4 - prog * 3);
-        const radius = 6 + prog * 14;
-        ctx.beginPath();
-        ctx.moveTo(cpx - radius, cpy); ctx.lineTo(cpx + radius, cpy);
-        ctx.moveTo(cpx, cpy - radius); ctx.lineTo(cpx, cpy + radius);
-        ctx.moveTo(cpx - radius * 0.7, cpy - radius * 0.7); ctx.lineTo(cpx + radius * 0.7, cpy + radius * 0.7);
-        ctx.moveTo(cpx + radius * 0.7, cpy - radius * 0.7); ctx.lineTo(cpx - radius * 0.7, cpy + radius * 0.7);
-        ctx.stroke();
-      } else if (anim.type === 'spell') {
-        ctx.strokeStyle = anim.color || '#60a5fa';
-        ctx.lineWidth = Math.max(1, 3 - prog * 2);
-        ctx.beginPath();
-        ctx.arc(cpx, cpy, 4 + prog * 18, 0, Math.PI * 2);
-        ctx.stroke();
-      } else if (anim.type === 'projectile') {
-        ctx.fillStyle = anim.color || '#f87171';
-        ctx.beginPath();
-        ctx.arc(cpx, cpy, Math.max(1, 5 - prog * 4), 0, Math.PI * 2);
-        ctx.fill();
-      } else {
-        ctx.strokeStyle = anim.color || '#f87171';
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.moveTo(cpx - 8, cpy - 8); ctx.lineTo(cpx - 4, cpy + 8);
-        ctx.moveTo(cpx, cpy - 8); ctx.lineTo(cpx + 4, cpy + 8);
-        ctx.stroke();
-      }
-    }
-
-    anim.ticks--;
-    if (anim.ticks <= 0) {
-      combatAnimations.splice(aIdx, 1);
-    }
-  }
-
-  // Draw Hover Highlight relative to Camera Origin
-  if (hoverTile) {
-    const hvx = hoverTile.x - camX;
-    const hvy = hoverTile.y - camY;
-    if (hvx >= 0 && hvx < VIEWPORT_WIDTH && hvy >= 0 && hvy < VIEWPORT_HEIGHT) {
-      ctx.strokeStyle = 'rgba(251, 191, 36, 0.75)';
-      ctx.lineWidth = 1.5;
-      ctx.strokeRect(hvx * TILE_SIZE + 1, hvy * TILE_SIZE + 1, TILE_SIZE - 2, TILE_SIZE - 2);
-    }
-  }
-
-  // Draw Floating Combat/Mining Numbers projected into Camera Space
-  for (let i = floatingTexts.length - 1; i >= 0; i--) {
-    const ft = floatingTexts[i];
-    const px = (ft.gx - camX) * TILE_SIZE + 16;
-    const py = (ft.gy - camY) * TILE_SIZE + 10 - ft.riseOffset;
-    if (px >= -40 && px <= canvas.width + 40 && py >= -20 && py <= canvas.height + 20) {
-      ctx.font = 'bold 11px "JetBrains Mono", monospace';
-      ctx.textAlign = 'center';
-      ctx.fillStyle = '#000';
-      ctx.fillText(ft.text, px + 1, py + 1);
-      ctx.fillStyle = ft.color;
-      ctx.fillText(ft.text, px, py);
-    }
-    ft.riseOffset += 0.45;
-    ft.ticks -= 1;
-    if (ft.ticks <= 0) floatingTexts.splice(i, 1);
-  }
 }
 
   // --- Module: src/wargame/main.js ---
@@ -45181,12 +47240,47 @@ function syncIntegratedDungeonHud() {
 
   const skillEl = document.getElementById('wgDungeonSkillCard');
   if (skillEl) {
-    const statusBadgeColor = skillReady ? 'text-[#34d399]' : 'text-[#94a3b8]';
+    const abilities = getHeroAbilityBarState(gameState);
+    const manualId = getManualTargetingAbility();
+    const shieldBanner = (h.absorbShield || 0) > 0
+      ? '<div class="px-2 py-1 rounded bg-[#312e81]/40 border border-[#818cf8]/50 text-[10px] font-mono text-[#c7d2fe]">🛡️ Absorb Shield: <strong>' + h.absorbShield + '</strong></div>'
+      : '';
+    const pendingBanner = h.pendingCast
+      ? '<div class="px-2 py-1 rounded bg-[#7c2d12]/40 border border-[#fb923c]/60 text-[10px] font-mono text-[#fed7aa]">⏳ Channeling <strong>' + h.pendingCast.name + '</strong> (' + h.pendingCast.turnsLeft + 't)</div>'
+      : '';
+    const targetBanner = manualId
+      ? '<div class="flex items-center justify-between px-2 py-1 rounded bg-[#1e3a8a]/50 border border-[#fbbf24]/70 text-[10px] font-mono text-[#fef08a]"><span>🎯 Click tile/foe to cast</span><button onclick="window.WargameApp.handleCancelDungeonTargeting()" class="px-1.5 py-0.5 rounded bg-[#0f172a] text-[#e2e8f0] hover:bg-[#1e293b] cursor-pointer">Esc</button></div>'
+      : '';
+    const btnsHtml = abilities.map(function(ab) {
+      const isTargeting = manualId === ab.id;
+      const costText = ab.effectiveMp > 0
+        ? (ab.effectiveMp + ' MP' + (ab.chilledPenalty > 0 ? '❄' : ''))
+        : (ab.cooldown > 0 ? (ab.cooldown + 't CD') : 'Free');
+      const stateTag = ab.silenced
+        ? '<span class="text-[#e879f9]">SILENCED</span>'
+        : (ab.cooldownRemaining > 0
+          ? '<span class="text-[#f87171]">CD ' + ab.cooldownRemaining + 't</span>'
+          : (ab.canAfford ? '<span class="text-[#34d399]">READY</span>' : '<span class="text-[#f87171]">LOW MP</span>'));
+      const borderCls = isTargeting
+        ? 'border-[#fbbf24] bg-[#1e293b]'
+        : (ab.ready ? 'border-[#60a5fa]/40 bg-[#1a2232] hover:bg-[#283347]' : 'border-[#283347] bg-[#0f141e] opacity-75');
+      return '<button title="' + (ab.desc || '') + '" onmouseenter="window.WargameApp.handleDungeonAbilityHover(true, \'' + ab.id + '\')" onmouseleave="window.WargameApp.handleDungeonAbilityHover(false)" onclick="window.WargameApp.handleDungeonAbilityClick(\'' + ab.id + '\')" class="w-full px-2 py-1.5 rounded border text-left text-[11px] font-mono cursor-pointer transition-colors ' + borderCls + '">' +
+        '<div class="flex items-center justify-between gap-1">' +
+          '<span class="font-bold text-[#e6edf3] truncate">[' + ab.hotkey + '] ' + ab.icon + ' ' + ab.name + '</span>' +
+          '<span class="text-[10px] text-[#fbbf24] shrink-0">' + costText + '</span>' +
+        '</div>' +
+        '<div class="flex items-center justify-between text-[9px] text-[#94a3b8] mt-0.5">' +
+          '<span class="uppercase">' + ab.domain + ' • ' + ab.kind + (ab.timing === 'delayed' ? ' • 1t windup' : '') + '</span>' +
+          stateTag +
+        '</div>' +
+      '</button>';
+    }).join('');
+
     skillEl.innerHTML =
-      '<div class="flex items-center justify-between"><strong class="text-[#60a5fa]">' + skillName + '</strong><span class="text-[11px] text-[#fbbf24]">' + skillCost + ' MP • Rng ' + skillRange + '</span></div>' +
-      '<div class="text-[11px] text-[#94a3b8]">' + skillDesc + '</div>' +
-      '<div class="text-[10px] font-mono ' + statusBadgeColor + '">Status: ' + skillStatusText + '</div>' +
-      '<button onclick="window.WargameApp.handleDungeonSkill()" class="w-full py-1.5 rounded bg-[#1a2232] hover:bg-[#283347] border border-[#60a5fa]/40 text-xs font-mono font-bold text-[#60a5fa] cursor-pointer">⚡ Cast ' + skillName + ' [Q]</button>';
+      shieldBanner +
+      pendingBanner +
+      targetBanner +
+      '<div class="space-y-1.5 max-h-[210px] overflow-y-auto pr-0.5">' + btnsHtml + '</div>';
   }
 
   const logEl = document.getElementById('wgDungeonLog');
@@ -45334,6 +47428,16 @@ function wireIntegratedDungeonCallbacksOnce() {
         const cam = getCameraOrigin(floor, gameState.hero.x, gameState.hero.y);
         const gx = cam.camX + Math.floor(((e.clientX - rect.left) * scaleX) / TILE_SIZE);
         const gy = cam.camY + Math.floor(((e.clientY - rect.top) * scaleY) / TILE_SIZE);
+        const manualAbId = getManualTargetingAbility();
+        if (manualAbId) {
+          const castRes = executeAbility(manualAbId, { targetX: gx, targetY: gy }, gameState);
+          if (castRes && castRes.ok) {
+            setManualTargetingAbility(null);
+            setSkillHover(false);
+          }
+          syncIntegratedDungeonHud();
+          return;
+        }
         // Adjacent click acts immediately (move/attack/mine); distant explored click auto-walks
         const dx = gx - gameState.hero.x;
         const dy = gy - gameState.hero.y;
@@ -46561,7 +48665,47 @@ function handleDungeonDropItem(itemUid) {
 
 function handleDungeonSkill() {
   if (appContext.getActiveContext() !== APP_CONTEXTS.DUNGEON) return;
+  const abilities = getHeroAbilityBarState(gameState);
+  const first = abilities[0] || null;
+  if (first) {
+    handleDungeonAbilityClick(first.id);
+    return;
+  }
   executeClassSkill(gameState);
+  syncIntegratedDungeonHud();
+}
+
+function handleDungeonAbilityHover(active, abilityId) {
+  if (appContext.getActiveContext() !== APP_CONTEXTS.DUNGEON) return;
+  setSkillHover(Boolean(active), abilityId || null);
+}
+
+function handleCancelDungeonTargeting() {
+  setManualTargetingAbility(null);
+  setSkillHover(false);
+  syncIntegratedDungeonHud();
+}
+
+function handleDungeonAbilityClick(abilityId) {
+  if (appContext.getActiveContext() !== APP_CONTEXTS.DUNGEON || !gameState || !gameState.hero) return;
+  selectHeroActiveAbility(abilityId, gameState);
+  const bar = getHeroAbilityBarState(gameState);
+  const entry = bar.find(function(a) { return a.id === abilityId; });
+  if (entry && entry.requiresManualTarget) {
+    if (getManualTargetingAbility() === abilityId) {
+      // Second click cancels targeting
+      setManualTargetingAbility(null);
+      setSkillHover(false);
+    } else {
+      setManualTargetingAbility(abilityId);
+      setSkillHover(true, abilityId);
+    }
+    syncIntegratedDungeonHud();
+    return;
+  }
+  setManualTargetingAbility(null);
+  setSkillHover(false);
+  executeAbility(abilityId, null, gameState);
   syncIntegratedDungeonHud();
 }
 
@@ -46852,6 +48996,16 @@ function setupWargameListeners() {
       } else if (e.key === 'q' || e.key === 'Q') {
         e.preventDefault();
         handleDungeonSkill();
+      } else if (e.key >= '1' && e.key <= '7') {
+        const slotIdx = parseInt(e.key, 10) - 1;
+        const bar = getHeroAbilityBarState(gameState);
+        if (bar[slotIdx]) {
+          e.preventDefault();
+          handleDungeonAbilityClick(bar[slotIdx].id);
+        }
+      } else if (e.key === 'Escape' && getManualTargetingAbility()) {
+        e.preventDefault();
+        handleCancelDungeonTargeting();
       } else if (e.key === 'h' || e.key === 'H') {
         e.preventDefault();
         handleDungeonTonic();
@@ -47051,6 +49205,9 @@ const WargameApp = {
   handleDungeonAutoEquip: handleDungeonAutoEquip,
   handleDungeonDropItem: handleDungeonDropItem,
   handleDungeonSkill: handleDungeonSkill,
+  handleDungeonAbilityClick: handleDungeonAbilityClick,
+  handleDungeonAbilityHover: handleDungeonAbilityHover,
+  handleCancelDungeonTargeting: handleCancelDungeonTargeting,
   handleDungeonTonic: handleDungeonTonic,
   handleDungeonRecall: handleDungeonRecall,
   handleDungeonSurfaceExit: handleDungeonSurfaceExit,

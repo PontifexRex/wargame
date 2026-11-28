@@ -90,7 +90,10 @@ import {
 import {
   handlePlayerAction,
   executeClassSkill,
+  executeAbility,
   getSkillTargetingInfo,
+  getHeroAbilityBarState,
+  selectHeroActiveAbility,
   useStairsAtPlayer,
   waitTurn,
   startAutoWalkTo,
@@ -104,6 +107,9 @@ import {
   updateFOV,
   getCameraOrigin,
   setHoverTile,
+  setSkillHover,
+  setManualTargetingAbility,
+  getManualTargetingAbility,
   minimapPixelToGrid,
   spawnFloatingText,
   triggerCombatAnimation,
@@ -400,12 +406,47 @@ function syncIntegratedDungeonHud() {
 
   const skillEl = document.getElementById('wgDungeonSkillCard');
   if (skillEl) {
-    const statusBadgeColor = skillReady ? 'text-[#34d399]' : 'text-[#94a3b8]';
+    const abilities = getHeroAbilityBarState(gameState);
+    const manualId = getManualTargetingAbility();
+    const shieldBanner = (h.absorbShield || 0) > 0
+      ? '<div class="px-2 py-1 rounded bg-[#312e81]/40 border border-[#818cf8]/50 text-[10px] font-mono text-[#c7d2fe]">🛡️ Absorb Shield: <strong>' + h.absorbShield + '</strong></div>'
+      : '';
+    const pendingBanner = h.pendingCast
+      ? '<div class="px-2 py-1 rounded bg-[#7c2d12]/40 border border-[#fb923c]/60 text-[10px] font-mono text-[#fed7aa]">⏳ Channeling <strong>' + h.pendingCast.name + '</strong> (' + h.pendingCast.turnsLeft + 't)</div>'
+      : '';
+    const targetBanner = manualId
+      ? '<div class="flex items-center justify-between px-2 py-1 rounded bg-[#1e3a8a]/50 border border-[#fbbf24]/70 text-[10px] font-mono text-[#fef08a]"><span>🎯 Click tile/foe to cast</span><button onclick="window.WargameApp.handleCancelDungeonTargeting()" class="px-1.5 py-0.5 rounded bg-[#0f172a] text-[#e2e8f0] hover:bg-[#1e293b] cursor-pointer">Esc</button></div>'
+      : '';
+    const btnsHtml = abilities.map(function(ab) {
+      const isTargeting = manualId === ab.id;
+      const costText = ab.effectiveMp > 0
+        ? (ab.effectiveMp + ' MP' + (ab.chilledPenalty > 0 ? '❄' : ''))
+        : (ab.cooldown > 0 ? (ab.cooldown + 't CD') : 'Free');
+      const stateTag = ab.silenced
+        ? '<span class="text-[#e879f9]">SILENCED</span>'
+        : (ab.cooldownRemaining > 0
+          ? '<span class="text-[#f87171]">CD ' + ab.cooldownRemaining + 't</span>'
+          : (ab.canAfford ? '<span class="text-[#34d399]">READY</span>' : '<span class="text-[#f87171]">LOW MP</span>'));
+      const borderCls = isTargeting
+        ? 'border-[#fbbf24] bg-[#1e293b]'
+        : (ab.ready ? 'border-[#60a5fa]/40 bg-[#1a2232] hover:bg-[#283347]' : 'border-[#283347] bg-[#0f141e] opacity-75');
+      return '<button title="' + (ab.desc || '') + '" onmouseenter="window.WargameApp.handleDungeonAbilityHover(true, \'' + ab.id + '\')" onmouseleave="window.WargameApp.handleDungeonAbilityHover(false)" onclick="window.WargameApp.handleDungeonAbilityClick(\'' + ab.id + '\')" class="w-full px-2 py-1.5 rounded border text-left text-[11px] font-mono cursor-pointer transition-colors ' + borderCls + '">' +
+        '<div class="flex items-center justify-between gap-1">' +
+          '<span class="font-bold text-[#e6edf3] truncate">[' + ab.hotkey + '] ' + ab.icon + ' ' + ab.name + '</span>' +
+          '<span class="text-[10px] text-[#fbbf24] shrink-0">' + costText + '</span>' +
+        '</div>' +
+        '<div class="flex items-center justify-between text-[9px] text-[#94a3b8] mt-0.5">' +
+          '<span class="uppercase">' + ab.domain + ' • ' + ab.kind + (ab.timing === 'delayed' ? ' • 1t windup' : '') + '</span>' +
+          stateTag +
+        '</div>' +
+      '</button>';
+    }).join('');
+
     skillEl.innerHTML =
-      '<div class="flex items-center justify-between"><strong class="text-[#60a5fa]">' + skillName + '</strong><span class="text-[11px] text-[#fbbf24]">' + skillCost + ' MP • Rng ' + skillRange + '</span></div>' +
-      '<div class="text-[11px] text-[#94a3b8]">' + skillDesc + '</div>' +
-      '<div class="text-[10px] font-mono ' + statusBadgeColor + '">Status: ' + skillStatusText + '</div>' +
-      '<button onclick="window.WargameApp.handleDungeonSkill()" class="w-full py-1.5 rounded bg-[#1a2232] hover:bg-[#283347] border border-[#60a5fa]/40 text-xs font-mono font-bold text-[#60a5fa] cursor-pointer">⚡ Cast ' + skillName + ' [Q]</button>';
+      shieldBanner +
+      pendingBanner +
+      targetBanner +
+      '<div class="space-y-1.5 max-h-[210px] overflow-y-auto pr-0.5">' + btnsHtml + '</div>';
   }
 
   const logEl = document.getElementById('wgDungeonLog');
@@ -553,6 +594,16 @@ function wireIntegratedDungeonCallbacksOnce() {
         const cam = getCameraOrigin(floor, gameState.hero.x, gameState.hero.y);
         const gx = cam.camX + Math.floor(((e.clientX - rect.left) * scaleX) / TILE_SIZE);
         const gy = cam.camY + Math.floor(((e.clientY - rect.top) * scaleY) / TILE_SIZE);
+        const manualAbId = getManualTargetingAbility();
+        if (manualAbId) {
+          const castRes = executeAbility(manualAbId, { targetX: gx, targetY: gy }, gameState);
+          if (castRes && castRes.ok) {
+            setManualTargetingAbility(null);
+            setSkillHover(false);
+          }
+          syncIntegratedDungeonHud();
+          return;
+        }
         // Adjacent click acts immediately (move/attack/mine); distant explored click auto-walks
         const dx = gx - gameState.hero.x;
         const dy = gy - gameState.hero.y;
@@ -1780,7 +1831,47 @@ export function handleDungeonDropItem(itemUid) {
 
 export function handleDungeonSkill() {
   if (appContext.getActiveContext() !== APP_CONTEXTS.DUNGEON) return;
+  const abilities = getHeroAbilityBarState(gameState);
+  const first = abilities[0] || null;
+  if (first) {
+    handleDungeonAbilityClick(first.id);
+    return;
+  }
   executeClassSkill(gameState);
+  syncIntegratedDungeonHud();
+}
+
+export function handleDungeonAbilityHover(active, abilityId) {
+  if (appContext.getActiveContext() !== APP_CONTEXTS.DUNGEON) return;
+  setSkillHover(Boolean(active), abilityId || null);
+}
+
+export function handleCancelDungeonTargeting() {
+  setManualTargetingAbility(null);
+  setSkillHover(false);
+  syncIntegratedDungeonHud();
+}
+
+export function handleDungeonAbilityClick(abilityId) {
+  if (appContext.getActiveContext() !== APP_CONTEXTS.DUNGEON || !gameState || !gameState.hero) return;
+  selectHeroActiveAbility(abilityId, gameState);
+  const bar = getHeroAbilityBarState(gameState);
+  const entry = bar.find(function(a) { return a.id === abilityId; });
+  if (entry && entry.requiresManualTarget) {
+    if (getManualTargetingAbility() === abilityId) {
+      // Second click cancels targeting
+      setManualTargetingAbility(null);
+      setSkillHover(false);
+    } else {
+      setManualTargetingAbility(abilityId);
+      setSkillHover(true, abilityId);
+    }
+    syncIntegratedDungeonHud();
+    return;
+  }
+  setManualTargetingAbility(null);
+  setSkillHover(false);
+  executeAbility(abilityId, null, gameState);
   syncIntegratedDungeonHud();
 }
 
@@ -2071,6 +2162,16 @@ function setupWargameListeners() {
       } else if (e.key === 'q' || e.key === 'Q') {
         e.preventDefault();
         handleDungeonSkill();
+      } else if (e.key >= '1' && e.key <= '7') {
+        const slotIdx = parseInt(e.key, 10) - 1;
+        const bar = getHeroAbilityBarState(gameState);
+        if (bar[slotIdx]) {
+          e.preventDefault();
+          handleDungeonAbilityClick(bar[slotIdx].id);
+        }
+      } else if (e.key === 'Escape' && getManualTargetingAbility()) {
+        e.preventDefault();
+        handleCancelDungeonTargeting();
       } else if (e.key === 'h' || e.key === 'H') {
         e.preventDefault();
         handleDungeonTonic();
@@ -2270,6 +2371,9 @@ export const WargameApp = {
   handleDungeonAutoEquip: handleDungeonAutoEquip,
   handleDungeonDropItem: handleDungeonDropItem,
   handleDungeonSkill: handleDungeonSkill,
+  handleDungeonAbilityClick: handleDungeonAbilityClick,
+  handleDungeonAbilityHover: handleDungeonAbilityHover,
+  handleCancelDungeonTargeting: handleCancelDungeonTargeting,
   handleDungeonTonic: handleDungeonTonic,
   handleDungeonRecall: handleDungeonRecall,
   handleDungeonSurfaceExit: handleDungeonSurfaceExit,

@@ -160,6 +160,7 @@ export function computeHeroDerivedStats(hero, externalModifiers) {
   }
 
   // Active Status & Shrine Buffs
+  let heroGuarding = false;
   if (Array.isArray(hero.statuses)) {
     for (let i = 0; i < hero.statuses.length; i++) {
       const st = hero.statuses[i];
@@ -172,6 +173,12 @@ export function computeHeroDerivedStats(hero, externalModifiers) {
         visionBonus += 1;
       } else if (st.id === 'chilled') {
         flatDodge -= 15;
+      } else if (st.id === 'slow') {
+        flatDodge -= 10;
+      } else if (st.id === 'ward_buff') {
+        flatWard += 4;
+      } else if (st.id === 'guarding') {
+        heroGuarding = true;
       }
     }
   }
@@ -203,7 +210,8 @@ export function computeHeroDerivedStats(hero, externalModifiers) {
 
   const atk = Math.round(primaryOffensive + flatAtk);
   const magicPower = Math.round(magicBase + flatMagic);
-  const def = Math.round(vit * 0.45) + flatDef;
+  const baseDef = Math.round(vit * 0.45) + flatDef;
+  const def = heroGuarding ? Math.round(baseDef * 1.6) : baseDef;
   const crit = Math.min(75, Math.round(5 + (dex * 0.45) + flatCrit));
   const dodge = Math.max(0, Math.min(60, Math.round(4 + (dex * 0.35) + flatDodge)));
   const visionRadius = (cls.vision || 5) + visionBonus;

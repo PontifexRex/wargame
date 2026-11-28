@@ -25,7 +25,7 @@ import { SHRINE_CATALOG, TRAP_CATALOG } from '../data/gems.js';
 import { BIOME_PALETTES, resolveFloorBiome } from '../data/dungeons.js';
 import { gameState, ensureDungeonFloorHydrated } from '../engine/state.js';
 import { detectNearbyTraps } from '../engine/actions.js';
-import { hasLineOfSight, getAutoWalkPath, getSkillTargetingInfo } from '../engine/combat.js';
+import { hasLineOfSight, getAutoWalkPath, getSkillTargetingInfo, getAbilityTargetingInfo } from '../engine/combat.js';
 
 export { hasLineOfSight };
 
@@ -33,15 +33,26 @@ const floatingTexts = [];
 let hoverTile = null;
 let visibleCoordMap = {};
 let skillHoverActive = false;
+let skillHoverAbilityId = null;
+let manualTargetingAbilityId = null;
 const combatAnimations = [];
 let heroLungeOffset = { x: 0, y: 0, ticks: 0 };
 
-export function setSkillHover(active) {
+export function setSkillHover(active, abilityId) {
   skillHoverActive = !!active;
+  skillHoverAbilityId = active && abilityId ? abilityId : null;
 }
 
 export function getSkillHover() {
   return skillHoverActive;
+}
+
+export function setManualTargetingAbility(abilityId) {
+  manualTargetingAbilityId = abilityId || null;
+}
+
+export function getManualTargetingAbility() {
+  return manualTargetingAbilityId;
 }
 
 export function triggerCombatAnimation(gx, gy, type = 'slash', color = '#f87171') {
@@ -2251,30 +2262,116 @@ export function renderDungeonCanvas() {
     }
   }
 
+  // Draw Persistent Ground Areas (e.g. Sanctuary)
+  if (Array.isArray(floor.persistentAreas) && floor.persistentAreas.length > 0) {
+    for (let aIdx = 0; aIdx < floor.persistentAreas.length; aIdx++) {
+      const area = floor.persistentAreas[aIdx];
+      if (!area || !Array.isArray(area.tiles)) continue;
+      for (let tIdx = 0; tIdx < area.tiles.length; tIdx++) {
+        const pt = area.tiles[tIdx];
+        const avx = pt.x - camX;
+        const avy = pt.y - camY;
+        if (avx >= 0 && avx < VIEWPORT_WIDTH && avy >= 0 && avy < VIEWPORT_HEIGHT) {
+          const apx = avx * TILE_SIZE;
+          const apy = avy * TILE_SIZE;
+          ctx.fillStyle = 'rgba(251, 191, 36, 0.18)';
+          ctx.fillRect(apx + 1, apy + 1, TILE_SIZE - 2, TILE_SIZE - 2);
+          ctx.strokeStyle = area.color || '#fbbf24';
+          ctx.lineWidth = 1.2;
+          ctx.strokeRect(apx + 2, apy + 2, TILE_SIZE - 4, TILE_SIZE - 4);
+        }
+      }
+    }
+  }
+
+  // Draw Hero Pending Delayed Cast Target Zone (e.g. Fireball windup)
+  const heroPending = gameState.hero && gameState.hero.pendingCast;
+  if (heroPending && Array.isArray(heroPending.tiles)) {
+    for (let pIdx = 0; pIdx < heroPending.tiles.length; pIdx++) {
+      const pt = heroPending.tiles[pIdx];
+      const pvx = pt.x - camX;
+      const pvy = pt.y - camY;
+      if (pvx >= 0 && pvx < VIEWPORT_WIDTH && pvy >= 0 && pvy < VIEWPORT_HEIGHT) {
+        const ppx = pvx * TILE_SIZE;
+        const ppy = pvy * TILE_SIZE;
+        ctx.fillStyle = 'rgba(251, 146, 60, 0.25)';
+        ctx.fillRect(ppx + 2, ppy + 2, TILE_SIZE - 4, TILE_SIZE - 4);
+        ctx.strokeStyle = heroPending.color || '#fb923c';
+        ctx.lineWidth = 1.5;
+        ctx.strokeRect(ppx + 2, ppy + 2, TILE_SIZE - 4, TILE_SIZE - 4);
+      }
+    }
+  }
+
   // Draw Player Sprite relative to Camera Origin (incorporating lunge displacement)
   const lx = heroLungeOffset.ticks > 0 ? heroLungeOffset.x * (heroLungeOffset.ticks / 6) : 0;
   const ly = heroLungeOffset.ticks > 0 ? heroLungeOffset.y * (heroLungeOffset.ticks / 6) : 0;
-  drawHeroSprite(ctx, (hx - camX) * TILE_SIZE + lx, (hy - camY) * TILE_SIZE + ly, gameState.hero.classId, TILE_SIZE);
+  const heroDrawX = (hx - camX) * TILE_SIZE + lx;
+  const heroDrawY = (hy - camY) * TILE_SIZE + ly;
+  drawHeroSprite(ctx, heroDrawX, heroDrawY, gameState.hero.classId, TILE_SIZE);
   if (heroLungeOffset.ticks > 0) heroLungeOffset.ticks--;
 
-  // Draw Tactical Skill Range & Target Preview (if skill hovered / targeting active)
-  if (skillHoverActive) {
-    const targeting = getSkillTargetingInfo(gameState);
-    if (targeting && targeting.reachRadius > 0) {
+  // Hero Absorb Shield Aura Ring
+  if (gameState.hero && (gameState.hero.absorbShield || 0) > 0) {
+    ctx.strokeStyle = 'rgba(129, 140, 248, 0.85)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(heroDrawX + 16, heroDrawY + 16, 15, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  // Hero Casting Channel Ring
+  if (heroPending) {
+    ctx.strokeStyle = heroPending.color || '#fbbf24';
+    ctx.lineWidth = 2;
+    if (typeof ctx.setLineDash === 'function') ctx.setLineDash([3, 3]);
+    ctx.beginPath();
+    ctx.arc(heroDrawX + 16, heroDrawY + 16, 17, 0, Math.PI * 2);
+    ctx.stroke();
+    if (typeof ctx.setLineDash === 'function') ctx.setLineDash([]);
+  }
+
+  // Draw Tactical Skill Range & Target Preview (if skill hovered OR manual targeting active)
+  const previewAbilityId = manualTargetingAbilityId || (skillHoverActive ? skillHoverAbilityId : null);
+  if (skillHoverActive || manualTargetingAbilityId) {
+    const targetOverride = (manualTargetingAbilityId && hoverTile)
+      ? { targetX: hoverTile.x, targetY: hoverTile.y }
+      : null;
+    const targeting = previewAbilityId
+      ? getAbilityTargetingInfo(previewAbilityId, gameState, targetOverride)
+      : getSkillTargetingInfo(gameState);
+    if (targeting && (targeting.reachRadius > 0 || (targeting.targetTiles && targeting.targetTiles.length > 0))) {
       const pCenterX = (hx - camX) * TILE_SIZE + 16;
       const pCenterY = (hy - camY) * TILE_SIZE + 16;
-      const reachPx = targeting.reachRadius * TILE_SIZE;
+      const reachPx = Math.max(1, targeting.reachRadius || 0) * TILE_SIZE;
 
       // Circular reach boundary
-      ctx.strokeStyle = targeting.canAfford ? 'rgba(96, 165, 250, 0.75)' : 'rgba(239, 68, 68, 0.65)';
-      ctx.lineWidth = 1.5;
-      if (typeof ctx.setLineDash === 'function') ctx.setLineDash([4, 4]);
-      ctx.beginPath();
-      ctx.arc(pCenterX, pCenterY, reachPx, 0, Math.PI * 2);
-      ctx.fillStyle = targeting.canAfford ? 'rgba(96, 165, 250, 0.08)' : 'rgba(239, 68, 68, 0.06)';
-      ctx.fill();
-      ctx.stroke();
-      if (typeof ctx.setLineDash === 'function') ctx.setLineDash([]);
+      if (targeting.reachRadius > 0) {
+        ctx.strokeStyle = targeting.canAfford ? 'rgba(96, 165, 250, 0.75)' : 'rgba(239, 68, 68, 0.65)';
+        ctx.lineWidth = 1.5;
+        if (typeof ctx.setLineDash === 'function') ctx.setLineDash([4, 4]);
+        ctx.beginPath();
+        ctx.arc(pCenterX, pCenterY, reachPx, 0, Math.PI * 2);
+        ctx.fillStyle = targeting.canAfford ? 'rgba(96, 165, 250, 0.08)' : 'rgba(239, 68, 68, 0.06)';
+        ctx.fill();
+        ctx.stroke();
+        if (typeof ctx.setLineDash === 'function') ctx.setLineDash([]);
+      }
+
+      // Highlight pattern tiles (AoE radius, line, cone, location)
+      if (Array.isArray(targeting.targetTiles) && targeting.targetTiles.length > 0 && (manualTargetingAbilityId || targeting.pattern === 'radius' || targeting.pattern === 'line' || targeting.pattern === 'cone')) {
+        for (let tt = 0; tt < targeting.targetTiles.length; tt++) {
+          const pt = targeting.targetTiles[tt];
+          const tvx = pt.x - camX;
+          const tvy = pt.y - camY;
+          if (tvx >= 0 && tvx < VIEWPORT_WIDTH && tvy >= 0 && tvy < VIEWPORT_HEIGHT) {
+            ctx.fillStyle = targeting.valid ? 'rgba(251, 191, 36, 0.22)' : 'rgba(239, 68, 68, 0.16)';
+            ctx.fillRect(tvx * TILE_SIZE + 2, tvy * TILE_SIZE + 2, TILE_SIZE - 4, TILE_SIZE - 4);
+            ctx.strokeStyle = targeting.valid ? 'rgba(251, 191, 36, 0.85)' : 'rgba(239, 68, 68, 0.65)';
+            ctx.lineWidth = 1.2;
+            ctx.strokeRect(tvx * TILE_SIZE + 2, tvy * TILE_SIZE + 2, TILE_SIZE - 4, TILE_SIZE - 4);
+          }
+        }
+      }
 
       // Tactical reticles over eligible targets
       for (let tIdx = 0; tIdx < targeting.targets.length; tIdx++) {
@@ -2364,11 +2461,37 @@ export function renderDungeonCanvas() {
         ctx.moveTo(cpx - radius * 0.7, cpy - radius * 0.7); ctx.lineTo(cpx + radius * 0.7, cpy + radius * 0.7);
         ctx.moveTo(cpx + radius * 0.7, cpy - radius * 0.7); ctx.lineTo(cpx - radius * 0.7, cpy + radius * 0.7);
         ctx.stroke();
-      } else if (anim.type === 'spell') {
+      } else if (anim.type === 'spell' || anim.type === 'wave') {
         ctx.strokeStyle = anim.color || '#60a5fa';
         ctx.lineWidth = Math.max(1, 3 - prog * 2);
         ctx.beginPath();
-        ctx.arc(cpx, cpy, 4 + prog * 18, 0, Math.PI * 2);
+        ctx.arc(cpx, cpy, 4 + prog * (anim.type === 'wave' ? 28 : 18), 0, Math.PI * 2);
+        ctx.stroke();
+      } else if (anim.type === 'shield' || anim.type === 'cast_ring') {
+        ctx.strokeStyle = anim.color || '#818cf8';
+        ctx.lineWidth = 2.2;
+        ctx.beginPath();
+        ctx.arc(cpx, cpy, 10 + Math.sin(prog * Math.PI) * 6, 0, Math.PI * 2);
+        ctx.stroke();
+      } else if (anim.type === 'teleport') {
+        ctx.strokeStyle = anim.color || '#c084fc';
+        ctx.lineWidth = Math.max(1, 3 - prog * 2.5);
+        ctx.strokeRect(cpx - 12 * (1 - prog * 0.5), cpy - 12 * (1 - prog * 0.5), 24 * (1 - prog * 0.5), 24 * (1 - prog * 0.5));
+      } else if (anim.type === 'beam') {
+        ctx.strokeStyle = anim.color || '#a78bfa';
+        ctx.lineWidth = Math.max(1, 4 - prog * 3);
+        ctx.beginPath();
+        ctx.moveTo(cpx - 14, cpy);
+        ctx.lineTo(cpx + 14, cpy);
+        ctx.moveTo(cpx, cpy - 14);
+        ctx.lineTo(cpx, cpy + 14);
+        ctx.stroke();
+      } else if (anim.type === 'interrupt') {
+        ctx.strokeStyle = anim.color || '#f87171';
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.moveTo(cpx - 10, cpy - 10); ctx.lineTo(cpx + 10, cpy + 10);
+        ctx.moveTo(cpx + 10, cpy - 10); ctx.lineTo(cpx - 10, cpy + 10);
         ctx.stroke();
       } else if (anim.type === 'projectile') {
         ctx.fillStyle = anim.color || '#f87171';

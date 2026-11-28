@@ -135,7 +135,12 @@ import {
 } from '../engine/interactions.js';
 import {
   executeClassSkill,
+  executeAbility,
   getSkillTargetingInfo,
+  getAbilityTargetingInfo,
+  getHeroAbilityBarState,
+  triggerReactiveAbilities,
+  processTurn,
   hasLineOfSight,
   computeSafeExploredPath,
   setAutoWalkPath,
@@ -148,6 +153,13 @@ import {
   useStairsAtPlayer,
   runCorridor
 } from '../engine/combat.js';
+import {
+  grantAbilityAccess,
+  revokeAbilityAccess,
+  hasAbilityAccess,
+  getAbilityCooldownRemaining,
+  resetActorAbilityCooldowns
+} from '../core/abilityEngine.js';
 
 export function evaluateSelfTests() {
   const results = [];
@@ -2159,6 +2171,189 @@ export function evaluateSelfTests() {
     detail: t35Pass
       ? 'Standalone Roguelike archetype differentiation, class-aware auto-equip & legacy item normalization verified'
       : 'Failed IS-01 standalone Roguelike checks'
+  });
+
+  // 36. MG-01A: Shared Spell & Skill Foundation (Access, Costs, Targeting, Effects, Delayed Casts, Shields & Defect Fixes)
+  const sb36 = createDefaultGameState();
+  selectAdventurerClass('mage', sb36);
+  sb36.inGuild = false;
+  const fl36 = ensureDungeonFloorHydrated(sb36.dungeon, 1);
+  sb36.hero.x = 10;
+  sb36.hero.y = 10;
+  sb36.hero.mp = 80;
+  for (let y36 = 7; y36 <= 13; y36++) {
+    for (let x36 = 7; x36 <= 15; x36++) {
+      if (fl36.tiles[y36] && fl36.tiles[y36][x36] !== undefined) fl36.tiles[y36][x36] = TILE_FLOOR;
+    }
+  }
+  fl36.tiles[10][14] = TILE_WALL; // Wall for knockback collision test
+  fl36.tiles[13][10] = TILE_TRAP_HIDDEN; // Hidden trap at distance 3 (outside passive detection) for detect_magic test
+  fl36.persistentAreas = [];
+
+  // A. Multi-source independent access grants (removing item grant never revokes class grant)
+  grantAbilityAccess(sb36.hero, 'fireball', 'item');
+  const revItem36 = revokeAbilityAccess(sb36.hero, 'fireball', 'item');
+  const multiSourceOk36 = Boolean(revItem36.ok && revItem36.stillGranted && hasAbilityAccess(sb36.hero, 'fireball'));
+  grantAbilityAccess(sb36.hero, 'purification', 'learned');
+  const learnedGrantOk36 = hasAbilityAccess(sb36.hero, 'purification');
+
+  // B. Defect Fix: Astral Focus Staff (+magicPower) scales Mage Arcane Missile & Starfall Nova damage
+  const targetM36a = { id: 'vault_crawler', name: 'Test Crawler', x: 11, y: 10, hp: 200, maxHp: 200, atk: 5, def: 4, statuses: [] };
+  const targetM36b = { id: 'vault_crawler', name: 'Test Crawler 2', x: 11, y: 10, hp: 200, maxHp: 200, atk: 5, def: 4, statuses: [] };
+  fl36.monsters = [targetM36a];
+  const baseMissile36 = executeAbility('arcane_missile', { targetX: 11, targetY: 10 }, sb36);
+  const focusStaff36 = generateProceduralEquipment(6, 'rare', 'weapon', 0, 'wep_staff');
+  focusStaff36.magicPower = (focusStaff36.magicPower || 0) + 18;
+  sb36.hero.equipment.weapon = focusStaff36;
+  recomputeHeroDerivedStats(false, sb36);
+  fl36.monsters = [targetM36b];
+  const staffMissile36 = executeAbility('arcane_missile', { targetX: 11, targetY: 10 }, sb36);
+  const magicScalingOk36 = Boolean(baseMissile36.ok && staffMissile36.ok && staffMissile36.dmg > baseMissile36.dmg);
+
+  // C. Delayed Cast (Fireball): windup commits pendingCast, resolves on next turn, interruptible by Stun
+  const fbTarget36 = { id: 'vault_crawler', name: 'FB Dummy', x: 12, y: 10, hp: 200, maxHp: 200, atk: 1, def: 2, statuses: [] };
+  fl36.monsters = [fbTarget36];
+  sb36.hero.mp = 80;
+  const fbStart36 = executeAbility('fireball', { targetX: 12, targetY: 10 }, sb36);
+  const fbPendingOk36 = Boolean(fbStart36.ok && fbStart36.delayed && sb36.hero.pendingCast && sb36.hero.pendingCast.abilityId === 'fireball');
+  processTurn(sb36);
+  const fbResolvedOk36 = Boolean(!sb36.hero.pendingCast && fbTarget36.hp < 200 && fbTarget36.statuses.some(function(s) { return s.id === 'burn'; }));
+
+  // Interrupt delayed cast with Stun
+  resetActorAbilityCooldowns(sb36.hero);
+  sb36.hero.mp = 80;
+  fbTarget36.x = 12;
+  fbTarget36.y = 10;
+  fbTarget36.statuses = [];
+  const hpBeforeInt36 = fbTarget36.hp;
+  executeAbility('fireball', { targetX: 12, targetY: 10 }, sb36);
+  applyStatusEffect(sb36.hero, 'stun', 1);
+  processTurn(sb36);
+  const fbInterruptedOk36 = Boolean(!sb36.hero.pendingCast && fbTarget36.hp === hpBeforeInt36);
+
+  // D. Silence blocks arcane spells while allowing martial techniques + zero wasted MP
+  grantAbilityAccess(sb36.hero, 'power_strike', 'temporary');
+  applyStatusEffect(sb36.hero, 'silence', 2);
+  const mpBeforeSil36 = sb36.hero.mp;
+  fbTarget36.x = 11;
+  fbTarget36.y = 10;
+  fbTarget36.hp = 150;
+  const silSpell36 = executeAbility('arcane_missile', { targetX: 11, targetY: 10 }, sb36);
+  const silMartial36 = executeAbility('power_strike', { targetX: 11, targetY: 10 }, sb36);
+  const silenceGateOk36 = Boolean(
+    !silSpell36.ok && silSpell36.reason === 'silenced' && sb36.hero.mp === mpBeforeSil36 &&
+    silMartial36.ok && getAbilityCooldownRemaining(sb36.hero, 'power_strike') === 2
+  );
+
+  // E. Cleansing (Purification) removes negative statuses; Absorb Shield (Arcane Ward) absorbs incoming damage
+  sb36.hero.statuses = [];
+  applyStatusEffect(sb36.hero, 'burn', 3);
+  applyStatusEffect(sb36.hero, 'slow', 3);
+  const cleanseRes36 = executeAbility('purification', null, sb36);
+  const cleanseOk36 = Boolean(cleanseRes36.ok && cleanseRes36.cleansedCount === 2 && sb36.hero.statuses.length === 0);
+
+  const wardRes36 = executeAbility('arcane_ward', null, sb36);
+  const shieldBeforeHit36 = sb36.hero.absorbShield;
+  const hpBeforeHit36 = sb36.hero.hp;
+  const origRand36 = Math.random;
+  Math.random = function() { return 0.99; };
+  try {
+    monsterAttackHero({ id: 'vault_crawler', name: 'Test Striker', atk: 12, def: 2, statuses: [] }, false, sb36);
+  } finally {
+    Math.random = origRand36;
+  }
+  const shieldAbsorbOk36 = Boolean(wardRes36.ok && shieldBeforeHit36 > 0 && sb36.hero.absorbShield < shieldBeforeHit36 && sb36.hero.hp === hpBeforeHit36);
+
+  // F. Teleport (Blink) & Detection (Detect Magic)
+  fl36.tiles[13][10] = TILE_TRAP_HIDDEN;
+  const detectRes36 = executeAbility('detect_magic', null, sb36);
+  const detectOk36 = Boolean(detectRes36.ok && detectRes36.revealedCount >= 1 && fl36.tiles[13][10] === TILE_TRAP_VISIBLE);
+  const blinkRes36 = executeAbility('blink', { targetX: 12, targetY: 11 }, sb36);
+  const blinkOk36 = Boolean(blinkRes36.ok && sb36.hero.x === 12 && sb36.hero.y === 11);
+
+  // G. Persistent Area (Sanctuary) + Physical Guarding Defect Fix + Knockback Wall Slam (Overpower) + Reactive Hook
+  selectAdventurerClass('cleric', sb36);
+  sb36.inGuild = false;
+  const fl36c = ensureDungeonFloorHydrated(sb36.dungeon, 1);
+  for (let y36c = 8; y36c <= 12; y36c++) {
+    for (let x36c = 8; x36c <= 14; x36c++) {
+      if (fl36c.tiles[y36c] && fl36c.tiles[y36c][x36c] !== undefined) fl36c.tiles[y36c][x36c] = TILE_FLOOR;
+    }
+  }
+  sb36.hero.x = 10;
+  sb36.hero.y = 10;
+  sb36.hero.hp = Math.max(10, sb36.hero.maxHp - 30);
+  sb36.hero.mp = 60;
+  fl36c.monsters = [];
+  fl36c.persistentAreas = [];
+  const sancRes36 = executeAbility('sanctuary', { targetX: 10, targetY: 10 }, sb36);
+  const hpBeforeSancTick = sb36.hero.hp;
+  processTurn(sb36);
+  const sanctuaryOk36 = Boolean(sancRes36.ok && fl36c.persistentAreas.length === 1 && sb36.hero.hp > hpBeforeSancTick);
+
+  selectAdventurerClass('fighter', sb36);
+  sb36.inGuild = false;
+  const fl36f = ensureDungeonFloorHydrated(sb36.dungeon, 1);
+  for (let y36f = 8; y36f <= 12; y36f++) {
+    for (let x36f = 10; x36f <= 15; x36f++) {
+      if (fl36f.tiles[y36f] && fl36f.tiles[y36f][x36f] !== undefined) fl36f.tiles[y36f][x36f] = TILE_FLOOR;
+    }
+  }
+  fl36f.tiles[10][14] = TILE_WALL;
+  sb36.hero.x = 12;
+  sb36.hero.y = 10;
+  const wardenUnguarded = { id: 'bone_warden', name: 'Bone Warden', x: 13, y: 10, hp: 200, maxHp: 200, def: 12, statuses: [] };
+  const wardenGuarded = { id: 'bone_warden', name: 'Bone Warden', x: 13, y: 10, hp: 200, maxHp: 200, def: 12, statuses: [{ id: 'guarding', duration: 2, isBuff: true }] };
+  fl36f.monsters = [wardenUnguarded];
+  const psUnguarded = executeAbility('power_strike', { targetX: 13, targetY: 10 }, sb36);
+  resetActorAbilityCooldowns(sb36.hero);
+  fl36f.monsters = [wardenGuarded];
+  const psGuarded = executeAbility('power_strike', { targetX: 13, targetY: 10 }, sb36);
+  const opRes36 = executeAbility('overpower', { targetX: 13, targetY: 10 }, sb36);
+  const guardingAndKnockbackOk36 = Boolean(
+    psUnguarded.ok && psGuarded.ok && psGuarded.dmg < psUnguarded.dmg &&
+    opRes36.ok && opRes36.knockbackCollided && wardenGuarded.statuses.some(function(s) { return s.id === 'stun'; })
+  );
+
+  // Reactive Second Wind hook when low HP
+  sb36.hero.hp = Math.max(1, Math.floor(sb36.hero.maxHp * 0.2));
+  const preReactHp = sb36.hero.hp;
+  const reactRes36 = triggerReactiveAbilities(sb36.hero, 'on_hero_low_hp', sb36);
+  const reactiveOk36 = Boolean(reactRes36.length === 1 && sb36.hero.hp > preReactHp && sb36.hero.absorbShield > 0);
+
+  // H. Save/Load Round-Trip for abilityGrants, abilityCooldowns & absorbShield
+  const migrated36 = migrateSaveData(JSON.stringify(sb36));
+  const saveLoadOk36 = Boolean(
+    migrated36 && migrated36.hero &&
+    migrated36.hero.absorbShield === sb36.hero.absorbShield &&
+    migrated36.hero.abilityCooldowns && migrated36.hero.abilityCooldowns.overpower === getAbilityCooldownRemaining(sb36.hero, 'overpower')
+  );
+
+  const t36Checks = {
+    multiSourceOk: multiSourceOk36,
+    learnedGrantOk: learnedGrantOk36,
+    magicScalingOk: magicScalingOk36,
+    fbPendingOk: fbPendingOk36,
+    fbResolvedOk: fbResolvedOk36,
+    fbInterruptedOk: fbInterruptedOk36,
+    silenceGateOk: silenceGateOk36,
+    cleanseOk: cleanseOk36,
+    shieldAbsorbOk: shieldAbsorbOk36,
+    detectOk: detectOk36,
+    blinkOk: blinkOk36,
+    sanctuaryOk: sanctuaryOk36,
+    guardingAndKnockbackOk: guardingAndKnockbackOk36,
+    reactiveOk: reactiveOk36,
+    saveLoadOk: saveLoadOk36
+  };
+  const failed36 = Object.keys(t36Checks).filter(function(k) { return !t36Checks[k]; });
+  const t36Pass = failed36.length === 0;
+  results.push({
+    name: '36. MG-01A: Shared Spell & Skill Foundation (Access, Costs, Targeting, Effects, Delayed Casts & Fixes)',
+    pass: t36Pass,
+    detail: t36Pass
+      ? 'Multi-source grants, magicPower scaling, Fireball windup/interrupt, Silence/Cleanse, Absorb Shield, Blink, Detect Magic, Sanctuary, Guarding, Knockback & save persistence verified'
+      : 'Failed checks: ' + failed36.join(', ')
   });
 
   return results;

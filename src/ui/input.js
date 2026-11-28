@@ -20,6 +20,9 @@ import { useHealingTonic, useRecallScroll } from '../engine/actions.js';
 import {
   handlePlayerAction,
   executeClassSkill,
+  executeAbility,
+  getHeroAbilityBarState,
+  selectHeroActiveAbility,
   useStairsAtPlayer,
   waitTurn,
   startAutoWalkTo,
@@ -32,7 +35,9 @@ import {
   getCameraOrigin,
   minimapPixelToGrid,
   hasLineOfSight,
-  setSkillHover
+  setSkillHover,
+  setManualTargetingAbility,
+  getManualTargetingAbility
 } from './renderer.js';
 import {
   toggleFullMapModal,
@@ -175,6 +180,11 @@ export function setupInputs(isActiveFn) {
     }
 
     if (e.code === 'Escape') {
+      if (getManualTargetingAbility()) {
+        setManualTargetingAbility(null);
+        setSkillHover(false);
+        return;
+      }
       if (isDevConsoleOpen()) {
         closeDevConsole();
         return;
@@ -277,6 +287,22 @@ export function setupInputs(isActiveFn) {
         setSkillHover(true);
         setTimeout(function() { setSkillHover(false); }, 1200);
       }
+    } else if (e.key >= '1' && e.key <= '7') {
+      const slotIdx = parseInt(e.key, 10) - 1;
+      const bar = getHeroAbilityBarState(gameState);
+      if (bar[slotIdx]) {
+        e.preventDefault();
+        const ab = bar[slotIdx];
+        selectHeroActiveAbility(ab.id, gameState);
+        if (ab.requiresManualTarget) {
+          setManualTargetingAbility(ab.id);
+          setSkillHover(true, ab.id);
+        } else {
+          setManualTargetingAbility(null);
+          setSkillHover(false);
+          executeAbility(ab.id, null, gameState);
+        }
+      }
     } else if (e.code === 'KeyH') {
       e.preventDefault();
       useHealingTonic();
@@ -328,6 +354,15 @@ export function setupInputs(isActiveFn) {
 
       const gx = cam.camX + vx;
       const gy = cam.camY + vy;
+      const manualAbId = getManualTargetingAbility();
+      if (manualAbId) {
+        const castRes = executeAbility(manualAbId, { targetX: gx, targetY: gy }, gameState);
+        if (castRes && castRes.ok) {
+          setManualTargetingAbility(null);
+          setSkillHover(false);
+        }
+        return;
+      }
       const dx = gx - gameState.hero.x;
       const dy = gy - gameState.hero.y;
 

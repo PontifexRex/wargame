@@ -12,6 +12,7 @@ import {
 } from '../data/classes.js';
 import { normalizeHeroBonusStats } from './heroStats.js';
 import { normalizeHeroKnowledge } from './knowledge.js';
+import { normalizeActorAbilityState } from './abilityEngine.js';
 import {
   normalizeEquipmentSockets,
   recomputeHeroDerivedStats
@@ -58,7 +59,7 @@ export function createDungeonHeroForClass(classId, canonicalHero, ownerPlayerId)
     }
   }
 
-  return {
+  const created = {
     id: (canonicalHero && canonicalHero.id) || 'hero_1',
     ownerPlayerId: (canonicalHero && canonicalHero.ownerPlayerId) || ownerPlayerId,
     classId: cls.id,
@@ -92,8 +93,15 @@ export function createDungeonHeroForClass(classId, canonicalHero, ownerPlayerId)
     statuses: [],
     usedDivineIntervention: false,
     skillCooldown: 0,
+    abilityGrants: (canonicalHero && canonicalHero.abilityGrants) ? JSON.parse(JSON.stringify(canonicalHero.abilityGrants)) : null,
+    abilityCooldowns: (canonicalHero && canonicalHero.abilityCooldowns) ? Object.assign({}, canonicalHero.abilityCooldowns) : {},
+    activeAbilityId: (canonicalHero && canonicalHero.activeAbilityId) || null,
+    absorbShield: (canonicalHero && typeof canonicalHero.absorbShield === 'number') ? Math.max(0, canonicalHero.absorbShield) : 0,
+    pendingCast: null,
     godMode: false
   };
+  normalizeActorAbilityState(created);
+  return created;
 }
 
 export function bindCanonicalHeroToDungeonState(simHost, dungeonState, entryInfo) {
@@ -167,6 +175,10 @@ export function bindCanonicalHeroToDungeonState(simHost, dungeonState, entryInfo
     if (canonicalHero.talentsAllocated && typeof canonicalHero.talentsAllocated === 'object') {
       dungeonState.hero.talentsAllocated = Object.assign({}, canonicalHero.talentsAllocated);
     }
+    if (canonicalHero.abilityGrants && typeof canonicalHero.abilityGrants === 'object') {
+      dungeonState.hero.abilityGrants = JSON.parse(JSON.stringify(canonicalHero.abilityGrants));
+    }
+    normalizeActorAbilityState(dungeonState.hero);
   }
 
   // Sync city provisions into hero consumables if city has provisions

@@ -199,6 +199,23 @@ import {
   handleDevSetCurrencyAction,
   handleDevSetConfigAction
 } from '../ui/devPortal.js';
+import {
+  executeAbility,
+  getHeroAbilityBarState,
+  getAbilityTargetingInfo
+} from '../../engine/combat.js';
+import {
+  grantAbilityAccess,
+  revokeAbilityAccess,
+  hasAbilityAccess,
+  getAbilityCooldownRemaining
+} from '../../core/abilityEngine.js';
+import {
+  setSkillHover,
+  getSkillHover,
+  setManualTargetingAbility,
+  getManualTargetingAbility
+} from '../../ui/renderer.js';
 
 export function evaluateWargameSelfTests() {
   const results = [];
@@ -6732,6 +6749,99 @@ export function evaluateWargameSelfTests() {
     detail: t58Pass
       ? 'Deterministic recipe preview parity, pickaxe reject, Vault/Carried/Equipped in-place tempering, away-hero guard & Blacksmith UI wiring verified'
       : 'Failed checks: ' + failed58.join(', ')
+  });
+
+  // =========================================================================
+  // Test 59: MG-01A Integrated Dungeon Ability Bar, Manual Targeting & Dev Console Controls
+  // =========================================================================
+  const host59 = createWargameSimHost();
+  host59.dispatch({ type: COMMAND_TYPES.START_NEW_CAMPAIGN, payload: { houseName: 'House Arcana', worldName: 'Starfall', seedCode: 'MG01A-59', simSpeed: 1 } });
+  const settler59 = getSelectedOverworldUnit(host59.state);
+  host59.dispatch({ type: COMMAND_TYPES.FOUND_CITY, payload: { unitId: settler59.id, cityName: 'Arcana Keep' } });
+  const city59 = getPrimaryCity(host59.state);
+  city59.stockpile.gold = 2000;
+  city59.stockpile.food = 800;
+  city59.stockpile.timber = 500;
+  city59.stockpile.stone = 500;
+  city59.level = 2;
+  city59.buildings.meeting_hall = 2;
+  city59.buildings.adventurers_guild = 1;
+  city59.buildings.mages_guild = 1;
+  host59.dispatch({ type: COMMAND_TYPES.RECRUIT_HERO, payload: { classId: 'mage', heroName: 'Lyra' } });
+  host59.stepClock(80000);
+
+  const mage59 = (host59.state.world.heroes || []).find(function(h) { return h && h.classId === 'mage'; }) || host59.state.world.heroes[0];
+  const dngState59 = createDefaultGameState();
+  host59.attachDungeonState(dngState59);
+  const unit59 = mage59
+    ? (host59.state.world.overworld.units || []).find(function(u) { return u && u.alive && u.leaderHeroId === mage59.id; })
+    : null;
+  const poi59 = (host59.state.world.overworld.pois || []).find(function(p) { return p && p.type === 'dungeon_entrance'; });
+  host59.state.world.overworld.militaryTargets = [];
+  if (poi59) poi59.discovered = true;
+  const appCtx59 = createAppContextController({ simHost: host59, dungeonState: dngState59 });
+  if (unit59 && poi59) {
+    unit59.x = poi59.x;
+    unit59.y = poi59.y;
+  }
+  const enter59 = unit59 ? appCtx59.enterDungeon({ unitId: unit59.id, poiId: poi59 ? poi59.id : null }) : { ok: false };
+
+  // 1. Multi-ability bar exposes all representative Mage abilities with hotkeys & manual-target flags
+  const bar59 = getHeroAbilityBarState(dngState59);
+  const barOk59 = Boolean(
+    enter59.ok &&
+    bar59.length >= 6 &&
+    bar59.some(function(a) { return a.id === 'arcane_missile' && a.requiresManualTarget; }) &&
+    bar59.some(function(a) { return a.id === 'fireball' && a.timing === 'delayed'; }) &&
+    bar59.some(function(a) { return a.id === 'arcane_ward' && !a.requiresManualTarget; }) &&
+    bar59.some(function(a) { return a.id === 'blink' && a.requiresManualTarget; }) &&
+    bar59.some(function(a) { return a.id === 'detect_magic' && a.effectiveMp === 0; })
+  );
+
+  // 2. Hover & Manual Targeting state toggles cleanly in Integrated Dungeon context
+  setSkillHover(true, 'fireball');
+  setManualTargetingAbility('fireball');
+  const tgtInfo59 = getAbilityTargetingInfo('fireball', dngState59, { targetX: dngState59.hero.x, targetY: dngState59.hero.y });
+  const hoverTargetOk59 = Boolean(getSkillHover() && getManualTargetingAbility() === 'fireball' && tgtInfo59.targetTiles.length >= 1);
+  setManualTargetingAbility(null);
+  setSkillHover(false);
+
+  // 3. Developer Control Panel ability grant/revoke, reset cooldowns, test status & inspector snapshot
+  const dc59 = createDevConsoleController({
+    simHost: host59,
+    dungeonState: dngState59,
+    getContext: function() { return 'dungeon'; }
+  });
+  const dcGrant59 = dc59.grantHeroAbility('brace', 'item');
+  const dcWard59 = executeAbility('arcane_ward', null, dngState59);
+  const dcStatus59 = dc59.applyTestStatusToHero('silence', 2);
+  const snap59 = dc59.getInspectorSnapshot();
+  const dcReset59 = dc59.resetHeroCooldownsAndMp();
+  const dcRevoke59 = dc59.revokeHeroAbility('brace', 'item');
+  const devPanelOk59 = Boolean(
+    dcGrant59.ok && hasAbilityAccess(dngState59.hero, 'brace') === false && // revoked after snapshot
+    dcWard59.ok &&
+    dcStatus59.ok &&
+    snap59.abilities && snap59.abilities.absorbShield > 0 &&
+    snap59.abilities.granted.some(function(g) { return g.id === 'brace' && g.sources.indexOf('item') !== -1; }) &&
+    snap59.abilities.statuses.some(function(s) { return s.id === 'silence'; }) &&
+    dcReset59.ok && getAbilityCooldownRemaining(dngState59.hero, 'arcane_ward') === 0 &&
+    dcRevoke59.ok && !dcRevoke59.stillGranted
+  );
+
+  const t59Checks = {
+    barOk: barOk59,
+    hoverTargetOk: hoverTargetOk59,
+    devPanelOk: devPanelOk59
+  };
+  const failed59 = Object.keys(t59Checks).filter(function(k) { return !t59Checks[k]; });
+  const t59Pass = failed59.length === 0;
+  results.push({
+    name: '59. MG-01A: Integrated Dungeon Multi-Ability Bar, Manual Targeting & Dev Console Ability Controls',
+    pass: t59Pass,
+    detail: t59Pass
+      ? 'Multi-ability bar, hover/manual targeting preview, Dev Console grant/revoke/status/cooldown reset & Integrated Dungeon execution verified'
+      : 'Failed checks: ' + failed59.join(', ')
   });
 
   return results;

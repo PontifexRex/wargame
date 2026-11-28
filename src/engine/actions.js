@@ -115,24 +115,50 @@ export function getActionCallbacks() {
   return actionCallbacks;
 }
 
-export function applyStatusEffect(target, id, duration) {
+export function applyStatusEffect(target, id, duration, opts) {
   if (!target.statuses) target.statuses = [];
   const metaMap = {
-    burn:            { id: 'burn',            name: 'Burn',              color: '#fb923c', duration, isBuff: false },
-    bleed:           { id: 'bleed',           name: 'Bleed',             color: '#f87171', duration, isBuff: false },
-    poison:          { id: 'poison',          name: 'Poison',            color: '#4ade80', duration, isBuff: false },
-    stun:            { id: 'stun',            name: 'Stunned',           color: '#fbbf24', duration, isBuff: false },
-    weakened:        { id: 'weakened',        name: 'Weakened',          color: '#c084fc', duration, isBuff: false },
-    chilled:         { id: 'chilled',         name: 'Chilled',           color: '#38bdf8', duration, isBuff: false },
-    guarding:        { id: 'guarding',        name: 'Guarding',          color: '#60a5fa', duration, isBuff: true },
-    shrine_starfire: { id: 'shrine_starfire', name: 'Starfire Blessing', color: '#fbbf24', duration, isBuff: true },
-    shrine_aegis:    { id: 'shrine_aegis',    name: 'Astral Aegis',      color: '#60a5fa', duration, isBuff: true }
+    burn:            { id: 'burn',            name: 'Burn',              color: '#fb923c', duration, isBuff: false, stackPolicy: 'refresh' },
+    bleed:           { id: 'bleed',           name: 'Bleed',             color: '#f87171', duration, isBuff: false, stackPolicy: 'refresh' },
+    poison:          { id: 'poison',          name: 'Poison',            color: '#4ade80', duration, isBuff: false, stackPolicy: 'refresh' },
+    stun:            { id: 'stun',            name: 'Stunned',           color: '#fbbf24', duration, isBuff: false, stackPolicy: 'max' },
+    weakened:        { id: 'weakened',        name: 'Weakened',          color: '#c084fc', duration, isBuff: false, stackPolicy: 'refresh' },
+    chilled:         { id: 'chilled',         name: 'Chilled',           color: '#38bdf8', duration, isBuff: false, stackPolicy: 'refresh' },
+    slow:            { id: 'slow',            name: 'Slowed',            color: '#38bdf8', duration, isBuff: false, stackPolicy: 'refresh' },
+    silence:         { id: 'silence',         name: 'Silenced',          color: '#e879f9', duration, isBuff: false, stackPolicy: 'max' },
+    guarding:        { id: 'guarding',        name: 'Guarding',          color: '#60a5fa', duration, isBuff: true,  stackPolicy: 'refresh' },
+    regen:           { id: 'regen',           name: 'Regeneration',      color: '#4ade80', duration, isBuff: true,  stackPolicy: 'refresh' },
+    ward_buff:       { id: 'ward_buff',       name: 'Arcane Ward',       color: '#818cf8', duration, isBuff: true,  stackPolicy: 'refresh' },
+    shrine_starfire: { id: 'shrine_starfire', name: 'Starfire Blessing', color: '#fbbf24', duration, isBuff: true,  stackPolicy: 'max' },
+    shrine_aegis:    { id: 'shrine_aegis',    name: 'Astral Aegis',      color: '#60a5fa', duration, isBuff: true,  stackPolicy: 'max' }
   };
   const meta = metaMap[id];
-  if (!meta) return;
-  const existing = target.statuses.find(s => s.id === id);
-  if (existing) existing.duration = Math.max(existing.duration, duration);
-  else target.statuses.push(Object.assign({}, meta));
+  if (!meta) return null;
+  const sourceId = (opts && opts.sourceId) ? opts.sourceId : null;
+  const sourceAbilityId = (opts && opts.sourceAbilityId) ? opts.sourceAbilityId : null;
+  const policy = (opts && opts.stackPolicy) ? opts.stackPolicy : (meta.stackPolicy || 'max');
+  const existing = target.statuses.find(function(s) { return s && s.id === id; });
+  if (existing) {
+    if (policy === 'stack') {
+      existing.duration = (existing.duration || 0) + duration;
+      existing.stacks = (existing.stacks || 1) + 1;
+    } else if (policy === 'refresh') {
+      existing.duration = Math.max(existing.duration || 0, duration);
+    } else {
+      existing.duration = Math.max(existing.duration || 0, duration);
+    }
+    if (sourceId) existing.sourceId = sourceId;
+    if (sourceAbilityId) existing.sourceAbilityId = sourceAbilityId;
+    return existing;
+  }
+  const entry = Object.assign({}, meta, {
+    duration: duration,
+    stacks: 1,
+    sourceId: sourceId,
+    sourceAbilityId: sourceAbilityId
+  });
+  target.statuses.push(entry);
+  return entry;
 }
 
 export function addExpeditionTradeItem(id, name, val, qty = 1, type = 'Ore', state = gameState) {

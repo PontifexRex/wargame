@@ -4226,6 +4226,7 @@ function computeHeroDerivedStats(hero, externalModifiers) {
   }
 
   // Active Status & Shrine Buffs
+  let heroGuarding = false;
   if (Array.isArray(hero.statuses)) {
     for (let i = 0; i < hero.statuses.length; i++) {
       const st = hero.statuses[i];
@@ -4238,6 +4239,12 @@ function computeHeroDerivedStats(hero, externalModifiers) {
         visionBonus += 1;
       } else if (st.id === 'chilled') {
         flatDodge -= 15;
+      } else if (st.id === 'slow') {
+        flatDodge -= 10;
+      } else if (st.id === 'ward_buff') {
+        flatWard += 4;
+      } else if (st.id === 'guarding') {
+        heroGuarding = true;
       }
     }
   }
@@ -4269,7 +4276,8 @@ function computeHeroDerivedStats(hero, externalModifiers) {
 
   const atk = Math.round(primaryOffensive + flatAtk);
   const magicPower = Math.round(magicBase + flatMagic);
-  const def = Math.round(vit * 0.45) + flatDef;
+  const baseDef = Math.round(vit * 0.45) + flatDef;
+  const def = heroGuarding ? Math.round(baseDef * 1.6) : baseDef;
   const crit = Math.min(75, Math.round(5 + (dex * 0.45) + flatCrit));
   const dodge = Math.max(0, Math.min(60, Math.round(4 + (dex * 0.35) + flatDodge)));
   const visionRadius = (cls.vision || 5) + visionBonus;
@@ -4845,8 +4853,1192 @@ function evaluateMonsterKnowledgeReveal(hero, monster) {
   };
 }
 
+  // --- Module: src/data/abilities.js ---
+// Shared Context-Independent Spell, Prayer, Martial Technique & Adventuring Skill Catalog (MG-01A)
+// Immutable definitions separated from actor-owned runtime access grants and cooldowns.
+
+const ABILITY_DOMAINS = Object.freeze({
+  ARCANE: 'arcane',
+  DIVINE: 'divine',
+  NATURE: 'nature',
+  MARTIAL: 'martial',
+  ADVENTURING: 'adventuring'
+});
+
+const ABILITY_KINDS = Object.freeze({
+  SPELL: 'spell',
+  PRAYER: 'prayer',
+  TECHNIQUE: 'technique',
+  SKILL: 'skill',
+  POWER: 'power'
+});
+
+const ABILITY_ACCESS_SOURCES = Object.freeze([
+  'class',
+  'learned',
+  'item',
+  'temporary'
+]);
+
+const CLEANSEABLE_STATUS_IDS = Object.freeze([
+  'burn',
+  'poison',
+  'bleed',
+  'weakened',
+  'chilled',
+  'slow',
+  'silence'
+]);
+
+const ABILITIES = Object.freeze({
+  // -------------------------------------------------------------------------
+  // MARTIAL TECHNIQUES (Fighter / Bruiser & shared physical skills)
+  // -------------------------------------------------------------------------
+  whirlwind_cleave: Object.freeze({
+    id: 'whirlwind_cleave',
+    name: 'Whirlwind Cleave',
+    icon: '⚔️',
+    kind: 'technique',
+    domain: 'martial',
+    discipline: 'weapon_mastery',
+    purpose: 'damage',
+    activation: 'active',
+    timing: 'immediate',
+    windupTurns: 0,
+    contexts: ['tactical_dungeon'],
+    timeSemantics: 'tactical_turn',
+    acquisition: 'class',
+    costs: { mp: 10, cooldown: 0 },
+    targeting: {
+      mode: 'auto_area',
+      pattern: 'radius',
+      range: 1.5,
+      radius: 1.5,
+      requireLos: false,
+      filter: 'enemy',
+      maxTargets: 8
+    },
+    scaling: 'physical',
+    damageType: 'physical',
+    effects: [
+      { type: 'damage', mult: 1.45, damageType: 'physical', scaling: 'physical', respectGuarding: true },
+      { type: 'status', statusId: 'stun', duration: 1 }
+    ],
+    vfx: { type: 'slash', color: '#f97316' },
+    desc: 'Sweeping cleave striking all adjacent enemies for 145% physical damage (respects Guarding).'
+  }),
+
+  power_strike: Object.freeze({
+    id: 'power_strike',
+    name: 'Power Strike',
+    icon: '🪓',
+    kind: 'technique',
+    domain: 'martial',
+    discipline: 'weapon_mastery',
+    purpose: 'damage',
+    activation: 'active',
+    timing: 'immediate',
+    windupTurns: 0,
+    contexts: ['tactical_dungeon'],
+    timeSemantics: 'tactical_turn',
+    acquisition: 'class',
+    costs: { mp: 0, cooldown: 2 },
+    targeting: {
+      mode: 'manual_enemy',
+      pattern: 'single',
+      range: 1.5,
+      radius: 0,
+      requireLos: false,
+      filter: 'enemy',
+      maxTargets: 1
+    },
+    scaling: 'physical',
+    damageType: 'physical',
+    effects: [
+      { type: 'damage', mult: 1.65, bonusFlat: 4, damageType: 'physical', scaling: 'physical', respectGuarding: true }
+    ],
+    vfx: { type: 'crit_slash', color: '#fb923c' },
+    desc: 'Cooldown martial strike dealing 165% physical damage to an adjacent enemy (0 MP, 2t CD).'
+  }),
+
+  overpower: Object.freeze({
+    id: 'overpower',
+    name: 'Overpower',
+    icon: '💥',
+    kind: 'technique',
+    domain: 'martial',
+    discipline: 'combat_control',
+    purpose: 'control',
+    activation: 'active',
+    timing: 'immediate',
+    windupTurns: 0,
+    contexts: ['tactical_dungeon'],
+    timeSemantics: 'tactical_turn',
+    acquisition: 'class',
+    costs: { mp: 0, cooldown: 4 },
+    targeting: {
+      mode: 'manual_enemy',
+      pattern: 'single',
+      range: 1.5,
+      radius: 0,
+      requireLos: false,
+      filter: 'enemy',
+      maxTargets: 1
+    },
+    scaling: 'physical',
+    damageType: 'physical',
+    effects: [
+      { type: 'damage', mult: 1.25, damageType: 'physical', scaling: 'physical', respectGuarding: true },
+      { type: 'knockback', distance: 1, collideStunTurns: 2, collideBonusDmg: 6 }
+    ],
+    vfx: { type: 'slash', color: '#f59e0b' },
+    desc: 'Crushing blow that knocks an adjacent foe back 1 tile; slamming into a wall stuns for 2 turns (0 MP, 4t CD).'
+  }),
+
+  brace: Object.freeze({
+    id: 'brace',
+    name: 'Brace',
+    icon: '🛡️',
+    kind: 'technique',
+    domain: 'martial',
+    discipline: 'defense',
+    purpose: 'defense',
+    activation: 'active',
+    timing: 'immediate',
+    windupTurns: 0,
+    contexts: ['tactical_dungeon'],
+    timeSemantics: 'tactical_turn',
+    acquisition: 'class',
+    costs: { mp: 0, cooldown: 4 },
+    targeting: {
+      mode: 'self',
+      pattern: 'self',
+      range: 0,
+      radius: 0,
+      requireLos: false,
+      filter: 'self',
+      maxTargets: 1
+    },
+    scaling: 'physical',
+    damageType: 'none',
+    effects: [
+      { type: 'shield', baseAmount: 14, defMult: 1.2, maxShieldCap: 80 },
+      { type: 'status', statusId: 'guarding', duration: 2, targetSelf: true }
+    ],
+    vfx: { type: 'shield', color: '#60a5fa' },
+    desc: 'Raise a defensive stance gaining an Absorb Shield and Guarding (+60% DEF) for 2 turns (0 MP, 4t CD).'
+  }),
+
+  second_wind_reactive: Object.freeze({
+    id: 'second_wind_reactive',
+    name: 'Second Wind',
+    icon: '🫀',
+    kind: 'technique',
+    domain: 'martial',
+    discipline: 'endurance',
+    purpose: 'defense',
+    activation: 'reactive',
+    triggerEvent: 'on_hero_low_hp',
+    triggerThresholdPct: 0.35,
+    timing: 'immediate',
+    windupTurns: 0,
+    contexts: ['tactical_dungeon'],
+    timeSemantics: 'tactical_turn',
+    acquisition: 'class',
+    costs: { mp: 0, cooldown: 6 },
+    targeting: {
+      mode: 'self',
+      pattern: 'self',
+      range: 0,
+      radius: 0,
+      requireLos: false,
+      filter: 'self',
+      maxTargets: 1
+    },
+    scaling: 'physical',
+    damageType: 'none',
+    effects: [
+      { type: 'heal', maxHpPct: 0.16, targetSelf: true },
+      { type: 'shield', baseAmount: 10, defMult: 0.8, maxShieldCap: 60 }
+    ],
+    vfx: { type: 'shield', color: '#34d399' },
+    desc: 'Reactive technique: automatically triggers when dropping below 35% HP to restore 16% Max HP and raise a shield (6t CD).'
+  }),
+
+  // -------------------------------------------------------------------------
+  // ARCANE SPELLS (Mage representative catalog)
+  // -------------------------------------------------------------------------
+  starfall_nova: Object.freeze({
+    id: 'starfall_nova',
+    name: 'Starfall Nova',
+    icon: '✨',
+    kind: 'spell',
+    domain: 'arcane',
+    discipline: 'evocation',
+    purpose: 'damage',
+    activation: 'active',
+    timing: 'immediate',
+    windupTurns: 0,
+    contexts: ['tactical_dungeon'],
+    timeSemantics: 'tactical_turn',
+    acquisition: 'class',
+    costs: { mp: 16, cooldown: 0 },
+    targeting: {
+      mode: 'auto_area',
+      pattern: 'radius',
+      range: 4.2,
+      radius: 4.2,
+      requireLos: true,
+      filter: 'enemy',
+      maxTargets: 12
+    },
+    scaling: 'arcane',
+    damageType: 'magical',
+    effects: [
+      { type: 'damage', mult: 1.55, bonusFlat: 4, damageType: 'magical', scaling: 'arcane' }
+    ],
+    vfx: { type: 'wave', color: '#818cf8' },
+    desc: 'Arcane burst striking all visible foes within 4 tiles, scaling with Magic Power and INT.'
+  }),
+
+  arcane_missile: Object.freeze({
+    id: 'arcane_missile',
+    name: 'Arcane Missile',
+    icon: '🔮',
+    kind: 'spell',
+    domain: 'arcane',
+    discipline: 'evocation',
+    purpose: 'damage',
+    activation: 'active',
+    timing: 'immediate',
+    windupTurns: 0,
+    contexts: ['tactical_dungeon'],
+    timeSemantics: 'tactical_turn',
+    acquisition: 'class',
+    costs: { mp: 6, cooldown: 0 },
+    targeting: {
+      mode: 'manual_enemy',
+      pattern: 'single',
+      range: 5.5,
+      radius: 0,
+      requireLos: true,
+      filter: 'enemy',
+      maxTargets: 1
+    },
+    scaling: 'arcane',
+    damageType: 'magical',
+    effects: [
+      { type: 'damage', mult: 1.35, bonusFlat: 4, damageType: 'magical', scaling: 'arcane' }
+    ],
+    vfx: { type: 'beam', color: '#a78bfa' },
+    desc: 'Fires a focused bolt of arcane energy at a visible enemy within 5 tiles (scales with Magic Power).'
+  }),
+
+  fireball: Object.freeze({
+    id: 'fireball',
+    name: 'Fireball',
+    icon: '🔥',
+    kind: 'spell',
+    domain: 'arcane',
+    discipline: 'pyromancy',
+    purpose: 'damage',
+    activation: 'active',
+    timing: 'delayed',
+    windupTurns: 1,
+    contexts: ['tactical_dungeon'],
+    timeSemantics: 'tactical_turn',
+    acquisition: 'class',
+    costs: { mp: 14, cooldown: 2 },
+    targeting: {
+      mode: 'manual_location',
+      pattern: 'radius',
+      range: 5.2,
+      radius: 1,
+      requireLos: true,
+      filter: 'enemy',
+      maxTargets: 9
+    },
+    scaling: 'arcane',
+    damageType: 'magical',
+    effects: [
+      { type: 'damage', mult: 1.85, bonusFlat: 6, damageType: 'magical', scaling: 'arcane' },
+      { type: 'status', statusId: 'burn', duration: 3 }
+    ],
+    vfx: { type: 'spell', color: '#fb923c' },
+    desc: 'Channels for 1 turn, then detonates a 3x3 fireball at the target location dealing high arcane damage + Burn (interruptible by Stun/Silence).'
+  }),
+
+  frost_nova: Object.freeze({
+    id: 'frost_nova',
+    name: 'Frost Nova',
+    icon: '❄️',
+    kind: 'spell',
+    domain: 'arcane',
+    discipline: 'cryomancy',
+    purpose: 'control',
+    activation: 'active',
+    timing: 'immediate',
+    windupTurns: 0,
+    contexts: ['tactical_dungeon'],
+    timeSemantics: 'tactical_turn',
+    acquisition: 'class',
+    costs: { mp: 12, cooldown: 3 },
+    targeting: {
+      mode: 'auto_area',
+      pattern: 'radius',
+      range: 2.5,
+      radius: 2.5,
+      requireLos: true,
+      filter: 'enemy',
+      maxTargets: 12
+    },
+    scaling: 'arcane',
+    damageType: 'magical',
+    effects: [
+      { type: 'damage', mult: 1.15, bonusFlat: 2, damageType: 'magical', scaling: 'arcane' },
+      { type: 'status', statusId: 'slow', duration: 3 },
+      { type: 'status', statusId: 'chilled', duration: 2 }
+    ],
+    vfx: { type: 'wave', color: '#38bdf8' },
+    desc: 'Freezing ring around the caster dealing magical damage and inflicting Slow (3t) and Chilled (2t).'
+  }),
+
+  arcane_ward: Object.freeze({
+    id: 'arcane_ward',
+    name: 'Arcane Ward',
+    icon: '🔷',
+    kind: 'spell',
+    domain: 'arcane',
+    discipline: 'abjuration',
+    purpose: 'defense',
+    activation: 'active',
+    timing: 'immediate',
+    windupTurns: 0,
+    contexts: ['tactical_dungeon'],
+    timeSemantics: 'tactical_turn',
+    acquisition: 'class',
+    costs: { mp: 10, cooldown: 3 },
+    targeting: {
+      mode: 'self',
+      pattern: 'self',
+      range: 0,
+      radius: 0,
+      requireLos: false,
+      filter: 'self',
+      maxTargets: 1
+    },
+    scaling: 'arcane',
+    damageType: 'none',
+    effects: [
+      { type: 'shield', baseAmount: 16, magicMult: 1.35, maxShieldCap: 95 },
+      { type: 'status', statusId: 'ward_buff', duration: 3, targetSelf: true }
+    ],
+    vfx: { type: 'shield', color: '#818cf8' },
+    desc: 'Weaves an arcane barrier absorbing incoming damage (scales with Magic Power) and granting +4 Ward for 3 turns.'
+  }),
+
+  blink: Object.freeze({
+    id: 'blink',
+    name: 'Blink',
+    icon: '🌀',
+    kind: 'spell',
+    domain: 'arcane',
+    discipline: 'translocation',
+    purpose: 'mobility',
+    activation: 'active',
+    timing: 'immediate',
+    windupTurns: 0,
+    contexts: ['tactical_dungeon'],
+    timeSemantics: 'tactical_turn',
+    acquisition: 'class',
+    costs: { mp: 10, cooldown: 3 },
+    targeting: {
+      mode: 'manual_location',
+      pattern: 'single',
+      range: 4.5,
+      radius: 0,
+      requireLos: true,
+      filter: 'any',
+      maxTargets: 1,
+      requireWalkable: true
+    },
+    scaling: 'arcane',
+    damageType: 'none',
+    effects: [
+      { type: 'teleport' }
+    ],
+    vfx: { type: 'teleport', color: '#c084fc' },
+    desc: 'Instantly teleports to an unobstructed visible floor tile within 4 tiles.'
+  }),
+
+  detect_magic: Object.freeze({
+    id: 'detect_magic',
+    name: 'Detect Magic',
+    icon: '👁️',
+    kind: 'spell',
+    domain: 'arcane',
+    discipline: 'divination',
+    purpose: 'utility',
+    activation: 'active',
+    timing: 'immediate',
+    windupTurns: 0,
+    contexts: ['tactical_dungeon'],
+    timeSemantics: 'tactical_turn',
+    acquisition: 'class',
+    costs: { mp: 0, cooldown: 3 },
+    targeting: {
+      mode: 'self',
+      pattern: 'self',
+      range: 0,
+      radius: 6,
+      requireLos: false,
+      filter: 'self',
+      maxTargets: 1
+    },
+    scaling: 'none',
+    damageType: 'none',
+    effects: [
+      { type: 'detect', radius: 6, revealTraps: true, revealSecretDoors: true }
+    ],
+    vfx: { type: 'wave', color: '#34d399' },
+    desc: 'Divination pulse revealing hidden traps and secret doors within 6 tiles (0 MP, 3t CD).'
+  }),
+
+  // -------------------------------------------------------------------------
+  // DIVINE PRAYERS (Cleric / Acolyte & Paladin representative catalog)
+  // -------------------------------------------------------------------------
+  sacred_ward: Object.freeze({
+    id: 'sacred_ward',
+    name: 'Sacred Ward',
+    icon: '☀️',
+    kind: 'prayer',
+    domain: 'divine',
+    discipline: 'radiance',
+    purpose: 'hybrid',
+    activation: 'active',
+    timing: 'immediate',
+    windupTurns: 0,
+    contexts: ['tactical_dungeon'],
+    timeSemantics: 'tactical_turn',
+    acquisition: 'class',
+    costs: { mp: 14, cooldown: 0 },
+    targeting: {
+      mode: 'auto_enemy',
+      pattern: 'single',
+      range: 3.2,
+      radius: 0,
+      requireLos: true,
+      filter: 'enemy',
+      maxTargets: 1
+    },
+    scaling: 'divine',
+    damageType: 'magical',
+    effects: [
+      { type: 'damage', mult: 1.45, bonusFlat: 4, damageType: 'magical', scaling: 'divine' },
+      { type: 'heal', maxHpPct: 0.14, magicMult: 0.45, targetSelf: true }
+    ],
+    vfx: { type: 'spell', color: '#fbbf24' },
+    desc: 'Calls down radiant divine damage on a visible foe within 3 tiles while mending the caster.'
+  }),
+
+  healing_light: Object.freeze({
+    id: 'healing_light',
+    name: 'Healing Light',
+    icon: '💚',
+    kind: 'prayer',
+    domain: 'divine',
+    discipline: 'restoration',
+    purpose: 'healing',
+    activation: 'active',
+    timing: 'immediate',
+    windupTurns: 0,
+    contexts: ['tactical_dungeon'],
+    timeSemantics: 'tactical_turn',
+    acquisition: 'class',
+    costs: { mp: 10, cooldown: 1 },
+    targeting: {
+      mode: 'self',
+      pattern: 'self',
+      range: 0,
+      radius: 0,
+      requireLos: false,
+      filter: 'self',
+      maxTargets: 1
+    },
+    scaling: 'divine',
+    damageType: 'none',
+    effects: [
+      { type: 'heal', baseAmount: 14, magicMult: 1.1, maxHpPct: 0.12, targetSelf: true },
+      { type: 'status', statusId: 'regen', duration: 2, targetSelf: true }
+    ],
+    vfx: { type: 'shield', color: '#4ade80' },
+    desc: 'Restores HP immediately (scaling with SPI & Magic Power) and grants Regeneration for 2 turns.'
+  }),
+
+  purification: Object.freeze({
+    id: 'purification',
+    name: 'Purification',
+    icon: '🕊️',
+    kind: 'prayer',
+    domain: 'divine',
+    discipline: 'restoration',
+    purpose: 'utility',
+    activation: 'active',
+    timing: 'immediate',
+    windupTurns: 0,
+    contexts: ['tactical_dungeon'],
+    timeSemantics: 'tactical_turn',
+    acquisition: 'class',
+    costs: { mp: 8, cooldown: 2 },
+    targeting: {
+      mode: 'self',
+      pattern: 'self',
+      range: 0,
+      radius: 0,
+      requireLos: false,
+      filter: 'self',
+      maxTargets: 1
+    },
+    scaling: 'divine',
+    damageType: 'none',
+    effects: [
+      { type: 'cleanse', maxRemoved: 3, targetSelf: true },
+      { type: 'heal', baseAmount: 6, magicMult: 0.35, targetSelf: true }
+    ],
+    vfx: { type: 'wave', color: '#fef08a' },
+    desc: 'Cleanses up to 3 negative status effects (Burn, Poison, Bleed, Slow, Chilled, Weakened) and heals lightly.'
+  }),
+
+  sanctuary: Object.freeze({
+    id: 'sanctuary',
+    name: 'Sanctuary',
+    icon: '⛪',
+    kind: 'prayer',
+    domain: 'divine',
+    discipline: 'consecration',
+    purpose: 'defense',
+    activation: 'active',
+    timing: 'immediate',
+    windupTurns: 0,
+    contexts: ['tactical_dungeon'],
+    timeSemantics: 'tactical_turn',
+    acquisition: 'class',
+    costs: { mp: 14, cooldown: 4 },
+    targeting: {
+      mode: 'manual_location',
+      pattern: 'radius',
+      range: 3.5,
+      radius: 1,
+      requireLos: true,
+      filter: 'any',
+      maxTargets: 9
+    },
+    scaling: 'divine',
+    damageType: 'none',
+    effects: [
+      {
+        type: 'persistent_area',
+        areaId: 'sanctuary_zone',
+        name: 'Sanctuary',
+        duration: 3,
+        radius: 1,
+        color: '#fbbf24',
+        healPerTurnBase: 8,
+        healMagicMult: 0.45,
+        grantStatus: 'ward_buff',
+        affectsHero: true,
+        affectsMonsters: false
+      }
+    ],
+    vfx: { type: 'wave', color: '#fbbf24' },
+    desc: 'Consecrates a 3x3 ground zone for 3 turns that periodically heals the hero and grants Ward while inside.'
+  }),
+
+  holy_smite: Object.freeze({
+    id: 'holy_smite',
+    name: 'Holy Smite',
+    icon: '⚜️',
+    kind: 'prayer',
+    domain: 'divine',
+    discipline: 'retribution',
+    purpose: 'hybrid',
+    activation: 'active',
+    timing: 'immediate',
+    windupTurns: 0,
+    contexts: ['tactical_dungeon'],
+    timeSemantics: 'tactical_turn',
+    acquisition: 'class',
+    costs: { mp: 12, cooldown: 0 },
+    targeting: {
+      mode: 'auto_enemy',
+      pattern: 'single',
+      range: 1.5,
+      radius: 0,
+      requireLos: false,
+      filter: 'enemy',
+      maxTargets: 1
+    },
+    scaling: 'hybrid_divine',
+    damageType: 'magical',
+    effects: [
+      { type: 'damage', mult: 1.35, magicRatio: 0.75, damageType: 'magical', scaling: 'hybrid_divine' },
+      { type: 'heal', maxHpPct: 0.15, magicMult: 0.3, targetSelf: true }
+    ],
+    vfx: { type: 'spell', color: '#fbbf24' },
+    desc: 'Hybrid physical + divine strike (scales with ATK and Magic Power/SPI) that restores 15% Max HP.'
+  }),
+
+  // -------------------------------------------------------------------------
+  // THIEF, RANGER & ADVENTURER REPRESENTATIVE SKILLS
+  // -------------------------------------------------------------------------
+  shadowstep_strike: Object.freeze({
+    id: 'shadowstep_strike',
+    name: 'Shadowstep Strike',
+    icon: '🗡️',
+    kind: 'skill',
+    domain: 'martial',
+    discipline: 'stealth',
+    purpose: 'mobility',
+    activation: 'active',
+    timing: 'immediate',
+    windupTurns: 0,
+    contexts: ['tactical_dungeon'],
+    timeSemantics: 'tactical_turn',
+    acquisition: 'class',
+    costs: { mp: 14, cooldown: 0 },
+    targeting: {
+      mode: 'auto_enemy',
+      pattern: 'single',
+      range: 3.5,
+      radius: 0,
+      requireLos: true,
+      filter: 'enemy',
+      maxTargets: 1,
+      requireAdjacentLanding: true
+    },
+    scaling: 'physical',
+    damageType: 'physical',
+    effects: [
+      { type: 'shadowstep' },
+      { type: 'damage', mult: 1.85, guaranteedCrit: true, damageType: 'physical', scaling: 'physical', respectGuarding: true }
+    ],
+    vfx: { type: 'crit_slash', color: '#a855f7' },
+    desc: 'Teleports behind a visible enemy within 3 tiles and strikes for a guaranteed critical hit.'
+  }),
+
+  crippling_throw: Object.freeze({
+    id: 'crippling_throw',
+    name: 'Crippling Throw',
+    icon: '🎯',
+    kind: 'skill',
+    domain: 'martial',
+    discipline: 'skirmish',
+    purpose: 'control',
+    activation: 'active',
+    timing: 'immediate',
+    windupTurns: 0,
+    contexts: ['tactical_dungeon'],
+    timeSemantics: 'tactical_turn',
+    acquisition: 'class',
+    costs: { mp: 0, cooldown: 3 },
+    targeting: {
+      mode: 'manual_enemy',
+      pattern: 'single',
+      range: 4.5,
+      radius: 0,
+      requireLos: true,
+      filter: 'enemy',
+      maxTargets: 1
+    },
+    scaling: 'physical',
+    damageType: 'physical',
+    effects: [
+      { type: 'damage', mult: 1.05, damageType: 'physical', scaling: 'physical', respectGuarding: true },
+      { type: 'status', statusId: 'slow', duration: 2 },
+      { type: 'status', statusId: 'bleed', duration: 2 }
+    ],
+    vfx: { type: 'projectile', color: '#f87171' },
+    desc: 'Hurls a weighted blade inflicting Slow (2t) and Bleed (2t) (0 MP, 3t CD).'
+  }),
+
+  starfall_volley: Object.freeze({
+    id: 'starfall_volley',
+    name: 'Starfall Volley',
+    icon: '🏹',
+    kind: 'skill',
+    domain: 'martial',
+    discipline: 'marksmanship',
+    purpose: 'damage',
+    activation: 'active',
+    timing: 'immediate',
+    windupTurns: 0,
+    contexts: ['tactical_dungeon'],
+    timeSemantics: 'tactical_turn',
+    acquisition: 'class',
+    costs: { mp: 16, cooldown: 0 },
+    targeting: {
+      mode: 'auto_area',
+      pattern: 'radius',
+      range: 5.2,
+      radius: 5.2,
+      requireLos: true,
+      filter: 'enemy',
+      maxTargets: 3
+    },
+    scaling: 'physical',
+    damageType: 'physical',
+    effects: [
+      { type: 'damage', mult: 1.25, damageType: 'physical', scaling: 'physical', respectGuarding: true }
+    ],
+    vfx: { type: 'projectile', color: '#34d399' },
+    desc: 'Looses up to 3 arrows at visible enemies within 5 tiles (respects Guarding).'
+  }),
+
+  piercing_line: Object.freeze({
+    id: 'piercing_line',
+    name: 'Piercing Shot',
+    icon: '⚡',
+    kind: 'technique',
+    domain: 'martial',
+    discipline: 'marksmanship',
+    purpose: 'damage',
+    activation: 'active',
+    timing: 'immediate',
+    windupTurns: 0,
+    contexts: ['tactical_dungeon'],
+    timeSemantics: 'tactical_turn',
+    acquisition: 'class',
+    costs: { mp: 0, cooldown: 3 },
+    targeting: {
+      mode: 'directional',
+      pattern: 'line',
+      range: 4,
+      radius: 0,
+      requireLos: true,
+      filter: 'enemy',
+      maxTargets: 4
+    },
+    scaling: 'physical',
+    damageType: 'physical',
+    effects: [
+      { type: 'damage', mult: 1.35, damageType: 'physical', scaling: 'physical', respectGuarding: true }
+    ],
+    vfx: { type: 'beam', color: '#34d399' },
+    desc: 'Fires a piercing arrow in a 4-tile line, hitting every enemy along the path (0 MP, 3t CD).'
+  }),
+
+  torch_flare: Object.freeze({
+    id: 'torch_flare',
+    name: 'Torch Flare',
+    icon: '🔦',
+    kind: 'skill',
+    domain: 'adventuring',
+    discipline: 'delving',
+    purpose: 'damage',
+    activation: 'active',
+    timing: 'immediate',
+    windupTurns: 0,
+    contexts: ['tactical_dungeon'],
+    timeSemantics: 'tactical_turn',
+    acquisition: 'class',
+    costs: { mp: 10, cooldown: 0 },
+    targeting: {
+      mode: 'auto_enemy',
+      pattern: 'single',
+      range: 1.5,
+      radius: 0,
+      requireLos: false,
+      filter: 'enemy',
+      maxTargets: 1
+    },
+    scaling: 'physical',
+    damageType: 'physical',
+    effects: [
+      { type: 'damage', mult: 1.35, damageType: 'physical', scaling: 'physical', respectGuarding: true },
+      { type: 'status', statusId: 'burn', duration: 3 }
+    ],
+    vfx: { type: 'spell', color: '#f97316' },
+    desc: 'Swings a blazing torch at an adjacent foe, dealing physical damage and applying Burn for 3 turns.'
+  })
+});
+
+const ABILITY_IDS = Object.freeze(Object.keys(ABILITIES));
+
+// Representative default ability sets for all 7 existing prototype classes.
+// First entry preserves each class's legacy primary skill for backward compatibility.
+const CLASS_DEFAULT_ABILITIES = Object.freeze({
+  fighter: Object.freeze(['whirlwind_cleave', 'power_strike', 'overpower', 'brace', 'second_wind_reactive']),
+  mage: Object.freeze(['starfall_nova', 'arcane_missile', 'fireball', 'frost_nova', 'arcane_ward', 'blink', 'detect_magic']),
+  cleric: Object.freeze(['sacred_ward', 'healing_light', 'purification', 'sanctuary']),
+  paladin: Object.freeze(['holy_smite', 'brace', 'purification']),
+  thief: Object.freeze(['shadowstep_strike', 'crippling_throw']),
+  ranger: Object.freeze(['starfall_volley', 'piercing_line']),
+  adventurer: Object.freeze(['torch_flare', 'brace', 'detect_magic'])
+});
+
+function getAbilityDefinition(abilityId) {
+  if (!abilityId || typeof abilityId !== 'string') return null;
+  return ABILITIES[abilityId] || null;
+}
+
+function getDefaultAbilityIdsForClass(classId) {
+  const list = CLASS_DEFAULT_ABILITIES[classId];
+  return Array.isArray(list) ? list.slice() : [];
+}
+
+  // --- Module: src/core/abilityEngine.js ---
+// Context-Independent Shared Spell, Prayer & Skill Runtime Service (MG-01A)
+// Manages actor ability access grants (multi-source), cooldowns, cost/silence validation,
+// damage/shield/healing scaling, and damage absorption independent of Dungeon/Strategy UI.
+
+
+function normalizeActorAbilityState(actor) {
+  if (!actor || typeof actor !== 'object') return null;
+
+  if (!actor.abilityGrants || typeof actor.abilityGrants !== 'object') {
+    actor.abilityGrants = {};
+  }
+  for (let i = 0; i < ABILITY_ACCESS_SOURCES.length; i++) {
+    const src = ABILITY_ACCESS_SOURCES[i];
+    if (!Array.isArray(actor.abilityGrants[src])) {
+      actor.abilityGrants[src] = [];
+    } else {
+      // Deduplicate & keep valid ability IDs only
+      const seen = {};
+      const clean = [];
+      for (let j = 0; j < actor.abilityGrants[src].length; j++) {
+        const id = actor.abilityGrants[src][j];
+        if (typeof id === 'string' && ABILITIES[id] && !seen[id]) {
+          seen[id] = true;
+          clean.push(id);
+        }
+      }
+      actor.abilityGrants[src] = clean;
+    }
+  }
+
+  // Ensure class default abilities stay synced if classId is initialized or switched
+  if (actor.classId && (actor.abilityGrants.class.length === 0 || (actor._abilityClassId && actor._abilityClassId !== actor.classId))) {
+    const defaults = getDefaultAbilityIdsForClass(actor.classId);
+    actor.abilityGrants.class = defaults.slice();
+    actor._abilityClassId = actor.classId;
+    if (defaults.length > 0) {
+      actor.activeAbilityId = defaults[0];
+    }
+  } else if (actor.classId && !actor._abilityClassId) {
+    actor._abilityClassId = actor.classId;
+  }
+
+  if (!actor.abilityCooldowns || typeof actor.abilityCooldowns !== 'object') {
+    actor.abilityCooldowns = {};
+  }
+  if (typeof actor.absorbShield !== 'number' || isNaN(actor.absorbShield) || actor.absorbShield < 0) {
+    actor.absorbShield = 0;
+  }
+  if (actor.pendingCast !== null && actor.pendingCast !== undefined && typeof actor.pendingCast !== 'object') {
+    actor.pendingCast = null;
+  }
+  if (actor.pendingCast === undefined) {
+    actor.pendingCast = null;
+  }
+
+  const activeIds = getGrantedAbilityIds(actor, { activation: 'active' });
+  if (!actor.activeAbilityId || activeIds.indexOf(actor.activeAbilityId) === -1) {
+    actor.activeAbilityId = activeIds.length > 0 ? activeIds[0] : null;
+  }
+
+  return actor;
+}
+
+function getGrantedAbilityIds(actor, opts) {
+  if (!actor || typeof actor !== 'object') return [];
+  if (!actor.abilityGrants || typeof actor.abilityGrants !== 'object') {
+    normalizeActorAbilityState(actor);
+  }
+  const seen = {};
+  const list = [];
+  const activationFilter = (opts && opts.activation) ? opts.activation : null;
+  const contextFilter = (opts && opts.context) ? opts.context : null;
+
+  for (let i = 0; i < ABILITY_ACCESS_SOURCES.length; i++) {
+    const src = ABILITY_ACCESS_SOURCES[i];
+    const bucket = actor.abilityGrants[src];
+    if (!Array.isArray(bucket)) continue;
+    for (let j = 0; j < bucket.length; j++) {
+      const id = bucket[j];
+      if (seen[id]) continue;
+      const def = getAbilityDefinition(id);
+      if (!def) continue;
+      if (activationFilter && def.activation !== activationFilter) continue;
+      if (contextFilter && Array.isArray(def.contexts) && def.contexts.indexOf(contextFilter) === -1) continue;
+      seen[id] = true;
+      list.push(id);
+    }
+  }
+  return list;
+}
+
+function getGrantedAbilitySources(actor, abilityId) {
+  if (!actor || !actor.abilityGrants || !abilityId) return [];
+  const sources = [];
+  for (let i = 0; i < ABILITY_ACCESS_SOURCES.length; i++) {
+    const src = ABILITY_ACCESS_SOURCES[i];
+    const bucket = actor.abilityGrants[src];
+    if (Array.isArray(bucket) && bucket.indexOf(abilityId) !== -1) {
+      sources.push(src);
+    }
+  }
+  return sources;
+}
+
+function hasAbilityAccess(actor, abilityId) {
+  return getGrantedAbilitySources(actor, abilityId).length > 0;
+}
+
+function grantAbilityAccess(actor, abilityId, sourceType) {
+  if (!actor || typeof actor !== 'object') return { ok: false, reason: 'invalid_actor' };
+  const def = getAbilityDefinition(abilityId);
+  if (!def) return { ok: false, reason: 'unknown_ability' };
+  const src = ABILITY_ACCESS_SOURCES.indexOf(sourceType) !== -1 ? sourceType : 'learned';
+  normalizeActorAbilityState(actor);
+  const bucket = actor.abilityGrants[src];
+  if (bucket.indexOf(abilityId) === -1) {
+    bucket.push(abilityId);
+  }
+  if (!actor.activeAbilityId && def.activation === 'active') {
+    actor.activeAbilityId = abilityId;
+  }
+  return { ok: true, abilityId: abilityId, source: src };
+}
+
+function revokeAbilityAccess(actor, abilityId, sourceType) {
+  if (!actor || typeof actor !== 'object') return { ok: false, reason: 'invalid_actor' };
+  normalizeActorAbilityState(actor);
+  const src = ABILITY_ACCESS_SOURCES.indexOf(sourceType) !== -1 ? sourceType : 'learned';
+  const bucket = actor.abilityGrants[src];
+  const idx = bucket.indexOf(abilityId);
+  if (idx !== -1) {
+    bucket.splice(idx, 1);
+  }
+  const stillHas = hasAbilityAccess(actor, abilityId);
+  if (!stillHas && actor.activeAbilityId === abilityId) {
+    const remaining = getGrantedAbilityIds(actor, { activation: 'active' });
+    actor.activeAbilityId = remaining.length > 0 ? remaining[0] : null;
+  }
+  return { ok: true, abilityId: abilityId, source: src, stillGranted: stillHas };
+}
+
+function getAbilityCooldownRemaining(actor, abilityId) {
+  if (!actor || !actor.abilityCooldowns || !abilityId) return 0;
+  const cd = actor.abilityCooldowns[abilityId];
+  return (typeof cd === 'number' && cd > 0) ? Math.ceil(cd) : 0;
+}
+
+function setAbilityCooldown(actor, abilityId, turns) {
+  if (!actor || !abilityId) return;
+  if (!actor.abilityCooldowns || typeof actor.abilityCooldowns !== 'object') {
+    actor.abilityCooldowns = {};
+  }
+  if (turns > 0) {
+    actor.abilityCooldowns[abilityId] = Math.ceil(turns);
+  } else {
+    delete actor.abilityCooldowns[abilityId];
+  }
+}
+
+function tickActorAbilityCooldowns(actor) {
+  if (!actor || !actor.abilityCooldowns || typeof actor.abilityCooldowns !== 'object') return;
+  const keys = Object.keys(actor.abilityCooldowns);
+  for (let i = 0; i < keys.length; i++) {
+    const k = keys[i];
+    const cur = actor.abilityCooldowns[k];
+    if (typeof cur === 'number' && cur > 1) {
+      actor.abilityCooldowns[k] = cur - 1;
+    } else {
+      delete actor.abilityCooldowns[k];
+    }
+  }
+}
+
+function resetActorAbilityCooldowns(actor) {
+  if (!actor) return;
+  actor.abilityCooldowns = {};
+  actor.skillCooldown = 0;
+}
+
+function isAbilitySilenced(actor, abilityDef) {
+  if (!actor || !abilityDef) return false;
+  const silenced = (actor.statuses || []).some(function(s) { return s && s.id === 'silence'; });
+  if (!silenced) return false;
+  // Silence blocks arcane, divine, and nature magic while allowing martial techniques and adventuring skills
+  return (
+    abilityDef.domain === 'arcane' ||
+    abilityDef.domain === 'divine' ||
+    abilityDef.domain === 'nature'
+  );
+}
+
+function getEffectiveAbilityCost(actor, abilityDef) {
+  if (!abilityDef) return { mp: 0, baseMp: 0, cooldown: 0, chilledPenalty: 0 };
+  const baseMp = (abilityDef.costs && typeof abilityDef.costs.mp === 'number') ? abilityDef.costs.mp : 0;
+  const cooldown = (abilityDef.costs && typeof abilityDef.costs.cooldown === 'number') ? abilityDef.costs.cooldown : 0;
+  const isChilled = Boolean(actor && (actor.statuses || []).some(function(s) { return s && s.id === 'chilled'; }));
+  // Chilled adds +2 MP to mana-using abilities (cooldown-only 0-MP martial techniques stay 0 MP)
+  const chilledPenalty = (baseMp > 0 && isChilled) ? 2 : 0;
+  return {
+    mp: baseMp + chilledPenalty,
+    baseMp: baseMp,
+    cooldown: cooldown,
+    chilledPenalty: chilledPenalty
+  };
+}
+
+function validateAbilityActivation(actor, abilityDef, ctx) {
+  if (!actor || !abilityDef) {
+    return { ok: false, reason: 'invalid_ability' };
+  }
+  normalizeActorAbilityState(actor);
+
+  const contextId = (ctx && ctx.context) ? ctx.context : 'tactical_dungeon';
+  if (Array.isArray(abilityDef.contexts) && abilityDef.contexts.indexOf(contextId) === -1) {
+    return { ok: false, reason: 'invalid_context' };
+  }
+  if (abilityDef.activation !== 'active' && !(ctx && ctx.allowTriggered)) {
+    return { ok: false, reason: 'not_active_ability' };
+  }
+  if (!hasAbilityAccess(actor, abilityDef.id) && !(ctx && ctx.bypassAccessCheck)) {
+    return { ok: false, reason: 'not_granted' };
+  }
+  if (actor.pendingCast && !(ctx && ctx.allowWhileCasting)) {
+    return { ok: false, reason: 'already_casting' };
+  }
+  if (isAbilitySilenced(actor, abilityDef)) {
+    return { ok: false, reason: 'silenced' };
+  }
+  const cdRem = getAbilityCooldownRemaining(actor, abilityDef.id);
+  if (cdRem > 0) {
+    return { ok: false, reason: 'on_cooldown', cooldownRemaining: cdRem };
+  }
+  const costInfo = getEffectiveAbilityCost(actor, abilityDef);
+  if ((actor.mp || 0) < costInfo.mp) {
+    return { ok: false, reason: 'no_mp', effectiveCost: costInfo.mp, chilledPenalty: costInfo.chilledPenalty };
+  }
+  return {
+    ok: true,
+    effectiveCost: costInfo.mp,
+    baseMp: costInfo.baseMp,
+    cooldown: costInfo.cooldown,
+    chilledPenalty: costInfo.chilledPenalty
+  };
+}
+
+function getActorMagicPower(actor) {
+  if (!actor) return 0;
+  if (typeof actor.magicPower === 'number' && !isNaN(actor.magicPower)) {
+    return actor.magicPower;
+  }
+  const effInt = (actor.effectiveStats && actor.effectiveStats.int) || (actor.baseStats && actor.baseStats.int) || 10;
+  const effSpi = (actor.effectiveStats && actor.effectiveStats.spi) || (actor.baseStats && actor.baseStats.spi) || 8;
+  return Math.max(4, Math.round(effInt * 1.1 + effSpi * 0.6));
+}
+
+function computeAbilityDamage(actor, effectDef, target, extraMult) {
+  const mult = (effectDef && typeof effectDef.mult === 'number') ? effectDef.mult : 1.0;
+  const bonusFlat = (effectDef && typeof effectDef.bonusFlat === 'number') ? effectDef.bonusFlat : 0;
+  const scaling = (effectDef && effectDef.scaling) || 'physical';
+  const damageType = (effectDef && effectDef.damageType) || (scaling === 'physical' ? 'physical' : 'magical');
+  const mod = (typeof extraMult === 'number' && extraMult > 0) ? extraMult : 1.0;
+
+  const atk = (actor && typeof actor.atk === 'number') ? actor.atk : 10;
+  const magicPower = getActorMagicPower(actor);
+  const effInt = (actor && actor.effectiveStats && actor.effectiveStats.int) || 10;
+  const effSpi = (actor && actor.effectiveStats && actor.effectiveStats.spi) || 8;
+
+  let raw = 0;
+  if (scaling === 'arcane') {
+    raw = Math.round((magicPower * 1.15 + effInt * 0.35) * mult + bonusFlat);
+  } else if (scaling === 'divine') {
+    raw = Math.round((magicPower * 1.05 + effSpi * 0.45) * mult + bonusFlat);
+  } else if (scaling === 'hybrid_divine') {
+    const mRatio = (effectDef && typeof effectDef.magicRatio === 'number') ? effectDef.magicRatio : 0.75;
+    raw = Math.round((atk * 0.85 + magicPower * mRatio) * mult + bonusFlat);
+  } else {
+    raw = Math.round(atk * mult + bonusFlat);
+  }
+
+  raw = Math.round(raw * mod);
+
+  // Explicit physical vs. magical defense mitigation
+  let mitigated = raw;
+  let guarded = false;
+  if (target) {
+    const isTargetGuarding = Boolean((target.statuses || []).some(function(s) { return s && s.id === 'guarding'; }));
+    if (damageType === 'physical') {
+      let effDef = target.def || 0;
+      if (isTargetGuarding && (!effectDef || effectDef.respectGuarding !== false)) {
+        effDef = Math.round(effDef * 1.6);
+        guarded = true;
+      }
+      mitigated = Math.max(1, raw - Math.floor(effDef * 0.5));
+    } else {
+      // Magical defense uses explicit magicDef/ward if defined, else 25% of physical DEF (distinct from full armor & physical Guarding)
+      const mDef = (typeof target.magicDef === 'number')
+        ? target.magicDef
+        : Math.floor((target.def || 0) * 0.25);
+      mitigated = Math.max(1, raw - mDef);
+    }
+  }
+
+  return {
+    damage: Math.max(1, mitigated),
+    raw: raw,
+    damageType: damageType,
+    guarded: guarded
+  };
+}
+
+function computeAbilityHealAmount(actor, effectDef) {
+  if (!actor || !effectDef) return 0;
+  const base = effectDef.baseAmount || 0;
+  const magicMult = effectDef.magicMult || 0;
+  const maxHpPct = effectDef.maxHpPct || 0;
+  const mp = getActorMagicPower(actor);
+  const pctHeal = Math.round((actor.maxHp || 100) * maxHpPct);
+  return Math.max(1, Math.round(base + mp * magicMult + pctHeal));
+}
+
+function computeAbilityShieldAmount(actor, effectDef) {
+  if (!actor || !effectDef) return 0;
+  const base = effectDef.baseAmount || 10;
+  const defMult = effectDef.defMult || 0;
+  const magicMult = effectDef.magicMult || 0;
+  const cap = effectDef.maxShieldCap || 100;
+  const raw = Math.round(base + (actor.def || 0) * defMult + getActorMagicPower(actor) * magicMult);
+  return Math.max(1, Math.min(cap, raw));
+}
+
+function applyDamageWithShield(actor, rawDamage) {
+  const dmg = Math.max(0, Math.round(rawDamage || 0));
+  if (!actor || dmg <= 0) {
+    return { absorbed: 0, hpLoss: 0, remainingShield: (actor && actor.absorbShield) || 0 };
+  }
+  const curShield = (typeof actor.absorbShield === 'number' && actor.absorbShield > 0) ? actor.absorbShield : 0;
+  const absorbed = Math.min(curShield, dmg);
+  const hpLoss = dmg - absorbed;
+  actor.absorbShield = Math.max(0, curShield - absorbed);
+  if (hpLoss > 0) {
+    actor.hp = (actor.hp || 0) - hpLoss;
+  }
+  return {
+    absorbed: absorbed,
+    hpLoss: hpLoss,
+    remainingShield: actor.absorbShield
+  };
+}
+
   // --- Module: src/engine/state.js ---
 // Game State Schema (Multi-Dungeon Atlas v5/v6), Save Migration, RLE Persistence & Derived Hero Stats
+
 
 
 
@@ -5184,9 +6376,15 @@ function migrateSaveData(raw) {
         : [],
       statuses: Array.isArray(data.hero.statuses) ? data.hero.statuses : [],
       usedDivineIntervention: !!data.hero.usedDivineIntervention,
+      abilityGrants: data.hero.abilityGrants ? JSON.parse(JSON.stringify(data.hero.abilityGrants)) : null,
+      abilityCooldowns: data.hero.abilityCooldowns ? Object.assign({}, data.hero.abilityCooldowns) : {},
+      activeAbilityId: data.hero.activeAbilityId || null,
+      absorbShield: typeof data.hero.absorbShield === 'number' ? Math.max(0, data.hero.absorbShield) : 0,
+      pendingCast: data.hero.pendingCast ? JSON.parse(JSON.stringify(data.hero.pendingCast)) : null,
       x: data.hero.x || 1,
       y: data.hero.y || 1
     };
+    normalizeActorAbilityState(migrated.hero);
   }
 
   // Migrate Multi-Dungeon Registry OR Legacy Single Dungeon
@@ -5260,6 +6458,7 @@ function getPickaxeMaxDurability(state = gameState) {
 function recomputeHeroDerivedStats(fullRestore = false, state = gameState) {
   const h = state.hero;
   if (!h) return;
+  normalizeActorAbilityState(h);
   const derived = computeHeroDerivedStats(h);
   if (!derived) return;
 
@@ -6928,24 +8127,50 @@ function getActionCallbacks() {
   return actionCallbacks;
 }
 
-function applyStatusEffect(target, id, duration) {
+function applyStatusEffect(target, id, duration, opts) {
   if (!target.statuses) target.statuses = [];
   const metaMap = {
-    burn:            { id: 'burn',            name: 'Burn',              color: '#fb923c', duration, isBuff: false },
-    bleed:           { id: 'bleed',           name: 'Bleed',             color: '#f87171', duration, isBuff: false },
-    poison:          { id: 'poison',          name: 'Poison',            color: '#4ade80', duration, isBuff: false },
-    stun:            { id: 'stun',            name: 'Stunned',           color: '#fbbf24', duration, isBuff: false },
-    weakened:        { id: 'weakened',        name: 'Weakened',          color: '#c084fc', duration, isBuff: false },
-    chilled:         { id: 'chilled',         name: 'Chilled',           color: '#38bdf8', duration, isBuff: false },
-    guarding:        { id: 'guarding',        name: 'Guarding',          color: '#60a5fa', duration, isBuff: true },
-    shrine_starfire: { id: 'shrine_starfire', name: 'Starfire Blessing', color: '#fbbf24', duration, isBuff: true },
-    shrine_aegis:    { id: 'shrine_aegis',    name: 'Astral Aegis',      color: '#60a5fa', duration, isBuff: true }
+    burn:            { id: 'burn',            name: 'Burn',              color: '#fb923c', duration, isBuff: false, stackPolicy: 'refresh' },
+    bleed:           { id: 'bleed',           name: 'Bleed',             color: '#f87171', duration, isBuff: false, stackPolicy: 'refresh' },
+    poison:          { id: 'poison',          name: 'Poison',            color: '#4ade80', duration, isBuff: false, stackPolicy: 'refresh' },
+    stun:            { id: 'stun',            name: 'Stunned',           color: '#fbbf24', duration, isBuff: false, stackPolicy: 'max' },
+    weakened:        { id: 'weakened',        name: 'Weakened',          color: '#c084fc', duration, isBuff: false, stackPolicy: 'refresh' },
+    chilled:         { id: 'chilled',         name: 'Chilled',           color: '#38bdf8', duration, isBuff: false, stackPolicy: 'refresh' },
+    slow:            { id: 'slow',            name: 'Slowed',            color: '#38bdf8', duration, isBuff: false, stackPolicy: 'refresh' },
+    silence:         { id: 'silence',         name: 'Silenced',          color: '#e879f9', duration, isBuff: false, stackPolicy: 'max' },
+    guarding:        { id: 'guarding',        name: 'Guarding',          color: '#60a5fa', duration, isBuff: true,  stackPolicy: 'refresh' },
+    regen:           { id: 'regen',           name: 'Regeneration',      color: '#4ade80', duration, isBuff: true,  stackPolicy: 'refresh' },
+    ward_buff:       { id: 'ward_buff',       name: 'Arcane Ward',       color: '#818cf8', duration, isBuff: true,  stackPolicy: 'refresh' },
+    shrine_starfire: { id: 'shrine_starfire', name: 'Starfire Blessing', color: '#fbbf24', duration, isBuff: true,  stackPolicy: 'max' },
+    shrine_aegis:    { id: 'shrine_aegis',    name: 'Astral Aegis',      color: '#60a5fa', duration, isBuff: true,  stackPolicy: 'max' }
   };
   const meta = metaMap[id];
-  if (!meta) return;
-  const existing = target.statuses.find(s => s.id === id);
-  if (existing) existing.duration = Math.max(existing.duration, duration);
-  else target.statuses.push(Object.assign({}, meta));
+  if (!meta) return null;
+  const sourceId = (opts && opts.sourceId) ? opts.sourceId : null;
+  const sourceAbilityId = (opts && opts.sourceAbilityId) ? opts.sourceAbilityId : null;
+  const policy = (opts && opts.stackPolicy) ? opts.stackPolicy : (meta.stackPolicy || 'max');
+  const existing = target.statuses.find(function(s) { return s && s.id === id; });
+  if (existing) {
+    if (policy === 'stack') {
+      existing.duration = (existing.duration || 0) + duration;
+      existing.stacks = (existing.stacks || 1) + 1;
+    } else if (policy === 'refresh') {
+      existing.duration = Math.max(existing.duration || 0, duration);
+    } else {
+      existing.duration = Math.max(existing.duration || 0, duration);
+    }
+    if (sourceId) existing.sourceId = sourceId;
+    if (sourceAbilityId) existing.sourceAbilityId = sourceAbilityId;
+    return existing;
+  }
+  const entry = Object.assign({}, meta, {
+    duration: duration,
+    stacks: 1,
+    sourceId: sourceId,
+    sourceAbilityId: sourceAbilityId
+  });
+  target.statuses.push(entry);
+  return entry;
 }
 
 function addExpeditionTradeItem(id, name, val, qty = 1, type = 'Ore', state = gameState) {
@@ -9902,12 +11127,20 @@ function monsterAttackHero(m, isRanged, state = gameState) {
   }
 
   const dmg = Math.max(1, raw - Math.floor(h.def * 0.6));
-  h.hp -= dmg;
+  const shieldRes = applyDamageWithShield(h, dmg);
 
   if (state === gameState) {
     playSound('hit');
-    ui.floatingText(h.x, h.y, `-${dmg}${isRanged ? ' 🏹' : ''}`, '#f87171');
-    ui.log(`${m.name} strikes you for ${dmg} damage!`, 'bad');
+    if (shieldRes.absorbed > 0 && shieldRes.hpLoss === 0) {
+      ui.floatingText(h.x, h.y, `ABSORBED (${shieldRes.absorbed})`, '#818cf8');
+      ui.log(`Your barrier absorbed all ${shieldRes.absorbed} damage from ${m.name}!`, 'good');
+    } else if (shieldRes.absorbed > 0) {
+      ui.floatingText(h.x, h.y, `-${shieldRes.hpLoss} (${shieldRes.absorbed} blk)`, '#f87171');
+      ui.log(`${m.name} strikes for ${dmg} (${shieldRes.absorbed} absorbed by shield, -${shieldRes.hpLoss} HP)!`, 'bad');
+    } else {
+      ui.floatingText(h.x, h.y, `-${dmg}${isRanged ? ' 🏹' : ''}`, '#f87171');
+      ui.log(`${m.name} strikes you for ${dmg} damage!`, 'bad');
+    }
     if (typeof ui.combatAnim === 'function') {
       ui.combatAnim(h.x, h.y, isRanged ? 'projectile' : 'claw', '#f87171');
     }
@@ -9958,6 +11191,8 @@ function monsterAttackHero(m, isRanged, state = gameState) {
 
   if (h.hp <= 0) {
     checkHeroFatalDamage(m.name, state);
+  } else {
+    triggerReactiveAbilities(h, 'on_hero_low_hp', state);
   }
 }
 
@@ -10082,6 +11317,8 @@ function resolveTelegraphedAbility(m, floor, state) {
 
   if (h.hp <= 0) {
     checkHeroFatalDamage(m.name, state);
+  } else {
+    triggerReactiveAbilities(h, 'on_hero_low_hp', state);
   }
 }
 
@@ -10187,6 +11424,13 @@ function processTurn(state = gameState) {
     h.mp = Math.min(h.maxMp, h.mp + 1);
   }
 
+  // Tick hero per-ability cooldowns
+  tickActorAbilityCooldowns(h);
+
+  // Capture pre-tick CC state so 1-turn Stun/Silence reliably interrupts delayed casts on this turn
+  const heroStunnedBeforeTick = (h.statuses || []).some(function(s) { return s && s.id === 'stun'; });
+  const heroSilencedBeforeTick = (h.statuses || []).some(function(s) { return s && s.id === 'silence'; });
+
   // Hero Status & Shrine Buff Ticks (normalizes legacy turns-only hazard statuses)
   if (h.statuses && h.statuses.length > 0) {
     let buffExpired = false;
@@ -10198,14 +11442,20 @@ function processTurn(state = gameState) {
       }
       if (st.id === 'burn' || st.id === 'bleed' || st.id === 'poison') {
         const dot = Math.max(2, Math.round(h.maxHp * 0.04));
-        h.hp -= dot;
+        applyDamageWithShield(h, dot);
         if (state === gameState) {
           ui.floatingText(h.x, h.y, `-${dot} ${(st.name || st.id).toUpperCase()}`, st.color || '#f87171');
+        }
+      } else if (st.id === 'regen') {
+        const healTick = Math.max(3, Math.round(h.maxHp * 0.06));
+        h.hp = Math.min(h.maxHp, h.hp + healTick);
+        if (state === gameState) {
+          ui.floatingText(h.x, h.y, `+${healTick} REGEN`, '#4ade80');
         }
       }
       st.duration -= 1;
       if (st.duration <= 0) {
-        if (st.isBuff || st.id === 'chilled') buffExpired = true;
+        if (st.isBuff || st.id === 'chilled' || st.id === 'slow' || st.id === 'silence') buffExpired = true;
         h.statuses.splice(i, 1);
       }
     }
@@ -10215,6 +11465,59 @@ function processTurn(state = gameState) {
     if (h.hp <= 0) {
       checkHeroFatalDamage('Affliction', state);
       return;
+    }
+  }
+
+  // Tick Persistent Ground Areas (e.g. Sanctuary)
+  if (Array.isArray(floor.persistentAreas) && floor.persistentAreas.length > 0) {
+    for (let aIdx = floor.persistentAreas.length - 1; aIdx >= 0; aIdx--) {
+      const area = floor.persistentAreas[aIdx];
+      if (!area) {
+        floor.persistentAreas.splice(aIdx, 1);
+        continue;
+      }
+      const inside = Array.isArray(area.tiles) && area.tiles.some(function(t) { return t.x === h.x && t.y === h.y; });
+      if (inside && area.affectsHero) {
+        const healAmt = Math.max(2, area.healPerTurn || 6);
+        h.hp = Math.min(h.maxHp, h.hp + healAmt);
+        if (area.grantStatus) {
+          applyStatusEffect(h, area.grantStatus, 2, { sourceId: h.id, sourceAbilityId: area.sourceAbilityId || 'sanctuary' });
+          recomputeHeroDerivedStats(false, state);
+        }
+        if (state === gameState) {
+          ui.floatingText(h.x, h.y, `+${healAmt} ${area.name || 'ZONE'}`, area.color || '#fbbf24');
+        }
+      }
+      area.turnsLeft = (typeof area.turnsLeft === 'number' ? area.turnsLeft : 1) - 1;
+      if (area.turnsLeft <= 0) {
+        floor.persistentAreas.splice(aIdx, 1);
+      }
+    }
+  }
+
+  // Resolve or Interrupt Delayed Hero Casts (e.g. Fireball)
+  if (h.pendingCast) {
+    const pDef = getAbilityDefinition(h.pendingCast.abilityId);
+    const heroStunned = heroStunnedBeforeTick || (h.statuses || []).some(function(s) { return s && s.id === 'stun'; });
+    const heroSilenced = pDef ? (isAbilitySilenced(h, pDef) || (heroSilencedBeforeTick && (pDef.domain === 'arcane' || pDef.domain === 'divine' || pDef.domain === 'nature'))) : false;
+    if (!pDef || heroStunned || heroSilenced) {
+      const reasonLabel = heroStunned ? 'Stun' : (heroSilenced ? 'Silence' : 'Disruption');
+      const castName = pDef ? pDef.name : 'Cast';
+      h.pendingCast = null;
+      if (state === gameState) {
+        ui.floatingText(h.x, h.y, 'INTERRUPTED!', '#f87171');
+        ui.log(`✦ Your ${castName} cast was interrupted by ${reasonLabel}!`, 'bad');
+        if (typeof ui.combatAnim === 'function') {
+          ui.combatAnim(h.x, h.y, 'interrupt', '#f87171');
+        }
+      }
+    } else {
+      h.pendingCast.turnsLeft = (typeof h.pendingCast.turnsLeft === 'number' ? h.pendingCast.turnsLeft : 1) - 1;
+      if (h.pendingCast.turnsLeft <= 0) {
+        const committed = h.pendingCast;
+        h.pendingCast = null;
+        resolveCommittedAbilityEffects(pDef, committed, floor, state);
+      }
     }
   }
 
@@ -10315,7 +11618,14 @@ function processTurn(state = gameState) {
         monsterAttackHero(m, true, state);
         if (state.inGuild) return;
       } else if (hasLineOfSight(floor, m.x, m.y, h.x, h.y) || dist <= 4.2) {
-        // 4. Baseline Pursuit
+        // 4. Baseline Pursuit (Slowed monsters skip movement on odd turns)
+        const isSlowed = (m.statuses || []).some(function(s) { return s && s.id === 'slow'; });
+        if (isSlowed && (state.turn % 2 === 1)) {
+          if (state === gameState) {
+            ui.floatingText(m.x, m.y, 'SLOWED', '#38bdf8');
+          }
+          continue;
+        }
         const sx = Math.sign(h.x - m.x);
         const sy = Math.sign(h.y - m.y);
         const candidates = Math.abs(h.x - m.x) >= Math.abs(h.y - m.y)
@@ -10350,414 +11660,797 @@ function processTurn(state = gameState) {
 // Wire turn-end hook into actions.js (for Healing Tonic turn advance)
 registerActionCallbacks({ onTurnEnd: () => processTurn(gameState) });
 
-function getSkillTargetingInfo(state = gameState) {
+// ============================================================================
+// MG-01A UNIFIED SPELL, PRAYER, TECHNIQUE & SKILL TARGETING AND EXECUTION
+// ============================================================================
+
+const MAX_REACTIVE_TRIGGER_DEPTH = 2;
+let reactiveTriggerDepth = 0;
+
+function isTileWalkableForAbility(floor, tx, ty, fw, fh) {
+  if (!floor || !floor.tiles || tx < 0 || tx >= fw || ty < 0 || ty >= fh) return false;
+  const t = floor.tiles[ty][tx];
+  const walkable = (
+    t === TILE_FLOOR ||
+    t === TILE_STAIRS_UP ||
+    t === TILE_STAIRS_DOWN ||
+    t === TILE_CHEST_OPEN ||
+    t === TILE_SHRINE_USED ||
+    t === TILE_TRAP_DISARMED
+  );
+  if (!walkable) return false;
+  if (floor.objects && floor.objects.length > 0) {
+    const doorObj = floor.objects.find(function(o) { return o && o.x === tx && o.y === ty && o.objectType === 'door'; });
+    if (doorObj && !isDoorWalkable(doorObj)) return false;
+  }
+  return true;
+}
+
+function isTileThreatenableForAbility(floor, tx, ty, fw, fh) {
+  if (!floor || !floor.tiles || tx < 0 || tx >= fw || ty < 0 || ty >= fh) return false;
+  const t = floor.tiles[ty][tx];
+  if (t === TILE_WALL || ORE_CATALOG[t]) return false;
+  if (floor.objects && floor.objects.length > 0) {
+    const doorObj = floor.objects.find(function(o) { return o && o.x === tx && o.y === ty && isDoorOpaque(o); });
+    if (doorObj) return false;
+  }
+  return true;
+}
+
+function findShadowstepLanding(floor, m, fw, fh) {
+  const neighbors = [[0, -1], [0, 1], [-1, 0], [1, 0]];
+  for (let i = 0; i < neighbors.length; i++) {
+    const tx = m.x + neighbors[i][0];
+    const ty = m.y + neighbors[i][1];
+    if (!isTileWalkableForAbility(floor, tx, ty, fw, fh)) continue;
+    const occupied = (floor.monsters || []).some(function(other) {
+      return other && !other._dead && other.hp > 0 && other.x === tx && other.y === ty;
+    });
+    if (!occupied) {
+      return { x: tx, y: ty };
+    }
+  }
+  return null;
+}
+
+function buildPatternTiles(floor, originX, originY, centerX, centerY, targeting, fw, fh) {
+  const tiles = [];
+  const pattern = (targeting && targeting.pattern) || 'single';
+  if (pattern === 'self') {
+    tiles.push({ x: originX, y: originY });
+    return tiles;
+  }
+  if (pattern === 'single') {
+    if (isTileThreatenableForAbility(floor, centerX, centerY, fw, fh)) {
+      tiles.push({ x: centerX, y: centerY });
+    }
+    return tiles;
+  }
+  if (pattern === 'radius') {
+    const rad = Math.max(0, Math.floor((targeting && typeof targeting.radius === 'number') ? targeting.radius : 1));
+    for (let dy = -rad; dy <= rad; dy++) {
+      for (let dx = -rad; dx <= rad; dx++) {
+        const cx = centerX + dx;
+        const cy = centerY + dy;
+        if (isTileThreatenableForAbility(floor, cx, cy, fw, fh)) {
+          tiles.push({ x: cx, y: cy });
+        }
+      }
+    }
+    return tiles;
+  }
+  if (pattern === 'line') {
+    const sdx = Math.sign(centerX - originX);
+    const sdy = Math.sign(centerY - originY);
+    if (sdx === 0 && sdy === 0) return tiles;
+    const maxLen = Math.max(1, Math.floor((targeting && targeting.range) || 4));
+    for (let step = 1; step <= maxLen; step++) {
+      const cx = originX + sdx * step;
+      const cy = originY + sdy * step;
+      if (!isTileThreatenableForAbility(floor, cx, cy, fw, fh)) break;
+      tiles.push({ x: cx, y: cy });
+    }
+    return tiles;
+  }
+  if (pattern === 'cone') {
+    const sdx = Math.sign(centerX - originX);
+    const sdy = Math.sign(centerY - originY);
+    if (sdx === 0 && sdy === 0) return tiles;
+    const maxLen = Math.max(1, Math.floor((targeting && targeting.range) || 3));
+    for (let step = 1; step <= maxLen; step++) {
+      const bx = originX + sdx * step;
+      const by = originY + sdy * step;
+      const spread = step - 1;
+      for (let s = -spread; s <= spread; s++) {
+        const cx = sdx !== 0 ? bx : bx + s;
+        const cy = sdy !== 0 ? by : by + s;
+        if (isTileThreatenableForAbility(floor, cx, cy, fw, fh)) {
+          tiles.push({ x: cx, y: cy });
+        }
+      }
+    }
+    return tiles;
+  }
+  return tiles;
+}
+
+function selectHeroActiveAbility(abilityId, state = gameState) {
+  if (!state || !state.hero) return { ok: false, reason: 'no_hero' };
+  const h = state.hero;
+  normalizeActorAbilityState(h);
+  const def = getAbilityDefinition(abilityId);
+  if (!def || def.activation !== 'active') return { ok: false, reason: 'invalid_ability' };
+  const activeIds = getGrantedAbilityIds(h, { activation: 'active' });
+  if (activeIds.indexOf(abilityId) === -1) return { ok: false, reason: 'not_granted' };
+  h.activeAbilityId = abilityId;
+  return { ok: true, abilityId: abilityId };
+}
+
+function cancelPendingAbilityCast(state = gameState) {
+  if (!state || !state.hero || !state.hero.pendingCast) {
+    return { ok: false, reason: 'no_pending_cast' };
+  }
+  const cancelled = state.hero.pendingCast;
+  state.hero.pendingCast = null;
+  if (state === gameState) {
+    const ui = getActionCallbacks();
+    ui.floatingText(state.hero.x, state.hero.y, 'CAST CANCELLED', '#94a3b8');
+    ui.log('Cancelled pending spell cast.', 'info');
+    ui.updateUI();
+  }
+  return { ok: true, cancelled: cancelled };
+}
+
+function getHeroAbilityBarState(state = gameState) {
+  if (!state || !state.hero) return [];
+  const h = state.hero;
+  normalizeActorAbilityState(h);
+  const activeIds = getGrantedAbilityIds(h, { activation: 'active' });
+  const list = [];
+  for (let i = 0; i < activeIds.length; i++) {
+    const id = activeIds[i];
+    const def = getAbilityDefinition(id);
+    if (!def) continue;
+    const costInfo = getEffectiveAbilityCost(h, def);
+    const cdRem = getAbilityCooldownRemaining(h, id);
+    const silenced = isAbilitySilenced(h, def);
+    const canAfford = (h.mp || 0) >= costInfo.mp;
+    const ready = !silenced && cdRem <= 0 && canAfford && !h.pendingCast;
+    const mode = (def.targeting && def.targeting.mode) || 'self';
+    const requiresManualTarget = (mode === 'manual_enemy' || mode === 'manual_location' || mode === 'directional');
+    list.push({
+      id: id,
+      name: def.name,
+      icon: def.icon || '✦',
+      kind: def.kind,
+      domain: def.domain,
+      timing: def.timing,
+      desc: def.desc,
+      effectiveMp: costInfo.mp,
+      baseMp: costInfo.baseMp,
+      chilledPenalty: costInfo.chilledPenalty,
+      cooldown: costInfo.cooldown,
+      cooldownRemaining: cdRem,
+      silenced: silenced,
+      canAfford: canAfford,
+      ready: ready,
+      isSelected: h.activeAbilityId === id,
+      requiresManualTarget: requiresManualTarget,
+      mode: mode,
+      hotkey: i === 0 ? 'Q' : String(i + 1)
+    });
+  }
+  return list;
+}
+
+function getAbilityTargetingInfo(abilityId, state = gameState, targetOverride = null) {
   if (!state || state.inGuild || !state.hero) {
-    return { valid: false, reason: 'not_in_dungeon', targets: [], targetCoords: [], canAfford: false, reachRadius: 0 };
+    return { valid: false, reason: 'not_in_dungeon', targets: [], targetCoords: [], targetTiles: [], canAfford: false, reachRadius: 0 };
   }
   const h = state.hero;
-  const cls = CLASSES[h.classId];
-  if (!cls) {
-    return { valid: false, reason: 'unknown_class', targets: [], targetCoords: [], canAfford: false, reachRadius: 0 };
+  normalizeActorAbilityState(h);
+  const resolvedId = abilityId || h.activeAbilityId || (getGrantedAbilityIds(h, { activation: 'active' })[0] || null);
+  const def = getAbilityDefinition(resolvedId);
+  if (!def) {
+    return { valid: false, reason: 'unknown_ability', targets: [], targetCoords: [], targetTiles: [], canAfford: false, reachRadius: 0 };
   }
   const floor = ensureDungeonFloorHydrated(state.dungeon, state.dungeon.currentFloor);
   if (!floor || !floor.monsters) {
-    return { valid: false, reason: 'no_floor', targets: [], targetCoords: [], canAfford: false, reachRadius: 0 };
+    return { valid: false, reason: 'no_floor', targets: [], targetCoords: [], targetTiles: [], canAfford: false, reachRadius: 0 };
   }
 
   const fw = floor.width || (floor.tiles[0] ? floor.tiles[0].length : DEFAULT_MAP_W);
   const fh = floor.height || floor.tiles.length || DEFAULT_MAP_H;
 
-  const isChilled = (h.statuses || []).some(s => s.id === 'chilled');
-  const effectiveCost = cls.skillCost + (isChilled ? 2 : 0);
-  const canAfford = (h.mp >= effectiveCost);
+  const costInfo = getEffectiveAbilityCost(h, def);
+  const cdRem = getAbilityCooldownRemaining(h, def.id);
+  const silenced = isAbilitySilenced(h, def);
+  const canAfford = (h.mp || 0) >= costInfo.mp && cdRem <= 0 && !silenced && !h.pendingCast;
 
-  let targets = [];
-  let reachRadius = cls.skillRange || 1.5;
-  let destTile = null;
-
-  if (h.classId === 'fighter') {
-    reachRadius = 1.5;
-    targets = floor.monsters.filter(m => m.hp > 0 && Math.hypot(m.x - h.x, m.y - h.y) <= 1.5);
-  } else if (h.classId === 'thief') {
-    reachRadius = 3.5;
-    const candidates = floor.monsters.filter(
-      m => m.hp > 0 && Math.hypot(m.x - h.x, m.y - h.y) <= 3.5 && hasLineOfSight(floor, h.x, h.y, m.x, m.y)
-    );
-    for (let cIdx = 0; cIdx < candidates.length; cIdx++) {
-      const m = candidates[cIdx];
-      const neighbors = [[0, -1], [0, 1], [-1, 0], [1, 0]];
-      for (let nIdx = 0; nIdx < neighbors.length; nIdx++) {
-        const tx = m.x + neighbors[nIdx][0];
-        const ty = m.y + neighbors[nIdx][1];
-        if (tx >= 0 && tx < fw && ty >= 0 && ty < fh) {
-          const t = floor.tiles[ty][tx];
-          const walkable = (
-            t === TILE_FLOOR ||
-            t === TILE_STAIRS_UP ||
-            t === TILE_STAIRS_DOWN ||
-            t === TILE_CHEST_OPEN ||
-            t === TILE_SHRINE_USED ||
-            t === TILE_TRAP_DISARMED
-          );
-          const occupied = floor.monsters.some(other => other.hp > 0 && other.x === tx && other.y === ty);
-          if (walkable && !occupied) {
-            targets.push(m);
-            destTile = { x: tx, y: ty };
-            break;
-          }
-        }
-      }
-      if (targets.length > 0 && destTile) break;
-    }
-  } else if (h.classId === 'mage') {
-    reachRadius = 4.2;
-    targets = floor.monsters.filter(
-      m => m.hp > 0 && Math.hypot(m.x - h.x, m.y - h.y) <= 4.2 && hasLineOfSight(floor, h.x, h.y, m.x, m.y)
-    );
-  } else if (h.classId === 'ranger') {
-    reachRadius = 5.2;
-    const maxTargets = ((h.talentsAllocated && h.talentsAllocated.r_d3) || 0) > 0 ? 5 : 3;
-    targets = floor.monsters
-      .filter(m => m.hp > 0 && Math.hypot(m.x - h.x, m.y - h.y) <= 5.2 && hasLineOfSight(floor, h.x, h.y, m.x, m.y))
-      .sort((a, b) => Math.hypot(a.x - h.x, a.y - h.y) - Math.hypot(b.x - h.x, b.y - h.y))
-      .slice(0, maxTargets);
-  } else if (h.classId === 'paladin' || h.classId === 'adventurer') {
-    reachRadius = 1.5;
-    const t = floor.monsters.find(m => m.hp > 0 && Math.hypot(m.x - h.x, m.y - h.y) <= 1.5);
-    if (t) targets.push(t);
-  } else if (h.classId === 'cleric') {
-    reachRadius = 3.2;
-    const visTargets = floor.monsters
-      .filter(m => m.hp > 0 && Math.hypot(m.x - h.x, m.y - h.y) <= 3.2 && hasLineOfSight(floor, h.x, h.y, m.x, m.y))
-      .sort((a, b) => Math.hypot(a.x - h.x, a.y - h.y) - Math.hypot(b.x - h.x, b.y - h.y));
-    if (visTargets.length > 0) targets.push(visTargets[0]);
+  const tgt = def.targeting || { mode: 'self', pattern: 'self', range: 0, radius: 0, requireLos: false, filter: 'self', maxTargets: 1 };
+  const reachRadius = typeof tgt.range === 'number' ? tgt.range : 1.5;
+  let maxTargets = tgt.maxTargets || 1;
+  if (def.id === 'starfall_volley' && ((h.talentsAllocated && h.talentsAllocated.r_d3) || 0) > 0) {
+    maxTargets = 5;
   }
 
-  const targetCoords = targets.map(m => ({ x: m.x, y: m.y }));
+  const livingMonsters = floor.monsters.filter(function(m) { return m && !m._dead && m.hp > 0; });
+  let targets = [];
+  let targetTiles = [];
+  let destTile = null;
+  let validTarget = false;
+  const requiresManualTarget = (tgt.mode === 'manual_enemy' || tgt.mode === 'manual_location' || tgt.mode === 'directional');
 
+  if (tgt.mode === 'self') {
+    validTarget = true;
+    targetTiles = [{ x: h.x, y: h.y }];
+  } else if (tgt.mode === 'auto_area') {
+    const inRange = livingMonsters
+      .filter(function(m) {
+        const d = Math.hypot(m.x - h.x, m.y - h.y);
+        if (d > reachRadius) return false;
+        if (tgt.requireLos && !hasLineOfSight(floor, h.x, h.y, m.x, m.y)) return false;
+        return true;
+      })
+      .sort(function(a, b) {
+        return Math.hypot(a.x - h.x, a.y - h.y) - Math.hypot(b.x - h.x, b.y - h.y);
+      })
+      .slice(0, maxTargets);
+    targets = inRange;
+    targetTiles = inRange.map(function(m) { return { x: m.x, y: m.y }; });
+    validTarget = targets.length > 0;
+  } else if (tgt.mode === 'auto_enemy') {
+    const candidates = livingMonsters
+      .filter(function(m) {
+        const d = Math.hypot(m.x - h.x, m.y - h.y);
+        if (d > reachRadius) return false;
+        if (tgt.requireLos && !hasLineOfSight(floor, h.x, h.y, m.x, m.y)) return false;
+        return true;
+      })
+      .sort(function(a, b) {
+        return Math.hypot(a.x - h.x, a.y - h.y) - Math.hypot(b.x - h.x, b.y - h.y);
+      });
+    if (tgt.requireAdjacentLanding) {
+      for (let i = 0; i < candidates.length; i++) {
+        const landing = findShadowstepLanding(floor, candidates[i], fw, fh);
+        if (landing) {
+          targets = [candidates[i]];
+          destTile = landing;
+          targetTiles = [{ x: candidates[i].x, y: candidates[i].y }];
+          validTarget = true;
+          break;
+        }
+      }
+    } else if (candidates.length > 0) {
+      targets = [candidates[0]];
+      targetTiles = [{ x: candidates[0].x, y: candidates[0].y }];
+      validTarget = true;
+    }
+  } else if (tgt.mode === 'manual_enemy') {
+    let chosen = null;
+    if (targetOverride && typeof targetOverride.targetX === 'number' && typeof targetOverride.targetY === 'number') {
+      chosen = livingMonsters.find(function(m) {
+        if (m.x !== targetOverride.targetX || m.y !== targetOverride.targetY) return false;
+        const d = Math.hypot(m.x - h.x, m.y - h.y);
+        if (d > reachRadius) return false;
+        if (tgt.requireLos && !hasLineOfSight(floor, h.x, h.y, m.x, m.y)) return false;
+        return true;
+      }) || null;
+    } else {
+      // Auto-preview nearest legal enemy if no manual cursor override provided
+      const candidates = livingMonsters
+        .filter(function(m) {
+          const d = Math.hypot(m.x - h.x, m.y - h.y);
+          if (d > reachRadius) return false;
+          if (tgt.requireLos && !hasLineOfSight(floor, h.x, h.y, m.x, m.y)) return false;
+          return true;
+        })
+        .sort(function(a, b) {
+          return Math.hypot(a.x - h.x, a.y - h.y) - Math.hypot(b.x - h.x, b.y - h.y);
+        });
+      chosen = candidates[0] || null;
+    }
+    if (chosen) {
+      targets = [chosen];
+      targetTiles = [{ x: chosen.x, y: chosen.y }];
+      validTarget = true;
+    }
+  } else if (tgt.mode === 'manual_location') {
+    const cx = (targetOverride && typeof targetOverride.targetX === 'number') ? targetOverride.targetX : h.x;
+    const cy = (targetOverride && typeof targetOverride.targetY === 'number') ? targetOverride.targetY : h.y;
+    const d = Math.hypot(cx - h.x, cy - h.y);
+    const inRange = d <= reachRadius + 0.05;
+    const losOk = !tgt.requireLos || hasLineOfSight(floor, h.x, h.y, cx, cy);
+    const walkableOk = !tgt.requireWalkable || (
+      isTileWalkableForAbility(floor, cx, cy, fw, fh) &&
+      !(cx === h.x && cy === h.y) &&
+      !livingMonsters.some(function(m) { return m.x === cx && m.y === cy; })
+    );
+    if (inRange && losOk && walkableOk && isTileThreatenableForAbility(floor, cx, cy, fw, fh)) {
+      targetTiles = buildPatternTiles(floor, h.x, h.y, cx, cy, tgt, fw, fh);
+      if (tgt.requireWalkable) {
+        destTile = { x: cx, y: cy };
+      }
+      if (tgt.filter === 'enemy') {
+        targets = livingMonsters.filter(function(m) {
+          return targetTiles.some(function(pt) { return pt.x === m.x && pt.y === m.y; });
+        });
+      }
+      validTarget = targetTiles.length > 0;
+    }
+  } else if (tgt.mode === 'directional') {
+    let tx = (targetOverride && typeof targetOverride.targetX === 'number') ? targetOverride.targetX : null;
+    let ty = (targetOverride && typeof targetOverride.targetY === 'number') ? targetOverride.targetY : null;
+    if (tx === null || ty === null) {
+      if (targetOverride && (targetOverride.dirX || targetOverride.dirY)) {
+        tx = h.x + Math.sign(targetOverride.dirX || 0);
+        ty = h.y + Math.sign(targetOverride.dirY || 0);
+      } else {
+        const nearest = livingMonsters
+          .filter(function(m) { return Math.hypot(m.x - h.x, m.y - h.y) <= reachRadius + 1; })
+          .sort(function(a, b) { return Math.hypot(a.x - h.x, a.y - h.y) - Math.hypot(b.x - h.x, b.y - h.y); })[0];
+        if (nearest) {
+          tx = nearest.x;
+          ty = nearest.y;
+        }
+      }
+    }
+    if (tx !== null && ty !== null && !(tx === h.x && ty === h.y)) {
+      targetTiles = buildPatternTiles(floor, h.x, h.y, tx, ty, tgt, fw, fh);
+      targets = livingMonsters.filter(function(m) {
+        return targetTiles.some(function(pt) { return pt.x === m.x && pt.y === m.y; });
+      });
+      validTarget = targetTiles.length > 0;
+    }
+  }
+
+  const targetCoords = targets.map(function(m) { return { x: m.x, y: m.y }; });
   return {
-    valid: targets.length > 0 && canAfford,
-    hasTargets: targets.length > 0,
+    valid: validTarget && canAfford,
+    hasTargets: validTarget,
     canAfford: canAfford,
     classId: h.classId,
-    skillName: cls.skillName,
-    skillCost: cls.skillCost,
-    effectiveCost: effectiveCost,
+    abilityId: def.id,
+    abilityDef: def,
+    skillName: def.name,
+    skillCost: costInfo.baseMp,
+    effectiveCost: costInfo.mp,
+    cooldownRemaining: cdRem,
+    silenced: silenced,
+    requiresManualTarget: requiresManualTarget,
+    mode: tgt.mode,
+    pattern: tgt.pattern,
     reachRadius: reachRadius,
     targets: targets,
     targetCoords: targetCoords,
+    targetTiles: targetTiles,
     destTile: destTile
   };
 }
 
-function executeClassSkill(state = gameState) {
-  const ui = getActionCallbacks();
-  cancelAutoWalk();
-  if (state.inGuild) return { ok: false, reason: 'in_guild' };
-  const h = state.hero;
-  const cls = CLASSES[h.classId];
-  if (!cls) return { ok: false, reason: 'unknown_class' };
-  const floor = ensureDungeonFloorHydrated(state.dungeon, state.dungeon.currentFloor);
-  if (!floor) return { ok: false, reason: 'no_floor' };
+function getSkillTargetingInfo(state = gameState) {
+  return getAbilityTargetingInfo(null, state, null);
+}
 
+function resolveCommittedAbilityEffects(abilityDef, commitCtx, floor, state) {
+  const ui = getActionCallbacks();
+  const h = state.hero;
   const fw = floor.width || (floor.tiles[0] ? floor.tiles[0].length : DEFAULT_MAP_W);
   const fh = floor.height || floor.tiles.length || DEFAULT_MAP_H;
+  const tiles = Array.isArray(commitCtx.tiles) ? commitCtx.tiles : [];
+  const livingMonsters = (floor.monsters || []).filter(function(m) { return m && !m._dead && m.hp > 0; });
 
-  const isChilled = (h.statuses || []).some(s => s.id === 'chilled');
-  const effectiveCost = cls.skillCost + (isChilled ? 2 : 0);
-
-  if (h.mp < effectiveCost) {
-    if (state === gameState) {
-      ui.floatingText(h.x, h.y, 'Low MP!', '#60a5fa');
-      const chilledNote = isChilled ? ' (Chilled penalty: +2 MP)' : '';
-      ui.log(`Not enough MP for ${cls.skillName} (${effectiveCost} MP required${chilledNote}).`, 'bad');
-    }
-    return { ok: false, reason: 'no_mp' };
+  // Resolve target monsters at resolution time (important for delayed casts like Fireball!)
+  let affectedMonsters = [];
+  if (Array.isArray(commitCtx.explicitTargets) && commitCtx.explicitTargets.length > 0) {
+    affectedMonsters = commitCtx.explicitTargets.filter(function(m) { return m && !m._dead && m.hp > 0; });
+  } else if (tiles.length > 0 && abilityDef.targeting && abilityDef.targeting.filter === 'enemy') {
+    affectedMonsters = livingMonsters.filter(function(m) {
+      return tiles.some(function(pt) { return pt.x === m.x && pt.y === m.y; });
+    });
   }
 
-  // 1. FIGHTER: Whirlwind Cleave (Requires at least 1 adjacent monster)
-  if (h.classId === 'fighter') {
-    const adjTargets = floor.monsters.filter(m => Math.hypot(m.x - h.x, m.y - h.y) <= 1.5);
-    if (adjTargets.length === 0) {
-      if (state === gameState) {
-        ui.floatingText(h.x, h.y, 'No Adjacent Foes!', '#fbbf24');
-        ui.log('Whirlwind Cleave requires at least one adjacent enemy.', 'bad');
-      }
-      return { ok: false, reason: 'no_target' };
+  const summary = {
+    totalDmg: 0,
+    hits: 0,
+    kills: 0,
+    healAmt: 0,
+    shieldAmt: 0,
+    cleansedCount: 0,
+    revealedCount: 0,
+    movedTo: null,
+    knockbackCollided: false
+  };
+
+  if (state === gameState) {
+    playSound('spell');
+    if (abilityDef.vfx && typeof ui.combatAnim === 'function') {
+      const animX = (typeof commitCtx.targetX === 'number') ? commitCtx.targetX : h.x;
+      const animY = (typeof commitCtx.targetY === 'number') ? commitCtx.targetY : h.y;
+      ui.combatAnim(animX, animY, abilityDef.vfx.type || 'spell', abilityDef.vfx.color || '#60a5fa');
     }
-    h.mp -= effectiveCost;
-    if (state === gameState) {
-      playSound('spell');
-      ui.floatingText(h.x, h.y, 'WHIRLWIND!', '#f87171');
-      if (typeof ui.combatAnim === 'function') {
-        ui.combatAnim(h.x, h.y, 'spell', '#f87171');
+  }
+
+  const effects = Array.isArray(abilityDef.effects) ? abilityDef.effects : [];
+  for (let eIdx = 0; eIdx < effects.length; eIdx++) {
+    const eff = effects[eIdx];
+    if (!eff) continue;
+
+    if (eff.type === 'shadowstep' && commitCtx.destTile) {
+      h.x = commitCtx.destTile.x;
+      h.y = commitCtx.destTile.y;
+      summary.movedTo = { x: h.x, y: h.y };
+      if (state === gameState && typeof ui.combatAnim === 'function') {
+        ui.combatAnim(h.x, h.y, 'teleport', '#a855f7');
       }
-    }
-    adjTargets.slice().forEach(m => {
-      const masteryMult = getCodexMasteryMultiplier(m.id, state);
-      const dmg = Math.max(2, Math.round(h.atk * 1.5 * masteryMult) - m.def);
-      m.hp -= dmg;
-      applyStatusEffect(m, 'stun', 1);
+    } else if (eff.type === 'teleport' && commitCtx.destTile) {
+      h.x = commitCtx.destTile.x;
+      h.y = commitCtx.destTile.y;
+      summary.movedTo = { x: h.x, y: h.y };
       if (state === gameState) {
-        ui.floatingText(m.x, m.y, `-${dmg} STUN`, '#f87171');
+        ui.floatingText(h.x, h.y, 'BLINK!', '#c084fc');
+        ui.log(`You blink to (${h.x}, ${h.y})!`, 'info');
         if (typeof ui.combatAnim === 'function') {
-          ui.combatAnim(m.x, m.y, 'slash', '#f87171');
+          ui.combatAnim(h.x, h.y, 'teleport', '#c084fc');
         }
       }
-      if (m.hp <= 0) killMonster(m, state);
-    });
-    if (state === gameState) processTurn(state);
-    return { ok: true, skill: 'whirlwind' };
-  }
+    } else if (eff.type === 'damage') {
+      const ampRank = (abilityDef.id === 'starfall_nova' && h.talentsAllocated && h.talentsAllocated.m_c2) || 0;
+      const hasEcho = abilityDef.id === 'starfall_nova' && ((h.talentsAllocated && h.talentsAllocated.m_c3) || 0) > 0;
+      const talentMult = 1 + ampRank * 0.15;
 
-  // 2. THIEF: Shadowstep Strike (Requires visible target within 3.5 tiles AND an unoccupied safe floor tile adjacent to target)
-  if (h.classId === 'thief') {
-    const candidates = floor.monsters.filter(
-      m => Math.hypot(m.x - h.x, m.y - h.y) <= 3.5 && hasLineOfSight(floor, h.x, h.y, m.x, m.y)
-    );
-    let chosenTarget = null;
-    let destTile = null;
+      for (let mIdx = 0; mIdx < affectedMonsters.length; mIdx++) {
+        const m = affectedMonsters[mIdx];
+        if (!m || m._dead || m.hp <= 0) continue;
+        const masteryMult = getCodexMasteryMultiplier(m.id, state);
+        const dmgRes = computeAbilityDamage(h, eff, m, masteryMult * talentMult);
+        let dmg = dmgRes.damage;
+        if (hasEcho) dmg += Math.round(dmg * 0.5);
+        m.hp -= dmg;
+        summary.totalDmg += dmg;
+        summary.hits += 1;
 
-    for (let cIdx = 0; cIdx < candidates.length; cIdx++) {
-      const m = candidates[cIdx];
-      const neighbors = [[0, -1], [0, 1], [-1, 0], [1, 0]];
-      for (let nIdx = 0; nIdx < neighbors.length; nIdx++) {
-        const tx = m.x + neighbors[nIdx][0];
-        const ty = m.y + neighbors[nIdx][1];
-        if (tx >= 0 && tx < fw && ty >= 0 && ty < fh) {
-          const t = floor.tiles[ty][tx];
-          const walkable = (
-            t === TILE_FLOOR ||
-            t === TILE_STAIRS_UP ||
-            t === TILE_STAIRS_DOWN ||
-            t === TILE_CHEST_OPEN ||
-            t === TILE_SHRINE_USED ||
-            t === TILE_TRAP_DISARMED
-          );
-          const occupied = floor.monsters.some(other => other.x === tx && other.y === ty);
-          if (walkable && !occupied) {
-            chosenTarget = m;
-            destTile = { x: tx, y: ty };
-            break;
+        if (state === gameState) {
+          const guardTag = dmgRes.guarded ? ' (GUARD)' : '';
+          ui.floatingText(m.x, m.y, `-${dmg}${guardTag}`, (abilityDef.vfx && abilityDef.vfx.color) || '#fbbf24');
+          if (typeof ui.combatAnim === 'function') {
+            ui.combatAnim(m.x, m.y, abilityDef.vfx ? abilityDef.vfx.type : 'slash', (abilityDef.vfx && abilityDef.vfx.color) || '#fbbf24');
+          }
+        }
+        if (m.hp <= 0 && !m._dead) {
+          killMonster(m, state);
+          summary.kills += 1;
+        }
+      }
+    } else if (eff.type === 'status') {
+      const stOpts = { sourceId: h.id || 'hero', sourceAbilityId: abilityDef.id };
+      if (eff.targetSelf) {
+        applyStatusEffect(h, eff.statusId, eff.duration || 2, stOpts);
+        recomputeHeroDerivedStats(false, state);
+        if (state === gameState) {
+          ui.floatingText(h.x, h.y, eff.statusId.toUpperCase(), (abilityDef.vfx && abilityDef.vfx.color) || '#60a5fa');
+        }
+      } else {
+        for (let mIdx = 0; mIdx < affectedMonsters.length; mIdx++) {
+          const m = affectedMonsters[mIdx];
+          if (!m || m._dead || m.hp <= 0) continue;
+          applyStatusEffect(m, eff.statusId, eff.duration || 2, stOpts);
+          if (state === gameState) {
+            ui.floatingText(m.x, m.y, eff.statusId.toUpperCase(), '#fbbf24');
           }
         }
       }
-      if (chosenTarget && destTile) break;
-    }
-
-    if (!chosenTarget || !destTile) {
+    } else if (eff.type === 'heal') {
+      const healAmt = computeAbilityHealAmount(h, eff);
+      h.hp = Math.min(h.maxHp, h.hp + healAmt);
+      summary.healAmt += healAmt;
       if (state === gameState) {
-        ui.floatingText(h.x, h.y, 'No Valid Shadowstep!', '#c084fc');
-        ui.log('Shadowstep Strike requires a visible target within 3 tiles with an open adjacent floor tile.', 'bad');
+        ui.floatingText(h.x, h.y, `+${healAmt} HP`, '#34d399');
       }
-      return { ok: false, reason: 'no_valid_shadowstep' };
-    }
-
-    h.mp -= effectiveCost;
-    h.x = destTile.x;
-    h.y = destTile.y;
-    const masteryMult = getCodexMasteryMultiplier(chosenTarget.id, state);
-    const dmg = Math.max(4, Math.round(h.atk * 2.2 * masteryMult) - Math.floor(chosenTarget.def * 0.5));
-    chosenTarget.hp -= dmg;
-
-    if (state === gameState) {
-      playSound('spell');
-      ui.floatingText(chosenTarget.x, chosenTarget.y, `-${dmg} CRIT BACKSTAB!`, '#fbbf24');
-      ui.log(`Shadowstep Strike hits ${chosenTarget.name} for ${dmg} critical damage!`, 'gold');
-      if (typeof ui.combatAnim === 'function') {
-        ui.combatAnim(chosenTarget.x, chosenTarget.y, 'crit_slash', '#fbbf24');
-      }
-    }
-    if (chosenTarget.hp <= 0) killMonster(chosenTarget, state);
-    if (state === gameState) processTurn(state);
-    return { ok: true, skill: 'shadowstep', destTile };
-  }
-
-  // 3. MAGE: Starfall Nova (Requires at least 1 enemy within 4 tiles)
-  if (h.classId === 'mage') {
-    const targets = floor.monsters.filter(
-      m => Math.hypot(m.x - h.x, m.y - h.y) <= 4.2 && hasLineOfSight(floor, h.x, h.y, m.x, m.y)
-    );
-    if (targets.length === 0) {
+    } else if (eff.type === 'shield') {
+      const shieldAmt = computeAbilityShieldAmount(h, eff);
+      h.absorbShield = Math.max(h.absorbShield || 0, shieldAmt);
+      summary.shieldAmt = h.absorbShield;
       if (state === gameState) {
-        ui.floatingText(h.x, h.y, 'No Foes in Range!', '#60a5fa');
-        ui.log('Starfall Nova requires at least one visible enemy within 4 tiles.', 'bad');
-      }
-      return { ok: false, reason: 'no_target' };
-    }
-
-    h.mp -= effectiveCost;
-    const ampRank = (h.talentsAllocated && h.talentsAllocated.m_c2) || 0;
-    const hasEcho = ((h.talentsAllocated && h.talentsAllocated.m_c3) || 0) > 0;
-    const spellMult = 2.0 * (1 + ampRank * 0.15);
-
-    if (state === gameState) {
-      playSound('spell');
-      ui.floatingText(h.x, h.y, 'STARFALL NOVA!', '#60a5fa');
-      if (typeof ui.combatAnim === 'function') {
-        ui.combatAnim(h.x, h.y, 'spell', '#60a5fa');
-      }
-    }
-
-    targets.slice().forEach(m => {
-      const masteryMult = getCodexMasteryMultiplier(m.id, state);
-      let dmg = Math.max(4, Math.round(h.atk * spellMult * masteryMult) - Math.floor(m.def * 0.4));
-      if (hasEcho) dmg += Math.round(dmg * 0.5);
-      m.hp -= dmg;
-      applyStatusEffect(m, 'burn', 3);
-      if (state === gameState) {
-        ui.floatingText(m.x, m.y, `-${dmg}${hasEcho ? ' ECHO!' : ''}`, '#60a5fa');
+        ui.floatingText(h.x, h.y, `+${shieldAmt} SHIELD`, (abilityDef.vfx && abilityDef.vfx.color) || '#818cf8');
         if (typeof ui.combatAnim === 'function') {
-          ui.combatAnim(m.x, m.y, 'crit_slash', '#60a5fa');
+          ui.combatAnim(h.x, h.y, 'shield', (abilityDef.vfx && abilityDef.vfx.color) || '#818cf8');
         }
       }
-      if (m.hp <= 0) killMonster(m, state);
-    });
-
-    if (state === gameState) processTurn(state);
-    return { ok: true, skill: 'nova' };
-  }
-
-  // 4. RANGER: Starfall Volley (Up to 3—or 5 with Rain of Needles—visible targets within 5 tiles)
-  if (h.classId === 'ranger') {
-    const maxTargets = ((h.talentsAllocated && h.talentsAllocated.r_d3) || 0) > 0 ? 5 : 3;
-    const pierceRank = (h.talentsAllocated && h.talentsAllocated.r_d2) || 0;
-    const defIgnore = Math.min(0.8, pierceRank * 0.30);
-
-    const targets = floor.monsters
-      .filter(m => Math.hypot(m.x - h.x, m.y - h.y) <= 5.2 && hasLineOfSight(floor, h.x, h.y, m.x, m.y))
-      .sort((a, b) => Math.hypot(a.x - h.x, a.y - h.y) - Math.hypot(b.x - h.x, b.y - h.y))
-      .slice(0, maxTargets);
-
-    if (targets.length === 0) {
-      if (state === gameState) {
-        ui.floatingText(h.x, h.y, 'No Targets in Sight!', '#34d399');
-        ui.log('Starfall Volley requires at least one visible enemy within 5 tiles.', 'bad');
-      }
-      return { ok: false, reason: 'no_target' };
-    }
-
-    h.mp -= effectiveCost;
-    if (state === gameState) {
-      playSound('spell');
-      ui.floatingText(h.x, h.y, 'STARFALL VOLLEY!', '#34d399');
-    }
-
-    targets.forEach(m => {
-      const effDef = Math.round(m.def * (1 - defIgnore));
-      const masteryMult = getCodexMasteryMultiplier(m.id, state);
-      const dmg = Math.max(3, Math.round(h.atk * 1.8 * masteryMult) - effDef);
-      m.hp -= dmg;
-      if (state === gameState) {
-        ui.floatingText(m.x, m.y, `-${dmg} VOLLEY`, '#34d399');
-        if (typeof ui.combatAnim === 'function') {
-          ui.combatAnim(m.x, m.y, 'slash', '#34d399');
+    } else if (eff.type === 'cleanse') {
+      const maxRem = eff.maxRemoved || 3;
+      let removed = 0;
+      if (Array.isArray(h.statuses)) {
+        for (let i = h.statuses.length - 1; i >= 0 && removed < maxRem; i--) {
+          const st = h.statuses[i];
+          if (st && CLEANSEABLE_STATUS_IDS.indexOf(st.id) !== -1) {
+            h.statuses.splice(i, 1);
+            removed += 1;
+          }
         }
       }
-      if (m.hp <= 0) killMonster(m, state);
-    });
-
-    if (state === gameState) processTurn(state);
-    return { ok: true, skill: 'volley', count: targets.length };
+      summary.cleansedCount += removed;
+      if (removed > 0) {
+        recomputeHeroDerivedStats(false, state);
+      }
+      if (state === gameState) {
+        ui.floatingText(h.x, h.y, removed > 0 ? `CLEANSED (${removed})` : 'PURIFIED', '#fef08a');
+        ui.log(removed > 0 ? `Purification cleansed ${removed} negative effect(s)!` : 'Purification washes over you.', 'good');
+      }
+    } else if (eff.type === 'knockback') {
+      const dist = eff.distance || 1;
+      for (let mIdx = 0; mIdx < affectedMonsters.length; mIdx++) {
+        const m = affectedMonsters[mIdx];
+        if (!m || m._dead || m.hp <= 0) continue;
+        const dx = Math.sign(m.x - h.x);
+        const dy = Math.sign(m.y - h.y);
+        if (dx === 0 && dy === 0) continue;
+        let collided = false;
+        for (let step = 0; step < dist; step++) {
+          const nx = m.x + dx;
+          const ny = m.y + dy;
+          if (isMonsterWalkableTile(floor, nx, ny, h, fw, fh)) {
+            m.x = nx;
+            m.y = ny;
+          } else {
+            collided = true;
+            break;
+          }
+        }
+        if (collided) {
+          summary.knockbackCollided = true;
+          if (eff.collideBonusDmg > 0) {
+            m.hp -= eff.collideBonusDmg;
+          }
+          if (eff.collideStunTurns > 0) {
+            applyStatusEffect(m, 'stun', eff.collideStunTurns, { sourceId: h.id || 'hero', sourceAbilityId: abilityDef.id });
+          }
+          if (state === gameState) {
+            ui.floatingText(m.x, m.y, 'WALL SLAM! STUN', '#fbbf24');
+            ui.log(`${m.name} slammed into an obstacle and is stunned!`, 'gold');
+          }
+          if (m.hp <= 0 && !m._dead) {
+            killMonster(m, state);
+            summary.kills += 1;
+          }
+        } else if (state === gameState) {
+          ui.floatingText(m.x, m.y, 'KNOCKBACK!', '#f59e0b');
+        }
+      }
+    } else if (eff.type === 'detect') {
+      const rad = eff.radius || 6;
+      let revealed = 0;
+      if (eff.revealTraps && floor.tiles) {
+        for (let ty = Math.max(0, h.y - rad); ty <= Math.min(fh - 1, h.y + rad); ty++) {
+          for (let tx = Math.max(0, h.x - rad); tx <= Math.min(fw - 1, h.x + rad); tx++) {
+            if (Math.hypot(tx - h.x, ty - h.y) <= rad && floor.tiles[ty][tx] === TILE_TRAP_HIDDEN) {
+              floor.tiles[ty][tx] = TILE_TRAP_VISIBLE;
+              revealed += 1;
+            }
+          }
+        }
+      }
+      if (eff.revealSecretDoors && Array.isArray(floor.objects)) {
+        for (let oIdx = 0; oIdx < floor.objects.length; oIdx++) {
+          const obj = floor.objects[oIdx];
+          if (!obj || Math.hypot(obj.x - h.x, obj.y - h.y) > rad) continue;
+          if (obj.runtimeState && obj.runtimeState.discovered === false) {
+            obj.runtimeState.discovered = true;
+            revealed += 1;
+          }
+        }
+      }
+      summary.revealedCount += revealed;
+      if (state === gameState) {
+        ui.floatingText(h.x, h.y, revealed > 0 ? `REVEALED (${revealed})` : 'SENSE CLEAR', '#34d399');
+        ui.log(revealed > 0 ? `Detect Magic revealed ${revealed} concealed trap(s) or secret(s)!` : 'Detect Magic senses no hidden traps or secrets nearby.', 'info');
+      }
+    } else if (eff.type === 'persistent_area') {
+      if (!Array.isArray(floor.persistentAreas)) floor.persistentAreas = [];
+      const healPerTurn = Math.max(4, Math.round((eff.healPerTurnBase || 6) + (h.magicPower || 0) * (eff.healMagicMult || 0.35)));
+      floor.persistentAreas.push({
+        id: (eff.areaId || 'zone') + '_' + (state.turn || 0) + '_' + floor.persistentAreas.length,
+        name: eff.name || abilityDef.name,
+        sourceAbilityId: abilityDef.id,
+        centerX: commitCtx.targetX,
+        centerY: commitCtx.targetY,
+        tiles: tiles.slice(),
+        turnsLeft: eff.duration || 3,
+        color: eff.color || '#fbbf24',
+        healPerTurn: healPerTurn,
+        grantStatus: eff.grantStatus || null,
+        affectsHero: eff.affectsHero !== false,
+        affectsMonsters: Boolean(eff.affectsMonsters)
+      });
+      if (state === gameState) {
+        ui.floatingText(commitCtx.targetX, commitCtx.targetY, eff.name || 'SANCTUARY', eff.color || '#fbbf24');
+        ui.log(`${abilityDef.name} consecrates the ground for ${eff.duration || 3} turns!`, 'gold');
+      }
+    }
   }
 
-  // 5. PALADIN: Holy Smite (Requires adjacent enemy before deducting MP; deals 240% holy dmg + heals 15% Max HP)
-  if (h.classId === 'paladin') {
-    const target = floor.monsters.find(m => Math.hypot(m.x - h.x, m.y - h.y) <= 1.5);
-    if (!target) {
-      if (state === gameState) {
-        ui.floatingText(h.x, h.y, 'No Adjacent Foe!', '#fbbf24');
-        ui.log('Holy Smite requires an adjacent monster target.', 'bad');
+  // Legacy Starfall Nova Burn side effect preservation
+  if (abilityDef.id === 'starfall_nova') {
+    for (let i = 0; i < affectedMonsters.length; i++) {
+      const m = affectedMonsters[i];
+      if (m && !m._dead && m.hp > 0) {
+        applyStatusEffect(m, 'burn', 3, { sourceId: h.id || 'hero', sourceAbilityId: 'starfall_nova' });
       }
-      return { ok: false, reason: 'no_adjacent_target' };
     }
+  }
+  // Legacy Torch Flare Stun side effect preservation
+  if (abilityDef.id === 'torch_flare') {
+    for (let i = 0; i < affectedMonsters.length; i++) {
+      const m = affectedMonsters[i];
+      if (m && !m._dead && m.hp > 0) {
+        m.stunned = Math.max(m.stunned || 0, 1);
+        applyStatusEffect(m, 'stun', 1, { sourceId: h.id || 'hero', sourceAbilityId: 'torch_flare' });
+      }
+    }
+  }
 
-    h.mp -= effectiveCost;
-    const masteryMult = getCodexMasteryMultiplier(target.id, state);
-    const dmg = Math.max(5, Math.round(h.atk * 2.4 * masteryMult) - Math.floor(target.def * 0.5));
-    const healAmt = Math.round(h.maxHp * 0.15);
-    target.hp -= dmg;
-    h.hp = Math.min(h.maxHp, h.hp + healAmt);
+  if (state === gameState && summary.hits > 0) {
+    ui.log(`${abilityDef.name} hit ${summary.hits} foe(s) for ${summary.totalDmg} total damage!`, 'gold');
+  }
 
+  return summary;
+}
+
+function triggerReactiveAbilities(actor, eventName, state = gameState) {
+  if (!actor || !eventName || !state || state.inGuild) return [];
+  if (reactiveTriggerDepth >= MAX_REACTIVE_TRIGGER_DEPTH) return [];
+  normalizeActorAbilityState(actor);
+  const floor = ensureDungeonFloorHydrated(state.dungeon, state.dungeon.currentFloor);
+  if (!floor) return [];
+
+  const reactiveIds = getGrantedAbilityIds(actor, { activation: 'reactive' });
+  const triggered = [];
+  reactiveTriggerDepth += 1;
+  try {
+    for (let i = 0; i < reactiveIds.length; i++) {
+      const def = getAbilityDefinition(reactiveIds[i]);
+      if (!def || def.triggerEvent !== eventName) continue;
+      if (eventName === 'on_hero_low_hp') {
+        const thresh = def.triggerThresholdPct || 0.35;
+        if ((actor.hp || 0) <= 0 || (actor.hp / Math.max(1, actor.maxHp || 100)) > thresh) continue;
+      }
+      const val = validateAbilityActivation(actor, def, { context: 'tactical_dungeon', allowTriggered: true, allowWhileCasting: true });
+      if (!val.ok) continue;
+      if (val.effectiveCost > 0) actor.mp -= val.effectiveCost;
+      if (val.cooldown > 0) setAbilityCooldown(actor, def.id, val.cooldown);
+      const summary = resolveCommittedAbilityEffects(def, {
+        targetX: actor.x,
+        targetY: actor.y,
+        tiles: [{ x: actor.x, y: actor.y }],
+        explicitTargets: []
+      }, floor, state);
+      if (state === gameState) {
+        const ui = getActionCallbacks();
+        ui.floatingText(actor.x, actor.y, `${def.name.toUpperCase()}!`, '#34d399');
+        ui.log(`✦ Reactive ${def.name} triggered!`, 'good');
+      }
+      triggered.push({ abilityId: def.id, summary: summary });
+    }
+  } finally {
+    reactiveTriggerDepth -= 1;
+  }
+  return triggered;
+}
+
+function executeAbility(abilityId, targetOpts = null, state = gameState) {
+  const ui = getActionCallbacks();
+  cancelAutoWalk();
+  if (!state || state.inGuild || !state.hero) return { ok: false, reason: 'in_guild' };
+  const h = state.hero;
+  normalizeActorAbilityState(h);
+  const resolvedId = abilityId || h.activeAbilityId || (getGrantedAbilityIds(h, { activation: 'active' })[0] || null);
+  const def = getAbilityDefinition(resolvedId);
+  if (!def) return { ok: false, reason: 'unknown_ability' };
+
+  const floor = ensureDungeonFloorHydrated(state.dungeon, state.dungeon.currentFloor);
+  if (!floor) return { ok: false, reason: 'no_floor' };
+
+  // 1. Validate access, silence, cooldown, pendingCast, and MP BEFORE spending anything
+  const val = validateAbilityActivation(h, def, { context: 'tactical_dungeon' });
+  if (!val.ok) {
+    if (state === gameState) {
+      if (val.reason === 'no_mp') {
+        ui.floatingText(h.x, h.y, 'Low MP!', '#60a5fa');
+        const chillNote = val.chilledPenalty > 0 ? ' (Chilled: +2 MP)' : '';
+        ui.log(`Not enough MP for ${def.name} (${val.effectiveCost} MP required${chillNote}).`, 'bad');
+      } else if (val.reason === 'on_cooldown') {
+        ui.floatingText(h.x, h.y, `CD: ${val.cooldownRemaining}t`, '#94a3b8');
+        ui.log(`${def.name} is on cooldown (${val.cooldownRemaining} turn(s) remaining).`, 'bad');
+      } else if (val.reason === 'silenced') {
+        ui.floatingText(h.x, h.y, 'SILENCED!', '#e879f9');
+        ui.log(`You are Silenced and cannot cast ${def.name}!`, 'bad');
+      } else if (val.reason === 'already_casting') {
+        ui.floatingText(h.x, h.y, 'CASTING...', '#fbbf24');
+      }
+    }
+    return { ok: false, reason: val.reason, cooldownRemaining: val.cooldownRemaining || 0 };
+  }
+
+  // 2. Validate targeting BEFORE spending resources
+  const info = getAbilityTargetingInfo(def.id, state, targetOpts);
+  if (!info.hasTargets) {
+    if (state === gameState) {
+      ui.floatingText(h.x, h.y, 'No Valid Target!', '#fbbf24');
+      ui.log(`${def.name} has no valid target in range.`, 'bad');
+    }
+    const noTargetReason = (def.id === 'shadowstep_strike') ? 'no_valid_shadowstep' : 'no_target';
+    return { ok: false, reason: noTargetReason };
+  }
+
+  // 3. Commit resources (MP + cooldown)
+  if (val.effectiveCost > 0) {
+    h.mp -= val.effectiveCost;
+  }
+  if (val.cooldown > 0) {
+    setAbilityCooldown(h, def.id, val.cooldown);
+  }
+
+  const targetX = (targetOpts && typeof targetOpts.targetX === 'number')
+    ? targetOpts.targetX
+    : (info.destTile ? info.destTile.x : (info.targets[0] ? info.targets[0].x : h.x));
+  const targetY = (targetOpts && typeof targetOpts.targetY === 'number')
+    ? targetOpts.targetY
+    : (info.destTile ? info.destTile.y : (info.targets[0] ? info.targets[0].y : h.y));
+
+  // 4. Delayed cast windup OR immediate resolution
+  if (def.timing === 'delayed' && (def.windupTurns || 1) > 0) {
+    h.pendingCast = {
+      abilityId: def.id,
+      name: def.name,
+      targetX: targetX,
+      targetY: targetY,
+      tiles: info.targetTiles.slice(),
+      turnsLeft: def.windupTurns || 1,
+      color: (def.vfx && def.vfx.color) || '#fb923c'
+    };
     if (state === gameState) {
       playSound('spell');
-      ui.floatingText(target.x, target.y, `-${dmg} HOLY SMITE!`, '#fbbf24');
-      ui.floatingText(h.x, h.y, `+${healAmt} HP`, '#34d399');
-      ui.log(`Holy Smite sears ${target.name} for ${dmg} damage and heals you for +${healAmt} HP!`, 'gold');
+      ui.floatingText(h.x, h.y, `CASTING ${def.name.toUpperCase()}...`, '#fbbf24');
+      ui.log(`You begin channeling ${def.name} at (${targetX}, ${targetY}) — resolves next turn!`, 'gold');
       if (typeof ui.combatAnim === 'function') {
-        ui.combatAnim(target.x, target.y, 'crit_slash', '#fbbf24');
+        ui.combatAnim(h.x, h.y, 'cast_ring', h.pendingCast.color);
       }
+      processTurn(state);
     }
-    if (target.hp <= 0) killMonster(target, state);
-    if (state === gameState) processTurn(state);
-    return { ok: true, skill: 'smite', dmg, healAmt };
+    return { ok: true, delayed: true, skill: def.id, abilityId: def.id, pendingCast: h.pendingCast };
   }
 
-  // 6. ADVENTURER: Torch Flare (Requires adjacent enemy before deducting MP; deals 180% dmg + 1-turn stun)
-  if (h.classId === 'adventurer') {
-    const target = floor.monsters.find(m => Math.hypot(m.x - h.x, m.y - h.y) <= 1.5);
-    if (!target) {
-      if (state === gameState) {
-        ui.floatingText(h.x, h.y, 'No Adjacent Foe!', '#38bdf8');
-        ui.log('Torch Flare requires an adjacent monster target.', 'bad');
-      }
-      return { ok: false, reason: 'no_adjacent_target' };
-    }
+  const summary = resolveCommittedAbilityEffects(def, {
+    targetX: targetX,
+    targetY: targetY,
+    tiles: info.targetTiles,
+    explicitTargets: info.targets,
+    destTile: info.destTile
+  }, floor, state);
 
-    h.mp -= effectiveCost;
-    const masteryMult = getCodexMasteryMultiplier(target.id, state);
-    const dmg = Math.max(4, Math.round(h.atk * 1.8 * masteryMult) - Math.floor(target.def * 0.5));
-    target.hp -= dmg;
-    target.stunned = Math.max(target.stunned || 0, 1);
-    applyStatusEffect(target, 'stun', 1);
-
-    if (state === gameState) {
-      playSound('spell');
-      ui.floatingText(target.x, target.y, `-${dmg} FLARE!`, '#38bdf8');
-      ui.log(`Torch Flare sears ${target.name} for ${dmg} damage and stuns it!`, 'gold');
-    }
-    if (target.hp <= 0) killMonster(target, state);
-    if (state === gameState) processTurn(state);
-    return { ok: true, skill: 'torch_flare', dmg };
+  if (state === gameState) {
+    processTurn(state);
   }
 
-  // 7. CLERIC: Sacred Ward (Requires visible foe within 3 tiles before deducting MP; deals 160% holy/INT dmg + heals 20% Max HP)
-  if (h.classId === 'cleric') {
-    const visTargets = floor.monsters
-      .filter(m => m.hp > 0 && Math.hypot(m.x - h.x, m.y - h.y) <= 3.2 && hasLineOfSight(floor, h.x, h.y, m.x, m.y))
-      .sort((a, b) => Math.hypot(a.x - h.x, a.y - h.y) - Math.hypot(b.x - h.x, b.y - h.y));
-    const target = visTargets[0] || null;
-    if (!target) {
-      if (state === gameState) {
-        ui.floatingText(h.x, h.y, 'No Visible Foe!', '#fef08a');
-        ui.log('Sacred Ward requires a visible monster within 3 tiles.', 'bad');
-      }
-      return { ok: false, reason: 'no_target_in_range' };
-    }
+  return {
+    ok: true,
+    skill: def.id,
+    abilityId: def.id,
+    dmg: summary.totalDmg,
+    hits: summary.hits,
+    kills: summary.kills,
+    healAmt: summary.healAmt,
+    shieldAmt: summary.shieldAmt,
+    cleansedCount: summary.cleansedCount,
+    revealedCount: summary.revealedCount,
+    destTile: info.destTile,
+    movedTo: summary.movedTo,
+    knockbackCollided: summary.knockbackCollided
+  };
+}
 
-    h.mp -= effectiveCost;
-    const masteryMult = getCodexMasteryMultiplier(target.id, state);
-    const spellBase = Math.max(h.atk, h.magicPower || Math.round((h.computedInt || h.int || 12) * 1.6));
-    const dmg = Math.max(5, Math.round(spellBase * 1.6 * masteryMult) - Math.floor(target.def * 0.4));
-    const healAmt = Math.max(6, Math.round(h.maxHp * 0.20));
-    target.hp -= dmg;
-    h.hp = Math.min(h.maxHp, h.hp + healAmt);
-
-    if (state === gameState) {
-      playSound('spell');
-      ui.floatingText(target.x, target.y, `-${dmg} SACRED WARD!`, '#fef08a');
-      ui.floatingText(h.x, h.y, `+${healAmt} HP`, '#34d399');
-      ui.log(`Sacred Ward strikes ${target.name} for ${dmg} holy damage and restores +${healAmt} HP!`, 'gold');
-      if (typeof ui.combatAnim === 'function') {
-        ui.combatAnim(target.x, target.y, 'crit_slash', '#fef08a');
-      }
-    }
-    if (target.hp <= 0) killMonster(target, state);
-    if (state === gameState) processTurn(state);
-    return { ok: true, skill: 'sacred_ward', dmg, healAmt };
-  }
-
-  return { ok: false };
+function executeClassSkill(state = gameState) {
+  return executeAbility(null, null, state);
 }
 
 function handlePlayerAction(dx, dy, state = gameState) {
@@ -12217,15 +13910,26 @@ const floatingTexts = [];
 let hoverTile = null;
 let visibleCoordMap = {};
 let skillHoverActive = false;
+let skillHoverAbilityId = null;
+let manualTargetingAbilityId = null;
 const combatAnimations = [];
 let heroLungeOffset = { x: 0, y: 0, ticks: 0 };
 
-function setSkillHover(active) {
+function setSkillHover(active, abilityId) {
   skillHoverActive = !!active;
+  skillHoverAbilityId = active && abilityId ? abilityId : null;
 }
 
 function getSkillHover() {
   return skillHoverActive;
+}
+
+function setManualTargetingAbility(abilityId) {
+  manualTargetingAbilityId = abilityId || null;
+}
+
+function getManualTargetingAbility() {
+  return manualTargetingAbilityId;
 }
 
 function triggerCombatAnimation(gx, gy, type = 'slash', color = '#f87171') {
@@ -14435,30 +16139,116 @@ function renderDungeonCanvas() {
     }
   }
 
+  // Draw Persistent Ground Areas (e.g. Sanctuary)
+  if (Array.isArray(floor.persistentAreas) && floor.persistentAreas.length > 0) {
+    for (let aIdx = 0; aIdx < floor.persistentAreas.length; aIdx++) {
+      const area = floor.persistentAreas[aIdx];
+      if (!area || !Array.isArray(area.tiles)) continue;
+      for (let tIdx = 0; tIdx < area.tiles.length; tIdx++) {
+        const pt = area.tiles[tIdx];
+        const avx = pt.x - camX;
+        const avy = pt.y - camY;
+        if (avx >= 0 && avx < VIEWPORT_WIDTH && avy >= 0 && avy < VIEWPORT_HEIGHT) {
+          const apx = avx * TILE_SIZE;
+          const apy = avy * TILE_SIZE;
+          ctx.fillStyle = 'rgba(251, 191, 36, 0.18)';
+          ctx.fillRect(apx + 1, apy + 1, TILE_SIZE - 2, TILE_SIZE - 2);
+          ctx.strokeStyle = area.color || '#fbbf24';
+          ctx.lineWidth = 1.2;
+          ctx.strokeRect(apx + 2, apy + 2, TILE_SIZE - 4, TILE_SIZE - 4);
+        }
+      }
+    }
+  }
+
+  // Draw Hero Pending Delayed Cast Target Zone (e.g. Fireball windup)
+  const heroPending = gameState.hero && gameState.hero.pendingCast;
+  if (heroPending && Array.isArray(heroPending.tiles)) {
+    for (let pIdx = 0; pIdx < heroPending.tiles.length; pIdx++) {
+      const pt = heroPending.tiles[pIdx];
+      const pvx = pt.x - camX;
+      const pvy = pt.y - camY;
+      if (pvx >= 0 && pvx < VIEWPORT_WIDTH && pvy >= 0 && pvy < VIEWPORT_HEIGHT) {
+        const ppx = pvx * TILE_SIZE;
+        const ppy = pvy * TILE_SIZE;
+        ctx.fillStyle = 'rgba(251, 146, 60, 0.25)';
+        ctx.fillRect(ppx + 2, ppy + 2, TILE_SIZE - 4, TILE_SIZE - 4);
+        ctx.strokeStyle = heroPending.color || '#fb923c';
+        ctx.lineWidth = 1.5;
+        ctx.strokeRect(ppx + 2, ppy + 2, TILE_SIZE - 4, TILE_SIZE - 4);
+      }
+    }
+  }
+
   // Draw Player Sprite relative to Camera Origin (incorporating lunge displacement)
   const lx = heroLungeOffset.ticks > 0 ? heroLungeOffset.x * (heroLungeOffset.ticks / 6) : 0;
   const ly = heroLungeOffset.ticks > 0 ? heroLungeOffset.y * (heroLungeOffset.ticks / 6) : 0;
-  drawHeroSprite(ctx, (hx - camX) * TILE_SIZE + lx, (hy - camY) * TILE_SIZE + ly, gameState.hero.classId, TILE_SIZE);
+  const heroDrawX = (hx - camX) * TILE_SIZE + lx;
+  const heroDrawY = (hy - camY) * TILE_SIZE + ly;
+  drawHeroSprite(ctx, heroDrawX, heroDrawY, gameState.hero.classId, TILE_SIZE);
   if (heroLungeOffset.ticks > 0) heroLungeOffset.ticks--;
 
-  // Draw Tactical Skill Range & Target Preview (if skill hovered / targeting active)
-  if (skillHoverActive) {
-    const targeting = getSkillTargetingInfo(gameState);
-    if (targeting && targeting.reachRadius > 0) {
+  // Hero Absorb Shield Aura Ring
+  if (gameState.hero && (gameState.hero.absorbShield || 0) > 0) {
+    ctx.strokeStyle = 'rgba(129, 140, 248, 0.85)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(heroDrawX + 16, heroDrawY + 16, 15, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  // Hero Casting Channel Ring
+  if (heroPending) {
+    ctx.strokeStyle = heroPending.color || '#fbbf24';
+    ctx.lineWidth = 2;
+    if (typeof ctx.setLineDash === 'function') ctx.setLineDash([3, 3]);
+    ctx.beginPath();
+    ctx.arc(heroDrawX + 16, heroDrawY + 16, 17, 0, Math.PI * 2);
+    ctx.stroke();
+    if (typeof ctx.setLineDash === 'function') ctx.setLineDash([]);
+  }
+
+  // Draw Tactical Skill Range & Target Preview (if skill hovered OR manual targeting active)
+  const previewAbilityId = manualTargetingAbilityId || (skillHoverActive ? skillHoverAbilityId : null);
+  if (skillHoverActive || manualTargetingAbilityId) {
+    const targetOverride = (manualTargetingAbilityId && hoverTile)
+      ? { targetX: hoverTile.x, targetY: hoverTile.y }
+      : null;
+    const targeting = previewAbilityId
+      ? getAbilityTargetingInfo(previewAbilityId, gameState, targetOverride)
+      : getSkillTargetingInfo(gameState);
+    if (targeting && (targeting.reachRadius > 0 || (targeting.targetTiles && targeting.targetTiles.length > 0))) {
       const pCenterX = (hx - camX) * TILE_SIZE + 16;
       const pCenterY = (hy - camY) * TILE_SIZE + 16;
-      const reachPx = targeting.reachRadius * TILE_SIZE;
+      const reachPx = Math.max(1, targeting.reachRadius || 0) * TILE_SIZE;
 
       // Circular reach boundary
-      ctx.strokeStyle = targeting.canAfford ? 'rgba(96, 165, 250, 0.75)' : 'rgba(239, 68, 68, 0.65)';
-      ctx.lineWidth = 1.5;
-      if (typeof ctx.setLineDash === 'function') ctx.setLineDash([4, 4]);
-      ctx.beginPath();
-      ctx.arc(pCenterX, pCenterY, reachPx, 0, Math.PI * 2);
-      ctx.fillStyle = targeting.canAfford ? 'rgba(96, 165, 250, 0.08)' : 'rgba(239, 68, 68, 0.06)';
-      ctx.fill();
-      ctx.stroke();
-      if (typeof ctx.setLineDash === 'function') ctx.setLineDash([]);
+      if (targeting.reachRadius > 0) {
+        ctx.strokeStyle = targeting.canAfford ? 'rgba(96, 165, 250, 0.75)' : 'rgba(239, 68, 68, 0.65)';
+        ctx.lineWidth = 1.5;
+        if (typeof ctx.setLineDash === 'function') ctx.setLineDash([4, 4]);
+        ctx.beginPath();
+        ctx.arc(pCenterX, pCenterY, reachPx, 0, Math.PI * 2);
+        ctx.fillStyle = targeting.canAfford ? 'rgba(96, 165, 250, 0.08)' : 'rgba(239, 68, 68, 0.06)';
+        ctx.fill();
+        ctx.stroke();
+        if (typeof ctx.setLineDash === 'function') ctx.setLineDash([]);
+      }
+
+      // Highlight pattern tiles (AoE radius, line, cone, location)
+      if (Array.isArray(targeting.targetTiles) && targeting.targetTiles.length > 0 && (manualTargetingAbilityId || targeting.pattern === 'radius' || targeting.pattern === 'line' || targeting.pattern === 'cone')) {
+        for (let tt = 0; tt < targeting.targetTiles.length; tt++) {
+          const pt = targeting.targetTiles[tt];
+          const tvx = pt.x - camX;
+          const tvy = pt.y - camY;
+          if (tvx >= 0 && tvx < VIEWPORT_WIDTH && tvy >= 0 && tvy < VIEWPORT_HEIGHT) {
+            ctx.fillStyle = targeting.valid ? 'rgba(251, 191, 36, 0.22)' : 'rgba(239, 68, 68, 0.16)';
+            ctx.fillRect(tvx * TILE_SIZE + 2, tvy * TILE_SIZE + 2, TILE_SIZE - 4, TILE_SIZE - 4);
+            ctx.strokeStyle = targeting.valid ? 'rgba(251, 191, 36, 0.85)' : 'rgba(239, 68, 68, 0.65)';
+            ctx.lineWidth = 1.2;
+            ctx.strokeRect(tvx * TILE_SIZE + 2, tvy * TILE_SIZE + 2, TILE_SIZE - 4, TILE_SIZE - 4);
+          }
+        }
+      }
 
       // Tactical reticles over eligible targets
       for (let tIdx = 0; tIdx < targeting.targets.length; tIdx++) {
@@ -14548,11 +16338,37 @@ function renderDungeonCanvas() {
         ctx.moveTo(cpx - radius * 0.7, cpy - radius * 0.7); ctx.lineTo(cpx + radius * 0.7, cpy + radius * 0.7);
         ctx.moveTo(cpx + radius * 0.7, cpy - radius * 0.7); ctx.lineTo(cpx - radius * 0.7, cpy + radius * 0.7);
         ctx.stroke();
-      } else if (anim.type === 'spell') {
+      } else if (anim.type === 'spell' || anim.type === 'wave') {
         ctx.strokeStyle = anim.color || '#60a5fa';
         ctx.lineWidth = Math.max(1, 3 - prog * 2);
         ctx.beginPath();
-        ctx.arc(cpx, cpy, 4 + prog * 18, 0, Math.PI * 2);
+        ctx.arc(cpx, cpy, 4 + prog * (anim.type === 'wave' ? 28 : 18), 0, Math.PI * 2);
+        ctx.stroke();
+      } else if (anim.type === 'shield' || anim.type === 'cast_ring') {
+        ctx.strokeStyle = anim.color || '#818cf8';
+        ctx.lineWidth = 2.2;
+        ctx.beginPath();
+        ctx.arc(cpx, cpy, 10 + Math.sin(prog * Math.PI) * 6, 0, Math.PI * 2);
+        ctx.stroke();
+      } else if (anim.type === 'teleport') {
+        ctx.strokeStyle = anim.color || '#c084fc';
+        ctx.lineWidth = Math.max(1, 3 - prog * 2.5);
+        ctx.strokeRect(cpx - 12 * (1 - prog * 0.5), cpy - 12 * (1 - prog * 0.5), 24 * (1 - prog * 0.5), 24 * (1 - prog * 0.5));
+      } else if (anim.type === 'beam') {
+        ctx.strokeStyle = anim.color || '#a78bfa';
+        ctx.lineWidth = Math.max(1, 4 - prog * 3);
+        ctx.beginPath();
+        ctx.moveTo(cpx - 14, cpy);
+        ctx.lineTo(cpx + 14, cpy);
+        ctx.moveTo(cpx, cpy - 14);
+        ctx.lineTo(cpx, cpy + 14);
+        ctx.stroke();
+      } else if (anim.type === 'interrupt') {
+        ctx.strokeStyle = anim.color || '#f87171';
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.moveTo(cpx - 10, cpy - 10); ctx.lineTo(cpx + 10, cpy + 10);
+        ctx.moveTo(cpx + 10, cpy - 10); ctx.lineTo(cpx - 10, cpy + 10);
         ctx.stroke();
       } else if (anim.type === 'projectile') {
         ctx.fillStyle = anim.color || '#f87171';
@@ -17849,6 +19665,11 @@ function setupInputs(isActiveFn) {
     }
 
     if (e.code === 'Escape') {
+      if (getManualTargetingAbility()) {
+        setManualTargetingAbility(null);
+        setSkillHover(false);
+        return;
+      }
       if (isDevConsoleOpen()) {
         closeDevConsole();
         return;
@@ -17951,6 +19772,22 @@ function setupInputs(isActiveFn) {
         setSkillHover(true);
         setTimeout(function() { setSkillHover(false); }, 1200);
       }
+    } else if (e.key >= '1' && e.key <= '7') {
+      const slotIdx = parseInt(e.key, 10) - 1;
+      const bar = getHeroAbilityBarState(gameState);
+      if (bar[slotIdx]) {
+        e.preventDefault();
+        const ab = bar[slotIdx];
+        selectHeroActiveAbility(ab.id, gameState);
+        if (ab.requiresManualTarget) {
+          setManualTargetingAbility(ab.id);
+          setSkillHover(true, ab.id);
+        } else {
+          setManualTargetingAbility(null);
+          setSkillHover(false);
+          executeAbility(ab.id, null, gameState);
+        }
+      }
     } else if (e.code === 'KeyH') {
       e.preventDefault();
       useHealingTonic();
@@ -18002,6 +19839,15 @@ function setupInputs(isActiveFn) {
 
       const gx = cam.camX + vx;
       const gy = cam.camY + vy;
+      const manualAbId = getManualTargetingAbility();
+      if (manualAbId) {
+        const castRes = executeAbility(manualAbId, { targetX: gx, targetY: gy }, gameState);
+        if (castRes && castRes.ok) {
+          setManualTargetingAbility(null);
+          setSkillHover(false);
+        }
+        return;
+      }
       const dx = gx - gameState.hero.x;
       const dy = gy - gameState.hero.y;
 
@@ -18710,6 +20556,7 @@ function createMapViewport(options) {
 
   // --- Module: src/test/selfTest.js ---
 // 23/23 Comprehensive Automated Self-Test Suite (Sandboxed & Non-Destructive)
+
 
 
 
@@ -20746,6 +22593,189 @@ function evaluateSelfTests() {
     detail: t35Pass
       ? 'Standalone Roguelike archetype differentiation, class-aware auto-equip & legacy item normalization verified'
       : 'Failed IS-01 standalone Roguelike checks'
+  });
+
+  // 36. MG-01A: Shared Spell & Skill Foundation (Access, Costs, Targeting, Effects, Delayed Casts, Shields & Defect Fixes)
+  const sb36 = createDefaultGameState();
+  selectAdventurerClass('mage', sb36);
+  sb36.inGuild = false;
+  const fl36 = ensureDungeonFloorHydrated(sb36.dungeon, 1);
+  sb36.hero.x = 10;
+  sb36.hero.y = 10;
+  sb36.hero.mp = 80;
+  for (let y36 = 7; y36 <= 13; y36++) {
+    for (let x36 = 7; x36 <= 15; x36++) {
+      if (fl36.tiles[y36] && fl36.tiles[y36][x36] !== undefined) fl36.tiles[y36][x36] = TILE_FLOOR;
+    }
+  }
+  fl36.tiles[10][14] = TILE_WALL; // Wall for knockback collision test
+  fl36.tiles[13][10] = TILE_TRAP_HIDDEN; // Hidden trap at distance 3 (outside passive detection) for detect_magic test
+  fl36.persistentAreas = [];
+
+  // A. Multi-source independent access grants (removing item grant never revokes class grant)
+  grantAbilityAccess(sb36.hero, 'fireball', 'item');
+  const revItem36 = revokeAbilityAccess(sb36.hero, 'fireball', 'item');
+  const multiSourceOk36 = Boolean(revItem36.ok && revItem36.stillGranted && hasAbilityAccess(sb36.hero, 'fireball'));
+  grantAbilityAccess(sb36.hero, 'purification', 'learned');
+  const learnedGrantOk36 = hasAbilityAccess(sb36.hero, 'purification');
+
+  // B. Defect Fix: Astral Focus Staff (+magicPower) scales Mage Arcane Missile & Starfall Nova damage
+  const targetM36a = { id: 'vault_crawler', name: 'Test Crawler', x: 11, y: 10, hp: 200, maxHp: 200, atk: 5, def: 4, statuses: [] };
+  const targetM36b = { id: 'vault_crawler', name: 'Test Crawler 2', x: 11, y: 10, hp: 200, maxHp: 200, atk: 5, def: 4, statuses: [] };
+  fl36.monsters = [targetM36a];
+  const baseMissile36 = executeAbility('arcane_missile', { targetX: 11, targetY: 10 }, sb36);
+  const focusStaff36 = generateProceduralEquipment(6, 'rare', 'weapon', 0, 'wep_staff');
+  focusStaff36.magicPower = (focusStaff36.magicPower || 0) + 18;
+  sb36.hero.equipment.weapon = focusStaff36;
+  recomputeHeroDerivedStats(false, sb36);
+  fl36.monsters = [targetM36b];
+  const staffMissile36 = executeAbility('arcane_missile', { targetX: 11, targetY: 10 }, sb36);
+  const magicScalingOk36 = Boolean(baseMissile36.ok && staffMissile36.ok && staffMissile36.dmg > baseMissile36.dmg);
+
+  // C. Delayed Cast (Fireball): windup commits pendingCast, resolves on next turn, interruptible by Stun
+  const fbTarget36 = { id: 'vault_crawler', name: 'FB Dummy', x: 12, y: 10, hp: 200, maxHp: 200, atk: 1, def: 2, statuses: [] };
+  fl36.monsters = [fbTarget36];
+  sb36.hero.mp = 80;
+  const fbStart36 = executeAbility('fireball', { targetX: 12, targetY: 10 }, sb36);
+  const fbPendingOk36 = Boolean(fbStart36.ok && fbStart36.delayed && sb36.hero.pendingCast && sb36.hero.pendingCast.abilityId === 'fireball');
+  processTurn(sb36);
+  const fbResolvedOk36 = Boolean(!sb36.hero.pendingCast && fbTarget36.hp < 200 && fbTarget36.statuses.some(function(s) { return s.id === 'burn'; }));
+
+  // Interrupt delayed cast with Stun
+  resetActorAbilityCooldowns(sb36.hero);
+  sb36.hero.mp = 80;
+  fbTarget36.x = 12;
+  fbTarget36.y = 10;
+  fbTarget36.statuses = [];
+  const hpBeforeInt36 = fbTarget36.hp;
+  executeAbility('fireball', { targetX: 12, targetY: 10 }, sb36);
+  applyStatusEffect(sb36.hero, 'stun', 1);
+  processTurn(sb36);
+  const fbInterruptedOk36 = Boolean(!sb36.hero.pendingCast && fbTarget36.hp === hpBeforeInt36);
+
+  // D. Silence blocks arcane spells while allowing martial techniques + zero wasted MP
+  grantAbilityAccess(sb36.hero, 'power_strike', 'temporary');
+  applyStatusEffect(sb36.hero, 'silence', 2);
+  const mpBeforeSil36 = sb36.hero.mp;
+  fbTarget36.x = 11;
+  fbTarget36.y = 10;
+  fbTarget36.hp = 150;
+  const silSpell36 = executeAbility('arcane_missile', { targetX: 11, targetY: 10 }, sb36);
+  const silMartial36 = executeAbility('power_strike', { targetX: 11, targetY: 10 }, sb36);
+  const silenceGateOk36 = Boolean(
+    !silSpell36.ok && silSpell36.reason === 'silenced' && sb36.hero.mp === mpBeforeSil36 &&
+    silMartial36.ok && getAbilityCooldownRemaining(sb36.hero, 'power_strike') === 2
+  );
+
+  // E. Cleansing (Purification) removes negative statuses; Absorb Shield (Arcane Ward) absorbs incoming damage
+  sb36.hero.statuses = [];
+  applyStatusEffect(sb36.hero, 'burn', 3);
+  applyStatusEffect(sb36.hero, 'slow', 3);
+  const cleanseRes36 = executeAbility('purification', null, sb36);
+  const cleanseOk36 = Boolean(cleanseRes36.ok && cleanseRes36.cleansedCount === 2 && sb36.hero.statuses.length === 0);
+
+  const wardRes36 = executeAbility('arcane_ward', null, sb36);
+  const shieldBeforeHit36 = sb36.hero.absorbShield;
+  const hpBeforeHit36 = sb36.hero.hp;
+  const origRand36 = Math.random;
+  Math.random = function() { return 0.99; };
+  try {
+    monsterAttackHero({ id: 'vault_crawler', name: 'Test Striker', atk: 12, def: 2, statuses: [] }, false, sb36);
+  } finally {
+    Math.random = origRand36;
+  }
+  const shieldAbsorbOk36 = Boolean(wardRes36.ok && shieldBeforeHit36 > 0 && sb36.hero.absorbShield < shieldBeforeHit36 && sb36.hero.hp === hpBeforeHit36);
+
+  // F. Teleport (Blink) & Detection (Detect Magic)
+  fl36.tiles[13][10] = TILE_TRAP_HIDDEN;
+  const detectRes36 = executeAbility('detect_magic', null, sb36);
+  const detectOk36 = Boolean(detectRes36.ok && detectRes36.revealedCount >= 1 && fl36.tiles[13][10] === TILE_TRAP_VISIBLE);
+  const blinkRes36 = executeAbility('blink', { targetX: 12, targetY: 11 }, sb36);
+  const blinkOk36 = Boolean(blinkRes36.ok && sb36.hero.x === 12 && sb36.hero.y === 11);
+
+  // G. Persistent Area (Sanctuary) + Physical Guarding Defect Fix + Knockback Wall Slam (Overpower) + Reactive Hook
+  selectAdventurerClass('cleric', sb36);
+  sb36.inGuild = false;
+  const fl36c = ensureDungeonFloorHydrated(sb36.dungeon, 1);
+  for (let y36c = 8; y36c <= 12; y36c++) {
+    for (let x36c = 8; x36c <= 14; x36c++) {
+      if (fl36c.tiles[y36c] && fl36c.tiles[y36c][x36c] !== undefined) fl36c.tiles[y36c][x36c] = TILE_FLOOR;
+    }
+  }
+  sb36.hero.x = 10;
+  sb36.hero.y = 10;
+  sb36.hero.hp = Math.max(10, sb36.hero.maxHp - 30);
+  sb36.hero.mp = 60;
+  fl36c.monsters = [];
+  fl36c.persistentAreas = [];
+  const sancRes36 = executeAbility('sanctuary', { targetX: 10, targetY: 10 }, sb36);
+  const hpBeforeSancTick = sb36.hero.hp;
+  processTurn(sb36);
+  const sanctuaryOk36 = Boolean(sancRes36.ok && fl36c.persistentAreas.length === 1 && sb36.hero.hp > hpBeforeSancTick);
+
+  selectAdventurerClass('fighter', sb36);
+  sb36.inGuild = false;
+  const fl36f = ensureDungeonFloorHydrated(sb36.dungeon, 1);
+  for (let y36f = 8; y36f <= 12; y36f++) {
+    for (let x36f = 10; x36f <= 15; x36f++) {
+      if (fl36f.tiles[y36f] && fl36f.tiles[y36f][x36f] !== undefined) fl36f.tiles[y36f][x36f] = TILE_FLOOR;
+    }
+  }
+  fl36f.tiles[10][14] = TILE_WALL;
+  sb36.hero.x = 12;
+  sb36.hero.y = 10;
+  const wardenUnguarded = { id: 'bone_warden', name: 'Bone Warden', x: 13, y: 10, hp: 200, maxHp: 200, def: 12, statuses: [] };
+  const wardenGuarded = { id: 'bone_warden', name: 'Bone Warden', x: 13, y: 10, hp: 200, maxHp: 200, def: 12, statuses: [{ id: 'guarding', duration: 2, isBuff: true }] };
+  fl36f.monsters = [wardenUnguarded];
+  const psUnguarded = executeAbility('power_strike', { targetX: 13, targetY: 10 }, sb36);
+  resetActorAbilityCooldowns(sb36.hero);
+  fl36f.monsters = [wardenGuarded];
+  const psGuarded = executeAbility('power_strike', { targetX: 13, targetY: 10 }, sb36);
+  const opRes36 = executeAbility('overpower', { targetX: 13, targetY: 10 }, sb36);
+  const guardingAndKnockbackOk36 = Boolean(
+    psUnguarded.ok && psGuarded.ok && psGuarded.dmg < psUnguarded.dmg &&
+    opRes36.ok && opRes36.knockbackCollided && wardenGuarded.statuses.some(function(s) { return s.id === 'stun'; })
+  );
+
+  // Reactive Second Wind hook when low HP
+  sb36.hero.hp = Math.max(1, Math.floor(sb36.hero.maxHp * 0.2));
+  const preReactHp = sb36.hero.hp;
+  const reactRes36 = triggerReactiveAbilities(sb36.hero, 'on_hero_low_hp', sb36);
+  const reactiveOk36 = Boolean(reactRes36.length === 1 && sb36.hero.hp > preReactHp && sb36.hero.absorbShield > 0);
+
+  // H. Save/Load Round-Trip for abilityGrants, abilityCooldowns & absorbShield
+  const migrated36 = migrateSaveData(JSON.stringify(sb36));
+  const saveLoadOk36 = Boolean(
+    migrated36 && migrated36.hero &&
+    migrated36.hero.absorbShield === sb36.hero.absorbShield &&
+    migrated36.hero.abilityCooldowns && migrated36.hero.abilityCooldowns.overpower === getAbilityCooldownRemaining(sb36.hero, 'overpower')
+  );
+
+  const t36Checks = {
+    multiSourceOk: multiSourceOk36,
+    learnedGrantOk: learnedGrantOk36,
+    magicScalingOk: magicScalingOk36,
+    fbPendingOk: fbPendingOk36,
+    fbResolvedOk: fbResolvedOk36,
+    fbInterruptedOk: fbInterruptedOk36,
+    silenceGateOk: silenceGateOk36,
+    cleanseOk: cleanseOk36,
+    shieldAbsorbOk: shieldAbsorbOk36,
+    detectOk: detectOk36,
+    blinkOk: blinkOk36,
+    sanctuaryOk: sanctuaryOk36,
+    guardingAndKnockbackOk: guardingAndKnockbackOk36,
+    reactiveOk: reactiveOk36,
+    saveLoadOk: saveLoadOk36
+  };
+  const failed36 = Object.keys(t36Checks).filter(function(k) { return !t36Checks[k]; });
+  const t36Pass = failed36.length === 0;
+  results.push({
+    name: '36. MG-01A: Shared Spell & Skill Foundation (Access, Costs, Targeting, Effects, Delayed Casts & Fixes)',
+    pass: t36Pass,
+    detail: t36Pass
+      ? 'Multi-source grants, magicPower scaling, Fireball windup/interrupt, Silence/Cleanse, Absorb Shield, Blink, Detect Magic, Sanctuary, Guarding, Knockback & save persistence verified'
+      : 'Failed checks: ' + failed36.join(', ')
   });
 
   return results;

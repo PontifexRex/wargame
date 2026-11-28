@@ -5,13 +5,23 @@
 import { CLASSES } from '../data/classes.js';
 import { MONSTER_ARCHETYPES, BOSS_ARCHETYPES } from '../data/monsters.js';
 import { SHOP_ITEMS, normalizeEquipmentItem } from '../data/items.js';
+import { ABILITIES, ABILITY_IDS, getAbilityDefinition } from '../data/abilities.js';
+import {
+  normalizeActorAbilityState,
+  getGrantedAbilityIds,
+  getGrantedAbilitySources,
+  grantAbilityAccess,
+  revokeAbilityAccess,
+  getAbilityCooldownRemaining,
+  resetActorAbilityCooldowns
+} from './abilityEngine.js';
 import { computeHeroDerivedStats, formatAttributeDisplay, normalizeHeroBonusStats } from './heroStats.js';
 import { normalizeHeroKnowledge } from './knowledge.js';
 import { COMMAND_TYPES } from '../wargame/constants.js';
 import { getPrimaryCity, getSelectedOverworldUnit, refreshHeroDerivedStats } from '../wargame/engine/state.js';
 import { isOverworldTilePassable } from '../wargame/engine/pathfinding.js';
 import { ensureDungeonFloorHydrated, nextItemUid, recomputeHeroDerivedStats } from '../engine/state.js';
-import { gainExperience, equipItem } from '../engine/actions.js';
+import { gainExperience, equipItem, applyStatusEffect } from '../engine/actions.js';
 import { getSkillTargetingInfo } from '../engine/combat.js';
 import { spawnEntity, setHeroLevel, fullHeal, gotoFloor, revealMap, toggleGodMode } from '../engine/dev.js';
 
@@ -1363,8 +1373,78 @@ export function createDevConsoleController(options) {
         shopItems: SHOP_ITEMS.map(function(it) {
           return { id: it.id, name: it.name, slot: it.slot || it.type || 'item', cost: it.cost || 0 };
         })
-      }
+      },
+      abilities: (function() {
+        const targetHero = activeHero || null;
+        if (targetHero) normalizeActorAbilityState(targetHero);
+        const grantedIds = targetHero ? getGrantedAbilityIds(targetHero) : [];
+        return {
+          catalog: ABILITY_IDS.map(function(id) {
+            const d = ABILITIES[id];
+            return { id: d.id, name: d.name, domain: d.domain, kind: d.kind, activation: d.activation };
+          }),
+          granted: grantedIds.map(function(id) {
+            const d = getAbilityDefinition(id);
+            return {
+              id: id,
+              name: d ? d.name : id,
+              domain: d ? d.domain : 'martial',
+              kind: d ? d.kind : 'skill',
+              sources: targetHero ? getGrantedAbilitySources(targetHero, id) : [],
+              cooldownRemaining: targetHero ? getAbilityCooldownRemaining(targetHero, id) : 0
+            };
+          }),
+          absorbShield: targetHero ? (targetHero.absorbShield || 0) : 0,
+          pendingCast: targetHero ? (targetHero.pendingCast || null) : null,
+          statuses: (targetHero && Array.isArray(targetHero.statuses)) ? targetHero.statuses.map(function(s) {
+            return { id: s.id, name: s.name || s.id, duration: s.duration || 1, isBuff: Boolean(s.isBuff) };
+          }) : []
+        };
+      })()
     };
+  }
+
+  function grantHeroAbility(abilityId, sourceType) {
+    const hero = resolveActiveHero(null);
+    if (!hero) return recordFeedback({ ok: false, text: 'No active hero available.' }, 'Abilities');
+    const res = grantAbilityAccess(hero, abilityId, sourceType || 'learned');
+    if (!res.ok) return recordFeedback({ ok: false, text: 'Grant ability failed: ' + res.reason }, 'Abilities');
+    notifyMutated();
+    return recordFeedback({ ok: true, text: 'Granted ' + abilityId + ' (' + res.source + ') to ' + hero.name + '.' }, 'Abilities');
+  }
+
+  function revokeHeroAbility(abilityId, sourceType) {
+    const hero = resolveActiveHero(null);
+    if (!hero) return recordFeedback({ ok: false, text: 'No active hero available.' }, 'Abilities');
+    const res = revokeAbilityAccess(hero, abilityId, sourceType || 'learned');
+    if (!res.ok) return recordFeedback({ ok: false, text: 'Revoke ability failed: ' + res.reason }, 'Abilities');
+    notifyMutated();
+    return recordFeedback({
+      ok: true,
+      stillGranted: res.stillGranted,
+      text: 'Revoked ' + abilityId + ' (' + res.source + ')' + (res.stillGranted ? ' — still granted via another source.' : '.')
+    }, 'Abilities');
+  }
+
+  function resetHeroCooldownsAndMp() {
+    const hero = resolveActiveHero(null);
+    if (!hero) return recordFeedback({ ok: false, text: 'No active hero available.' }, 'Abilities');
+    resetActorAbilityCooldowns(hero);
+    hero.mp = hero.maxMp || hero.mp || 40;
+    hero.pendingCast = null;
+    notifyMutated();
+    return recordFeedback({ ok: true, text: 'Reset all ability cooldowns & restored full MP for ' + hero.name + '.' }, 'Abilities');
+  }
+
+  function applyTestStatusToHero(statusId, duration) {
+    const hero = resolveActiveHero(null);
+    if (!hero) return recordFeedback({ ok: false, text: 'No active hero available.' }, 'Abilities');
+    applyStatusEffect(hero, statusId, duration || 3, { sourceId: 'dev_console' });
+    if (getContext() === 'dungeon') {
+      recomputeHeroDerivedStats(false, getDungeonState());
+    }
+    notifyMutated();
+    return recordFeedback({ ok: true, text: 'Applied status "' + statusId + '" (' + (duration || 3) + 't) to ' + hero.name + '.' }, 'Abilities');
   }
 
   function setOpen(nextOpen) {
@@ -1430,6 +1510,10 @@ export function createDevConsoleController(options) {
     toggleHeroGodMode: toggleHeroGodMode,
     spawnObject: spawnObject,
     triggerHeroSkill: triggerHeroSkill,
+    grantHeroAbility: grantHeroAbility,
+    revokeHeroAbility: revokeHeroAbility,
+    resetHeroCooldownsAndMp: resetHeroCooldownsAndMp,
+    applyTestStatusToHero: applyTestStatusToHero,
     setupCityForgeWorkflow: setupCityForgeWorkflow,
     adjustCityResource: adjustCityResource,
     grantShopItem: grantShopItem,

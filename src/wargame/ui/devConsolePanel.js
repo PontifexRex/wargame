@@ -300,9 +300,60 @@ function dcpRenderCombatTab(snap) {
       );
     }).join('');
 
+  const abSnap = snap.abilities || { catalog: [], granted: [], absorbShield: 0, pendingCast: null, statuses: [] };
+  const abOpts = abSnap.catalog.map(function(a) {
+    return '<option value="' + dcpEscapeHtml(a.id) + '">' + dcpEscapeHtml(a.name + ' [' + a.domain + ' ' + a.kind + ']') + '</option>';
+  }).join('');
+  const grantedChips = abSnap.granted.length === 0
+    ? '<span class="text-[#64748b]">None</span>'
+    : abSnap.granted.map(function(g) {
+      return '<span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-[#070b12] border border-[#283347] text-[10px]">' +
+        '<strong class="text-[#e6edf3]">' + dcpEscapeHtml(g.name) + '</strong>' +
+        '<span class="text-[#64748b]">(' + dcpEscapeHtml(g.sources.join('+')) + ')</span>' +
+        (g.cooldownRemaining > 0 ? '<span class="text-[#f87171]">CD:' + g.cooldownRemaining + 't</span>' : '') +
+      '</span>';
+    }).join(' ');
+  const statusChips = abSnap.statuses.length === 0
+    ? '<span class="text-[#64748b]">None</span>'
+    : abSnap.statuses.map(function(s) {
+      return '<span class="px-1.5 py-0.5 rounded bg-[#070b12] border border-[#283347] text-[10px] ' + (s.isBuff ? 'text-[#34d399]' : 'text-[#f87171]') + '">' + dcpEscapeHtml(s.name) + ' (' + s.duration + 't)</span>';
+    }).join(' ');
+
+  const abilityBox =
+    '<div class="p-3 rounded-lg bg-[#0b111e] border border-[#283347] space-y-2">' +
+      '<div class="flex flex-wrap items-center justify-between gap-2">' +
+        '<div class="text-[11px] font-bold uppercase text-[#818cf8]">✨ Spells, Prayers &amp; Skills (MG-01A)</div>' +
+        '<div class="flex items-center gap-1.5">' +
+          '<span class="text-[10px] text-[#c7d2fe]">Shield: <strong>' + (abSnap.absorbShield || 0) + '</strong></span>' +
+          '<button type="button" data-dev-act="reset-cds" class="px-2 py-0.5 rounded bg-[#34d399]/20 hover:bg-[#34d399]/30 border border-[#34d399]/50 text-[10px] text-[#34d399] font-bold cursor-pointer">Reset CDs + Full MP</button>' +
+        '</div>' +
+      '</div>' +
+      '<div class="flex flex-wrap items-center gap-1.5">' +
+        '<select data-dev-field="devAbilityId" class="flex-1 min-w-[180px] px-2 py-1 rounded bg-[#05080f] border border-[#334155] text-[#e6edf3]">' + abOpts + '</select>' +
+        '<select data-dev-field="devAbilitySrc" class="px-2 py-1 rounded bg-[#05080f] border border-[#334155] text-[#e6edf3]">' +
+          '<option value="learned">learned</option>' +
+          '<option value="item">item</option>' +
+          '<option value="temporary">temporary</option>' +
+          '<option value="class">class</option>' +
+        '</select>' +
+        '<button type="button" data-dev-act="grant-ability" class="px-2.5 py-1 rounded bg-[#818cf8]/20 hover:bg-[#818cf8]/30 border border-[#818cf8]/50 text-[#c7d2fe] font-bold cursor-pointer">+ Grant</button>' +
+        '<button type="button" data-dev-act="revoke-ability" class="px-2.5 py-1 rounded bg-[#f87171]/20 hover:bg-[#f87171]/30 border border-[#f87171]/50 text-[#fca5a5] font-bold cursor-pointer">Revoke</button>' +
+      '</div>' +
+      '<div class="flex flex-wrap gap-1 items-center text-[10px]"><span class="text-[#94a3b8]">Granted:</span> ' + grantedChips + '</div>' +
+      '<div class="flex flex-wrap gap-1 items-center text-[10px]"><span class="text-[#94a3b8]">Active Statuses:</span> ' + statusChips + '</div>' +
+      '<div class="flex flex-wrap items-center gap-1 text-[10px]">' +
+        '<span class="text-[#94a3b8]">Test Status:</span>' +
+        '<button type="button" data-dev-act="apply-status" data-val="silence" class="px-1.5 py-0.5 rounded bg-[#1a2232] hover:bg-[#283347] text-[#e879f9] cursor-pointer">+ Silence</button>' +
+        '<button type="button" data-dev-act="apply-status" data-val="chilled" class="px-1.5 py-0.5 rounded bg-[#1a2232] hover:bg-[#283347] text-[#38bdf8] cursor-pointer">+ Chilled</button>' +
+        '<button type="button" data-dev-act="apply-status" data-val="burn" class="px-1.5 py-0.5 rounded bg-[#1a2232] hover:bg-[#283347] text-[#fb923c] cursor-pointer">+ Burn</button>' +
+        '<button type="button" data-dev-act="apply-status" data-val="slow" class="px-1.5 py-0.5 rounded bg-[#1a2232] hover:bg-[#283347] text-[#38bdf8] cursor-pointer">+ Slow</button>' +
+      '</div>' +
+    '</div>';
+
   return (
     '<div class="space-y-3">' +
       spawnerBox +
+      abilityBox +
       skillBox +
       '<div class="p-3 rounded-lg bg-[#0b111e] border border-[#283347]">' +
         '<div class="text-[11px] font-bold uppercase text-[#94a3b8] border-b border-[#283347] pb-1 mb-1">' +
@@ -687,6 +738,14 @@ export function attachDevConsolePanelListeners(devConsole, onRender) {
       devConsole.spawnObject(actBtn.getAttribute('data-otype'), actBtn.getAttribute('data-sub'), null, null);
     } else if (act === 'trigger-skill') {
       devConsole.triggerHeroSkill();
+    } else if (act === 'grant-ability') {
+      devConsole.grantHeroAbility(fieldVal('devAbilityId'), fieldVal('devAbilitySrc') || 'learned');
+    } else if (act === 'revoke-ability') {
+      devConsole.revokeHeroAbility(fieldVal('devAbilityId'), fieldVal('devAbilitySrc') || 'learned');
+    } else if (act === 'reset-cds') {
+      devConsole.resetHeroCooldownsAndMp();
+    } else if (act === 'apply-status') {
+      devConsole.applyTestStatusToHero(actBtn.getAttribute('data-val') || 'burn', 3);
     } else if (act === 'recruit-hero') {
       const clsId = fieldVal('recruitClass') || 'fighter';
       const rName = String(fieldVal('recruitName') || '').trim();

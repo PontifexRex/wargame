@@ -22,6 +22,7 @@ import { hydrateLegacyFloorObjects } from './objects.js';
 import { CANONICAL_PLAYER_ID } from '../core/canonicalIdentity.js';
 import { computeHeroDerivedStats, normalizeHeroBonusStats } from '../core/heroStats.js';
 import { normalizeHeroKnowledge } from '../core/knowledge.js';
+import { normalizeActorAbilityState } from '../core/abilityEngine.js';
 
 let itemSeq = 1000;
 
@@ -347,9 +348,15 @@ export function migrateSaveData(raw) {
         : [],
       statuses: Array.isArray(data.hero.statuses) ? data.hero.statuses : [],
       usedDivineIntervention: !!data.hero.usedDivineIntervention,
+      abilityGrants: data.hero.abilityGrants ? JSON.parse(JSON.stringify(data.hero.abilityGrants)) : null,
+      abilityCooldowns: data.hero.abilityCooldowns ? Object.assign({}, data.hero.abilityCooldowns) : {},
+      activeAbilityId: data.hero.activeAbilityId || null,
+      absorbShield: typeof data.hero.absorbShield === 'number' ? Math.max(0, data.hero.absorbShield) : 0,
+      pendingCast: data.hero.pendingCast ? JSON.parse(JSON.stringify(data.hero.pendingCast)) : null,
       x: data.hero.x || 1,
       y: data.hero.y || 1
     };
+    normalizeActorAbilityState(migrated.hero);
   }
 
   // Migrate Multi-Dungeon Registry OR Legacy Single Dungeon
@@ -423,6 +430,7 @@ export function getPickaxeMaxDurability(state = gameState) {
 export function recomputeHeroDerivedStats(fullRestore = false, state = gameState) {
   const h = state.hero;
   if (!h) return;
+  normalizeActorAbilityState(h);
   const derived = computeHeroDerivedStats(h);
   if (!derived) return;
 
