@@ -1550,6 +1550,132 @@ function getBuildingLevelsTable(buildingId) {
   return rows;
 }
 
+// ============================================================================
+// SHARED BLACKSMITH FORGE RECIPE & TEMPERING PREVIEW RULES (IS-01)
+// Single source of truth consumed by BOTH commandBus.js and wargameUiSync.js.
+// ============================================================================
+const BLACKSMITH_FORGE_SLOTS = ['weapon', 'armor', 'helm', 'boots', 'accessory', 'pickaxe'];
+
+function getBlacksmithForgeRecipePreview(slot, blacksmithLevel) {
+  const sl = BLACKSMITH_FORGE_SLOTS.indexOf(slot) !== -1 ? slot : 'weapon';
+  const bsLvl = Math.max(1, Math.round(Number(blacksmithLevel) || 1));
+  const ingotCost = 3 + bsLvl;
+  const goldCost = 20 + bsLvl * 10;
+  const rarity = bsLvl >= 3 ? 'epic' : (bsLvl >= 2 ? 'rare' : 'uncommon');
+  const maxSockets = sl === 'pickaxe' ? 0 : (bsLvl >= 3 ? 2 : (bsLvl >= 2 ? 1 : 0));
+  const tierName = bsLvl >= 3 ? 'Star-Forged' : (bsLvl >= 2 ? 'Tempered' : 'Forged');
+  const slotNames = {
+    weapon: 'Greatsword',
+    armor: 'Plate Cuirass',
+    helm: 'Greathelm',
+    boots: 'War Greaves',
+    accessory: 'Runic Signet',
+    pickaxe: 'Mithril Pickaxe'
+  };
+
+  const atk = sl === 'weapon' ? (10 + bsLvl * 4) : (sl === 'accessory' ? (3 + bsLvl * 2) : 0);
+  const def = (sl === 'armor' || sl === 'helm' || sl === 'boots') ? (5 + bsLvl * 3) : (sl === 'accessory' ? (2 + bsLvl) : 0);
+  const maxHp = sl === 'armor' ? (10 + bsLvl * 6) : 0;
+  const tier = sl === 'pickaxe' ? Math.min(4, 1 + bsLvl) : undefined;
+  const maxDur = sl === 'pickaxe' ? (30 + bsLvl * 10) : undefined;
+  const value = 45 + bsLvl * 30;
+
+  return {
+    slot: sl,
+    blacksmithLevel: bsLvl,
+    name: tierName + ' ' + slotNames[sl],
+    rarity: rarity,
+    deterministic: true,
+    ingotCost: ingotCost,
+    goldCost: goldCost,
+    destination: 'City Vault Storage',
+    atk: atk,
+    def: def,
+    maxHp: maxHp,
+    tier: tier,
+    maxDur: maxDur,
+    curDur: maxDur,
+    maxSockets: maxSockets,
+    value: value
+  };
+}
+
+function getBlacksmithTemperPreview(item) {
+  if (!item || typeof item !== 'object') {
+    return { eligible: false, reason: 'No item selected.' };
+  }
+  const curRank = item.temperRank || 0;
+  const maxRank = 3;
+  const ingotCost = 2;
+  const goldCost = 20;
+
+  if (item.slot === 'pickaxe') {
+    return {
+      eligible: false,
+      reason: 'Pickaxes are non-combat tools and cannot be tempered.',
+      curRank: curRank,
+      maxRank: maxRank,
+      ingotCost: ingotCost,
+      goldCost: goldCost
+    };
+  }
+  if (curRank >= maxRank) {
+    return {
+      eligible: false,
+      reason: 'Maximum Temper Rank (+3) reached.',
+      curRank: curRank,
+      maxRank: maxRank,
+      ingotCost: ingotCost,
+      goldCost: goldCost
+    };
+  }
+
+  const statKey = (item.slot === 'weapon' || item.slot === 'accessory') ? 'atk' : 'def';
+  const statLabel = statKey === 'atk' ? 'ATK' : 'DEF';
+  const delta = 2;
+  const currentStat = item[statKey] || 0;
+  const nextStat = currentStat + delta;
+  const valueDelta = 25;
+
+  return {
+    eligible: true,
+    reason: null,
+    curRank: curRank,
+    nextRank: curRank + 1,
+    maxRank: maxRank,
+    ingotCost: ingotCost,
+    goldCost: goldCost,
+    statKey: statKey,
+    statLabel: statLabel,
+    delta: delta,
+    currentStat: currentStat,
+    nextStat: nextStat,
+    valueDelta: valueDelta
+  };
+}
+
+// Conservative authoritative city-presence check for hero-owned workshop actions.
+// Returns true if hero is stationed at city (garrisoned with no overworld unit, OR party unit is alive,
+// not in_dungeon, and standing at (city.x, city.y)). Away or delving heroes return false.
+function isHeroPresentAtCity(world, city, hero) {
+  if (!world || !city || !hero) return false;
+  const ow = world.overworld;
+  const units = (ow && Array.isArray(ow.units)) ? ow.units : [];
+  const partyUnit = units.find(function(u) {
+    if (!u || !u.alive) return false;
+    if (u.leaderHeroId === hero.id) return true;
+    return Array.isArray(u.heroIds) && u.heroIds.indexOf(hero.id) !== -1;
+  }) || null;
+
+  if (!partyUnit) {
+    return true; // Garrisoned / unassigned hero stationed at city
+  }
+  if (partyUnit.status === 'in_dungeon') {
+    return false;
+  }
+  return partyUnit.x === city.x && partyUnit.y === city.y;
+}
+
   // --- Module: src/wargame/data/troops.js ---
 // Military Troop Archetype Definitions, Level Progression, Upgrade Formulas & Barracks Inventory Helpers (Task 05A / C2 / C3)
 // Strictly separates Barracks military troops (locationType: 'barracks') from City Garrison militia.
@@ -4103,6 +4229,712 @@ function getFormattedTasksList(state) {
   return list;
 }
 
+  // --- Module: src/constants.js ---
+// Core constants, viewport dimensions, map scale presets, tile IDs, and rarity definitions
+
+const SCHEMA_VERSION = 'v0.5.0-inc5';
+const STORAGE_KEY = 'aethelgard_save_v6';
+
+const TILE_SIZE = 32;
+const VIEWPORT_WIDTH = 21;
+const VIEWPORT_HEIGHT = 15;
+
+// Legacy viewport aliases + new exploration-scale default floor dimensions
+const GRID_W = VIEWPORT_WIDTH;
+const GRID_H = VIEWPORT_HEIGHT;
+const DEFAULT_MAP_W = 80;
+const DEFAULT_MAP_H = 60;
+
+// Soft configurable cap on simultaneously chartered custom expeditions (not a structural limit; can be raised to 500+)
+const DEFAULT_MAX_CHARTERED_DUNGEONS = 12;
+
+// Bestiary & Codex Mastery Constants
+const CODEX_MASTERY_KILLS = 5;
+const CODEX_MASTERY_DMG_MULT = 1.08;
+
+const MAP_SIZE_PRESETS = {
+  small:     { id: 'small',     name: 'Small Outpost',        width: 48,  height: 36,  desc: '48x36 (~5.5x classic) • 14–18 chambers' },
+  standard:  { id: 'standard',  name: 'Standard Delve',       width: 80,  height: 60,  desc: '80x60 (~15x classic) • Multi-wing halls & vaults' },
+  sprawling: { id: 'sprawling', name: 'Sprawling Labyrinth',  width: 128, height: 96,  desc: '128x96 (~39x classic) • Deep avenues & caverns' },
+  colossal:  { id: 'colossal',  name: 'Colossal Megadungeon', width: 192, height: 144, desc: '192x144 (~88x classic) • Massive subterranean expanse' }
+};
+
+// Tile Constants
+const TILE_WALL = 0;
+const TILE_FLOOR = 1;
+const TILE_STAIRS_UP = 2;
+const TILE_STAIRS_DOWN = 3;
+const TILE_CHEST = 4;
+const TILE_CHEST_OPEN = 5;
+const TILE_SHRINE = 6;
+const TILE_SHRINE_USED = 7;
+const TILE_TRAP_HIDDEN = 8;
+const TILE_TRAP_VISIBLE = 9;
+const TILE_ORE_COPPER = 10;
+const TILE_ORE_IRON = 11;
+const TILE_ORE_MITHRIL = 12;
+const TILE_ORE_STAR = 13;
+const TILE_ORE_ASTRAL = 14;
+const TILE_ORE_GEODE = 15;
+const TILE_TRAP_DISARMED = 16;
+
+// Economy Constants
+const LAPIDARY_UNSOCKET_COST = 15;
+const BOUNTY_REROLL_COST = 25;
+
+// Rarity Definitions
+const RARITY = {
+  common:   { id: 'common',   name: 'Common',            color: '#94a3b8', mult: 1.0, affixes: 0 },
+  uncommon: { id: 'uncommon', name: 'Uncommon',          color: '#4ade80', mult: 1.4, affixes: 1 },
+  rare:     { id: 'rare',     name: 'Rare',              color: '#60a5fa', mult: 2.0, affixes: 2 },
+  epic:     { id: 'epic',     name: 'Epic',              color: '#c084fc', mult: 3.2, affixes: 3 },
+  relic:    { id: 'relic',    name: 'Star-Forged Relic', color: '#fbbf24', mult: 5.5, affixes: 4 }
+};
+
+  // --- Module: src/data/gems.js ---
+// Astral Gem Catalog,Subterranean Shrine Variants, and Runic Trap Specifications
+
+const GEM_IDS = ['ruby', 'emerald', 'sapphire', 'topaz', 'void_diamond'];
+
+const GEM_CATALOG = {
+  ruby: {
+    id: 'ruby',
+    name: 'Ruby of Might',
+    shortName: 'Ruby',
+    color: '#ef4444',
+    baseValue: 65,
+    bonuses: { atk: 4, str: 2 },
+    desc: '+4 ATK, +2 STR'
+  },
+  emerald: {
+    id: 'emerald',
+    name: 'Emerald of the Wind',
+    shortName: 'Emerald',
+    color: '#10b981',
+    baseValue: 65,
+    bonuses: { crit: 5, dodge: 4, dex: 2 },
+    desc: '+5% Crit, +4% Dodge, +2 DEX'
+  },
+  sapphire: {
+    id: 'sapphire',
+    name: 'Sapphire of Will',
+    shortName: 'Sapphire',
+    color: '#3b82f6',
+    baseValue: 65,
+    bonuses: { maxMp: 18, int: 3 },
+    desc: '+18 Max MP, +3 INT'
+  },
+  topaz: {
+    id: 'topaz',
+    name: 'Topaz of Dawn',
+    shortName: 'Topaz',
+    color: '#f59e0b',
+    baseValue: 65,
+    bonuses: { maxHp: 24, def: 3, vit: 2 },
+    desc: '+24 Max HP, +3 DEF, +2 VIT'
+  },
+  void_diamond: {
+    id: 'void_diamond',
+    name: 'Void Diamond',
+    shortName: 'Void Diamond',
+    color: '#e879f9',
+    baseValue: 140,
+    bonuses: { atk: 5, def: 4, crit: 4, visionBonus: 1 },
+    desc: '+5 ATK, +4 DEF, +4% Crit, +1 Vision'
+  }
+};
+
+const GEM_DISPLAY = [
+  { id: 'ruby',         name: 'Ruby',         color: '#ef4444' },
+  { id: 'emerald',      name: 'Emerald',      color: '#10b981' },
+  { id: 'sapphire',     name: 'Sapphire',     color: '#3b82f6' },
+  { id: 'topaz',        name: 'Topaz',        color: '#f59e0b' },
+  { id: 'void_diamond', name: 'Void Diamond', color: '#e879f9' }
+];
+
+const SHRINE_CATALOG = {
+  sanctuary: {
+    id: 'sanctuary',
+    name: 'Shrine of Celestial Renewal',
+    color: '#34d399',
+    desc: 'Restores 50% Max HP & Max MP and purges negative afflictions.'
+  },
+  starfire: {
+    id: 'starfire',
+    name: 'Shrine of Starfire',
+    color: '#fbbf24',
+    statusId: 'shrine_starfire',
+    statusName: 'Starfire Blessing',
+    duration: 25,
+    bonuses: { atk: 6, crit: 12 },
+    desc: 'Grants +6 ATK and +12% Crit for 25 turns.'
+  },
+  aegis: {
+    id: 'aegis',
+    name: 'Shrine of the Astral Aegis',
+    color: '#60a5fa',
+    statusId: 'shrine_aegis',
+    statusName: 'Astral Aegis',
+    duration: 25,
+    bonuses: { def: 6, visionBonus: 1 },
+    desc: 'Grants +6 DEF and +1 Vision Radius for 25 turns.'
+  }
+};
+
+const TRAP_CATALOG = {
+  spike: {
+    id: 'spike',
+    name: 'Runic Spike Trap',
+    color: '#f87171',
+    baseDmg: 12,
+    depthScale: 4,
+    statusId: 'bleed',
+    statusDuration: 3,
+    desc: 'Piercing floor spikes that deal physical damage and inflict Bleed.'
+  },
+  flame: {
+    id: 'flame',
+    name: 'Runic Flame Vent',
+    color: '#fb923c',
+    baseDmg: 10,
+    depthScale: 4,
+    statusId: 'burn',
+    statusDuration: 3,
+    desc: 'Searing rune-fire glyph that deals fire damage and inflicts Burn.'
+  }
+};
+
+  // --- Module: src/data/items.js ---
+// Equipment Base Archetypes, Affix Pools, Canonical Normalization, Scoring & Shop Catalog (IS-01)
+
+
+// Migration-only historical flat bonuses baked by legacy City Lapidary SOCKET_CITY_GEM.
+// Never used for live stat calculations (live gem stats come strictly from GEM_CATALOG).
+const LEGACY_CITY_GEM_BONUSES = {
+  ruby:         { atk: 4, def: 0, hp: 0,  mp: 0 },
+  emerald:      { atk: 1, def: 3, hp: 0,  mp: 0 },
+  sapphire:     { atk: 2, def: 0, hp: 0,  mp: 15 },
+  topaz:        { atk: 0, def: 2, hp: 20, mp: 0 },
+  void_diamond: { atk: 6, def: 4, hp: 10, mp: 10 }
+};
+
+const ITEM_BASE_ARCHETYPES = {
+  weapon: [
+    {
+      id: 'wep_cleaver',
+      slot: 'weapon',
+      name: 'Obsidian Cleaver',
+      profile: 'heavy_physical',
+      atkMult: 1.20,
+      strBase: 1,
+      desc: 'Heavy melee blade favoring raw physical damage.'
+    },
+    {
+      id: 'wep_blade',
+      slot: 'weapon',
+      name: 'Star-Shard Blade',
+      profile: 'finesse',
+      atkMult: 0.90,
+      critBase: 5,
+      critPerDepth: 0.8,
+      dexBase: 1,
+      desc: 'Balanced finesse blade trading raw ATK for precision and Crit.'
+    },
+    {
+      id: 'wep_staff',
+      slot: 'weapon',
+      name: 'Astral Focus Staff',
+      profile: 'arcane',
+      atkMult: 0.55,
+      magicBase: 6,
+      magicPerDepth: 2.2,
+      maxMpBase: 8,
+      maxMpPerDepth: 2.0,
+      intBase: 2,
+      desc: 'Arcane staff channeling Magic Power, INT, and Max MP.'
+    },
+    {
+      id: 'wep_mace',
+      slot: 'weapon',
+      name: 'Sanctified Mace',
+      profile: 'sacred',
+      atkMult: 0.85,
+      magicBase: 4,
+      magicPerDepth: 1.6,
+      spiBase: 2,
+      desc: 'Consecrated mace balancing physical strikes with SPI and Magic Power.'
+    }
+  ],
+  armor: [
+    {
+      id: 'arm_plate',
+      slot: 'armor',
+      name: 'Star-Forged Plate',
+      profile: 'heavy_armor',
+      defMult: 1.25,
+      maxHpBase: 12,
+      maxHpPerDepth: 4.5,
+      desc: 'Heavy plate maximizing physical Defense and Max HP.'
+    },
+    {
+      id: 'arm_brigandine',
+      slot: 'armor',
+      name: 'Deepwood Brigandine',
+      profile: 'light_armor',
+      defMult: 0.85,
+      dodgeBase: 4,
+      dodgePerDepth: 0.7,
+      dexBase: 1,
+      desc: 'Flexible light armor trading heavy DEF for Dodge and agility.'
+    },
+    {
+      id: 'arm_vestments',
+      slot: 'armor',
+      name: 'Astral Vestments',
+      profile: 'mystic_vestments',
+      defMult: 0.65,
+      wardBase: 2,
+      wardPerDepth: 0.5,
+      maxMpBase: 10,
+      maxMpPerDepth: 2.5,
+      spiBase: 1,
+      desc: 'Warded mystic robes granting Astral Ward, Max MP, and SPI.'
+    }
+  ],
+  helm: [
+    {
+      id: 'helm_sallet',
+      slot: 'helm',
+      name: 'Ironbound Sallet',
+      profile: 'heavy_armor',
+      defMult: 1.15,
+      maxHpBase: 10,
+      maxHpPerDepth: 4.0,
+      desc: 'Reinforced helm bolstering DEF and Max HP.'
+    },
+    {
+      id: 'helm_hood',
+      slot: 'helm',
+      name: 'Starweaver Hood',
+      profile: 'arcane',
+      defMult: 0.70,
+      magicBase: 3,
+      magicPerDepth: 1.1,
+      maxMpBase: 8,
+      maxMpPerDepth: 2.0,
+      desc: 'Runed hood enhancing Magic Power and Max MP.'
+    },
+    {
+      id: 'helm_mask',
+      slot: 'helm',
+      name: 'Stalker Mask',
+      profile: 'finesse',
+      defMult: 0.85,
+      critBase: 3,
+      critPerDepth: 0.6,
+      dexBase: 1,
+      desc: 'Light scouting visor sharpening Crit chance.'
+    }
+  ],
+  boots: [
+    {
+      id: 'boots_greaves',
+      slot: 'boots',
+      name: 'Dwarven Marchers',
+      profile: 'heavy_armor',
+      defMult: 1.30,
+      maxHpBase: 8,
+      maxHpPerDepth: 3.0,
+      wardBase: 1,
+      wardPerDepth: 0.3,
+      desc: 'Sturdy greaves reinforcing DEF, Max HP, and Ward.'
+    },
+    {
+      id: 'boots_treads',
+      slot: 'boots',
+      name: 'Windrunner Boots',
+      profile: 'light_armor',
+      defMult: 0.80,
+      dodgeBase: 3,
+      dodgePerDepth: 1.1,
+      desc: 'Supple boots prioritizing Dodge.'
+    }
+  ],
+  accessory: [
+    {
+      id: 'acc_signet',
+      slot: 'accessory',
+      name: 'Vespera Signet',
+      profile: 'finesse',
+      critBase: 4,
+      critPerDepth: 1.0,
+      atkBase: 2,
+      atkPerDepth: 0.8,
+      desc: 'Combat signet boosting Crit and ATK.'
+    },
+    {
+      id: 'acc_amulet',
+      slot: 'accessory',
+      name: 'Astral Lens Charm',
+      profile: 'arcane',
+      magicBase: 4,
+      magicPerDepth: 1.4,
+      maxMpBase: 10,
+      maxMpPerDepth: 3.0,
+      intBase: 1,
+      desc: 'Arcane focus boosting Magic Power, INT, and Max MP.'
+    },
+    {
+      id: 'acc_pendant',
+      slot: 'accessory',
+      name: 'Pendant of Dawn',
+      profile: 'sacred',
+      spiBase: 2,
+      wardBase: 2,
+      wardPerDepth: 0.4,
+      maxHpBase: 10,
+      maxHpPerDepth: 3.0,
+      desc: 'Sacred pendant reinforcing SPI, Ward, and Max HP.'
+    }
+  ]
+};
+
+function getItemBaseArchetype(archetypeId) {
+  if (!archetypeId || typeof archetypeId !== 'string') return null;
+  const slots = Object.keys(ITEM_BASE_ARCHETYPES);
+  for (let i = 0; i < slots.length; i++) {
+    const list = ITEM_BASE_ARCHETYPES[slots[i]];
+    for (let j = 0; j < list.length; j++) {
+      if (list[j].id === archetypeId) return list[j];
+    }
+  }
+  return null;
+}
+
+const AFFIX_POOL = [
+  { id: 'atk',        label: 'of Ferocity',          stat: 'atk',        min: 2,  max: 6,  slots: ['weapon', 'accessory'] },
+  { id: 'def',        label: 'of the Bulwark',       stat: 'def',        min: 2,  max: 6,  slots: ['armor', 'helm', 'boots'] },
+  { id: 'str',        label: 'of Might',             stat: 'str',        min: 1,  max: 4,  slots: ['weapon', 'armor', 'helm'] },
+  { id: 'dex',        label: 'of Precision',         stat: 'dex',        min: 1,  max: 4,  slots: ['weapon', 'boots', 'accessory'] },
+  { id: 'int',        label: 'of Astral Lore',       stat: 'int',        min: 1,  max: 4,  slots: ['weapon', 'helm', 'accessory'] },
+  { id: 'vit',        label: 'of Fortitude',         stat: 'vit',        min: 1,  max: 4,  slots: ['armor', 'helm', 'boots'] },
+  { id: 'spi',        label: 'of Devotion',          stat: 'spi',        min: 1,  max: 4,  slots: ['weapon', 'armor', 'helm', 'accessory'] },
+  { id: 'magicPower', label: 'of Spellcraft',        stat: 'magicPower', min: 3,  max: 8,  slots: ['weapon', 'helm', 'accessory'] },
+  { id: 'crit',       label: 'of Keen Sight',        stat: 'crit',       min: 3,  max: 9,  slots: ['weapon', 'accessory', 'helm'] },
+  { id: 'dodge',      label: 'of the Zephyr',        stat: 'dodge',      min: 3,  max: 8,  slots: ['boots', 'armor', 'accessory'] },
+  { id: 'maxHp',      label: 'of Lifeblood',         stat: 'maxHp',      min: 12, max: 35, slots: ['armor', 'helm', 'accessory'] },
+  { id: 'maxMp',      label: 'of the Leyline',       stat: 'maxMp',      min: 10, max: 28, slots: ['helm', 'accessory', 'weapon'] },
+  { id: 'thorns',     label: 'of Retaliation',       stat: 'thorns',     min: 3,  max: 8,  slots: ['armor', 'helm', 'boots'] },
+  { id: 'leech',      label: 'of the Blood Drinker', stat: 'leech',      min: 2,  max: 6,  slots: ['weapon', 'accessory'] },
+  { id: 'ward',       label: 'of Astral Warding',    stat: 'ward',       min: 2,  max: 5,  slots: ['armor', 'helm', 'accessory'] }
+];
+
+// Preserved for legacy callers; procedural generation now uses ITEM_BASE_ARCHETYPES.
+const BASE_GEAR_NAMES = {
+  weapon:    ['Star-Shard Blade', 'Runed Broadsword', 'Sanctified Mace', 'Astral Focus Staff', 'Obsidian Cleaver'],
+  armor:     ['Astral Vestments', 'Deepwood Brigandine', 'Star-Forged Plate', 'Shadowalker Coat', 'Runed Cuirass'],
+  helm:      ['Visor of the Deep', 'Starweaver Hood', 'Ironbound Sallet', 'Astral Crown', 'Stalker Mask'],
+  boots:     ['Greaves of Striding', 'Silent Sabatons', 'Starlight Treads', 'Dwarven Marchers', 'Windrunner Boots'],
+  accessory: ['Vespera Signet', 'Astral Lens Charm', 'Pendant of Dawn', 'Bloodstone Ring', 'Star-Core Amulet']
+};
+
+const SHOP_ITEMS = [
+  { id: 'buy_heal',   name: 'Healing Tonic',             type: 'consumable', cost: 18,  reqQM: 0, desc: 'Restores 45% Max HP & cures Bleed/Poison.' },
+  { id: 'buy_recall', name: 'Astral Recall Scroll',      type: 'consumable', cost: 30,  reqQM: 0, desc: 'Safely extracts you & your pack from any floor.' },
+  { id: 'buy_pick_1', name: 'Dwarven Steel Pickaxe',     type: 'gear', slot: 'pickaxe',   rarity: 'uncommon', maxDur: 50,  cost: 65,  reqQM: 0, desc: '50 Base Durability.' },
+  { id: 'buy_wep_1',  name: 'Vespera Runeblade',         type: 'gear', slot: 'weapon',    rarity: 'rare',     atk: 14, crit: 6, cost: 115, reqQM: 1, desc: '+14 ATK, +6% Crit.' },
+  { id: 'buy_arm_1',  name: 'Carapace of the Deep',      type: 'gear', slot: 'armor',     rarity: 'rare',     def: 11, maxHp: 25, cost: 115, reqQM: 1, desc: '+11 DEF, +25 Max HP.' },
+  { id: 'buy_pick_2', name: 'Mithril Star-Pickaxe',      type: 'gear', slot: 'pickaxe',   rarity: 'rare',     maxDur: 85,  cost: 145, reqQM: 1, desc: '85 Base Durability.' },
+  { id: 'buy_acc_2',  name: 'Amulet of the Fallen Star', type: 'gear', slot: 'accessory', rarity: 'epic',     atk: 6, magicPower: 8, maxHp: 35, crit: 8, cost: 240, reqQM: 2, desc: '+6 ATK, +8 MAG, +35 HP, +8% Crit.' },
+  { id: 'buy_pick_3', name: 'Titanium Master Pick',      type: 'gear', slot: 'pickaxe',   rarity: 'epic',     maxDur: 140, cost: 260, reqQM: 2, desc: '140 Base Durability.' },
+  { id: 'buy_wep_3',  name: 'Eclipse, Blade of Vespera', type: 'gear', slot: 'weapon',    rarity: 'relic',    atk: 28, str: 5, crit: 14, cost: 520, reqQM: 3, desc: '+28 ATK, +5 STR, +14% Crit.' },
+  { id: 'buy_pick_4', name: 'Void Astralite Drill',      type: 'gear', slot: 'pickaxe',   rarity: 'relic',    maxDur: 240, cost: 450, reqQM: 3, desc: '240 Base Durability.' }
+];
+
+const ELITE_AFFIXES = [
+  { id: 'vampiric',   name: 'Vampiric',      color: '#f87171', desc: 'Heals for 40% of damage dealt' },
+  { id: 'molten',     name: 'Molten',        color: '#fb923c', desc: 'Inflicts Burn on hit' },
+  { id: 'venomous',   name: 'Venomous',      color: '#4ade80', desc: 'Inflicts Poison on hit' },
+  { id: 'fortified',  name: 'Fortified',     color: '#60a5fa', desc: '+35% Defense & HP' },
+  { id: 'reflective', name: 'Reflective',    color: '#ec4899', desc: 'Reflects 25% thorns damage back to attacker' },
+  { id: 'chilling',   name: 'Chilling',      color: '#38bdf8', desc: 'Inflicts Chilled on hit (-15% Dodge, +2 Skill MP)' },
+  { id: 'temporal',   name: 'Temporal Warp', color: '#a855f7', desc: '40% chance on damage to phase-shift away' },
+  { id: 'volatile',   name: 'Volatile',      color: '#ef4444', desc: 'Detonates upon defeat for 150% ATK damage in 1-tile radius' }
+];
+
+// Canonical, idempotent equipment item normalizer shared by Strategy & Dungeon engines (IS-01).
+// Canonical fields: maxHp, maxMp, curDur, maxDur, maxSockets (number), sockets (string[]), affixes ([]), locked (bool).
+function normalizeEquipmentItem(item) {
+  if (!item || typeof item !== 'object') return null;
+
+  item.locked = Boolean(item.locked);
+  if (!Array.isArray(item.affixes)) {
+    item.affixes = [];
+  }
+
+  // 1. Legacy hp / mp bonus normalization (only when canonical maxHp/maxMp is absent)
+  if (typeof item.hp === 'number' && isFinite(item.hp)) {
+    if (typeof item.maxHp !== 'number' || !isFinite(item.maxHp)) {
+      if (item.hp > 0) item.maxHp = item.hp;
+    }
+    delete item.hp;
+  }
+  if (typeof item.mp === 'number' && isFinite(item.mp)) {
+    if (typeof item.maxMp !== 'number' || !isFinite(item.maxMp)) {
+      if (item.mp > 0) item.maxMp = item.mp;
+    }
+    delete item.mp;
+  }
+
+  // 2. Pickaxe durability canonicalization (curDur / maxDur) and zero combat sockets
+  if (item.slot === 'pickaxe') {
+    const rawMaxD = (typeof item.maxDur === 'number' && isFinite(item.maxDur) && item.maxDur > 0)
+      ? item.maxDur
+      : ((typeof item.maxDurability === 'number' && isFinite(item.maxDurability) && item.maxDurability > 0) ? item.maxDurability : 28);
+    const rawCurD = (typeof item.curDur === 'number' && isFinite(item.curDur))
+      ? item.curDur
+      : ((typeof item.durability === 'number' && isFinite(item.durability)) ? item.durability : rawMaxD);
+    item.maxDur = Math.max(1, Math.round(rawMaxD));
+    item.curDur = Math.max(0, Math.min(item.maxDur, Math.round(rawCurD)));
+    if (item.durability !== undefined) delete item.durability;
+    if (item.maxDurability !== undefined) delete item.maxDurability;
+    item.maxSockets = 0;
+    item.sockets = [];
+    if (item.gems !== undefined) delete item.gems;
+    return item;
+  }
+
+  // 3. Socket & Legacy City Gem Migration (distinguishes pure legacy vs canonical vs ambiguous mixed shape)
+  const socketsIsArray = Array.isArray(item.sockets);
+  const hasLegacyGemsArray = Array.isArray(item.gems);
+  const socketsIsNumericLike = (typeof item.sockets === 'number' && isFinite(item.sockets)) ||
+    (typeof item.sockets === 'string' && /^\d+$/.test(item.sockets));
+
+  if (!socketsIsArray && (socketsIsNumericLike || hasLegacyGemsArray)) {
+    // Pure legacy City Blacksmith/Lapidary shape: numeric sockets + gems[] (with historically baked bonuses)
+    const legacyCap = socketsIsNumericLike ? Math.max(0, parseInt(item.sockets, 10) || 0) : 0;
+    const legacyGems = hasLegacyGemsArray ? item.gems.slice() : [];
+    const existingMax = (typeof item.maxSockets === 'number' && isFinite(item.maxSockets)) ? item.maxSockets : 0;
+    item.maxSockets = Math.max(existingMax, legacyCap, legacyGems.length);
+
+    // Reverse proven historical baked bonuses ONCE before moving gems to canonical sockets[]
+    if (!item._legacyGemsMigrated && legacyGems.length > 0) {
+      for (let gi = 0; gi < legacyGems.length; gi++) {
+        const gId = legacyGems[gi];
+        const hist = LEGACY_CITY_GEM_BONUSES[gId];
+        if (!hist) continue; // Preserve unknown gem IDs without guessing stats
+        if (hist.atk && typeof item.atk === 'number') item.atk = Math.max(0, item.atk - hist.atk);
+        if (hist.def && typeof item.def === 'number') item.def = Math.max(0, item.def - hist.def);
+        if (hist.hp && typeof item.maxHp === 'number') item.maxHp = Math.max(0, item.maxHp - hist.hp);
+        if (hist.mp && typeof item.maxMp === 'number') item.maxMp = Math.max(0, item.maxMp - hist.mp);
+      }
+      item._legacyGemsMigrated = true;
+    }
+
+    item.sockets = legacyGems;
+    if (item.gems !== undefined) delete item.gems;
+  } else if (socketsIsArray && hasLegacyGemsArray) {
+    // Mixed shape: canonical sockets[] already exists alongside legacy gems[]
+    if (item.sockets.length === 0 && item.gems.length > 0 && !item._legacyGemsMigrated) {
+      // Safe recovery: canonical array was empty (e.g. old normalizeEquipmentSockets clobbered numeric sockets)
+      const recovered = item.gems.slice();
+      for (let gi = 0; gi < recovered.length; gi++) {
+        const hist = LEGACY_CITY_GEM_BONUSES[recovered[gi]];
+        if (!hist) continue;
+        if (hist.atk && typeof item.atk === 'number') item.atk = Math.max(0, item.atk - hist.atk);
+        if (hist.def && typeof item.def === 'number') item.def = Math.max(0, item.def - hist.def);
+        if (hist.hp && typeof item.maxHp === 'number') item.maxHp = Math.max(0, item.maxHp - hist.hp);
+        if (hist.mp && typeof item.maxMp === 'number') item.maxMp = Math.max(0, item.maxMp - hist.mp);
+      }
+      item._legacyGemsMigrated = true;
+      item.sockets = recovered;
+      item.maxSockets = Math.max(typeof item.maxSockets === 'number' ? item.maxSockets : 0, recovered.length);
+      delete item.gems;
+    } else if (item.gems.length === 0) {
+      delete item.gems;
+    } else {
+      // Ambiguous non-empty mixed shape: preserve canonical sockets[] without destructive guessing
+      item._migrationWarning = 'mixed_sockets_and_gems_preserved';
+    }
+  } else {
+    if (!socketsIsArray) {
+      item.sockets = [];
+    }
+  }
+
+  if (typeof item.maxSockets !== 'number' || !isFinite(item.maxSockets)) {
+    if (item.rarity === 'relic') item.maxSockets = 2;
+    else if (item.rarity === 'epic' || item.rarity === 'rare') item.maxSockets = 1;
+    else item.maxSockets = 0;
+  }
+  if (item.sockets.length > item.maxSockets) {
+    item.maxSockets = item.sockets.length;
+  }
+
+  return item;
+}
+
+// Aggregates canonical item stats + socketed GEM_CATALOG bonuses ONCE (never mutates item).
+function getEffectiveItemBonuses(item) {
+  const out = {
+    atk: 0, def: 0, magicPower: 0,
+    maxHp: 0, maxMp: 0, crit: 0, dodge: 0,
+    str: 0, dex: 0, int: 0, vit: 0, spi: 0,
+    thorns: 0, leech: 0, ward: 0, visionBonus: 0,
+    maxDur: 0
+  };
+  if (!item || typeof item !== 'object') return out;
+
+  out.atk += item.atk || 0;
+  out.def += item.def || 0;
+  out.magicPower += item.magicPower || 0;
+  out.maxHp += (typeof item.maxHp === 'number' ? item.maxHp : (item.hp || 0));
+  out.maxMp += (typeof item.maxMp === 'number' ? item.maxMp : (item.mp || 0));
+  out.crit += item.crit || 0;
+  out.dodge += item.dodge || 0;
+  out.str += item.str || 0;
+  out.dex += item.dex || 0;
+  out.int += item.int || 0;
+  out.vit += item.vit || 0;
+  out.spi += item.spi || 0;
+  out.thorns += item.thorns || 0;
+  out.leech += item.leech || 0;
+  out.ward += item.ward || 0;
+  out.visionBonus += item.visionBonus || 0;
+  out.maxDur += (typeof item.maxDur === 'number' ? item.maxDur : (item.maxDurability || 0));
+
+  if (Array.isArray(item.sockets)) {
+    for (let i = 0; i < item.sockets.length; i++) {
+      const gem = GEM_CATALOG[item.sockets[i]];
+      if (!gem || !gem.bonuses) continue;
+      const gb = gem.bonuses;
+      if (gb.atk) out.atk += gb.atk;
+      if (gb.def) out.def += gb.def;
+      if (gb.magicPower) out.magicPower += gb.magicPower;
+      if (gb.maxHp) out.maxHp += gb.maxHp;
+      if (gb.maxMp) out.maxMp += gb.maxMp;
+      if (gb.crit) out.crit += gb.crit;
+      if (gb.dodge) out.dodge += gb.dodge;
+      if (gb.str) out.str += gb.str;
+      if (gb.dex) out.dex += gb.dex;
+      if (gb.int) out.int += gb.int;
+      if (gb.vit) out.vit += gb.vit;
+      if (gb.spi) out.spi += gb.spi;
+      if (gb.visionBonus) out.visionBonus += gb.visionBonus;
+    }
+  }
+  return out;
+}
+
+// General context-neutral equipment power score (accounts for all supported stats + gems once).
+function computeItemPowerScore(item) {
+  if (!item) return 0;
+  if (item.slot === 'pickaxe') {
+    const dur = typeof item.maxDur === 'number' ? item.maxDur : (item.maxDurability || 0);
+    return Math.round(dur * 0.5 + (item.tier || 0) * 10);
+  }
+  const b = getEffectiveItemBonuses(item);
+  const openSockets = Math.max(0, (item.maxSockets || 0) - (Array.isArray(item.sockets) ? item.sockets.length : 0));
+  return Math.round(
+    b.atk * 2.0 +
+    b.def * 2.0 +
+    b.magicPower * 2.0 +
+    b.maxHp * 0.25 +
+    b.maxMp * 0.25 +
+    b.crit * 1.5 +
+    b.dodge * 1.5 +
+    (b.str + b.dex + b.int + b.vit + b.spi) * 1.2 +
+    b.thorns * 1.5 +
+    b.leech * 2.0 +
+    b.ward * 2.0 +
+    b.visionBonus * 3.0 +
+    openSockets * 4.0
+  );
+}
+
+// Lightweight, explicit, provisional class preference weights grounded in heroStats.js & combat.js scaling.
+const CLASS_ITEM_PREFERENCE_WEIGHTS = {
+  fighter:    { atk: 2.6, def: 2.2, magicPower: 0.2, maxHp: 0.35, maxMp: 0.10, crit: 1.3, dodge: 1.0, str: 2.2, dex: 1.0, int: 0.2, vit: 2.0, spi: 0.2, thorns: 1.8, leech: 2.4, ward: 2.0, visionBonus: 1.5 },
+  thief:      { atk: 2.3, def: 1.4, magicPower: 0.2, maxHp: 0.20, maxMp: 0.15, crit: 2.5, dodge: 2.2, str: 1.1, dex: 2.4, int: 0.3, vit: 1.0, spi: 0.2, thorns: 0.8, leech: 2.2, ward: 1.4, visionBonus: 2.0 },
+  ranger:     { atk: 2.3, def: 1.5, magicPower: 0.2, maxHp: 0.20, maxMp: 0.15, crit: 2.3, dodge: 2.4, str: 1.1, dex: 2.4, int: 0.3, vit: 1.0, spi: 0.2, thorns: 0.8, leech: 1.8, ward: 1.5, visionBonus: 3.0 },
+  mage:       { atk: 0.6, def: 1.3, magicPower: 2.8, maxHp: 0.20, maxMp: 0.40, crit: 1.4, dodge: 1.3, str: 0.3, dex: 0.8, int: 2.6, vit: 1.0, spi: 1.2, thorns: 0.6, leech: 0.8, ward: 2.4, visionBonus: 2.0 },
+  paladin:    { atk: 2.2, def: 2.3, magicPower: 1.2, maxHp: 0.32, maxMp: 0.22, crit: 1.1, dodge: 0.9, str: 1.8, dex: 0.8, int: 0.8, vit: 2.0, spi: 1.8, thorns: 1.8, leech: 1.8, ward: 2.2, visionBonus: 1.5 },
+  cleric:     { atk: 1.1, def: 1.8, magicPower: 2.6, maxHp: 0.28, maxMp: 0.35, crit: 0.9, dodge: 1.0, str: 0.8, dex: 0.6, int: 1.6, vit: 1.5, spi: 2.6, thorns: 0.8, leech: 1.0, ward: 2.4, visionBonus: 1.5 },
+  adventurer: { atk: 2.0, def: 2.0, magicPower: 1.4, maxHp: 0.25, maxMp: 0.25, crit: 1.5, dodge: 1.5, str: 1.4, dex: 1.4, int: 1.2, vit: 1.4, spi: 1.2, thorns: 1.5, leech: 1.8, ward: 2.0, visionBonus: 2.5 }
+};
+
+function computeClassItemPreferenceScore(item, classId) {
+  if (!item) return -1;
+  if (item.slot === 'pickaxe') {
+    return computeItemPowerScore(item);
+  }
+  const w = (classId && CLASS_ITEM_PREFERENCE_WEIGHTS[classId]) ? CLASS_ITEM_PREFERENCE_WEIGHTS[classId] : null;
+  if (!w) return computeItemPowerScore(item);
+  const b = getEffectiveItemBonuses(item);
+  const openSockets = Math.max(0, (item.maxSockets || 0) - (Array.isArray(item.sockets) ? item.sockets.length : 0));
+  return Math.round((
+    b.atk * w.atk +
+    b.def * w.def +
+    b.magicPower * w.magicPower +
+    b.maxHp * w.maxHp +
+    b.maxMp * w.maxMp +
+    b.crit * w.crit +
+    b.dodge * w.dodge +
+    b.str * w.str +
+    b.dex * w.dex +
+    b.int * w.int +
+    b.vit * w.vit +
+    b.spi * w.spi +
+    b.thorns * w.thorns +
+    b.leech * w.leech +
+    b.ward * w.ward +
+    b.visionBonus * w.visionBonus +
+    openSockets * 4.0
+  ) * 100) / 100;
+}
+
+function isItemUpgrade(candidateItem, equipment, classId) {
+  if (!candidateItem || !candidateItem.slot) return false;
+  if (!equipment) return true;
+  const curEq = equipment[candidateItem.slot];
+  if (!curEq) return true;
+  if (classId) {
+    return computeClassItemPreferenceScore(candidateItem, classId) > computeClassItemPreferenceScore(curEq, classId);
+  }
+  return computeItemPowerScore(candidateItem) > computeItemPowerScore(curEq);
+}
+
+const SLOT_METADATA = {
+  helm:      { id: 'helm',      label: 'Head / Helm',         icon: '🪖', placeholder: 'Helm' },
+  armor:     { id: 'armor',     label: 'Chest / Body Armor',  icon: '🦺', placeholder: 'Armor' },
+  weapon:    { id: 'weapon',    label: 'Main Hand / Weapon',  icon: '⚔️', placeholder: 'Weapon' },
+  boots:     { id: 'boots',     label: 'Feet / Boots',        icon: '👢', placeholder: 'Boots' },
+  accessory: { id: 'accessory', label: 'Neck / Accessory',    icon: '💍', placeholder: 'Trinket' },
+  pickaxe:   { id: 'pickaxe',   label: 'Off-Hand / Pickaxe',  icon: '⛏️', placeholder: 'Pickaxe' },
+  shield:    { id: 'shield',    label: 'Off-Hand / Shield',   icon: '🛡️', placeholder: 'Shield' },
+  gloves:    { id: 'gloves',    label: 'Hands / Gauntlets',   icon: '🧤', placeholder: 'Gloves' },
+  amulet:    { id: 'amulet',    label: 'Necklace / Amulet',   icon: '📿', placeholder: 'Amulet' },
+  ring:      { id: 'ring',      label: 'Finger / Ring',       icon: '💍', placeholder: 'Ring' },
+  belt:      { id: 'belt',      label: 'Waist / Belt',        icon: '🎗️', placeholder: 'Belt' }
+};
+
+function getItemTypeIcon(itemOrSlot) {
+  if (!itemOrSlot) return '📦';
+  if (typeof itemOrSlot === 'string') {
+    const meta = SLOT_METADATA[itemOrSlot];
+    return meta ? meta.icon : '📦';
+  }
+  if (itemOrSlot.slot && SLOT_METADATA[itemOrSlot.slot]) {
+    return SLOT_METADATA[itemOrSlot.slot].icon;
+  }
+  const idStr = String(itemOrSlot.id || '');
+  if (idStr === 'healing_tonic' || idStr === 'buy_heal' || idStr === 'potions') return '🧪';
+  if (idStr === 'recall_scroll' || idStr === 'buy_recall' || idStr === 'recalls') return '📜';
+  if (itemOrSlot.type === 'Gem') return '◆';
+  if (itemOrSlot.type === 'Ore' || ['copper', 'iron', 'mithril', 'geode', 'starcrystal', 'astralite'].includes(idStr) || idStr.indexOf('ore') !== -1) return '🪨';
+  return '📦';
+}
+
   // --- Module: src/data/classes.js ---
 // Canonical Playable Classes Registry (5 Core + Adventurer + Cleric)
 // Five foundational attributes: STR, DEX, INT, VIT, SPI (HR-13)
@@ -4310,119 +5142,6 @@ function isHeroDungeonEligible(hero) {
   if (hero.canEnterDungeon === false) return false;
   return isClassDungeonEligible(hero.classId);
 }
-
-  // --- Module: src/data/gems.js ---
-// Astral Gem Catalog,Subterranean Shrine Variants, and Runic Trap Specifications
-
-const GEM_IDS = ['ruby', 'emerald', 'sapphire', 'topaz', 'void_diamond'];
-
-const GEM_CATALOG = {
-  ruby: {
-    id: 'ruby',
-    name: 'Ruby of Might',
-    shortName: 'Ruby',
-    color: '#ef4444',
-    baseValue: 65,
-    bonuses: { atk: 4, str: 2 },
-    desc: '+4 ATK, +2 STR'
-  },
-  emerald: {
-    id: 'emerald',
-    name: 'Emerald of the Wind',
-    shortName: 'Emerald',
-    color: '#10b981',
-    baseValue: 65,
-    bonuses: { crit: 5, dodge: 4, dex: 2 },
-    desc: '+5% Crit, +4% Dodge, +2 DEX'
-  },
-  sapphire: {
-    id: 'sapphire',
-    name: 'Sapphire of Will',
-    shortName: 'Sapphire',
-    color: '#3b82f6',
-    baseValue: 65,
-    bonuses: { maxMp: 18, int: 3 },
-    desc: '+18 Max MP, +3 INT'
-  },
-  topaz: {
-    id: 'topaz',
-    name: 'Topaz of Dawn',
-    shortName: 'Topaz',
-    color: '#f59e0b',
-    baseValue: 65,
-    bonuses: { maxHp: 24, def: 3, vit: 2 },
-    desc: '+24 Max HP, +3 DEF, +2 VIT'
-  },
-  void_diamond: {
-    id: 'void_diamond',
-    name: 'Void Diamond',
-    shortName: 'Void Diamond',
-    color: '#e879f9',
-    baseValue: 140,
-    bonuses: { atk: 5, def: 4, crit: 4, visionBonus: 1 },
-    desc: '+5 ATK, +4 DEF, +4% Crit, +1 Vision'
-  }
-};
-
-const GEM_DISPLAY = [
-  { id: 'ruby',         name: 'Ruby',         color: '#ef4444' },
-  { id: 'emerald',      name: 'Emerald',      color: '#10b981' },
-  { id: 'sapphire',     name: 'Sapphire',     color: '#3b82f6' },
-  { id: 'topaz',        name: 'Topaz',        color: '#f59e0b' },
-  { id: 'void_diamond', name: 'Void Diamond', color: '#e879f9' }
-];
-
-const SHRINE_CATALOG = {
-  sanctuary: {
-    id: 'sanctuary',
-    name: 'Shrine of Celestial Renewal',
-    color: '#34d399',
-    desc: 'Restores 50% Max HP & Max MP and purges negative afflictions.'
-  },
-  starfire: {
-    id: 'starfire',
-    name: 'Shrine of Starfire',
-    color: '#fbbf24',
-    statusId: 'shrine_starfire',
-    statusName: 'Starfire Blessing',
-    duration: 25,
-    bonuses: { atk: 6, crit: 12 },
-    desc: 'Grants +6 ATK and +12% Crit for 25 turns.'
-  },
-  aegis: {
-    id: 'aegis',
-    name: 'Shrine of the Astral Aegis',
-    color: '#60a5fa',
-    statusId: 'shrine_aegis',
-    statusName: 'Astral Aegis',
-    duration: 25,
-    bonuses: { def: 6, visionBonus: 1 },
-    desc: 'Grants +6 DEF and +1 Vision Radius for 25 turns.'
-  }
-};
-
-const TRAP_CATALOG = {
-  spike: {
-    id: 'spike',
-    name: 'Runic Spike Trap',
-    color: '#f87171',
-    baseDmg: 12,
-    depthScale: 4,
-    statusId: 'bleed',
-    statusDuration: 3,
-    desc: 'Piercing floor spikes that deal physical damage and inflict Bleed.'
-  },
-  flame: {
-    id: 'flame',
-    name: 'Runic Flame Vent',
-    color: '#fb923c',
-    baseDmg: 10,
-    depthScale: 4,
-    statusId: 'burn',
-    statusDuration: 3,
-    desc: 'Searing rune-fire glyph that deals fire damage and inflicts Burn.'
-  }
-};
 
   // --- Module: src/core/heroStats.js ---
 // Shared Authoritative Hero Derived-Stat Calculator (HR-13)
@@ -5816,68 +6535,6 @@ function ensureCanonicalPlayerIdentity(world) {
 
   return canonicalId;
 }
-
-  // --- Module: src/constants.js ---
-// Core constants, viewport dimensions, map scale presets, tile IDs, and rarity definitions
-
-const SCHEMA_VERSION = 'v0.5.0-inc5';
-const STORAGE_KEY = 'aethelgard_save_v6';
-
-const TILE_SIZE = 32;
-const VIEWPORT_WIDTH = 21;
-const VIEWPORT_HEIGHT = 15;
-
-// Legacy viewport aliases + new exploration-scale default floor dimensions
-const GRID_W = VIEWPORT_WIDTH;
-const GRID_H = VIEWPORT_HEIGHT;
-const DEFAULT_MAP_W = 80;
-const DEFAULT_MAP_H = 60;
-
-// Soft configurable cap on simultaneously chartered custom expeditions (not a structural limit; can be raised to 500+)
-const DEFAULT_MAX_CHARTERED_DUNGEONS = 12;
-
-// Bestiary & Codex Mastery Constants
-const CODEX_MASTERY_KILLS = 5;
-const CODEX_MASTERY_DMG_MULT = 1.08;
-
-const MAP_SIZE_PRESETS = {
-  small:     { id: 'small',     name: 'Small Outpost',        width: 48,  height: 36,  desc: '48x36 (~5.5x classic) • 14–18 chambers' },
-  standard:  { id: 'standard',  name: 'Standard Delve',       width: 80,  height: 60,  desc: '80x60 (~15x classic) • Multi-wing halls & vaults' },
-  sprawling: { id: 'sprawling', name: 'Sprawling Labyrinth',  width: 128, height: 96,  desc: '128x96 (~39x classic) • Deep avenues & caverns' },
-  colossal:  { id: 'colossal',  name: 'Colossal Megadungeon', width: 192, height: 144, desc: '192x144 (~88x classic) • Massive subterranean expanse' }
-};
-
-// Tile Constants
-const TILE_WALL = 0;
-const TILE_FLOOR = 1;
-const TILE_STAIRS_UP = 2;
-const TILE_STAIRS_DOWN = 3;
-const TILE_CHEST = 4;
-const TILE_CHEST_OPEN = 5;
-const TILE_SHRINE = 6;
-const TILE_SHRINE_USED = 7;
-const TILE_TRAP_HIDDEN = 8;
-const TILE_TRAP_VISIBLE = 9;
-const TILE_ORE_COPPER = 10;
-const TILE_ORE_IRON = 11;
-const TILE_ORE_MITHRIL = 12;
-const TILE_ORE_STAR = 13;
-const TILE_ORE_ASTRAL = 14;
-const TILE_ORE_GEODE = 15;
-const TILE_TRAP_DISARMED = 16;
-
-// Economy Constants
-const LAPIDARY_UNSOCKET_COST = 15;
-const BOUNTY_REROLL_COST = 25;
-
-// Rarity Definitions
-const RARITY = {
-  common:   { id: 'common',   name: 'Common',            color: '#94a3b8', mult: 1.0, affixes: 0 },
-  uncommon: { id: 'uncommon', name: 'Uncommon',          color: '#4ade80', mult: 1.4, affixes: 1 },
-  rare:     { id: 'rare',     name: 'Rare',              color: '#60a5fa', mult: 2.0, affixes: 2 },
-  epic:     { id: 'epic',     name: 'Epic',              color: '#c084fc', mult: 3.2, affixes: 3 },
-  relic:    { id: 'relic',    name: 'Star-Forged Relic', color: '#fbbf24', mult: 5.5, affixes: 4 }
-};
 
   // --- Module: src/data/bounties.js ---
 // Procedural Guild Notice Board Contract Templates & Generator
@@ -8922,6 +9579,7 @@ function resolveHazardStepEffects(actor, x, y, floor) {
 
 
 
+
 let itemSeq = 1000;
 
 function nextItemUid(prefix = 'gear') {
@@ -8929,22 +9587,7 @@ function nextItemUid(prefix = 'gear') {
 }
 
 function normalizeEquipmentSockets(item) {
-  if (!item) return null;
-  item.locked = Boolean(item.locked);
-  if (item.slot === 'pickaxe') {
-    item.maxSockets = 0;
-    item.sockets = [];
-    return item;
-  }
-  if (typeof item.maxSockets !== 'number') {
-    if (item.rarity === 'relic') item.maxSockets = 2;
-    else if (item.rarity === 'epic' || item.rarity === 'rare') item.maxSockets = 1;
-    else item.maxSockets = 0;
-  }
-  if (!Array.isArray(item.sockets)) {
-    item.sockets = [];
-  }
-  return item;
+  return normalizeEquipmentItem(item);
 }
 
 function createDefaultCodexState() {
@@ -9598,6 +10241,7 @@ function hydrateDungeonWorldSnapshot(snapshot, targetState = gameState) {
 
 
 
+
 function createTitleScreenState() {
   return {
     schemaVersion: WARGAME_SCHEMA_VERSION,
@@ -9959,6 +10603,17 @@ function normalizePersistentHeroInstance(hero) {
 
   hero.bonusStats = normalizeHeroBonusStats(hero.bonusStats);
   hero.knowledge = normalizeHeroKnowledge(hero.knowledge);
+  if (hero.equipment && typeof hero.equipment === 'object') {
+    const eqKeys = ['weapon', 'armor', 'helm', 'boots', 'accessory', 'pickaxe'];
+    for (let ei = 0; ei < eqKeys.length; ei++) {
+      if (hero.equipment[eqKeys[ei]]) normalizeEquipmentItem(hero.equipment[eqKeys[ei]]);
+    }
+  }
+  if (Array.isArray(hero.bagGear)) {
+    for (let bi = 0; bi < hero.bagGear.length; bi++) {
+      if (hero.bagGear[bi]) normalizeEquipmentItem(hero.bagGear[bi]);
+    }
+  }
 
   if (typeof hero.statPoints !== 'number' || !isFinite(hero.statPoints) || hero.statPoints < 0) {
     hero.statPoints = 0;
@@ -10691,6 +11346,10 @@ function loadWargameState(scheduler = null, options = null) {
         if (!c.maxTroopQueueSlots) c.maxTroopQueueSlots = BASE_TROOP_QUEUE_LIMIT || 3;
         if (!c.storage || !Array.isArray(c.storage.items)) {
           c.storage = createInventoryContainer('city_storage_' + cid, (c.name || 'City') + ' Vault Storage', CITY_STORAGE_BASE_CAPACITY || 200);
+        } else {
+          for (let si = 0; si < c.storage.items.length; si++) {
+            if (c.storage.items[si]) normalizeEquipmentItem(c.storage.items[si]);
+          }
         }
         if (typeof c.selectedPlotIndex !== 'number') c.selectedPlotIndex = (CITY_CENTER_PLOT_INDEX !== undefined ? CITY_CENTER_PLOT_INDEX : 27);
 
@@ -13796,8 +14455,8 @@ function resolveRecruitHeroJob(job, state, scheduler, eventStream) {
       const curD = copy.curDur !== undefined ? copy.curDur : (copy.durability !== undefined ? copy.durability : maxD);
       copy.curDur = curD;
       copy.maxDur = maxD;
-      copy.durability = curD;
-      copy.maxDurability = maxD;
+      if (copy.durability !== undefined) delete copy.durability;
+      if (copy.maxDurability !== undefined) delete copy.maxDurability;
       if (!copy.tier) copy.tier = 1;
     }
     return copy;
@@ -15120,6 +15779,8 @@ function consumeBridgeHandoff(expectedDirection) {
   // --- Module: src/wargame/engine/commandBus.js ---
 // Authoritative Command Bus & Simulation Host Engine
 // All player actions are dispatched as serializable Command Envelopes, validated, and applied to the World state.
+
+
 
 
 
@@ -16736,7 +17397,7 @@ function dispatchWargameCommand(commandEnvelope, state, scheduler, eventStream) 
 
     const itemIdx = hero.bagGear.findIndex(function(it) { return it.uid === payload.itemUid; });
     if (itemIdx === -1) return reject('Item not found in hero pack');
-    const item = hero.bagGear.splice(itemIdx, 1)[0];
+    const item = normalizeEquipmentItem(hero.bagGear.splice(itemIdx, 1)[0]);
     const slot = item.slot;
     if (!slot || !(slot in hero.equipment)) {
       hero.bagGear.push(item);
@@ -16775,7 +17436,8 @@ function dispatchWargameCommand(commandEnvelope, state, scheduler, eventStream) 
 
     function scoreGear(it) {
       if (!it) return -1;
-      return (it.atk || 0) * 3 + (it.def || 0) * 2.5 + (it.hp || 0) * 0.4 + (it.mp || 0) * 0.3 + (it.tier || 0) * 15;
+      normalizeEquipmentItem(it);
+      return computeClassItemPreferenceScore(it, hero.classId);
     }
 
     const slots = ['weapon', 'armor', 'helm', 'boots', 'accessory', 'pickaxe'];
@@ -17054,45 +17716,32 @@ function dispatchWargameCommand(commandEnvelope, state, scheduler, eventStream) 
     }
 
     const slot = payload.slot || 'weapon';
-    const validSlots = ['weapon', 'armor', 'helm', 'boots', 'accessory', 'pickaxe'];
-    if (validSlots.indexOf(slot) === -1) return reject('Invalid equipment slot: ' + slot);
+    if (BLACKSMITH_FORGE_SLOTS.indexOf(slot) === -1) return reject('Invalid equipment slot: ' + slot);
 
-    const ingotCost = 3 + bsLvl;
-    const goldCost = 20 + bsLvl * 10;
-    if ((city.stockpile.ingots || 0) < ingotCost || (city.stockpile.gold || 0) < goldCost) {
-      return reject('Need ' + ingotCost + ' Forged Ingots and ' + goldCost + ' Gold to forge ' + slot);
+    const recipe = getBlacksmithForgeRecipePreview(slot, bsLvl);
+    if ((city.stockpile.ingots || 0) < recipe.ingotCost || (city.stockpile.gold || 0) < recipe.goldCost) {
+      return reject('Need ' + recipe.ingotCost + ' Forged Ingots and ' + recipe.goldCost + ' Gold to forge ' + recipe.name);
     }
-    city.stockpile.ingots -= ingotCost;
-    city.stockpile.gold -= goldCost;
+    city.stockpile.ingots -= recipe.ingotCost;
+    city.stockpile.gold -= recipe.goldCost;
 
-    const rarity = bsLvl >= 3 ? 'epic' : (bsLvl >= 2 ? 'rare' : 'uncommon');
-    const socketCount = bsLvl >= 3 ? 2 : (bsLvl >= 2 ? 1 : 0);
-    const tierName = bsLvl >= 3 ? 'Star-Forged' : (bsLvl >= 2 ? 'Tempered' : 'Forged');
-    const slotNames = {
-      weapon: 'Greatsword',
-      armor: 'Plate Cuirass',
-      helm: 'Greathelm',
-      boots: 'War Greaves',
-      accessory: 'Runic Signet',
-      pickaxe: 'Mithril Pickaxe'
-    };
-
-    const forged = {
+    const forged = normalizeEquipmentItem({
       uid: 'forge_' + slot + '_' + Date.now() + '_' + Math.floor(Math.random() * 10000),
-      slot: slot,
-      name: tierName + ' ' + slotNames[slot],
-      rarity: rarity,
-      atk: slot === 'weapon' ? (10 + bsLvl * 4) : (slot === 'accessory' ? (3 + bsLvl * 2) : 0),
-      def: (slot === 'armor' || slot === 'helm' || slot === 'boots') ? (5 + bsLvl * 3) : (slot === 'accessory' ? (2 + bsLvl) : 0),
-      hp: slot === 'armor' ? (10 + bsLvl * 6) : 0,
-      tier: slot === 'pickaxe' ? Math.min(4, 1 + bsLvl) : undefined,
-      maxDurability: slot === 'pickaxe' ? (30 + bsLvl * 10) : undefined,
-      durability: slot === 'pickaxe' ? (30 + bsLvl * 10) : undefined,
-      sockets: socketCount,
-      gems: [],
+      slot: recipe.slot,
+      name: recipe.name,
+      rarity: recipe.rarity,
+      atk: recipe.atk,
+      def: recipe.def,
+      maxHp: recipe.maxHp,
+      tier: recipe.tier,
+      maxDur: recipe.maxDur,
+      curDur: recipe.curDur,
+      maxSockets: recipe.maxSockets,
+      sockets: [],
+      affixes: [],
       temperRank: 0,
-      value: 45 + bsLvl * 30
-    };
+      value: recipe.value
+    });
 
     city.storage.items.push(forged);
     if (eventStream) {
@@ -17103,33 +17752,69 @@ function dispatchWargameCommand(commandEnvelope, state, scheduler, eventStream) 
         qty: 1
       }, simTimeMs);
     }
-    return accept({ item: forged, storageCount: city.storage.items.length });
+    return accept({ item: forged, recipe: recipe, storageCount: city.storage.items.length });
   }
 
   if (cmdType === COMMAND_TYPES.TEMPER_EQUIPMENT) {
     const city = getPrimaryCity(state);
-    if (!city || !city.storage || !Array.isArray(city.storage.items)) return reject('City Vault Storage unavailable');
+    if (!city) return reject('No City founded');
     const bsLvl = (city.buildings && city.buildings.blacksmith) || 0;
     if (bsLvl < 1) return reject('Requires Blacksmith & Star-Forge');
 
-    const item = city.storage.items.find(function(it) { return it.uid === payload.itemUid; });
-    if (!item) return reject('Item not found in City Vault Storage');
-    const curRank = item.temperRank || 0;
-    if (curRank >= 3) return reject(item.name + ' is already at maximum Temper Rank (+3)');
+    const source = payload.source || 'vault';
+    const itemUid = payload.itemUid;
+    let item = null;
+    let targetHero = null;
 
-    if ((city.stockpile.ingots || 0) < 2 || (city.stockpile.gold || 0) < 20) {
-      return reject('Need 2 Forged Ingots and 20 Gold to temper equipment');
-    }
-    city.stockpile.ingots -= 2;
-    city.stockpile.gold -= 20;
-
-    item.temperRank = curRank + 1;
-    if (item.slot === 'weapon' || item.slot === 'accessory') {
-      item.atk = (item.atk || 0) + 2;
+    if (source === 'vault') {
+      if (!city.storage || !Array.isArray(city.storage.items)) return reject('City Vault Storage unavailable');
+      item = city.storage.items.find(function(it) { return it && it.uid === itemUid; }) || null;
+      if (!item) return reject('Item not found in City Vault Storage');
+    } else if (source === 'carried' || source === 'equipped') {
+      targetHero = (world.heroes || []).find(function(h) { return h && h.id === payload.heroId; }) || null;
+      if (!targetHero) return reject('Hero not found');
+      if (!isHeroPresentAtCity(world, city, targetHero)) {
+        return reject(targetHero.name + ' must be at ' + city.name + ' to temper gear');
+      }
+      if (source === 'carried') {
+        const bag = Array.isArray(targetHero.bagGear) ? targetHero.bagGear : [];
+        item = bag.find(function(it) { return it && it.uid === itemUid; }) || null;
+        if (!item) return reject('Item not found in ' + targetHero.name + '\'s carried pack');
+      } else {
+        const eq = targetHero.equipment || {};
+        const eqSlots = ['weapon', 'armor', 'helm', 'boots', 'accessory', 'pickaxe'];
+        for (let si = 0; si < eqSlots.length; si++) {
+          const cand = eq[eqSlots[si]];
+          if (cand && cand.uid === itemUid) {
+            item = cand;
+            break;
+          }
+        }
+        if (!item) return reject('Item not found in ' + targetHero.name + '\'s equipped loadout');
+      }
     } else {
-      item.def = (item.def || 0) + 2;
+      return reject('Invalid temper source: ' + source);
     }
-    item.value = (item.value || 30) + 25;
+
+    normalizeEquipmentItem(item);
+    const preview = getBlacksmithTemperPreview(item);
+    if (!preview.eligible) {
+      return reject(preview.reason || 'Item cannot be tempered');
+    }
+
+    if ((city.stockpile.ingots || 0) < preview.ingotCost || (city.stockpile.gold || 0) < preview.goldCost) {
+      return reject('Need ' + preview.ingotCost + ' Forged Ingots and ' + preview.goldCost + ' Gold to temper equipment');
+    }
+    city.stockpile.ingots -= preview.ingotCost;
+    city.stockpile.gold -= preview.goldCost;
+
+    item.temperRank = preview.nextRank;
+    item[preview.statKey] = preview.nextStat;
+    item.value = (item.value || 30) + preview.valueDelta;
+
+    if (source === 'equipped' && targetHero) {
+      refreshHeroDerivedStats(targetHero);
+    }
 
     if (eventStream) {
       eventStream.publish(STREAM_TOPICS.CRAFTING_COMPLETED, {
@@ -17139,7 +17824,16 @@ function dispatchWargameCommand(commandEnvelope, state, scheduler, eventStream) 
         qty: 1
       }, simTimeMs);
     }
-    return accept({ item: item, temperRank: item.temperRank });
+    return accept({
+      item: item,
+      source: source,
+      heroId: targetHero ? targetHero.id : null,
+      temperRank: item.temperRank,
+      statKey: preview.statKey,
+      statLabel: preview.statLabel,
+      prevStat: preview.currentStat,
+      nextStat: preview.nextStat
+    });
   }
 
   if (cmdType === COMMAND_TYPES.PUNCH_SOCKET) {
@@ -17150,8 +17844,10 @@ function dispatchWargameCommand(commandEnvelope, state, scheduler, eventStream) 
 
     const item = city.storage.items.find(function(it) { return it.uid === payload.itemUid; });
     if (!item) return reject('Item not found in City Vault Storage');
-    const curSockets = item.sockets || 0;
-    if (curSockets >= 2) return reject(item.name + ' already has the maximum 2 Gem Sockets');
+    normalizeEquipmentItem(item);
+    if (item.slot === 'pickaxe') return reject('Pickaxes cannot hold Gem Sockets');
+    const curMaxSockets = item.maxSockets || 0;
+    if (curMaxSockets >= 2) return reject(item.name + ' already has the maximum 2 Gem Sockets');
 
     if ((city.stockpile.ingots || 0) < 2 || (city.stockpile.gold || 0) < 35) {
       return reject('Need 2 Forged Ingots and 35 Gold to punch a Gem Socket');
@@ -17159,8 +17855,8 @@ function dispatchWargameCommand(commandEnvelope, state, scheduler, eventStream) 
     city.stockpile.ingots -= 2;
     city.stockpile.gold -= 35;
 
-    item.sockets = curSockets + 1;
-    if (!Array.isArray(item.gems)) item.gems = [];
+    item.maxSockets = curMaxSockets + 1;
+    if (!Array.isArray(item.sockets)) item.sockets = [];
     if (eventStream) {
       eventStream.publish(STREAM_TOPICS.CRAFTING_COMPLETED, {
         cityId: city.id,
@@ -17169,7 +17865,7 @@ function dispatchWargameCommand(commandEnvelope, state, scheduler, eventStream) 
         qty: 1
       }, simTimeMs);
     }
-    return accept({ item: item, sockets: item.sockets });
+    return accept({ item: item, maxSockets: item.maxSockets });
   }
 
   if (cmdType === COMMAND_TYPES.SOCKET_CITY_GEM) {
@@ -17181,27 +17877,17 @@ function dispatchWargameCommand(commandEnvelope, state, scheduler, eventStream) 
 
     const item = city.storage.items.find(function(it) { return it.uid === payload.itemUid; });
     if (!item) return reject('Item not found in City Vault Storage');
-    if (!Array.isArray(item.gems)) item.gems = [];
-    if (item.gems.length >= (item.sockets || 0)) return reject('No open Gem Sockets on ' + item.name);
+    normalizeEquipmentItem(item);
+    if (item.slot === 'pickaxe') return reject('Pickaxes cannot hold Astral Gems');
+    if (item.sockets.length >= (item.maxSockets || 0)) return reject('No open Gem Sockets on ' + item.name);
 
     const gemId = payload.gemId || 'ruby';
-    const gemBonuses = {
-      ruby:         { name: 'Ruby of Might',     atk: 4, def: 0, hp: 0,  mp: 0 },
-      emerald:      { name: 'Emerald of Wind',   atk: 1, def: 3, hp: 0,  mp: 0 },
-      sapphire:     { name: 'Sapphire of Will',  atk: 2, def: 0, hp: 0,  mp: 15 },
-      topaz:        { name: 'Topaz of Dawn',     atk: 0, def: 2, hp: 20, mp: 0 },
-      void_diamond: { name: 'Void Diamond',      atk: 6, def: 4, hp: 10, mp: 10 }
-    };
-    const gDef = gemBonuses[gemId];
+    const gDef = GEM_CATALOG[gemId];
     if (!gDef) return reject('Unknown gem type: ' + gemId);
     if ((city.gems[gemId] || 0) < 1) return reject('No ' + gDef.name + ' available in City Gems');
 
     city.gems[gemId] -= 1;
-    item.gems.push(gemId);
-    item.atk = (item.atk || 0) + gDef.atk;
-    item.def = (item.def || 0) + gDef.def;
-    item.hp  = (item.hp  || 0) + gDef.hp;
-    item.mp  = (item.mp  || 0) + gDef.mp;
+    item.sockets.push(gemId);
 
     if (eventStream) {
       eventStream.publish(STREAM_TOPICS.CRAFTING_COMPLETED, {
@@ -17222,25 +17908,13 @@ function dispatchWargameCommand(commandEnvelope, state, scheduler, eventStream) 
     if (!city.gems) city.gems = { ruby: 0, emerald: 0, sapphire: 0, topaz: 0, void_diamond: 0 };
 
     const item = city.storage.items.find(function(it) { return it.uid === payload.itemUid; });
-    if (!item || !Array.isArray(item.gems) || item.gems.length === 0) return reject('No socketed gems to extract');
+    if (!item) return reject('Item not found in City Vault Storage');
+    normalizeEquipmentItem(item);
+    if (!Array.isArray(item.sockets) || item.sockets.length === 0) return reject('No socketed gems to extract');
     if ((city.stockpile.gold || 0) < 20) return reject('Need 20 Gold to safely extract a gem');
 
     city.stockpile.gold -= 20;
-    const removedGemId = item.gems.pop();
-    const gemBonuses = {
-      ruby:         { atk: 4, def: 0, hp: 0,  mp: 0 },
-      emerald:      { atk: 1, def: 3, hp: 0,  mp: 0 },
-      sapphire:     { atk: 2, def: 0, hp: 0,  mp: 15 },
-      topaz:        { atk: 0, def: 2, hp: 20, mp: 0 },
-      void_diamond: { atk: 6, def: 4, hp: 10, mp: 10 }
-    };
-    const gDef = gemBonuses[removedGemId];
-    if (gDef) {
-      item.atk = Math.max(0, (item.atk || 0) - gDef.atk);
-      item.def = Math.max(0, (item.def || 0) - gDef.def);
-      item.hp  = Math.max(0, (item.hp  || 0) - gDef.hp);
-      item.mp  = Math.max(0, (item.mp  || 0) - gDef.mp);
-    }
+    const removedGemId = item.sockets.pop();
     city.gems[removedGemId] = (city.gems[removedGemId] || 0) + 1;
 
     return accept({ item: item, extractedGemId: removedGemId, cityGemCount: city.gems[removedGemId] });
@@ -17343,7 +18017,7 @@ function dispatchWargameCommand(commandEnvelope, state, scheduler, eventStream) 
     const pid = getCanonicalPlayerId(state);
     const baseVal = MARKET_RARITY_BASE_VALUES[item.rarity || 'common'] || 25;
     const temperBonus = (item.temperRank || 0) * 20;
-    const gemBonus = Array.isArray(item.gems) ? item.gems.length * 30 : 0;
+    const gemBonus = Array.isArray(item.sockets) ? item.sockets.length * 30 : (Array.isArray(item.gems) ? item.gems.length * 30 : 0);
 
     // Consume Track F BenefitService relic_gold_mult (e.g. ADV_TREASURE_001) + Market level bonus
     const activeEffs = collectActiveEffects(prog, { playerId: pid });
@@ -22165,112 +22839,6 @@ function handleDevSpawnCombatSiteAction(simHost, explicitOptions) {
   return res;
 }
 
-  // --- Module: src/data/items.js ---
-// Equipment Affix Pools, Quartermaster Shop Catalog, and Elite Monster Affixes
-
-
-const AFFIX_POOL = [
-  { id: 'atk',   label: 'of Ferocity',    stat: 'atk',   min: 2,  max: 6,  slots: ['weapon', 'accessory'] },
-  { id: 'def',   label: 'of the Bulwark', stat: 'def',   min: 2,  max: 6,  slots: ['armor', 'helm', 'boots'] },
-  { id: 'str',   label: 'of Might',       stat: 'str',   min: 1,  max: 4,  slots: ['weapon', 'armor', 'helm'] },
-  { id: 'dex',   label: 'of Precision',   stat: 'dex',   min: 1,  max: 4,  slots: ['weapon', 'boots', 'accessory'] },
-  { id: 'int',   label: 'of Astral Lore', stat: 'int',   min: 1,  max: 4,  slots: ['weapon', 'helm', 'accessory'] },
-  { id: 'vit',   label: 'of Fortitude',   stat: 'vit',   min: 1,  max: 4,  slots: ['armor', 'helm', 'boots'] },
-  { id: 'crit',  label: 'of Keen Sight',  stat: 'crit',  min: 3,  max: 9,  slots: ['weapon', 'accessory', 'helm'] },
-  { id: 'dodge', label: 'of the Zephyr',  stat: 'dodge', min: 3,  max: 8,  slots: ['boots', 'armor', 'accessory'] },
-  { id: 'maxHp', label: 'of Lifeblood',   stat: 'maxHp', min: 12, max: 35, slots: ['armor', 'helm', 'accessory'] },
-  { id: 'maxMp', label: 'of the Leyline', stat: 'maxMp', min: 10, max: 28, slots: ['helm', 'accessory', 'weapon'] },
-  { id: 'thorns', label: 'of Retaliation', stat: 'thorns', min: 3, max: 8, slots: ['armor', 'helm', 'boots'] },
-  { id: 'leech', label: 'of the Blood Drinker', stat: 'leech', min: 2, max: 6, slots: ['weapon', 'accessory'] },
-  { id: 'ward', label: 'of Astral Warding', stat: 'ward', min: 2, max: 5, slots: ['armor', 'helm', 'accessory'] }
-];
-
-const BASE_GEAR_NAMES = {
-  weapon:    ['Star-Shard Blade', 'Runed Broadsword', 'Astral Longbow', 'Vespera Halberd', 'Obsidian Cleaver'],
-  armor:     ['Astral Hauberk', 'Deepwood Brigandine', 'Star-Forged Plate', 'Shadowalker Coat', 'Runed Cuirass'],
-  helm:      ['Visor of the Deep', 'Starweaver Hood', 'Ironbound Sallet', 'Astral Crown', 'Stalker Mask'],
-  boots:     ['Greaves of Striding', 'Silent Sabatons', 'Starlight Treads', 'Dwarven Marchers', 'Windrunner Boots'],
-  accessory: ['Vespera Signet', 'Astral Lens Charm', 'Pendant of Dawn', 'Bloodstone Ring', 'Star-Core Amulet']
-};
-
-const SHOP_ITEMS = [
-  { id: 'buy_heal',   name: 'Healing Tonic',             type: 'consumable', cost: 18,  reqQM: 0, desc: 'Restores 45% Max HP & cures Bleed/Poison.' },
-  { id: 'buy_recall', name: 'Astral Recall Scroll',      type: 'consumable', cost: 30,  reqQM: 0, desc: 'Safely extracts you & your pack from any floor.' },
-  { id: 'buy_pick_1', name: 'Dwarven Steel Pickaxe',     type: 'gear', slot: 'pickaxe',   rarity: 'uncommon', maxDur: 50,  cost: 65,  reqQM: 0, desc: '50 Base Durability.' },
-  { id: 'buy_wep_1',  name: 'Vespera Runeblade',         type: 'gear', slot: 'weapon',    rarity: 'rare',     atk: 14, crit: 6, cost: 115, reqQM: 1, desc: '+14 ATK, +6% Crit.' },
-  { id: 'buy_arm_1',  name: 'Carapace of the Deep',      type: 'gear', slot: 'armor',     rarity: 'rare',     def: 11, maxHp: 25, cost: 115, reqQM: 1, desc: '+11 DEF, +25 Max HP.' },
-  { id: 'buy_pick_2', name: 'Mithril Star-Pickaxe',      type: 'gear', slot: 'pickaxe',   rarity: 'rare',     maxDur: 85,  cost: 145, reqQM: 1, desc: '85 Base Durability.' },
-  { id: 'buy_acc_2',  name: 'Amulet of the Fallen Star', type: 'gear', slot: 'accessory', rarity: 'epic',     atk: 6, maxHp: 35, crit: 8, cost: 240, reqQM: 2, desc: '+6 ATK, +35 HP, +8% Crit.' },
-  { id: 'buy_pick_3', name: 'Titanium Master Pick',      type: 'gear', slot: 'pickaxe',   rarity: 'epic',     maxDur: 140, cost: 260, reqQM: 2, desc: '140 Base Durability.' },
-  { id: 'buy_wep_3',  name: 'Eclipse, Blade of Vespera', type: 'gear', slot: 'weapon',    rarity: 'relic',    atk: 28, str: 5, crit: 14, cost: 520, reqQM: 3, desc: '+28 ATK, +5 STR, +14% Crit.' },
-  { id: 'buy_pick_4', name: 'Void Astralite Drill',      type: 'gear', slot: 'pickaxe',   rarity: 'relic',    maxDur: 240, cost: 450, reqQM: 3, desc: '240 Base Durability.' }
-];
-
-const ELITE_AFFIXES = [
-  { id: 'vampiric',   name: 'Vampiric',      color: '#f87171', desc: 'Heals for 40% of damage dealt' },
-  { id: 'molten',     name: 'Molten',        color: '#fb923c', desc: 'Inflicts Burn on hit' },
-  { id: 'venomous',   name: 'Venomous',      color: '#4ade80', desc: 'Inflicts Poison on hit' },
-  { id: 'fortified',  name: 'Fortified',     color: '#60a5fa', desc: '+35% Defense & HP' },
-  { id: 'reflective', name: 'Reflective',    color: '#ec4899', desc: 'Reflects 25% thorns damage back to attacker' },
-  { id: 'chilling',   name: 'Chilling',      color: '#38bdf8', desc: 'Inflicts Chilled on hit (-15% Dodge, +2 Skill MP)' },
-  { id: 'temporal',   name: 'Temporal Warp', color: '#a855f7', desc: '40% chance on damage to phase-shift away' },
-  { id: 'volatile',   name: 'Volatile',      color: '#ef4444', desc: 'Detonates upon defeat for 150% ATK damage in 1-tile radius' }
-];
-
-function computeItemPowerScore(item) {
-  if (!item) return 0;
-  const atk = (item.atk || 0) * 2;
-  const def = (item.def || 0) * 2;
-  const hp = (item.maxHp || 0) * 0.25;
-  const mp = (item.maxMp || 0) * 0.25;
-  const crit = (item.crit || 0) * 1.5;
-  const dodge = (item.dodge || 0) * 1.5;
-  const stats = ((item.str || 0) + (item.dex || 0) + (item.int || 0) + (item.vit || 0)) * 1.2;
-  const affExtra = ((item.thorns || 0) * 1.5) + ((item.leech || 0) * 2) + ((item.ward || 0) * 2);
-  const sockets = ((item.maxSockets || 0) * 4) + (Array.isArray(item.sockets) ? item.sockets.length * 4 : 0);
-  const dur = (item.maxDur || 0) * 0.5;
-  return Math.round(atk + def + hp + mp + crit + dodge + stats + affExtra + sockets + dur);
-}
-
-function isItemUpgrade(candidateItem, equipment) {
-  if (!candidateItem || !candidateItem.slot) return false;
-  if (!equipment) return true;
-  const curEq = equipment[candidateItem.slot];
-  if (!curEq) return true;
-  return computeItemPowerScore(candidateItem) > computeItemPowerScore(curEq);
-}
-
-const SLOT_METADATA = {
-  helm:      { id: 'helm',      label: 'Head / Helm',         icon: '🪖', placeholder: 'Helm' },
-  armor:     { id: 'armor',     label: 'Chest / Body Armor',  icon: '🦺', placeholder: 'Armor' },
-  weapon:    { id: 'weapon',    label: 'Main Hand / Weapon',  icon: '⚔️', placeholder: 'Weapon' },
-  boots:     { id: 'boots',     label: 'Feet / Boots',        icon: '👢', placeholder: 'Boots' },
-  accessory: { id: 'accessory', label: 'Neck / Accessory',    icon: '💍', placeholder: 'Trinket' },
-  pickaxe:   { id: 'pickaxe',   label: 'Off-Hand / Pickaxe',  icon: '⛏️', placeholder: 'Pickaxe' },
-  shield:    { id: 'shield',    label: 'Off-Hand / Shield',   icon: '🛡️', placeholder: 'Shield' },
-  gloves:    { id: 'gloves',    label: 'Hands / Gauntlets',   icon: '🧤', placeholder: 'Gloves' },
-  amulet:    { id: 'amulet',    label: 'Necklace / Amulet',   icon: '📿', placeholder: 'Amulet' },
-  ring:      { id: 'ring',      label: 'Finger / Ring',       icon: '💍', placeholder: 'Ring' },
-  belt:      { id: 'belt',      label: 'Waist / Belt',        icon: '🎗️', placeholder: 'Belt' }
-};
-
-function getItemTypeIcon(itemOrSlot) {
-  if (!itemOrSlot) return '📦';
-  if (typeof itemOrSlot === 'string') {
-    const meta = SLOT_METADATA[itemOrSlot];
-    return meta ? meta.icon : '📦';
-  }
-  if (itemOrSlot.slot && SLOT_METADATA[itemOrSlot.slot]) {
-    return SLOT_METADATA[itemOrSlot.slot].icon;
-  }
-  const idStr = String(itemOrSlot.id || '');
-  if (idStr === 'healing_tonic' || idStr === 'buy_heal' || idStr === 'potions') return '🧪';
-  if (idStr === 'recall_scroll' || idStr === 'buy_recall' || idStr === 'recalls') return '📜';
-  if (itemOrSlot.type === 'Gem') return '◆';
-  if (itemOrSlot.type === 'Ore' || ['copper', 'iron', 'mithril', 'geode', 'starcrystal', 'astralite'].includes(idStr) || idStr.indexOf('ore') !== -1) return '🪨';
-  return '📦';
-}
-
   // --- Module: src/ui/shared/characterSheet.js ---
 // Shared Cross-Engine Character Sheet, Anatomical Paper-Doll & Prestige Cosmetic Showcase
 // Used natively by BOTH the Turn-Based Dungeon Engine (index.html) and Macro Wargame (wargame.html).
@@ -22330,13 +22898,14 @@ function normalizeSharedHeroProfile(hero) {
   const spi = formatAttributeDisplay(h.computedSpi !== undefined ? h.computedSpi : (derived ? derived.attributes.spi : (st.spi || (cls.baseStats && cls.baseStats.spi) || 10)));
 
   const eq = h.equipment || {};
-  const baseMaxHp = h.maxHp !== undefined ? h.maxHp : (derived ? derived.maxHp : (st.hp || 140));
-  const baseMaxMp = h.maxMp !== undefined ? h.maxMp : (derived ? derived.maxMp : (st.mp || 60));
-  const atk = h.atk !== undefined ? h.atk : (derived ? derived.atk : (st.atk || 22));
-  const magicPower = h.magicPower !== undefined ? h.magicPower : (derived ? derived.magicPower : (st.magicPower || 12));
-  const def = h.def !== undefined ? h.def : (derived ? derived.def : (st.def || 10));
-  const crit = h.crit !== undefined ? h.crit : (derived ? derived.crit : Math.min(60, 8 + Math.floor(dex * 0.6)));
-  const dodge = h.dodge !== undefined ? h.dodge : (derived ? derived.dodge : Math.min(45, 5 + Math.floor(dex * 0.5)));
+  const hasCurrentVitals = typeof h.hp === 'number' && isFinite(h.hp);
+  const baseMaxHp = derived ? derived.maxHp : (h.maxHp !== undefined ? h.maxHp : (st.maxHp || st.hp || 140));
+  const baseMaxMp = derived ? derived.maxMp : (h.maxMp !== undefined ? h.maxMp : (st.maxMp || st.mp || 60));
+  const atk = derived ? derived.atk : (h.atk !== undefined ? h.atk : (st.atk || 22));
+  const magicPower = derived ? derived.magicPower : (h.magicPower !== undefined ? h.magicPower : (st.magicPower || 12));
+  const def = derived ? derived.def : (h.def !== undefined ? h.def : (st.def || 10));
+  const crit = derived ? derived.crit : (h.crit !== undefined ? h.crit : Math.min(60, 8 + Math.floor(dex * 0.6)));
+  const dodge = derived ? derived.dodge : (h.dodge !== undefined ? h.dodge : Math.min(45, 5 + Math.floor(dex * 0.5)));
 
   return {
     id: h.id || 'hero_active',
@@ -22347,9 +22916,10 @@ function normalizeSharedHeroProfile(hero) {
     color: h.color || cls.color || '#fbbf24',
     level: h.level || 1,
     xp: h.xp || 0,
-    hp: h.hp !== undefined ? h.hp : baseMaxHp,
+    hasCurrentVitals: hasCurrentVitals,
+    hp: hasCurrentVitals ? h.hp : null,
     maxHp: baseMaxHp,
-    mp: h.mp !== undefined ? h.mp : baseMaxMp,
+    mp: (typeof h.mp === 'number' && isFinite(h.mp)) ? h.mp : null,
     maxMp: baseMaxMp,
     stats: {
       str: str,
@@ -22657,15 +23227,25 @@ function buildSharedPaperDollGridHtml(hero, options = {}) {
 
 function buildSharedHeroStatsHtml(profile) {
   const s = profile.stats;
+  const hpCell = profile.hasCurrentVitals
+    ? { label: 'HP', val: profile.hp + '/' + profile.maxHp, color: '#34d399' }
+    : { label: 'MAX HP', val: profile.maxHp, color: '#34d399' };
+  const mpCell = (profile.hasCurrentVitals && typeof profile.mp === 'number')
+    ? { label: 'MP', val: profile.mp + '/' + profile.maxMp, color: '#60a5fa' }
+    : { label: 'MAX MP', val: profile.maxMp, color: '#60a5fa' };
   const cells = [
+    hpCell,
+    mpCell,
+    { label: 'ATK', val: s.atk, color: '#fb923c' },
+    { label: 'MAG', val: s.magicPower || 0, color: '#c084fc' },
+    { label: 'DEF', val: s.def, color: '#38bdf8' },
+    { label: 'CRIT', val: s.crit + '%', color: '#facc15' },
+    { label: 'DODGE', val: s.dodge + '%', color: '#a78bfa' },
+    { label: 'SPI', val: s.spi || 0, color: '#fef08a' },
     { label: 'STR', val: s.str, color: '#f87171' },
     { label: 'DEX', val: s.dex, color: '#34d399' },
     { label: 'INT', val: s.int, color: '#60a5fa' },
-    { label: 'VIT', val: s.vit, color: '#fbbf24' },
-    { label: 'ATK', val: s.atk, color: '#fb923c' },
-    { label: 'DEF', val: s.def, color: '#38bdf8' },
-    { label: 'CRIT', val: s.crit + '%', color: '#facc15' },
-    { label: 'DODGE', val: s.dodge + '%', color: '#a78bfa' }
+    { label: 'VIT', val: s.vit, color: '#fbbf24' }
   ];
   return cells.map(function(c) {
     return `
@@ -23660,7 +24240,11 @@ function renderWargameCharacterSheetModal(simHost) {
   const nameEl = document.getElementById('wgSheetHeroName');
   const titleEl = document.getElementById('wgSheetHeroTitle');
   if (nameEl) nameEl.textContent = profile.name + ' — ' + profile.className;
-  if (titleEl) titleEl.textContent = 'Level ' + profile.level + ' ' + profile.title + ' • HP ' + profile.hp + '/' + profile.maxHp + ' • MP ' + profile.mp + '/' + profile.maxMp;
+  if (titleEl) {
+    titleEl.textContent = profile.hasCurrentVitals
+      ? ('Level ' + profile.level + ' ' + profile.title + ' • HP ' + profile.hp + '/' + profile.maxHp + ' • MP ' + profile.mp + '/' + profile.maxMp)
+      : ('Level ' + profile.level + ' ' + profile.title + ' • Max HP ' + profile.maxHp + ' • Max MP ' + profile.maxMp);
+  }
 
   const canvas = document.getElementById('wgSheetPaperDollCanvas');
   if (canvas) {
@@ -23682,6 +24266,31 @@ function renderWargameCharacterSheetModal(simHost) {
     setHtmlIfChanged(cosEl, buildSharedCosmeticsPreviewHtml(profile));
   }
 
+  const wgFormatItemStatSummary = function(it) {
+    if (!it) return 'Equipment';
+    const maxHpVal = typeof it.maxHp === 'number' ? it.maxHp : (it.hp || 0);
+    const maxMpVal = typeof it.maxMp === 'number' ? it.maxMp : (it.mp || 0);
+    const usedS = Array.isArray(it.sockets) ? it.sockets.length : 0;
+    const maxS = typeof it.maxSockets === 'number' ? it.maxSockets : 0;
+    const parts = [
+      it.atk ? ('+' + it.atk + ' ATK') : '',
+      it.magicPower ? ('+' + it.magicPower + ' MAG') : '',
+      it.def ? ('+' + it.def + ' DEF') : '',
+      maxHpVal ? ('+' + maxHpVal + ' HP') : '',
+      maxMpVal ? ('+' + maxMpVal + ' MP') : '',
+      it.crit ? ('+' + it.crit + '% CRIT') : '',
+      it.dodge ? ('+' + it.dodge + '% DODGE') : '',
+      it.ward ? ('+' + it.ward + ' WARD') : '',
+      it.spi ? ('+' + it.spi + ' SPI') : '',
+      it.int ? ('+' + it.int + ' INT') : '',
+      it.str ? ('+' + it.str + ' STR') : '',
+      it.dex ? ('+' + it.dex + ' DEX') : '',
+      it.vit ? ('+' + it.vit + ' VIT') : '',
+      maxS > 0 ? ('[' + usedS + '/' + maxS + ' Gem' + (usedS > 0 ? (': ' + it.sockets.join(',')) : '') + ']') : ''
+    ].filter(Boolean);
+    return parts.join(' • ') || 'Equipment';
+  };
+
   const bagEl = document.getElementById('wgSheetBagList');
   if (bagEl) {
     const bag = profile.bagGear || [];
@@ -23691,11 +24300,7 @@ function renderWargameCharacterSheetModal(simHost) {
       const bagHtml = bag.map(function(it) {
         const rInfo = RARITY[it.rarity] || RARITY.common;
         const icon = getItemTypeIcon(it.slot);
-        const statTxt = [
-          it.atk ? ('+' + it.atk + ' ATK') : '',
-          it.def ? ('+' + it.def + ' DEF') : '',
-          it.hp  ? ('+' + it.hp  + ' HP')  : ''
-        ].filter(Boolean).join(' • ') || 'Equipment';
+        const statTxt = wgFormatItemStatSummary(it);
         return `
           <div class="p-2 rounded bg-[#111722] border border-[#283347] flex items-center justify-between gap-2 text-xs">
             <div class="min-w-0">
@@ -23736,7 +24341,7 @@ function renderWargameCharacterSheetModal(simHost) {
             <div class="p-1.5 rounded bg-[#111722] border border-[#283347] flex items-center justify-between gap-2 text-xs">
               <div class="min-w-0">
                 <div class="font-bold truncate" style="color:${rInfo.color}">${icon} ${it.name}</div>
-                <div class="text-[10px] font-mono text-[#8b949e]">${(it.slot || 'item').toUpperCase()} • ${rInfo.label}</div>
+                <div class="text-[10px] font-mono text-[#8b949e]">${(it.slot || 'item').toUpperCase()} • ${rInfo.label} • ${wgFormatItemStatSummary(it)}</div>
               </div>
               <button onclick="window.WargameApp.handleWithdrawFromCityStorage('${rawHero.id}', '${it.uid}')" class="px-2 py-0.5 rounded bg-[#1a2232] hover:bg-[#283347] text-[#38bdf8] border border-[#38bdf8]/40 font-bold text-[10px] uppercase cursor-pointer">Take</button>
             </div>
@@ -24110,30 +24715,142 @@ function buildUnifiedBuildingStageHtml(simHost, bId, city) {
   }
 
   if (fac.blacksmithing) {
-    const ingCost = 3 + lvl;
-    const gCost = 20 + lvl * 10;
-    const tierLbl = lvl >= 3 ? 'Epic (2 Sockets)' : (lvl >= 2 ? 'Rare (1 Socket)' : 'Uncommon');
-    const slots = ['weapon', 'armor', 'helm', 'boots', 'accessory', 'pickaxe'];
-    const forgeBtns = slots.map(function(sl) {
-      return `<button onclick="window.WargameApp.handleForgeEquipment('${sl}')" class="p-2 rounded bg-[#111722] hover:bg-[#1a2232] border border-[#fb923c]/40 text-left text-xs cursor-pointer"><div class="font-bold text-[#fb923c]">${getItemTypeIcon(sl)} Forge ${sl.toUpperCase()}</div><div class="text-[10px] font-mono text-[#8b949e]">${ingCost} Ingots • ${gCost}g</div></button>`;
+    const curIngots = city.stockpile.ingots || 0;
+    const curGold = city.stockpile.gold || 0;
+    const selectedSlot = (simHost.state && simHost.state._selectedForgeSlot && BLACKSMITH_FORGE_SLOTS.indexOf(simHost.state._selectedForgeSlot) !== -1)
+      ? simHost.state._selectedForgeSlot
+      : 'weapon';
+    const selRecipe = getBlacksmithForgeRecipePreview(selectedSlot, lvl);
+    const selRarity = RARITY[selRecipe.rarity] || RARITY.uncommon;
+    const canAffordForge = curIngots >= selRecipe.ingotCost && curGold >= selRecipe.goldCost;
+    const forgeMissingReason = !canAffordForge
+      ? ('Need ' + selRecipe.ingotCost + ' Ingots & ' + selRecipe.goldCost + 'g')
+      : '';
+
+    const slotTabsHtml = BLACKSMITH_FORGE_SLOTS.map(function(sl) {
+      const rec = getBlacksmithForgeRecipePreview(sl, lvl);
+      const isSel = sl === selectedSlot;
+      return `<button onclick="window.WargameApp.handleSelectForgeSlot('${sl}')" class="px-2.5 py-1.5 rounded text-left text-[11px] font-mono cursor-pointer border ${isSel ? 'bg-[#fb923c]/20 border-[#fb923c] text-[#fbbf24] font-bold' : 'bg-[#111722] hover:bg-[#1a2232] border-[#283347] text-[#cbd5e1]'}">${getItemTypeIcon(sl)} ${sl.toUpperCase()}<div class="text-[9px] text-[#94a3b8] truncate">${rec.name}</div></button>`;
     }).join('');
-    const stItems = (city.storage && Array.isArray(city.storage.items)) ? city.storage.items.slice(0, 6) : [];
-    const temperList = stItems.length === 0
-      ? `<div class="text-[11px] text-[#64748b] italic">Forge or deposit gear into City Vault Storage to temper it here.</div>`
-      : stItems.map(function(it) {
-          const rk = it.temperRank || 0;
-          return `<div class="p-1.5 rounded bg-[#111722] border border-[#283347] flex items-center justify-between text-xs"><span class="font-bold text-[#e6edf3]">${getItemTypeIcon(it.slot)} ${it.name}${rk > 0 ? (' +' + rk) : ''}</span><button onclick="window.WargameApp.handleTemperEquipment('${it.uid}')" ${rk >= 3 ? 'disabled' : ''} class="px-2 py-0.5 rounded text-[10px] font-mono font-bold ${rk >= 3 ? 'bg-[#1a2232] text-[#64748b]' : 'bg-[#fb923c] text-[#080b11] cursor-pointer'}">${rk >= 3 ? 'MAX' : 'Temper (2 Ingots, 20g)'}</button></div>`;
-        }).join('');
-    sections.push(`
-      <div class="p-3 rounded-lg bg-[#080b11] border border-[#fb923c]/40 space-y-2.5">
-        <div class="flex items-center justify-between text-xs font-mono">
-          <span class="text-[#fb923c] font-bold">🔨 Star-Forge Blueprints (${tierLbl})</span>
-          <span class="text-[#e6edf3]">Ingots: <strong class="text-[#fbbf24]">${city.stockpile.ingots || 0}</strong> • Gold: <strong class="text-[#fbbf24]">${city.stockpile.gold || 0}</strong></span>
+
+    const recipeStatParts = [];
+    if (selRecipe.atk) recipeStatParts.push('+' + selRecipe.atk + ' ATK');
+    if (selRecipe.def) recipeStatParts.push('+' + selRecipe.def + ' DEF');
+    if (selRecipe.maxHp) recipeStatParts.push('+' + selRecipe.maxHp + ' Max HP');
+    if (selRecipe.maxDur) recipeStatParts.push('Mining Tool • ' + selRecipe.maxDur + ' Durability (Tier ' + selRecipe.tier + ')');
+    if (selRecipe.slot !== 'pickaxe') {
+      recipeStatParts.push(selRecipe.maxSockets > 0 ? (selRecipe.maxSockets + ' Open Gem Socket' + (selRecipe.maxSockets > 1 ? 's' : '')) : '0 Gem Sockets (Lv 2+ adds sockets)');
+    }
+
+    const forgePreviewCard = `
+      <div class="p-2.5 rounded-lg bg-[#0d1424] border border-[#fb923c]/50 space-y-2">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <div class="text-xs font-bold" style="color:${selRarity.color}">${getItemTypeIcon(selRecipe.slot)} ${selRecipe.name} <span class="text-[10px] font-mono uppercase text-[#94a3b8]">(${selRarity.label} ${selRecipe.slot})</span></div>
+            <div class="text-[10px] font-mono text-[#34d399]">${recipeStatParts.join(' • ')}</div>
+          </div>
+          <span class="px-2 py-0.5 rounded bg-[#1a2232] border border-[#38bdf8]/40 text-[10px] font-mono text-[#38bdf8]">Deterministic • Lv ${lvl}</span>
         </div>
-        <div class="grid grid-cols-2 sm:grid-cols-3 gap-1.5">${forgeBtns}</div>
-        <div class="pt-2 border-t border-[#1e293b] space-y-1.5">
-          <div class="text-[10px] font-mono uppercase text-[#fb923c] font-bold">🔥 Tempering Anvil (City Vault Gear)</div>
-          ${temperList}
+        <div class="flex flex-wrap items-center justify-between gap-2 pt-1.5 border-t border-[#1e293b] text-[10px] font-mono">
+          <div class="text-[#94a3b8]">Cost: <strong class="${canAffordForge ? 'text-[#fbbf24]' : 'text-[#f87171]'}">${selRecipe.ingotCost} Ingots • ${selRecipe.goldCost}g</strong> • Delivers to: <strong class="text-[#e6edf3]">${selRecipe.destination}</strong></div>
+          <button onclick="window.WargameApp.handleForgeEquipment('${selRecipe.slot}')" ${!canAffordForge ? 'disabled' : ''} class="px-3 py-1 rounded text-xs font-mono font-bold ${canAffordForge ? 'bg-[#fb923c] hover:bg-[#f97316] text-[#080b11] cursor-pointer' : 'bg-[#1a2232] text-[#64748b] cursor-not-allowed'}">${canAffordForge ? ('🔨 Forge ' + selRecipe.name) : forgeMissingReason}</button>
+        </div>
+      </div>
+    `;
+
+    // Tempering Anvil: Vault + City-Present Hero Carried & Equipped Equipment
+    const allHeroes = (world && Array.isArray(world.heroes)) ? world.heroes : [];
+    const presentHeroes = allHeroes.filter(function(h) { return isHeroPresentAtCity(world, city, h); });
+    let activeTemperOwner = (simHost.state && simHost.state._selectedTemperOwner) ? simHost.state._selectedTemperOwner : 'vault';
+    if (activeTemperOwner !== 'vault' && !presentHeroes.some(function(h) { return h.id === activeTemperOwner; })) {
+      activeTemperOwner = 'vault';
+    }
+
+    const vaultItems = (city.storage && Array.isArray(city.storage.items)) ? city.storage.items : [];
+    const ownerTabsHtml = [
+      `<button onclick="window.WargameApp.handleSelectTemperOwner('vault')" class="px-2.5 py-1 rounded text-[11px] font-mono cursor-pointer border ${activeTemperOwner === 'vault' ? 'bg-[#fbbf24]/20 border-[#fbbf24] text-[#fbbf24] font-bold' : 'bg-[#111722] border-[#283347] text-[#cbd5e1]'}">🏦 City Vault (${vaultItems.length})</button>`
+    ].concat(allHeroes.map(function(h) {
+      const atCity = isHeroPresentAtCity(world, city, h);
+      if (!atCity) {
+        return `<span class="px-2 py-1 rounded text-[10px] font-mono bg-[#0b101a] border border-[#1e293b] text-[#64748b]" title="${h.name} is away from ${city.name}">🗺️ ${h.name} (Away)</span>`;
+      }
+      const isSelH = activeTemperOwner === h.id;
+      return `<button onclick="window.WargameApp.handleSelectTemperOwner('${h.id}')" class="px-2.5 py-1 rounded text-[11px] font-mono cursor-pointer border ${isSelH ? 'bg-[#38bdf8]/20 border-[#38bdf8] text-[#38bdf8] font-bold' : 'bg-[#111722] border-[#283347] text-[#cbd5e1]'}">🛡️ ${h.name}</button>`;
+    })).join('');
+
+    const temperEntries = [];
+    if (activeTemperOwner === 'vault') {
+      for (let vi = 0; vi < vaultItems.length; vi++) {
+        const it = vaultItems[vi];
+        if (it) temperEntries.push({ item: it, source: 'vault', heroId: null, locBadge: 'Vault', locClass: 'text-[#fbbf24] bg-[#fbbf24]/15 border-[#fbbf24]/40' });
+      }
+    } else {
+      const selHero = presentHeroes.find(function(h) { return h.id === activeTemperOwner; });
+      if (selHero) {
+        const eq = selHero.equipment || {};
+        const eqSlots = ['weapon', 'armor', 'helm', 'boots', 'accessory', 'pickaxe'];
+        for (let ei = 0; ei < eqSlots.length; ei++) {
+          const eqIt = eq[eqSlots[ei]];
+          if (eqIt) temperEntries.push({ item: eqIt, source: 'equipped', heroId: selHero.id, locBadge: 'Equipped — ' + selHero.name, locClass: 'text-[#34d399] bg-[#34d399]/15 border-[#34d399]/40' });
+        }
+        const bag = Array.isArray(selHero.bagGear) ? selHero.bagGear : [];
+        for (let bi = 0; bi < bag.length; bi++) {
+          const bIt = bag[bi];
+          if (bIt) temperEntries.push({ item: bIt, source: 'carried', heroId: selHero.id, locBadge: 'Carried — ' + selHero.name, locClass: 'text-[#38bdf8] bg-[#38bdf8]/15 border-[#38bdf8]/40' });
+        }
+      }
+    }
+
+    const temperList = temperEntries.length === 0
+      ? `<div class="text-[11px] text-[#64748b] italic py-1">No equipment found in this inventory. Forge gear above or select a hero stationed at ${city.name}.</div>`
+      : temperEntries.map(function(entry) {
+          const it = entry.item;
+          const prev = getBlacksmithTemperPreview(it);
+          const rk = prev.curRank || 0;
+          const canAffordT = curIngots >= prev.ingotCost && curGold >= prev.goldCost;
+          const canTemper = prev.eligible && canAffordT;
+          const effectHtml = prev.eligible
+            ? `<span class="text-[#34d399]">Rank +${rk} → +${prev.nextRank}: <strong>${prev.statLabel} ${prev.currentStat} → ${prev.nextStat} (+${prev.delta})</strong> • +${prev.valueDelta}g value</span>`
+            : `<span class="text-[#94a3b8]">${prev.reason}</span>`;
+          const btnLabel = !prev.eligible
+            ? (rk >= 3 ? 'MAX (+3)' : 'Ineligible')
+            : (!canAffordT ? ('Need ' + prev.ingotCost + ' Ing, ' + prev.goldCost + 'g') : ('🔥 Temper -> +' + prev.nextRank + ' (' + prev.ingotCost + ' Ing, ' + prev.goldCost + 'g)'));
+          const heroArg = entry.heroId ? ("'" + entry.heroId + "'") : 'null';
+          return `
+            <div class="p-2 rounded bg-[#111722] border border-[#283347] flex flex-wrap items-center justify-between gap-2 text-xs">
+              <div class="min-w-0 space-y-0.5">
+                <div class="flex flex-wrap items-center gap-1.5">
+                  <span class="font-bold text-[#e6edf3]">${getItemTypeIcon(it.slot)} ${it.name}${rk > 0 ? (' +' + rk) : ''}</span>
+                  <span class="px-1.5 py-0.2 rounded border text-[9px] font-mono ${entry.locClass}">${entry.locBadge}</span>
+                </div>
+                <div class="text-[10px] font-mono">${effectHtml}</div>
+              </div>
+              <button onclick="window.WargameApp.handleTemperEquipment('${it.uid}', '${entry.source}', ${heroArg})" ${!canTemper ? 'disabled' : ''} class="px-2.5 py-1 rounded text-[10px] font-mono font-bold whitespace-nowrap ${canTemper ? 'bg-[#fb923c] hover:bg-[#f97316] text-[#080b11] cursor-pointer' : 'bg-[#1a2232] text-[#64748b] cursor-not-allowed'}">${btnLabel}</button>
+            </div>
+          `;
+        }).join('');
+
+    const forgeFb = simHost.state && simHost.state._forgeFeedback ? simHost.state._forgeFeedback : null;
+    const forgeFbHtml = forgeFb
+      ? `<div class="px-2.5 py-1.5 rounded text-[11px] font-mono ${forgeFb.ok ? 'bg-[#052e16]/80 border border-[#34d399]/50 text-[#34d399]' : 'bg-[#450a0a]/80 border border-[#f87171]/50 text-[#f87171]'}">${forgeFb.ok ? '✓ ' : '✕ '}${forgeFb.text}</div>`
+      : '';
+
+    sections.push(`
+      <div class="p-3 rounded-lg bg-[#080b11] border border-[#fb923c]/40 space-y-3">
+        <div class="flex flex-wrap items-center justify-between gap-2 text-xs font-mono">
+          <span class="text-[#fb923c] font-bold">🔨 Star-Forge Crafting (Blacksmith Lv ${lvl})</span>
+          <span class="text-[#e6edf3]">Ingots: <strong class="text-[#fbbf24]">${curIngots}</strong> • Gold: <strong class="text-[#fbbf24]">${curGold}</strong></span>
+        </div>
+        ${forgeFbHtml}
+        <div class="grid grid-cols-2 sm:grid-cols-3 gap-1.5">${slotTabsHtml}</div>
+        ${forgePreviewCard}
+        <div class="pt-2.5 border-t border-[#1e293b] space-y-2">
+          <div>
+            <div class="text-[11px] font-mono uppercase text-[#fb923c] font-bold">🔥 Tempering Anvil (Reinforce Existing Combat Gear)</div>
+            <div class="text-[10px] font-mono text-[#94a3b8]">Upgrades combat gear up to +3: +2 ATK (Weapons/Accessories) or +2 DEF (Armor/Helms/Boots) &amp; +25g value per rank. Costs 2 Ingots &amp; 20g. Pickaxes cannot be tempered.</div>
+          </div>
+          <div class="flex flex-wrap items-center gap-1.5">${ownerTabsHtml}</div>
+          <div class="space-y-1.5 max-h-[240px] overflow-y-auto pr-1">${temperList}</div>
         </div>
       </div>
     `);
@@ -24145,18 +24862,22 @@ function buildUnifiedBuildingStageHtml(simHost, bId, city) {
     const sockList = stItems.length === 0
       ? `<div class="text-[11px] text-[#64748b] italic">Deposit or forge gear into City Vault Storage to punch sockets and inlay Astral Gems.</div>`
       : stItems.map(function(it) {
-          const maxS = it.sockets || 0;
-          const usedS = Array.isArray(it.gems) ? it.gems.length : 0;
+          const maxS = typeof it.maxSockets === 'number' ? it.maxSockets : (typeof it.sockets === 'number' ? it.sockets : 0);
+          const sockArr = Array.isArray(it.sockets) ? it.sockets : (Array.isArray(it.gems) ? it.gems : []);
+          const usedS = sockArr.length;
           return `
             <div class="p-2 rounded bg-[#111722] border border-[#283347] flex flex-wrap items-center justify-between gap-2 text-xs">
               <div>
                 <div class="font-bold text-[#e6edf3]">${getItemTypeIcon(it.slot)} ${it.name}</div>
-                <div class="text-[10px] font-mono text-[#a78bfa]">Sockets: ${usedS}/${maxS} ${usedS > 0 ? ('[' + it.gems.join(', ') + ']') : ''}</div>
+                <div class="text-[10px] font-mono text-[#a78bfa]">Sockets: ${usedS}/${maxS} ${usedS > 0 ? ('[' + sockArr.join(', ') + ']') : ''}</div>
               </div>
-              <div class="flex items-center gap-1">
-                ${maxS < 2 ? `<button onclick="window.WargameApp.handlePunchSocket('${it.uid}')" class="px-2 py-0.5 rounded bg-[#1a2232] hover:bg-[#283347] text-[#fbbf24] border border-[#fbbf24]/40 text-[10px] font-mono cursor-pointer">+ Socket (2 Ing, 35g)</button>` : ''}
+              <div class="flex flex-wrap items-center gap-1">
+                ${it.slot !== 'pickaxe' && maxS < 2 ? `<button onclick="window.WargameApp.handlePunchSocket('${it.uid}')" class="px-2 py-0.5 rounded bg-[#1a2232] hover:bg-[#283347] text-[#fbbf24] border border-[#fbbf24]/40 text-[10px] font-mono cursor-pointer">+ Socket (2 Ing, 35g)</button>` : ''}
                 ${usedS < maxS && (cg.ruby || 0) > 0 ? `<button onclick="window.WargameApp.handleSocketCityGem('${it.uid}', 'ruby')" class="px-2 py-0.5 rounded bg-[#f87171] text-[#080b11] font-bold text-[10px] font-mono cursor-pointer">Socket Ruby</button>` : ''}
                 ${usedS < maxS && (cg.emerald || 0) > 0 ? `<button onclick="window.WargameApp.handleSocketCityGem('${it.uid}', 'emerald')" class="px-2 py-0.5 rounded bg-[#34d399] text-[#080b11] font-bold text-[10px] font-mono cursor-pointer">Socket Emerald</button>` : ''}
+                ${usedS < maxS && (cg.sapphire || 0) > 0 ? `<button onclick="window.WargameApp.handleSocketCityGem('${it.uid}', 'sapphire')" class="px-2 py-0.5 rounded bg-[#60a5fa] text-[#080b11] font-bold text-[10px] font-mono cursor-pointer">Socket Sapphire</button>` : ''}
+                ${usedS < maxS && (cg.topaz || 0) > 0 ? `<button onclick="window.WargameApp.handleSocketCityGem('${it.uid}', 'topaz')" class="px-2 py-0.5 rounded bg-[#fbbf24] text-[#080b11] font-bold text-[10px] font-mono cursor-pointer">Socket Topaz</button>` : ''}
+                ${usedS < maxS && (cg.void_diamond || 0) > 0 ? `<button onclick="window.WargameApp.handleSocketCityGem('${it.uid}', 'void_diamond')" class="px-2 py-0.5 rounded bg-[#e879f9] text-[#080b11] font-bold text-[10px] font-mono cursor-pointer">Socket Void</button>` : ''}
                 ${usedS > 0 ? `<button onclick="window.WargameApp.handleUnsocketCityGem('${it.uid}')" class="px-2 py-0.5 rounded bg-[#1a2232] text-[#38bdf8] border border-[#38bdf8]/40 text-[10px] font-mono cursor-pointer">Extract (20g)</button>` : ''}
               </div>
             </div>
@@ -25572,11 +26293,15 @@ function renderCityBuilderPanel(simHost) {
         }
       }
 
-      // Hide meeting hall (founded at center plot) and legacy aliases
-      // Only show buildings whose prerequisites are currently satisfied!
+      // Hide meeting hall (founded at center plot); show unlocked buildings first,
+      // then clearly list locked structures with their prerequisite unlock chain (e.g. Quarry -> Smeltery -> Blacksmith)
       const constructibleKeys = Object.keys(CITY_BUILDINGS_CATALOG).filter(function(k) {
         if (k === 'meeting_hall') return false;
         return isBuildingPrerequisiteMet(city, k);
+      });
+      const lockedKeys = Object.keys(CITY_BUILDINGS_CATALOG).filter(function(k) {
+        if (k === 'meeting_hall') return false;
+        return !isBuildingPrerequisiteMet(city, k);
       });
 
       const catalogCards = constructibleKeys.length > 0
@@ -25610,6 +26335,28 @@ function renderCityBuilderPanel(simHost) {
           }).join('')
         : `<div class="p-3.5 rounded bg-[#080b11] border border-[#283347] text-center text-xs text-[#8b949e] italic">No new buildings currently available. Grow your population or fulfill current tasks to unlock new structures!</div>`;
 
+      const lockedCards = lockedKeys.length > 0
+        ? `<div class="pt-2 border-t border-[#1e293b] space-y-1">
+            <div class="text-[10px] font-mono uppercase tracking-wider text-[#64748b] font-bold">🔒 Locked Structures (Prerequisites)</div>
+            ${lockedKeys.map(function(bId) {
+              const bDef = CITY_BUILDINGS_CATALOG[bId];
+              const reqText = getBuildingPrerequisiteMissingReason(city, bId) || 'Prerequisite required';
+              return `
+                <div class="p-2 rounded bg-[#06090f] border border-[#1e293b]/80 flex items-center justify-between gap-2 opacity-75">
+                  <div class="flex items-center gap-2 min-w-0">
+                    <span class="text-base">${bDef.icon}</span>
+                    <div class="min-w-0">
+                      <div class="text-[11px] font-bold text-[#94a3b8] truncate">${bDef.name}</div>
+                      <div class="text-[10px] font-mono text-[#fbbf24]/80 truncate">${reqText}</div>
+                    </div>
+                  </div>
+                  <span class="px-2 py-0.5 rounded bg-[#111722] text-[10px] font-mono text-[#64748b] whitespace-nowrap">Locked</span>
+                </div>
+              `;
+            }).join('')}
+          </div>`
+        : '';
+
       inspectorHtml += `
         <div class="space-y-2">
           <div class="flex items-center justify-between">
@@ -25618,6 +26365,7 @@ function renderCityBuilderPanel(simHost) {
           </div>
           <div class="space-y-1.5 max-h-[380px] overflow-y-auto pr-1">
             ${catalogCards}
+            ${lockedCards}
           </div>
         </div>
       `;
@@ -26313,7 +27061,7 @@ function rollSocketCountForRarity(rarityKey, slot) {
   return 0;
 }
 
-function generateProceduralEquipment(depth = 1, forcedRarity = null, forcedSlot = null, rarityBonus = 0) {
+function generateProceduralEquipment(depth = 1, forcedRarity = null, forcedSlot = null, rarityBonus = 0, forcedArchetypeId = null) {
   const slots = ['weapon', 'armor', 'helm', 'boots', 'accessory'];
   const slot = forcedSlot || slots[Math.floor(Math.random() * slots.length)];
 
@@ -26328,9 +27076,19 @@ function generateProceduralEquipment(depth = 1, forcedRarity = null, forcedSlot 
   }
 
   const rDef = RARITY[rarityKey] || RARITY.common;
-  const baseTitle = BASE_GEAR_NAMES[slot][Math.floor(Math.random() * BASE_GEAR_NAMES[slot].length)];
+  const relicScale = rarityKey === 'relic' ? 1.35 : 1.0;
+  const archPool = ITEM_BASE_ARCHETYPES[slot] || [];
+  let arch = null;
+  if (forcedArchetypeId && archPool.length > 0) {
+    arch = archPool.find(function(a) { return a.id === forcedArchetypeId; }) || null;
+  }
+  if (!arch && archPool.length > 0) {
+    arch = archPool[Math.floor(Math.random() * archPool.length)];
+  }
+  const baseTitle = arch ? arch.name : 'Relic Gear';
   const item = {
     uid: nextItemUid('gear'),
+    archetypeId: arch ? arch.id : null,
     slot,
     rarity: rarityKey,
     name: baseTitle,
@@ -26340,20 +27098,34 @@ function generateProceduralEquipment(depth = 1, forcedRarity = null, forcedSlot 
     sockets: []
   };
 
-  // Primary stat by slot
+  // Base stats from data-driven equipment archetype (IS-01)
   if (slot === 'weapon') {
-    item.atk = Math.round((5 + depth * 2.2) * (rarityKey === 'relic' ? 1.35 : 1.0));
+    const atkMult = (arch && typeof arch.atkMult === 'number') ? arch.atkMult : 1.0;
+    item.atk = Math.max(1, Math.round((5 + depth * 2.2) * atkMult * relicScale));
   } else if (slot === 'armor') {
-    item.def = Math.round((4 + depth * 1.8) * (rarityKey === 'relic' ? 1.35 : 1.0));
+    const defMult = (arch && typeof arch.defMult === 'number') ? arch.defMult : 1.0;
+    item.def = Math.max(1, Math.round((4 + depth * 1.8) * defMult * relicScale));
   } else if (slot === 'helm') {
-    item.def = Math.round(2 + depth * 0.9);
-    item.maxHp = Math.round(8 + depth * 4);
+    const defMult = (arch && typeof arch.defMult === 'number') ? arch.defMult : 1.0;
+    item.def = Math.max(1, Math.round((2 + depth * 0.9) * defMult));
   } else if (slot === 'boots') {
-    item.def = Math.round(1 + depth * 0.8);
-    item.dodge = Math.round(2 + depth * 1.1);
-  } else if (slot === 'accessory') {
-    item.crit = Math.round(3 + depth * 1.0);
-    item.maxMp = Math.round(8 + depth * 3);
+    const defMult = (arch && typeof arch.defMult === 'number') ? arch.defMult : 1.0;
+    item.def = Math.max(1, Math.round((1 + depth * 0.8) * defMult));
+  }
+
+  if (arch) {
+    if (arch.atkBase) item.atk = (item.atk || 0) + Math.round((arch.atkBase + depth * (arch.atkPerDepth || 0)) * relicScale);
+    if (arch.magicBase) item.magicPower = (item.magicPower || 0) + Math.round((arch.magicBase + depth * (arch.magicPerDepth || 0)) * relicScale);
+    if (arch.maxHpBase) item.maxHp = (item.maxHp || 0) + Math.round(arch.maxHpBase + depth * (arch.maxHpPerDepth || 0));
+    if (arch.maxMpBase) item.maxMp = (item.maxMp || 0) + Math.round(arch.maxMpBase + depth * (arch.maxMpPerDepth || 0));
+    if (arch.critBase) item.crit = (item.crit || 0) + Math.round(arch.critBase + depth * (arch.critPerDepth || 0));
+    if (arch.dodgeBase) item.dodge = (item.dodge || 0) + Math.round(arch.dodgeBase + depth * (arch.dodgePerDepth || 0));
+    if (arch.wardBase) item.ward = (item.ward || 0) + Math.round(arch.wardBase + depth * (arch.wardPerDepth || 0));
+    if (arch.strBase) item.str = (item.str || 0) + arch.strBase;
+    if (arch.dexBase) item.dex = (item.dex || 0) + arch.dexBase;
+    if (arch.intBase) item.int = (item.int || 0) + arch.intBase;
+    if (arch.vitBase) item.vit = (item.vit || 0) + arch.vitBase;
+    if (arch.spiBase) item.spi = (item.spi || 0) + arch.spiBase;
   }
 
   // Roll Affixes based on rarity
@@ -26371,7 +27143,7 @@ function generateProceduralEquipment(depth = 1, forcedRarity = null, forcedSlot 
   if (picked.length > 0) {
     item.name = `${baseTitle} ${picked[0].label}`;
   }
-  return item;
+  return normalizeEquipmentItem(item);
 }
 
 // Fast O(W * H) zero-allocation BFS guaranteeing a trap-free walkable path between upPos and downPos
@@ -28788,12 +29560,12 @@ function autoEquipBestGear(state = gameState) {
     const candidates = armory.filter(g => g && g.slot === slot);
     if (candidates.length === 0) continue;
 
-    candidates.sort((a, b) => computeItemPowerScore(b) - computeItemPowerScore(a));
+    candidates.sort((a, b) => computeClassItemPreferenceScore(b, h.classId) - computeClassItemPreferenceScore(a, h.classId));
     const bestCandidate = candidates[0];
-    const bestScore = computeItemPowerScore(bestCandidate);
+    const bestScore = computeClassItemPreferenceScore(bestCandidate, h.classId);
 
     const curEq = h.equipment[slot];
-    const curScore = curEq ? computeItemPowerScore(curEq) : -1;
+    const curScore = curEq ? computeClassItemPreferenceScore(curEq, h.classId) : -1;
 
     if (bestScore > curScore) {
       const armoryIdx = armory.indexOf(bestCandidate);
@@ -33362,6 +34134,43 @@ function createDevConsoleController(options) {
     return recordFeedback({ ok: true, text: 'Triggered active class skill.' }, 'Trigger Skill');
   }
 
+  function setupCityForgeWorkflow() {
+    const simHost = getSimHost();
+    const city = simHost && simHost.state ? getPrimaryCity(simHost.state) : null;
+    if (!city) {
+      return recordFeedback({ ok: false, text: 'Found a city first before setting up Blacksmith & Star-Forge.' }, 'Setup Forge');
+    }
+    if (!city.buildings) city.buildings = {};
+    if (!city.stockpile) city.stockpile = {};
+    const needed = ['quarry', 'smeltery', 'blacksmith', 'lapidary'];
+    const placed = [];
+    for (let i = 0; i < needed.length; i++) {
+      const bId = needed[i];
+      if ((city.buildings[bId] || 0) >= 1) continue;
+      city.buildings[bId] = 1;
+      if (Array.isArray(city.plots)) {
+        const hasPlot = city.plots.some(function(p) { return p && p.buildingId === bId; });
+        if (!hasPlot) {
+          const emptyPlot = city.plots.find(function(p) { return p && !p.buildingId && !p.underConstruction; });
+          if (emptyPlot) {
+            emptyPlot.buildingId = bId;
+            emptyPlot.level = 1;
+            emptyPlot.underConstruction = false;
+          }
+        }
+      }
+      placed.push(bId);
+    }
+    city.stockpile.ingots = Math.max(city.stockpile.ingots || 0, 20);
+    city.stockpile.gold = Math.max(city.stockpile.gold || 0, 200);
+    notifyMutated();
+    return recordFeedback({
+      ok: true,
+      placed: placed,
+      text: 'Blacksmith & Star-Forge ready in ' + city.name + ' (Ingots: ' + city.stockpile.ingots + ', Gold: ' + city.stockpile.gold + '). Open City view and click the Blacksmith plot to forge!'
+    }, 'Setup Forge');
+  }
+
   function adjustCityResource(resourceKey, delta, explicitValue) {
     const simHost = getSimHost();
     const city = simHost && simHost.state ? getPrimaryCity(simHost.state) : null;
@@ -33409,20 +34218,19 @@ function createDevConsoleController(options) {
       notifyMutated();
       return recordFeedback({ ok: true, text: 'Granted consumable "' + tpl.name + '" to ' + hero.name + '.' }, 'Grant Item');
     }
-    const item = Object.assign({}, tpl, {
+    const item = normalizeEquipmentItem(Object.assign({}, tpl, {
       uid: nextItemUid('dev_grant'),
       affixes: [],
       sockets: [],
-      maxSockets: 1
-    });
-    if (item.slot === 'pickaxe') item.curDur = item.maxDur || 50;
-    if (!Array.isArray(hero.bag)) hero.bag = [];
-    hero.bag.push(item);
+      maxSockets: tpl.slot === 'pickaxe' ? 0 : 1
+    }));
+    if (!Array.isArray(hero.bagGear)) hero.bagGear = [];
+    hero.bagGear.push(item);
     notifyMutated();
     return recordFeedback({
       ok: true,
       item: item,
-      text: 'Granted "' + item.name + '" [' + item.uid + '] into ' + hero.name + '\'s bag.'
+      text: 'Granted "' + item.name + '" [' + item.uid + '] into ' + hero.name + '\'s pack.'
     }, 'Grant Item');
   }
 
@@ -34115,7 +34923,7 @@ function createDevConsoleController(options) {
       const eq = activeHero.equipment || {};
       const packItems = ctx === 'dungeon'
         ? (Array.isArray(activeHero.expeditionGear) ? activeHero.expeditionGear : [])
-        : (Array.isArray(activeHero.bag) ? activeHero.bag : []);
+        : (Array.isArray(activeHero.bagGear) ? activeHero.bagGear : []);
       let skillTargeting = null;
       if (ctx === 'dungeon' && dng) {
         skillTargeting = getSkillTargetingInfo(dng);
@@ -34332,6 +35140,7 @@ function createDevConsoleController(options) {
     toggleHeroGodMode: toggleHeroGodMode,
     spawnObject: spawnObject,
     triggerHeroSkill: triggerHeroSkill,
+    setupCityForgeWorkflow: setupCityForgeWorkflow,
     adjustCityResource: adjustCityResource,
     grantShopItem: grantShopItem,
     getOutput: function() { return outputLog.slice(); },
@@ -34344,6 +35153,8 @@ function createDevConsoleController(options) {
 
   // --- Module: src/wargame/test/wargameSelfTest.js ---
 // Headless & In-Browser Verification Suite for the Standalone Macro Wargame & Real-Time Simulation Engine
+
+
 
 
 
@@ -35397,7 +36208,8 @@ function evaluateWargameSelfTests() {
     forgeBlocked12 &&
     forgedItem12 &&
     forgedItem12.rarity === 'rare' &&
-    forgedItem12.sockets === 1
+    forgedItem12.maxSockets === 1 &&
+    Array.isArray(forgedItem12.sockets) && forgedItem12.sockets.length === 0
   );
 
   // Temper forged weapon (+2 ATK, temperRank = 1)
@@ -35405,22 +36217,35 @@ function evaluateWargameSelfTests() {
   const temperRes12 = forgedItem12 ? host7.dispatch({ type: COMMAND_TYPES.TEMPER_EQUIPMENT, payload: { itemUid: forgedItem12.uid } }) : { ok: false };
   const temperVerified12 = Boolean(temperRes12.ok && forgedItem12.temperRank === 1 && forgedItem12.atk === atkBeforeTemper12 + 2);
 
-  // Lapidary: Punch 2nd socket -> Socket Ruby (+4 ATK) -> Extract Ruby back to city.gems
+  // Lapidary: Punch 2nd socket -> Socket Ruby (+4 ATK via GEM_CATALOG, no base mutation) -> Extract Ruby back to city.gems
   const lapBlocked12 = !host7.dispatch({ type: COMMAND_TYPES.PUNCH_SOCKET, payload: { itemUid: forgedItem12.uid } }).ok;
   city7.buildings.lapidary = 1;
   city7.gems = { ruby: 2, emerald: 1, sapphire: 0, topaz: 0, void_diamond: 0 };
   const punchRes12 = host7.dispatch({ type: COMMAND_TYPES.PUNCH_SOCKET, payload: { itemUid: forgedItem12.uid } });
   const atkBeforeGem12 = forgedItem12.atk;
   const socketRes12 = host7.dispatch({ type: COMMAND_TYPES.SOCKET_CITY_GEM, payload: { itemUid: forgedItem12.uid, gemId: 'ruby' } });
-  const gemSocketed12 = Boolean(socketRes12.ok && forgedItem12.atk === atkBeforeGem12 + 4 && city7.gems.ruby === 1);
+  const effAfterSocket12 = getEffectiveItemBonuses(forgedItem12);
+  const gemSocketed12 = Boolean(
+    socketRes12.ok &&
+    forgedItem12.atk === atkBeforeGem12 &&
+    forgedItem12.sockets.indexOf('ruby') !== -1 &&
+    effAfterSocket12.atk === atkBeforeGem12 + 4 &&
+    city7.gems.ruby === 1
+  );
   const unsocketRes12 = host7.dispatch({ type: COMMAND_TYPES.UNSOCKET_CITY_GEM, payload: { itemUid: forgedItem12.uid } });
-  const gemExtracted12 = Boolean(unsocketRes12.ok && forgedItem12.atk === atkBeforeGem12 && city7.gems.ruby === 2);
+  const effAfterUnsocket12 = getEffectiveItemBonuses(forgedItem12);
+  const gemExtracted12 = Boolean(
+    unsocketRes12.ok &&
+    forgedItem12.sockets.length === 0 &&
+    effAfterUnsocket12.atk === atkBeforeGem12 &&
+    city7.gems.ruby === 2
+  );
 
   const t12Checks = {
     forgedVerified12: forgedVerified12,
     temperVerified12: temperVerified12,
     lapBlocked12: lapBlocked12,
-    punchOk: Boolean(punchRes12.ok && forgedItem12.sockets === 2),
+    punchOk: Boolean(punchRes12.ok && forgedItem12.maxSockets === 2),
     gemSocketed12: gemSocketed12,
     gemExtracted12: gemExtracted12
   };
@@ -40579,6 +41404,337 @@ function evaluateWargameSelfTests() {
       : 'Failed checks: ' + failed55.join(', ')
   });
 
+  // =========================================================================
+  // Test 56: IS-01 — Canonical Equipment Schema, Legacy Migration, Class-Aware Scoring & Item Archetypes
+  // =========================================================================
+  const host56 = createWargameSimHost();
+  host56.dispatch({ type: COMMAND_TYPES.START_NEW_CAMPAIGN, payload: { houseName: 'House Forge', worldName: 'Anvil Realm', seedCode: 'STAR-5600' } });
+  host56.dispatch({ type: COMMAND_TYPES.FOUND_CITY, payload: { cityName: 'Ironspire' } });
+  const city56 = getPrimaryCity(host56.state);
+  city56.stockpile.gold = 2000;
+  city56.stockpile.food = 1000;
+  city56.stockpile.ingots = 100;
+  city56.buildings.blacksmith = 2;
+  city56.buildings.lapidary = 1;
+  city56.buildings.temple_chapterhouse = 1;
+  city56.buildings.guild_hall = 1;
+  city56.buildings.barracks = 1;
+  city56.gems = { ruby: 2, emerald: 1, sapphire: 2, topaz: 1, void_diamond: 1 };
+
+  host56.dispatch({ type: COMMAND_TYPES.RECRUIT_HERO, payload: { classId: 'cleric', heroName: 'Sister Rowan' } });
+  host56.stepClock(80000);
+  const cleric56 = host56.state.world.heroes[0];
+
+  // 1. Forged armor maxHp actually contributes to derived stats; forged pickaxe uses curDur/maxDur
+  const hpBeforeArm56 = computeHeroDerivedStats(cleric56).maxHp;
+  const forgeArm56 = host56.dispatch({ type: COMMAND_TYPES.FORGE_EQUIPMENT, payload: { slot: 'armor' } });
+  const forgePick56 = host56.dispatch({ type: COMMAND_TYPES.FORGE_EQUIPMENT, payload: { slot: 'pickaxe' } });
+  const armItem56 = forgeArm56.ok ? forgeArm56.data.item : null;
+  const pickItem56 = forgePick56.ok ? forgePick56.data.item : null;
+  cleric56.bagGear.push(armItem56);
+  host56.dispatch({ type: COMMAND_TYPES.EQUIP_HERO_ITEM, payload: { heroId: cleric56.id, itemUid: armItem56.uid } });
+  const hpAfterArm56 = computeHeroDerivedStats(cleric56).maxHp;
+  const forgeCanonicalOk56 = Boolean(
+    armItem56 && armItem56.maxHp === 22 && armItem56.hp === undefined &&
+    hpAfterArm56 === hpBeforeArm56 + 22 &&
+    pickItem56 && pickItem56.curDur === 50 && pickItem56.maxDur === 50 &&
+    pickItem56.durability === undefined && pickItem56.maxSockets === 0 &&
+    !host56.dispatch({ type: COMMAND_TYPES.PUNCH_SOCKET, payload: { itemUid: pickItem56.uid } }).ok
+  );
+
+  // 2. Dungeon-looted gear in City Vault supports PUNCH_SOCKET, SOCKET_CITY_GEM, UNSOCKET_CITY_GEM & rejects over-cap
+  const dngLoot56 = generateProceduralEquipment(3, 'common', 'weapon', 0, 'wep_mace');
+  dngLoot56.maxSockets = 0; dngLoot56.sockets = [];
+  city56.storage.items.push(dngLoot56);
+  const punchDng56 = host56.dispatch({ type: COMMAND_TYPES.PUNCH_SOCKET, payload: { itemUid: dngLoot56.uid } });
+  const sockDng56 = host56.dispatch({ type: COMMAND_TYPES.SOCKET_CITY_GEM, payload: { itemUid: dngLoot56.uid, gemId: 'sapphire' } });
+  const overCapSock56 = host56.dispatch({ type: COMMAND_TYPES.SOCKET_CITY_GEM, payload: { itemUid: dngLoot56.uid, gemId: 'ruby' } });
+  const unsockDng56 = host56.dispatch({ type: COMMAND_TYPES.UNSOCKET_CITY_GEM, payload: { itemUid: dngLoot56.uid } });
+  const dungeonWorkshopOk56 = Boolean(
+    punchDng56.ok && dngLoot56.maxSockets === 1 && Array.isArray(dngLoot56.sockets) &&
+    sockDng56.ok && !overCapSock56.ok && city56.gems.ruby === 2 &&
+    unsockDng56.ok && dngLoot56.sockets.length === 0 && city56.gems.sapphire === 2
+  );
+
+  // 3. Legacy migration: baked multi-gem + temper + hp/mp + durability + idempotency + ambiguous mixed shape
+  const legacyBaked56 = {
+    uid: 'leg_1', slot: 'armor', name: 'Old Plate +1', rarity: 'rare', temperRank: 1,
+    atk: 6, def: 13, hp: 36, mp: 15, sockets: 2, gems: ['ruby', 'topaz', 'unknown_gem']
+  };
+  normalizeEquipmentItem(legacyBaked56);
+  const atk1st56 = legacyBaked56.atk;
+  const def1st56 = legacyBaked56.def;
+  const hp1st56 = legacyBaked56.maxHp;
+  normalizeEquipmentItem(legacyBaked56); // 2nd call must be strictly idempotent!
+  const effLeg56 = getEffectiveItemBonuses(legacyBaked56);
+
+  const legacyMixed56 = {
+    uid: 'leg_mix', slot: 'weapon', name: 'Mixed Blade', rarity: 'rare',
+    atk: 12, maxSockets: 2, sockets: ['ruby'], gems: ['emerald']
+  };
+  normalizeEquipmentItem(legacyMixed56);
+
+  const legacyMigOk56 = Boolean(
+    atk1st56 === 2 && def1st56 === 11 && hp1st56 === 16 && legacyBaked56.maxMp === 15 &&
+    legacyBaked56.atk === atk1st56 && legacyBaked56.maxHp === hp1st56 &&
+    legacyBaked56.maxSockets === 3 && legacyBaked56.sockets.length === 3 &&
+    legacyBaked56.sockets.indexOf('unknown_gem') !== -1 && legacyBaked56.temperRank === 1 &&
+    effLeg56.atk === 6 && effLeg56.def === 14 && effLeg56.maxHp === 40 &&
+    legacyMixed56.sockets.length === 1 && legacyMixed56.sockets[0] === 'ruby' &&
+    legacyMixed56._migrationWarning === 'mixed_sockets_and_gems_preserved'
+  );
+
+  // 4. Dev Console Strategy grant -> equip uses canonical hero.bagGear
+  const con56 = createDevConsoleController({
+    simHost: host56,
+    dungeonState: createDefaultGameState(),
+    getContext: function() { return 'strategy'; }
+  });
+  const grantRes56 = con56.grantShopItem('buy_wep_1');
+  const grantedUid56 = grantRes56.ok && grantRes56.item ? grantRes56.item.uid : null;
+  const equipRes56 = grantedUid56 ? con56.execute('equip ' + grantedUid56) : { ok: false };
+  const devGrantEquipOk56 = Boolean(
+    grantRes56.ok && equipRes56.ok && cleric56.equipment.weapon && cleric56.equipment.weapon.uid === grantedUid56
+  );
+
+  // 5. Base archetypes, SPI/magicPower affixes & class-aware auto-equip preference + tie stability
+  const cleaver56 = generateProceduralEquipment(3, 'common', 'weapon', 0, 'wep_cleaver');
+  const staff56 = generateProceduralEquipment(3, 'common', 'weapon', 0, 'wep_staff');
+  const plate56 = generateProceduralEquipment(3, 'common', 'armor', 0, 'arm_plate');
+  const vestments56 = generateProceduralEquipment(3, 'common', 'armor', 0, 'arm_vestments');
+  const hasSpiAffix56 = AFFIX_POOL.some(function(a) { return a.stat === 'spi'; });
+  const hasMagAffix56 = AFFIX_POOL.some(function(a) { return a.stat === 'magicPower'; });
+  const fighterPrefCleaver56 = computeClassItemPreferenceScore(cleaver56, 'fighter') > computeClassItemPreferenceScore(staff56, 'fighter');
+  const magePrefStaff56 = computeClassItemPreferenceScore(staff56, 'mage') > computeClassItemPreferenceScore(cleaver56, 'mage');
+
+  // Auto-equip tie stability & class preference in Wargame
+  cleric56.equipment.weapon = cleaver56;
+  cleric56.bagGear = [staff56];
+  const auto1 = host56.dispatch({ type: COMMAND_TYPES.AUTO_EQUIP_HERO, payload: { heroId: cleric56.id } });
+  const clericPickedStaff56 = cleric56.equipment.weapon && cleric56.equipment.weapon.uid === staff56.uid;
+  const staffClone56 = Object.assign({}, staff56, { uid: 'clone_tie_staff' });
+  cleric56.bagGear = [staffClone56];
+  const autoTie = host56.dispatch({ type: COMMAND_TYPES.AUTO_EQUIP_HERO, payload: { heroId: cleric56.id } });
+  const tieNoSwap56 = autoTie.ok && autoTie.data.equippedCount === 0 && cleric56.equipment.weapon.uid === staff56.uid;
+
+  const archetypesAndScoreOk56 = Boolean(
+    cleaver56.archetypeId === 'wep_cleaver' && staff56.archetypeId === 'wep_staff' &&
+    cleaver56.atk > staff56.atk && (staff56.magicPower || 0) > (cleaver56.magicPower || 0) &&
+    plate56.def > vestments56.def && (vestments56.ward || 0) > 0 && (vestments56.spi || 0) > 0 &&
+    hasSpiAffix56 && hasMagAffix56 &&
+    fighterPrefCleaver56 && magePrefStaff56 &&
+    auto1.ok && clericPickedStaff56 && tieNoSwap56
+  );
+
+  const t56Checks = {
+    forgeCanonicalOk: forgeCanonicalOk56,
+    dungeonWorkshopOk: dungeonWorkshopOk56,
+    legacyMigOk: legacyMigOk56,
+    devGrantEquipOk: devGrantEquipOk56,
+    archetypesAndScoreOk: archetypesAndScoreOk56
+  };
+  const failed56 = Object.keys(t56Checks).filter(function(k) { return !t56Checks[k]; });
+  const t56Pass = failed56.length === 0;
+  results.push({
+    name: '56. IS-01: Canonical Equipment Schema, Legacy Migration, Class-Aware Scoring & Item Archetypes',
+    pass: t56Pass,
+    detail: t56Pass
+      ? 'Canonical forge/lapidary schema, idempotent legacy gem/hp/durability migration, strategy Dev Console grant/equip, class-aware auto-equip & base archetypes verified'
+      : 'Failed checks: ' + failed56.join(', ')
+  });
+
+  // =========================================================================
+  // Test 57: IS-01 Playtest Corrections — Blacksmith Discoverability/Setup & Hero Health Visibility
+  // =========================================================================
+  const host57 = createWargameSimHost();
+  host57.dispatch({ type: COMMAND_TYPES.START_NEW_CAMPAIGN, payload: { houseName: 'House Anvil', worldName: 'Smithy Realm', seedCode: 'STAR-5700' } });
+  host57.dispatch({ type: COMMAND_TYPES.FOUND_CITY, payload: { cityName: 'Forgehold' } });
+  const city57 = getPrimaryCity(host57.state);
+
+  // 1. Prerequisite chain discoverability (blacksmith locked behind smeltery, smeltery behind quarry)
+  const smReason57 = getBuildingPrerequisiteMissingReason(city57, 'smeltery');
+  const bsReason57 = getBuildingPrerequisiteMissingReason(city57, 'blacksmith');
+  const prereqDiscoverOk57 = Boolean(
+    !isBuildingPrerequisiteMet(city57, 'blacksmith') &&
+    smReason57 && smReason57.indexOf('Quarry') !== -1 &&
+    bsReason57 && bsReason57.indexOf('Smeltery') !== -1
+  );
+
+  // 2. Dev Console setupCityForgeWorkflow + normal player forge -> withdraw -> equip flow
+  const con57 = createDevConsoleController({
+    simHost: host57,
+    dungeonState: createDefaultGameState(),
+    getContext: function() { return 'strategy'; }
+  });
+  const setupRes57 = con57.setupCityForgeWorkflow();
+  const ingotsAfterSetup57 = city57.stockpile.ingots || 0;
+  city57.stockpile.food = 800;
+  city57.buildings.temple_chapterhouse = 1;
+  host57.dispatch({ type: COMMAND_TYPES.RECRUIT_HERO, payload: { classId: 'cleric', heroName: 'Acolyte Mara' } });
+  host57.stepClock(80000);
+  const hero57 = host57.state.world.heroes[0];
+
+  const forgeWep57 = host57.dispatch({ type: COMMAND_TYPES.FORGE_EQUIPMENT, payload: { slot: 'weapon' } });
+  const forgeArm57 = host57.dispatch({ type: COMMAND_TYPES.FORGE_EQUIPMENT, payload: { slot: 'armor' } });
+  const forgedWep57 = forgeWep57.ok ? forgeWep57.data.item : null;
+  const forgedArm57 = forgeArm57.ok ? forgeArm57.data.item : null;
+
+  // Profile before equipping forged armor (Strategy mode: MAX HP, no fabricated current HP)
+  const profBefore57 = normalizeSharedHeroProfile(hero57);
+  const htmlBefore57 = buildSharedHeroStatsHtml(profBefore57);
+
+  // Withdraw & equip forged armor (+16 Max HP at Blacksmith Lv 1)
+  const wd57 = host57.dispatch({ type: COMMAND_TYPES.WITHDRAW_FROM_CITY_STORAGE, payload: { heroId: hero57.id, itemUid: forgedArm57.uid } });
+  const eq57 = host57.dispatch({ type: COMMAND_TYPES.EQUIP_HERO_ITEM, payload: { heroId: hero57.id, itemUid: forgedArm57.uid } });
+  const profAfter57 = normalizeSharedHeroProfile(hero57);
+  const htmlAfter57 = buildSharedHeroStatsHtml(profAfter57);
+
+  // Unequip armor -> Max HP returns to exact prior baseline
+  const uneq57 = host57.dispatch({ type: COMMAND_TYPES.UNEQUIP_HERO_ITEM, payload: { heroId: hero57.id, slot: 'armor' } });
+  const profUneq57 = normalizeSharedHeroProfile(hero57);
+
+  // Dungeon hero with authoritative current HP shows HP cur/max
+  const dngHero57 = createDungeonHeroForClass('cleric', hero57, CANONICAL_PLAYER_ID);
+  dngHero57.hp = 95;
+  const dngProf57 = normalizeSharedHeroProfile(dngHero57);
+  const dngHtml57 = buildSharedHeroStatsHtml(dngProf57);
+
+  const t57Checks = {
+    prereqDiscoverOk: prereqDiscoverOk57,
+    setupForgeOk: Boolean(setupRes57.ok && city57.buildings.blacksmith >= 1 && ingotsAfterSetup57 >= 20),
+    forgeBothOk: Boolean(forgedWep57 && forgedArm57 && forgedArm57.maxHp === 16),
+    strategyMaxHpDisplayOk: Boolean(
+      !profBefore57.hasCurrentVitals &&
+      htmlBefore57.indexOf('MAX HP') !== -1 &&
+      htmlBefore57.indexOf(String(profBefore57.maxHp)) !== -1 &&
+      wd57.ok && eq57.ok &&
+      profAfter57.maxHp === profBefore57.maxHp + 16 &&
+      htmlAfter57.indexOf(String(profAfter57.maxHp)) !== -1 &&
+      uneq57.ok && profUneq57.maxHp === profBefore57.maxHp
+    ),
+    dungeonCurrentHpDisplayOk: Boolean(
+      dngProf57.hasCurrentVitals &&
+      dngHtml57.indexOf('95/' + dngProf57.maxHp) !== -1
+    )
+  };
+  const failed57 = Object.keys(t57Checks).filter(function(k) { return !t57Checks[k]; });
+  const t57Pass = failed57.length === 0;
+  results.push({
+    name: '57. IS-01 Playtest Corrections: Blacksmith Discoverability/Setup & Hero Health Visibility',
+    pass: t57Pass,
+    detail: t57Pass
+      ? 'Blacksmith prerequisite path, dev setup helper, normal forge->withdraw->equip flow, Strategy Max HP & Dungeon cur/max HP visibility verified'
+      : 'Failed checks: ' + failed57.join(', ')
+  });
+
+  // =========================================================================
+  // Test 58: IS-01 Forge Workflow — Recipe Preview Parity, Temper Rules & Direct Hero Gear Tempering
+  // =========================================================================
+  const host58 = createWargameSimHost();
+  host58.dispatch({ type: COMMAND_TYPES.START_NEW_CAMPAIGN, payload: { houseName: 'House Hammer', worldName: 'Forge Realm', seedCode: 'STAR-5800' } });
+  host58.dispatch({ type: COMMAND_TYPES.FOUND_CITY, payload: { cityName: 'Steelhearth' } });
+  const city58 = getPrimaryCity(host58.state);
+  city58.stockpile.gold = 2000;
+  city58.stockpile.food = 1000;
+  city58.stockpile.ingots = 60;
+  city58.buildings.quarry = 1;
+  city58.buildings.smeltery = 1;
+  city58.buildings.blacksmith = 2;
+  city58.buildings.temple_chapterhouse = 1;
+
+  host58.dispatch({ type: COMMAND_TYPES.RECRUIT_HERO, payload: { classId: 'cleric', heroName: 'Vanguard Sera' } });
+  host58.stepClock(80000);
+  const hero58 = host58.state.world.heroes[0];
+
+  // 1. Forge recipe preview matches actual FORGE_EQUIPMENT output exactly
+  const wepPrev58 = getBlacksmithForgeRecipePreview('weapon', 2);
+  const armPrev58 = getBlacksmithForgeRecipePreview('armor', 2);
+  const ingBeforeForge58 = city58.stockpile.ingots;
+  const forgedWepRes58 = host58.dispatch({ type: COMMAND_TYPES.FORGE_EQUIPMENT, payload: { slot: 'weapon' } });
+  const forgedArmRes58 = host58.dispatch({ type: COMMAND_TYPES.FORGE_EQUIPMENT, payload: { slot: 'armor' } });
+  const forgedPickRes58 = host58.dispatch({ type: COMMAND_TYPES.FORGE_EQUIPMENT, payload: { slot: 'pickaxe' } });
+  const fWep58 = forgedWepRes58.ok ? forgedWepRes58.data.item : null;
+  const fArm58 = forgedArmRes58.ok ? forgedArmRes58.data.item : null;
+  const fPick58 = forgedPickRes58.ok ? forgedPickRes58.data.item : null;
+  const previewParityOk58 = Boolean(
+    fWep58 && fWep58.name === wepPrev58.name && fWep58.atk === wepPrev58.atk && fWep58.maxSockets === wepPrev58.maxSockets && fWep58.rarity === wepPrev58.rarity &&
+    fArm58 && fArm58.name === armPrev58.name && fArm58.def === armPrev58.def && fArm58.maxHp === armPrev58.maxHp &&
+    city58.stockpile.ingots === ingBeforeForge58 - (wepPrev58.ingotCost + armPrev58.ingotCost + getBlacksmithForgeRecipePreview('pickaxe', 2).ingotCost)
+  );
+
+  // 2. Pickaxe tempering rejected cleanly without spending resources
+  const ingBeforePickT58 = city58.stockpile.ingots;
+  const pickPrev58 = getBlacksmithTemperPreview(fPick58);
+  const pickTemperRes58 = host58.dispatch({ type: COMMAND_TYPES.TEMPER_EQUIPMENT, payload: { itemUid: fPick58.uid, source: 'vault' } });
+  const pickRejectOk58 = Boolean(!pickPrev58.eligible && !pickTemperRes58.ok && city58.stockpile.ingots === ingBeforePickT58);
+
+  // 3. Direct tempering of Vault, Carried, and Equipped gear (in place, same UID, immediate stat refresh, +3 cap)
+  const vaultTempRes58 = host58.dispatch({ type: COMMAND_TYPES.TEMPER_EQUIPMENT, payload: { itemUid: fArm58.uid, source: 'vault' } });
+  // Move forged weapon to hero's carried pack, temper carried, then equip and temper equipped
+  host58.dispatch({ type: COMMAND_TYPES.WITHDRAW_FROM_CITY_STORAGE, payload: { heroId: hero58.id, itemUid: fWep58.uid } });
+  const carriedTempRes58 = host58.dispatch({ type: COMMAND_TYPES.TEMPER_EQUIPMENT, payload: { itemUid: fWep58.uid, source: 'carried', heroId: hero58.id } });
+  const stillInBag58 = hero58.bagGear.some(function(g) { return g && g.uid === fWep58.uid && g.temperRank === 1; });
+
+  host58.dispatch({ type: COMMAND_TYPES.EQUIP_HERO_ITEM, payload: { heroId: hero58.id, itemUid: fWep58.uid } });
+  const atkBeforeEqTemp58 = computeHeroDerivedStats(hero58).atk;
+  const eqTempRes2 = host58.dispatch({ type: COMMAND_TYPES.TEMPER_EQUIPMENT, payload: { itemUid: fWep58.uid, source: 'equipped', heroId: hero58.id } });
+  const eqTempRes3 = host58.dispatch({ type: COMMAND_TYPES.TEMPER_EQUIPMENT, payload: { itemUid: fWep58.uid, source: 'equipped', heroId: hero58.id } });
+  const ingBeforeCap58 = city58.stockpile.ingots;
+  const eqTempRes4 = host58.dispatch({ type: COMMAND_TYPES.TEMPER_EQUIPMENT, payload: { itemUid: fWep58.uid, source: 'equipped', heroId: hero58.id } });
+  const atkAfterEqTemp58 = computeHeroDerivedStats(hero58).atk;
+  const directTemperOk58 = Boolean(
+    vaultTempRes58.ok && fArm58.temperRank === 1 && fArm58.def === armPrev58.def + 2 &&
+    carriedTempRes58.ok && stillInBag58 &&
+    eqTempRes2.ok && eqTempRes3.ok && !eqTempRes4.ok &&
+    city58.stockpile.ingots === ingBeforeCap58 &&
+    hero58.equipment.weapon && hero58.equipment.weapon.uid === fWep58.uid &&
+    hero58.equipment.weapon.temperRank === 3 &&
+    atkAfterEqTemp58 === atkBeforeEqTemp58 + 4 &&
+    hero58.stats.atk === atkAfterEqTemp58
+  );
+
+  // 4. Away hero rejection (hero party moved away from city -> cannot remotely temper equipped/carried gear)
+  const heroUnit58 = (host58.state.world.overworld.units || []).find(function(u) { return u && u.leaderHeroId === hero58.id; });
+  if (heroUnit58) {
+    heroUnit58.x = city58.x + 3;
+    heroUnit58.y = city58.y;
+  }
+  const awayPresent58 = isHeroPresentAtCity(host58.state.world, city58, hero58);
+  const ingBeforeAway58 = city58.stockpile.ingots;
+  const awayTempRes58 = host58.dispatch({
+    type: COMMAND_TYPES.TEMPER_EQUIPMENT,
+    payload: { itemUid: hero58.equipment.armor.uid, source: 'equipped', heroId: hero58.id }
+  });
+  const awayGuardOk58 = Boolean(!awayPresent58 && !awayTempRes58.ok && city58.stockpile.ingots === ingBeforeAway58);
+
+  // 5. Blacksmith UI HTML wiring renders recipe preview, temper rules & owner tabs
+  host58.state._selectedForgeSlot = 'armor';
+  const bsHtml58 = buildUnifiedBuildingStageHtml(host58, 'blacksmith', city58);
+  const uiWiringOk58 = Boolean(
+    bsHtml58.indexOf(armPrev58.name) !== -1 &&
+    bsHtml58.indexOf('Max HP') !== -1 &&
+    bsHtml58.indexOf('Tempering Anvil') !== -1 &&
+    bsHtml58.indexOf('City Vault') !== -1 &&
+    bsHtml58.indexOf('(Away)') !== -1
+  );
+
+  const t58Checks = {
+    previewParityOk: previewParityOk58,
+    pickRejectOk: pickRejectOk58,
+    directTemperOk: directTemperOk58,
+    awayGuardOk: awayGuardOk58,
+    uiWiringOk: uiWiringOk58
+  };
+  const failed58 = Object.keys(t58Checks).filter(function(k) { return !t58Checks[k]; });
+  const t58Pass = failed58.length === 0;
+  results.push({
+    name: '58. IS-01 Forge Workflow: Recipe Preview Parity, Temper Rules & Direct Hero Gear Tempering',
+    pass: t58Pass,
+    detail: t58Pass
+      ? 'Deterministic recipe preview parity, pickaxe reject, Vault/Carried/Equipped in-place tempering, away-hero guard & Blacksmith UI wiring verified'
+      : 'Failed checks: ' + failed58.join(', ')
+  });
+
   return results;
 }
 
@@ -41030,6 +42186,13 @@ function dcpRenderWorldTab(snap) {
 
   return (
     '<div class="space-y-3">' +
+      '<div class="p-3 rounded-lg bg-[#0b111e] border border-[#fb923c]/40 flex flex-wrap items-center justify-between gap-2">' +
+        '<div>' +
+          '<div class="text-[11px] font-bold uppercase text-[#fb923c]">City Workshop Playtest Setup</div>' +
+          '<div class="text-[10px] text-[#94a3b8]">Unlocks Quarry, Smeltery, Blacksmith &amp; Lapidary on empty plots + ensures 20 Ingots &amp; 200g (non-destructive).</div>' +
+        '</div>' +
+        '<button type="button" data-dev-act="setup-forge" class="px-3 py-1.5 rounded bg-[#fb923c]/20 hover:bg-[#fb923c]/35 border border-[#fb923c]/60 text-[#fb923c] font-bold cursor-pointer">🔨 Setup Blacksmith &amp; 20 Ingots</button>' +
+      '</div>' +
       '<div class="p-3 rounded-lg bg-[#0b111e] border border-[#283347]">' +
         '<div class="flex items-center justify-between border-b border-[#283347] pb-1.5 mb-1">' +
           '<span class="text-[11px] font-bold uppercase text-[#fbbf24]">' + dcpEscapeHtml(c.name) + ' Stockpiles</span>' +
@@ -41282,6 +42445,8 @@ function attachDevConsolePanelListeners(devConsole, onRender) {
     } else if (act === 'equip-item') {
       const uid = actBtn.getAttribute('data-uid');
       if (uid) devConsole.execute('equip ' + uid);
+    } else if (act === 'setup-forge') {
+      devConsole.setupCityForgeWorkflow();
     } else if (act === 'resource-delta') {
       devConsole.adjustCityResource(actBtn.getAttribute('data-key'), Number(actBtn.getAttribute('data-val')), null);
     } else if (act === 'resource-set') {
@@ -44049,13 +45214,35 @@ function syncIntegratedDungeonInventoryModal() {
   if (!bodyEl) return;
 
   const h = gameState.hero;
+  const formatDungeonItemStats = function(it) {
+    if (!it) return 'Empty';
+    const maxHpVal = typeof it.maxHp === 'number' ? it.maxHp : (it.hp || 0);
+    const maxMpVal = typeof it.maxMp === 'number' ? it.maxMp : (it.mp || 0);
+    const usedS = Array.isArray(it.sockets) ? it.sockets.length : 0;
+    const maxS = typeof it.maxSockets === 'number' ? it.maxSockets : 0;
+    return [
+      it.atk ? ('ATK +' + it.atk) : '',
+      it.magicPower ? ('MAG +' + it.magicPower) : '',
+      it.def ? ('DEF +' + it.def) : '',
+      maxHpVal ? ('MaxHP +' + maxHpVal) : '',
+      maxMpVal ? ('MaxMP +' + maxMpVal) : '',
+      it.crit ? ('CRIT +' + it.crit + '%') : '',
+      it.dodge ? ('DODGE +' + it.dodge + '%') : '',
+      it.ward ? ('WARD +' + it.ward) : '',
+      it.spi ? ('SPI +' + it.spi) : '',
+      it.str ? ('STR +' + it.str) : '',
+      it.dex ? ('DEX +' + it.dex) : '',
+      it.int ? ('INT +' + it.int) : '',
+      it.vit ? ('VIT +' + it.vit) : '',
+      it.maxDur ? ('Dur ' + (it.curDur || 0) + '/' + it.maxDur) : '',
+      maxS > 0 ? ('Sockets ' + usedS + '/' + maxS + (usedS > 0 ? (' [' + it.sockets.join(', ') + ']') : '')) : ''
+    ].filter(Boolean).join(' • ') || (it.rarity || 'common');
+  };
   const eq = h.equipment || {};
   const eqSlots = ['weapon', 'armor', 'helm', 'boots', 'accessory', 'pickaxe'];
   const eqRows = eqSlots.map(function(sl) {
     const it = eq[sl];
-    const statLine = it
-      ? [it.atk ? ('ATK +' + it.atk) : '', it.def ? ('DEF +' + it.def) : '', it.str ? ('STR +' + it.str) : '', it.dex ? ('DEX +' + it.dex) : '', it.int ? ('INT +' + it.int) : '', it.vit ? ('VIT +' + it.vit) : '', it.maxDur ? ('Dur ' + (it.curDur || 0) + '/' + it.maxDur) : ''].filter(Boolean).join(' • ')
-      : 'Empty';
+    const statLine = formatDungeonItemStats(it);
     const unequipBtn = (it && sl !== 'pickaxe')
       ? '<button onclick="window.WargameApp.handleDungeonUnequipItem(\'' + sl + '\')" class="px-2 py-0.5 rounded bg-[#1a2232] hover:bg-[#283347] border border-[#f87171]/40 text-[#f87171] text-[10px] cursor-pointer">Unequip</button>'
       : '';
@@ -44065,8 +45252,8 @@ function syncIntegratedDungeonInventoryModal() {
   const bagGear = Array.isArray(h.expeditionGear) ? h.expeditionGear : [];
   const bagRows = bagGear.length > 0
     ? bagGear.map(function(it) {
-        const statLine = [it.atk ? ('ATK +' + it.atk) : '', it.def ? ('DEF +' + it.def) : '', it.str ? ('STR +' + it.str) : '', it.dex ? ('DEX +' + it.dex) : '', it.int ? ('INT +' + it.int) : '', it.vit ? ('VIT +' + it.vit) : ''].filter(Boolean).join(' • ');
-        return '<div class="flex items-center justify-between gap-2 p-2 rounded bg-[#080b11] border border-[#283347]"><div><span class="uppercase text-[#fbbf24] mr-1.5">[' + (it.slot || 'gear') + ']</span><strong class="text-[#e6edf3]">' + it.name + '</strong><div class="text-[10px] text-[#94a3b8]">' + (statLine || (it.rarity || 'common')) + '</div></div><div class="flex items-center gap-1.5"><button onclick="window.WargameApp.handleDungeonEquipItem(\'' + it.uid + '\')" class="px-2 py-0.5 rounded bg-[#34d399]/20 hover:bg-[#34d399]/30 border border-[#34d399]/50 text-[#34d399] text-[10px] font-bold cursor-pointer">Equip</button><button onclick="window.WargameApp.handleDungeonDropItem(\'' + it.uid + '\')" class="px-2 py-0.5 rounded bg-[#1a2232] hover:bg-[#283347] border border-[#f87171]/40 text-[#f87171] text-[10px] cursor-pointer">Drop</button></div></div>';
+        const statLine = formatDungeonItemStats(it);
+        return '<div class="flex items-center justify-between gap-2 p-2 rounded bg-[#080b11] border border-[#283347]"><div><span class="uppercase text-[#fbbf24] mr-1.5">[' + (it.slot || 'gear') + ']</span><strong class="text-[#e6edf3]">' + it.name + '</strong><div class="text-[10px] text-[#94a3b8]">' + statLine + '</div></div><div class="flex items-center gap-1.5"><button onclick="window.WargameApp.handleDungeonEquipItem(\'' + it.uid + '\')" class="px-2 py-0.5 rounded bg-[#34d399]/20 hover:bg-[#34d399]/30 border border-[#34d399]/50 text-[#34d399] text-[10px] font-bold cursor-pointer">Equip</button><button onclick="window.WargameApp.handleDungeonDropItem(\'' + it.uid + '\')" class="px-2 py-0.5 rounded bg-[#1a2232] hover:bg-[#283347] border border-[#f87171]/40 text-[#f87171] text-[10px] cursor-pointer">Drop</button></div></div>';
       }).join('')
     : '<div class="text-[#64748b]">No unequipped gear in Expedition Bag.</div>';
 
@@ -44077,7 +45264,21 @@ function syncIntegratedDungeonInventoryModal() {
       }).join('')
     : '<span class="text-[#64748b]">No ores, gems, or relics gathered yet.</span>';
 
+  const vitalsStrip =
+    '<div class="p-2.5 rounded-lg bg-[#080b11] border border-[#34d399]/40 flex flex-wrap items-center justify-between gap-2 text-xs font-mono">' +
+      '<span class="font-bold text-[#fbbf24]">' + h.name + ' (Lv ' + (h.level || 1) + ')</span>' +
+      '<div class="flex flex-wrap items-center gap-3">' +
+        '<span>HP <strong class="text-[#34d399]">' + (h.hp || 0) + '/' + (h.maxHp || 0) + '</strong></span>' +
+        '<span>MP <strong class="text-[#60a5fa]">' + (h.mp || 0) + '/' + (h.maxMp || 0) + '</strong></span>' +
+        '<span>ATK <strong class="text-[#fb923c]">' + (h.atk || 0) + '</strong></span>' +
+        '<span>MAG <strong class="text-[#c084fc]">' + (h.magicPower || 0) + '</strong></span>' +
+        '<span>DEF <strong class="text-[#38bdf8]">' + (h.def || 0) + '</strong></span>' +
+        ((h.ward || 0) > 0 ? ('<span>WARD <strong class="text-[#fde68a]">' + h.ward + '</strong></span>') : '') +
+      '</div>' +
+    '</div>';
+
   bodyEl.innerHTML =
+    vitalsStrip +
     '<div><div class="text-[11px] font-bold uppercase text-[#fbbf24] mb-1.5">Equipped Loadout (6 Slots)</div><div class="grid grid-cols-1 md:grid-cols-2 gap-1.5">' + eqRows + '</div></div>' +
     '<div><div class="text-[11px] font-bold uppercase text-[#38bdf8] mb-1.5">Expedition Gear Bag (' + bagGear.length + ')</div><div class="space-y-1.5">' + bagRows + '</div></div>' +
     '<div><div class="text-[11px] font-bold uppercase text-[#34d399] mb-1.5">Expedition Pack (Ores, Gems &amp; Relics)</div><div class="flex flex-wrap gap-1.5">' + packHtml + '</div></div>';
@@ -45105,15 +46306,40 @@ function handleBrewProvision(kind) {
   syncWargameUI(simHost);
 }
 
+function handleSelectForgeSlot(slot) {
+  simHost.state._selectedForgeSlot = slot || 'weapon';
+  simHost.state._dirty = true;
+  syncWargameUI(simHost);
+}
+
+function handleSelectTemperOwner(ownerKey) {
+  simHost.state._selectedTemperOwner = ownerKey || 'vault';
+  simHost.state._dirty = true;
+  syncWargameUI(simHost);
+}
+
 function handleForgeEquipment(slot) {
-  simHost.dispatch({ type: COMMAND_TYPES.FORGE_EQUIPMENT, payload: { slot: slot || 'weapon' } });
+  const res = simHost.dispatch({ type: COMMAND_TYPES.FORGE_EQUIPMENT, payload: { slot: slot || 'weapon' } });
+  simHost.state._forgeFeedback = (res && res.ok && res.data && res.data.item)
+    ? { ok: true, text: 'Forged ' + res.data.item.name + ' -> delivered to City Vault Storage (open Hero Sheet -> Take -> Equip).' }
+    : { ok: false, text: (res && res.error) || 'Could not forge item.' };
   simHost.state._dirty = true;
   simHost.save();
   syncWargameUI(simHost);
 }
 
-function handleTemperEquipment(itemUid) {
-  simHost.dispatch({ type: COMMAND_TYPES.TEMPER_EQUIPMENT, payload: { itemUid: itemUid } });
+function handleTemperEquipment(itemUid, source, heroId) {
+  const res = simHost.dispatch({
+    type: COMMAND_TYPES.TEMPER_EQUIPMENT,
+    payload: {
+      itemUid: itemUid,
+      source: source || 'vault',
+      heroId: heroId || null
+    }
+  });
+  simHost.state._forgeFeedback = (res && res.ok && res.data && res.data.item)
+    ? { ok: true, text: 'Tempered ' + res.data.item.name + ' to +' + res.data.temperRank + ' (' + res.data.statLabel + ' ' + res.data.prevStat + ' → ' + res.data.nextStat + ').' }
+    : { ok: false, text: (res && res.error) || 'Could not temper item.' };
   simHost.state._dirty = true;
   simHost.save();
   syncWargameUI(simHost);
@@ -45799,6 +47025,8 @@ const WargameApp = {
   handleCloseFacilityModal: handleCloseFacilityModal,
   handleSmeltIngots: handleSmeltIngots,
   handleBrewProvision: handleBrewProvision,
+  handleSelectForgeSlot: handleSelectForgeSlot,
+  handleSelectTemperOwner: handleSelectTemperOwner,
   handleForgeEquipment: handleForgeEquipment,
   handleTemperEquipment: handleTemperEquipment,
   handlePunchSocket: handlePunchSocket,

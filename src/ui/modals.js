@@ -522,17 +522,22 @@ export function openItemInspectModal(refId, isEquippedSlot = false, fromExpediti
 
   const curEq = h.equipment[item.slot];
   const statKeys = [
-    { k: 'atk',    label: 'Attack' },
-    { k: 'def',    label: 'Defense' },
-    { k: 'str',    label: 'Strength' },
-    { k: 'dex',    label: 'Dexterity' },
-    { k: 'int',    label: 'Intelligence' },
-    { k: 'vit',    label: 'Vitality' },
-    { k: 'crit',   label: 'Crit Chance %' },
-    { k: 'dodge',  label: 'Dodge %' },
-    { k: 'maxHp',  label: 'Max HP' },
-    { k: 'maxMp',  label: 'Max MP' },
-    { k: 'maxDur', label: 'Base Durability' }
+    { k: 'atk',        label: 'Attack' },
+    { k: 'magicPower', label: 'Magic Power' },
+    { k: 'def',        label: 'Defense' },
+    { k: 'str',        label: 'Strength' },
+    { k: 'dex',        label: 'Dexterity' },
+    { k: 'int',        label: 'Intelligence' },
+    { k: 'vit',        label: 'Vitality' },
+    { k: 'spi',        label: 'Spirit' },
+    { k: 'crit',       label: 'Crit Chance %' },
+    { k: 'dodge',      label: 'Dodge %' },
+    { k: 'ward',       label: 'Astral Ward' },
+    { k: 'leech',      label: 'Leech' },
+    { k: 'thorns',     label: 'Thorns' },
+    { k: 'maxHp',      label: 'Max HP' },
+    { k: 'maxMp',      label: 'Max MP' },
+    { k: 'maxDur',     label: 'Base Durability' }
   ];
 
   const rows = [];

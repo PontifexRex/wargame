@@ -446,6 +446,13 @@ function dcpRenderWorldTab(snap) {
 
   return (
     '<div class="space-y-3">' +
+      '<div class="p-3 rounded-lg bg-[#0b111e] border border-[#fb923c]/40 flex flex-wrap items-center justify-between gap-2">' +
+        '<div>' +
+          '<div class="text-[11px] font-bold uppercase text-[#fb923c]">City Workshop Playtest Setup</div>' +
+          '<div class="text-[10px] text-[#94a3b8]">Unlocks Quarry, Smeltery, Blacksmith &amp; Lapidary on empty plots + ensures 20 Ingots &amp; 200g (non-destructive).</div>' +
+        '</div>' +
+        '<button type="button" data-dev-act="setup-forge" class="px-3 py-1.5 rounded bg-[#fb923c]/20 hover:bg-[#fb923c]/35 border border-[#fb923c]/60 text-[#fb923c] font-bold cursor-pointer">🔨 Setup Blacksmith &amp; 20 Ingots</button>' +
+      '</div>' +
       '<div class="p-3 rounded-lg bg-[#0b111e] border border-[#283347]">' +
         '<div class="flex items-center justify-between border-b border-[#283347] pb-1.5 mb-1">' +
           '<span class="text-[11px] font-bold uppercase text-[#fbbf24]">' + dcpEscapeHtml(c.name) + ' Stockpiles</span>' +
@@ -698,6 +705,8 @@ export function attachDevConsolePanelListeners(devConsole, onRender) {
     } else if (act === 'equip-item') {
       const uid = actBtn.getAttribute('data-uid');
       if (uid) devConsole.execute('equip ' + uid);
+    } else if (act === 'setup-forge') {
+      devConsole.setupCityForgeWorkflow();
     } else if (act === 'resource-delta') {
       devConsole.adjustCityResource(actBtn.getAttribute('data-key'), Number(actBtn.getAttribute('data-val')), null);
     } else if (act === 'resource-set') {

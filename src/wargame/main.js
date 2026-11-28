@@ -433,13 +433,35 @@ function syncIntegratedDungeonInventoryModal() {
   if (!bodyEl) return;
 
   const h = gameState.hero;
+  const formatDungeonItemStats = function(it) {
+    if (!it) return 'Empty';
+    const maxHpVal = typeof it.maxHp === 'number' ? it.maxHp : (it.hp || 0);
+    const maxMpVal = typeof it.maxMp === 'number' ? it.maxMp : (it.mp || 0);
+    const usedS = Array.isArray(it.sockets) ? it.sockets.length : 0;
+    const maxS = typeof it.maxSockets === 'number' ? it.maxSockets : 0;
+    return [
+      it.atk ? ('ATK +' + it.atk) : '',
+      it.magicPower ? ('MAG +' + it.magicPower) : '',
+      it.def ? ('DEF +' + it.def) : '',
+      maxHpVal ? ('MaxHP +' + maxHpVal) : '',
+      maxMpVal ? ('MaxMP +' + maxMpVal) : '',
+      it.crit ? ('CRIT +' + it.crit + '%') : '',
+      it.dodge ? ('DODGE +' + it.dodge + '%') : '',
+      it.ward ? ('WARD +' + it.ward) : '',
+      it.spi ? ('SPI +' + it.spi) : '',
+      it.str ? ('STR +' + it.str) : '',
+      it.dex ? ('DEX +' + it.dex) : '',
+      it.int ? ('INT +' + it.int) : '',
+      it.vit ? ('VIT +' + it.vit) : '',
+      it.maxDur ? ('Dur ' + (it.curDur || 0) + '/' + it.maxDur) : '',
+      maxS > 0 ? ('Sockets ' + usedS + '/' + maxS + (usedS > 0 ? (' [' + it.sockets.join(', ') + ']') : '')) : ''
+    ].filter(Boolean).join(' • ') || (it.rarity || 'common');
+  };
   const eq = h.equipment || {};
   const eqSlots = ['weapon', 'armor', 'helm', 'boots', 'accessory', 'pickaxe'];
   const eqRows = eqSlots.map(function(sl) {
     const it = eq[sl];
-    const statLine = it
-      ? [it.atk ? ('ATK +' + it.atk) : '', it.def ? ('DEF +' + it.def) : '', it.str ? ('STR +' + it.str) : '', it.dex ? ('DEX +' + it.dex) : '', it.int ? ('INT +' + it.int) : '', it.vit ? ('VIT +' + it.vit) : '', it.maxDur ? ('Dur ' + (it.curDur || 0) + '/' + it.maxDur) : ''].filter(Boolean).join(' • ')
-      : 'Empty';
+    const statLine = formatDungeonItemStats(it);
     const unequipBtn = (it && sl !== 'pickaxe')
       ? '<button onclick="window.WargameApp.handleDungeonUnequipItem(\'' + sl + '\')" class="px-2 py-0.5 rounded bg-[#1a2232] hover:bg-[#283347] border border-[#f87171]/40 text-[#f87171] text-[10px] cursor-pointer">Unequip</button>'
       : '';
@@ -449,8 +471,8 @@ function syncIntegratedDungeonInventoryModal() {
   const bagGear = Array.isArray(h.expeditionGear) ? h.expeditionGear : [];
   const bagRows = bagGear.length > 0
     ? bagGear.map(function(it) {
-        const statLine = [it.atk ? ('ATK +' + it.atk) : '', it.def ? ('DEF +' + it.def) : '', it.str ? ('STR +' + it.str) : '', it.dex ? ('DEX +' + it.dex) : '', it.int ? ('INT +' + it.int) : '', it.vit ? ('VIT +' + it.vit) : ''].filter(Boolean).join(' • ');
-        return '<div class="flex items-center justify-between gap-2 p-2 rounded bg-[#080b11] border border-[#283347]"><div><span class="uppercase text-[#fbbf24] mr-1.5">[' + (it.slot || 'gear') + ']</span><strong class="text-[#e6edf3]">' + it.name + '</strong><div class="text-[10px] text-[#94a3b8]">' + (statLine || (it.rarity || 'common')) + '</div></div><div class="flex items-center gap-1.5"><button onclick="window.WargameApp.handleDungeonEquipItem(\'' + it.uid + '\')" class="px-2 py-0.5 rounded bg-[#34d399]/20 hover:bg-[#34d399]/30 border border-[#34d399]/50 text-[#34d399] text-[10px] font-bold cursor-pointer">Equip</button><button onclick="window.WargameApp.handleDungeonDropItem(\'' + it.uid + '\')" class="px-2 py-0.5 rounded bg-[#1a2232] hover:bg-[#283347] border border-[#f87171]/40 text-[#f87171] text-[10px] cursor-pointer">Drop</button></div></div>';
+        const statLine = formatDungeonItemStats(it);
+        return '<div class="flex items-center justify-between gap-2 p-2 rounded bg-[#080b11] border border-[#283347]"><div><span class="uppercase text-[#fbbf24] mr-1.5">[' + (it.slot || 'gear') + ']</span><strong class="text-[#e6edf3]">' + it.name + '</strong><div class="text-[10px] text-[#94a3b8]">' + statLine + '</div></div><div class="flex items-center gap-1.5"><button onclick="window.WargameApp.handleDungeonEquipItem(\'' + it.uid + '\')" class="px-2 py-0.5 rounded bg-[#34d399]/20 hover:bg-[#34d399]/30 border border-[#34d399]/50 text-[#34d399] text-[10px] font-bold cursor-pointer">Equip</button><button onclick="window.WargameApp.handleDungeonDropItem(\'' + it.uid + '\')" class="px-2 py-0.5 rounded bg-[#1a2232] hover:bg-[#283347] border border-[#f87171]/40 text-[#f87171] text-[10px] cursor-pointer">Drop</button></div></div>';
       }).join('')
     : '<div class="text-[#64748b]">No unequipped gear in Expedition Bag.</div>';
 
@@ -461,7 +483,21 @@ function syncIntegratedDungeonInventoryModal() {
       }).join('')
     : '<span class="text-[#64748b]">No ores, gems, or relics gathered yet.</span>';
 
+  const vitalsStrip =
+    '<div class="p-2.5 rounded-lg bg-[#080b11] border border-[#34d399]/40 flex flex-wrap items-center justify-between gap-2 text-xs font-mono">' +
+      '<span class="font-bold text-[#fbbf24]">' + h.name + ' (Lv ' + (h.level || 1) + ')</span>' +
+      '<div class="flex flex-wrap items-center gap-3">' +
+        '<span>HP <strong class="text-[#34d399]">' + (h.hp || 0) + '/' + (h.maxHp || 0) + '</strong></span>' +
+        '<span>MP <strong class="text-[#60a5fa]">' + (h.mp || 0) + '/' + (h.maxMp || 0) + '</strong></span>' +
+        '<span>ATK <strong class="text-[#fb923c]">' + (h.atk || 0) + '</strong></span>' +
+        '<span>MAG <strong class="text-[#c084fc]">' + (h.magicPower || 0) + '</strong></span>' +
+        '<span>DEF <strong class="text-[#38bdf8]">' + (h.def || 0) + '</strong></span>' +
+        ((h.ward || 0) > 0 ? ('<span>WARD <strong class="text-[#fde68a]">' + h.ward + '</strong></span>') : '') +
+      '</div>' +
+    '</div>';
+
   bodyEl.innerHTML =
+    vitalsStrip +
     '<div><div class="text-[11px] font-bold uppercase text-[#fbbf24] mb-1.5">Equipped Loadout (6 Slots)</div><div class="grid grid-cols-1 md:grid-cols-2 gap-1.5">' + eqRows + '</div></div>' +
     '<div><div class="text-[11px] font-bold uppercase text-[#38bdf8] mb-1.5">Expedition Gear Bag (' + bagGear.length + ')</div><div class="space-y-1.5">' + bagRows + '</div></div>' +
     '<div><div class="text-[11px] font-bold uppercase text-[#34d399] mb-1.5">Expedition Pack (Ores, Gems &amp; Relics)</div><div class="flex flex-wrap gap-1.5">' + packHtml + '</div></div>';
@@ -1489,15 +1525,40 @@ export function handleBrewProvision(kind) {
   syncWargameUI(simHost);
 }
 
+export function handleSelectForgeSlot(slot) {
+  simHost.state._selectedForgeSlot = slot || 'weapon';
+  simHost.state._dirty = true;
+  syncWargameUI(simHost);
+}
+
+export function handleSelectTemperOwner(ownerKey) {
+  simHost.state._selectedTemperOwner = ownerKey || 'vault';
+  simHost.state._dirty = true;
+  syncWargameUI(simHost);
+}
+
 export function handleForgeEquipment(slot) {
-  simHost.dispatch({ type: COMMAND_TYPES.FORGE_EQUIPMENT, payload: { slot: slot || 'weapon' } });
+  const res = simHost.dispatch({ type: COMMAND_TYPES.FORGE_EQUIPMENT, payload: { slot: slot || 'weapon' } });
+  simHost.state._forgeFeedback = (res && res.ok && res.data && res.data.item)
+    ? { ok: true, text: 'Forged ' + res.data.item.name + ' -> delivered to City Vault Storage (open Hero Sheet -> Take -> Equip).' }
+    : { ok: false, text: (res && res.error) || 'Could not forge item.' };
   simHost.state._dirty = true;
   simHost.save();
   syncWargameUI(simHost);
 }
 
-export function handleTemperEquipment(itemUid) {
-  simHost.dispatch({ type: COMMAND_TYPES.TEMPER_EQUIPMENT, payload: { itemUid: itemUid } });
+export function handleTemperEquipment(itemUid, source, heroId) {
+  const res = simHost.dispatch({
+    type: COMMAND_TYPES.TEMPER_EQUIPMENT,
+    payload: {
+      itemUid: itemUid,
+      source: source || 'vault',
+      heroId: heroId || null
+    }
+  });
+  simHost.state._forgeFeedback = (res && res.ok && res.data && res.data.item)
+    ? { ok: true, text: 'Tempered ' + res.data.item.name + ' to +' + res.data.temperRank + ' (' + res.data.statLabel + ' ' + res.data.prevStat + ' → ' + res.data.nextStat + ').' }
+    : { ok: false, text: (res && res.error) || 'Could not temper item.' };
   simHost.state._dirty = true;
   simHost.save();
   syncWargameUI(simHost);
@@ -2183,6 +2244,8 @@ export const WargameApp = {
   handleCloseFacilityModal: handleCloseFacilityModal,
   handleSmeltIngots: handleSmeltIngots,
   handleBrewProvision: handleBrewProvision,
+  handleSelectForgeSlot: handleSelectForgeSlot,
+  handleSelectTemperOwner: handleSelectTemperOwner,
   handleForgeEquipment: handleForgeEquipment,
   handleTemperEquipment: handleTemperEquipment,
   handlePunchSocket: handlePunchSocket,

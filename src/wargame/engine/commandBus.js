@@ -33,6 +33,11 @@ import {
   isHeroDungeonEligible
 } from '../../data/classes.js';
 import {
+  normalizeEquipmentItem,
+  computeClassItemPreferenceScore
+} from '../../data/items.js';
+import { GEM_CATALOG } from '../../data/gems.js';
+import {
   CITY_BUILDINGS_CATALOG,
   MARKET_EXCHANGE_RATES,
   MARKET_RARITY_BASE_VALUES,
@@ -41,7 +46,11 @@ import {
   isBuildingPrerequisiteMet,
   getBuildingPrerequisiteMissingReason,
   computeMaxPartySize,
-  getCityRecruitableClasses
+  getCityRecruitableClasses,
+  BLACKSMITH_FORGE_SLOTS,
+  getBlacksmithForgeRecipePreview,
+  getBlacksmithTemperPreview,
+  isHeroPresentAtCity
 } from '../data/buildings.js';
 import { ensureProgressionState } from '../../progression/progressionState.js';
 import {
@@ -1712,7 +1721,7 @@ export function dispatchWargameCommand(commandEnvelope, state, scheduler, eventS
 
     const itemIdx = hero.bagGear.findIndex(function(it) { return it.uid === payload.itemUid; });
     if (itemIdx === -1) return reject('Item not found in hero pack');
-    const item = hero.bagGear.splice(itemIdx, 1)[0];
+    const item = normalizeEquipmentItem(hero.bagGear.splice(itemIdx, 1)[0]);
     const slot = item.slot;
     if (!slot || !(slot in hero.equipment)) {
       hero.bagGear.push(item);
@@ -1751,7 +1760,8 @@ export function dispatchWargameCommand(commandEnvelope, state, scheduler, eventS
 
     function scoreGear(it) {
       if (!it) return -1;
-      return (it.atk || 0) * 3 + (it.def || 0) * 2.5 + (it.hp || 0) * 0.4 + (it.mp || 0) * 0.3 + (it.tier || 0) * 15;
+      normalizeEquipmentItem(it);
+      return computeClassItemPreferenceScore(it, hero.classId);
     }
 
     const slots = ['weapon', 'armor', 'helm', 'boots', 'accessory', 'pickaxe'];
@@ -2030,45 +2040,32 @@ export function dispatchWargameCommand(commandEnvelope, state, scheduler, eventS
     }
 
     const slot = payload.slot || 'weapon';
-    const validSlots = ['weapon', 'armor', 'helm', 'boots', 'accessory', 'pickaxe'];
-    if (validSlots.indexOf(slot) === -1) return reject('Invalid equipment slot: ' + slot);
+    if (BLACKSMITH_FORGE_SLOTS.indexOf(slot) === -1) return reject('Invalid equipment slot: ' + slot);
 
-    const ingotCost = 3 + bsLvl;
-    const goldCost = 20 + bsLvl * 10;
-    if ((city.stockpile.ingots || 0) < ingotCost || (city.stockpile.gold || 0) < goldCost) {
-      return reject('Need ' + ingotCost + ' Forged Ingots and ' + goldCost + ' Gold to forge ' + slot);
+    const recipe = getBlacksmithForgeRecipePreview(slot, bsLvl);
+    if ((city.stockpile.ingots || 0) < recipe.ingotCost || (city.stockpile.gold || 0) < recipe.goldCost) {
+      return reject('Need ' + recipe.ingotCost + ' Forged Ingots and ' + recipe.goldCost + ' Gold to forge ' + recipe.name);
     }
-    city.stockpile.ingots -= ingotCost;
-    city.stockpile.gold -= goldCost;
+    city.stockpile.ingots -= recipe.ingotCost;
+    city.stockpile.gold -= recipe.goldCost;
 
-    const rarity = bsLvl >= 3 ? 'epic' : (bsLvl >= 2 ? 'rare' : 'uncommon');
-    const socketCount = bsLvl >= 3 ? 2 : (bsLvl >= 2 ? 1 : 0);
-    const tierName = bsLvl >= 3 ? 'Star-Forged' : (bsLvl >= 2 ? 'Tempered' : 'Forged');
-    const slotNames = {
-      weapon: 'Greatsword',
-      armor: 'Plate Cuirass',
-      helm: 'Greathelm',
-      boots: 'War Greaves',
-      accessory: 'Runic Signet',
-      pickaxe: 'Mithril Pickaxe'
-    };
-
-    const forged = {
+    const forged = normalizeEquipmentItem({
       uid: 'forge_' + slot + '_' + Date.now() + '_' + Math.floor(Math.random() * 10000),
-      slot: slot,
-      name: tierName + ' ' + slotNames[slot],
-      rarity: rarity,
-      atk: slot === 'weapon' ? (10 + bsLvl * 4) : (slot === 'accessory' ? (3 + bsLvl * 2) : 0),
-      def: (slot === 'armor' || slot === 'helm' || slot === 'boots') ? (5 + bsLvl * 3) : (slot === 'accessory' ? (2 + bsLvl) : 0),
-      hp: slot === 'armor' ? (10 + bsLvl * 6) : 0,
-      tier: slot === 'pickaxe' ? Math.min(4, 1 + bsLvl) : undefined,
-      maxDurability: slot === 'pickaxe' ? (30 + bsLvl * 10) : undefined,
-      durability: slot === 'pickaxe' ? (30 + bsLvl * 10) : undefined,
-      sockets: socketCount,
-      gems: [],
+      slot: recipe.slot,
+      name: recipe.name,
+      rarity: recipe.rarity,
+      atk: recipe.atk,
+      def: recipe.def,
+      maxHp: recipe.maxHp,
+      tier: recipe.tier,
+      maxDur: recipe.maxDur,
+      curDur: recipe.curDur,
+      maxSockets: recipe.maxSockets,
+      sockets: [],
+      affixes: [],
       temperRank: 0,
-      value: 45 + bsLvl * 30
-    };
+      value: recipe.value
+    });
 
     city.storage.items.push(forged);
     if (eventStream) {
@@ -2079,33 +2076,69 @@ export function dispatchWargameCommand(commandEnvelope, state, scheduler, eventS
         qty: 1
       }, simTimeMs);
     }
-    return accept({ item: forged, storageCount: city.storage.items.length });
+    return accept({ item: forged, recipe: recipe, storageCount: city.storage.items.length });
   }
 
   if (cmdType === COMMAND_TYPES.TEMPER_EQUIPMENT) {
     const city = getPrimaryCity(state);
-    if (!city || !city.storage || !Array.isArray(city.storage.items)) return reject('City Vault Storage unavailable');
+    if (!city) return reject('No City founded');
     const bsLvl = (city.buildings && city.buildings.blacksmith) || 0;
     if (bsLvl < 1) return reject('Requires Blacksmith & Star-Forge');
 
-    const item = city.storage.items.find(function(it) { return it.uid === payload.itemUid; });
-    if (!item) return reject('Item not found in City Vault Storage');
-    const curRank = item.temperRank || 0;
-    if (curRank >= 3) return reject(item.name + ' is already at maximum Temper Rank (+3)');
+    const source = payload.source || 'vault';
+    const itemUid = payload.itemUid;
+    let item = null;
+    let targetHero = null;
 
-    if ((city.stockpile.ingots || 0) < 2 || (city.stockpile.gold || 0) < 20) {
-      return reject('Need 2 Forged Ingots and 20 Gold to temper equipment');
-    }
-    city.stockpile.ingots -= 2;
-    city.stockpile.gold -= 20;
-
-    item.temperRank = curRank + 1;
-    if (item.slot === 'weapon' || item.slot === 'accessory') {
-      item.atk = (item.atk || 0) + 2;
+    if (source === 'vault') {
+      if (!city.storage || !Array.isArray(city.storage.items)) return reject('City Vault Storage unavailable');
+      item = city.storage.items.find(function(it) { return it && it.uid === itemUid; }) || null;
+      if (!item) return reject('Item not found in City Vault Storage');
+    } else if (source === 'carried' || source === 'equipped') {
+      targetHero = (world.heroes || []).find(function(h) { return h && h.id === payload.heroId; }) || null;
+      if (!targetHero) return reject('Hero not found');
+      if (!isHeroPresentAtCity(world, city, targetHero)) {
+        return reject(targetHero.name + ' must be at ' + city.name + ' to temper gear');
+      }
+      if (source === 'carried') {
+        const bag = Array.isArray(targetHero.bagGear) ? targetHero.bagGear : [];
+        item = bag.find(function(it) { return it && it.uid === itemUid; }) || null;
+        if (!item) return reject('Item not found in ' + targetHero.name + '\'s carried pack');
+      } else {
+        const eq = targetHero.equipment || {};
+        const eqSlots = ['weapon', 'armor', 'helm', 'boots', 'accessory', 'pickaxe'];
+        for (let si = 0; si < eqSlots.length; si++) {
+          const cand = eq[eqSlots[si]];
+          if (cand && cand.uid === itemUid) {
+            item = cand;
+            break;
+          }
+        }
+        if (!item) return reject('Item not found in ' + targetHero.name + '\'s equipped loadout');
+      }
     } else {
-      item.def = (item.def || 0) + 2;
+      return reject('Invalid temper source: ' + source);
     }
-    item.value = (item.value || 30) + 25;
+
+    normalizeEquipmentItem(item);
+    const preview = getBlacksmithTemperPreview(item);
+    if (!preview.eligible) {
+      return reject(preview.reason || 'Item cannot be tempered');
+    }
+
+    if ((city.stockpile.ingots || 0) < preview.ingotCost || (city.stockpile.gold || 0) < preview.goldCost) {
+      return reject('Need ' + preview.ingotCost + ' Forged Ingots and ' + preview.goldCost + ' Gold to temper equipment');
+    }
+    city.stockpile.ingots -= preview.ingotCost;
+    city.stockpile.gold -= preview.goldCost;
+
+    item.temperRank = preview.nextRank;
+    item[preview.statKey] = preview.nextStat;
+    item.value = (item.value || 30) + preview.valueDelta;
+
+    if (source === 'equipped' && targetHero) {
+      refreshHeroDerivedStats(targetHero);
+    }
 
     if (eventStream) {
       eventStream.publish(STREAM_TOPICS.CRAFTING_COMPLETED, {
@@ -2115,7 +2148,16 @@ export function dispatchWargameCommand(commandEnvelope, state, scheduler, eventS
         qty: 1
       }, simTimeMs);
     }
-    return accept({ item: item, temperRank: item.temperRank });
+    return accept({
+      item: item,
+      source: source,
+      heroId: targetHero ? targetHero.id : null,
+      temperRank: item.temperRank,
+      statKey: preview.statKey,
+      statLabel: preview.statLabel,
+      prevStat: preview.currentStat,
+      nextStat: preview.nextStat
+    });
   }
 
   if (cmdType === COMMAND_TYPES.PUNCH_SOCKET) {
@@ -2126,8 +2168,10 @@ export function dispatchWargameCommand(commandEnvelope, state, scheduler, eventS
 
     const item = city.storage.items.find(function(it) { return it.uid === payload.itemUid; });
     if (!item) return reject('Item not found in City Vault Storage');
-    const curSockets = item.sockets || 0;
-    if (curSockets >= 2) return reject(item.name + ' already has the maximum 2 Gem Sockets');
+    normalizeEquipmentItem(item);
+    if (item.slot === 'pickaxe') return reject('Pickaxes cannot hold Gem Sockets');
+    const curMaxSockets = item.maxSockets || 0;
+    if (curMaxSockets >= 2) return reject(item.name + ' already has the maximum 2 Gem Sockets');
 
     if ((city.stockpile.ingots || 0) < 2 || (city.stockpile.gold || 0) < 35) {
       return reject('Need 2 Forged Ingots and 35 Gold to punch a Gem Socket');
@@ -2135,8 +2179,8 @@ export function dispatchWargameCommand(commandEnvelope, state, scheduler, eventS
     city.stockpile.ingots -= 2;
     city.stockpile.gold -= 35;
 
-    item.sockets = curSockets + 1;
-    if (!Array.isArray(item.gems)) item.gems = [];
+    item.maxSockets = curMaxSockets + 1;
+    if (!Array.isArray(item.sockets)) item.sockets = [];
     if (eventStream) {
       eventStream.publish(STREAM_TOPICS.CRAFTING_COMPLETED, {
         cityId: city.id,
@@ -2145,7 +2189,7 @@ export function dispatchWargameCommand(commandEnvelope, state, scheduler, eventS
         qty: 1
       }, simTimeMs);
     }
-    return accept({ item: item, sockets: item.sockets });
+    return accept({ item: item, maxSockets: item.maxSockets });
   }
 
   if (cmdType === COMMAND_TYPES.SOCKET_CITY_GEM) {
@@ -2157,27 +2201,17 @@ export function dispatchWargameCommand(commandEnvelope, state, scheduler, eventS
 
     const item = city.storage.items.find(function(it) { return it.uid === payload.itemUid; });
     if (!item) return reject('Item not found in City Vault Storage');
-    if (!Array.isArray(item.gems)) item.gems = [];
-    if (item.gems.length >= (item.sockets || 0)) return reject('No open Gem Sockets on ' + item.name);
+    normalizeEquipmentItem(item);
+    if (item.slot === 'pickaxe') return reject('Pickaxes cannot hold Astral Gems');
+    if (item.sockets.length >= (item.maxSockets || 0)) return reject('No open Gem Sockets on ' + item.name);
 
     const gemId = payload.gemId || 'ruby';
-    const gemBonuses = {
-      ruby:         { name: 'Ruby of Might',     atk: 4, def: 0, hp: 0,  mp: 0 },
-      emerald:      { name: 'Emerald of Wind',   atk: 1, def: 3, hp: 0,  mp: 0 },
-      sapphire:     { name: 'Sapphire of Will',  atk: 2, def: 0, hp: 0,  mp: 15 },
-      topaz:        { name: 'Topaz of Dawn',     atk: 0, def: 2, hp: 20, mp: 0 },
-      void_diamond: { name: 'Void Diamond',      atk: 6, def: 4, hp: 10, mp: 10 }
-    };
-    const gDef = gemBonuses[gemId];
+    const gDef = GEM_CATALOG[gemId];
     if (!gDef) return reject('Unknown gem type: ' + gemId);
     if ((city.gems[gemId] || 0) < 1) return reject('No ' + gDef.name + ' available in City Gems');
 
     city.gems[gemId] -= 1;
-    item.gems.push(gemId);
-    item.atk = (item.atk || 0) + gDef.atk;
-    item.def = (item.def || 0) + gDef.def;
-    item.hp  = (item.hp  || 0) + gDef.hp;
-    item.mp  = (item.mp  || 0) + gDef.mp;
+    item.sockets.push(gemId);
 
     if (eventStream) {
       eventStream.publish(STREAM_TOPICS.CRAFTING_COMPLETED, {
@@ -2198,25 +2232,13 @@ export function dispatchWargameCommand(commandEnvelope, state, scheduler, eventS
     if (!city.gems) city.gems = { ruby: 0, emerald: 0, sapphire: 0, topaz: 0, void_diamond: 0 };
 
     const item = city.storage.items.find(function(it) { return it.uid === payload.itemUid; });
-    if (!item || !Array.isArray(item.gems) || item.gems.length === 0) return reject('No socketed gems to extract');
+    if (!item) return reject('Item not found in City Vault Storage');
+    normalizeEquipmentItem(item);
+    if (!Array.isArray(item.sockets) || item.sockets.length === 0) return reject('No socketed gems to extract');
     if ((city.stockpile.gold || 0) < 20) return reject('Need 20 Gold to safely extract a gem');
 
     city.stockpile.gold -= 20;
-    const removedGemId = item.gems.pop();
-    const gemBonuses = {
-      ruby:         { atk: 4, def: 0, hp: 0,  mp: 0 },
-      emerald:      { atk: 1, def: 3, hp: 0,  mp: 0 },
-      sapphire:     { atk: 2, def: 0, hp: 0,  mp: 15 },
-      topaz:        { atk: 0, def: 2, hp: 20, mp: 0 },
-      void_diamond: { atk: 6, def: 4, hp: 10, mp: 10 }
-    };
-    const gDef = gemBonuses[removedGemId];
-    if (gDef) {
-      item.atk = Math.max(0, (item.atk || 0) - gDef.atk);
-      item.def = Math.max(0, (item.def || 0) - gDef.def);
-      item.hp  = Math.max(0, (item.hp  || 0) - gDef.hp);
-      item.mp  = Math.max(0, (item.mp  || 0) - gDef.mp);
-    }
+    const removedGemId = item.sockets.pop();
     city.gems[removedGemId] = (city.gems[removedGemId] || 0) + 1;
 
     return accept({ item: item, extractedGemId: removedGemId, cityGemCount: city.gems[removedGemId] });
@@ -2319,7 +2341,7 @@ export function dispatchWargameCommand(commandEnvelope, state, scheduler, eventS
     const pid = getCanonicalPlayerId(state);
     const baseVal = MARKET_RARITY_BASE_VALUES[item.rarity || 'common'] || 25;
     const temperBonus = (item.temperRank || 0) * 20;
-    const gemBonus = Array.isArray(item.gems) ? item.gems.length * 30 : 0;
+    const gemBonus = Array.isArray(item.sockets) ? item.sockets.length * 30 : (Array.isArray(item.gems) ? item.gems.length * 30 : 0);
 
     // Consume Track F BenefitService relic_gold_mult (e.g. ADV_TREASURE_001) + Market level bonus
     const activeEffs = collectActiveEffects(prog, { playerId: pid });

@@ -16,7 +16,7 @@ import {
   TILE_ORE_COPPER,
   RARITY
 } from '../constants.js';
-import { AFFIX_POOL, BASE_GEAR_NAMES, ELITE_AFFIXES } from '../data/items.js';
+import { AFFIX_POOL, ITEM_BASE_ARCHETYPES, ELITE_AFFIXES, normalizeEquipmentItem } from '../data/items.js';
 import { MONSTER_ARCHETYPES, BOSS_ARCHETYPES } from '../data/monsters.js';
 import { normalizeDungeonConfig, resolveFloorBiome } from '../data/dungeons.js';
 import { createSeededRng } from './rng.js';
@@ -32,7 +32,7 @@ export function rollSocketCountForRarity(rarityKey, slot) {
   return 0;
 }
 
-export function generateProceduralEquipment(depth = 1, forcedRarity = null, forcedSlot = null, rarityBonus = 0) {
+export function generateProceduralEquipment(depth = 1, forcedRarity = null, forcedSlot = null, rarityBonus = 0, forcedArchetypeId = null) {
   const slots = ['weapon', 'armor', 'helm', 'boots', 'accessory'];
   const slot = forcedSlot || slots[Math.floor(Math.random() * slots.length)];
 
@@ -47,9 +47,19 @@ export function generateProceduralEquipment(depth = 1, forcedRarity = null, forc
   }
 
   const rDef = RARITY[rarityKey] || RARITY.common;
-  const baseTitle = BASE_GEAR_NAMES[slot][Math.floor(Math.random() * BASE_GEAR_NAMES[slot].length)];
+  const relicScale = rarityKey === 'relic' ? 1.35 : 1.0;
+  const archPool = ITEM_BASE_ARCHETYPES[slot] || [];
+  let arch = null;
+  if (forcedArchetypeId && archPool.length > 0) {
+    arch = archPool.find(function(a) { return a.id === forcedArchetypeId; }) || null;
+  }
+  if (!arch && archPool.length > 0) {
+    arch = archPool[Math.floor(Math.random() * archPool.length)];
+  }
+  const baseTitle = arch ? arch.name : 'Relic Gear';
   const item = {
     uid: nextItemUid('gear'),
+    archetypeId: arch ? arch.id : null,
     slot,
     rarity: rarityKey,
     name: baseTitle,
@@ -59,20 +69,34 @@ export function generateProceduralEquipment(depth = 1, forcedRarity = null, forc
     sockets: []
   };
 
-  // Primary stat by slot
+  // Base stats from data-driven equipment archetype (IS-01)
   if (slot === 'weapon') {
-    item.atk = Math.round((5 + depth * 2.2) * (rarityKey === 'relic' ? 1.35 : 1.0));
+    const atkMult = (arch && typeof arch.atkMult === 'number') ? arch.atkMult : 1.0;
+    item.atk = Math.max(1, Math.round((5 + depth * 2.2) * atkMult * relicScale));
   } else if (slot === 'armor') {
-    item.def = Math.round((4 + depth * 1.8) * (rarityKey === 'relic' ? 1.35 : 1.0));
+    const defMult = (arch && typeof arch.defMult === 'number') ? arch.defMult : 1.0;
+    item.def = Math.max(1, Math.round((4 + depth * 1.8) * defMult * relicScale));
   } else if (slot === 'helm') {
-    item.def = Math.round(2 + depth * 0.9);
-    item.maxHp = Math.round(8 + depth * 4);
+    const defMult = (arch && typeof arch.defMult === 'number') ? arch.defMult : 1.0;
+    item.def = Math.max(1, Math.round((2 + depth * 0.9) * defMult));
   } else if (slot === 'boots') {
-    item.def = Math.round(1 + depth * 0.8);
-    item.dodge = Math.round(2 + depth * 1.1);
-  } else if (slot === 'accessory') {
-    item.crit = Math.round(3 + depth * 1.0);
-    item.maxMp = Math.round(8 + depth * 3);
+    const defMult = (arch && typeof arch.defMult === 'number') ? arch.defMult : 1.0;
+    item.def = Math.max(1, Math.round((1 + depth * 0.8) * defMult));
+  }
+
+  if (arch) {
+    if (arch.atkBase) item.atk = (item.atk || 0) + Math.round((arch.atkBase + depth * (arch.atkPerDepth || 0)) * relicScale);
+    if (arch.magicBase) item.magicPower = (item.magicPower || 0) + Math.round((arch.magicBase + depth * (arch.magicPerDepth || 0)) * relicScale);
+    if (arch.maxHpBase) item.maxHp = (item.maxHp || 0) + Math.round(arch.maxHpBase + depth * (arch.maxHpPerDepth || 0));
+    if (arch.maxMpBase) item.maxMp = (item.maxMp || 0) + Math.round(arch.maxMpBase + depth * (arch.maxMpPerDepth || 0));
+    if (arch.critBase) item.crit = (item.crit || 0) + Math.round(arch.critBase + depth * (arch.critPerDepth || 0));
+    if (arch.dodgeBase) item.dodge = (item.dodge || 0) + Math.round(arch.dodgeBase + depth * (arch.dodgePerDepth || 0));
+    if (arch.wardBase) item.ward = (item.ward || 0) + Math.round(arch.wardBase + depth * (arch.wardPerDepth || 0));
+    if (arch.strBase) item.str = (item.str || 0) + arch.strBase;
+    if (arch.dexBase) item.dex = (item.dex || 0) + arch.dexBase;
+    if (arch.intBase) item.int = (item.int || 0) + arch.intBase;
+    if (arch.vitBase) item.vit = (item.vit || 0) + arch.vitBase;
+    if (arch.spiBase) item.spi = (item.spi || 0) + arch.spiBase;
   }
 
   // Roll Affixes based on rarity
@@ -90,7 +114,7 @@ export function generateProceduralEquipment(depth = 1, forcedRarity = null, forc
   if (picked.length > 0) {
     item.name = `${baseTitle} ${picked[0].label}`;
   }
-  return item;
+  return normalizeEquipmentItem(item);
 }
 
 // Fast O(W * H) zero-allocation BFS guaranteeing a trap-free walkable path between upPos and downPos

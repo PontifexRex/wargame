@@ -362,7 +362,7 @@ export function renderGuildHub() {
   } else {
     armoryGrid.innerHTML = displayArmory.map(g => {
       const r = RARITY[g.rarity] || RARITY.common;
-      const isUpgrade = isItemUpgrade(g, h.equipment);
+      const isUpgrade = isItemUpgrade(g, h.equipment, h.classId);
       const pwr = computeItemPowerScore(g);
       const isLocked = Boolean(g.locked);
       const borderClass = isUpgrade

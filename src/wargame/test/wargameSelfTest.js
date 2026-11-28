@@ -25,7 +25,8 @@ import {
 import { APP_CONTEXTS, createAppContextController } from '../../core/appContext.js';
 import { DEV_CONSOLE_TABS, parseConsoleCommandLine, createDevConsoleController } from '../../core/devConsole.js';
 import { createDefaultGameState, ensureDungeonFloorHydrated, recomputeHeroDerivedStats } from '../../engine/state.js';
-import { createMonsterEntityFromArchetype, createBossEntityFromArchetype } from '../../engine/procedural.js';
+import { createMonsterEntityFromArchetype, createBossEntityFromArchetype, generateProceduralEquipment } from '../../engine/procedural.js';
+import { normalizeEquipmentItem, getEffectiveItemBonuses, computeItemPowerScore, computeClassItemPreferenceScore, AFFIX_POOL, ITEM_BASE_ARCHETYPES } from '../../data/items.js';
 import { extractToGuild, handleHeroDefeat, useRecallScroll, traversePortal, applyWargameEntryHandoff, gainExperience, applyStatusEffect } from '../../engine/actions.js';
 import { useStairsAtPlayer, executeClassSkill, getSkillTargetingInfo, processTurn, killMonster, attackMonster, clearFloorTelegraphs } from '../../engine/combat.js';
 import { spawnEntity } from '../../engine/dev.js';
@@ -70,7 +71,8 @@ import {
   clearOverworldCasualtyFloaters,
   COMBAT_FLOATER_DURATION_MS
 } from '../ui/overworldView.js';
-import { CITY_BUILDINGS_CATALOG, computeBuildingDurationMs, isBuildingPrerequisiteMet, computeMaxPartySize, getCityRecruitableClasses, getCityAcademyBenefitEffects } from '../data/buildings.js';
+import { CITY_BUILDINGS_CATALOG, computeBuildingDurationMs, isBuildingPrerequisiteMet, getBuildingPrerequisiteMissingReason, computeMaxPartySize, getCityRecruitableClasses, getCityAcademyBenefitEffects, getBlacksmithForgeRecipePreview, getBlacksmithTemperPreview, isHeroPresentAtCity } from '../data/buildings.js';
+import { normalizeSharedHeroProfile, buildSharedHeroStatsHtml } from '../../ui/shared/characterSheet.js';
 import {
   TROOP_CATALOG,
   TROOP_LOCATION_TYPES,
@@ -1205,7 +1207,8 @@ export function evaluateWargameSelfTests() {
     forgeBlocked12 &&
     forgedItem12 &&
     forgedItem12.rarity === 'rare' &&
-    forgedItem12.sockets === 1
+    forgedItem12.maxSockets === 1 &&
+    Array.isArray(forgedItem12.sockets) && forgedItem12.sockets.length === 0
   );
 
   // Temper forged weapon (+2 ATK, temperRank = 1)
@@ -1213,22 +1216,35 @@ export function evaluateWargameSelfTests() {
   const temperRes12 = forgedItem12 ? host7.dispatch({ type: COMMAND_TYPES.TEMPER_EQUIPMENT, payload: { itemUid: forgedItem12.uid } }) : { ok: false };
   const temperVerified12 = Boolean(temperRes12.ok && forgedItem12.temperRank === 1 && forgedItem12.atk === atkBeforeTemper12 + 2);
 
-  // Lapidary: Punch 2nd socket -> Socket Ruby (+4 ATK) -> Extract Ruby back to city.gems
+  // Lapidary: Punch 2nd socket -> Socket Ruby (+4 ATK via GEM_CATALOG, no base mutation) -> Extract Ruby back to city.gems
   const lapBlocked12 = !host7.dispatch({ type: COMMAND_TYPES.PUNCH_SOCKET, payload: { itemUid: forgedItem12.uid } }).ok;
   city7.buildings.lapidary = 1;
   city7.gems = { ruby: 2, emerald: 1, sapphire: 0, topaz: 0, void_diamond: 0 };
   const punchRes12 = host7.dispatch({ type: COMMAND_TYPES.PUNCH_SOCKET, payload: { itemUid: forgedItem12.uid } });
   const atkBeforeGem12 = forgedItem12.atk;
   const socketRes12 = host7.dispatch({ type: COMMAND_TYPES.SOCKET_CITY_GEM, payload: { itemUid: forgedItem12.uid, gemId: 'ruby' } });
-  const gemSocketed12 = Boolean(socketRes12.ok && forgedItem12.atk === atkBeforeGem12 + 4 && city7.gems.ruby === 1);
+  const effAfterSocket12 = getEffectiveItemBonuses(forgedItem12);
+  const gemSocketed12 = Boolean(
+    socketRes12.ok &&
+    forgedItem12.atk === atkBeforeGem12 &&
+    forgedItem12.sockets.indexOf('ruby') !== -1 &&
+    effAfterSocket12.atk === atkBeforeGem12 + 4 &&
+    city7.gems.ruby === 1
+  );
   const unsocketRes12 = host7.dispatch({ type: COMMAND_TYPES.UNSOCKET_CITY_GEM, payload: { itemUid: forgedItem12.uid } });
-  const gemExtracted12 = Boolean(unsocketRes12.ok && forgedItem12.atk === atkBeforeGem12 && city7.gems.ruby === 2);
+  const effAfterUnsocket12 = getEffectiveItemBonuses(forgedItem12);
+  const gemExtracted12 = Boolean(
+    unsocketRes12.ok &&
+    forgedItem12.sockets.length === 0 &&
+    effAfterUnsocket12.atk === atkBeforeGem12 &&
+    city7.gems.ruby === 2
+  );
 
   const t12Checks = {
     forgedVerified12: forgedVerified12,
     temperVerified12: temperVerified12,
     lapBlocked12: lapBlocked12,
-    punchOk: Boolean(punchRes12.ok && forgedItem12.sockets === 2),
+    punchOk: Boolean(punchRes12.ok && forgedItem12.maxSockets === 2),
     gemSocketed12: gemSocketed12,
     gemExtracted12: gemExtracted12
   };
@@ -6385,6 +6401,337 @@ export function evaluateWargameSelfTests() {
     detail: t55Pass
       ? 'Knowledge isRanged, Fortified HP/DEF, Volatile/hazard canonical death & duration, Skirmisher kite/fallback, Tank Shield Brace, and Colossus/Weaver telegraphs verified'
       : 'Failed checks: ' + failed55.join(', ')
+  });
+
+  // =========================================================================
+  // Test 56: IS-01 — Canonical Equipment Schema, Legacy Migration, Class-Aware Scoring & Item Archetypes
+  // =========================================================================
+  const host56 = createWargameSimHost();
+  host56.dispatch({ type: COMMAND_TYPES.START_NEW_CAMPAIGN, payload: { houseName: 'House Forge', worldName: 'Anvil Realm', seedCode: 'STAR-5600' } });
+  host56.dispatch({ type: COMMAND_TYPES.FOUND_CITY, payload: { cityName: 'Ironspire' } });
+  const city56 = getPrimaryCity(host56.state);
+  city56.stockpile.gold = 2000;
+  city56.stockpile.food = 1000;
+  city56.stockpile.ingots = 100;
+  city56.buildings.blacksmith = 2;
+  city56.buildings.lapidary = 1;
+  city56.buildings.temple_chapterhouse = 1;
+  city56.buildings.guild_hall = 1;
+  city56.buildings.barracks = 1;
+  city56.gems = { ruby: 2, emerald: 1, sapphire: 2, topaz: 1, void_diamond: 1 };
+
+  host56.dispatch({ type: COMMAND_TYPES.RECRUIT_HERO, payload: { classId: 'cleric', heroName: 'Sister Rowan' } });
+  host56.stepClock(80000);
+  const cleric56 = host56.state.world.heroes[0];
+
+  // 1. Forged armor maxHp actually contributes to derived stats; forged pickaxe uses curDur/maxDur
+  const hpBeforeArm56 = computeHeroDerivedStats(cleric56).maxHp;
+  const forgeArm56 = host56.dispatch({ type: COMMAND_TYPES.FORGE_EQUIPMENT, payload: { slot: 'armor' } });
+  const forgePick56 = host56.dispatch({ type: COMMAND_TYPES.FORGE_EQUIPMENT, payload: { slot: 'pickaxe' } });
+  const armItem56 = forgeArm56.ok ? forgeArm56.data.item : null;
+  const pickItem56 = forgePick56.ok ? forgePick56.data.item : null;
+  cleric56.bagGear.push(armItem56);
+  host56.dispatch({ type: COMMAND_TYPES.EQUIP_HERO_ITEM, payload: { heroId: cleric56.id, itemUid: armItem56.uid } });
+  const hpAfterArm56 = computeHeroDerivedStats(cleric56).maxHp;
+  const forgeCanonicalOk56 = Boolean(
+    armItem56 && armItem56.maxHp === 22 && armItem56.hp === undefined &&
+    hpAfterArm56 === hpBeforeArm56 + 22 &&
+    pickItem56 && pickItem56.curDur === 50 && pickItem56.maxDur === 50 &&
+    pickItem56.durability === undefined && pickItem56.maxSockets === 0 &&
+    !host56.dispatch({ type: COMMAND_TYPES.PUNCH_SOCKET, payload: { itemUid: pickItem56.uid } }).ok
+  );
+
+  // 2. Dungeon-looted gear in City Vault supports PUNCH_SOCKET, SOCKET_CITY_GEM, UNSOCKET_CITY_GEM & rejects over-cap
+  const dngLoot56 = generateProceduralEquipment(3, 'common', 'weapon', 0, 'wep_mace');
+  dngLoot56.maxSockets = 0; dngLoot56.sockets = [];
+  city56.storage.items.push(dngLoot56);
+  const punchDng56 = host56.dispatch({ type: COMMAND_TYPES.PUNCH_SOCKET, payload: { itemUid: dngLoot56.uid } });
+  const sockDng56 = host56.dispatch({ type: COMMAND_TYPES.SOCKET_CITY_GEM, payload: { itemUid: dngLoot56.uid, gemId: 'sapphire' } });
+  const overCapSock56 = host56.dispatch({ type: COMMAND_TYPES.SOCKET_CITY_GEM, payload: { itemUid: dngLoot56.uid, gemId: 'ruby' } });
+  const unsockDng56 = host56.dispatch({ type: COMMAND_TYPES.UNSOCKET_CITY_GEM, payload: { itemUid: dngLoot56.uid } });
+  const dungeonWorkshopOk56 = Boolean(
+    punchDng56.ok && dngLoot56.maxSockets === 1 && Array.isArray(dngLoot56.sockets) &&
+    sockDng56.ok && !overCapSock56.ok && city56.gems.ruby === 2 &&
+    unsockDng56.ok && dngLoot56.sockets.length === 0 && city56.gems.sapphire === 2
+  );
+
+  // 3. Legacy migration: baked multi-gem + temper + hp/mp + durability + idempotency + ambiguous mixed shape
+  const legacyBaked56 = {
+    uid: 'leg_1', slot: 'armor', name: 'Old Plate +1', rarity: 'rare', temperRank: 1,
+    atk: 6, def: 13, hp: 36, mp: 15, sockets: 2, gems: ['ruby', 'topaz', 'unknown_gem']
+  };
+  normalizeEquipmentItem(legacyBaked56);
+  const atk1st56 = legacyBaked56.atk;
+  const def1st56 = legacyBaked56.def;
+  const hp1st56 = legacyBaked56.maxHp;
+  normalizeEquipmentItem(legacyBaked56); // 2nd call must be strictly idempotent!
+  const effLeg56 = getEffectiveItemBonuses(legacyBaked56);
+
+  const legacyMixed56 = {
+    uid: 'leg_mix', slot: 'weapon', name: 'Mixed Blade', rarity: 'rare',
+    atk: 12, maxSockets: 2, sockets: ['ruby'], gems: ['emerald']
+  };
+  normalizeEquipmentItem(legacyMixed56);
+
+  const legacyMigOk56 = Boolean(
+    atk1st56 === 2 && def1st56 === 11 && hp1st56 === 16 && legacyBaked56.maxMp === 15 &&
+    legacyBaked56.atk === atk1st56 && legacyBaked56.maxHp === hp1st56 &&
+    legacyBaked56.maxSockets === 3 && legacyBaked56.sockets.length === 3 &&
+    legacyBaked56.sockets.indexOf('unknown_gem') !== -1 && legacyBaked56.temperRank === 1 &&
+    effLeg56.atk === 6 && effLeg56.def === 14 && effLeg56.maxHp === 40 &&
+    legacyMixed56.sockets.length === 1 && legacyMixed56.sockets[0] === 'ruby' &&
+    legacyMixed56._migrationWarning === 'mixed_sockets_and_gems_preserved'
+  );
+
+  // 4. Dev Console Strategy grant -> equip uses canonical hero.bagGear
+  const con56 = createDevConsoleController({
+    simHost: host56,
+    dungeonState: createDefaultGameState(),
+    getContext: function() { return 'strategy'; }
+  });
+  const grantRes56 = con56.grantShopItem('buy_wep_1');
+  const grantedUid56 = grantRes56.ok && grantRes56.item ? grantRes56.item.uid : null;
+  const equipRes56 = grantedUid56 ? con56.execute('equip ' + grantedUid56) : { ok: false };
+  const devGrantEquipOk56 = Boolean(
+    grantRes56.ok && equipRes56.ok && cleric56.equipment.weapon && cleric56.equipment.weapon.uid === grantedUid56
+  );
+
+  // 5. Base archetypes, SPI/magicPower affixes & class-aware auto-equip preference + tie stability
+  const cleaver56 = generateProceduralEquipment(3, 'common', 'weapon', 0, 'wep_cleaver');
+  const staff56 = generateProceduralEquipment(3, 'common', 'weapon', 0, 'wep_staff');
+  const plate56 = generateProceduralEquipment(3, 'common', 'armor', 0, 'arm_plate');
+  const vestments56 = generateProceduralEquipment(3, 'common', 'armor', 0, 'arm_vestments');
+  const hasSpiAffix56 = AFFIX_POOL.some(function(a) { return a.stat === 'spi'; });
+  const hasMagAffix56 = AFFIX_POOL.some(function(a) { return a.stat === 'magicPower'; });
+  const fighterPrefCleaver56 = computeClassItemPreferenceScore(cleaver56, 'fighter') > computeClassItemPreferenceScore(staff56, 'fighter');
+  const magePrefStaff56 = computeClassItemPreferenceScore(staff56, 'mage') > computeClassItemPreferenceScore(cleaver56, 'mage');
+
+  // Auto-equip tie stability & class preference in Wargame
+  cleric56.equipment.weapon = cleaver56;
+  cleric56.bagGear = [staff56];
+  const auto1 = host56.dispatch({ type: COMMAND_TYPES.AUTO_EQUIP_HERO, payload: { heroId: cleric56.id } });
+  const clericPickedStaff56 = cleric56.equipment.weapon && cleric56.equipment.weapon.uid === staff56.uid;
+  const staffClone56 = Object.assign({}, staff56, { uid: 'clone_tie_staff' });
+  cleric56.bagGear = [staffClone56];
+  const autoTie = host56.dispatch({ type: COMMAND_TYPES.AUTO_EQUIP_HERO, payload: { heroId: cleric56.id } });
+  const tieNoSwap56 = autoTie.ok && autoTie.data.equippedCount === 0 && cleric56.equipment.weapon.uid === staff56.uid;
+
+  const archetypesAndScoreOk56 = Boolean(
+    cleaver56.archetypeId === 'wep_cleaver' && staff56.archetypeId === 'wep_staff' &&
+    cleaver56.atk > staff56.atk && (staff56.magicPower || 0) > (cleaver56.magicPower || 0) &&
+    plate56.def > vestments56.def && (vestments56.ward || 0) > 0 && (vestments56.spi || 0) > 0 &&
+    hasSpiAffix56 && hasMagAffix56 &&
+    fighterPrefCleaver56 && magePrefStaff56 &&
+    auto1.ok && clericPickedStaff56 && tieNoSwap56
+  );
+
+  const t56Checks = {
+    forgeCanonicalOk: forgeCanonicalOk56,
+    dungeonWorkshopOk: dungeonWorkshopOk56,
+    legacyMigOk: legacyMigOk56,
+    devGrantEquipOk: devGrantEquipOk56,
+    archetypesAndScoreOk: archetypesAndScoreOk56
+  };
+  const failed56 = Object.keys(t56Checks).filter(function(k) { return !t56Checks[k]; });
+  const t56Pass = failed56.length === 0;
+  results.push({
+    name: '56. IS-01: Canonical Equipment Schema, Legacy Migration, Class-Aware Scoring & Item Archetypes',
+    pass: t56Pass,
+    detail: t56Pass
+      ? 'Canonical forge/lapidary schema, idempotent legacy gem/hp/durability migration, strategy Dev Console grant/equip, class-aware auto-equip & base archetypes verified'
+      : 'Failed checks: ' + failed56.join(', ')
+  });
+
+  // =========================================================================
+  // Test 57: IS-01 Playtest Corrections — Blacksmith Discoverability/Setup & Hero Health Visibility
+  // =========================================================================
+  const host57 = createWargameSimHost();
+  host57.dispatch({ type: COMMAND_TYPES.START_NEW_CAMPAIGN, payload: { houseName: 'House Anvil', worldName: 'Smithy Realm', seedCode: 'STAR-5700' } });
+  host57.dispatch({ type: COMMAND_TYPES.FOUND_CITY, payload: { cityName: 'Forgehold' } });
+  const city57 = getPrimaryCity(host57.state);
+
+  // 1. Prerequisite chain discoverability (blacksmith locked behind smeltery, smeltery behind quarry)
+  const smReason57 = getBuildingPrerequisiteMissingReason(city57, 'smeltery');
+  const bsReason57 = getBuildingPrerequisiteMissingReason(city57, 'blacksmith');
+  const prereqDiscoverOk57 = Boolean(
+    !isBuildingPrerequisiteMet(city57, 'blacksmith') &&
+    smReason57 && smReason57.indexOf('Quarry') !== -1 &&
+    bsReason57 && bsReason57.indexOf('Smeltery') !== -1
+  );
+
+  // 2. Dev Console setupCityForgeWorkflow + normal player forge -> withdraw -> equip flow
+  const con57 = createDevConsoleController({
+    simHost: host57,
+    dungeonState: createDefaultGameState(),
+    getContext: function() { return 'strategy'; }
+  });
+  const setupRes57 = con57.setupCityForgeWorkflow();
+  const ingotsAfterSetup57 = city57.stockpile.ingots || 0;
+  city57.stockpile.food = 800;
+  city57.buildings.temple_chapterhouse = 1;
+  host57.dispatch({ type: COMMAND_TYPES.RECRUIT_HERO, payload: { classId: 'cleric', heroName: 'Acolyte Mara' } });
+  host57.stepClock(80000);
+  const hero57 = host57.state.world.heroes[0];
+
+  const forgeWep57 = host57.dispatch({ type: COMMAND_TYPES.FORGE_EQUIPMENT, payload: { slot: 'weapon' } });
+  const forgeArm57 = host57.dispatch({ type: COMMAND_TYPES.FORGE_EQUIPMENT, payload: { slot: 'armor' } });
+  const forgedWep57 = forgeWep57.ok ? forgeWep57.data.item : null;
+  const forgedArm57 = forgeArm57.ok ? forgeArm57.data.item : null;
+
+  // Profile before equipping forged armor (Strategy mode: MAX HP, no fabricated current HP)
+  const profBefore57 = normalizeSharedHeroProfile(hero57);
+  const htmlBefore57 = buildSharedHeroStatsHtml(profBefore57);
+
+  // Withdraw & equip forged armor (+16 Max HP at Blacksmith Lv 1)
+  const wd57 = host57.dispatch({ type: COMMAND_TYPES.WITHDRAW_FROM_CITY_STORAGE, payload: { heroId: hero57.id, itemUid: forgedArm57.uid } });
+  const eq57 = host57.dispatch({ type: COMMAND_TYPES.EQUIP_HERO_ITEM, payload: { heroId: hero57.id, itemUid: forgedArm57.uid } });
+  const profAfter57 = normalizeSharedHeroProfile(hero57);
+  const htmlAfter57 = buildSharedHeroStatsHtml(profAfter57);
+
+  // Unequip armor -> Max HP returns to exact prior baseline
+  const uneq57 = host57.dispatch({ type: COMMAND_TYPES.UNEQUIP_HERO_ITEM, payload: { heroId: hero57.id, slot: 'armor' } });
+  const profUneq57 = normalizeSharedHeroProfile(hero57);
+
+  // Dungeon hero with authoritative current HP shows HP cur/max
+  const dngHero57 = createDungeonHeroForClass('cleric', hero57, CANONICAL_PLAYER_ID);
+  dngHero57.hp = 95;
+  const dngProf57 = normalizeSharedHeroProfile(dngHero57);
+  const dngHtml57 = buildSharedHeroStatsHtml(dngProf57);
+
+  const t57Checks = {
+    prereqDiscoverOk: prereqDiscoverOk57,
+    setupForgeOk: Boolean(setupRes57.ok && city57.buildings.blacksmith >= 1 && ingotsAfterSetup57 >= 20),
+    forgeBothOk: Boolean(forgedWep57 && forgedArm57 && forgedArm57.maxHp === 16),
+    strategyMaxHpDisplayOk: Boolean(
+      !profBefore57.hasCurrentVitals &&
+      htmlBefore57.indexOf('MAX HP') !== -1 &&
+      htmlBefore57.indexOf(String(profBefore57.maxHp)) !== -1 &&
+      wd57.ok && eq57.ok &&
+      profAfter57.maxHp === profBefore57.maxHp + 16 &&
+      htmlAfter57.indexOf(String(profAfter57.maxHp)) !== -1 &&
+      uneq57.ok && profUneq57.maxHp === profBefore57.maxHp
+    ),
+    dungeonCurrentHpDisplayOk: Boolean(
+      dngProf57.hasCurrentVitals &&
+      dngHtml57.indexOf('95/' + dngProf57.maxHp) !== -1
+    )
+  };
+  const failed57 = Object.keys(t57Checks).filter(function(k) { return !t57Checks[k]; });
+  const t57Pass = failed57.length === 0;
+  results.push({
+    name: '57. IS-01 Playtest Corrections: Blacksmith Discoverability/Setup & Hero Health Visibility',
+    pass: t57Pass,
+    detail: t57Pass
+      ? 'Blacksmith prerequisite path, dev setup helper, normal forge->withdraw->equip flow, Strategy Max HP & Dungeon cur/max HP visibility verified'
+      : 'Failed checks: ' + failed57.join(', ')
+  });
+
+  // =========================================================================
+  // Test 58: IS-01 Forge Workflow — Recipe Preview Parity, Temper Rules & Direct Hero Gear Tempering
+  // =========================================================================
+  const host58 = createWargameSimHost();
+  host58.dispatch({ type: COMMAND_TYPES.START_NEW_CAMPAIGN, payload: { houseName: 'House Hammer', worldName: 'Forge Realm', seedCode: 'STAR-5800' } });
+  host58.dispatch({ type: COMMAND_TYPES.FOUND_CITY, payload: { cityName: 'Steelhearth' } });
+  const city58 = getPrimaryCity(host58.state);
+  city58.stockpile.gold = 2000;
+  city58.stockpile.food = 1000;
+  city58.stockpile.ingots = 60;
+  city58.buildings.quarry = 1;
+  city58.buildings.smeltery = 1;
+  city58.buildings.blacksmith = 2;
+  city58.buildings.temple_chapterhouse = 1;
+
+  host58.dispatch({ type: COMMAND_TYPES.RECRUIT_HERO, payload: { classId: 'cleric', heroName: 'Vanguard Sera' } });
+  host58.stepClock(80000);
+  const hero58 = host58.state.world.heroes[0];
+
+  // 1. Forge recipe preview matches actual FORGE_EQUIPMENT output exactly
+  const wepPrev58 = getBlacksmithForgeRecipePreview('weapon', 2);
+  const armPrev58 = getBlacksmithForgeRecipePreview('armor', 2);
+  const ingBeforeForge58 = city58.stockpile.ingots;
+  const forgedWepRes58 = host58.dispatch({ type: COMMAND_TYPES.FORGE_EQUIPMENT, payload: { slot: 'weapon' } });
+  const forgedArmRes58 = host58.dispatch({ type: COMMAND_TYPES.FORGE_EQUIPMENT, payload: { slot: 'armor' } });
+  const forgedPickRes58 = host58.dispatch({ type: COMMAND_TYPES.FORGE_EQUIPMENT, payload: { slot: 'pickaxe' } });
+  const fWep58 = forgedWepRes58.ok ? forgedWepRes58.data.item : null;
+  const fArm58 = forgedArmRes58.ok ? forgedArmRes58.data.item : null;
+  const fPick58 = forgedPickRes58.ok ? forgedPickRes58.data.item : null;
+  const previewParityOk58 = Boolean(
+    fWep58 && fWep58.name === wepPrev58.name && fWep58.atk === wepPrev58.atk && fWep58.maxSockets === wepPrev58.maxSockets && fWep58.rarity === wepPrev58.rarity &&
+    fArm58 && fArm58.name === armPrev58.name && fArm58.def === armPrev58.def && fArm58.maxHp === armPrev58.maxHp &&
+    city58.stockpile.ingots === ingBeforeForge58 - (wepPrev58.ingotCost + armPrev58.ingotCost + getBlacksmithForgeRecipePreview('pickaxe', 2).ingotCost)
+  );
+
+  // 2. Pickaxe tempering rejected cleanly without spending resources
+  const ingBeforePickT58 = city58.stockpile.ingots;
+  const pickPrev58 = getBlacksmithTemperPreview(fPick58);
+  const pickTemperRes58 = host58.dispatch({ type: COMMAND_TYPES.TEMPER_EQUIPMENT, payload: { itemUid: fPick58.uid, source: 'vault' } });
+  const pickRejectOk58 = Boolean(!pickPrev58.eligible && !pickTemperRes58.ok && city58.stockpile.ingots === ingBeforePickT58);
+
+  // 3. Direct tempering of Vault, Carried, and Equipped gear (in place, same UID, immediate stat refresh, +3 cap)
+  const vaultTempRes58 = host58.dispatch({ type: COMMAND_TYPES.TEMPER_EQUIPMENT, payload: { itemUid: fArm58.uid, source: 'vault' } });
+  // Move forged weapon to hero's carried pack, temper carried, then equip and temper equipped
+  host58.dispatch({ type: COMMAND_TYPES.WITHDRAW_FROM_CITY_STORAGE, payload: { heroId: hero58.id, itemUid: fWep58.uid } });
+  const carriedTempRes58 = host58.dispatch({ type: COMMAND_TYPES.TEMPER_EQUIPMENT, payload: { itemUid: fWep58.uid, source: 'carried', heroId: hero58.id } });
+  const stillInBag58 = hero58.bagGear.some(function(g) { return g && g.uid === fWep58.uid && g.temperRank === 1; });
+
+  host58.dispatch({ type: COMMAND_TYPES.EQUIP_HERO_ITEM, payload: { heroId: hero58.id, itemUid: fWep58.uid } });
+  const atkBeforeEqTemp58 = computeHeroDerivedStats(hero58).atk;
+  const eqTempRes2 = host58.dispatch({ type: COMMAND_TYPES.TEMPER_EQUIPMENT, payload: { itemUid: fWep58.uid, source: 'equipped', heroId: hero58.id } });
+  const eqTempRes3 = host58.dispatch({ type: COMMAND_TYPES.TEMPER_EQUIPMENT, payload: { itemUid: fWep58.uid, source: 'equipped', heroId: hero58.id } });
+  const ingBeforeCap58 = city58.stockpile.ingots;
+  const eqTempRes4 = host58.dispatch({ type: COMMAND_TYPES.TEMPER_EQUIPMENT, payload: { itemUid: fWep58.uid, source: 'equipped', heroId: hero58.id } });
+  const atkAfterEqTemp58 = computeHeroDerivedStats(hero58).atk;
+  const directTemperOk58 = Boolean(
+    vaultTempRes58.ok && fArm58.temperRank === 1 && fArm58.def === armPrev58.def + 2 &&
+    carriedTempRes58.ok && stillInBag58 &&
+    eqTempRes2.ok && eqTempRes3.ok && !eqTempRes4.ok &&
+    city58.stockpile.ingots === ingBeforeCap58 &&
+    hero58.equipment.weapon && hero58.equipment.weapon.uid === fWep58.uid &&
+    hero58.equipment.weapon.temperRank === 3 &&
+    atkAfterEqTemp58 === atkBeforeEqTemp58 + 4 &&
+    hero58.stats.atk === atkAfterEqTemp58
+  );
+
+  // 4. Away hero rejection (hero party moved away from city -> cannot remotely temper equipped/carried gear)
+  const heroUnit58 = (host58.state.world.overworld.units || []).find(function(u) { return u && u.leaderHeroId === hero58.id; });
+  if (heroUnit58) {
+    heroUnit58.x = city58.x + 3;
+    heroUnit58.y = city58.y;
+  }
+  const awayPresent58 = isHeroPresentAtCity(host58.state.world, city58, hero58);
+  const ingBeforeAway58 = city58.stockpile.ingots;
+  const awayTempRes58 = host58.dispatch({
+    type: COMMAND_TYPES.TEMPER_EQUIPMENT,
+    payload: { itemUid: hero58.equipment.armor.uid, source: 'equipped', heroId: hero58.id }
+  });
+  const awayGuardOk58 = Boolean(!awayPresent58 && !awayTempRes58.ok && city58.stockpile.ingots === ingBeforeAway58);
+
+  // 5. Blacksmith UI HTML wiring renders recipe preview, temper rules & owner tabs
+  host58.state._selectedForgeSlot = 'armor';
+  const bsHtml58 = buildUnifiedBuildingStageHtml(host58, 'blacksmith', city58);
+  const uiWiringOk58 = Boolean(
+    bsHtml58.indexOf(armPrev58.name) !== -1 &&
+    bsHtml58.indexOf('Max HP') !== -1 &&
+    bsHtml58.indexOf('Tempering Anvil') !== -1 &&
+    bsHtml58.indexOf('City Vault') !== -1 &&
+    bsHtml58.indexOf('(Away)') !== -1
+  );
+
+  const t58Checks = {
+    previewParityOk: previewParityOk58,
+    pickRejectOk: pickRejectOk58,
+    directTemperOk: directTemperOk58,
+    awayGuardOk: awayGuardOk58,
+    uiWiringOk: uiWiringOk58
+  };
+  const failed58 = Object.keys(t58Checks).filter(function(k) { return !t58Checks[k]; });
+  const t58Pass = failed58.length === 0;
+  results.push({
+    name: '58. IS-01 Forge Workflow: Recipe Preview Parity, Temper Rules & Direct Hero Gear Tempering',
+    pass: t58Pass,
+    detail: t58Pass
+      ? 'Deterministic recipe preview parity, pickaxe reject, Vault/Carried/Equipped in-place tempering, away-hero guard & Blacksmith UI wiring verified'
+      : 'Failed checks: ' + failed58.join(', ')
   });
 
   return results;

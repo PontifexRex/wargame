@@ -18,9 +18,14 @@ import {
   computeBuildingUpgradeCost,
   computeBuildingDurationMs,
   isBuildingPrerequisiteMet,
+  getBuildingPrerequisiteMissingReason,
   computeMaxPartySize,
   isFacilityButtonUnlocked,
-  getBuildingLevelsTable
+  getBuildingLevelsTable,
+  BLACKSMITH_FORGE_SLOTS,
+  getBlacksmithForgeRecipePreview,
+  getBlacksmithTemperPreview,
+  isHeroPresentAtCity
 } from '../data/buildings.js';
 import {
   TROOP_AVAILABILITY_STATES,
@@ -397,7 +402,11 @@ export function renderWargameCharacterSheetModal(simHost) {
   const nameEl = document.getElementById('wgSheetHeroName');
   const titleEl = document.getElementById('wgSheetHeroTitle');
   if (nameEl) nameEl.textContent = profile.name + ' — ' + profile.className;
-  if (titleEl) titleEl.textContent = 'Level ' + profile.level + ' ' + profile.title + ' • HP ' + profile.hp + '/' + profile.maxHp + ' • MP ' + profile.mp + '/' + profile.maxMp;
+  if (titleEl) {
+    titleEl.textContent = profile.hasCurrentVitals
+      ? ('Level ' + profile.level + ' ' + profile.title + ' • HP ' + profile.hp + '/' + profile.maxHp + ' • MP ' + profile.mp + '/' + profile.maxMp)
+      : ('Level ' + profile.level + ' ' + profile.title + ' • Max HP ' + profile.maxHp + ' • Max MP ' + profile.maxMp);
+  }
 
   const canvas = document.getElementById('wgSheetPaperDollCanvas');
   if (canvas) {
@@ -419,6 +428,31 @@ export function renderWargameCharacterSheetModal(simHost) {
     setHtmlIfChanged(cosEl, buildSharedCosmeticsPreviewHtml(profile));
   }
 
+  const wgFormatItemStatSummary = function(it) {
+    if (!it) return 'Equipment';
+    const maxHpVal = typeof it.maxHp === 'number' ? it.maxHp : (it.hp || 0);
+    const maxMpVal = typeof it.maxMp === 'number' ? it.maxMp : (it.mp || 0);
+    const usedS = Array.isArray(it.sockets) ? it.sockets.length : 0;
+    const maxS = typeof it.maxSockets === 'number' ? it.maxSockets : 0;
+    const parts = [
+      it.atk ? ('+' + it.atk + ' ATK') : '',
+      it.magicPower ? ('+' + it.magicPower + ' MAG') : '',
+      it.def ? ('+' + it.def + ' DEF') : '',
+      maxHpVal ? ('+' + maxHpVal + ' HP') : '',
+      maxMpVal ? ('+' + maxMpVal + ' MP') : '',
+      it.crit ? ('+' + it.crit + '% CRIT') : '',
+      it.dodge ? ('+' + it.dodge + '% DODGE') : '',
+      it.ward ? ('+' + it.ward + ' WARD') : '',
+      it.spi ? ('+' + it.spi + ' SPI') : '',
+      it.int ? ('+' + it.int + ' INT') : '',
+      it.str ? ('+' + it.str + ' STR') : '',
+      it.dex ? ('+' + it.dex + ' DEX') : '',
+      it.vit ? ('+' + it.vit + ' VIT') : '',
+      maxS > 0 ? ('[' + usedS + '/' + maxS + ' Gem' + (usedS > 0 ? (': ' + it.sockets.join(',')) : '') + ']') : ''
+    ].filter(Boolean);
+    return parts.join(' • ') || 'Equipment';
+  };
+
   const bagEl = document.getElementById('wgSheetBagList');
   if (bagEl) {
     const bag = profile.bagGear || [];
@@ -428,11 +462,7 @@ export function renderWargameCharacterSheetModal(simHost) {
       const bagHtml = bag.map(function(it) {
         const rInfo = RARITY[it.rarity] || RARITY.common;
         const icon = getItemTypeIcon(it.slot);
-        const statTxt = [
-          it.atk ? ('+' + it.atk + ' ATK') : '',
-          it.def ? ('+' + it.def + ' DEF') : '',
-          it.hp  ? ('+' + it.hp  + ' HP')  : ''
-        ].filter(Boolean).join(' • ') || 'Equipment';
+        const statTxt = wgFormatItemStatSummary(it);
         return `
           <div class="p-2 rounded bg-[#111722] border border-[#283347] flex items-center justify-between gap-2 text-xs">
             <div class="min-w-0">
@@ -473,7 +503,7 @@ export function renderWargameCharacterSheetModal(simHost) {
             <div class="p-1.5 rounded bg-[#111722] border border-[#283347] flex items-center justify-between gap-2 text-xs">
               <div class="min-w-0">
                 <div class="font-bold truncate" style="color:${rInfo.color}">${icon} ${it.name}</div>
-                <div class="text-[10px] font-mono text-[#8b949e]">${(it.slot || 'item').toUpperCase()} • ${rInfo.label}</div>
+                <div class="text-[10px] font-mono text-[#8b949e]">${(it.slot || 'item').toUpperCase()} • ${rInfo.label} • ${wgFormatItemStatSummary(it)}</div>
               </div>
               <button onclick="window.WargameApp.handleWithdrawFromCityStorage('${rawHero.id}', '${it.uid}')" class="px-2 py-0.5 rounded bg-[#1a2232] hover:bg-[#283347] text-[#38bdf8] border border-[#38bdf8]/40 font-bold text-[10px] uppercase cursor-pointer">Take</button>
             </div>
@@ -847,30 +877,142 @@ export function buildUnifiedBuildingStageHtml(simHost, bId, city) {
   }
 
   if (fac.blacksmithing) {
-    const ingCost = 3 + lvl;
-    const gCost = 20 + lvl * 10;
-    const tierLbl = lvl >= 3 ? 'Epic (2 Sockets)' : (lvl >= 2 ? 'Rare (1 Socket)' : 'Uncommon');
-    const slots = ['weapon', 'armor', 'helm', 'boots', 'accessory', 'pickaxe'];
-    const forgeBtns = slots.map(function(sl) {
-      return `<button onclick="window.WargameApp.handleForgeEquipment('${sl}')" class="p-2 rounded bg-[#111722] hover:bg-[#1a2232] border border-[#fb923c]/40 text-left text-xs cursor-pointer"><div class="font-bold text-[#fb923c]">${getItemTypeIcon(sl)} Forge ${sl.toUpperCase()}</div><div class="text-[10px] font-mono text-[#8b949e]">${ingCost} Ingots • ${gCost}g</div></button>`;
+    const curIngots = city.stockpile.ingots || 0;
+    const curGold = city.stockpile.gold || 0;
+    const selectedSlot = (simHost.state && simHost.state._selectedForgeSlot && BLACKSMITH_FORGE_SLOTS.indexOf(simHost.state._selectedForgeSlot) !== -1)
+      ? simHost.state._selectedForgeSlot
+      : 'weapon';
+    const selRecipe = getBlacksmithForgeRecipePreview(selectedSlot, lvl);
+    const selRarity = RARITY[selRecipe.rarity] || RARITY.uncommon;
+    const canAffordForge = curIngots >= selRecipe.ingotCost && curGold >= selRecipe.goldCost;
+    const forgeMissingReason = !canAffordForge
+      ? ('Need ' + selRecipe.ingotCost + ' Ingots & ' + selRecipe.goldCost + 'g')
+      : '';
+
+    const slotTabsHtml = BLACKSMITH_FORGE_SLOTS.map(function(sl) {
+      const rec = getBlacksmithForgeRecipePreview(sl, lvl);
+      const isSel = sl === selectedSlot;
+      return `<button onclick="window.WargameApp.handleSelectForgeSlot('${sl}')" class="px-2.5 py-1.5 rounded text-left text-[11px] font-mono cursor-pointer border ${isSel ? 'bg-[#fb923c]/20 border-[#fb923c] text-[#fbbf24] font-bold' : 'bg-[#111722] hover:bg-[#1a2232] border-[#283347] text-[#cbd5e1]'}">${getItemTypeIcon(sl)} ${sl.toUpperCase()}<div class="text-[9px] text-[#94a3b8] truncate">${rec.name}</div></button>`;
     }).join('');
-    const stItems = (city.storage && Array.isArray(city.storage.items)) ? city.storage.items.slice(0, 6) : [];
-    const temperList = stItems.length === 0
-      ? `<div class="text-[11px] text-[#64748b] italic">Forge or deposit gear into City Vault Storage to temper it here.</div>`
-      : stItems.map(function(it) {
-          const rk = it.temperRank || 0;
-          return `<div class="p-1.5 rounded bg-[#111722] border border-[#283347] flex items-center justify-between text-xs"><span class="font-bold text-[#e6edf3]">${getItemTypeIcon(it.slot)} ${it.name}${rk > 0 ? (' +' + rk) : ''}</span><button onclick="window.WargameApp.handleTemperEquipment('${it.uid}')" ${rk >= 3 ? 'disabled' : ''} class="px-2 py-0.5 rounded text-[10px] font-mono font-bold ${rk >= 3 ? 'bg-[#1a2232] text-[#64748b]' : 'bg-[#fb923c] text-[#080b11] cursor-pointer'}">${rk >= 3 ? 'MAX' : 'Temper (2 Ingots, 20g)'}</button></div>`;
-        }).join('');
-    sections.push(`
-      <div class="p-3 rounded-lg bg-[#080b11] border border-[#fb923c]/40 space-y-2.5">
-        <div class="flex items-center justify-between text-xs font-mono">
-          <span class="text-[#fb923c] font-bold">🔨 Star-Forge Blueprints (${tierLbl})</span>
-          <span class="text-[#e6edf3]">Ingots: <strong class="text-[#fbbf24]">${city.stockpile.ingots || 0}</strong> • Gold: <strong class="text-[#fbbf24]">${city.stockpile.gold || 0}</strong></span>
+
+    const recipeStatParts = [];
+    if (selRecipe.atk) recipeStatParts.push('+' + selRecipe.atk + ' ATK');
+    if (selRecipe.def) recipeStatParts.push('+' + selRecipe.def + ' DEF');
+    if (selRecipe.maxHp) recipeStatParts.push('+' + selRecipe.maxHp + ' Max HP');
+    if (selRecipe.maxDur) recipeStatParts.push('Mining Tool • ' + selRecipe.maxDur + ' Durability (Tier ' + selRecipe.tier + ')');
+    if (selRecipe.slot !== 'pickaxe') {
+      recipeStatParts.push(selRecipe.maxSockets > 0 ? (selRecipe.maxSockets + ' Open Gem Socket' + (selRecipe.maxSockets > 1 ? 's' : '')) : '0 Gem Sockets (Lv 2+ adds sockets)');
+    }
+
+    const forgePreviewCard = `
+      <div class="p-2.5 rounded-lg bg-[#0d1424] border border-[#fb923c]/50 space-y-2">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <div class="text-xs font-bold" style="color:${selRarity.color}">${getItemTypeIcon(selRecipe.slot)} ${selRecipe.name} <span class="text-[10px] font-mono uppercase text-[#94a3b8]">(${selRarity.label} ${selRecipe.slot})</span></div>
+            <div class="text-[10px] font-mono text-[#34d399]">${recipeStatParts.join(' • ')}</div>
+          </div>
+          <span class="px-2 py-0.5 rounded bg-[#1a2232] border border-[#38bdf8]/40 text-[10px] font-mono text-[#38bdf8]">Deterministic • Lv ${lvl}</span>
         </div>
-        <div class="grid grid-cols-2 sm:grid-cols-3 gap-1.5">${forgeBtns}</div>
-        <div class="pt-2 border-t border-[#1e293b] space-y-1.5">
-          <div class="text-[10px] font-mono uppercase text-[#fb923c] font-bold">🔥 Tempering Anvil (City Vault Gear)</div>
-          ${temperList}
+        <div class="flex flex-wrap items-center justify-between gap-2 pt-1.5 border-t border-[#1e293b] text-[10px] font-mono">
+          <div class="text-[#94a3b8]">Cost: <strong class="${canAffordForge ? 'text-[#fbbf24]' : 'text-[#f87171]'}">${selRecipe.ingotCost} Ingots • ${selRecipe.goldCost}g</strong> • Delivers to: <strong class="text-[#e6edf3]">${selRecipe.destination}</strong></div>
+          <button onclick="window.WargameApp.handleForgeEquipment('${selRecipe.slot}')" ${!canAffordForge ? 'disabled' : ''} class="px-3 py-1 rounded text-xs font-mono font-bold ${canAffordForge ? 'bg-[#fb923c] hover:bg-[#f97316] text-[#080b11] cursor-pointer' : 'bg-[#1a2232] text-[#64748b] cursor-not-allowed'}">${canAffordForge ? ('🔨 Forge ' + selRecipe.name) : forgeMissingReason}</button>
+        </div>
+      </div>
+    `;
+
+    // Tempering Anvil: Vault + City-Present Hero Carried & Equipped Equipment
+    const allHeroes = (world && Array.isArray(world.heroes)) ? world.heroes : [];
+    const presentHeroes = allHeroes.filter(function(h) { return isHeroPresentAtCity(world, city, h); });
+    let activeTemperOwner = (simHost.state && simHost.state._selectedTemperOwner) ? simHost.state._selectedTemperOwner : 'vault';
+    if (activeTemperOwner !== 'vault' && !presentHeroes.some(function(h) { return h.id === activeTemperOwner; })) {
+      activeTemperOwner = 'vault';
+    }
+
+    const vaultItems = (city.storage && Array.isArray(city.storage.items)) ? city.storage.items : [];
+    const ownerTabsHtml = [
+      `<button onclick="window.WargameApp.handleSelectTemperOwner('vault')" class="px-2.5 py-1 rounded text-[11px] font-mono cursor-pointer border ${activeTemperOwner === 'vault' ? 'bg-[#fbbf24]/20 border-[#fbbf24] text-[#fbbf24] font-bold' : 'bg-[#111722] border-[#283347] text-[#cbd5e1]'}">🏦 City Vault (${vaultItems.length})</button>`
+    ].concat(allHeroes.map(function(h) {
+      const atCity = isHeroPresentAtCity(world, city, h);
+      if (!atCity) {
+        return `<span class="px-2 py-1 rounded text-[10px] font-mono bg-[#0b101a] border border-[#1e293b] text-[#64748b]" title="${h.name} is away from ${city.name}">🗺️ ${h.name} (Away)</span>`;
+      }
+      const isSelH = activeTemperOwner === h.id;
+      return `<button onclick="window.WargameApp.handleSelectTemperOwner('${h.id}')" class="px-2.5 py-1 rounded text-[11px] font-mono cursor-pointer border ${isSelH ? 'bg-[#38bdf8]/20 border-[#38bdf8] text-[#38bdf8] font-bold' : 'bg-[#111722] border-[#283347] text-[#cbd5e1]'}">🛡️ ${h.name}</button>`;
+    })).join('');
+
+    const temperEntries = [];
+    if (activeTemperOwner === 'vault') {
+      for (let vi = 0; vi < vaultItems.length; vi++) {
+        const it = vaultItems[vi];
+        if (it) temperEntries.push({ item: it, source: 'vault', heroId: null, locBadge: 'Vault', locClass: 'text-[#fbbf24] bg-[#fbbf24]/15 border-[#fbbf24]/40' });
+      }
+    } else {
+      const selHero = presentHeroes.find(function(h) { return h.id === activeTemperOwner; });
+      if (selHero) {
+        const eq = selHero.equipment || {};
+        const eqSlots = ['weapon', 'armor', 'helm', 'boots', 'accessory', 'pickaxe'];
+        for (let ei = 0; ei < eqSlots.length; ei++) {
+          const eqIt = eq[eqSlots[ei]];
+          if (eqIt) temperEntries.push({ item: eqIt, source: 'equipped', heroId: selHero.id, locBadge: 'Equipped — ' + selHero.name, locClass: 'text-[#34d399] bg-[#34d399]/15 border-[#34d399]/40' });
+        }
+        const bag = Array.isArray(selHero.bagGear) ? selHero.bagGear : [];
+        for (let bi = 0; bi < bag.length; bi++) {
+          const bIt = bag[bi];
+          if (bIt) temperEntries.push({ item: bIt, source: 'carried', heroId: selHero.id, locBadge: 'Carried — ' + selHero.name, locClass: 'text-[#38bdf8] bg-[#38bdf8]/15 border-[#38bdf8]/40' });
+        }
+      }
+    }
+
+    const temperList = temperEntries.length === 0
+      ? `<div class="text-[11px] text-[#64748b] italic py-1">No equipment found in this inventory. Forge gear above or select a hero stationed at ${city.name}.</div>`
+      : temperEntries.map(function(entry) {
+          const it = entry.item;
+          const prev = getBlacksmithTemperPreview(it);
+          const rk = prev.curRank || 0;
+          const canAffordT = curIngots >= prev.ingotCost && curGold >= prev.goldCost;
+          const canTemper = prev.eligible && canAffordT;
+          const effectHtml = prev.eligible
+            ? `<span class="text-[#34d399]">Rank +${rk} → +${prev.nextRank}: <strong>${prev.statLabel} ${prev.currentStat} → ${prev.nextStat} (+${prev.delta})</strong> • +${prev.valueDelta}g value</span>`
+            : `<span class="text-[#94a3b8]">${prev.reason}</span>`;
+          const btnLabel = !prev.eligible
+            ? (rk >= 3 ? 'MAX (+3)' : 'Ineligible')
+            : (!canAffordT ? ('Need ' + prev.ingotCost + ' Ing, ' + prev.goldCost + 'g') : ('🔥 Temper -> +' + prev.nextRank + ' (' + prev.ingotCost + ' Ing, ' + prev.goldCost + 'g)'));
+          const heroArg = entry.heroId ? ("'" + entry.heroId + "'") : 'null';
+          return `
+            <div class="p-2 rounded bg-[#111722] border border-[#283347] flex flex-wrap items-center justify-between gap-2 text-xs">
+              <div class="min-w-0 space-y-0.5">
+                <div class="flex flex-wrap items-center gap-1.5">
+                  <span class="font-bold text-[#e6edf3]">${getItemTypeIcon(it.slot)} ${it.name}${rk > 0 ? (' +' + rk) : ''}</span>
+                  <span class="px-1.5 py-0.2 rounded border text-[9px] font-mono ${entry.locClass}">${entry.locBadge}</span>
+                </div>
+                <div class="text-[10px] font-mono">${effectHtml}</div>
+              </div>
+              <button onclick="window.WargameApp.handleTemperEquipment('${it.uid}', '${entry.source}', ${heroArg})" ${!canTemper ? 'disabled' : ''} class="px-2.5 py-1 rounded text-[10px] font-mono font-bold whitespace-nowrap ${canTemper ? 'bg-[#fb923c] hover:bg-[#f97316] text-[#080b11] cursor-pointer' : 'bg-[#1a2232] text-[#64748b] cursor-not-allowed'}">${btnLabel}</button>
+            </div>
+          `;
+        }).join('');
+
+    const forgeFb = simHost.state && simHost.state._forgeFeedback ? simHost.state._forgeFeedback : null;
+    const forgeFbHtml = forgeFb
+      ? `<div class="px-2.5 py-1.5 rounded text-[11px] font-mono ${forgeFb.ok ? 'bg-[#052e16]/80 border border-[#34d399]/50 text-[#34d399]' : 'bg-[#450a0a]/80 border border-[#f87171]/50 text-[#f87171]'}">${forgeFb.ok ? '✓ ' : '✕ '}${forgeFb.text}</div>`
+      : '';
+
+    sections.push(`
+      <div class="p-3 rounded-lg bg-[#080b11] border border-[#fb923c]/40 space-y-3">
+        <div class="flex flex-wrap items-center justify-between gap-2 text-xs font-mono">
+          <span class="text-[#fb923c] font-bold">🔨 Star-Forge Crafting (Blacksmith Lv ${lvl})</span>
+          <span class="text-[#e6edf3]">Ingots: <strong class="text-[#fbbf24]">${curIngots}</strong> • Gold: <strong class="text-[#fbbf24]">${curGold}</strong></span>
+        </div>
+        ${forgeFbHtml}
+        <div class="grid grid-cols-2 sm:grid-cols-3 gap-1.5">${slotTabsHtml}</div>
+        ${forgePreviewCard}
+        <div class="pt-2.5 border-t border-[#1e293b] space-y-2">
+          <div>
+            <div class="text-[11px] font-mono uppercase text-[#fb923c] font-bold">🔥 Tempering Anvil (Reinforce Existing Combat Gear)</div>
+            <div class="text-[10px] font-mono text-[#94a3b8]">Upgrades combat gear up to +3: +2 ATK (Weapons/Accessories) or +2 DEF (Armor/Helms/Boots) &amp; +25g value per rank. Costs 2 Ingots &amp; 20g. Pickaxes cannot be tempered.</div>
+          </div>
+          <div class="flex flex-wrap items-center gap-1.5">${ownerTabsHtml}</div>
+          <div class="space-y-1.5 max-h-[240px] overflow-y-auto pr-1">${temperList}</div>
         </div>
       </div>
     `);
@@ -882,18 +1024,22 @@ export function buildUnifiedBuildingStageHtml(simHost, bId, city) {
     const sockList = stItems.length === 0
       ? `<div class="text-[11px] text-[#64748b] italic">Deposit or forge gear into City Vault Storage to punch sockets and inlay Astral Gems.</div>`
       : stItems.map(function(it) {
-          const maxS = it.sockets || 0;
-          const usedS = Array.isArray(it.gems) ? it.gems.length : 0;
+          const maxS = typeof it.maxSockets === 'number' ? it.maxSockets : (typeof it.sockets === 'number' ? it.sockets : 0);
+          const sockArr = Array.isArray(it.sockets) ? it.sockets : (Array.isArray(it.gems) ? it.gems : []);
+          const usedS = sockArr.length;
           return `
             <div class="p-2 rounded bg-[#111722] border border-[#283347] flex flex-wrap items-center justify-between gap-2 text-xs">
               <div>
                 <div class="font-bold text-[#e6edf3]">${getItemTypeIcon(it.slot)} ${it.name}</div>
-                <div class="text-[10px] font-mono text-[#a78bfa]">Sockets: ${usedS}/${maxS} ${usedS > 0 ? ('[' + it.gems.join(', ') + ']') : ''}</div>
+                <div class="text-[10px] font-mono text-[#a78bfa]">Sockets: ${usedS}/${maxS} ${usedS > 0 ? ('[' + sockArr.join(', ') + ']') : ''}</div>
               </div>
-              <div class="flex items-center gap-1">
-                ${maxS < 2 ? `<button onclick="window.WargameApp.handlePunchSocket('${it.uid}')" class="px-2 py-0.5 rounded bg-[#1a2232] hover:bg-[#283347] text-[#fbbf24] border border-[#fbbf24]/40 text-[10px] font-mono cursor-pointer">+ Socket (2 Ing, 35g)</button>` : ''}
+              <div class="flex flex-wrap items-center gap-1">
+                ${it.slot !== 'pickaxe' && maxS < 2 ? `<button onclick="window.WargameApp.handlePunchSocket('${it.uid}')" class="px-2 py-0.5 rounded bg-[#1a2232] hover:bg-[#283347] text-[#fbbf24] border border-[#fbbf24]/40 text-[10px] font-mono cursor-pointer">+ Socket (2 Ing, 35g)</button>` : ''}
                 ${usedS < maxS && (cg.ruby || 0) > 0 ? `<button onclick="window.WargameApp.handleSocketCityGem('${it.uid}', 'ruby')" class="px-2 py-0.5 rounded bg-[#f87171] text-[#080b11] font-bold text-[10px] font-mono cursor-pointer">Socket Ruby</button>` : ''}
                 ${usedS < maxS && (cg.emerald || 0) > 0 ? `<button onclick="window.WargameApp.handleSocketCityGem('${it.uid}', 'emerald')" class="px-2 py-0.5 rounded bg-[#34d399] text-[#080b11] font-bold text-[10px] font-mono cursor-pointer">Socket Emerald</button>` : ''}
+                ${usedS < maxS && (cg.sapphire || 0) > 0 ? `<button onclick="window.WargameApp.handleSocketCityGem('${it.uid}', 'sapphire')" class="px-2 py-0.5 rounded bg-[#60a5fa] text-[#080b11] font-bold text-[10px] font-mono cursor-pointer">Socket Sapphire</button>` : ''}
+                ${usedS < maxS && (cg.topaz || 0) > 0 ? `<button onclick="window.WargameApp.handleSocketCityGem('${it.uid}', 'topaz')" class="px-2 py-0.5 rounded bg-[#fbbf24] text-[#080b11] font-bold text-[10px] font-mono cursor-pointer">Socket Topaz</button>` : ''}
+                ${usedS < maxS && (cg.void_diamond || 0) > 0 ? `<button onclick="window.WargameApp.handleSocketCityGem('${it.uid}', 'void_diamond')" class="px-2 py-0.5 rounded bg-[#e879f9] text-[#080b11] font-bold text-[10px] font-mono cursor-pointer">Socket Void</button>` : ''}
                 ${usedS > 0 ? `<button onclick="window.WargameApp.handleUnsocketCityGem('${it.uid}')" class="px-2 py-0.5 rounded bg-[#1a2232] text-[#38bdf8] border border-[#38bdf8]/40 text-[10px] font-mono cursor-pointer">Extract (20g)</button>` : ''}
               </div>
             </div>
@@ -2309,11 +2455,15 @@ export function renderCityBuilderPanel(simHost) {
         }
       }
 
-      // Hide meeting hall (founded at center plot) and legacy aliases
-      // Only show buildings whose prerequisites are currently satisfied!
+      // Hide meeting hall (founded at center plot); show unlocked buildings first,
+      // then clearly list locked structures with their prerequisite unlock chain (e.g. Quarry -> Smeltery -> Blacksmith)
       const constructibleKeys = Object.keys(CITY_BUILDINGS_CATALOG).filter(function(k) {
         if (k === 'meeting_hall') return false;
         return isBuildingPrerequisiteMet(city, k);
+      });
+      const lockedKeys = Object.keys(CITY_BUILDINGS_CATALOG).filter(function(k) {
+        if (k === 'meeting_hall') return false;
+        return !isBuildingPrerequisiteMet(city, k);
       });
 
       const catalogCards = constructibleKeys.length > 0
@@ -2347,6 +2497,28 @@ export function renderCityBuilderPanel(simHost) {
           }).join('')
         : `<div class="p-3.5 rounded bg-[#080b11] border border-[#283347] text-center text-xs text-[#8b949e] italic">No new buildings currently available. Grow your population or fulfill current tasks to unlock new structures!</div>`;
 
+      const lockedCards = lockedKeys.length > 0
+        ? `<div class="pt-2 border-t border-[#1e293b] space-y-1">
+            <div class="text-[10px] font-mono uppercase tracking-wider text-[#64748b] font-bold">🔒 Locked Structures (Prerequisites)</div>
+            ${lockedKeys.map(function(bId) {
+              const bDef = CITY_BUILDINGS_CATALOG[bId];
+              const reqText = getBuildingPrerequisiteMissingReason(city, bId) || 'Prerequisite required';
+              return `
+                <div class="p-2 rounded bg-[#06090f] border border-[#1e293b]/80 flex items-center justify-between gap-2 opacity-75">
+                  <div class="flex items-center gap-2 min-w-0">
+                    <span class="text-base">${bDef.icon}</span>
+                    <div class="min-w-0">
+                      <div class="text-[11px] font-bold text-[#94a3b8] truncate">${bDef.name}</div>
+                      <div class="text-[10px] font-mono text-[#fbbf24]/80 truncate">${reqText}</div>
+                    </div>
+                  </div>
+                  <span class="px-2 py-0.5 rounded bg-[#111722] text-[10px] font-mono text-[#64748b] whitespace-nowrap">Locked</span>
+                </div>
+              `;
+            }).join('')}
+          </div>`
+        : '';
+
       inspectorHtml += `
         <div class="space-y-2">
           <div class="flex items-center justify-between">
@@ -2355,6 +2527,7 @@ export function renderCityBuilderPanel(simHost) {
           </div>
           <div class="space-y-1.5 max-h-[380px] overflow-y-auto pr-1">
             ${catalogCards}
+            ${lockedCards}
           </div>
         </div>
       `;

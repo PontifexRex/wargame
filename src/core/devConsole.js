@@ -4,7 +4,7 @@
 
 import { CLASSES } from '../data/classes.js';
 import { MONSTER_ARCHETYPES, BOSS_ARCHETYPES } from '../data/monsters.js';
-import { SHOP_ITEMS } from '../data/items.js';
+import { SHOP_ITEMS, normalizeEquipmentItem } from '../data/items.js';
 import { computeHeroDerivedStats, formatAttributeDisplay, normalizeHeroBonusStats } from './heroStats.js';
 import { normalizeHeroKnowledge } from './knowledge.js';
 import { COMMAND_TYPES } from '../wargame/constants.js';
@@ -424,6 +424,43 @@ export function createDevConsoleController(options) {
     return recordFeedback({ ok: true, text: 'Triggered active class skill.' }, 'Trigger Skill');
   }
 
+  function setupCityForgeWorkflow() {
+    const simHost = getSimHost();
+    const city = simHost && simHost.state ? getPrimaryCity(simHost.state) : null;
+    if (!city) {
+      return recordFeedback({ ok: false, text: 'Found a city first before setting up Blacksmith & Star-Forge.' }, 'Setup Forge');
+    }
+    if (!city.buildings) city.buildings = {};
+    if (!city.stockpile) city.stockpile = {};
+    const needed = ['quarry', 'smeltery', 'blacksmith', 'lapidary'];
+    const placed = [];
+    for (let i = 0; i < needed.length; i++) {
+      const bId = needed[i];
+      if ((city.buildings[bId] || 0) >= 1) continue;
+      city.buildings[bId] = 1;
+      if (Array.isArray(city.plots)) {
+        const hasPlot = city.plots.some(function(p) { return p && p.buildingId === bId; });
+        if (!hasPlot) {
+          const emptyPlot = city.plots.find(function(p) { return p && !p.buildingId && !p.underConstruction; });
+          if (emptyPlot) {
+            emptyPlot.buildingId = bId;
+            emptyPlot.level = 1;
+            emptyPlot.underConstruction = false;
+          }
+        }
+      }
+      placed.push(bId);
+    }
+    city.stockpile.ingots = Math.max(city.stockpile.ingots || 0, 20);
+    city.stockpile.gold = Math.max(city.stockpile.gold || 0, 200);
+    notifyMutated();
+    return recordFeedback({
+      ok: true,
+      placed: placed,
+      text: 'Blacksmith & Star-Forge ready in ' + city.name + ' (Ingots: ' + city.stockpile.ingots + ', Gold: ' + city.stockpile.gold + '). Open City view and click the Blacksmith plot to forge!'
+    }, 'Setup Forge');
+  }
+
   function adjustCityResource(resourceKey, delta, explicitValue) {
     const simHost = getSimHost();
     const city = simHost && simHost.state ? getPrimaryCity(simHost.state) : null;
@@ -471,20 +508,19 @@ export function createDevConsoleController(options) {
       notifyMutated();
       return recordFeedback({ ok: true, text: 'Granted consumable "' + tpl.name + '" to ' + hero.name + '.' }, 'Grant Item');
     }
-    const item = Object.assign({}, tpl, {
+    const item = normalizeEquipmentItem(Object.assign({}, tpl, {
       uid: nextItemUid('dev_grant'),
       affixes: [],
       sockets: [],
-      maxSockets: 1
-    });
-    if (item.slot === 'pickaxe') item.curDur = item.maxDur || 50;
-    if (!Array.isArray(hero.bag)) hero.bag = [];
-    hero.bag.push(item);
+      maxSockets: tpl.slot === 'pickaxe' ? 0 : 1
+    }));
+    if (!Array.isArray(hero.bagGear)) hero.bagGear = [];
+    hero.bagGear.push(item);
     notifyMutated();
     return recordFeedback({
       ok: true,
       item: item,
-      text: 'Granted "' + item.name + '" [' + item.uid + '] into ' + hero.name + '\'s bag.'
+      text: 'Granted "' + item.name + '" [' + item.uid + '] into ' + hero.name + '\'s pack.'
     }, 'Grant Item');
   }
 
@@ -1177,7 +1213,7 @@ export function createDevConsoleController(options) {
       const eq = activeHero.equipment || {};
       const packItems = ctx === 'dungeon'
         ? (Array.isArray(activeHero.expeditionGear) ? activeHero.expeditionGear : [])
-        : (Array.isArray(activeHero.bag) ? activeHero.bag : []);
+        : (Array.isArray(activeHero.bagGear) ? activeHero.bagGear : []);
       let skillTargeting = null;
       if (ctx === 'dungeon' && dng) {
         skillTargeting = getSkillTargetingInfo(dng);
@@ -1394,6 +1430,7 @@ export function createDevConsoleController(options) {
     toggleHeroGodMode: toggleHeroGodMode,
     spawnObject: spawnObject,
     triggerHeroSkill: triggerHeroSkill,
+    setupCityForgeWorkflow: setupCityForgeWorkflow,
     adjustCityResource: adjustCityResource,
     grantShopItem: grantShopItem,
     getOutput: function() { return outputLog.slice(); },

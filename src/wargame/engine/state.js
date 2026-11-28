@@ -23,6 +23,7 @@ import { generateOverworldMap, isOverworldTilePassable, createDefaultMilitaryTar
 import { isInOverworldBounds, areHexesAdjacent } from './hexSpatial.js';
 import { createInitialTasksState } from './taskEngine.js';
 import { CITY_PLOT_SLOTS, CITY_BUILDINGS_CATALOG, normalizeBuildingId } from '../data/buildings.js';
+import { normalizeEquipmentItem } from '../../data/items.js';
 import { isClassDungeonEligible } from '../../data/classes.js';
 import { computeHeroDerivedStats, normalizeHeroBonusStats } from '../../core/heroStats.js';
 import { normalizeHeroKnowledge } from '../../core/knowledge.js';
@@ -400,6 +401,17 @@ export function normalizePersistentHeroInstance(hero) {
 
   hero.bonusStats = normalizeHeroBonusStats(hero.bonusStats);
   hero.knowledge = normalizeHeroKnowledge(hero.knowledge);
+  if (hero.equipment && typeof hero.equipment === 'object') {
+    const eqKeys = ['weapon', 'armor', 'helm', 'boots', 'accessory', 'pickaxe'];
+    for (let ei = 0; ei < eqKeys.length; ei++) {
+      if (hero.equipment[eqKeys[ei]]) normalizeEquipmentItem(hero.equipment[eqKeys[ei]]);
+    }
+  }
+  if (Array.isArray(hero.bagGear)) {
+    for (let bi = 0; bi < hero.bagGear.length; bi++) {
+      if (hero.bagGear[bi]) normalizeEquipmentItem(hero.bagGear[bi]);
+    }
+  }
 
   if (typeof hero.statPoints !== 'number' || !isFinite(hero.statPoints) || hero.statPoints < 0) {
     hero.statPoints = 0;
@@ -1132,6 +1144,10 @@ export function loadWargameState(scheduler = null, options = null) {
         if (!c.maxTroopQueueSlots) c.maxTroopQueueSlots = BASE_TROOP_QUEUE_LIMIT || 3;
         if (!c.storage || !Array.isArray(c.storage.items)) {
           c.storage = createInventoryContainer('city_storage_' + cid, (c.name || 'City') + ' Vault Storage', CITY_STORAGE_BASE_CAPACITY || 200);
+        } else {
+          for (let si = 0; si < c.storage.items.length; si++) {
+            if (c.storage.items[si]) normalizeEquipmentItem(c.storage.items[si]);
+          }
         }
         if (typeof c.selectedPlotIndex !== 'number') c.selectedPlotIndex = (CITY_CENTER_PLOT_INDEX !== undefined ? CITY_CENTER_PLOT_INDEX : 27);
 

@@ -716,8 +716,8 @@ export function resolveRecruitHeroJob(job, state, scheduler, eventStream) {
       const curD = copy.curDur !== undefined ? copy.curDur : (copy.durability !== undefined ? copy.durability : maxD);
       copy.curDur = curD;
       copy.maxDur = maxD;
-      copy.durability = curD;
-      copy.maxDurability = maxD;
+      if (copy.durability !== undefined) delete copy.durability;
+      if (copy.maxDurability !== undefined) delete copy.maxDurability;
       if (!copy.tier) copy.tier = 1;
     }
     return copy;

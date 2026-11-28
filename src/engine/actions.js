@@ -23,7 +23,7 @@ import { isClassDungeonEligible, isHeroDungeonEligible } from '../data/classes.j
 import { computeAutoLevelGrowthDelta } from '../core/heroStats.js';
 import { GEM_IDS, GEM_CATALOG, SHRINE_CATALOG, TRAP_CATALOG } from '../data/gems.js';
 import { buildProceduralBountySet } from '../data/bounties.js';
-import { SHOP_ITEMS, computeItemPowerScore, isItemUpgrade } from '../data/items.js';
+import { SHOP_ITEMS, computeItemPowerScore, computeClassItemPreferenceScore, isItemUpgrade } from '../data/items.js';
 import { RESEARCH_PROJECTS } from '../data/research.js';
 import { buildCharteredDungeonInstance, createDungeonInstance, CURATED_DUNGEON_PROFILES } from '../data/dungeons.js';
 import { hashSeedString, randomSeedCode } from './rng.js';
@@ -1439,12 +1439,12 @@ export function autoEquipBestGear(state = gameState) {
     const candidates = armory.filter(g => g && g.slot === slot);
     if (candidates.length === 0) continue;
 
-    candidates.sort((a, b) => computeItemPowerScore(b) - computeItemPowerScore(a));
+    candidates.sort((a, b) => computeClassItemPreferenceScore(b, h.classId) - computeClassItemPreferenceScore(a, h.classId));
     const bestCandidate = candidates[0];
-    const bestScore = computeItemPowerScore(bestCandidate);
+    const bestScore = computeClassItemPreferenceScore(bestCandidate, h.classId);
 
     const curEq = h.equipment[slot];
-    const curScore = curEq ? computeItemPowerScore(curEq) : -1;
+    const curScore = curEq ? computeClassItemPreferenceScore(curEq, h.classId) : -1;
 
     if (bestScore > curScore) {
       const armoryIdx = armory.indexOf(bestCandidate);

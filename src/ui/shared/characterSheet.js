@@ -57,13 +57,14 @@ export function normalizeSharedHeroProfile(hero) {
   const spi = formatAttributeDisplay(h.computedSpi !== undefined ? h.computedSpi : (derived ? derived.attributes.spi : (st.spi || (cls.baseStats && cls.baseStats.spi) || 10)));
 
   const eq = h.equipment || {};
-  const baseMaxHp = h.maxHp !== undefined ? h.maxHp : (derived ? derived.maxHp : (st.hp || 140));
-  const baseMaxMp = h.maxMp !== undefined ? h.maxMp : (derived ? derived.maxMp : (st.mp || 60));
-  const atk = h.atk !== undefined ? h.atk : (derived ? derived.atk : (st.atk || 22));
-  const magicPower = h.magicPower !== undefined ? h.magicPower : (derived ? derived.magicPower : (st.magicPower || 12));
-  const def = h.def !== undefined ? h.def : (derived ? derived.def : (st.def || 10));
-  const crit = h.crit !== undefined ? h.crit : (derived ? derived.crit : Math.min(60, 8 + Math.floor(dex * 0.6)));
-  const dodge = h.dodge !== undefined ? h.dodge : (derived ? derived.dodge : Math.min(45, 5 + Math.floor(dex * 0.5)));
+  const hasCurrentVitals = typeof h.hp === 'number' && isFinite(h.hp);
+  const baseMaxHp = derived ? derived.maxHp : (h.maxHp !== undefined ? h.maxHp : (st.maxHp || st.hp || 140));
+  const baseMaxMp = derived ? derived.maxMp : (h.maxMp !== undefined ? h.maxMp : (st.maxMp || st.mp || 60));
+  const atk = derived ? derived.atk : (h.atk !== undefined ? h.atk : (st.atk || 22));
+  const magicPower = derived ? derived.magicPower : (h.magicPower !== undefined ? h.magicPower : (st.magicPower || 12));
+  const def = derived ? derived.def : (h.def !== undefined ? h.def : (st.def || 10));
+  const crit = derived ? derived.crit : (h.crit !== undefined ? h.crit : Math.min(60, 8 + Math.floor(dex * 0.6)));
+  const dodge = derived ? derived.dodge : (h.dodge !== undefined ? h.dodge : Math.min(45, 5 + Math.floor(dex * 0.5)));
 
   return {
     id: h.id || 'hero_active',
@@ -74,9 +75,10 @@ export function normalizeSharedHeroProfile(hero) {
     color: h.color || cls.color || '#fbbf24',
     level: h.level || 1,
     xp: h.xp || 0,
-    hp: h.hp !== undefined ? h.hp : baseMaxHp,
+    hasCurrentVitals: hasCurrentVitals,
+    hp: hasCurrentVitals ? h.hp : null,
     maxHp: baseMaxHp,
-    mp: h.mp !== undefined ? h.mp : baseMaxMp,
+    mp: (typeof h.mp === 'number' && isFinite(h.mp)) ? h.mp : null,
     maxMp: baseMaxMp,
     stats: {
       str: str,
@@ -384,15 +386,25 @@ export function buildSharedPaperDollGridHtml(hero, options = {}) {
 
 export function buildSharedHeroStatsHtml(profile) {
   const s = profile.stats;
+  const hpCell = profile.hasCurrentVitals
+    ? { label: 'HP', val: profile.hp + '/' + profile.maxHp, color: '#34d399' }
+    : { label: 'MAX HP', val: profile.maxHp, color: '#34d399' };
+  const mpCell = (profile.hasCurrentVitals && typeof profile.mp === 'number')
+    ? { label: 'MP', val: profile.mp + '/' + profile.maxMp, color: '#60a5fa' }
+    : { label: 'MAX MP', val: profile.maxMp, color: '#60a5fa' };
   const cells = [
+    hpCell,
+    mpCell,
+    { label: 'ATK', val: s.atk, color: '#fb923c' },
+    { label: 'MAG', val: s.magicPower || 0, color: '#c084fc' },
+    { label: 'DEF', val: s.def, color: '#38bdf8' },
+    { label: 'CRIT', val: s.crit + '%', color: '#facc15' },
+    { label: 'DODGE', val: s.dodge + '%', color: '#a78bfa' },
+    { label: 'SPI', val: s.spi || 0, color: '#fef08a' },
     { label: 'STR', val: s.str, color: '#f87171' },
     { label: 'DEX', val: s.dex, color: '#34d399' },
     { label: 'INT', val: s.int, color: '#60a5fa' },
-    { label: 'VIT', val: s.vit, color: '#fbbf24' },
-    { label: 'ATK', val: s.atk, color: '#fb923c' },
-    { label: 'DEF', val: s.def, color: '#38bdf8' },
-    { label: 'CRIT', val: s.crit + '%', color: '#facc15' },
-    { label: 'DODGE', val: s.dodge + '%', color: '#a78bfa' }
+    { label: 'VIT', val: s.vit, color: '#fbbf24' }
   ];
   return cells.map(function(c) {
     return `

@@ -25,7 +25,7 @@ import {
 } from '../constants.js';
 import { CLASSES } from '../data/classes.js';
 import { ORE_CATALOG } from '../data/ores.js';
-import { computeItemPowerScore, isItemUpgrade, getItemTypeIcon, SLOT_METADATA } from '../data/items.js';
+import { computeItemPowerScore, computeClassItemPreferenceScore, normalizeEquipmentItem, isItemUpgrade, getItemTypeIcon, SLOT_METADATA } from '../data/items.js';
 import { CURATED_DUNGEON_PROFILES, BIOME_PALETTES, resolveFloorBiome } from '../data/dungeons.js';
 import { MONSTER_ARCHETYPES, BOSS_ARCHETYPES } from '../data/monsters.js';
 import { packFloorForStorage, hydrateFloorFromStorage } from '../engine/compression.js';
@@ -2136,6 +2136,29 @@ export function evaluateSelfTests() {
     detail: t34Pass
       ? 'Standalone Roguelike Knowledge isRanged, Colossus/Weaver telegraphed windup & sidestep dodge verified'
       : 'Failed MS-01 standalone Roguelike checks'
+  });
+
+  // 35. IS-01: Canonical Equipment Normalization, Archetype Differentiation & Class-Aware Auto-Equip
+  const sb35 = createDefaultGameState();
+  selectAdventurerClass('mage', sb35);
+  sb35.inGuild = true;
+  const cleaver35 = generateProceduralEquipment(4, 'common', 'weapon', 0, 'wep_cleaver');
+  const staff35 = generateProceduralEquipment(4, 'common', 'weapon', 0, 'wep_staff');
+  sb35.hero.equipment.weapon = cleaver35;
+  sb35.guildVault.armory = [staff35];
+  const auto35 = autoEquipBestGear(sb35);
+  const leg35 = normalizeEquipmentItem({ uid: 'l35', slot: 'armor', hp: 20, sockets: 1, gems: ['topaz'], def: 10 });
+  const t35Pass = Boolean(
+    auto35.ok && sb35.hero.equipment.weapon && sb35.hero.equipment.weapon.uid === staff35.uid &&
+    computeClassItemPreferenceScore(cleaver35, 'fighter') > computeClassItemPreferenceScore(staff35, 'fighter') &&
+    leg35.maxHp === 0 && leg35.def === 8 && leg35.maxSockets === 1 && leg35.sockets[0] === 'topaz'
+  );
+  results.push({
+    name: '35. IS-01: Canonical Equipment Normalization, Archetypes & Class-Aware Auto-Equip',
+    pass: t35Pass,
+    detail: t35Pass
+      ? 'Standalone Roguelike archetype differentiation, class-aware auto-equip & legacy item normalization verified'
+      : 'Failed IS-01 standalone Roguelike checks'
   });
 
   return results;

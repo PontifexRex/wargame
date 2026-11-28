@@ -784,3 +784,129 @@ export function getBuildingLevelsTable(buildingId) {
   }
   return rows;
 }
+
+// ============================================================================
+// SHARED BLACKSMITH FORGE RECIPE & TEMPERING PREVIEW RULES (IS-01)
+// Single source of truth consumed by BOTH commandBus.js and wargameUiSync.js.
+// ============================================================================
+export const BLACKSMITH_FORGE_SLOTS = ['weapon', 'armor', 'helm', 'boots', 'accessory', 'pickaxe'];
+
+export function getBlacksmithForgeRecipePreview(slot, blacksmithLevel) {
+  const sl = BLACKSMITH_FORGE_SLOTS.indexOf(slot) !== -1 ? slot : 'weapon';
+  const bsLvl = Math.max(1, Math.round(Number(blacksmithLevel) || 1));
+  const ingotCost = 3 + bsLvl;
+  const goldCost = 20 + bsLvl * 10;
+  const rarity = bsLvl >= 3 ? 'epic' : (bsLvl >= 2 ? 'rare' : 'uncommon');
+  const maxSockets = sl === 'pickaxe' ? 0 : (bsLvl >= 3 ? 2 : (bsLvl >= 2 ? 1 : 0));
+  const tierName = bsLvl >= 3 ? 'Star-Forged' : (bsLvl >= 2 ? 'Tempered' : 'Forged');
+  const slotNames = {
+    weapon: 'Greatsword',
+    armor: 'Plate Cuirass',
+    helm: 'Greathelm',
+    boots: 'War Greaves',
+    accessory: 'Runic Signet',
+    pickaxe: 'Mithril Pickaxe'
+  };
+
+  const atk = sl === 'weapon' ? (10 + bsLvl * 4) : (sl === 'accessory' ? (3 + bsLvl * 2) : 0);
+  const def = (sl === 'armor' || sl === 'helm' || sl === 'boots') ? (5 + bsLvl * 3) : (sl === 'accessory' ? (2 + bsLvl) : 0);
+  const maxHp = sl === 'armor' ? (10 + bsLvl * 6) : 0;
+  const tier = sl === 'pickaxe' ? Math.min(4, 1 + bsLvl) : undefined;
+  const maxDur = sl === 'pickaxe' ? (30 + bsLvl * 10) : undefined;
+  const value = 45 + bsLvl * 30;
+
+  return {
+    slot: sl,
+    blacksmithLevel: bsLvl,
+    name: tierName + ' ' + slotNames[sl],
+    rarity: rarity,
+    deterministic: true,
+    ingotCost: ingotCost,
+    goldCost: goldCost,
+    destination: 'City Vault Storage',
+    atk: atk,
+    def: def,
+    maxHp: maxHp,
+    tier: tier,
+    maxDur: maxDur,
+    curDur: maxDur,
+    maxSockets: maxSockets,
+    value: value
+  };
+}
+
+export function getBlacksmithTemperPreview(item) {
+  if (!item || typeof item !== 'object') {
+    return { eligible: false, reason: 'No item selected.' };
+  }
+  const curRank = item.temperRank || 0;
+  const maxRank = 3;
+  const ingotCost = 2;
+  const goldCost = 20;
+
+  if (item.slot === 'pickaxe') {
+    return {
+      eligible: false,
+      reason: 'Pickaxes are non-combat tools and cannot be tempered.',
+      curRank: curRank,
+      maxRank: maxRank,
+      ingotCost: ingotCost,
+      goldCost: goldCost
+    };
+  }
+  if (curRank >= maxRank) {
+    return {
+      eligible: false,
+      reason: 'Maximum Temper Rank (+3) reached.',
+      curRank: curRank,
+      maxRank: maxRank,
+      ingotCost: ingotCost,
+      goldCost: goldCost
+    };
+  }
+
+  const statKey = (item.slot === 'weapon' || item.slot === 'accessory') ? 'atk' : 'def';
+  const statLabel = statKey === 'atk' ? 'ATK' : 'DEF';
+  const delta = 2;
+  const currentStat = item[statKey] || 0;
+  const nextStat = currentStat + delta;
+  const valueDelta = 25;
+
+  return {
+    eligible: true,
+    reason: null,
+    curRank: curRank,
+    nextRank: curRank + 1,
+    maxRank: maxRank,
+    ingotCost: ingotCost,
+    goldCost: goldCost,
+    statKey: statKey,
+    statLabel: statLabel,
+    delta: delta,
+    currentStat: currentStat,
+    nextStat: nextStat,
+    valueDelta: valueDelta
+  };
+}
+
+// Conservative authoritative city-presence check for hero-owned workshop actions.
+// Returns true if hero is stationed at city (garrisoned with no overworld unit, OR party unit is alive,
+// not in_dungeon, and standing at (city.x, city.y)). Away or delving heroes return false.
+export function isHeroPresentAtCity(world, city, hero) {
+  if (!world || !city || !hero) return false;
+  const ow = world.overworld;
+  const units = (ow && Array.isArray(ow.units)) ? ow.units : [];
+  const partyUnit = units.find(function(u) {
+    if (!u || !u.alive) return false;
+    if (u.leaderHeroId === hero.id) return true;
+    return Array.isArray(u.heroIds) && u.heroIds.indexOf(hero.id) !== -1;
+  }) || null;
+
+  if (!partyUnit) {
+    return true; // Garrisoned / unassigned hero stationed at city
+  }
+  if (partyUnit.status === 'in_dungeon') {
+    return false;
+  }
+  return partyUnit.x === city.x && partyUnit.y === city.y;
+}

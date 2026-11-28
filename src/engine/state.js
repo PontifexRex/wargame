@@ -9,6 +9,7 @@ import {
 } from '../constants.js';
 import { CLASSES } from '../data/classes.js';
 import { GEM_IDS, GEM_CATALOG } from '../data/gems.js';
+import { normalizeEquipmentItem } from '../data/items.js';
 import { buildProceduralBountySet } from '../data/bounties.js';
 import {
   CURATED_DUNGEON_PROFILES,
@@ -29,22 +30,7 @@ export function nextItemUid(prefix = 'gear') {
 }
 
 export function normalizeEquipmentSockets(item) {
-  if (!item) return null;
-  item.locked = Boolean(item.locked);
-  if (item.slot === 'pickaxe') {
-    item.maxSockets = 0;
-    item.sockets = [];
-    return item;
-  }
-  if (typeof item.maxSockets !== 'number') {
-    if (item.rarity === 'relic') item.maxSockets = 2;
-    else if (item.rarity === 'epic' || item.rarity === 'rare') item.maxSockets = 1;
-    else item.maxSockets = 0;
-  }
-  if (!Array.isArray(item.sockets)) {
-    item.sockets = [];
-  }
-  return item;
+  return normalizeEquipmentItem(item);
 }
 
 export function createDefaultCodexState() {
