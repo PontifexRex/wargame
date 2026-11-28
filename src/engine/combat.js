@@ -17,6 +17,7 @@ import {
   RARITY
 } from '../constants.js';
 import { CLASSES } from '../data/classes.js';
+import { getMonsterDefinition, getMonsterAbilityDefinition } from '../data/monsters.js';
 import { grantHeroKnowledge } from '../core/knowledge.js';
 import { ORE_CATALOG } from '../data/ores.js';
 import { RESEARCH_PROJECTS } from '../data/research.js';
@@ -443,10 +444,28 @@ export function startAutoWalkTo(tx, ty, state = gameState) {
 // COMBAT RESOLUTION, BOSS DROPS & MONSTER AI
 // ============================================================================
 
+export function clearFloorTelegraphs(floor) {
+  if (!floor || !Array.isArray(floor.monsters)) return 0;
+  let cleared = 0;
+  for (let i = 0; i < floor.monsters.length; i++) {
+    const m = floor.monsters[i];
+    if (m && m.telegraph) {
+      m.telegraph = null;
+      cleared += 1;
+    }
+  }
+  return cleared;
+}
+
 export function killMonster(monster, state = gameState) {
+  if (!monster) return;
   const ui = getActionCallbacks();
   const floor = ensureDungeonFloorHydrated(state.dungeon, state.dungeon.currentFloor);
   if (!floor) return;
+  const wasOnFloor = Array.isArray(floor.monsters) && floor.monsters.indexOf(monster) !== -1;
+  if (monster._dead && (wasOnFloor || monster.uid)) return;
+  monster._dead = true;
+  monster.telegraph = null;
   floor.monsters = floor.monsters.filter(m => m !== monster);
 
   // Update Guild Bestiary Codex & Lifetime Records
@@ -546,16 +565,25 @@ export function killMonster(monster, state = gameState) {
         ui.floatingText(h.x, h.y, `-${blastDmg} BLAST!`, '#ef4444');
       }
     }
+    const lethalBlastVictims = [];
     if (floor && Array.isArray(floor.monsters)) {
-      floor.monsters.forEach(m2 => {
-        if (m2 !== monster && m2.hp > 0 && Math.abs(m2.x - monster.x) <= 1 && Math.abs(m2.y - monster.y) <= 1) {
-          const mDmg = Math.max(2, Math.round(monster.atk * 1.5) - m2.def);
+      const snapMons = floor.monsters.slice();
+      for (let vi = 0; vi < snapMons.length; vi++) {
+        const m2 = snapMons[vi];
+        if (m2 && m2 !== monster && !m2._dead && m2.hp > 0 && Math.abs(m2.x - monster.x) <= 1 && Math.abs(m2.y - monster.y) <= 1) {
+          const mDmg = Math.max(2, Math.round(monster.atk * 1.5) - (m2.def || 0));
           m2.hp -= mDmg;
           if (state === gameState) {
             ui.floatingText(m2.x, m2.y, `-${mDmg}`, '#ef4444');
           }
+          if (m2.hp <= 0) {
+            lethalBlastVictims.push(m2);
+          }
         }
-      });
+      }
+    }
+    for (let li = 0; li < lethalBlastVictims.length; li++) {
+      killMonster(lethalBlastVictims[li], state);
     }
     if (h.hp <= 0) {
       checkHeroFatalDamage(monster.name, state);
@@ -583,7 +611,9 @@ export function attackMonster(monster, state = gameState) {
   const critMult = isCrit ? 1.65 : 1.0;
   const weakMult = (h.statuses || []).some(s => s.id === 'weakened') ? 0.80 : 1.0;
   const pierceRank = (h.talentsAllocated && h.talentsAllocated.r_d2) || 0;
-  const effDef = Math.round(monster.def * (1 - Math.min(0.8, pierceRank * 0.30)));
+  const isGuarding = (monster.statuses || []).some(s => s.id === 'guarding');
+  const guardDef = isGuarding ? Math.round((monster.def || 0) * 1.60) : (monster.def || 0);
+  const effDef = Math.round(guardDef * (1 - Math.min(0.8, pierceRank * 0.30)));
   const masteryMult = getCodexMasteryMultiplier(monster.id, state);
 
   const dmg = Math.max(2, Math.round(h.atk * weakMult * critMult * masteryMult) - effDef);
@@ -772,6 +802,211 @@ export function monsterAttackHero(m, isRanged, state = gameState) {
   }
 }
 
+function isMonsterWalkableTile(floor, tx, ty, h, fw, fh) {
+  if (tx < 0 || tx >= fw || ty < 0 || ty >= fh) return false;
+  const destTile = floor.tiles[ty][tx];
+  const monsterWalkable = (
+    destTile === TILE_FLOOR ||
+    destTile === TILE_CHEST_OPEN ||
+    destTile === TILE_SHRINE_USED ||
+    destTile === TILE_TRAP_DISARMED
+  );
+  if (!monsterWalkable) return false;
+  if (tx === h.x && ty === h.y) return false;
+  const doorObj = (floor.objects && floor.objects.length > 0)
+    ? floor.objects.find(function(o) { return o && o.x === tx && o.y === ty && o.objectType === 'door'; })
+    : null;
+  if (doorObj && !isDoorWalkable(doorObj)) return false;
+  if (floor.monsters && floor.monsters.some(function(other) { return other && !other._dead && other.hp > 0 && other.x === tx && other.y === ty; })) {
+    return false;
+  }
+  return true;
+}
+
+export function computeAbilityTargetTiles(ability, floor, m, tx, ty, fw, fh) {
+  if (!ability || !floor || !floor.tiles) return [];
+  const tiles = [];
+  const isTileThreatenable = function(cx, cy) {
+    if (cx < 0 || cx >= fw || cy < 0 || cy >= fh) return false;
+    const t = floor.tiles[cy][cx];
+    if (t === TILE_WALL || ORE_CATALOG[t]) return false;
+    const doorObj = (floor.objects && floor.objects.length > 0)
+      ? floor.objects.find(function(o) { return o && o.x === cx && o.y === cy && isDoorOpaque(o); })
+      : null;
+    return !doorObj;
+  };
+
+  if (ability.pattern === 'target_tile') {
+    if (isTileThreatenable(tx, ty)) tiles.push({ x: tx, y: ty });
+  } else if (ability.pattern === 'cross_1') {
+    const pts = [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]];
+    for (let i = 0; i < pts.length; i++) {
+      const cx = tx + pts[i][0];
+      const cy = ty + pts[i][1];
+      if (isTileThreatenable(cx, cy)) tiles.push({ x: cx, y: cy });
+    }
+  } else if (ability.pattern === 'radius_1') {
+    for (let dy = -1; dy <= 1; dy++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        const cx = tx + dx;
+        const cy = ty + dy;
+        if (isTileThreatenable(cx, cy)) tiles.push({ x: cx, y: cy });
+      }
+    }
+  } else if (ability.pattern === 'line_4') {
+    const sdx = Math.sign(tx - m.x);
+    const sdy = Math.sign(ty - m.y);
+    if (sdx === 0 && sdy === 0) return [];
+    for (let step = 1; step <= 4; step++) {
+      const cx = m.x + sdx * step;
+      const cy = m.y + sdy * step;
+      if (!isTileThreatenable(cx, cy)) break;
+      tiles.push({ x: cx, y: cy });
+    }
+  }
+  return tiles;
+}
+
+function resolveTelegraphedAbility(m, floor, state) {
+  const ui = getActionCallbacks();
+  const h = state.hero;
+  const tg = m.telegraph;
+  m.telegraph = null;
+  if (!tg) return;
+  const ability = getMonsterAbilityDefinition(tg.abilityId) || getMonsterAbilityDefinition(m);
+  m.abilityCooldown = (ability && ability.cooldown) ? ability.cooldown : 4;
+
+  const committedTiles = Array.isArray(tg.tiles) ? tg.tiles : [];
+  const heroHit = Boolean(h && committedTiles.some(function(pt) { return pt.x === h.x && pt.y === h.y; }));
+
+  if (!heroHit) {
+    if (state === gameState) {
+      ui.floatingText(m.x, m.y, (tg.name || 'ABILITY') + ' MISSED!', '#34d399');
+      ui.log(`${m.name}'s ${tg.name || 'ability'} strikes empty stone — you avoided it!`, 'good');
+    }
+    return;
+  }
+
+  if (h.godMode) {
+    if (state === gameState) {
+      ui.floatingText(h.x, h.y, 'IMMUNE!', '#fbbf24');
+      ui.log(`${m.name}'s ${tg.name || 'ability'} bounces off your invulnerable shield!`, 'info');
+    }
+    return;
+  }
+
+  const mult = (ability && ability.damageMult) ? ability.damageMult : 1.5;
+  let raw = Math.round((m.atk || 8) * mult);
+  if (h.classId === 'fighter') raw = Math.round(raw * 0.85);
+  if ((h.ward || 0) > 0) raw = Math.max(1, raw - h.ward);
+  const dmg = Math.max(2, raw - Math.floor((h.def || 0) * 0.6));
+  h.hp -= dmg;
+
+  if (ability && ability.statusId) {
+    applyStatusEffect(h, ability.statusId, ability.statusDuration || 2);
+  }
+  if (ability && ability.secondaryStatusId) {
+    applyStatusEffect(h, ability.secondaryStatusId, ability.secondaryStatusDuration || 2);
+    if (ability.secondaryStatusId === 'chilled') {
+      recomputeHeroDerivedStats(false, state);
+    }
+  }
+
+  if (state === gameState) {
+    playSound('hit');
+    ui.floatingText(h.x, h.y, `-${dmg} ${(tg.name || 'HIT').toUpperCase()}!`, (ability && ability.color) || '#ef4444');
+    ui.log(`💥 ${m.name}'s ${tg.name || 'ability'} hits you for ${dmg} damage!`, 'bad');
+    if (typeof ui.combatAnim === 'function') {
+      ui.combatAnim(h.x, h.y, 'spell', (ability && ability.color) || '#ef4444');
+    }
+  }
+
+  if (h.hp <= 0) {
+    checkHeroFatalDamage(m.name, state);
+  }
+}
+
+function tryExecuteMonsterAbility(m, floor, h, dist, fw, fh, state) {
+  const ui = getActionCallbacks();
+  const ability = getMonsterAbilityDefinition(m);
+  if (!ability) return false;
+  if ((m.abilityCooldown || 0) > 0) return false;
+
+  if (ability.kind === 'defensive') {
+    const alreadyGuarding = (m.statuses || []).some(function(s) { return s.id === 'guarding'; });
+    if (alreadyGuarding) return false;
+    if (dist > (ability.maxRange || 3.5)) return false;
+    if (m.hp >= m.maxHp && dist > 2.2) return false;
+    applyStatusEffect(m, 'guarding', ability.duration || 2);
+    m.abilityCooldown = ability.cooldown || 4;
+    if (state === gameState) {
+      ui.floatingText(m.x, m.y, '🛡 SHIELD BRACE!', '#60a5fa');
+      ui.log(`🛡 ${m.name} raises its shield (${ability.name}: +60% DEF for ${ability.duration || 2} turns)!`, 'gold');
+    }
+    return true;
+  }
+
+  if (ability.kind === 'telegraphed_area') {
+    const minR = ability.minRange || 1;
+    const maxR = ability.maxRange || 3;
+    if (dist < minR - 0.1 || dist > maxR + 0.2) return false;
+    if (ability.requireLos && !hasLineOfSight(floor, m.x, m.y, h.x, h.y)) return false;
+    const tiles = computeAbilityTargetTiles(ability, floor, m, h.x, h.y, fw, fh);
+    if (tiles.length === 0) return false;
+    m.telegraph = {
+      abilityId: ability.id,
+      name: ability.name,
+      tiles: tiles,
+      turnsLeft: ability.telegraphTurns || 1,
+      color: ability.color || '#ef4444'
+    };
+    if (state === gameState) {
+      ui.floatingText(m.x, m.y, `⚠ ${ability.name.toUpperCase()}!`, ability.color || '#f59e0b');
+      ui.log(`⚠ ${m.name} winds up ${ability.name}! Step out of the warned tiles!`, 'gold');
+    }
+    return true;
+  }
+
+  return false;
+}
+
+function trySkirmisherRetreat(m, floor, h, fw, fh, state) {
+  const ui = getActionCallbacks();
+  const def = getMonsterDefinition(m);
+  const beh = (m.behavior || (def && def.behavior)) || null;
+  if (!beh || !beh.kiteWhenAdjacent) return false;
+  if ((m.kiteCooldown || 0) > 0) return false;
+
+  const curDist = Math.hypot(m.x - h.x, m.y - h.y);
+  const dirs = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+  let best = null;
+  let bestDist = curDist;
+
+  for (let i = 0; i < dirs.length; i++) {
+    const nx = m.x + dirs[i][0];
+    const ny = m.y + dirs[i][1];
+    if (!isMonsterWalkableTile(floor, nx, ny, h, fw, fh)) continue;
+    const d = Math.hypot(nx - h.x, ny - h.y);
+    if (d > bestDist + 0.05) {
+      bestDist = d;
+      best = { x: nx, y: ny };
+    }
+  }
+
+  if (!best) return false;
+  m.x = best.x;
+  m.y = best.y;
+  m.kiteCooldown = beh.kiteCooldownTurns || 2;
+  if (state === gameState) {
+    ui.floatingText(m.x, m.y, '↩ RETREAT', '#60a5fa');
+  }
+  resolveHazardStepEffects(m, best.x, best.y, floor);
+  if (m.hp <= 0) {
+    killMonster(m, state);
+  }
+  return true;
+}
+
 export function processTurn(state = gameState) {
   const ui = getActionCallbacks();
   state.turn += 1;
@@ -793,16 +1028,20 @@ export function processTurn(state = gameState) {
     h.mp = Math.min(h.maxMp, h.mp + 1);
   }
 
-  // Hero Status & Shrine Buff Ticks
+  // Hero Status & Shrine Buff Ticks (normalizes legacy turns-only hazard statuses)
   if (h.statuses && h.statuses.length > 0) {
     let buffExpired = false;
     for (let i = h.statuses.length - 1; i >= 0; i--) {
       const st = h.statuses[i];
+      if (typeof st.duration !== 'number' || isNaN(st.duration)) {
+        st.duration = (typeof st.turns === 'number' && !isNaN(st.turns)) ? st.turns : 1;
+        if (st.turns !== undefined) delete st.turns;
+      }
       if (st.id === 'burn' || st.id === 'bleed' || st.id === 'poison') {
         const dot = Math.max(2, Math.round(h.maxHp * 0.04));
         h.hp -= dot;
         if (state === gameState) {
-          ui.floatingText(h.x, h.y, `-${dot} ${st.name.toUpperCase()}`, st.color);
+          ui.floatingText(h.x, h.y, `-${dot} ${(st.name || st.id).toUpperCase()}`, st.color || '#f87171');
         }
       }
       st.duration -= 1;
@@ -828,52 +1067,96 @@ export function processTurn(state = gameState) {
     fovCallback();
   }
 
-  // Monsters AI Turn (pre-culled by Chebyshev distance for O(1) large-map turn speed)
+  // Monsters AI Turn (pre-culled by Chebyshev distance for O(1) large-map turn speed,
+  // while always resolving/clearing active telegraphs so none become stale)
   const monstersSnapshot = floor.monsters.slice();
   for (let mIdx = 0; mIdx < monstersSnapshot.length; mIdx++) {
     const m = monstersSnapshot[mIdx];
-    if (!m || m.hp <= 0) continue;
+    if (!m || m._dead || m.hp <= 0) continue;
 
     // Monster Status Ticks
     if (m.statuses && m.statuses.length > 0) {
       let stunned = false;
       for (let i = m.statuses.length - 1; i >= 0; i--) {
         const st = m.statuses[i];
+        if (typeof st.duration !== 'number' || isNaN(st.duration)) {
+          st.duration = (typeof st.turns === 'number' && !isNaN(st.turns)) ? st.turns : 1;
+          if (st.turns !== undefined) delete st.turns;
+        }
         if (st.id === 'stun') stunned = true;
         if (st.id === 'burn' || st.id === 'bleed' || st.id === 'poison') {
           const dot = Math.max(3, Math.round(m.maxHp * 0.06));
           m.hp -= dot;
           if (state === gameState) {
-            ui.floatingText(m.x, m.y, `-${dot}`, st.color);
+            ui.floatingText(m.x, m.y, `-${dot}`, st.color || '#f87171');
           }
         }
         st.duration -= 1;
-        if (st.duration <= 0) m.statuses.splice(i, 1);
+        if (st.duration <= 0) {
+          if (st.id === 'guarding' && state === gameState) {
+            ui.log(`${m.name}'s Shield Brace wore off.`, 'info');
+          }
+          m.statuses.splice(i, 1);
+        }
       }
       if (m.hp <= 0) {
         killMonster(m, state);
         continue;
       }
       if (stunned) {
-        if (state === gameState) {
+        if (m.telegraph) {
+          const interruptedName = m.telegraph.name || 'ability';
+          const abDef = getMonsterAbilityDefinition(m.telegraph.abilityId) || getMonsterAbilityDefinition(m);
+          m.telegraph = null;
+          m.abilityCooldown = Math.max(2, Math.floor(((abDef && abDef.cooldown) || 4) / 2));
+          if (state === gameState) {
+            ui.floatingText(m.x, m.y, 'INTERRUPTED!', '#fbbf24');
+            ui.log(`✦ ${m.name}'s ${interruptedName} was interrupted by Stun!`, 'gold');
+          }
+        } else if (state === gameState) {
           ui.floatingText(m.x, m.y, 'STUNNED', '#fbbf24');
         }
         continue;
       }
     }
 
+    // Active Telegraph Resolution runs before distance culling so stale telegraphs never persist
+    if (m.telegraph) {
+      m.telegraph.turnsLeft = (typeof m.telegraph.turnsLeft === 'number' ? m.telegraph.turnsLeft : 1) - 1;
+      if (m.telegraph.turnsLeft <= 0) {
+        resolveTelegraphedAbility(m, floor, state);
+        if (state.inGuild) return;
+      }
+      continue;
+    }
+
+    // Decrement cooldowns on active turns when not winding up
+    if ((m.abilityCooldown || 0) > 0) m.abilityCooldown -= 1;
+    if ((m.kiteCooldown || 0) > 0) m.kiteCooldown -= 1;
+
     // Fast bounding-box skip so distant monsters on 192x144 maps cost zero CPU
     if (Math.abs(m.x - h.x) > 8 || Math.abs(m.y - h.y) > 8) continue;
 
     const dist = Math.hypot(m.x - h.x, m.y - h.y);
     if (dist <= 7.0) {
+      // 1. Signature Ability Check (defensive or telegraphed)
+      if (tryExecuteMonsterAbility(m, floor, h, dist, fw, fh, state)) {
+        continue;
+      }
+
+      // 2. Adjacent Engagement (Skirmisher retreat if configured & space exists, else melee)
       if (dist <= 1.5) {
+        if (trySkirmisherRetreat(m, floor, h, fw, fh, state)) {
+          continue;
+        }
         monsterAttackHero(m, false, state);
         if (state.inGuild) return;
       } else if (m.isRanged && dist <= (m.range || 3) + 0.3 && hasLineOfSight(floor, m.x, m.y, h.x, h.y)) {
+        // 3. Ranged Attack
         monsterAttackHero(m, true, state);
         if (state.inGuild) return;
       } else if (hasLineOfSight(floor, m.x, m.y, h.x, h.y) || dist <= 4.2) {
+        // 4. Baseline Pursuit
         const sx = Math.sign(h.x - m.x);
         const sy = Math.sign(h.y - m.y);
         const candidates = Math.abs(h.x - m.x) >= Math.abs(h.y - m.y)
@@ -885,29 +1168,14 @@ export function processTurn(state = gameState) {
           if (dx === 0 && dy === 0) continue;
           const tx = m.x + dx;
           const ty = m.y + dy;
-          if (tx >= 0 && tx < fw && ty >= 0 && ty < fh) {
-            const destTile = floor.tiles[ty][tx];
-            const monsterWalkable = (
-              destTile === TILE_FLOOR ||
-              destTile === TILE_CHEST_OPEN ||
-              destTile === TILE_SHRINE_USED ||
-              destTile === TILE_TRAP_DISARMED
-            );
-            const doorObj = (floor.objects && floor.objects.length > 0)
-              ? floor.objects.find(o => o.x === tx && o.y === ty && o.objectType === 'door')
-              : null;
-            const doorBlocks = doorObj && !isDoorWalkable(doorObj);
-            if (
-              monsterWalkable &&
-              !doorBlocks &&
-              !(tx === h.x && ty === h.y) &&
-              !floor.monsters.some(other => other.x === tx && other.y === ty)
-            ) {
-              m.x = tx;
-              m.y = ty;
-              resolveHazardStepEffects(m, tx, ty, floor);
-              break;
+          if (isMonsterWalkableTile(floor, tx, ty, h, fw, fh)) {
+            m.x = tx;
+            m.y = ty;
+            resolveHazardStepEffects(m, tx, ty, floor);
+            if (m.hp <= 0) {
+              killMonster(m, state);
             }
+            break;
           }
         }
       }
@@ -1282,6 +1550,7 @@ export function executeClassSkill(state = gameState) {
     const dmg = Math.max(4, Math.round(h.atk * 1.8 * masteryMult) - Math.floor(target.def * 0.5));
     target.hp -= dmg;
     target.stunned = Math.max(target.stunned || 0, 1);
+    applyStatusEffect(target, 'stun', 1);
 
     if (state === gameState) {
       playSound('spell');
@@ -1613,8 +1882,10 @@ export function useStairsAtPlayer(state = gameState) {
   // 2. Stairs Traversal
   if (tile === TILE_STAIRS_UP) {
     if (state.dungeon.currentFloor === 1) {
+      clearFloorTelegraphs(floor);
       extractToGuild('Floor 1 Ascending Stairs (<)', state);
     } else {
+      clearFloorTelegraphs(floor);
       state.dungeon.currentFloor -= 1;
       const prev = ensureDungeonFloorHydrated(state.dungeon, state.dungeon.currentFloor);
       state.hero.x = prev.downPos.x;
@@ -1649,6 +1920,7 @@ export function useStairsAtPlayer(state = gameState) {
       }
     }
 
+    clearFloorTelegraphs(floor);
     const nextDepth = state.dungeon.currentFloor + 1;
     state.dungeon.currentFloor = nextDepth;
     state.dungeon.deepestFloor = Math.max(state.dungeon.deepestFloor || 1, nextDepth);

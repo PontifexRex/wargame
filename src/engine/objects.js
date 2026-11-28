@@ -806,12 +806,24 @@ export function resolveHazardStepEffects(actor, x, y, floor) {
     }
 
     if (hCfg.statusId) {
+      const hazardStatusMeta = {
+        burn:     { name: 'Burn',     color: '#fb923c', isBuff: false },
+        bleed:    { name: 'Bleed',    color: '#f87171', isBuff: false },
+        poison:   { name: 'Poison',   color: '#4ade80', isBuff: false },
+        stun:     { name: 'Stunned',  color: '#fbbf24', isBuff: false },
+        weakened: { name: 'Weakened', color: '#c084fc', isBuff: false },
+        chilled:  { name: 'Chilled',  color: '#38bdf8', isBuff: false }
+      };
+      const sm = hazardStatusMeta[hCfg.statusId] || { name: hCfg.statusId, color: '#94a3b8', isBuff: false };
+      const dur = hCfg.statusTurns || 2;
       if (!Array.isArray(actor.statuses)) actor.statuses = [];
       const existing = actor.statuses.find(function(s) { return s.id === hCfg.statusId; });
       if (existing) {
-        existing.turns = Math.max(existing.turns || 0, hCfg.statusTurns || 2);
+        const curDur = typeof existing.duration === 'number' ? existing.duration : (typeof existing.turns === 'number' ? existing.turns : 0);
+        existing.duration = Math.max(curDur, dur);
+        if (existing.turns !== undefined) delete existing.turns;
       } else {
-        actor.statuses.push({ id: hCfg.statusId, turns: hCfg.statusTurns || 2 });
+        actor.statuses.push({ id: hCfg.statusId, name: sm.name, color: sm.color, duration: dur, isBuff: sm.isBuff });
       }
       appliedStatuses.push(hCfg.statusId);
     }

@@ -222,11 +222,17 @@ function updateIntegratedDungeonHoverScanner(gx, gy) {
     el.innerHTML = '<span class="text-[#64748b]">Unexplored Shadow (' + gx + ', ' + gy + ')</span>';
     return;
   }
-  const mon = (floor.monsters || []).find(function(m) { return m.hp > 0 && m.x === gx && m.y === gy; });
+  const mon = (floor.monsters || []).find(function(m) { return !m._dead && m.hp > 0 && m.x === gx && m.y === gy; });
   if (mon) {
     const lore = evaluateMonsterKnowledgeReveal(gameState.hero, mon);
     const loreSuffix = lore && lore.summary ? (' <span class="text-[#c084fc]">[' + lore.summary + ']</span>') : '';
-    el.innerHTML = '<span class="text-[#f87171] font-bold">' + mon.name + '</span> • HP ' + mon.hp + '/' + mon.maxHp + ' • ATK ' + mon.atk + ' • DEF ' + (mon.def || 0) + loreSuffix + ' — Move adjacent to attack!';
+    const telegraphSuffix = mon.telegraph
+      ? (' <span class="px-1.5 py-0.5 rounded bg-[#7f1d1d] text-[#fde68a] font-bold">⚠ Winding up ' + (mon.telegraph.name || 'Ability') + '</span>')
+      : '';
+    const statusText = (mon.statuses && mon.statuses.length > 0)
+      ? (' <span class="text-[#60a5fa]">[' + mon.statuses.map(function(s) { return (s.name || s.id) + ' ' + (typeof s.duration === 'number' ? s.duration : (s.turns || 1)) + 't'; }).join(', ') + ']</span>')
+      : '';
+    el.innerHTML = '<span class="text-[#f87171] font-bold">' + mon.name + '</span> • HP ' + mon.hp + '/' + mon.maxHp + ' • ATK ' + mon.atk + ' • DEF ' + (mon.def || 0) + telegraphSuffix + statusText + loreSuffix + ' — Move adjacent to attack!';
     return;
   }
   const tile = floor.tiles[gy][gx];

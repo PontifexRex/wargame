@@ -282,19 +282,33 @@ function carveCorridorBetweenRooms(tiles, w, h, rA, rB, wideAvenue, bendHorizont
   stampFloor(tx, ty);
 }
 
-export function createMonsterEntityFromArchetype(archId, effDepth, mx, my, isElite, rand, seqIdx) {
+export function createMonsterEntityFromArchetype(archId, effDepth, mx, my, isElite, rand, seqIdx, forcedAffixId) {
   const arch = MONSTER_ARCHETYPES[archId] || MONSTER_ARCHETYPES.vault_crawler;
-  const affix = isElite ? ELITE_AFFIXES[Math.floor(rand() * ELITE_AFFIXES.length)] : null;
+  let affix = null;
+  if (isElite) {
+    if (forcedAffixId) {
+      affix = ELITE_AFFIXES.find(function(a) { return a.id === forcedAffixId; }) || ELITE_AFFIXES[Math.floor(rand() * ELITE_AFFIXES.length)];
+    } else {
+      affix = ELITE_AFFIXES[Math.floor(rand() * ELITE_AFFIXES.length)];
+    }
+  }
+  const fortifiedMult = (affix && affix.id === 'fortified') ? 1.35 : 1.0;
   const scaledDepth = effDepth > 20 ? 20 + Math.floor(Math.pow(effDepth - 20, 1.15)) : effDepth;
-  const hpBase = (28 + scaledDepth * 8) * arch.hpMult * (isElite ? 1.65 : 1.0);
+  const hpBase = (28 + scaledDepth * 8) * arch.hpMult * (isElite ? 1.65 : 1.0) * fortifiedMult;
   const atkBase = (8 + scaledDepth * 2.2) * arch.atkMult * (isElite ? 1.25 : 1.0);
-  const defBase = (2 + scaledDepth * 1.1) * arch.defMult * ((affix && affix.id === 'fortified') ? 1.35 : 1.0);
+  const defBase = (2 + scaledDepth * 1.1) * arch.defMult * fortifiedMult;
   const xpBase = (16 + scaledDepth * 6) * arch.xpMult * (isElite ? 2.0 : 1.0);
+  const finalHp = Math.max(10, Math.round(hpBase));
 
   return {
     uid: `m_${effDepth}_${seqIdx}_${Math.floor(rand() * 100000)}`,
     id: arch.id,
     bountyTag: arch.bountyTag || 'crawler',
+    role: arch.role || null,
+    abilityId: arch.abilityId || null,
+    abilityCooldown: 0,
+    kiteCooldown: 0,
+    telegraph: null,
     name: isElite ? `${affix.name} ${arch.name}` : arch.name,
     isElite: !!isElite,
     affix,
@@ -303,12 +317,45 @@ export function createMonsterEntityFromArchetype(archId, effDepth, mx, my, isEli
     onHitStatus: arch.onHitStatus || null,
     x: mx,
     y: my,
-    hp: Math.max(10, Math.round(hpBase)),
-    maxHp: Math.max(10, Math.round(hpBase)),
+    hp: finalHp,
+    maxHp: finalHp,
     atk: Math.max(3, Math.round(atkBase)),
     def: Math.max(0, Math.round(defBase)),
     xp: Math.max(8, Math.round(xpBase)),
     color: isElite ? '#fbbf24' : arch.color,
+    statuses: []
+  };
+}
+
+export function createBossEntityFromArchetype(bossId, depth, bx, by, uidOverride) {
+  const bDef = BOSS_ARCHETYPES[bossId];
+  if (!bDef) return null;
+  const d = Math.max(1, Number(depth) || 1);
+  const bossScale = d > 20 ? (1 + (d - 20) * 0.08) : 1.0;
+  const finalHp = Math.round(bDef.hp * bossScale);
+  return {
+    uid: uidOverride || `boss_${d}_${Date.now()}`,
+    id: bDef.id,
+    bountyTag: 'boss',
+    role: bDef.role || 'boss',
+    abilityId: bDef.abilityId || null,
+    abilityCooldown: 0,
+    kiteCooldown: 0,
+    telegraph: null,
+    name: d > 20 ? `Abyssal ${bDef.name}` : bDef.name,
+    isBoss: true,
+    dropRarity: bDef.dropRarity || 'epic',
+    isRanged: !!bDef.isRanged,
+    range: bDef.range || 1,
+    onHitStatus: bDef.onHitStatus || null,
+    x: bx,
+    y: by,
+    hp: finalHp,
+    maxHp: finalHp,
+    atk: Math.round(bDef.atk * (d > 20 ? (1 + (d - 20) * 0.05) : 1.0)),
+    def: Math.round(bDef.def * (d > 20 ? (1 + (d - 20) * 0.04) : 1.0)),
+    xp: Math.round(bDef.xp * bossScale),
+    color: bDef.color,
     statuses: []
   };
 }
@@ -848,26 +895,10 @@ export function generateFloor(depth, dungeonConfig = null, dungeonSeed = null) {
       }
     }
     occupied[by * w + bx] = 1;
-    floorObj.monsters.push({
-      uid: `boss_${depth}_${Date.now()}`,
-      id: bDef.id,
-      bountyTag: 'boss',
-      name: depth > 20 ? `Abyssal ${bDef.name}` : bDef.name,
-      isBoss: true,
-      dropRarity: bDef.dropRarity || 'epic',
-      isRanged: !!bDef.isRanged,
-      range: bDef.range || 1,
-      onHitStatus: bDef.onHitStatus || null,
-      x: bx,
-      y: by,
-      hp: Math.round(bDef.hp * bossScale),
-      maxHp: Math.round(bDef.hp * bossScale),
-      atk: Math.round(bDef.atk * (depth > 20 ? (1 + (depth - 20) * 0.05) : 1.0)),
-      def: Math.round(bDef.def * (depth > 20 ? (1 + (depth - 20) * 0.04) : 1.0)),
-      xp: Math.round(bDef.xp * bossScale),
-      color: bDef.color,
-      statuses: []
-    });
+    const bossEnt = createBossEntityFromArchetype(scheduledBossId, depth, bx, by);
+    if (bossEnt) {
+      floorObj.monsters.push(bossEnt);
+    }
   }
 
   // 2. Spawn Elite Vault Wardens inside Guarded Treasure Vaults

@@ -1,6 +1,8 @@
-// Categorized Hero Knowledge Foundation & Monster Knowledge Reveal (HR-13)
+// Categorized Hero Knowledge Foundation & Monster Knowledge Reveal (HR-13 / MS-01)
 // Knowledge is a developable capability family, NOT a sixth foundational attribute.
 // INT supports reasoning/checks without substituting for topic expertise.
+
+import { getMonsterDefinition, getMonsterAbilityDefinition } from '../data/monsters.js';
 
 export const KNOWLEDGE_CATEGORIES = [
   'monster_knowledge',
@@ -73,29 +75,60 @@ export function evaluateMonsterKnowledgeReveal(hero, monster) {
 
   const isBoss = Boolean(monster.isBoss || (typeof monster.id === 'string' && monster.id.indexOf('boss_') === 0));
   const isElite = Boolean(monster.affix && monster.affix.name);
-  const threatLabel = isBoss ? 'Boss Guardian' : (isElite ? ('Elite (' + monster.affix.name + ')') : (monster.ranged ? 'Ranged Skirmisher' : 'Melee Hostile'));
+  const def = getMonsterDefinition(monster);
+  const ability = getMonsterAbilityDefinition(monster);
+  const isRanged = Boolean(
+    monster.isRanged !== undefined ? monster.isRanged
+      : (monster.ranged !== undefined ? monster.ranged : (def && def.isRanged))
+  );
+  const attackRange = monster.range || (def && def.range) || (isRanged ? 3 : 1);
+  const role = monster.role || (def && def.role) || null;
+  const roleNames = {
+    bruiser: 'Melee Bruiser',
+    skirmisher: isRanged ? 'Ranged Skirmisher' : 'Skirmisher',
+    tank: 'Armored Tank',
+    caster: isRanged ? 'Ranged Caster' : 'Caster',
+    boss: 'Boss Guardian'
+  };
+  const baseClassLabel = (role && roleNames[role])
+    ? roleNames[role]
+    : (isRanged ? 'Ranged Attacker' : 'Melee Hostile');
+  const threatLabel = isBoss
+    ? 'Boss Guardian'
+    : (isElite ? ('Elite ' + baseClassLabel + ' (' + monster.affix.name + ')') : baseClassLabel);
 
   let traitNote = null;
   if (tier >= 2) {
+    const traits = [];
     if (monster.affix && monster.affix.desc) {
-      traitNote = monster.affix.name + ': ' + monster.affix.desc;
-    } else if (monster.onHitStatus) {
-      traitNote = 'Inflicts ' + monster.onHitStatus + ' on hit';
-    } else if (monster.ranged) {
-      traitNote = 'Attacks from range (85% ATK)';
-    } else {
-      traitNote = 'Standard melee attacker (DEF ' + (monster.def || 0) + ')';
+      traits.push(monster.affix.name + ': ' + monster.affix.desc);
     }
+    if (ability) {
+      traits.push('Ability: ' + ability.name + ' — ' + ability.desc);
+    } else if (monster.onHitStatus) {
+      traits.push('Inflicts ' + monster.onHitStatus + ' on hit');
+    } else if (isRanged) {
+      traits.push('Ranged attacker (' + attackRange + ' tiles, 85% ATK)');
+    } else {
+      traits.push('Melee attacker (DEF ' + (monster.def || 0) + ')');
+    }
+    traitNote = traits.join(' • ');
   }
 
   let tacticalTip = null;
   if (tier >= 3) {
-    if (monster.affix && monster.affix.id === 'reflective') {
+    if (ability && ability.kind === 'telegraphed_area') {
+      tacticalTip = ability.pattern === 'line_4'
+        ? 'Counter: sidestep perpendicular to the beam or stun during windup.'
+        : 'Counter: step outside the warned impact zone or stun during windup.';
+    } else if (ability && ability.kind === 'defensive') {
+      tacticalTip = 'Counter: when Guarding, use magic/piercing skills or wait out the 2-turn stance.';
+    } else if (monster.affix && monster.affix.id === 'reflective') {
       tacticalTip = 'Weakness: burst or heal through 25% thorns reflection.';
     } else if ((monster.def || 0) >= 8) {
       tacticalTip = 'Weakness: armored — high-DEF target favors magic, crits, or DEF pierce.';
-    } else if (monster.ranged) {
-      tacticalTip = 'Weakness: close distance or break line-of-sight behind walls.';
+    } else if (isRanged) {
+      tacticalTip = 'Counter: close distance or break line-of-sight behind walls.';
     } else {
       tacticalTip = 'Tactical: watch HP threshold (' + (monster.hp || 0) + '/' + (monster.maxHp || 0) + ') and stun/control windows.';
     }

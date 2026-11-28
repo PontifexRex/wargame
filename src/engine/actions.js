@@ -1,4 +1,4 @@
-﻿// Interactive Mining, Multi-Dungeon Atlas Management, Astral Gems & Lapidary, Guild Bounties, Shrines, Traps & Extraction
+// Interactive Mining, Multi-Dungeon Atlas Management, Astral Gems & Lapidary, Guild Bounties, Shrines, Traps & Extraction
 
 import {
   DEFAULT_MAP_W,
@@ -124,6 +124,7 @@ export function applyStatusEffect(target, id, duration) {
     stun:            { id: 'stun',            name: 'Stunned',           color: '#fbbf24', duration, isBuff: false },
     weakened:        { id: 'weakened',        name: 'Weakened',          color: '#c084fc', duration, isBuff: false },
     chilled:         { id: 'chilled',         name: 'Chilled',           color: '#38bdf8', duration, isBuff: false },
+    guarding:        { id: 'guarding',        name: 'Guarding',          color: '#60a5fa', duration, isBuff: true },
     shrine_starfire: { id: 'shrine_starfire', name: 'Starfire Blessing', color: '#fbbf24', duration, isBuff: true },
     shrine_aegis:    { id: 'shrine_aegis',    name: 'Astral Aegis',      color: '#60a5fa', duration, isBuff: true }
   };

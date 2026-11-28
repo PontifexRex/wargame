@@ -267,7 +267,7 @@ function dcpRenderCombatTab(snap) {
         '<button type="button" data-dev-act="spawn-quick" data-val="vault_crawler" class="px-2 py-0.5 rounded bg-[#1a2232] hover:bg-[#283347] text-[#fca5a5] cursor-pointer">+ Vault Crawler</button>' +
         '<button type="button" data-dev-act="spawn-quick" data-val="starfall_archer" class="px-2 py-0.5 rounded bg-[#1a2232] hover:bg-[#283347] text-[#fca5a5] cursor-pointer">+ Starfall Archer</button>' +
         '<button type="button" data-dev-act="spawn-quick" data-val="bone_warden" class="px-2 py-0.5 rounded bg-[#1a2232] hover:bg-[#283347] text-[#fca5a5] cursor-pointer">+ Bone Warden</button>' +
-        (isDng ? '<button type="button" data-dev-act="spawn-quick" data-val="starfall_colossus" class="px-2 py-0.5 rounded bg-[#450a0a] hover:bg-[#7f1d1d] border border-[#f87171]/50 text-[#fecaca] cursor-pointer">+ Colossus Boss</button>' : '') +
+        (isDng ? '<button type="button" data-dev-act="spawn-quick" data-val="boss_colossus" class="px-2 py-0.5 rounded bg-[#450a0a] hover:bg-[#7f1d1d] border border-[#f87171]/50 text-[#fecaca] cursor-pointer">+ Colossus Boss</button>' : '') +
       '</div>' +
     '</div>';
 

@@ -26,7 +26,7 @@ import {
   spawnGroundItem,
   addWorldObject
 } from './objects.js';
-import { createMonsterEntityFromArchetype } from './procedural.js';
+import { createMonsterEntityFromArchetype, createBossEntityFromArchetype } from './procedural.js';
 import { MONSTER_ARCHETYPES, BOSS_ARCHETYPES } from '../data/monsters.js';
 
 export function gotoFloor(depth, dungeonId = null, state = gameState) {
@@ -48,6 +48,14 @@ export function gotoFloor(depth, dungeonId = null, state = gameState) {
   }
 
   const dng = state.dungeon;
+  const prevFloor = dng.floors && dng.floors[dng.currentFloor] ? dng.floors[dng.currentFloor] : null;
+  if (prevFloor && Array.isArray(prevFloor.monsters)) {
+    for (let mi = 0; mi < prevFloor.monsters.length; mi++) {
+      if (prevFloor.monsters[mi] && prevFloor.monsters[mi].telegraph) {
+        prevFloor.monsters[mi].telegraph = null;
+      }
+    }
+  }
   const targetDepth = Math.max(1, Math.min(999, Math.round(Number(depth) || 1)));
 
   // Generate floor if not already generated or stored
@@ -427,26 +435,7 @@ export function spawnEntity(type, subId = null, x = null, y = null, state = game
 
     let monster = null;
     if (isBoss) {
-      const bDef = BOSS_ARCHETYPES[archId];
-      monster = {
-        uid: 'boss_dev_' + Date.now(),
-        id: bDef.id,
-        bountyTag: 'boss',
-        name: bDef.name,
-        isBoss: true,
-        dropRarity: bDef.dropRarity || 'epic',
-        isRanged: !!bDef.isRanged,
-        range: bDef.range || 1,
-        x: mx,
-        y: my,
-        hp: bDef.hp,
-        maxHp: bDef.hp,
-        atk: bDef.atk,
-        def: bDef.def,
-        xp: bDef.xp,
-        color: bDef.color,
-        statuses: []
-      };
+      monster = createBossEntityFromArchetype(archId, floor.depth || 1, mx, my, 'boss_dev_' + Date.now());
     } else {
       monster = createMonsterEntityFromArchetype(archId, floor.depth || 1, mx, my, false, Math.random, (floor.monsters ? floor.monsters.length : 0) + 999);
     }

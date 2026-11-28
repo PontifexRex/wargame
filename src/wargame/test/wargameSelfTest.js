@@ -25,10 +25,12 @@ import {
 import { APP_CONTEXTS, createAppContextController } from '../../core/appContext.js';
 import { DEV_CONSOLE_TABS, parseConsoleCommandLine, createDevConsoleController } from '../../core/devConsole.js';
 import { createDefaultGameState, ensureDungeonFloorHydrated, recomputeHeroDerivedStats } from '../../engine/state.js';
-import { extractToGuild, handleHeroDefeat, useRecallScroll, traversePortal, applyWargameEntryHandoff, gainExperience } from '../../engine/actions.js';
-import { useStairsAtPlayer, executeClassSkill, getSkillTargetingInfo } from '../../engine/combat.js';
+import { createMonsterEntityFromArchetype, createBossEntityFromArchetype } from '../../engine/procedural.js';
+import { extractToGuild, handleHeroDefeat, useRecallScroll, traversePortal, applyWargameEntryHandoff, gainExperience, applyStatusEffect } from '../../engine/actions.js';
+import { useStairsAtPlayer, executeClassSkill, getSkillTargetingInfo, processTurn, killMonster, attackMonster, clearFloorTelegraphs } from '../../engine/combat.js';
+import { spawnEntity } from '../../engine/dev.js';
 import { CLASSES, isClassDungeonEligible, isHeroDungeonEligible } from '../../data/classes.js';
-import { createPortalInstance } from '../../engine/objects.js';
+import { createPortalInstance, createHazardInstance } from '../../engine/objects.js';
 import {
   HEX_DIR_NAMES,
   getOverworldHexAdapter,
@@ -6171,6 +6173,218 @@ export function evaluateWargameSelfTests() {
     detail: t54Pass
       ? 'Tabbed control panel, live state snapshot, bounds-checked direct controls (attrs/vitals/level/resources/objects), and categorized filterable Help verified'
       : 'Failed checks: ' + failed54.join(', ')
+  });
+
+  // =========================================================================
+  // Test 55: MS-01 — Monster Combat Differentiation, Telegraphed Abilities & Combat Integrity
+  // =========================================================================
+  function makeOpenFloor55(depth) {
+    return {
+      depth: depth || 1,
+      width: 11,
+      height: 11,
+      tiles: Array.from({ length: 11 }, function() { return Array.from({ length: 11 }, function() { return 1; }); }),
+      explored: Array.from({ length: 11 }, function() { return Array.from({ length: 11 }, function() { return 1; }); }),
+      upPos: { x: 1, y: 1 },
+      downPos: { x: 9, y: 9 },
+      monsters: [],
+      chests: [],
+      traps: {},
+      shrines: {},
+      objects: [],
+      groundItems: []
+    };
+  }
+
+  // 1. Integrity: Knowledge ranged/role accuracy (isRanged + legacy ranged), T0 non-leakage
+  const heroKn0 = { knowledge: { monster_knowledge: 0 }, computedInt: 10 };
+  const heroKn3 = { knowledge: { monster_knowledge: 5 }, computedInt: 14 };
+  const archerEnt55 = createMonsterEntityFromArchetype('starfall_archer', 2, 5, 5, false, function() { return 0.5; }, 1);
+  const cultistEnt55 = createMonsterEntityFromArchetype('abyssal_cultist', 2, 6, 5, false, function() { return 0.5; }, 2);
+  const legacyRanged55 = { id: 'custom_legacy', ranged: true, hp: 30, maxHp: 30, def: 2 };
+  const knT0 = evaluateMonsterKnowledgeReveal(heroKn0, archerEnt55);
+  const knArcherT3 = evaluateMonsterKnowledgeReveal(heroKn3, archerEnt55);
+  const knCultistT3 = evaluateMonsterKnowledgeReveal(heroKn3, cultistEnt55);
+  const knLegacyT1 = evaluateMonsterKnowledgeReveal(heroKn3, legacyRanged55);
+  const knowledgeOk55 = Boolean(
+    knT0.tier === 0 && knT0.summary === '' &&
+    knArcherT3.tier === 3 && knArcherT3.threatLabel === 'Ranged Skirmisher' &&
+    knCultistT3.tier === 3 && knCultistT3.threatLabel === 'Ranged Caster' &&
+    knLegacyT1.threatLabel === 'Ranged Attacker'
+  );
+
+  // 2. Integrity: Fortified elite +35% HP & +35% DEF applied once
+  const normElite55 = createMonsterEntityFromArchetype('vault_crawler', 3, 2, 2, true, function() { return 0.5; }, 3, 'vampiric');
+  const fortElite55 = createMonsterEntityFromArchetype('vault_crawler', 3, 2, 3, true, function() { return 0.5; }, 4, 'fortified');
+  const fortifiedOk55 = Boolean(
+    fortElite55.hp === fortElite55.maxHp &&
+    fortElite55.maxHp === Math.round(normElite55.maxHp * 1.35) &&
+    fortElite55.def === Math.round(normElite55.def * 1.35)
+  );
+
+  // 3. Integrity: Volatile chained lethal blast & hazard lethal/status-duration handling
+  const sb55 = createDefaultGameState();
+  sb55.inGuild = false;
+  sb55.dungeon.currentFloor = 1;
+  sb55.hero = createDungeonHeroForClass('fighter', null, CANONICAL_PLAYER_ID);
+  sb55.hero.x = 1; sb55.hero.y = 1;
+  recomputeHeroDerivedStats(true, sb55);
+  const fl55a = makeOpenFloor55(1);
+  sb55.dungeon.floors[1] = fl55a;
+
+  const volA55 = createMonsterEntityFromArchetype('vault_crawler', 2, 5, 5, true, function() { return 0.5; }, 5, 'volatile');
+  const volB55 = createMonsterEntityFromArchetype('vault_crawler', 2, 6, 5, true, function() { return 0.5; }, 6, 'volatile');
+  volB55.hp = 1;
+  fl55a.monsters = [volA55, volB55];
+  killMonster(volA55, sb55);
+  const killsAfterVol55 = sb55.codex.totalMonstersSlain;
+  killMonster(volA55, sb55); // second call must be no-op
+  const volatileChainOk55 = Boolean(
+    fl55a.monsters.length === 0 &&
+    volA55._dead && volB55._dead &&
+    killsAfterVol55 === 2 &&
+    sb55.codex.totalMonstersSlain === 2
+  );
+
+  // Hazard lethal kill + legacy turns status expiration
+  const fl55h = makeOpenFloor55(1);
+  sb55.dungeon.floors[1] = fl55h;
+  sb55.hero.x = 2; sb55.hero.y = 5;
+  fl55h.objects.push(createHazardInstance('hazard_slag_vent', 4, 5));
+  const hazVictim55 = createMonsterEntityFromArchetype('vault_crawler', 1, 5, 5, false, function() { return 0.5; }, 7);
+  hazVictim55.hp = 5; // slag vent deals lethal damage
+  const legacyStatusMob55 = createMonsterEntityFromArchetype('vault_crawler', 1, 9, 9, false, function() { return 0.5; }, 8);
+  legacyStatusMob55.statuses = [{ id: 'burn', turns: 1 }];
+  fl55h.monsters = [hazVictim55, legacyStatusMob55];
+  processTurn(sb55);
+  const hazardOk55 = Boolean(
+    hazVictim55._dead &&
+    !fl55h.monsters.some(function(m) { return m === hazVictim55; }) &&
+    legacyStatusMob55.statuses.length === 0
+  );
+
+  // 4. Integrity: Dev-spawned bosses match generated boss properties (onHitStatus, abilityId, role)
+  const devCol55 = spawnEntity('monster', 'boss_colossus', 7, 7, sb55, { strictCoords: true });
+  const devRune55 = spawnEntity('monster', 'boss_runelord', 8, 7, sb55, { strictCoords: true });
+  const genCol55 = createBossEntityFromArchetype('boss_colossus', 1, 7, 7);
+  const devBossOk55 = Boolean(
+    devCol55.ok && devCol55.entity.abilityId === 'meteor_slam' && devCol55.entity.role === 'boss' && devCol55.entity.hp === genCol55.hp &&
+    devRune55.ok && devRune55.entity.onHitStatus === 'burn'
+  );
+
+  // 5. Behaviors: Skirmisher retreat vs blocked fallback vs non-kiting ranged + Tank Shield Brace
+  const fl55b = makeOpenFloor55(1);
+  sb55.dungeon.floors[1] = fl55b;
+  sb55.hero.x = 5; sb55.hero.y = 5;
+  sb55.hero.hp = sb55.hero.maxHp;
+  const kiteArch55 = createMonsterEntityFromArchetype('starfall_archer', 1, 6, 5, false, function() { return 0.5; }, 9);
+  const noKiteCult55 = createMonsterEntityFromArchetype('abyssal_cultist', 1, 4, 5, false, function() { return 0.5; }, 10);
+  fl55b.monsters = [kiteArch55, noKiteCult55];
+  processTurn(sb55);
+  const kitedOk55 = Boolean(
+    Math.hypot(kiteArch55.x - 5, kiteArch55.y - 5) > 1.5 &&
+    kiteArch55.kiteCooldown === 2 &&
+    noKiteCult55.x === 4 && noKiteCult55.y === 5
+  );
+
+  // Blocked skirmisher falls back to melee
+  const fl55c = makeOpenFloor55(1);
+  fl55c.tiles[5][7] = 0; fl55c.tiles[4][6] = 0; fl55c.tiles[6][6] = 0;
+  sb55.dungeon.floors[1] = fl55c;
+  sb55.hero.x = 5; sb55.hero.y = 5;
+  sb55.hero.hp = sb55.hero.maxHp;
+  sb55.hero.dodge = 0;
+  const corneredArch55 = createMonsterEntityFromArchetype('starfall_archer', 1, 6, 5, false, function() { return 0.5; }, 11);
+  fl55c.monsters = [corneredArch55];
+  processTurn(sb55);
+  const blockedFallbackOk55 = Boolean(corneredArch55.x === 6 && corneredArch55.y === 5 && sb55.hero.hp < sb55.hero.maxHp);
+
+  // Tank Shield Brace activates, increases effective DEF, and expires cleanly
+  const fl55t = makeOpenFloor55(1);
+  sb55.dungeon.floors[1] = fl55t;
+  sb55.hero.x = 5; sb55.hero.y = 5;
+  const warden55 = createMonsterEntityFromArchetype('bone_warden', 2, 7, 5, false, function() { return 0.5; }, 12);
+  fl55t.monsters = [warden55];
+  processTurn(sb55); // Activates Shield Brace (duration 2)
+  const guardActive55 = warden55.statuses.some(function(s) { return s.id === 'guarding'; });
+  processTurn(sb55); // duration 2 -> 1
+  processTurn(sb55); // duration 1 -> 0 (expired)
+  const guardExpired55 = !warden55.statuses.some(function(s) { return s.id === 'guarding'; });
+  const tankOk55 = Boolean(guardActive55 && guardExpired55);
+
+  // 6. Telegraphs: Colossus (3x3) dodge & hit, Weaver (line_4) sidestep, stun interrupt, multiple telegraphs & floor clear
+  const fl55g = makeOpenFloor55(1);
+  sb55.dungeon.floors[1] = fl55g;
+  sb55.hero.x = 5; sb55.hero.y = 5;
+  sb55.hero.hp = sb55.hero.maxHp;
+  const col55 = createBossEntityFromArchetype('boss_colossus', 1, 7, 5);
+  const wvr55 = createBossEntityFromArchetype('boss_weaver', 1, 5, 2);
+  fl55g.monsters = [col55, wvr55];
+  processTurn(sb55); // Both wind up independently
+  const dualWindupOk55 = Boolean(
+    col55.telegraph && col55.telegraph.abilityId === 'meteor_slam' && col55.telegraph.tiles.length === 9 &&
+    wvr55.telegraph && wvr55.telegraph.abilityId === 'rift_lance' && wvr55.telegraph.tiles.length === 4 &&
+    sb55.hero.hp === sb55.hero.maxHp
+  );
+  // Hero sidesteps completely outside both committed zones -> both resolve once & miss!
+  sb55.hero.x = 2; sb55.hero.y = 8;
+  const hpBeforeDodge55 = sb55.hero.hp;
+  processTurn(sb55);
+  const dodgeAndCooldownOk55 = Boolean(
+    sb55.hero.hp === hpBeforeDodge55 &&
+    col55.telegraph === null && col55.abilityCooldown === 4 &&
+    wvr55.telegraph === null && wvr55.abilityCooldown === 3
+  );
+
+  // Stationary hero inside committed area IS hit; Stun cancels windup & sets recovery cooldown
+  col55.abilityCooldown = 0;
+  col55.x = 4; col55.y = 5;
+  sb55.hero.x = 5; sb55.hero.y = 5;
+  sb55.hero.hp = sb55.hero.maxHp;
+  fl55g.monsters = [col55];
+  processTurn(sb55); // Windup
+  const hpBeforeHit55 = sb55.hero.hp;
+  processTurn(sb55); // Resolves on stationary hero
+  const hitStationaryOk55 = Boolean(sb55.hero.hp < hpBeforeHit55 && col55.telegraph === null);
+
+  col55.abilityCooldown = 0;
+  processTurn(sb55); // Windup again
+  applyStatusEffect(col55, 'stun', 1);
+  processTurn(sb55); // Stun interrupts telegraph
+  const stunInterruptOk55 = Boolean(col55.telegraph === null && col55.abilityCooldown >= 2);
+
+  // Floor transition clear + legacy save monster compatibility
+  col55.abilityCooldown = 0;
+  processTurn(sb55); // Windup
+  const clearedCnt55 = clearFloorTelegraphs(fl55g);
+  const legacyMob55 = { id: 'vault_crawler', name: 'Legacy Crawler', x: 6, y: 5, hp: 20, maxHp: 20, atk: 6, def: 1, xp: 10, statuses: [] };
+  fl55g.monsters = [legacyMob55];
+  processTurn(sb55);
+  const lifecycleOk55 = Boolean(clearedCnt55 === 1 && col55.telegraph === null && !legacyMob55._dead);
+
+  const t55Checks = {
+    knowledgeOk: knowledgeOk55,
+    fortifiedOk: fortifiedOk55,
+    volatileChainOk: volatileChainOk55,
+    hazardOk: hazardOk55,
+    devBossOk: devBossOk55,
+    kitedOk: kitedOk55,
+    blockedFallbackOk: blockedFallbackOk55,
+    tankOk: tankOk55,
+    dualWindupOk: dualWindupOk55,
+    dodgeAndCooldownOk: dodgeAndCooldownOk55,
+    hitStationaryOk: hitStationaryOk55,
+    stunInterruptOk: stunInterruptOk55,
+    lifecycleOk: lifecycleOk55
+  };
+  const failed55 = Object.keys(t55Checks).filter(function(k) { return !t55Checks[k]; });
+  const t55Pass = failed55.length === 0;
+  results.push({
+    name: '55. MS-01: Monster Combat Differentiation, Telegraphed Abilities & Combat Integrity',
+    pass: t55Pass,
+    detail: t55Pass
+      ? 'Knowledge isRanged, Fortified HP/DEF, Volatile/hazard canonical death & duration, Skirmisher kite/fallback, Tank Shield Brace, and Colossus/Weaver telegraphs verified'
+      : 'Failed checks: ' + failed55.join(', ')
   });
 
   return results;

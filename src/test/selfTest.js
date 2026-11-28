@@ -50,8 +50,11 @@ import {
 import {
   generateFloor,
   verifyPureFloorBFS,
-  generateProceduralEquipment
+  generateProceduralEquipment,
+  createMonsterEntityFromArchetype,
+  createBossEntityFromArchetype
 } from '../engine/procedural.js';
+import { evaluateMonsterKnowledgeReveal } from '../core/knowledge.js';
 import { selectAdventurerClass } from '../ui/modals.js';
 import { createDungeonEntryEnvelope, clearBridgeHandoff } from '../engine/wargameBridge.js';
 import { drawPaperDollMannequin, drawHeroSprite, setSkillHover, getSkillHover, renderDoorTile } from '../ui/renderer.js';
@@ -2099,6 +2102,40 @@ export function evaluateSelfTests() {
     detail: t33Pass
       ? 'Ortho/Iso/Hex round-trip picking, 8x8 Iso draw sort, Hex 6-neighbor symmetry, offset migration & zoom-anchor stability verified'
       : 'Failed ADR-0014 GridAdapter or MapViewportEngine checks'
+  });
+
+  // 34. MS-01: Monster Combat Differentiation, Telegraphed Abilities & Integrity (Standalone Roguelike Context)
+  const sb34 = createDefaultGameState();
+  selectAdventurerClass('fighter', sb34);
+  sb34.inGuild = false;
+  sb34.dungeon.currentFloor = 1;
+  const fl34 = {
+    depth: 1, width: 11, height: 11,
+    tiles: Array.from({ length: 11 }, function() { return Array.from({ length: 11 }, function() { return 1; }); }),
+    explored: Array.from({ length: 11 }, function() { return Array.from({ length: 11 }, function() { return 1; }); }),
+    upPos: { x: 1, y: 1 }, downPos: { x: 9, y: 9 },
+    monsters: [], chests: [], traps: {}, shrines: {}, objects: [], groundItems: []
+  };
+  sb34.dungeon.floors[1] = fl34;
+  sb34.hero.x = 5; sb34.hero.y = 5;
+  sb34.hero.hp = sb34.hero.maxHp;
+
+  const kn34 = evaluateMonsterKnowledgeReveal({ knowledge: { monster_knowledge: 5 }, computedInt: 12 }, createMonsterEntityFromArchetype('starfall_archer', 1, 6, 5, false, function() { return 0.5; }, 1));
+  const col34 = createBossEntityFromArchetype('boss_colossus', 1, 7, 5);
+  const wvr34 = createBossEntityFromArchetype('boss_weaver', 1, 5, 2);
+  fl34.monsters = [col34, wvr34];
+  processTurn(sb34);
+  const windup34 = Boolean(col34.telegraph && wvr34.telegraph && sb34.hero.hp === sb34.hero.maxHp);
+  sb34.hero.x = 2; sb34.hero.y = 8;
+  processTurn(sb34);
+  const dodged34 = Boolean(sb34.hero.hp === sb34.hero.maxHp && col34.telegraph === null && wvr34.telegraph === null);
+  const t34Pass = Boolean(kn34.threatLabel === 'Ranged Skirmisher' && windup34 && dodged34);
+  results.push({
+    name: '34. MS-01: Monster Combat Differentiation, Telegraphed Abilities & Integrity',
+    pass: t34Pass,
+    detail: t34Pass
+      ? 'Standalone Roguelike Knowledge isRanged, Colossus/Weaver telegraphed windup & sidestep dodge verified'
+      : 'Failed MS-01 standalone Roguelike checks'
   });
 
   return results;

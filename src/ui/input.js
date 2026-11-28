@@ -13,6 +13,7 @@ import {
   TILE_TRAP_DISARMED
 } from '../constants.js';
 import { ORE_CATALOG } from '../data/ores.js';
+import { evaluateMonsterKnowledgeReveal } from '../core/knowledge.js';
 import { SHRINE_CATALOG, TRAP_CATALOG } from '../data/gems.js';
 import { gameState, ensureDungeonFloorHydrated } from '../engine/state.js';
 import { useHealingTonic, useRecallScroll } from '../engine/actions.js';
@@ -62,12 +63,22 @@ export function updateScannerOnHover(gx, gy) {
   const vision = (h && h.visionRadius) || 5;
   const inSight = h && Math.hypot(gx - h.x, gy - h.y) <= vision + 0.35 && hasLineOfSight(floor, h.x, h.y, gx, gy);
 
-  const monster = inSight ? floor.monsters.find(m => m.x === gx && m.y === gy) : null;
+  const monster = inSight ? floor.monsters.find(m => !m._dead && m.hp > 0 && m.x === gx && m.y === gy) : null;
   if (monster) {
+    const lore = evaluateMonsterKnowledgeReveal(h, monster);
+    const tgHtml = monster.telegraph
+      ? `<div class="text-[10px] text-[#fbbf24] font-bold">⚠ Winding up ${monster.telegraph.name || 'Ability'}!</div>`
+      : '';
+    const stHtml = (monster.statuses && monster.statuses.length > 0)
+      ? `<div class="text-[10px] text-[#60a5fa]">Statuses: ${monster.statuses.map(s => `${s.name || s.id} (${typeof s.duration === 'number' ? s.duration : (s.turns || 1)}t)`).join(', ')}</div>`
+      : '';
+    const loreHtml = (lore && lore.summary)
+      ? `<div class="text-[10px] text-[#c084fc]">${lore.summary}</div>`
+      : '';
     box.innerHTML = `
       <div class="font-bold" style="color:${monster.color}">${monster.name} ${monster.isBoss ? '👑' : ''}</div>
       <div class="text-[11px] text-[#e6edf3]">HP: ${monster.hp}/${monster.maxHp} • ATK: ${monster.atk} • DEF: ${monster.def}</div>
-      <div class="text-[10px] text-[#8b949e]">${monster.affix ? monster.affix.desc : (monster.isRanged ? `Ranged Attacker (${monster.range || 3} tiles)` : 'Melee Guardian')}</div>
+      ${tgHtml}${stHtml}${loreHtml}
     `;
     return;
   }

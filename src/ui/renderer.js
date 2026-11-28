@@ -2115,10 +2115,47 @@ export function renderDungeonCanvas() {
     ctx.fillText(icon, ox + 16, oy + 16);
   }
 
+  // Draw Committed Monster Ability Telegraph Zones (MS-01 — distinct from range indicators, respects visibility)
+  for (let ti = 0; ti < floor.monsters.length; ti++) {
+    const tm = floor.monsters[ti];
+    if (!tm || tm._dead || tm.hp <= 0 || !tm.telegraph || !Array.isArray(tm.telegraph.tiles)) continue;
+    const casterVisible = isTileVisibleNow(floor, hx, hy, vision, tm.x, tm.y);
+    const tgColor = tm.telegraph.color || '#ef4444';
+    for (let ptIdx = 0; ptIdx < tm.telegraph.tiles.length; ptIdx++) {
+      const pt = tm.telegraph.tiles[ptIdx];
+      const tvx = pt.x - camX;
+      const tvy = pt.y - camY;
+      if (tvx < 0 || tvx >= VIEWPORT_WIDTH || tvy < 0 || tvy >= VIEWPORT_HEIGHT) continue;
+      if (!casterVisible && !isTileVisibleNow(floor, hx, hy, vision, pt.x, pt.y)) continue;
+      const tpx = tvx * TILE_SIZE;
+      const tpy = tvy * TILE_SIZE;
+      ctx.save();
+      ctx.fillStyle = 'rgba(239, 68, 68, 0.28)';
+      ctx.fillRect(tpx + 1, tpy + 1, TILE_SIZE - 2, TILE_SIZE - 2);
+      ctx.strokeStyle = tgColor;
+      ctx.lineWidth = 2;
+      ctx.strokeRect(tpx + 2, tpy + 2, TILE_SIZE - 4, TILE_SIZE - 4);
+      // Diagonal hazard hash
+      ctx.strokeStyle = 'rgba(251, 191, 36, 0.55)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(tpx + 5, tpy + 5);
+      ctx.lineTo(tpx + 11, tpy + 11);
+      ctx.moveTo(tpx + 27, tpy + 5);
+      ctx.lineTo(tpx + 21, tpy + 11);
+      ctx.moveTo(tpx + 5, tpy + 27);
+      ctx.lineTo(tpx + 11, tpy + 21);
+      ctx.moveTo(tpx + 27, tpy + 27);
+      ctx.lineTo(tpx + 21, tpy + 21);
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+
   // Draw Visible Monsters inside Camera Frustum
   for (let i = 0; i < floor.monsters.length; i++) {
     const m = floor.monsters[i];
-    if (!m || m.hp <= 0) continue;
+    if (!m || m._dead || m.hp <= 0) continue;
     const vx = m.x - camX;
     const vy = m.y - camY;
     if (vx < 0 || vx >= VIEWPORT_WIDTH || vy < 0 || vy >= VIEWPORT_HEIGHT) continue;
@@ -2160,20 +2197,35 @@ export function renderDungeonCanvas() {
         poison:   '#4ade80',
         stun:     '#fbbf24',
         chilled:  '#38bdf8',
-        weakened: '#c084fc'
+        weakened: '#c084fc',
+        guarding: '#60a5fa'
       };
+      let isGuardingVis = false;
       for (let sIdx = 0; sIdx < m.statuses.length; sIdx++) {
         const st = m.statuses[sIdx];
+        if (st.id === 'guarding') isGuardingVis = true;
         const sc = statusColors[st.id] || '#94a3b8';
         const bx = mx + 4 + sIdx * 7;
         ctx.fillStyle = sc;
         ctx.fillRect(bx, my - 4, 6, 4);
       }
+      if (isGuardingVis) {
+        ctx.strokeStyle = '#60a5fa';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(mx + 16, my + 16, 14, 0, Math.PI * 2);
+        ctx.stroke();
+      }
     }
 
-    // Threat / Aggro Telegraphs
+    // Active Committed Ability Windup Badge vs Generic Attack Range Indicator
     const distToHero = Math.hypot(m.x - hx, m.y - hy);
-    if (distToHero <= 1.5) {
+    if (m.telegraph) {
+      ctx.fillStyle = '#fbbf24';
+      ctx.font = 'bold 10px "JetBrains Mono", monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText('⚠', mx + 16, my - 6);
+    } else if (distToHero <= 1.5) {
       // Melee threat alert: red chevron pulse above monster
       ctx.fillStyle = '#ef4444';
       ctx.beginPath();
@@ -2183,14 +2235,14 @@ export function renderDungeonCanvas() {
       ctx.closePath();
       ctx.fill();
     } else if (
-      (m.isRanged || m.id === 'starfall_archer' || m.id === 'ember_pyromancer' || m.id === 'void_hexer') &&
-      distToHero <= 6 &&
+      m.isRanged &&
+      distToHero <= (m.range || 3) + 0.3 &&
       hasLineOfSight(floor, m.x, m.y, hx, hy)
     ) {
-      // Ranged aim indicator: red dashed laser line targeting player
-      ctx.strokeStyle = 'rgba(239, 68, 68, 0.40)';
+      // Subtle ranged attack-range indicator (distinct from committed telegraph tiles)
+      ctx.strokeStyle = 'rgba(148, 163, 184, 0.35)';
       ctx.lineWidth = 1;
-      if (typeof ctx.setLineDash === 'function') ctx.setLineDash([3, 4]);
+      if (typeof ctx.setLineDash === 'function') ctx.setLineDash([2, 5]);
       ctx.beginPath();
       ctx.moveTo(mx + 16, my + 16);
       ctx.lineTo((hx - camX) * TILE_SIZE + 16, (hy - camY) * TILE_SIZE + 16);

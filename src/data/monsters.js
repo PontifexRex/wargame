@@ -1,10 +1,93 @@
-// Monster & Boss Archetype Registry for Configurable Multi-Dungeon Rosters
+// Monster & Boss Archetype Registry and Immutable Ability Definitions (MS-01)
+
+export const MONSTER_ABILITIES = {
+  shield_brace: {
+    id: 'shield_brace',
+    name: 'Shield Brace',
+    kind: 'defensive',
+    telegraphTurns: 0,
+    cooldown: 4,
+    duration: 2,
+    defBonusMult: 0.60,
+    maxRange: 3.5,
+    desc: 'Raises shield for 2 turns (+60% DEF against attacks).'
+  },
+  molten_slam: {
+    id: 'molten_slam',
+    name: 'Molten Slam',
+    kind: 'telegraphed_area',
+    pattern: 'cross_1',
+    telegraphTurns: 1,
+    cooldown: 4,
+    minRange: 1,
+    maxRange: 2.2,
+    requireLos: true,
+    damageMult: 1.55,
+    statusId: 'burn',
+    statusDuration: 2,
+    color: '#f97316',
+    desc: 'Winds up 1 turn, then slams a cross-shaped molten blast (155% ATK + Burn).'
+  },
+  void_miasma: {
+    id: 'void_miasma',
+    name: 'Void Miasma',
+    kind: 'telegraphed_area',
+    pattern: 'target_tile',
+    telegraphTurns: 1,
+    cooldown: 4,
+    minRange: 1.6,
+    maxRange: 4.0,
+    requireLos: true,
+    damageMult: 1.35,
+    statusId: 'weakened',
+    statusDuration: 3,
+    secondaryStatusId: 'chilled',
+    secondaryStatusDuration: 2,
+    color: '#c084fc',
+    desc: 'Winds up 1 turn, then blasts target tile with void energy (135% ATK + Weakened & Chilled).'
+  },
+  meteor_slam: {
+    id: 'meteor_slam',
+    name: 'Meteor Slam',
+    kind: 'telegraphed_area',
+    pattern: 'radius_1',
+    telegraphTurns: 1,
+    cooldown: 4,
+    minRange: 1,
+    maxRange: 2.5,
+    requireLos: true,
+    damageMult: 1.65,
+    statusId: 'burn',
+    statusDuration: 2,
+    color: '#f59e0b',
+    desc: 'Winds up 1 turn, then crushes a 3x3 impact zone (165% ATK + Burn).'
+  },
+  rift_lance: {
+    id: 'rift_lance',
+    name: 'Rift Lance',
+    kind: 'telegraphed_area',
+    pattern: 'line_4',
+    telegraphTurns: 1,
+    cooldown: 3,
+    minRange: 1.6,
+    maxRange: 4.2,
+    requireLos: true,
+    damageMult: 1.50,
+    statusId: 'weakened',
+    statusDuration: 3,
+    secondaryStatusId: 'chilled',
+    secondaryStatusDuration: 2,
+    color: '#ec4899',
+    desc: 'Winds up 1 turn, then fires a 4-tile piercing void beam (150% ATK + Weakened & Chilled).'
+  }
+};
 
 export const MONSTER_ARCHETYPES = {
   vault_crawler: {
     id: 'vault_crawler',
     bountyTag: 'crawler',
     family: 'beasts',
+    role: 'bruiser',
     name: 'Vault Crawler',
     isRanged: false,
     range: 1,
@@ -19,6 +102,7 @@ export const MONSTER_ARCHETYPES = {
     id: 'brood_skitterer',
     bountyTag: 'crawler',
     family: 'beasts',
+    role: 'bruiser',
     name: 'Brood Skitterer',
     isRanged: false,
     range: 1,
@@ -33,6 +117,7 @@ export const MONSTER_ARCHETYPES = {
     id: 'spore_lurker',
     bountyTag: 'crawler',
     family: 'beasts',
+    role: 'bruiser',
     name: 'Mycelium Lurker',
     isRanged: false,
     range: 1,
@@ -48,6 +133,8 @@ export const MONSTER_ARCHETYPES = {
     id: 'starfall_archer',
     bountyTag: 'archer',
     family: 'astral_cult',
+    role: 'skirmisher',
+    behavior: { kiteWhenAdjacent: true, kiteCooldownTurns: 2 },
     name: 'Starfall Archer',
     isRanged: true,
     range: 3,
@@ -56,12 +143,13 @@ export const MONSTER_ARCHETYPES = {
     defMult: 0.85,
     xpMult: 1.05,
     color: '#60a5fa',
-    desc: 'Marksman firing shard-tipped arrows (3 tiles).'
+    desc: 'Marksman firing shard-tipped arrows (3 tiles) and retreating when pressed.'
   },
   abyssal_cultist: {
     id: 'abyssal_cultist',
     bountyTag: 'archer',
     family: 'astral_cult',
+    role: 'caster',
     name: 'Abyssal Cultist',
     isRanged: true,
     range: 4,
@@ -76,6 +164,8 @@ export const MONSTER_ARCHETYPES = {
     id: 'void_hexer',
     bountyTag: 'archer',
     family: 'astral_cult',
+    role: 'caster',
+    abilityId: 'void_miasma',
     name: 'Void Hexer',
     isRanged: true,
     range: 4,
@@ -85,12 +175,13 @@ export const MONSTER_ARCHETYPES = {
     xpMult: 1.3,
     onHitStatus: 'weakened',
     color: '#c084fc',
-    desc: 'Astral caster weaving weakening curses (4 tiles).'
+    desc: 'Astral caster weaving weakening curses and Void Miasma (4 tiles).'
   },
   astral_wraith: {
     id: 'astral_wraith',
     bountyTag: 'crawler',
     family: 'astral_cult',
+    role: 'bruiser',
     name: 'Astral Wraith',
     isRanged: false,
     range: 1,
@@ -105,6 +196,7 @@ export const MONSTER_ARCHETYPES = {
     id: 'dwarven_automaton',
     bountyTag: 'crawler',
     family: 'dwarven_forge',
+    role: 'tank',
     name: 'Dwarven Automaton',
     isRanged: false,
     range: 1,
@@ -119,6 +211,8 @@ export const MONSTER_ARCHETYPES = {
     id: 'magma_golem',
     bountyTag: 'crawler',
     family: 'dwarven_forge',
+    role: 'bruiser',
+    abilityId: 'molten_slam',
     name: 'Slag Golem',
     isRanged: false,
     range: 1,
@@ -128,12 +222,13 @@ export const MONSTER_ARCHETYPES = {
     xpMult: 1.4,
     onHitStatus: 'burn',
     color: '#f97316',
-    desc: 'Molten forge-construct radiating intense heat.'
+    desc: 'Molten forge-construct radiating intense heat and telegraphing Molten Slam.'
   },
   ember_pyromancer: {
     id: 'ember_pyromancer',
     bountyTag: 'archer',
     family: 'dwarven_forge',
+    role: 'caster',
     name: 'Forge Pyromancer',
     isRanged: true,
     range: 3,
@@ -149,6 +244,7 @@ export const MONSTER_ARCHETYPES = {
     id: 'crypt_stalker',
     bountyTag: 'crawler',
     family: 'ancient_crypt',
+    role: 'bruiser',
     name: 'Crypt Stalker',
     isRanged: false,
     range: 1,
@@ -164,6 +260,8 @@ export const MONSTER_ARCHETYPES = {
     id: 'bone_warden',
     bountyTag: 'crawler',
     family: 'ancient_crypt',
+    role: 'tank',
+    abilityId: 'shield_brace',
     name: 'Ossuary Warden',
     isRanged: false,
     range: 1,
@@ -172,13 +270,15 @@ export const MONSTER_ARCHETYPES = {
     defMult: 1.3,
     xpMult: 1.3,
     color: '#cbd5e1',
-    desc: 'Ancient shield-bearer guarding royal vaults.'
+    desc: 'Ancient shield-bearer guarding royal vaults with Shield Brace.'
   }
 };
 
 export const BOSS_ARCHETYPES = {
   boss_colossus: {
     id: 'boss_colossus',
+    role: 'boss',
+    abilityId: 'meteor_slam',
     name: 'Starfall Colossus',
     isRanged: false,
     range: 1,
@@ -192,6 +292,8 @@ export const BOSS_ARCHETYPES = {
   },
   boss_weaver: {
     id: 'boss_weaver',
+    role: 'boss',
+    abilityId: 'rift_lance',
     name: 'Void Weaver',
     isRanged: true,
     range: 4,
@@ -205,6 +307,7 @@ export const BOSS_ARCHETYPES = {
   },
   boss_runelord: {
     id: 'boss_runelord',
+    role: 'boss',
     name: 'Thane Kazador, Runeforge Warden',
     isRanged: false,
     range: 1,
@@ -219,6 +322,7 @@ export const BOSS_ARCHETYPES = {
   },
   boss_broodmother: {
     id: 'boss_broodmother',
+    role: 'boss',
     name: 'Spore-Queen Mycelia',
     isRanged: true,
     range: 3,
@@ -233,6 +337,7 @@ export const BOSS_ARCHETYPES = {
   },
   boss_ignis: {
     id: 'boss_ignis',
+    role: 'boss',
     name: 'Ignis, The Forge Tyrant',
     isRanged: true,
     range: 3,
@@ -247,6 +352,7 @@ export const BOSS_ARCHETYPES = {
   },
   boss_vespera: {
     id: 'boss_vespera',
+    role: 'boss',
     name: "Vespera's Avatar, Heart of the Fallen Star",
     isRanged: true,
     range: 4,
@@ -260,3 +366,22 @@ export const BOSS_ARCHETYPES = {
     desc: 'Cosmic astral divinity descending through the abyssal rift to claim the shattered star (4 tiles).'
   }
 };
+
+export function getMonsterDefinition(idOrMonster) {
+  const id = typeof idOrMonster === 'string'
+    ? idOrMonster
+    : (idOrMonster && idOrMonster.id ? idOrMonster.id : null);
+  if (!id) return null;
+  return MONSTER_ARCHETYPES[id] || BOSS_ARCHETYPES[id] || null;
+}
+
+export function getMonsterAbilityDefinition(idOrMonster) {
+  if (!idOrMonster) return null;
+  if (typeof idOrMonster === 'string' && MONSTER_ABILITIES[idOrMonster]) {
+    return MONSTER_ABILITIES[idOrMonster];
+  }
+  const abId = (typeof idOrMonster === 'object' && idOrMonster.abilityId)
+    ? idOrMonster.abilityId
+    : ((getMonsterDefinition(idOrMonster) && getMonsterDefinition(idOrMonster).abilityId) || null);
+  return abId && MONSTER_ABILITIES[abId] ? MONSTER_ABILITIES[abId] : null;
+}

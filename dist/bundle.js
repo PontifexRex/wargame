@@ -3416,12 +3416,24 @@ function resolveHazardStepEffects(actor, x, y, floor) {
     }
 
     if (hCfg.statusId) {
+      const hazardStatusMeta = {
+        burn:     { name: 'Burn',     color: '#fb923c', isBuff: false },
+        bleed:    { name: 'Bleed',    color: '#f87171', isBuff: false },
+        poison:   { name: 'Poison',   color: '#4ade80', isBuff: false },
+        stun:     { name: 'Stunned',  color: '#fbbf24', isBuff: false },
+        weakened: { name: 'Weakened', color: '#c084fc', isBuff: false },
+        chilled:  { name: 'Chilled',  color: '#38bdf8', isBuff: false }
+      };
+      const sm = hazardStatusMeta[hCfg.statusId] || { name: hCfg.statusId, color: '#94a3b8', isBuff: false };
+      const dur = hCfg.statusTurns || 2;
       if (!Array.isArray(actor.statuses)) actor.statuses = [];
       const existing = actor.statuses.find(function(s) { return s.id === hCfg.statusId; });
       if (existing) {
-        existing.turns = Math.max(existing.turns || 0, hCfg.statusTurns || 2);
+        const curDur = typeof existing.duration === 'number' ? existing.duration : (typeof existing.turns === 'number' ? existing.turns : 0);
+        existing.duration = Math.max(curDur, dur);
+        if (existing.turns !== undefined) delete existing.turns;
       } else {
-        actor.statuses.push({ id: hCfg.statusId, turns: hCfg.statusTurns || 2 });
+        actor.statuses.push({ id: hCfg.statusId, name: sm.name, color: sm.color, duration: dur, isBuff: sm.isBuff });
       }
       appliedStatuses.push(hCfg.statusId);
     }
@@ -3760,10 +3772,400 @@ function computeHeroDerivedStats(hero, externalModifiers) {
   };
 }
 
+  // --- Module: src/data/monsters.js ---
+// Monster & Boss Archetype Registry and Immutable Ability Definitions (MS-01)
+
+const MONSTER_ABILITIES = {
+  shield_brace: {
+    id: 'shield_brace',
+    name: 'Shield Brace',
+    kind: 'defensive',
+    telegraphTurns: 0,
+    cooldown: 4,
+    duration: 2,
+    defBonusMult: 0.60,
+    maxRange: 3.5,
+    desc: 'Raises shield for 2 turns (+60% DEF against attacks).'
+  },
+  molten_slam: {
+    id: 'molten_slam',
+    name: 'Molten Slam',
+    kind: 'telegraphed_area',
+    pattern: 'cross_1',
+    telegraphTurns: 1,
+    cooldown: 4,
+    minRange: 1,
+    maxRange: 2.2,
+    requireLos: true,
+    damageMult: 1.55,
+    statusId: 'burn',
+    statusDuration: 2,
+    color: '#f97316',
+    desc: 'Winds up 1 turn, then slams a cross-shaped molten blast (155% ATK + Burn).'
+  },
+  void_miasma: {
+    id: 'void_miasma',
+    name: 'Void Miasma',
+    kind: 'telegraphed_area',
+    pattern: 'target_tile',
+    telegraphTurns: 1,
+    cooldown: 4,
+    minRange: 1.6,
+    maxRange: 4.0,
+    requireLos: true,
+    damageMult: 1.35,
+    statusId: 'weakened',
+    statusDuration: 3,
+    secondaryStatusId: 'chilled',
+    secondaryStatusDuration: 2,
+    color: '#c084fc',
+    desc: 'Winds up 1 turn, then blasts target tile with void energy (135% ATK + Weakened & Chilled).'
+  },
+  meteor_slam: {
+    id: 'meteor_slam',
+    name: 'Meteor Slam',
+    kind: 'telegraphed_area',
+    pattern: 'radius_1',
+    telegraphTurns: 1,
+    cooldown: 4,
+    minRange: 1,
+    maxRange: 2.5,
+    requireLos: true,
+    damageMult: 1.65,
+    statusId: 'burn',
+    statusDuration: 2,
+    color: '#f59e0b',
+    desc: 'Winds up 1 turn, then crushes a 3x3 impact zone (165% ATK + Burn).'
+  },
+  rift_lance: {
+    id: 'rift_lance',
+    name: 'Rift Lance',
+    kind: 'telegraphed_area',
+    pattern: 'line_4',
+    telegraphTurns: 1,
+    cooldown: 3,
+    minRange: 1.6,
+    maxRange: 4.2,
+    requireLos: true,
+    damageMult: 1.50,
+    statusId: 'weakened',
+    statusDuration: 3,
+    secondaryStatusId: 'chilled',
+    secondaryStatusDuration: 2,
+    color: '#ec4899',
+    desc: 'Winds up 1 turn, then fires a 4-tile piercing void beam (150% ATK + Weakened & Chilled).'
+  }
+};
+
+const MONSTER_ARCHETYPES = {
+  vault_crawler: {
+    id: 'vault_crawler',
+    bountyTag: 'crawler',
+    family: 'beasts',
+    role: 'bruiser',
+    name: 'Vault Crawler',
+    isRanged: false,
+    range: 1,
+    hpMult: 1.0,
+    atkMult: 1.0,
+    defMult: 1.0,
+    xpMult: 1.0,
+    color: '#f87171',
+    desc: 'Chitinous subterranean hunter.'
+  },
+  brood_skitterer: {
+    id: 'brood_skitterer',
+    bountyTag: 'crawler',
+    family: 'beasts',
+    role: 'bruiser',
+    name: 'Brood Skitterer',
+    isRanged: false,
+    range: 1,
+    hpMult: 0.82,
+    atkMult: 1.15,
+    defMult: 0.8,
+    xpMult: 1.05,
+    color: '#fb923c',
+    desc: 'Razor-limbed swarm predator.'
+  },
+  spore_lurker: {
+    id: 'spore_lurker',
+    bountyTag: 'crawler',
+    family: 'beasts',
+    role: 'bruiser',
+    name: 'Mycelium Lurker',
+    isRanged: false,
+    range: 1,
+    hpMult: 1.15,
+    atkMult: 0.95,
+    defMult: 1.05,
+    xpMult: 1.15,
+    onHitStatus: 'poison',
+    color: '#4ade80',
+    desc: 'Toxic fungal ambusher that inflicts Poison.'
+  },
+  starfall_archer: {
+    id: 'starfall_archer',
+    bountyTag: 'archer',
+    family: 'astral_cult',
+    role: 'skirmisher',
+    behavior: { kiteWhenAdjacent: true, kiteCooldownTurns: 2 },
+    name: 'Starfall Archer',
+    isRanged: true,
+    range: 3,
+    hpMult: 0.88,
+    atkMult: 1.0,
+    defMult: 0.85,
+    xpMult: 1.05,
+    color: '#60a5fa',
+    desc: 'Marksman firing shard-tipped arrows (3 tiles) and retreating when pressed.'
+  },
+  abyssal_cultist: {
+    id: 'abyssal_cultist',
+    bountyTag: 'archer',
+    family: 'astral_cult',
+    role: 'caster',
+    name: 'Abyssal Cultist',
+    isRanged: true,
+    range: 4,
+    hpMult: 0.95,
+    atkMult: 1.12,
+    defMult: 0.9,
+    xpMult: 1.2,
+    color: '#818cf8',
+    desc: 'Zealot channeling void bolts (4 tiles).'
+  },
+  void_hexer: {
+    id: 'void_hexer',
+    bountyTag: 'archer',
+    family: 'astral_cult',
+    role: 'caster',
+    abilityId: 'void_miasma',
+    name: 'Void Hexer',
+    isRanged: true,
+    range: 4,
+    hpMult: 0.9,
+    atkMult: 1.18,
+    defMult: 0.9,
+    xpMult: 1.3,
+    onHitStatus: 'weakened',
+    color: '#c084fc',
+    desc: 'Astral caster weaving weakening curses and Void Miasma (4 tiles).'
+  },
+  astral_wraith: {
+    id: 'astral_wraith',
+    bountyTag: 'crawler',
+    family: 'astral_cult',
+    role: 'bruiser',
+    name: 'Astral Wraith',
+    isRanged: false,
+    range: 1,
+    hpMult: 0.95,
+    atkMult: 1.25,
+    defMult: 0.85,
+    xpMult: 1.25,
+    color: '#e879f9',
+    desc: 'Phasing star-spirit with searing claws.'
+  },
+  dwarven_automaton: {
+    id: 'dwarven_automaton',
+    bountyTag: 'crawler',
+    family: 'dwarven_forge',
+    role: 'tank',
+    name: 'Dwarven Automaton',
+    isRanged: false,
+    range: 1,
+    hpMult: 1.28,
+    atkMult: 1.05,
+    defMult: 1.45,
+    xpMult: 1.25,
+    color: '#94a3b8',
+    desc: 'Clockwork bronze sentinel with heavy plating.'
+  },
+  magma_golem: {
+    id: 'magma_golem',
+    bountyTag: 'crawler',
+    family: 'dwarven_forge',
+    role: 'bruiser',
+    abilityId: 'molten_slam',
+    name: 'Slag Golem',
+    isRanged: false,
+    range: 1,
+    hpMult: 1.45,
+    atkMult: 1.18,
+    defMult: 1.35,
+    xpMult: 1.4,
+    onHitStatus: 'burn',
+    color: '#f97316',
+    desc: 'Molten forge-construct radiating intense heat and telegraphing Molten Slam.'
+  },
+  ember_pyromancer: {
+    id: 'ember_pyromancer',
+    bountyTag: 'archer',
+    family: 'dwarven_forge',
+    role: 'caster',
+    name: 'Forge Pyromancer',
+    isRanged: true,
+    range: 3,
+    hpMult: 0.92,
+    atkMult: 1.15,
+    defMult: 0.95,
+    xpMult: 1.25,
+    onHitStatus: 'burn',
+    color: '#fbbf24',
+    desc: 'Hurls cinder-bolts that inflict Burn (3 tiles).'
+  },
+  crypt_stalker: {
+    id: 'crypt_stalker',
+    bountyTag: 'crawler',
+    family: 'ancient_crypt',
+    role: 'bruiser',
+    name: 'Crypt Stalker',
+    isRanged: false,
+    range: 1,
+    hpMult: 0.95,
+    atkMult: 1.22,
+    defMult: 0.95,
+    xpMult: 1.2,
+    onHitStatus: 'bleed',
+    color: '#fda4af',
+    desc: 'Relentless tomb-revenant that inflicts Bleed.'
+  },
+  bone_warden: {
+    id: 'bone_warden',
+    bountyTag: 'crawler',
+    family: 'ancient_crypt',
+    role: 'tank',
+    abilityId: 'shield_brace',
+    name: 'Ossuary Warden',
+    isRanged: false,
+    range: 1,
+    hpMult: 1.32,
+    atkMult: 1.1,
+    defMult: 1.3,
+    xpMult: 1.3,
+    color: '#cbd5e1',
+    desc: 'Ancient shield-bearer guarding royal vaults with Shield Brace.'
+  }
+};
+
+const BOSS_ARCHETYPES = {
+  boss_colossus: {
+    id: 'boss_colossus',
+    role: 'boss',
+    abilityId: 'meteor_slam',
+    name: 'Starfall Colossus',
+    isRanged: false,
+    range: 1,
+    hp: 240,
+    atk: 20,
+    def: 10,
+    xp: 260,
+    dropRarity: 'epic',
+    color: '#f59e0b',
+    desc: 'Towering monolith animated by meteoric core-fire.'
+  },
+  boss_weaver: {
+    id: 'boss_weaver',
+    role: 'boss',
+    abilityId: 'rift_lance',
+    name: 'Void Weaver',
+    isRanged: true,
+    range: 4,
+    hp: 420,
+    atk: 28,
+    def: 14,
+    xp: 520,
+    dropRarity: 'relic',
+    color: '#ec4899',
+    desc: 'Sovereign arachnid-seer of the Vespera rift (4 tiles).'
+  },
+  boss_runelord: {
+    id: 'boss_runelord',
+    role: 'boss',
+    name: 'Thane Kazador, Runeforge Warden',
+    isRanged: false,
+    range: 1,
+    hp: 210,
+    atk: 18,
+    def: 12,
+    xp: 240,
+    dropRarity: 'epic',
+    onHitStatus: 'burn',
+    color: '#fb923c',
+    desc: 'Undying master of the Sunken Quarry excavation.'
+  },
+  boss_broodmother: {
+    id: 'boss_broodmother',
+    role: 'boss',
+    name: 'Spore-Queen Mycelia',
+    isRanged: true,
+    range: 3,
+    hp: 310,
+    atk: 23,
+    def: 11,
+    xp: 360,
+    dropRarity: 'epic',
+    onHitStatus: 'poison',
+    color: '#34d399',
+    desc: 'Matriarch of the Whispering Labyrinth (3 tiles).'
+  },
+  boss_ignis: {
+    id: 'boss_ignis',
+    role: 'boss',
+    name: 'Ignis, The Forge Tyrant',
+    isRanged: true,
+    range: 3,
+    hp: 680,
+    atk: 38,
+    def: 20,
+    xp: 850,
+    dropRarity: 'relic',
+    onHitStatus: 'burn',
+    color: '#f97316',
+    desc: 'Ancient molten behemoth wielding the white-hot wrath of the subterranean deeps (3 tiles).'
+  },
+  boss_vespera: {
+    id: 'boss_vespera',
+    role: 'boss',
+    name: "Vespera's Avatar, Heart of the Fallen Star",
+    isRanged: true,
+    range: 4,
+    hp: 1050,
+    atk: 48,
+    def: 26,
+    xp: 1500,
+    dropRarity: 'relic',
+    onHitStatus: 'weakened',
+    color: '#c084fc',
+    desc: 'Cosmic astral divinity descending through the abyssal rift to claim the shattered star (4 tiles).'
+  }
+};
+
+function getMonsterDefinition(idOrMonster) {
+  const id = typeof idOrMonster === 'string'
+    ? idOrMonster
+    : (idOrMonster && idOrMonster.id ? idOrMonster.id : null);
+  if (!id) return null;
+  return MONSTER_ARCHETYPES[id] || BOSS_ARCHETYPES[id] || null;
+}
+
+function getMonsterAbilityDefinition(idOrMonster) {
+  if (!idOrMonster) return null;
+  if (typeof idOrMonster === 'string' && MONSTER_ABILITIES[idOrMonster]) {
+    return MONSTER_ABILITIES[idOrMonster];
+  }
+  const abId = (typeof idOrMonster === 'object' && idOrMonster.abilityId)
+    ? idOrMonster.abilityId
+    : ((getMonsterDefinition(idOrMonster) && getMonsterDefinition(idOrMonster).abilityId) || null);
+  return abId && MONSTER_ABILITIES[abId] ? MONSTER_ABILITIES[abId] : null;
+}
+
   // --- Module: src/core/knowledge.js ---
-// Categorized Hero Knowledge Foundation & Monster Knowledge Reveal (HR-13)
+// Categorized Hero Knowledge Foundation & Monster Knowledge Reveal (HR-13 / MS-01)
 // Knowledge is a developable capability family, NOT a sixth foundational attribute.
 // INT supports reasoning/checks without substituting for topic expertise.
+
 
 const KNOWLEDGE_CATEGORIES = [
   'monster_knowledge',
@@ -3836,29 +4238,60 @@ function evaluateMonsterKnowledgeReveal(hero, monster) {
 
   const isBoss = Boolean(monster.isBoss || (typeof monster.id === 'string' && monster.id.indexOf('boss_') === 0));
   const isElite = Boolean(monster.affix && monster.affix.name);
-  const threatLabel = isBoss ? 'Boss Guardian' : (isElite ? ('Elite (' + monster.affix.name + ')') : (monster.ranged ? 'Ranged Skirmisher' : 'Melee Hostile'));
+  const def = getMonsterDefinition(monster);
+  const ability = getMonsterAbilityDefinition(monster);
+  const isRanged = Boolean(
+    monster.isRanged !== undefined ? monster.isRanged
+      : (monster.ranged !== undefined ? monster.ranged : (def && def.isRanged))
+  );
+  const attackRange = monster.range || (def && def.range) || (isRanged ? 3 : 1);
+  const role = monster.role || (def && def.role) || null;
+  const roleNames = {
+    bruiser: 'Melee Bruiser',
+    skirmisher: isRanged ? 'Ranged Skirmisher' : 'Skirmisher',
+    tank: 'Armored Tank',
+    caster: isRanged ? 'Ranged Caster' : 'Caster',
+    boss: 'Boss Guardian'
+  };
+  const baseClassLabel = (role && roleNames[role])
+    ? roleNames[role]
+    : (isRanged ? 'Ranged Attacker' : 'Melee Hostile');
+  const threatLabel = isBoss
+    ? 'Boss Guardian'
+    : (isElite ? ('Elite ' + baseClassLabel + ' (' + monster.affix.name + ')') : baseClassLabel);
 
   let traitNote = null;
   if (tier >= 2) {
+    const traits = [];
     if (monster.affix && monster.affix.desc) {
-      traitNote = monster.affix.name + ': ' + monster.affix.desc;
-    } else if (monster.onHitStatus) {
-      traitNote = 'Inflicts ' + monster.onHitStatus + ' on hit';
-    } else if (monster.ranged) {
-      traitNote = 'Attacks from range (85% ATK)';
-    } else {
-      traitNote = 'Standard melee attacker (DEF ' + (monster.def || 0) + ')';
+      traits.push(monster.affix.name + ': ' + monster.affix.desc);
     }
+    if (ability) {
+      traits.push('Ability: ' + ability.name + ' — ' + ability.desc);
+    } else if (monster.onHitStatus) {
+      traits.push('Inflicts ' + monster.onHitStatus + ' on hit');
+    } else if (isRanged) {
+      traits.push('Ranged attacker (' + attackRange + ' tiles, 85% ATK)');
+    } else {
+      traits.push('Melee attacker (DEF ' + (monster.def || 0) + ')');
+    }
+    traitNote = traits.join(' • ');
   }
 
   let tacticalTip = null;
   if (tier >= 3) {
-    if (monster.affix && monster.affix.id === 'reflective') {
+    if (ability && ability.kind === 'telegraphed_area') {
+      tacticalTip = ability.pattern === 'line_4'
+        ? 'Counter: sidestep perpendicular to the beam or stun during windup.'
+        : 'Counter: step outside the warned impact zone or stun during windup.';
+    } else if (ability && ability.kind === 'defensive') {
+      tacticalTip = 'Counter: when Guarding, use magic/piercing skills or wait out the 2-turn stance.';
+    } else if (monster.affix && monster.affix.id === 'reflective') {
       tacticalTip = 'Weakness: burst or heal through 25% thorns reflection.';
     } else if ((monster.def || 0) >= 8) {
       tacticalTip = 'Weakness: armored — high-DEF target favors magic, crits, or DEF pierce.';
-    } else if (monster.ranged) {
-      tacticalTip = 'Weakness: close distance or break line-of-sight behind walls.';
+    } else if (isRanged) {
+      tacticalTip = 'Counter: close distance or break line-of-sight behind walls.';
     } else {
       tacticalTip = 'Tactical: watch HP threshold (' + (monster.hp || 0) + '/' + (monster.maxHp || 0) + ') and stun/control windows.';
     }
@@ -5045,270 +5478,6 @@ const RESEARCH_PROJECTS = {
   }
 };
 
-  // --- Module: src/data/monsters.js ---
-// Monster & Boss Archetype Registry for Configurable Multi-Dungeon Rosters
-
-const MONSTER_ARCHETYPES = {
-  vault_crawler: {
-    id: 'vault_crawler',
-    bountyTag: 'crawler',
-    family: 'beasts',
-    name: 'Vault Crawler',
-    isRanged: false,
-    range: 1,
-    hpMult: 1.0,
-    atkMult: 1.0,
-    defMult: 1.0,
-    xpMult: 1.0,
-    color: '#f87171',
-    desc: 'Chitinous subterranean hunter.'
-  },
-  brood_skitterer: {
-    id: 'brood_skitterer',
-    bountyTag: 'crawler',
-    family: 'beasts',
-    name: 'Brood Skitterer',
-    isRanged: false,
-    range: 1,
-    hpMult: 0.82,
-    atkMult: 1.15,
-    defMult: 0.8,
-    xpMult: 1.05,
-    color: '#fb923c',
-    desc: 'Razor-limbed swarm predator.'
-  },
-  spore_lurker: {
-    id: 'spore_lurker',
-    bountyTag: 'crawler',
-    family: 'beasts',
-    name: 'Mycelium Lurker',
-    isRanged: false,
-    range: 1,
-    hpMult: 1.15,
-    atkMult: 0.95,
-    defMult: 1.05,
-    xpMult: 1.15,
-    onHitStatus: 'poison',
-    color: '#4ade80',
-    desc: 'Toxic fungal ambusher that inflicts Poison.'
-  },
-  starfall_archer: {
-    id: 'starfall_archer',
-    bountyTag: 'archer',
-    family: 'astral_cult',
-    name: 'Starfall Archer',
-    isRanged: true,
-    range: 3,
-    hpMult: 0.88,
-    atkMult: 1.0,
-    defMult: 0.85,
-    xpMult: 1.05,
-    color: '#60a5fa',
-    desc: 'Marksman firing shard-tipped arrows (3 tiles).'
-  },
-  abyssal_cultist: {
-    id: 'abyssal_cultist',
-    bountyTag: 'archer',
-    family: 'astral_cult',
-    name: 'Abyssal Cultist',
-    isRanged: true,
-    range: 4,
-    hpMult: 0.95,
-    atkMult: 1.12,
-    defMult: 0.9,
-    xpMult: 1.2,
-    color: '#818cf8',
-    desc: 'Zealot channeling void bolts (4 tiles).'
-  },
-  void_hexer: {
-    id: 'void_hexer',
-    bountyTag: 'archer',
-    family: 'astral_cult',
-    name: 'Void Hexer',
-    isRanged: true,
-    range: 4,
-    hpMult: 0.9,
-    atkMult: 1.18,
-    defMult: 0.9,
-    xpMult: 1.3,
-    onHitStatus: 'weakened',
-    color: '#c084fc',
-    desc: 'Astral caster weaving weakening curses (4 tiles).'
-  },
-  astral_wraith: {
-    id: 'astral_wraith',
-    bountyTag: 'crawler',
-    family: 'astral_cult',
-    name: 'Astral Wraith',
-    isRanged: false,
-    range: 1,
-    hpMult: 0.95,
-    atkMult: 1.25,
-    defMult: 0.85,
-    xpMult: 1.25,
-    color: '#e879f9',
-    desc: 'Phasing star-spirit with searing claws.'
-  },
-  dwarven_automaton: {
-    id: 'dwarven_automaton',
-    bountyTag: 'crawler',
-    family: 'dwarven_forge',
-    name: 'Dwarven Automaton',
-    isRanged: false,
-    range: 1,
-    hpMult: 1.28,
-    atkMult: 1.05,
-    defMult: 1.45,
-    xpMult: 1.25,
-    color: '#94a3b8',
-    desc: 'Clockwork bronze sentinel with heavy plating.'
-  },
-  magma_golem: {
-    id: 'magma_golem',
-    bountyTag: 'crawler',
-    family: 'dwarven_forge',
-    name: 'Slag Golem',
-    isRanged: false,
-    range: 1,
-    hpMult: 1.45,
-    atkMult: 1.18,
-    defMult: 1.35,
-    xpMult: 1.4,
-    onHitStatus: 'burn',
-    color: '#f97316',
-    desc: 'Molten forge-construct radiating intense heat.'
-  },
-  ember_pyromancer: {
-    id: 'ember_pyromancer',
-    bountyTag: 'archer',
-    family: 'dwarven_forge',
-    name: 'Forge Pyromancer',
-    isRanged: true,
-    range: 3,
-    hpMult: 0.92,
-    atkMult: 1.15,
-    defMult: 0.95,
-    xpMult: 1.25,
-    onHitStatus: 'burn',
-    color: '#fbbf24',
-    desc: 'Hurls cinder-bolts that inflict Burn (3 tiles).'
-  },
-  crypt_stalker: {
-    id: 'crypt_stalker',
-    bountyTag: 'crawler',
-    family: 'ancient_crypt',
-    name: 'Crypt Stalker',
-    isRanged: false,
-    range: 1,
-    hpMult: 0.95,
-    atkMult: 1.22,
-    defMult: 0.95,
-    xpMult: 1.2,
-    onHitStatus: 'bleed',
-    color: '#fda4af',
-    desc: 'Relentless tomb-revenant that inflicts Bleed.'
-  },
-  bone_warden: {
-    id: 'bone_warden',
-    bountyTag: 'crawler',
-    family: 'ancient_crypt',
-    name: 'Ossuary Warden',
-    isRanged: false,
-    range: 1,
-    hpMult: 1.32,
-    atkMult: 1.1,
-    defMult: 1.3,
-    xpMult: 1.3,
-    color: '#cbd5e1',
-    desc: 'Ancient shield-bearer guarding royal vaults.'
-  }
-};
-
-const BOSS_ARCHETYPES = {
-  boss_colossus: {
-    id: 'boss_colossus',
-    name: 'Starfall Colossus',
-    isRanged: false,
-    range: 1,
-    hp: 240,
-    atk: 20,
-    def: 10,
-    xp: 260,
-    dropRarity: 'epic',
-    color: '#f59e0b',
-    desc: 'Towering monolith animated by meteoric core-fire.'
-  },
-  boss_weaver: {
-    id: 'boss_weaver',
-    name: 'Void Weaver',
-    isRanged: true,
-    range: 4,
-    hp: 420,
-    atk: 28,
-    def: 14,
-    xp: 520,
-    dropRarity: 'relic',
-    color: '#ec4899',
-    desc: 'Sovereign arachnid-seer of the Vespera rift (4 tiles).'
-  },
-  boss_runelord: {
-    id: 'boss_runelord',
-    name: 'Thane Kazador, Runeforge Warden',
-    isRanged: false,
-    range: 1,
-    hp: 210,
-    atk: 18,
-    def: 12,
-    xp: 240,
-    dropRarity: 'epic',
-    onHitStatus: 'burn',
-    color: '#fb923c',
-    desc: 'Undying master of the Sunken Quarry excavation.'
-  },
-  boss_broodmother: {
-    id: 'boss_broodmother',
-    name: 'Spore-Queen Mycelia',
-    isRanged: true,
-    range: 3,
-    hp: 310,
-    atk: 23,
-    def: 11,
-    xp: 360,
-    dropRarity: 'epic',
-    onHitStatus: 'poison',
-    color: '#34d399',
-    desc: 'Matriarch of the Whispering Labyrinth (3 tiles).'
-  },
-  boss_ignis: {
-    id: 'boss_ignis',
-    name: 'Ignis, The Forge Tyrant',
-    isRanged: true,
-    range: 3,
-    hp: 680,
-    atk: 38,
-    def: 20,
-    xp: 850,
-    dropRarity: 'relic',
-    onHitStatus: 'burn',
-    color: '#f97316',
-    desc: 'Ancient molten behemoth wielding the white-hot wrath of the subterranean deeps (3 tiles).'
-  },
-  boss_vespera: {
-    id: 'boss_vespera',
-    name: "Vespera's Avatar, Heart of the Fallen Star",
-    isRanged: true,
-    range: 4,
-    hp: 1050,
-    atk: 48,
-    def: 26,
-    xp: 1500,
-    dropRarity: 'relic',
-    onHitStatus: 'weakened',
-    color: '#c084fc',
-    desc: 'Cosmic astral divinity descending through the abyssal rift to claim the shattered star (4 tiles).'
-  }
-};
-
   // --- Module: src/engine/procedural.js ---
 // Multi-Style Sector-Grid Procedural Floor Generator, Fast O(W*H) BFS, Declarative Spawns & Socketed Gear
 
@@ -5578,19 +5747,33 @@ function carveCorridorBetweenRooms(tiles, w, h, rA, rB, wideAvenue, bendHorizont
   stampFloor(tx, ty);
 }
 
-function createMonsterEntityFromArchetype(archId, effDepth, mx, my, isElite, rand, seqIdx) {
+function createMonsterEntityFromArchetype(archId, effDepth, mx, my, isElite, rand, seqIdx, forcedAffixId) {
   const arch = MONSTER_ARCHETYPES[archId] || MONSTER_ARCHETYPES.vault_crawler;
-  const affix = isElite ? ELITE_AFFIXES[Math.floor(rand() * ELITE_AFFIXES.length)] : null;
+  let affix = null;
+  if (isElite) {
+    if (forcedAffixId) {
+      affix = ELITE_AFFIXES.find(function(a) { return a.id === forcedAffixId; }) || ELITE_AFFIXES[Math.floor(rand() * ELITE_AFFIXES.length)];
+    } else {
+      affix = ELITE_AFFIXES[Math.floor(rand() * ELITE_AFFIXES.length)];
+    }
+  }
+  const fortifiedMult = (affix && affix.id === 'fortified') ? 1.35 : 1.0;
   const scaledDepth = effDepth > 20 ? 20 + Math.floor(Math.pow(effDepth - 20, 1.15)) : effDepth;
-  const hpBase = (28 + scaledDepth * 8) * arch.hpMult * (isElite ? 1.65 : 1.0);
+  const hpBase = (28 + scaledDepth * 8) * arch.hpMult * (isElite ? 1.65 : 1.0) * fortifiedMult;
   const atkBase = (8 + scaledDepth * 2.2) * arch.atkMult * (isElite ? 1.25 : 1.0);
-  const defBase = (2 + scaledDepth * 1.1) * arch.defMult * ((affix && affix.id === 'fortified') ? 1.35 : 1.0);
+  const defBase = (2 + scaledDepth * 1.1) * arch.defMult * fortifiedMult;
   const xpBase = (16 + scaledDepth * 6) * arch.xpMult * (isElite ? 2.0 : 1.0);
+  const finalHp = Math.max(10, Math.round(hpBase));
 
   return {
     uid: `m_${effDepth}_${seqIdx}_${Math.floor(rand() * 100000)}`,
     id: arch.id,
     bountyTag: arch.bountyTag || 'crawler',
+    role: arch.role || null,
+    abilityId: arch.abilityId || null,
+    abilityCooldown: 0,
+    kiteCooldown: 0,
+    telegraph: null,
     name: isElite ? `${affix.name} ${arch.name}` : arch.name,
     isElite: !!isElite,
     affix,
@@ -5599,12 +5782,45 @@ function createMonsterEntityFromArchetype(archId, effDepth, mx, my, isElite, ran
     onHitStatus: arch.onHitStatus || null,
     x: mx,
     y: my,
-    hp: Math.max(10, Math.round(hpBase)),
-    maxHp: Math.max(10, Math.round(hpBase)),
+    hp: finalHp,
+    maxHp: finalHp,
     atk: Math.max(3, Math.round(atkBase)),
     def: Math.max(0, Math.round(defBase)),
     xp: Math.max(8, Math.round(xpBase)),
     color: isElite ? '#fbbf24' : arch.color,
+    statuses: []
+  };
+}
+
+function createBossEntityFromArchetype(bossId, depth, bx, by, uidOverride) {
+  const bDef = BOSS_ARCHETYPES[bossId];
+  if (!bDef) return null;
+  const d = Math.max(1, Number(depth) || 1);
+  const bossScale = d > 20 ? (1 + (d - 20) * 0.08) : 1.0;
+  const finalHp = Math.round(bDef.hp * bossScale);
+  return {
+    uid: uidOverride || `boss_${d}_${Date.now()}`,
+    id: bDef.id,
+    bountyTag: 'boss',
+    role: bDef.role || 'boss',
+    abilityId: bDef.abilityId || null,
+    abilityCooldown: 0,
+    kiteCooldown: 0,
+    telegraph: null,
+    name: d > 20 ? `Abyssal ${bDef.name}` : bDef.name,
+    isBoss: true,
+    dropRarity: bDef.dropRarity || 'epic',
+    isRanged: !!bDef.isRanged,
+    range: bDef.range || 1,
+    onHitStatus: bDef.onHitStatus || null,
+    x: bx,
+    y: by,
+    hp: finalHp,
+    maxHp: finalHp,
+    atk: Math.round(bDef.atk * (d > 20 ? (1 + (d - 20) * 0.05) : 1.0)),
+    def: Math.round(bDef.def * (d > 20 ? (1 + (d - 20) * 0.04) : 1.0)),
+    xp: Math.round(bDef.xp * bossScale),
+    color: bDef.color,
     statuses: []
   };
 }
@@ -6144,26 +6360,10 @@ function generateFloor(depth, dungeonConfig = null, dungeonSeed = null) {
       }
     }
     occupied[by * w + bx] = 1;
-    floorObj.monsters.push({
-      uid: `boss_${depth}_${Date.now()}`,
-      id: bDef.id,
-      bountyTag: 'boss',
-      name: depth > 20 ? `Abyssal ${bDef.name}` : bDef.name,
-      isBoss: true,
-      dropRarity: bDef.dropRarity || 'epic',
-      isRanged: !!bDef.isRanged,
-      range: bDef.range || 1,
-      onHitStatus: bDef.onHitStatus || null,
-      x: bx,
-      y: by,
-      hp: Math.round(bDef.hp * bossScale),
-      maxHp: Math.round(bDef.hp * bossScale),
-      atk: Math.round(bDef.atk * (depth > 20 ? (1 + (depth - 20) * 0.05) : 1.0)),
-      def: Math.round(bDef.def * (depth > 20 ? (1 + (depth - 20) * 0.04) : 1.0)),
-      xp: Math.round(bDef.xp * bossScale),
-      color: bDef.color,
-      statuses: []
-    });
+    const bossEnt = createBossEntityFromArchetype(scheduledBossId, depth, bx, by);
+    if (bossEnt) {
+      floorObj.monsters.push(bossEnt);
+    }
   }
 
   // 2. Spawn Elite Vault Wardens inside Guarded Treasure Vaults
@@ -6302,6 +6502,7 @@ function applyStatusEffect(target, id, duration) {
     stun:            { id: 'stun',            name: 'Stunned',           color: '#fbbf24', duration, isBuff: false },
     weakened:        { id: 'weakened',        name: 'Weakened',          color: '#c084fc', duration, isBuff: false },
     chilled:         { id: 'chilled',         name: 'Chilled',           color: '#38bdf8', duration, isBuff: false },
+    guarding:        { id: 'guarding',        name: 'Guarding',          color: '#60a5fa', duration, isBuff: true },
     shrine_starfire: { id: 'shrine_starfire', name: 'Starfire Blessing', color: '#fbbf24', duration, isBuff: true },
     shrine_aegis:    { id: 'shrine_aegis',    name: 'Astral Aegis',      color: '#60a5fa', duration, isBuff: true }
   };
@@ -8967,10 +9168,28 @@ function startAutoWalkTo(tx, ty, state = gameState) {
 // COMBAT RESOLUTION, BOSS DROPS & MONSTER AI
 // ============================================================================
 
+function clearFloorTelegraphs(floor) {
+  if (!floor || !Array.isArray(floor.monsters)) return 0;
+  let cleared = 0;
+  for (let i = 0; i < floor.monsters.length; i++) {
+    const m = floor.monsters[i];
+    if (m && m.telegraph) {
+      m.telegraph = null;
+      cleared += 1;
+    }
+  }
+  return cleared;
+}
+
 function killMonster(monster, state = gameState) {
+  if (!monster) return;
   const ui = getActionCallbacks();
   const floor = ensureDungeonFloorHydrated(state.dungeon, state.dungeon.currentFloor);
   if (!floor) return;
+  const wasOnFloor = Array.isArray(floor.monsters) && floor.monsters.indexOf(monster) !== -1;
+  if (monster._dead && (wasOnFloor || monster.uid)) return;
+  monster._dead = true;
+  monster.telegraph = null;
   floor.monsters = floor.monsters.filter(m => m !== monster);
 
   // Update Guild Bestiary Codex & Lifetime Records
@@ -9070,16 +9289,25 @@ function killMonster(monster, state = gameState) {
         ui.floatingText(h.x, h.y, `-${blastDmg} BLAST!`, '#ef4444');
       }
     }
+    const lethalBlastVictims = [];
     if (floor && Array.isArray(floor.monsters)) {
-      floor.monsters.forEach(m2 => {
-        if (m2 !== monster && m2.hp > 0 && Math.abs(m2.x - monster.x) <= 1 && Math.abs(m2.y - monster.y) <= 1) {
-          const mDmg = Math.max(2, Math.round(monster.atk * 1.5) - m2.def);
+      const snapMons = floor.monsters.slice();
+      for (let vi = 0; vi < snapMons.length; vi++) {
+        const m2 = snapMons[vi];
+        if (m2 && m2 !== monster && !m2._dead && m2.hp > 0 && Math.abs(m2.x - monster.x) <= 1 && Math.abs(m2.y - monster.y) <= 1) {
+          const mDmg = Math.max(2, Math.round(monster.atk * 1.5) - (m2.def || 0));
           m2.hp -= mDmg;
           if (state === gameState) {
             ui.floatingText(m2.x, m2.y, `-${mDmg}`, '#ef4444');
           }
+          if (m2.hp <= 0) {
+            lethalBlastVictims.push(m2);
+          }
         }
-      });
+      }
+    }
+    for (let li = 0; li < lethalBlastVictims.length; li++) {
+      killMonster(lethalBlastVictims[li], state);
     }
     if (h.hp <= 0) {
       checkHeroFatalDamage(monster.name, state);
@@ -9107,7 +9335,9 @@ function attackMonster(monster, state = gameState) {
   const critMult = isCrit ? 1.65 : 1.0;
   const weakMult = (h.statuses || []).some(s => s.id === 'weakened') ? 0.80 : 1.0;
   const pierceRank = (h.talentsAllocated && h.talentsAllocated.r_d2) || 0;
-  const effDef = Math.round(monster.def * (1 - Math.min(0.8, pierceRank * 0.30)));
+  const isGuarding = (monster.statuses || []).some(s => s.id === 'guarding');
+  const guardDef = isGuarding ? Math.round((monster.def || 0) * 1.60) : (monster.def || 0);
+  const effDef = Math.round(guardDef * (1 - Math.min(0.8, pierceRank * 0.30)));
   const masteryMult = getCodexMasteryMultiplier(monster.id, state);
 
   const dmg = Math.max(2, Math.round(h.atk * weakMult * critMult * masteryMult) - effDef);
@@ -9296,6 +9526,211 @@ function monsterAttackHero(m, isRanged, state = gameState) {
   }
 }
 
+function isMonsterWalkableTile(floor, tx, ty, h, fw, fh) {
+  if (tx < 0 || tx >= fw || ty < 0 || ty >= fh) return false;
+  const destTile = floor.tiles[ty][tx];
+  const monsterWalkable = (
+    destTile === TILE_FLOOR ||
+    destTile === TILE_CHEST_OPEN ||
+    destTile === TILE_SHRINE_USED ||
+    destTile === TILE_TRAP_DISARMED
+  );
+  if (!monsterWalkable) return false;
+  if (tx === h.x && ty === h.y) return false;
+  const doorObj = (floor.objects && floor.objects.length > 0)
+    ? floor.objects.find(function(o) { return o && o.x === tx && o.y === ty && o.objectType === 'door'; })
+    : null;
+  if (doorObj && !isDoorWalkable(doorObj)) return false;
+  if (floor.monsters && floor.monsters.some(function(other) { return other && !other._dead && other.hp > 0 && other.x === tx && other.y === ty; })) {
+    return false;
+  }
+  return true;
+}
+
+function computeAbilityTargetTiles(ability, floor, m, tx, ty, fw, fh) {
+  if (!ability || !floor || !floor.tiles) return [];
+  const tiles = [];
+  const isTileThreatenable = function(cx, cy) {
+    if (cx < 0 || cx >= fw || cy < 0 || cy >= fh) return false;
+    const t = floor.tiles[cy][cx];
+    if (t === TILE_WALL || ORE_CATALOG[t]) return false;
+    const doorObj = (floor.objects && floor.objects.length > 0)
+      ? floor.objects.find(function(o) { return o && o.x === cx && o.y === cy && isDoorOpaque(o); })
+      : null;
+    return !doorObj;
+  };
+
+  if (ability.pattern === 'target_tile') {
+    if (isTileThreatenable(tx, ty)) tiles.push({ x: tx, y: ty });
+  } else if (ability.pattern === 'cross_1') {
+    const pts = [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]];
+    for (let i = 0; i < pts.length; i++) {
+      const cx = tx + pts[i][0];
+      const cy = ty + pts[i][1];
+      if (isTileThreatenable(cx, cy)) tiles.push({ x: cx, y: cy });
+    }
+  } else if (ability.pattern === 'radius_1') {
+    for (let dy = -1; dy <= 1; dy++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        const cx = tx + dx;
+        const cy = ty + dy;
+        if (isTileThreatenable(cx, cy)) tiles.push({ x: cx, y: cy });
+      }
+    }
+  } else if (ability.pattern === 'line_4') {
+    const sdx = Math.sign(tx - m.x);
+    const sdy = Math.sign(ty - m.y);
+    if (sdx === 0 && sdy === 0) return [];
+    for (let step = 1; step <= 4; step++) {
+      const cx = m.x + sdx * step;
+      const cy = m.y + sdy * step;
+      if (!isTileThreatenable(cx, cy)) break;
+      tiles.push({ x: cx, y: cy });
+    }
+  }
+  return tiles;
+}
+
+function resolveTelegraphedAbility(m, floor, state) {
+  const ui = getActionCallbacks();
+  const h = state.hero;
+  const tg = m.telegraph;
+  m.telegraph = null;
+  if (!tg) return;
+  const ability = getMonsterAbilityDefinition(tg.abilityId) || getMonsterAbilityDefinition(m);
+  m.abilityCooldown = (ability && ability.cooldown) ? ability.cooldown : 4;
+
+  const committedTiles = Array.isArray(tg.tiles) ? tg.tiles : [];
+  const heroHit = Boolean(h && committedTiles.some(function(pt) { return pt.x === h.x && pt.y === h.y; }));
+
+  if (!heroHit) {
+    if (state === gameState) {
+      ui.floatingText(m.x, m.y, (tg.name || 'ABILITY') + ' MISSED!', '#34d399');
+      ui.log(`${m.name}'s ${tg.name || 'ability'} strikes empty stone — you avoided it!`, 'good');
+    }
+    return;
+  }
+
+  if (h.godMode) {
+    if (state === gameState) {
+      ui.floatingText(h.x, h.y, 'IMMUNE!', '#fbbf24');
+      ui.log(`${m.name}'s ${tg.name || 'ability'} bounces off your invulnerable shield!`, 'info');
+    }
+    return;
+  }
+
+  const mult = (ability && ability.damageMult) ? ability.damageMult : 1.5;
+  let raw = Math.round((m.atk || 8) * mult);
+  if (h.classId === 'fighter') raw = Math.round(raw * 0.85);
+  if ((h.ward || 0) > 0) raw = Math.max(1, raw - h.ward);
+  const dmg = Math.max(2, raw - Math.floor((h.def || 0) * 0.6));
+  h.hp -= dmg;
+
+  if (ability && ability.statusId) {
+    applyStatusEffect(h, ability.statusId, ability.statusDuration || 2);
+  }
+  if (ability && ability.secondaryStatusId) {
+    applyStatusEffect(h, ability.secondaryStatusId, ability.secondaryStatusDuration || 2);
+    if (ability.secondaryStatusId === 'chilled') {
+      recomputeHeroDerivedStats(false, state);
+    }
+  }
+
+  if (state === gameState) {
+    playSound('hit');
+    ui.floatingText(h.x, h.y, `-${dmg} ${(tg.name || 'HIT').toUpperCase()}!`, (ability && ability.color) || '#ef4444');
+    ui.log(`💥 ${m.name}'s ${tg.name || 'ability'} hits you for ${dmg} damage!`, 'bad');
+    if (typeof ui.combatAnim === 'function') {
+      ui.combatAnim(h.x, h.y, 'spell', (ability && ability.color) || '#ef4444');
+    }
+  }
+
+  if (h.hp <= 0) {
+    checkHeroFatalDamage(m.name, state);
+  }
+}
+
+function tryExecuteMonsterAbility(m, floor, h, dist, fw, fh, state) {
+  const ui = getActionCallbacks();
+  const ability = getMonsterAbilityDefinition(m);
+  if (!ability) return false;
+  if ((m.abilityCooldown || 0) > 0) return false;
+
+  if (ability.kind === 'defensive') {
+    const alreadyGuarding = (m.statuses || []).some(function(s) { return s.id === 'guarding'; });
+    if (alreadyGuarding) return false;
+    if (dist > (ability.maxRange || 3.5)) return false;
+    if (m.hp >= m.maxHp && dist > 2.2) return false;
+    applyStatusEffect(m, 'guarding', ability.duration || 2);
+    m.abilityCooldown = ability.cooldown || 4;
+    if (state === gameState) {
+      ui.floatingText(m.x, m.y, '🛡 SHIELD BRACE!', '#60a5fa');
+      ui.log(`🛡 ${m.name} raises its shield (${ability.name}: +60% DEF for ${ability.duration || 2} turns)!`, 'gold');
+    }
+    return true;
+  }
+
+  if (ability.kind === 'telegraphed_area') {
+    const minR = ability.minRange || 1;
+    const maxR = ability.maxRange || 3;
+    if (dist < minR - 0.1 || dist > maxR + 0.2) return false;
+    if (ability.requireLos && !hasLineOfSight(floor, m.x, m.y, h.x, h.y)) return false;
+    const tiles = computeAbilityTargetTiles(ability, floor, m, h.x, h.y, fw, fh);
+    if (tiles.length === 0) return false;
+    m.telegraph = {
+      abilityId: ability.id,
+      name: ability.name,
+      tiles: tiles,
+      turnsLeft: ability.telegraphTurns || 1,
+      color: ability.color || '#ef4444'
+    };
+    if (state === gameState) {
+      ui.floatingText(m.x, m.y, `⚠ ${ability.name.toUpperCase()}!`, ability.color || '#f59e0b');
+      ui.log(`⚠ ${m.name} winds up ${ability.name}! Step out of the warned tiles!`, 'gold');
+    }
+    return true;
+  }
+
+  return false;
+}
+
+function trySkirmisherRetreat(m, floor, h, fw, fh, state) {
+  const ui = getActionCallbacks();
+  const def = getMonsterDefinition(m);
+  const beh = (m.behavior || (def && def.behavior)) || null;
+  if (!beh || !beh.kiteWhenAdjacent) return false;
+  if ((m.kiteCooldown || 0) > 0) return false;
+
+  const curDist = Math.hypot(m.x - h.x, m.y - h.y);
+  const dirs = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+  let best = null;
+  let bestDist = curDist;
+
+  for (let i = 0; i < dirs.length; i++) {
+    const nx = m.x + dirs[i][0];
+    const ny = m.y + dirs[i][1];
+    if (!isMonsterWalkableTile(floor, nx, ny, h, fw, fh)) continue;
+    const d = Math.hypot(nx - h.x, ny - h.y);
+    if (d > bestDist + 0.05) {
+      bestDist = d;
+      best = { x: nx, y: ny };
+    }
+  }
+
+  if (!best) return false;
+  m.x = best.x;
+  m.y = best.y;
+  m.kiteCooldown = beh.kiteCooldownTurns || 2;
+  if (state === gameState) {
+    ui.floatingText(m.x, m.y, '↩ RETREAT', '#60a5fa');
+  }
+  resolveHazardStepEffects(m, best.x, best.y, floor);
+  if (m.hp <= 0) {
+    killMonster(m, state);
+  }
+  return true;
+}
+
 function processTurn(state = gameState) {
   const ui = getActionCallbacks();
   state.turn += 1;
@@ -9317,16 +9752,20 @@ function processTurn(state = gameState) {
     h.mp = Math.min(h.maxMp, h.mp + 1);
   }
 
-  // Hero Status & Shrine Buff Ticks
+  // Hero Status & Shrine Buff Ticks (normalizes legacy turns-only hazard statuses)
   if (h.statuses && h.statuses.length > 0) {
     let buffExpired = false;
     for (let i = h.statuses.length - 1; i >= 0; i--) {
       const st = h.statuses[i];
+      if (typeof st.duration !== 'number' || isNaN(st.duration)) {
+        st.duration = (typeof st.turns === 'number' && !isNaN(st.turns)) ? st.turns : 1;
+        if (st.turns !== undefined) delete st.turns;
+      }
       if (st.id === 'burn' || st.id === 'bleed' || st.id === 'poison') {
         const dot = Math.max(2, Math.round(h.maxHp * 0.04));
         h.hp -= dot;
         if (state === gameState) {
-          ui.floatingText(h.x, h.y, `-${dot} ${st.name.toUpperCase()}`, st.color);
+          ui.floatingText(h.x, h.y, `-${dot} ${(st.name || st.id).toUpperCase()}`, st.color || '#f87171');
         }
       }
       st.duration -= 1;
@@ -9352,52 +9791,96 @@ function processTurn(state = gameState) {
     fovCallback();
   }
 
-  // Monsters AI Turn (pre-culled by Chebyshev distance for O(1) large-map turn speed)
+  // Monsters AI Turn (pre-culled by Chebyshev distance for O(1) large-map turn speed,
+  // while always resolving/clearing active telegraphs so none become stale)
   const monstersSnapshot = floor.monsters.slice();
   for (let mIdx = 0; mIdx < monstersSnapshot.length; mIdx++) {
     const m = monstersSnapshot[mIdx];
-    if (!m || m.hp <= 0) continue;
+    if (!m || m._dead || m.hp <= 0) continue;
 
     // Monster Status Ticks
     if (m.statuses && m.statuses.length > 0) {
       let stunned = false;
       for (let i = m.statuses.length - 1; i >= 0; i--) {
         const st = m.statuses[i];
+        if (typeof st.duration !== 'number' || isNaN(st.duration)) {
+          st.duration = (typeof st.turns === 'number' && !isNaN(st.turns)) ? st.turns : 1;
+          if (st.turns !== undefined) delete st.turns;
+        }
         if (st.id === 'stun') stunned = true;
         if (st.id === 'burn' || st.id === 'bleed' || st.id === 'poison') {
           const dot = Math.max(3, Math.round(m.maxHp * 0.06));
           m.hp -= dot;
           if (state === gameState) {
-            ui.floatingText(m.x, m.y, `-${dot}`, st.color);
+            ui.floatingText(m.x, m.y, `-${dot}`, st.color || '#f87171');
           }
         }
         st.duration -= 1;
-        if (st.duration <= 0) m.statuses.splice(i, 1);
+        if (st.duration <= 0) {
+          if (st.id === 'guarding' && state === gameState) {
+            ui.log(`${m.name}'s Shield Brace wore off.`, 'info');
+          }
+          m.statuses.splice(i, 1);
+        }
       }
       if (m.hp <= 0) {
         killMonster(m, state);
         continue;
       }
       if (stunned) {
-        if (state === gameState) {
+        if (m.telegraph) {
+          const interruptedName = m.telegraph.name || 'ability';
+          const abDef = getMonsterAbilityDefinition(m.telegraph.abilityId) || getMonsterAbilityDefinition(m);
+          m.telegraph = null;
+          m.abilityCooldown = Math.max(2, Math.floor(((abDef && abDef.cooldown) || 4) / 2));
+          if (state === gameState) {
+            ui.floatingText(m.x, m.y, 'INTERRUPTED!', '#fbbf24');
+            ui.log(`✦ ${m.name}'s ${interruptedName} was interrupted by Stun!`, 'gold');
+          }
+        } else if (state === gameState) {
           ui.floatingText(m.x, m.y, 'STUNNED', '#fbbf24');
         }
         continue;
       }
     }
 
+    // Active Telegraph Resolution runs before distance culling so stale telegraphs never persist
+    if (m.telegraph) {
+      m.telegraph.turnsLeft = (typeof m.telegraph.turnsLeft === 'number' ? m.telegraph.turnsLeft : 1) - 1;
+      if (m.telegraph.turnsLeft <= 0) {
+        resolveTelegraphedAbility(m, floor, state);
+        if (state.inGuild) return;
+      }
+      continue;
+    }
+
+    // Decrement cooldowns on active turns when not winding up
+    if ((m.abilityCooldown || 0) > 0) m.abilityCooldown -= 1;
+    if ((m.kiteCooldown || 0) > 0) m.kiteCooldown -= 1;
+
     // Fast bounding-box skip so distant monsters on 192x144 maps cost zero CPU
     if (Math.abs(m.x - h.x) > 8 || Math.abs(m.y - h.y) > 8) continue;
 
     const dist = Math.hypot(m.x - h.x, m.y - h.y);
     if (dist <= 7.0) {
+      // 1. Signature Ability Check (defensive or telegraphed)
+      if (tryExecuteMonsterAbility(m, floor, h, dist, fw, fh, state)) {
+        continue;
+      }
+
+      // 2. Adjacent Engagement (Skirmisher retreat if configured & space exists, else melee)
       if (dist <= 1.5) {
+        if (trySkirmisherRetreat(m, floor, h, fw, fh, state)) {
+          continue;
+        }
         monsterAttackHero(m, false, state);
         if (state.inGuild) return;
       } else if (m.isRanged && dist <= (m.range || 3) + 0.3 && hasLineOfSight(floor, m.x, m.y, h.x, h.y)) {
+        // 3. Ranged Attack
         monsterAttackHero(m, true, state);
         if (state.inGuild) return;
       } else if (hasLineOfSight(floor, m.x, m.y, h.x, h.y) || dist <= 4.2) {
+        // 4. Baseline Pursuit
         const sx = Math.sign(h.x - m.x);
         const sy = Math.sign(h.y - m.y);
         const candidates = Math.abs(h.x - m.x) >= Math.abs(h.y - m.y)
@@ -9409,29 +9892,14 @@ function processTurn(state = gameState) {
           if (dx === 0 && dy === 0) continue;
           const tx = m.x + dx;
           const ty = m.y + dy;
-          if (tx >= 0 && tx < fw && ty >= 0 && ty < fh) {
-            const destTile = floor.tiles[ty][tx];
-            const monsterWalkable = (
-              destTile === TILE_FLOOR ||
-              destTile === TILE_CHEST_OPEN ||
-              destTile === TILE_SHRINE_USED ||
-              destTile === TILE_TRAP_DISARMED
-            );
-            const doorObj = (floor.objects && floor.objects.length > 0)
-              ? floor.objects.find(o => o.x === tx && o.y === ty && o.objectType === 'door')
-              : null;
-            const doorBlocks = doorObj && !isDoorWalkable(doorObj);
-            if (
-              monsterWalkable &&
-              !doorBlocks &&
-              !(tx === h.x && ty === h.y) &&
-              !floor.monsters.some(other => other.x === tx && other.y === ty)
-            ) {
-              m.x = tx;
-              m.y = ty;
-              resolveHazardStepEffects(m, tx, ty, floor);
-              break;
+          if (isMonsterWalkableTile(floor, tx, ty, h, fw, fh)) {
+            m.x = tx;
+            m.y = ty;
+            resolveHazardStepEffects(m, tx, ty, floor);
+            if (m.hp <= 0) {
+              killMonster(m, state);
             }
+            break;
           }
         }
       }
@@ -9806,6 +10274,7 @@ function executeClassSkill(state = gameState) {
     const dmg = Math.max(4, Math.round(h.atk * 1.8 * masteryMult) - Math.floor(target.def * 0.5));
     target.hp -= dmg;
     target.stunned = Math.max(target.stunned || 0, 1);
+    applyStatusEffect(target, 'stun', 1);
 
     if (state === gameState) {
       playSound('spell');
@@ -10137,8 +10606,10 @@ function useStairsAtPlayer(state = gameState) {
   // 2. Stairs Traversal
   if (tile === TILE_STAIRS_UP) {
     if (state.dungeon.currentFloor === 1) {
+      clearFloorTelegraphs(floor);
       extractToGuild('Floor 1 Ascending Stairs (<)', state);
     } else {
+      clearFloorTelegraphs(floor);
       state.dungeon.currentFloor -= 1;
       const prev = ensureDungeonFloorHydrated(state.dungeon, state.dungeon.currentFloor);
       state.hero.x = prev.downPos.x;
@@ -10173,6 +10644,7 @@ function useStairsAtPlayer(state = gameState) {
       }
     }
 
+    clearFloorTelegraphs(floor);
     const nextDepth = state.dungeon.currentFloor + 1;
     state.dungeon.currentFloor = nextDepth;
     state.dungeon.deepestFloor = Math.max(state.dungeon.deepestFloor || 1, nextDepth);
@@ -13380,10 +13852,47 @@ function renderDungeonCanvas() {
     ctx.fillText(icon, ox + 16, oy + 16);
   }
 
+  // Draw Committed Monster Ability Telegraph Zones (MS-01 — distinct from range indicators, respects visibility)
+  for (let ti = 0; ti < floor.monsters.length; ti++) {
+    const tm = floor.monsters[ti];
+    if (!tm || tm._dead || tm.hp <= 0 || !tm.telegraph || !Array.isArray(tm.telegraph.tiles)) continue;
+    const casterVisible = isTileVisibleNow(floor, hx, hy, vision, tm.x, tm.y);
+    const tgColor = tm.telegraph.color || '#ef4444';
+    for (let ptIdx = 0; ptIdx < tm.telegraph.tiles.length; ptIdx++) {
+      const pt = tm.telegraph.tiles[ptIdx];
+      const tvx = pt.x - camX;
+      const tvy = pt.y - camY;
+      if (tvx < 0 || tvx >= VIEWPORT_WIDTH || tvy < 0 || tvy >= VIEWPORT_HEIGHT) continue;
+      if (!casterVisible && !isTileVisibleNow(floor, hx, hy, vision, pt.x, pt.y)) continue;
+      const tpx = tvx * TILE_SIZE;
+      const tpy = tvy * TILE_SIZE;
+      ctx.save();
+      ctx.fillStyle = 'rgba(239, 68, 68, 0.28)';
+      ctx.fillRect(tpx + 1, tpy + 1, TILE_SIZE - 2, TILE_SIZE - 2);
+      ctx.strokeStyle = tgColor;
+      ctx.lineWidth = 2;
+      ctx.strokeRect(tpx + 2, tpy + 2, TILE_SIZE - 4, TILE_SIZE - 4);
+      // Diagonal hazard hash
+      ctx.strokeStyle = 'rgba(251, 191, 36, 0.55)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(tpx + 5, tpy + 5);
+      ctx.lineTo(tpx + 11, tpy + 11);
+      ctx.moveTo(tpx + 27, tpy + 5);
+      ctx.lineTo(tpx + 21, tpy + 11);
+      ctx.moveTo(tpx + 5, tpy + 27);
+      ctx.lineTo(tpx + 11, tpy + 21);
+      ctx.moveTo(tpx + 27, tpy + 27);
+      ctx.lineTo(tpx + 21, tpy + 21);
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+
   // Draw Visible Monsters inside Camera Frustum
   for (let i = 0; i < floor.monsters.length; i++) {
     const m = floor.monsters[i];
-    if (!m || m.hp <= 0) continue;
+    if (!m || m._dead || m.hp <= 0) continue;
     const vx = m.x - camX;
     const vy = m.y - camY;
     if (vx < 0 || vx >= VIEWPORT_WIDTH || vy < 0 || vy >= VIEWPORT_HEIGHT) continue;
@@ -13425,20 +13934,35 @@ function renderDungeonCanvas() {
         poison:   '#4ade80',
         stun:     '#fbbf24',
         chilled:  '#38bdf8',
-        weakened: '#c084fc'
+        weakened: '#c084fc',
+        guarding: '#60a5fa'
       };
+      let isGuardingVis = false;
       for (let sIdx = 0; sIdx < m.statuses.length; sIdx++) {
         const st = m.statuses[sIdx];
+        if (st.id === 'guarding') isGuardingVis = true;
         const sc = statusColors[st.id] || '#94a3b8';
         const bx = mx + 4 + sIdx * 7;
         ctx.fillStyle = sc;
         ctx.fillRect(bx, my - 4, 6, 4);
       }
+      if (isGuardingVis) {
+        ctx.strokeStyle = '#60a5fa';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(mx + 16, my + 16, 14, 0, Math.PI * 2);
+        ctx.stroke();
+      }
     }
 
-    // Threat / Aggro Telegraphs
+    // Active Committed Ability Windup Badge vs Generic Attack Range Indicator
     const distToHero = Math.hypot(m.x - hx, m.y - hy);
-    if (distToHero <= 1.5) {
+    if (m.telegraph) {
+      ctx.fillStyle = '#fbbf24';
+      ctx.font = 'bold 10px "JetBrains Mono", monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText('⚠', mx + 16, my - 6);
+    } else if (distToHero <= 1.5) {
       // Melee threat alert: red chevron pulse above monster
       ctx.fillStyle = '#ef4444';
       ctx.beginPath();
@@ -13448,14 +13972,14 @@ function renderDungeonCanvas() {
       ctx.closePath();
       ctx.fill();
     } else if (
-      (m.isRanged || m.id === 'starfall_archer' || m.id === 'ember_pyromancer' || m.id === 'void_hexer') &&
-      distToHero <= 6 &&
+      m.isRanged &&
+      distToHero <= (m.range || 3) + 0.3 &&
       hasLineOfSight(floor, m.x, m.y, hx, hy)
     ) {
-      // Ranged aim indicator: red dashed laser line targeting player
-      ctx.strokeStyle = 'rgba(239, 68, 68, 0.40)';
+      // Subtle ranged attack-range indicator (distinct from committed telegraph tiles)
+      ctx.strokeStyle = 'rgba(148, 163, 184, 0.35)';
       ctx.lineWidth = 1;
-      if (typeof ctx.setLineDash === 'function') ctx.setLineDash([3, 4]);
+      if (typeof ctx.setLineDash === 'function') ctx.setLineDash([2, 5]);
       ctx.beginPath();
       ctx.moveTo(mx + 16, my + 16);
       ctx.lineTo((hx - camX) * TILE_SIZE + 16, (hy - camY) * TILE_SIZE + 16);
@@ -15975,6 +16499,14 @@ function gotoFloor(depth, dungeonId = null, state = gameState) {
   }
 
   const dng = state.dungeon;
+  const prevFloor = dng.floors && dng.floors[dng.currentFloor] ? dng.floors[dng.currentFloor] : null;
+  if (prevFloor && Array.isArray(prevFloor.monsters)) {
+    for (let mi = 0; mi < prevFloor.monsters.length; mi++) {
+      if (prevFloor.monsters[mi] && prevFloor.monsters[mi].telegraph) {
+        prevFloor.monsters[mi].telegraph = null;
+      }
+    }
+  }
   const targetDepth = Math.max(1, Math.min(999, Math.round(Number(depth) || 1)));
 
   // Generate floor if not already generated or stored
@@ -16354,26 +16886,7 @@ function spawnEntity(type, subId = null, x = null, y = null, state = gameState, 
 
     let monster = null;
     if (isBoss) {
-      const bDef = BOSS_ARCHETYPES[archId];
-      monster = {
-        uid: 'boss_dev_' + Date.now(),
-        id: bDef.id,
-        bountyTag: 'boss',
-        name: bDef.name,
-        isBoss: true,
-        dropRarity: bDef.dropRarity || 'epic',
-        isRanged: !!bDef.isRanged,
-        range: bDef.range || 1,
-        x: mx,
-        y: my,
-        hp: bDef.hp,
-        maxHp: bDef.hp,
-        atk: bDef.atk,
-        def: bDef.def,
-        xp: bDef.xp,
-        color: bDef.color,
-        statuses: []
-      };
+      monster = createBossEntityFromArchetype(archId, floor.depth || 1, mx, my, 'boss_dev_' + Date.now());
     } else {
       monster = createMonsterEntityFromArchetype(archId, floor.depth || 1, mx, my, false, Math.random, (floor.monsters ? floor.monsters.length : 0) + 999);
     }
@@ -16757,6 +17270,7 @@ function handleDevTerminalKeyDown(e) {
 
 
 
+
 function updateScannerOnHover(gx, gy) {
   if (typeof document === 'undefined') return;
   const floor = ensureDungeonFloorHydrated(gameState.dungeon, gameState.dungeon.currentFloor);
@@ -16771,12 +17285,22 @@ function updateScannerOnHover(gx, gy) {
   const vision = (h && h.visionRadius) || 5;
   const inSight = h && Math.hypot(gx - h.x, gy - h.y) <= vision + 0.35 && hasLineOfSight(floor, h.x, h.y, gx, gy);
 
-  const monster = inSight ? floor.monsters.find(m => m.x === gx && m.y === gy) : null;
+  const monster = inSight ? floor.monsters.find(m => !m._dead && m.hp > 0 && m.x === gx && m.y === gy) : null;
   if (monster) {
+    const lore = evaluateMonsterKnowledgeReveal(h, monster);
+    const tgHtml = monster.telegraph
+      ? `<div class="text-[10px] text-[#fbbf24] font-bold">⚠ Winding up ${monster.telegraph.name || 'Ability'}!</div>`
+      : '';
+    const stHtml = (monster.statuses && monster.statuses.length > 0)
+      ? `<div class="text-[10px] text-[#60a5fa]">Statuses: ${monster.statuses.map(s => `${s.name || s.id} (${typeof s.duration === 'number' ? s.duration : (s.turns || 1)}t)`).join(', ')}</div>`
+      : '';
+    const loreHtml = (lore && lore.summary)
+      ? `<div class="text-[10px] text-[#c084fc]">${lore.summary}</div>`
+      : '';
     box.innerHTML = `
       <div class="font-bold" style="color:${monster.color}">${monster.name} ${monster.isBoss ? '👑' : ''}</div>
       <div class="text-[11px] text-[#e6edf3]">HP: ${monster.hp}/${monster.maxHp} • ATK: ${monster.atk} • DEF: ${monster.def}</div>
-      <div class="text-[10px] text-[#8b949e]">${monster.affix ? monster.affix.desc : (monster.isRanged ? `Ranged Attacker (${monster.range || 3} tiles)` : 'Melee Guardian')}</div>
+      ${tgHtml}${stHtml}${loreHtml}
     `;
     return;
   }
@@ -17734,6 +18258,7 @@ function createMapViewport(options) {
 
   // --- Module: src/test/selfTest.js ---
 // 23/23 Comprehensive Automated Self-Test Suite (Sandboxed & Non-Destructive)
+
 
 
 
@@ -19712,6 +20237,40 @@ function evaluateSelfTests() {
     detail: t33Pass
       ? 'Ortho/Iso/Hex round-trip picking, 8x8 Iso draw sort, Hex 6-neighbor symmetry, offset migration & zoom-anchor stability verified'
       : 'Failed ADR-0014 GridAdapter or MapViewportEngine checks'
+  });
+
+  // 34. MS-01: Monster Combat Differentiation, Telegraphed Abilities & Integrity (Standalone Roguelike Context)
+  const sb34 = createDefaultGameState();
+  selectAdventurerClass('fighter', sb34);
+  sb34.inGuild = false;
+  sb34.dungeon.currentFloor = 1;
+  const fl34 = {
+    depth: 1, width: 11, height: 11,
+    tiles: Array.from({ length: 11 }, function() { return Array.from({ length: 11 }, function() { return 1; }); }),
+    explored: Array.from({ length: 11 }, function() { return Array.from({ length: 11 }, function() { return 1; }); }),
+    upPos: { x: 1, y: 1 }, downPos: { x: 9, y: 9 },
+    monsters: [], chests: [], traps: {}, shrines: {}, objects: [], groundItems: []
+  };
+  sb34.dungeon.floors[1] = fl34;
+  sb34.hero.x = 5; sb34.hero.y = 5;
+  sb34.hero.hp = sb34.hero.maxHp;
+
+  const kn34 = evaluateMonsterKnowledgeReveal({ knowledge: { monster_knowledge: 5 }, computedInt: 12 }, createMonsterEntityFromArchetype('starfall_archer', 1, 6, 5, false, function() { return 0.5; }, 1));
+  const col34 = createBossEntityFromArchetype('boss_colossus', 1, 7, 5);
+  const wvr34 = createBossEntityFromArchetype('boss_weaver', 1, 5, 2);
+  fl34.monsters = [col34, wvr34];
+  processTurn(sb34);
+  const windup34 = Boolean(col34.telegraph && wvr34.telegraph && sb34.hero.hp === sb34.hero.maxHp);
+  sb34.hero.x = 2; sb34.hero.y = 8;
+  processTurn(sb34);
+  const dodged34 = Boolean(sb34.hero.hp === sb34.hero.maxHp && col34.telegraph === null && wvr34.telegraph === null);
+  const t34Pass = Boolean(kn34.threatLabel === 'Ranged Skirmisher' && windup34 && dodged34);
+  results.push({
+    name: '34. MS-01: Monster Combat Differentiation, Telegraphed Abilities & Integrity',
+    pass: t34Pass,
+    detail: t34Pass
+      ? 'Standalone Roguelike Knowledge isRanged, Colossus/Weaver telegraphed windup & sidestep dodge verified'
+      : 'Failed MS-01 standalone Roguelike checks'
   });
 
   return results;
